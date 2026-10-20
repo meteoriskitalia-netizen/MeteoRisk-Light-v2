@@ -11561,18 +11561,31 @@ function fmDomainBounds() {
     } catch (e) { }
     return null;
 }
+// Un dominio e' "globale" (vista di default = Europa invece che intero dominio)
+// quando offre regioni OLTRE la sola area europea, cioe' quando `domain` non
+// coincide con l'Europa. Dopo il ritaglio emisfero-nord (1.2.4.13) i 4 domini
+// globali hanno span lon 120 (<300) e lat 60 (<120): il vecchio test
+// geometrico ritornerebbe false e non forzerebbe piu' `europe` come default.
+// La condizione corretta e' quindi la PRESENZA della regione 'natl' (solo i
+// domini con margine extra-europeo la espongono), indipendente dalle dimensioni.
 function fmIsGlobalDomain() {
-    var b = fmDomainBounds();
-    if (!b) return false;
-    return (b[2] - b[0]) > 300 || (b[3] - b[1]) > 120;
+    return fmDomainRegionIds(fmDomain).indexOf('natl') >= 0;
 }
-// Regioni mostrate per dominio: i modelli globali espongono tutte le aree,
-// i modelli a copertura europea solo Europa/Mediterraneo/Italia, e il modello
-// a copertura italiana solo l'Italia ('domain' e' sempre disponibile).
+// Regioni mostrate per dominio: i modelli GLOBALI (ritagliati sull'emisfero
+// nord dal motore: bbox 20..80N / -60..60E via NORTH_HEMISPHERE_BBOX) espongono
+// solo le aree realmente coperte dal crop, ovvero Europa, Italia e Nord
+// Atlantico ('domain' = intero crop, sempre disponibile). Le regioni extra-globo
+// (namerica/samerica/asia/oceania/arctic) NON sono piu' offerte: mostrerebbero
+// mappe vuote. I modelli a copertura europea/italiana restano su Europa/Italia.
 function fmDomainRegionIds(d) {
     if (d === 'dwd_icon_eu' || d === 'dwd_icon_d2') return ['domain', 'europe', 'italy'];
     if (d === 'ncep_gfs013') return ['domain', 'europe', 'italy'];
-    return ['domain', 'europe', 'italy', 'natl', 'namerica', 'samerica', 'africa', 'asia', 'oceania', 'arctic'];
+    // Domini globali ritagliati sull'emisfero nord (1.2.4.13): niente regioni
+    // fuori dal crop.
+    if (d === 'ecmwf_ifs025' || d === 'ncep_gfs025' || d === 'dwd_icon' || d === 'meteofrance_arpege_world025') {
+        return ['domain', 'europe', 'italy', 'natl'];
+    }
+    return ['domain', 'europe', 'italy', 'natl'];
 }
 function fmPopulateRegions() {
     var sel = fmEl('fm-region-select');

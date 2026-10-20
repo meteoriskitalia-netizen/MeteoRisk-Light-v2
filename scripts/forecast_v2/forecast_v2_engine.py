@@ -142,17 +142,31 @@ V2_BBOX = (36.5, 6.5, 47.2, 18.6)
 
 # Per-domain crop window [lat_min, lon_min, lat_max, lon_max].
 # Each domain is cut to its own real area (prima: tutti tagliati sull'Italia).
+#
+# EMISFERO NORD (1.2.4.13): i 4 domini GLOBALI (ecmwf_ifs025, ncep_gfs025,
+# dwd_icon, meteofrance_arpege_world025) sorgono con BBOX [-90,-180,90,179.75]
+# (pianeta INTERO). Pubblicare/renderizzare il globo e' inutile per la
+# meteorologia italiana: il bbox e' quindi ritagliato sull'EMISFERO NORD utile,
+# `(20.0, -60.0, 80.0, 60.0)` = lat 20..80, lon -60..60.
+# Scelta: copre Italia, Europa, il Nord Atlantico (le perturbazioni in arrivo)
+# e la fascia artica fino a 80N, restando interamente sopra l'equatore (no
+# emisfero sud) e senza Oceania/Asia orientale/Americhe. E' un superset del
+# bbox europeo dei regionali `(34,-15,62,40)`, quindi la vista "Europa" resta
+# interamente disponibile. Il bbox e' ALLINEATO ALLA GRIGLIA di tutti e 4 i
+# domini (multipli esatti di dx/dy dagli angoli del sorgente), quindi
+# `bbox_to_indices` non arrotonda celle parziali (vedi test dedicato).
+NORTH_HEMISPHERE_BBOX = (20.0, -60.0, 80.0, 60.0)
 DOMAIN_BBOX = {
     "dwd_icon_eu": (34.0, -15.0, 62.0, 40.0),
     "dwd_icon_d2": (43.18, -3.94, 58.08, 20.34),
-    "ecmwf_ifs025": (-90.0, -180.0, 90.0, 179.75),
-    "ncep_gfs025": (-90.0, -180.0, 90.0, 179.75),
+    "ecmwf_ifs025": NORTH_HEMISPHERE_BBOX,
+    "ncep_gfs025": NORTH_HEMISPHERE_BBOX,
     # `ncep_gfs013` (0.13 deg) usa lo STESSO bbox europeo di `dwd_icon_eu`.
     # La voce e' OBBLIGATORIA: senza di essa `bbox_for()` ricadrebbe IN SILENZIO
     # su `V2_BBOX` (Italia) e il crop sarebbe 104x92 invece di ~470x239.
     "ncep_gfs013": (34.0, -15.0, 62.0, 40.0),
-    "dwd_icon": (-90.0, -180.0, 90.0, 179.75),
-    "meteofrance_arpege_world025": (-90.0, -180.0, 90.0, 179.75),
+    "dwd_icon": NORTH_HEMISPHERE_BBOX,
+    "meteofrance_arpege_world025": NORTH_HEMISPHERE_BBOX,
 }
 
 def bbox_for(domain):
