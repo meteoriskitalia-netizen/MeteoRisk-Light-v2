@@ -527,11 +527,35 @@ jobs:
       # Porta da `fm2-cache` i dati preesistenti che servono per l'indice/continuita'
       # (data/fm2-rendered intero). Con `filter: blob:none` i blob vengono scaricati
       # solo per il path richiesto.
+      #
+      # FIX 1.2.4.15 — TOLLERANZA DEL CHECKOUT. `git checkout FETCH_HEAD -- <path>`
+      # esce 1 sia quando il path NON esiste sul branch sia quando esiste nell'albero
+      # ma sta FUORI dal cone dello sparse-checkout del job. Qui servono DUE path
+      # (`data/fm2` e `data/fm2-rendered`) con esiti INDIPENDENTI: sul branch reale
+      # `data/fm2` esiste (0 webp, quindi `data/fm2-rendered` no), quindi il vecchio
+      # `|| echo` su un solo path copriva il caso sbagliato. La guardia `git ls-tree`
+      # verifica l'esistenza NELL'ALBERO prima di tentare, e ogni checkout e' reso
+      # non fatale (`2>/dev/null || echo`): con `set -e` (il job gira con
+      # `/usr/bin/bash -e`, vedi log) un fallimento dentro un `if` NON e' coperto da
+      # `||`, quindi la tolleranza va messa sul singolo comando.
       - name: Recupera i dati da fm2-cache
         run: |
           set -e
           git fetch --no-tags --depth=1 origin fm2-cache || { echo "fm2-cache non esiste ancora: prima esecuzione"; exit 0; }
-          git checkout FETCH_HEAD -- data/fm2-rendered || echo "nessun dato precedente in data/fm2-rendered da fm2-cache"
+          # I path NEL TREE ma FUORI dal cone fanno fallire il checkout (avviso
+          # "matched paths that exist outside of your sparse-checkout definition"):
+          # disabilito lo sparse-checkout, cosi' entrambi i path sono restorabili.
+          git sparse-checkout disable >/dev/null 2>&1 || true
+          if git rev-parse --verify --quiet FETCH_HEAD >/dev/null 2>&1; then
+            for p in data/fm2 data/fm2-rendered; do
+              if git ls-tree --name-only FETCH_HEAD -- "$p" 2>/dev/null | grep -q .; then
+                echo "[fetch] $p presente sul branch: checkout."
+                git checkout FETCH_HEAD -- "$p" 2>/dev/null || echo "[fetch] $p: checkout non riuscito (tollerato)."
+              else
+                echo "[fetch] $p assente sul branch (nessun dato precedente): salto il checkout."
+              fi
+            done
+          fi
 
       - name: Download fm2 artifacts (engine)
         uses: actions/download-artifact@v4
@@ -659,6 +683,24 @@ jobs:
         run: |
           git config user.name "meteorisk-bot"
           git config user.email "actions@users.noreply.github.com"
+          # FIX 1.2.4.15 — SPARSE-CHECKOUT DISABILITATO PRIMA DI TOCCARE L'INDICE.
+          # CAUSA RADICE PROVATA (log reale run 39472462756, job 118868577950):
+          # il job parte con il cone del checkout (`scripts/forecast_v2` +
+          # `data/fm2-rendered`, righe ~520-525) e poi fa `git fetch`/`git read-tree`
+          # e `git add -A -- data/fm2 data/fm2-rendered`. Il fetch aggiorna l'indice
+          # contro i path del branch dati, ma `data/fm2/**` esiste nell'albero e sta
+          # FUORI dal cone: git emette
+          #   "The following paths and/or pathspecs matched paths that exist
+          #    outside of your sparse-checkout definition, so will not be updated
+          #    in the index:" + l'elenco di ~400 `data/fm2/...`
+          # e il passo MUORE con `##[error]Process completed with exit code 1.`
+          # (log righe 498-915) PRIMA di pubblicare qualsiasi cosa: lo squash resta
+          # `skipped`. `data/fm2-rendered` e' assente sul branch (0 webp), quindi
+          # `git add -A -- ... data/fm2-rendered` sarebbe comunque un pathspec
+          # inesistente. Disabilitare lo sparse-checkout rende l'intero working tree
+          # visibile e l'indice isolato e' libero di contenere i path dati: dopo
+          # questo punto il job NON dipende piu' dal cone del checkout.
+          git sparse-checkout disable >/dev/null 2>&1 || true
           if [ ! -d "data/fm2-rendered" ]; then
             echo "[INFO] Nessun output renderizzato: niente da committare."
             exit 0
@@ -767,7 +809,19 @@ jobs:
                     GIT_INDEX_FILE="$IDXT" git update-index --force-remove -- "$p"
                   done
             fi
-            GIT_INDEX_FILE="$IDXT" git add -A -- data/fm2 data/fm2-rendered
+            # `data/fm2-rendered` puo' NON esistere ancora nel working tree (prima
+            # pubblicazione WebP): `git add -A -- data/fm2 data/fm2-rendered`
+            # fallirebbe con "fatal: pathspec 'data/fm2-rendered' did not match any
+            # files" (exit 128) — path spec inesistente, non gestito da `set -e`.
+            # Si aggiungono percio' SOLO i path che esistono davvero.
+            add_paths=""
+            for p in data/fm2 data/fm2-rendered; do
+              [ -e "$p" ] && add_paths="$add_paths $p"
+            done
+            if [ -n "$add_paths" ]; then
+              # shellcheck disable=SC2086
+              GIT_INDEX_FILE="$IDXT" git add -A -- $add_paths
+            fi
             TREE="$(GIT_INDEX_FILE="$IDXT" git write-tree)"
             rm -f "$IDXT"
             # NO-OP: albero identico al tip => nessun churn.
