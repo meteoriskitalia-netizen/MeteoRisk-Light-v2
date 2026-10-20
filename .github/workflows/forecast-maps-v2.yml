@@ -15,8 +15,11 @@ name: Forecast Maps V2 (mappe .om su cache GitHub)
 #     Il rischio e' la collisione di push concorrenti sullo stesso branch:
 #     mitigato con concurrency PER-DOMINIO (forecast-maps-v2-<dominio>,
 #     cancel-in-progress:false), commit selettivo sul path data/fm2/<dominio> e push
-#     con retry `git fetch` + `git rebase FETCH_HEAD` (i path sono disgiunti per
-#     dominio: nessun conflitto di contenuto, il rebase riallinea solo la history).
+#     con retry (fetch + rilettura del tip fresco a ogni tentativo: i path sono
+#     disgiunti per dominio, nessun conflitto di contenuto). Il FIX 1.2.4.13
+#     (indice isolato, vedi sotto) fa si' che un push concorrente respinto non possa
+#     piu' perdere i domini scritti nel frattempo: il commit viene ricostruito dal
+#     tip fresco, non riallineato via rebase.
 #   - BRANCH DATI `fm2-cache` (NON piu' `main`): i frame .om e i WebP vivono in un
 #     branch "usa e getta" dedicato, la cui storia e' SEMPRE di UN SOLO COMMIT
 #     (stesso pattern gia' usato per il satellite con `satellite-cache`).
@@ -31,8 +34,14 @@ name: Forecast Maps V2 (mappe .om su cache GitHub)
 #          <path>`). Il checkout usa `filter: blob:none` + sparse-checkout: i blob
 #          vengono scaricati solo per i path effettivamente materializzati;
 #       2) il commit dei dati nasce IN CIMA al tip di `fm2-cache` (mai in cima a
-#          `main`) e viene pushato con `git push origin HEAD:fm2-cache`, con retry
-#          `git fetch` + `git rebase FETCH_HEAD` (path disgiunti: nessun conflitto);
+#          `main`) e viene pushato con `git push origin <new>:refs/heads/fm2-cache`.
+#          FIX 1.2.4.13 — il tree del commit e' costruito su un INDICE ISOLATO
+#          (`GIT_INDEX_FILE` + `git read-tree <tip-tree>` + `git add -A <path dati>`
+#          + `git write-tree`): il commit contiene SOLO path dati e NON i 165 file
+#          di codice presenti nell'indice di `main`. Il retry e' per-rifetch (il
+#          nuovo commit riparte dal tip fresco), non piu' un `git rebase`: non
+#          esiste piu' un commit costruito su `main` da riallineare, quindi nessun
+#          conflitto e nessun codice nel branch;
 #       3) ULTIMO step di `render-merge`: SQUASH del branch a UN commit SENZA
 #          genitori con lo STESSO albero (`git commit-tree` su HEAD^{tree} +
 #          `git push --force-with-lease`): nessun byte nuovo, i commit precedenti
@@ -233,38 +242,58 @@ jobs:
           # I DATI non vanno piu' su `main`: il commit nasce IN CIMA al tip di
           # `fm2-cache` (branch usa-e-getta, la cui storia viene poi ridotta a UN
           # solo commit dallo squash finale di render-merge).
+          #
+          # FIX 1.2.4.13 — ISOLAMENTO DEL TREE: il commit NON deve MAI nascere
+          # dall'indice di `main` (che contiene i 165 file di codice del checkout).
+          # Il nuovo albero e' costruito su un INDICE ISOLATO (GIT_INDEX_FILE) che
+          # parte dal TREE del tip di `fm2-cache` e poi contiene SOLO i path
+          # `data/fm2*/`: l'allowlist butta via dall'indice isolato tutto il resto,
+          # quindi anche un branch gia' inquinato da run precedenti viene ripulito.
+          # Il dominio corrente viene aggiunto con `git add -A -- data/fm2/<dominio>`
+          # (stesso indice isolato), gli altri domini restano quelli del branch.
           git config user.name "meteorisk-bot"
           git config user.email "actions@users.noreply.github.com"
           if [ ! -d "data/fm2/${{ matrix.domain }}" ]; then
             echo "[INFO] Nessun output per il dominio '${{ matrix.domain }}': niente da committare."
             exit 0
           fi
-          git add -A "data/fm2/${{ matrix.domain }}"
-          if git diff --cached --quiet; then
-            echo "[INFO] Nessuna modifica a data/fm2/${{ matrix.domain }} (NO-OP)."
-            exit 0
-          fi
-          git checkout -B fm2-cache-data
-          git fetch --no-tags --depth=1 origin fm2-cache || true
-          if git rev-parse --verify --quiet FETCH_HEAD >/dev/null 2>&1; then
-            git reset --soft FETCH_HEAD
-            git commit -m "chore(fm2): aggiornamento cache dominio ${{ matrix.domain }} (.om per-domain crop)"
-          else
-            tree=$(git write-tree)
-            new=$(git commit-tree "$tree" -m "chore(fm2): aggiornamento cache dominio ${{ matrix.domain }} (.om per-domain crop)")
-            git reset --soft "$new"
-          fi
+          MSG="chore(fm2): aggiornamento cache dominio ${{ matrix.domain }} (.om per-domain crop)"
           for i in 1 2 3 4 5; do
             git fetch --no-tags --depth=1 origin fm2-cache || true
             if git rev-parse --verify --quiet FETCH_HEAD >/dev/null 2>&1; then
-              if ! git rebase FETCH_HEAD >/dev/null 2>&1; then
-                git rebase --abort || true
-                echo "[ERROR] Rebase su fm2-cache in conflitto (path non disgiunti?) - tentativo $i/5"
-                sleep $((i*3))
-                continue
-              fi
+              BASE="$(git rev-parse FETCH_HEAD^{tree})"
+              PARENT="$(git rev-parse FETCH_HEAD)"
+            else
+              echo "[INFO] fm2-cache non esiste ancora: questo e' il primo commit del branch."
+              BASE="$(git hash-object -t tree /dev/null)"
+              PARENT=""
             fi
-            if git push origin HEAD:fm2-cache; then
+            IDX="$(mktemp -u)"
+            rm -f "$IDX"
+            # (1) base = tree del branch dati (NON l'indice di `main`)
+            GIT_INDEX_FILE="$IDX" git read-tree "$BASE"
+            # (2) ALLOWLIST: esce dall'indice isolato tutto cio' che non e'
+            #     `data/fm2/...` (inclusi i path di codice di un branch inquinato)
+            GIT_INDEX_FILE="$IDX" git ls-files -s -- . \
+              ':(exclude)data/fm2/**' | cut -f2 > /tmp/fm2_drop_paths.txt
+            while IFS= read -r p; do
+              [ -n "$p" ] && GIT_INDEX_FILE="$IDX" git update-index --force-remove -- "$p"
+            done < /tmp/fm2_drop_paths.txt
+            # (3) aggiorna SOLO il dominio corrente dal working tree
+            GIT_INDEX_FILE="$IDX" git add -A -- "data/fm2/${{ matrix.domain }}"
+            TREE="$(GIT_INDEX_FILE="$IDX" git write-tree)"
+            rm -f "$IDX"
+            # NO-OP: albero identico al tip => nessun churn.
+            if [ "$TREE" = "$BASE" ]; then
+              echo "[INFO] Nessuna modifica a data/fm2/${{ matrix.domain }} (NO-OP)."
+              exit 0
+            fi
+            if [ -n "$PARENT" ]; then
+              NEW="$(git commit-tree "$TREE" -p "$PARENT" -m "$MSG")"
+            else
+              NEW="$(git commit-tree "$TREE" -m "$MSG")"
+            fi
+            if git push origin "$NEW:refs/heads/fm2-cache"; then
               echo "[INFO] Push su fm2-cache riuscito (tentativo $i/5)."
               exit 0
             fi
@@ -550,35 +579,77 @@ jobs:
             echo "[INFO] Nessun output renderizzato: niente da committare."
             exit 0
           fi
-          # webp + index.json + color_scales.json vengono committati INSIEME in
-          # questo unico commit (single-writer): non esiste una finestra in cui
-          # l'indice punta a file non ancora pubblicati.
-          git add -A "data/fm2-rendered"
-          if git diff --cached --quiet; then
-            echo "[INFO] Nessuna modifica a data/fm2-rendered (NO-OP)."
-            exit 0
-          fi
-          git checkout -B fm2-cache-merge
-          git fetch --no-tags --depth=1 origin fm2-cache || true
-          if git rev-parse --verify --quiet FETCH_HEAD >/dev/null 2>&1; then
-            git reset --soft FETCH_HEAD
-            git commit -m "chore(fm2): aggiornamento WebP pre-renderizzati (regioni italia/europa/domain, light+dark)"
-          else
-            tree=$(git write-tree)
-            new=$(git commit-tree "$tree" -m "chore(fm2): aggiornamento WebP pre-renderizzati (regioni italia/europa/domain, light+dark)")
-            git reset --soft "$new"
-          fi
+          # webp + index.json + color_scales.json (e data/fm2/<dominio> dei domini
+          # assenti dallo snapshot, via `git add -A -- data/fm2`) vengono committati
+          # INSIEME in questo unico commit (single-writer).
+          #
+          # FIX 1.2.4.13 — ISOLAMENTO DEL TREE. Il commit parte dal TREE del tip di
+          # `fm2-cache` (indice isolato GIT_INDEX_FILE + git read-tree), non
+          # dall'indice di `main`: il tree contiene SOLO dati e nessun file di
+          # codice. Tre passi, tutti su indici SEPARATI:
+          #   (1) base = tree del branch dati. Un branch gia' inquinato da run
+          #       precedenti porta con se' i path di codice: la lista dei path da
+          #       TENERE e' un ALLOWLIST (solo `data/fm2*/`), tutto il resto viene
+          #       rimosso dall'indice isolato. Cosi' il fix PULISCE anche lo stato
+          #       sporco, non solo evita di aggiungerne di nuovo.
+          #   (2) `git ls-files -s -- data/...` legge (mode, sha) dei dati dal
+          #       working tree e li scrive con `--add --cacheinfo`: nessuno stat
+          #       check, nessun tocco al working tree, nessuna dipendenza dal fatto
+          #       che le entry siano "uptodate".
+          #   (3) i path dati che il branch aveva e che ora non esistono piu' nel
+          #       working tree vengono rimossi (le variabili droppate spariscono).
+          MSG="chore(fm2): aggiornamento WebP pre-renderizzati + snapshot .om (regioni italia/europa/domain, light+dark)"
           for i in 1 2 3 4 5; do
             git fetch --no-tags --depth=1 origin fm2-cache || true
             if git rev-parse --verify --quiet FETCH_HEAD >/dev/null 2>&1; then
-              if ! git rebase FETCH_HEAD >/dev/null 2>&1; then
-                git rebase --abort || true
-                echo "[ERROR] Rebase su fm2-cache in conflitto (path non disgiunti engine/render-merge?) - tentativo $i/5"
-                sleep $((i*3))
-                continue
-              fi
+              BASE="$(git rev-parse FETCH_HEAD^{tree})"
+              PARENT="$(git rev-parse FETCH_HEAD)"
+            else
+              echo "[INFO] fm2-cache non esiste ancora: questo e' il primo commit del branch."
+              BASE="$(git hash-object -t tree /dev/null)"
+              PARENT=""
             fi
-            if git push origin HEAD:fm2-cache; then
+            IDX="$(mktemp -u)"
+            rm -f "$IDX"
+            GIT_INDEX_FILE="$IDX" git read-tree "$BASE"
+            # (1) ALLOWLIST: tutto cio' che non e' `data/fm2/...` o
+            # `data/fm2-rendered/...` esce dall'indice isolato.
+            GIT_INDEX_FILE="$IDX" git ls-files -s -- . \
+              ':(exclude)data/fm2/**' ':(exclude)data/fm2-rendered/**' \
+              | cut -f2 > /tmp/fm2_drop_paths.txt
+            while IFS= read -r p; do
+              [ -n "$p" ] && GIT_INDEX_FILE="$IDX" git update-index --force-remove -- "$p"
+            done < /tmp/fm2_drop_paths.txt
+            # (2) le entry dati del dominio corrente vanno rimosse dalla base: le
+            # riporta `git add -A` con lo stato effettivo del working tree (serve
+            # perche' `--cacheinfo` da solo non sa cancellare i file spariti).
+            ROI_DOMAIN=""
+            if [ -d data/fm2 ]; then
+              for d in data/fm2/*/; do
+                [ -d "$d" ] && ROI_DOMAIN="$ROI_DOMAIN ${d%/}"
+              done
+            fi
+            if [ -n "$ROI_DOMAIN" ]; then
+              GIT_INDEX_FILE="$IDX" git ls-files -- $ROI_DOMAIN \
+                | while IFS= read -r p; do
+                    GIT_INDEX_FILE="$IDX" git update-index --force-remove -- "$p"
+                  done
+            fi
+            # (3) dati correnti (stato del working tree) nell'indice isolato.
+            GIT_INDEX_FILE="$IDX" git add -A -- data/fm2 data/fm2-rendered
+            TREE="$(GIT_INDEX_FILE="$IDX" git write-tree)"
+            rm -f "$IDX"
+            # NO-OP: albero identico al tip => nessun churn.
+            if [ "$TREE" = "$BASE" ]; then
+              echo "[INFO] Nessuna modifica ai dati (NO-OP)."
+              exit 0
+            fi
+            if [ -n "$PARENT" ]; then
+              NEW="$(git commit-tree "$TREE" -p "$PARENT" -m "$MSG")"
+            else
+              NEW="$(git commit-tree "$TREE" -m "$MSG")"
+            fi
+            if git push origin "$NEW:refs/heads/fm2-cache"; then
               echo "[INFO] Push su fm2-cache riuscito (tentativo $i/5)."
               exit 0
             fi
@@ -592,14 +663,18 @@ jobs:
       # Nessun byte nuovo, i commit precedenti diventano irraggiungibili. Viene
       # eseguito DOPO il push dei dati (path disgiunti non devono mai dare conflitto,
       # se invece si verifica un conflitto e' un errore da segnalare).
+      # NESSUN checkout: il tree e' letto DIRETTAMENTE dal commit del branch
+      # (`git rev-parse FETCH_HEAD^{tree}`), quindi lo squash e' un'operazione PURA
+      # sul tree. Un `git checkout` qui sarebbe errato due volte: (a) cambierebbe
+      # HEAD spostando l'indice di `main`, (b) fallirebbe con "Your local changes
+      # would be overwritten" perche' il render-merge ha appena riscritto i file.
       - name: Compatta fm2-cache a un solo commit (squash)
         if: success()
         run: |
           git config user.name "meteorisk-bot"
           git config user.email "actions@users.noreply.github.com"
           git fetch --no-tags --depth=1 origin fm2-cache
-          git checkout -B fm2-cache-squash FETCH_HEAD || git checkout -B fm2-cache-squash origin/fm2-cache
-          tree=$(git rev-parse HEAD^{tree})
+          tree="$(git rev-parse FETCH_HEAD^{tree})"
           new=$(git commit-tree "$tree" -m "chore(fm2): snapshot cache $(date -u +%Y-%m-%dT%H:%M:%SZ)")
           for i in 1 2 3 4 5; do
             if git push --force-with-lease origin "$new:refs/heads/fm2-cache"; then
