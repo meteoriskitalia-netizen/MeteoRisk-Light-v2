@@ -154,7 +154,7 @@ V2_BBOX = (36.5, 6.5, 47.2, 18.6)
 # bbox europeo dei regionali `(34,-15,62,40)`, quindi la vista "Europa" resta
 # interamente disponibile. Il bbox e' ALLINEATO ALLA GRIGLIA di tutti e 4 i
 # domini (multipli esatti di dx/dy dagli angoli del sorgente), quindi
-# `bbox_to_indices` non arrotonda celle parziali (vedi test dedicato).
+# `bbox_to_indices` non arrotonda celle parziali.
 NORTH_HEMISPHERE_BBOX = (20.0, -60.0, 80.0, 60.0)
 DOMAIN_BBOX = {
     "dwd_icon_eu": (34.0, -15.0, 62.0, 40.0),
