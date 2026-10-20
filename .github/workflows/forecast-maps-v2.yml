@@ -9,8 +9,8 @@ name: Forecast Maps V2 (mappe .om su cache GitHub)
 #     prune). Attribuzione Open-Meteo (CC BY 4.0); omfiles solo a runtime.
 #   - MULTI-DOMINIO = MATRIX (strategia scelta): UN JOB PER DOMINIO
 #     (matrix.domain, 7 domini GEOGCRS). Motivo: i domini globali pubblicano
-#     ~200 frame ciascuno (es. ncep_gfs025 209): un unico job seriale (timeout 20')
-#     sforerebbe. Il matrix isola i fallimenti (un dominio KO non uccide gli altri,
+#     ~200 frame ciascuno (es. ncep_gfs025 209): un unico job seriale sforerebbe.
+#     Il matrix isola i fallimenti (un dominio KO non uccide gli altri,
 #     fail-fast:false), parallelizza i download e riduce la pressione su S3.
 #     Il rischio e' la collisione di push concorrenti sullo stesso branch:
 #     mitigato con concurrency PER-DOMINIO (forecast-maps-v2-<dominio>,
@@ -42,10 +42,25 @@ name: Forecast Maps V2 (mappe .om su cache GitHub)
 #          nuovo commit riparte dal tip fresco), non piu' un `git rebase`: non
 #          esiste piu' un commit costruito su `main` da riallineare, quindi nessun
 #          conflitto e nessun codice nel branch;
+#       2-bis) FIX 1.2.4.14 — PUSH INCREMENTALE A SOGLIA in `render-merge`: gli
+#          shard WebP sommano ~5,35 GiB su 48.464 file e UN SOLO push generava un
+#          pack oltre il limite hard di GitHub (2,00 GiB: "remote: fatal: pack
+#          exceeds maximum allowed size", provato nei log). Il dominio piu'
+#          pesante da solo (fm2r-dwd_icon_eu, 2,08 GiB) e' gia' sopra il limite,
+#          quindi la granularita' per-dominio NON basta. I path CAMBIATI (dimensione
+#          reale via `stat -c %s`) vengono partizionati accumulando i byte sotto
+#          THRESHOLD=1,4 GiB: ogni gruppo e' un push separato e resta ben sotto i
+#          2,00 GiB. L'indice isolato e' EVOLUTIVO (parte da BASE, ogni gruppo vi
+#          fa `git add -A`), cosi' dopo l'ultimo gruppo il tree coincide con
+#          TARGET (verificato con un assert). Nessun file di codice entra mai nel
+#          branch (allowlist invariata);
 #       3) ULTIMO step di `render-merge`: SQUASH del branch a UN commit SENZA
 #          genitori con lo STESSO albero (`git commit-tree` su HEAD^{tree} +
-#          `git push --force-with-lease`): nessun byte nuovo, i commit precedenti
-#          diventano irraggiungibili e non entrano nella storia permanente.
+#          `git push --force-with-lease`). COMPATIBILE con il push incrementale:
+#          dopo i gruppi il server ha GIA' tutti i blob e tutti i tree, quindi lo
+#          squash pusha SOLO il commit (~poche centinaia di byte) — nessun byte
+#          nuovo, i commit precedenti diventano irraggiungibili e non entrano
+#          nella storia permanente.
 #     NOTA CLIENT: data/fm2 e data/fm2-rendered NON sono piu' su `main`; il client
 #     deve leggere il branch `fm2-cache` (FM_CACHE_BASE / FM_RENDERED_BASE).
 #   - chmi_aladin_central_europe_2km NON e' nella matrice: il suo CRS e' PROJCRS
@@ -76,9 +91,12 @@ name: Forecast Maps V2 (mappe .om su cache GitHub)
 #        non aggancia gli shard; le path caricate sono solo le directory
 #        regione/dominio italia/<dominio>, europa/<dominio> e domain/<dominio>,
 #        quindi gli shard NON pubblicano mai index.json ne' color_scales.json, che
-#        vivono fuori dalle directory dominio). Un dominio engine fallito fa
-#        fallire il solo shard corrispondente (download artifact per nome ESATTO):
-#        quel dominio manchera' dal merge.
+#        vivono fuori dalle directory dominio). Un dominio engine fallito (o un
+#        engine CANCELLATO dal proprio timeout) fa fallire il solo shard
+#        corrispondente (download artifact per nome ESATTO): quel dominio
+#        manchera' dal merge, ma NON blocca gli altri (vedi FIX B al punto 2).
+#        FIX A — il timeout del job `engine` e' alzato a 180' (da 60') proprio
+#        perche' i domini GLOBALI venivano cancellati a 60' esatti senza finire.
 #        PERCHE' 240' — e' HEADROOM, non un fix alla cieca. Il picco misurato PRIMA
 #        della 1.2.4.9 e' 227 s/shard, cioe' senza upsampling, col thinning ancora
 #        attivo e senza la regione `domain`. I tre fattori si SOMMANO sul lavoro
@@ -102,8 +120,31 @@ name: Forecast Maps V2 (mappe .om su cache GitHub)
 #        senza latest.json engine o senza manifest variabili validi vengono
 #        esclusi dalla gate) e fa UN SOLO commit di webp + index.json insieme
 #        (nessuna finestra in cui l'indice punta a file non ancora pubblicati).
-#        Zero shard validi => l'indice non viene scritto, il passo fallisce e
-#        nulla viene committato.
+#        FIX B — RESILIENZA AGLI SHARD FALLITI: `render-merge` ha
+#        `needs: render` + `if: ${{ !cancelled() }}`. La funzione di stato
+#        `!cancelled()` SOSTITUISCE il controllo implicito `success()` che
+#        GitHub applica di default ai job con `needs`: quindi il merge PARTE
+#        anche se uno o piu' shard render FALLISCONO (o un leg della matrix
+#        viene cancellato dal timeout), pubblicando i WebP dei domini riusciti.
+#        NON parte solo se l'INTERO run viene cancellato dall'utente. Gli shard
+#        `render` hanno gia' `strategy.fail-fast:false` (un dominio KO non
+#        cancella gli altri 6). NB: un timeout di un job della matrix marca
+#        QUEL leg `cancelled` (non `failure`), ma a livello RUN/SHARD il merge
+#        resta avviato perche' `cancelled()` e' vero solo su cancellazione
+#        esplicita del workflow; verificato sui run reali 39420286697 e
+#        39347659566, dove `render-merge` e' partito con 3-4 shard render
+#        falliti (conclusion `failure`, non `skipped`).
+#        - Se almeno un dominio e' riuscito, la lista `--domains` NON e' vuota
+#          e il merge pubblica i domini disponibili; il Summary dichiara
+#          esplicitamente QUANTI e QUALI domini mancano.
+#        Zero shard validi => `--index-only` esce con errore ("requires a
+#        non-empty --domains"): l'indice non viene scritto, il passo fallisce e
+#        nulla viene committato (nessuna pubblicazione parziale fuorviante).
+#        ATTENZIONE — il limite noto NON e' il flusso (`needs`/`if`): e' la
+#        PUBBLICAZIONE. Se il repo supera la quota di dimensione, il `git push`
+#        verso il branch dati viene rifiutato dal pre-receive hook di GitHub
+#        ("Repository is above its size quota") e NESSUN dominio viene
+#        pubblicato, indipendentemente dagli shard riusciti.
 #   - Il deploy Pages NON e' toccato qui: i WebP vengono pubblicati su GitHub raw
 #     (raw.githubusercontent.com/.../fm2-cache/...), NON su Pages; i workflow Pages
 #     non li copiano piu' (data/fm2 e data/fm2-rendered sono letti dal client via
@@ -127,9 +168,19 @@ jobs:
     runs-on: ubuntu-latest
     # Un job per dominio (7 domini GEOGCRS). Ogni job e' autonomo e parallelo:
     # il fallimento/timeout di un dominio non ferma gli altri (fail-fast:false).
-    # timeout per-job alzato (20' -> 60') per coprire i domini globali con ~200
-    # frame al primo run a cache fredda; a cache calda il run e' molto piu' corto.
-    timeout-minutes: 60
+    # timeout per-job alzato (20' -> 60' -> 180'): il limite e' PER-JOB (uno per
+    # dominio della matrix), quindi alzarlo NON tocca gli altri job del workflow.
+    # PERCHE' 180' — i due domini GLOBALI (dwd_icon, ncep_gfs025, ~209 frame
+    # ciascuno) venivano CANCELLATI a 60' esatti senza aver finito (start 17:00:2x
+    # -> killed 18:00:37), quindi non caricavano l'artifact fm2-<dominio> e gli
+    # shard render corrispondenti fallivano ("Artifact not found"). Riferimenti
+    # misurati: meteofrance_arpege_world025 (dominio globale, ~84 frame) impiega
+    # ~52' solo per l'engine a cache fredda; i globali da ~209 frame hanno ~2,5x
+    # i frame, quindi ~130' di solo download/encode a cache fredda. 180' copre i
+    # ~209 frame con margine reale (120' sarebbe al limite). A cache calda
+    # (restore-keys fm2-frames-<dominio>-) il run resta molto piu' corto: il
+    # valore e' una rete di sicurezza, non il tempo atteso.
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
@@ -436,12 +487,21 @@ jobs:
     needs: render
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
-    # Timeout 30' -> 90': il merge ora (a) riscarica TUTTI gli shard, (b) copia le
-    # directory dominio per TRE regioni (italia/europa/domain) invece di due e
-    # (c) riscrive gli index.json su un albero cresciuto per frame non piu'
-    # decimati (thinning rimosso, +34,0% valid_times). E' margine conservativo,
-    # da riverificare alla prima run reale.
-    timeout-minutes: 90
+    # Timeout 30' -> 90' -> 120'. Il passaggio a 90' copriva (a) il download di
+    # TUTTI gli shard, (b) la copia delle directory dominio per TRE regioni
+    # (italia/europa/domain) invece di due e (c) la riscrittura degli index.json
+    # su un albero cresciuto per frame non piu' decimati (thinning rimosso,
+    # +34,0% valid_times). Il passaggio a 120' (FIX 1.2.4.14) aggiunge il costo
+    # del PUSH INCREMENTALE: N push separati (stima 5-8, soglia 1,4 GiB) invece
+    # di uno solo. Per ogni push git deve costruire il pack degli oggetti nuovi
+    # (walk dell'albero + hashing di ~15k file/gruppo) e uploadare ~1,4 GiB; a
+    # ~20 MiB/s di upload verso GitHub sono ~75 s/push, quindi ~10-25' in piu'
+    # sull'intero merge. 120' e' margine conservativo su un totale che gia' oggi
+    # non e' mai stato misurato a pieno regime: da riverificare alla prima run
+    # reale. Se anche 120' non bastasse si ALZA IL NUMERO DI GRUPPI (soglia piu'
+    # bassa) per ridurre il picco per-push, oppure si riduce il lavoro di render
+    # (--upsample-max / cap frame), NON si alza di nuovo il timeout a caso.
+    timeout-minutes: 120
     concurrency:
       queue: max
       # Lock del single-writer: serializza SOLO il merge (disgiunto dal matrix
@@ -549,6 +609,30 @@ jobs:
             echo "## MeteoRisk — Forecast Maps V2 (render-merge)"
             echo ""
             echo "Shard merge (steps.shards.outputs.domains): \`${{ steps.shards.outputs.domains }}\`"
+            # Dichiarazione ESPLICITA dei domini MANCANTI (resilienza trasparente):
+            # un dominio con engine cancellato/timeout o shard render fallito non
+            # compare nel CSV degli shard riusciti. Il merge pubblica comunque i
+            # domini disponibili; qui si dice quanti e quali mancano, invece di
+            # lasciare un merge silenziosamente parziale.
+            MERGED="${{ steps.shards.outputs.domains }}"
+            EXPECTED="dwd_icon_eu,dwd_icon_d2,ecmwf_ifs025,ncep_gfs025,ncep_gfs013,dwd_icon,meteofrance_arpege_world025"
+            missing=""
+            n_missing=0
+            IFS=',' read -ra exp <<< "$EXPECTED"
+            for d in "${exp[@]}"; do
+              case ",$MERGED," in
+                *",$d,"*) : ;;
+                *) missing="${missing:+$missing,}$d"; n_missing=$((n_missing+1)) ;;
+              esac
+            done
+            echo "Domini attesi: $(printf '%s' "$EXPECTED" | tr ',' '\n' | wc -l) — merge: $(printf '%s' "$MERGED" | tr ',' '\n' | grep -c . ) — mancanti: $n_missing"
+            if [ "$n_missing" -gt 0 ]; then
+              echo "Domini MANCANTI (engine cancellato/timeout o shard render fallito): \`${missing}\`"
+              echo ""
+              echo "> Il merge ha pubblicato i domini riusciti. I domini mancanti restano"
+              echo "> allo snapshot precedente su \`fm2-cache\` (nessun buco: non vengono"
+              echo "> cancellati dall'indice)."
+            fi
             echo ""
             if [ -f data/fm2-rendered/italia/index.json ]; then
               python -c "import json; d=json.load(open('data/fm2-rendered/italia/index.json')); doms=d.get('domains',{}); print('italia — themes:', ','.join(d.get('themes',[]))); print('italia — generated_at:', d.get('generated_at')); print('italia — domini:', len(doms), '->', ', '.join(sorted(doms)))"
@@ -570,7 +654,7 @@ jobs:
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Commit WebP pre-renderizzati su fm2-cache (only if changed)
+      - name: Commit WebP pre-renderizzati su fm2-cache (push incrementale, only if changed)
         if: success()
         run: |
           git config user.name "meteorisk-bot"
@@ -580,26 +664,77 @@ jobs:
             exit 0
           fi
           # webp + index.json + color_scales.json (e data/fm2/<dominio> dei domini
-          # assenti dallo snapshot, via `git add -A -- data/fm2`) vengono committati
-          # INSIEME in questo unico commit (single-writer).
+          # assenti dallo snapshot, via `git add -A -- data/fm2`) vengono pubblicati
+          # dal single-writer, ma NON con UN solo push: vedi il FIX 1.2.4.14 sotto.
           #
-          # FIX 1.2.4.13 — ISOLAMENTO DEL TREE. Il commit parte dal TREE del tip di
-          # `fm2-cache` (indice isolato GIT_INDEX_FILE + git read-tree), non
-          # dall'indice di `main`: il tree contiene SOLO dati e nessun file di
-          # codice. Tre passi, tutti su indici SEPARATI:
-          #   (1) base = tree del branch dati. Un branch gia' inquinato da run
-          #       precedenti porta con se' i path di codice: la lista dei path da
-          #       TENERE e' un ALLOWLIST (solo `data/fm2*/`), tutto il resto viene
-          #       rimosso dall'indice isolato. Cosi' il fix PULISCE anche lo stato
-          #       sporco, non solo evita di aggiungerne di nuovo.
-          #   (2) `git ls-files -s -- data/...` legge (mode, sha) dei dati dal
-          #       working tree e li scrive con `--add --cacheinfo`: nessuno stat
-          #       check, nessun tocco al working tree, nessuna dipendenza dal fatto
-          #       che le entry siano "uptodate".
-          #   (3) i path dati che il branch aveva e che ora non esistono piu' nel
-          #       working tree vengono rimossi (le variabili droppate spariscono).
+          # FIX 1.2.4.14 — PUSH INCREMENTALE A SOGLIA (il push singolo sfonda il
+          # limite di pack di GitHub).
+          # PROBLEMA PROVATO (log reali): il job moriva con
+          #   remote: fatal: pack exceeds maximum allowed size (2.00 GiB)
+          #   error: remote unpack failed: index-pack failed
+          #   ! [remote rejected] HEAD -> fm2-cache (failed)
+          # Il pack di UN SINGOLO push contiene TUTTI gli oggetti nuovi: git invia
+          # "tutti gli oggetti che il server non ha ancora" (git-scm, Transfer
+          # Protocols) e OGNI push genera ESATTAMENTE UN pack, di qualunque
+          # dimensione (StackOverflow 15125862; doc GitHub "Troubleshooting the
+          # 2 GiB push limit"). Gli shard WebP sommano ~5,35 GiB su 48.464 file
+          # `.webp`: il pack era ~5,35 GiB, cioe' 2,7x il limite hard di 2,00 GiB.
+          # Il dominio piu' pesante da solo (fm2r-dwd_icon_eu 2.228.733.378 B =
+          # 2,08 GiB) e' GIA' sopra il limite: la granularita' PER-DOMINIO non
+          # basta (e neanche per-dominio+regione, perche' quella regione da sola
+          # resta > 2 GiB, e i pesi per-regione non sono noti a priori).
+          # SOLUZIONE: granularita' a SOGLIA. Si partizionano i path CAMBIATI
+          # accumulando i byte REALI (`stat -c %s`) finche' la somma resta sotto
+          # THRESHOLD=1,4 GiB; ogni gruppo e' un push separato e indipendente.
+          # E' il criterio piu' ROBUSTO: (a) misura i byte veri, non stime
+          # (per-regione, per-dominio) che possono sbagliare; (b) si adatta a
+          # QUALSIASI crescita futura (se un dominio raddoppia, spuntano piu'
+          # gruppi automaticamente) invece di sfondare il limite; (c) copre in un
+          # colpo webp, index.json, color_scales.json e i .om senza logica
+          # separata. Perche' 1,4 GiB (1400*1024*1024 = 1.468.006.400 B =
+          # 68,4% del limite): il
+          # pack non e' solo la somma dei blob ma aggiunge gli oggetti tree di
+          # ogni livello di directory e l'header del pack; i file `.webp` sono
+          # gia' compressi (la delta-compression su di essi e' ~nulla), quindi la
+          # somma dei byte e' una stima dall'alto del pack. Restano 0,60 GiB di
+          # headroom per tree/overhead, ampiamente sufficienti per qualche
+          # migliaio di tree object (decine di KB in totale).
+          # Stima gruppi (pesi reali misurati, worst-case nessun dominio
+          # spezzato): 5 push minimi per i 5 domini misurati (~4,98 GiB), ~7-8
+          # push con i domini non misurati. Il caso "un singolo file supera la
+          # soglia" e' impossibile per i WebP (max poche centinaia di KB) ma e'
+          # gestito: il file resta solo nel suo gruppo e si logga un WARN.
+          #
+          # COMPATIBILITA' CON LO SQUASH: il push incrementale NON e' incompatibile
+          # con lo squash finale. Dopo N push il server ha gia' TUTTI i blob e
+          # TUTTI i tree (compreso il tree finale identico a `TREE`); lo squash crea
+          # un commit SENZA genitori che punta allo STESSO tree (gia' presente lato
+          # server) e lo pusha con --force-with-lease: l'unico oggetto nuovo e' il
+          # commit stesso (poche centinaia di byte). Lo squash resta quindi
+          # valido, sicuro e ISTANTANEO. La storia non cresce (commit precedenti
+          # irraggiungibili) esattamente come prima.
+          #
+          # ISOLAMENTO DEL TREE (FIX 1.2.4.13, invariato): il commit parte dal TREE
+          # del tip di `fm2-cache` (indice isolato GIT_INDEX_FILE + git read-tree),
+          # non dall'indice di `main`: nessun file di codice entra mai nel branch
+          # dati. L'ALLOWLIST (solo `data/fm2*/`) PULISCE anche un branch gia'
+          # inquinato da run precedenti. Qui l'indice isolato e' EVOLUTIVO: parte
+          # da BASE (ripulito), ogni gruppo vi aggiunge i suoi path con
+          # `git add -A`, quindi dopo l'ultimo gruppo il tree coincide con TARGET
+          # (verificato con un assert esplicito prima di considerare il push
+          # completo).
+          #
+          # Resilienza ai shard falliti, dichiarazione domini mancanti e
+          # tolleranza `!cancelled()` restano INVARIATI (vedi job e Summary).
           MSG="chore(fm2): aggiornamento WebP pre-renderizzati + snapshot .om (regioni italia/europa/domain, light+dark)"
+          # Soglia di push: 1,4 GiB. Vedi motivazione sopra (68,4% del limite di
+          # 2,00 GiB; headroom 0,60 GiB per tree + overhead di pack).
+          THRESHOLD=$((1400 * 1024 * 1024))
+          # core.quotePath=false: i path emessi da diff-tree restano grezzi (nessun
+          # quoting C), cosi' --pathspec-from-file li rilegge senza ambiguita'.
+          GQ="-c core.quotePath=false"
           for i in 1 2 3 4 5; do
+            # ---- (0) risolvi BASE / PARENT dal tip FRESCO ----
             git fetch --no-tags --depth=1 origin fm2-cache || true
             if git rev-parse --verify --quiet FETCH_HEAD >/dev/null 2>&1; then
               BASE="$(git rev-parse FETCH_HEAD^{tree})"
@@ -609,20 +744,17 @@ jobs:
               BASE="$(git hash-object -t tree /dev/null)"
               PARENT=""
             fi
-            IDX="$(mktemp -u)"
-            rm -f "$IDX"
-            GIT_INDEX_FILE="$IDX" git read-tree "$BASE"
-            # (1) ALLOWLIST: tutto cio' che non e' `data/fm2/...` o
-            # `data/fm2-rendered/...` esce dall'indice isolato.
-            GIT_INDEX_FILE="$IDX" git ls-files -s -- . \
+            # ---- (1) costruisci il TREE TARGET su un indice isolato ----
+            # Identico a prima del FIX 1.2.4.14: parte da BASE, applica
+            # l'ALLOWLIST (`data/fm2*/`), poi porta lo stato del working tree.
+            IDXT="$(mktemp -u)"; rm -f "$IDXT"
+            GIT_INDEX_FILE="$IDXT" git read-tree "$BASE"
+            GIT_INDEX_FILE="$IDXT" git ls-files -s -- . \
               ':(exclude)data/fm2/**' ':(exclude)data/fm2-rendered/**' \
               | cut -f2 > /tmp/fm2_drop_paths.txt
             while IFS= read -r p; do
-              [ -n "$p" ] && GIT_INDEX_FILE="$IDX" git update-index --force-remove -- "$p"
+              [ -n "$p" ] && GIT_INDEX_FILE="$IDXT" git update-index --force-remove -- "$p"
             done < /tmp/fm2_drop_paths.txt
-            # (2) le entry dati del dominio corrente vanno rimosse dalla base: le
-            # riporta `git add -A` con lo stato effettivo del working tree (serve
-            # perche' `--cacheinfo` da solo non sa cancellare i file spariti).
             ROI_DOMAIN=""
             if [ -d data/fm2 ]; then
               for d in data/fm2/*/; do
@@ -630,31 +762,122 @@ jobs:
               done
             fi
             if [ -n "$ROI_DOMAIN" ]; then
-              GIT_INDEX_FILE="$IDX" git ls-files -- $ROI_DOMAIN \
+              GIT_INDEX_FILE="$IDXT" git ls-files -- $ROI_DOMAIN \
                 | while IFS= read -r p; do
-                    GIT_INDEX_FILE="$IDX" git update-index --force-remove -- "$p"
+                    GIT_INDEX_FILE="$IDXT" git update-index --force-remove -- "$p"
                   done
             fi
-            # (3) dati correnti (stato del working tree) nell'indice isolato.
-            GIT_INDEX_FILE="$IDX" git add -A -- data/fm2 data/fm2-rendered
-            TREE="$(GIT_INDEX_FILE="$IDX" git write-tree)"
-            rm -f "$IDX"
+            GIT_INDEX_FILE="$IDXT" git add -A -- data/fm2 data/fm2-rendered
+            TREE="$(GIT_INDEX_FILE="$IDXT" git write-tree)"
+            rm -f "$IDXT"
             # NO-OP: albero identico al tip => nessun churn.
             if [ "$TREE" = "$BASE" ]; then
               echo "[INFO] Nessuna modifica ai dati (NO-OP)."
               exit 0
             fi
-            if [ -n "$PARENT" ]; then
-              NEW="$(git commit-tree "$TREE" -p "$PARENT" -m "$MSG")"
-            else
-              NEW="$(git commit-tree "$TREE" -m "$MSG")"
+            # ---- (2) lista dei path CAMBIATI con dimensione (per la soglia) ----
+            # `git diff-tree --name-status BASE TREE` -> righe "<STATO>\t<path>".
+            # I byte sono quelli del working tree (stat -c %s); le CANCELLAZIONI
+            # (status D) valgono 0 byte e vengono raccolte a parte (finiscono
+            # nell'ultimo gruppo: non spostano mai la soglia dello 0).
+            git $GQ diff-tree -r --no-commit-id --name-status "$BASE" "$TREE" > /tmp/fm2_changed.txt
+            : > /tmp/fm2_sizes.txt   # righe "<byte>\t<path>"  (solo A/M)
+            : > /tmp/fm2_dels.txt    # righe "<path>"          (solo D)
+            while IFS="$(printf '\t')" read -r st path; do
+              [ -z "$path" ] && continue
+              case "$st" in
+                D) printf '%s\n' "$path" >> /tmp/fm2_dels.txt ;;
+                *)
+                  if [ -f "$path" ]; then
+                    sz="$(stat -c %s -- "$path" 2>/dev/null || echo 0)"
+                  else
+                    sz=0
+                  fi
+                  printf '%s\t%s\n' "$sz" "$path" >> /tmp/fm2_sizes.txt
+                  ;;
+              esac
+            done < /tmp/fm2_changed.txt
+            # ---- (3) partizione a soglia: gruppi di path sotto THRESHOLD ----
+            # Ordina per dimensione DECRESCENTE (first-fit-decreasing): i file
+            # grandi si sistemano per primi e i gruppi risultano piu' pieni e
+            # NUMERICAMENTE MENO numerosi (meno push) a parita' di soglia.
+            sort -t"$(printf '\t')" -k1,1nr /tmp/fm2_sizes.txt > /tmp/fm2_sizes_sorted.txt
+            rm -rf /tmp/fm2_groups; mkdir -p /tmp/fm2_groups
+            gidx=1; gbytes=0
+            : > "/tmp/fm2_groups/g_${gidx}.txt"
+            while IFS="$(printf '\t')" read -r sz path; do
+              [ -z "$path" ] && continue
+              # il prossimo file sfonderebbe la soglia E il gruppo non e' vuoto
+              # => chiudi il gruppo e aprine uno nuovo.
+              if [ "$gbytes" -gt 0 ] && [ $((gbytes + sz)) -gt "$THRESHOLD" ]; then
+                gidx=$((gidx + 1)); gbytes=0
+                : > "/tmp/fm2_groups/g_${gidx}.txt"
+              fi
+              printf '%s\n' "$path" >> "/tmp/fm2_groups/g_${gidx}.txt"
+              gbytes=$((gbytes + sz))
+              if [ "$sz" -gt "$THRESHOLD" ]; then
+                echo "[WARN] path singolo oltre soglia (resta da solo nel suo gruppo): $path ($sz B)"
+              fi
+            done < /tmp/fm2_sizes_sorted.txt
+            # Le cancellazioni (0 byte) vanno nell'ULTIMO gruppo: non cambiano
+            # la somma byte, quindi non possono sfondare la soglia.
+            if [ -s /tmp/fm2_dels.txt ]; then
+              cat /tmp/fm2_dels.txt >> "/tmp/fm2_groups/g_${gidx}.txt"
             fi
-            if git push origin "$NEW:refs/heads/fm2-cache"; then
-              echo "[INFO] Push su fm2-cache riuscito (tentativo $i/5)."
-              exit 0
+            NGROUPS="$gidx"
+            echo "[push] path cambiati: $(wc -l < /tmp/fm2_sizes.txt) A/M + $(wc -l < /tmp/fm2_dels.txt) D = $NGROUPS gruppi (soglia $THRESHOLD B)"
+            # ---- (4) indice evolutivo: parte da BASE RIPULITO (allowlist) ----
+            IDX="$(mktemp -u)"; rm -f "$IDX"
+            GIT_INDEX_FILE="$IDX" git read-tree "$BASE"
+            GIT_INDEX_FILE="$IDX" git ls-files -s -- . \
+              ':(exclude)data/fm2/**' ':(exclude)data/fm2-rendered/**' \
+              | cut -f2 > /tmp/fm2_drop_all.txt
+            while IFS= read -r p; do
+              [ -n "$p" ] && GIT_INDEX_FILE="$IDX" git update-index --force-remove -- "$p"
+            done < /tmp/fm2_drop_all.txt
+            # ---- (5) push gruppo per gruppo (N push, ognuno < THRESHOLD) ----
+            RUN_PARENT="$PARENT"
+            pushed_groups=0
+            gi=1
+            while [ "$gi" -le "$NGROUPS" ]; do
+              GFILE="/tmp/fm2_groups/g_${gi}.txt"
+              if [ ! -s "$GFILE" ]; then gi=$((gi + 1)); continue; fi
+              # aggiorna l'indice evolutivo con SOLO i path del gruppo corrente:
+              # -A registra aggiunte/modifiche E rimozioni (deleted path) contro
+              # il working tree; --pathspec-from-file evita di sfondare ARG_MAX
+              # con ~20k path per gruppo.
+              GIT_INDEX_FILE="$IDX" git add -A --pathspec-from-file="$GFILE"
+              GTREE="$(GIT_INDEX_FILE="$IDX" git write-tree)"
+              echo "[push] gruppo $gi/$NGROUPS: $(wc -l < "$GFILE") path -> tree $GTREE"
+              if [ -n "$RUN_PARENT" ]; then
+                GNEW="$(git commit-tree "$GTREE" -p "$RUN_PARENT" -m "$MSG [$gi/$NGROUPS]")"
+              else
+                GNEW="$(git commit-tree "$GTREE" -m "$MSG [$gi/$NGROUPS]")"
+              fi
+              if git push origin "$GNEW:refs/heads/fm2-cache"; then
+                echo "[push] gruppo $gi/$NGROUPS pubblicato: $GNEW"
+                RUN_PARENT="$GNEW"
+                pushed_groups=$((pushed_groups + 1))
+              else
+                echo "[ERROR] Push del gruppo $gi/$NGROUPS RIFIUTATO (tentativo $i/5)."
+                echo "        La serie e' parziale: i gruppi 1..$((gi-1)) sono pubblicati,"
+                echo "        dal gruppo $gi in poi NO. Il branch resta coerente (ultimo"
+                echo "        commit pubblicato = gruppi 1..$((gi-1))); il run successivo"
+                echo "        riparte dal tip fresco e ricompleta. Vedi casi limite."
+                rm -f "$IDX"
+                exit 1
+              fi
+              gi=$((gi + 1))
+            done
+            rm -f "$IDX"
+            # ---- (6) VERIFICA: i gruppi DEVONO ricostruire esattamente TARGET ----
+            if [ "$GTREE" != "$TREE" ]; then
+              echo "[ERROR] Incoerenza: il tree finale dei gruppi ($GTREE) != TARGET ($TREE)."
+              echo "        Nessun ulteriore push; il branch ha l'ultimo gruppo pubblicato."
+              exit 1
             fi
-            echo "[WARN] Push su fm2-cache rifiutato (race sul branch) - tentativo $i/5"
-            sleep $((i*3))
+            echo "[INFO] Push incrementale completato: $pushed_groups/$NGROUPS gruppi, tree finale == TARGET ($TREE), tentativo $i/5."
+            exit 0
           done
           echo "[ERROR] Push su fm2-cache non riuscito dopo 5 tentativi."
           exit 1
