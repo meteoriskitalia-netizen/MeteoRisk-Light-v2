@@ -143,19 +143,27 @@ V2_BBOX = (36.5, 6.5, 47.2, 18.6)
 # Per-domain crop window [lat_min, lon_min, lat_max, lon_max].
 # Each domain is cut to its own real area (prima: tutti tagliati sull'Italia).
 #
-# EMISFERO NORD (1.2.4.13): i 4 domini GLOBALI (ecmwf_ifs025, ncep_gfs025,
-# dwd_icon, meteofrance_arpege_world025) sorgono con BBOX [-90,-180,90,179.75]
-# (pianeta INTERO). Pubblicare/renderizzare il globo e' inutile per la
-# meteorologia italiana: il bbox e' quindi ritagliato sull'EMISFERO NORD utile,
-# `(20.0, -60.0, 80.0, 60.0)` = lat 20..80, lon -60..60.
-# Scelta: copre Italia, Europa, il Nord Atlantico (le perturbazioni in arrivo)
-# e la fascia artica fino a 80N, restando interamente sopra l'equatore (no
-# emisfero sud) e senza Oceania/Asia orientale/Americhe. E' un superset del
-# bbox europeo dei regionali `(34,-15,62,40)`, quindi la vista "Europa" resta
-# interamente disponibile. Il bbox e' ALLINEATO ALLA GRIGLIA di tutti e 4 i
-# domini (multipli esatti di dx/dy dagli angoli del sorgente), quindi
-# `bbox_to_indices` non arrotonda celle parziali.
-NORTH_HEMISPHERE_BBOX = (20.0, -60.0, 80.0, 60.0)
+# EMISFERO NORD INTERO (1.2.4.13): i 4 domini GLOBALI (ecmwf_ifs025,
+# ncep_gfs025, dwd_icon, meteofrance_arpege_world025) sorgono con BBOX
+# [-90,-180,90,179.75] (pianeta INTERO). Pubblicare/renderizzare il globo e'
+# inutile per la meteorologia italiana: il bbox e' quindi ritagliato
+# sull'EMISFERO NORD INTERO, `(20.0, -180.0, 90.0, 180.0)` = lat 20..90N,
+# longitudine intera (-180..180).
+# Scelta (due motivi reali):
+#   (a) vedere le incursioni fredde dalla SIBERIA: il freddo deve vedersi
+#       NASCERE (irraggiamento continentale sull'Asia settentrionale) e non
+#       solo ARRIVARE in Europa gia' formato, perche' e' li' che si origina
+#       la maggior parte delle ondate di gelo italiane;
+#   (b) predisporre la futura mappa "emisfero nord stile Meteociel", che ha
+#       bisogno della copertura completa dell'emisfero nord (non solo della
+#       finestra -60..60 di longitudine).
+# Si resta interamente sopra l'equatore (nessun emisfero sud) e il bbox e' un
+# superset del bbox europeo dei regionali `(34,-15,62,40)`, quindi la vista
+# "Europa" resta interamente disponibile. Il bbox e' ALLINEATO ALLA GRIGLIA di
+# tutti e 4 i domini: gli angoli cadono su multipli esatti di dx/dy a partire
+# dagli angoli del sorgente, quindi `bbox_to_indices` non arrotonda celle
+# parziali (gli indici risultano tutti interi).
+NORTH_HEMISPHERE_BBOX = (20.0, -180.0, 90.0, 180.0)
 DOMAIN_BBOX = {
     "dwd_icon_eu": (34.0, -15.0, 62.0, 40.0),
     "dwd_icon_d2": (43.18, -3.94, 58.08, 20.34),
