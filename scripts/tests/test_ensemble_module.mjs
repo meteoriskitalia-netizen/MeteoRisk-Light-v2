@@ -1,0 +1,307 @@
+#!/usr/bin/env node
+// TEST 1.0.0.15 — MODULO ENSEMBLE OPEN-METEO (structural checks).
+// Non esegue un browser: parsa il sorgente HTML e asserisce la presenza/struttura
+// del nuovo modulo ensemble client-side (sostituzione completa degli spaghetti
+// Meteociel):
+//   A) ENDPOINT/API ensemble di Open-Meteo + config centralizzata ENS_MODELS/ENS_VARS
+//   B) ON-DEMAND + DEDUPE + timeout (nessuna fetch prima dell'apertura del pannello)
+//   C) NORMALIZZAZIONE + rillevamento dinamico membri (pattern, mai numeri hardcoded)
+//   D) GRAFICO ORIGINALE SU CANVAS + tooltip mouse/touch + legend + attribuzione
+//   E) ERRORI UTENTE in italiano + pulsante Riprova (nessuno stack trace esposto)
+//   F) RIMOZIONE COMPLETA DEL MODULO ENSEMBLE METEOCIEL dal sorgente (codice, non note)
+// Documentato limite: verifica PRESENZA/STRUTTURA, non il rendering reale (il
+// comportamento runtime va validato in-browser).
+'use strict';
+
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.12.html');
+const src = fs.readFileSync(HTML, 'utf8');
+
+let failures = 0;
+function ok(label, cond, detail = '') {
+  console.log(`  [${cond ? 'PASS' : 'FAIL'}] ${label}${detail ? ` · ${detail}` : ''}`);
+  if (!cond) failures++;
+}
+
+const has = (re, inStr = src) => re.test(inStr);
+
+// ---------- A. ENDPOINT / CONFIG ----------
+ok('A1: ENS_API_BASE = https://ensemble-api.open-meteo.com/v1/ensemble',
+  has(/const ENS_API_BASE\s*=\s*'https:\/\/ensemble-api\.open-meteo\.com\/v1\/ensemble';/));
+ok('A2: ENS_MODELS definiti (ncep_gefs025 + ncep_gefs05, GEFS NOAA; codici UFFICIALI dell\'API ensemble)',
+  has(/const ENS_MODELS\s*=\s*\{[\s\S]{0,600}api:\s*'ncep_gefs025'/) &&
+  has(/const ENS_MODELS\s*=\s*\{[\s\S]{0,1200}api:\s*'ncep_gefs05'/));
+ok('A2b: ENS_MODELS include ECMWF IFS/AIFS, ICON-EU/globale e MOGREPS-G',
+  has(/api:\s*'ecmwf_ifs025'/) && has(/api:\s*'ecmwf_aifs025'/) &&
+  has(/api:\s*'icon_eu_eps'/) && has(/api:\s*'icon_global_eps'/) &&
+  has(/api:\s*'ukmo_global_ensemble_20km'/));
+ok('A2c: 7 modelli complessivi in ENS_MODELS (ogni entry ha days:[...]; la mappa ENS_DET_MODELS non ne ha)',
+  (src.match(/api:\s*'(?:ecmwf_ifs025|ecmwf_aifs025|icon_eu_eps|icon_global_eps|ncep_gefs025|ncep_gefs05|ukmo_global_ensemble_20km)'[\s\S]{0,180}?days:\s*\[/g) || []).length === 7);
+ok('A3: ENS_MODELS con orizzonti per modello (array days)',
+  has(/const ENS_MODELS\s*=\s*\{[\s\S]{0,900}days:\s*\[/));
+ok('A4: ENS_VARS contiene le 4 variabili richieste',
+  has(/const ENS_VARS\s*=\s*\[[\s\S]{0,1200}api:\s*'temperature_850hPa'/) &&
+  has(/const ENS_VARS\s*=\s*\[[\s\S]{0,1600}api:\s*'temperature_2m'/) &&
+  has(/const ENS_VARS\s*=\s*\[[\s\S]{0,2200}api:\s*'geopotential_height_500hPa'/) &&
+  has(/const ENS_VARS\s*=\s*\[[\s\S]{0,2800}api:\s*'precipitation'/));
+ok('A5: chart type configurati (spaghetti + bars)',
+  has(/chart:\s*'spaghetti'/) && has(/chart:\s*'bars'/));
+ok('A6: coordinate dinamiche (latitude/longitude dallo stato, non hardcoded)',
+  has(/q\.set\('latitude',\s*String\(loc\.lat\)\);\s*[\s\S]{0,120}q\.set\('longitude',\s*String\(loc\.lon\)\);/));
+ok('A7: forecast_days dinamico per modello',
+  has(/q\.set\('forecast_days',\s*String\(days\)\);/));
+ok('A7b: parametro MODELS al plurale (il singolare &model= viene IGNORATO dall\'API e restituirebbe sempre il modello di default)',
+  has(/q\.set\('models',\s*model\.api\);/));
+ok('A8: timezone Europe/Rome + temperature_unit celsius nella richiesta',
+  has(/q\.set\('timezone',\s*'Europe\/Rome'\)/) &&
+  has(/q\.set\('temperature_unit',\s*'celsius'\)/));
+ok('A9: tutte le variabili in una sola richiesta (hourly = mappa di ENS_VARS, derivate escluse)',
+  has(/q\.set\('hourly',\s*ENS_VARS\.filter\(function\s*\(v\)\s*\{\s*return\s*!v\.derived;\s*\}\)\.map/) &&
+  has(/\.join\(','\)\);\s*const\s+url\s*=\s*ENS_API_BASE/));
+ok('A10: ENS_VARS include le variabili del vecchio set Meteociel (Pressione, T500, Vento 10m, Raffiche, CAPE, neve...)',
+  has(/const ENS_VARS\s*=\s*\[[\s\S]{0,3600}api:\s*'temperature_500hPa'/) &&
+  has(/const ENS_VARS\s*=\s*\[[\s\S]{0,4200}api:\s*'pressure_msl'/) &&
+  has(/const ENS_VARS\s*=\s*\[[\s\S]{0,4800}api:\s*'wind_speed_10m'/) &&
+  has(/const ENS_VARS\s*=\s*\[[\s\S]{0,5400}api:\s*'wind_gusts_10m'/) &&
+  has(/const ENS_VARS\s*=\s*\[[\s\S]{0,6000}api:\s*'wind_speed_850hPa'/) &&
+  has(/const ENS_VARS\s*=\s*\[[\s\S]{0,6600}api:\s*'relative_humidity_850hPa'/) &&
+  has(/const ENS_VARS\s*=\s*\[[\s\S]{0,7200}api:\s*'cape'/) &&
+  has(/const ENS_VARS\s*=\s*\[[\s\S]{0,7800}api:\s*'snow_depth'/) &&
+  has(/const ENS_VARS\s*=\s*\[[\s\S]{0,8400}api:\s*'snowfall'/) &&
+  has(/const ENS_VARS\s*=\s*\[[\s\S]{0,9000}api:\s*'precipitation'/));
+ok('A11: ENS_VARS include le 3 variabili DERIVATE (Iso 0°C, ThetaE 850, Cumul pioggia) marcate derived',
+  has(/id:\s*'freezing_level'[\s\S]{0,220}derived:\s*true/) &&
+  has(/id:\s*'theta_e_850'[\s\S]{0,220}derived:\s*true/) &&
+  has(/id:\s*'cum_precipitation'[\s\S]{0,220}derived:\s*true/) &&
+  has(/derived:\s*true/));
+ok('A12: 18 variabili complessive (14 dirette + 4 derivate) in ENS_VARS',
+  (src.match(/id:\s*'[a-z_0-9]+'/g) || []).some(() => true) &&
+  (src.match(/derived:\s*true/g) || []).length === 4);
+
+// ---------- B. ON-DEMAND / DEDUPE / TIMEOUT ----------
+ok('B1: pannello accordion chiuso all\'avvio (hidden nel HTML)',
+  has(/id="ens-body" hidden/));
+ok('B2: nessuna fetch se il pannello e\' chiuso (guardia all\'inizio di ensLoad)',
+  has(/function ensLoad\(\)\s*\{\s*if\s*\(!ensState\.open\)\s*return;/));
+ok('B3: dedupe via chiave di cache (model|days|lat|lon)',
+  has(/(?:const|var) key\s*=\s*model\.api\s*\+\s*'\|'/) &&
+  has(/ensState\.cache\.key\s*===\s*key/) &&
+  has(/\/\/ Cache di sessione/));
+ok('B4: cache solo sessione in memoria (commento esplicito, MAI persistente)',
+  has(/cache:\s*null,\s*\/\/ risposta normalizzata della sessione corrente/) &&
+  has(/solo memoria, MAI persistente/));
+ok('B5: AbortController + timeout (ENS_TIMEOUT_MS, 40s) per payload piu\' pesanti con 17 variabili',
+  has(/(?:const|var)\s+timer\s*=\s*setTimeout\(function\(\)\s*\{\s*ctrl\.abort\(\);\s*\},\s*ENS_TIMEOUT_MS\);/) &&
+  has(/const ENS_TIMEOUT_MS\s*=\s*40000;/));
+ok('B6: cambio solo variabile = render da cache (nessun refetch)',
+  has(/Il cambio SOLO variabile non fa mai fetch/) &&
+  has(/vSel\.addEventListener\('change',\s*function\(\)\s*\{\s*ensRenderSelected\(\);\s*\}/));
+ok('B7: risposta stale ignorata (controllo chiave nel catch)',
+  has(/if\s*\(!ensState\.open\s*\|\|\s*ensState\.key\s*!==\s*key\)\s*return;/));
+
+// ---------- C. NORMALIZZAZIONE / MEMBRI ----------
+ok('C1: ensNormalize presente (layer dati normalizzato)',
+  has(/function ensNormalize\(/));
+ok('C2: rilevamento dinamico membri via pattern ^<var>_memberNN$',
+  has(/new RegExp\('\^'\s*\+\s*api\s*\+\s*'_member/));
+ok('C3: statistiche min/max/p25/p75 calcolate dai membri (helper ensStatsFrom)',
+  has(/stats:\s*ensStatsFrom\(members,\s*times\.length\)/) &&
+  has(/function ensStatsFrom\(/));
+ok('C4: output normalizzato con chiavi {key, model, location, metadata, times, vars}',
+  has(/return\s*\{\s*key:/) && has(/metadata:\s*\{ provider:/) && has(/times:\s*times/) && has(/vars:\s*varsOut/));
+ok('C5: variabili derivate calcolate in locale (ensComputeDerived, ThetaE, Iso 0°C, Cumul)',
+  has(/function ensComputeDerived\(/) &&
+  has(/function ensMakeVarFromMembers\(/) &&
+  has(/function ensThetaE\(/) && has(/function ensDewPoint\(/) &&
+  has(/function ensZeroCross\(/) &&
+  has(/varsOut\['cum_precipitation'\]\s*=\s*ensMakeVarFromMembers/) &&
+  has(/varsOut\['freezing_level'\]\s*=\s*ensMakeVarFromMembers/) &&
+  has(/varsOut\['theta_e_850'\]\s*=\s*ensMakeVarFromMembers/));
+
+// ---------- D. GRAFICO ORIGINALE CANVAS ----------
+ok('D1: canvas #ens-chart presente nel modulo',
+  has(/<canvas id="ens-chart"/));
+ok('D2: disegno DPR-aware (devicePixelRatio + setTransform)',
+  has(/Math\.max\(1,\s*window\.devicePixelRatio \|\| 1\)/) &&
+  has(/ctx\.setTransform\(dpr,\s*0,\s*0,\s*dpr,\s*0,\s*0\);/));
+ok('D3: fascia spread p25-p75 disegnata (band)',
+  has(/Fascia spread p25-p75/) && has(/v\.stats\.p25\[i\]/) && has(/v\.stats\.p75\[i\]/));
+ok('D4: tooltip mouse/touch (pointer events su #ens-chart)',
+  has(/addEventListener\('pointermove',\s*ensOnPointer\)/) &&
+  has(/addEventListener\('pointerleave',\s*(?:function\(\)\s*\{\s*)?ensClearHover/));
+ok('D5: legend con voce "Media"',
+  has(/id="ens-legend"/) && has(/>Media<\/span>/));
+ok('D6: attribuzione Open-Meteo nel modulo',
+  has(/Dati ensemble:\s*<a href="https:\/\/open-meteo\.com\/"/));
+
+// ---------- E. ERRORI / UX ----------
+ok('E1: stato del modulo presente (aperto=false di default)',
+  has(/(?:const|var) ensState\s*=\s*\{[\s\S]{0,300}open:\s*false/));
+ok('E2: messaggi utente in italiano (offline, timeout, generic)',
+  has(/ENS_OFFLINE_MSG\s*=\s*'/) && has(/ENS_TIMEOUT_MSG\s*=\s*'/) &&
+  has(/Sei offline/));
+ok('E3: stato HTTP gestito (429/404/5xx) senza stack trace',
+  has(/httpStatus\s*===\s*429/) && has(/httpStatus\s*===\s*404/) &&
+  has(/httpStatus\s*&&\s*httpStatus\s*>=\s*500/));
+ok('E4: pulsante Riprova in caso di errore',
+  has(/btn\.textContent\s*=\s*'Riprova';/) && has(/ensShowMsg\(msg,\s*true\)/));
+ok('E5: pannello accessibile (role=button, aria-expanded sul header)',
+  has(/id="ens-head"/) && has(/role="button"/) && has(/aria-expanded="false"/));
+ok('E6: refresh manuale disponibile (pulsante ↻)',
+  has(/id="ens-refresh"/) && has(/refreshBtn\.addEventListener\('click',\s*function\(\)\s*\{\s*ensLoad\(\);\s*\}/));
+
+// ---------- F. RIMOZIONE MODULO ENSEMBLE METEOCIEL ----------
+ok('F1: id spaghetti-* rimossi dal HTML',
+  !has(/id="spaghetti-/));
+ok('F2: stato e funzioni del vecchio modulo rimosse (niente codice residuo)',
+  !has(/function\s+(?:onSpaghettiModelChange|updateSpaghettiPlot|getLatestEnsRun)\s*\(/) &&
+  !has(/spaghettiLat\s*=|spaghettiLon\s*=|spaghettiVille\s*=/));
+ok('F3: config rimosse (SPAGHETTI_MODELS, GEFS_IMG_SCRIPTS)',
+  !has(/SPAGHETTI_MODELS|GEFS_IMG_SCRIPTS/));
+ok('F4: URL immagine/iframe Meteociel del vecchio modulo rimosse',
+  !has(/gens_display\.php/) && !has(/graphe_ens/));
+ok('F5: CSS .spaghetti-* rimosso',
+  !has(/\.spaghetti-/));
+ok('F6: aggiornamento localita\' via updateUI mantiene il modulo (ensSetLocation)',
+  has(/ensSetLocation\(lat,\s*lon,\s*subLabel\s*\|\|\s*label\s*\|\|\s*''\);/));
+ok('F7: inizializzazione del modulo in startApp (oltre alla definizione)',
+  (src.match(/initEnsembleModule\(\)/g) || []).length >= 2);
+
+// ---------- G. VERSIONE ----------
+  ok('G1: APP_VERSION = 1.2.4.12', has(/APP_VERSION\s*=\s*['"]1\.2\.4\.12['"]/));
+ok('G2: changelog 1.0.0.15 MODULO ENSEMBLE OPEN-METEO presente',
+  has(/MODULO ENSEMBLE OPEN-METEO \(1\.0\.0\.15\)/));
+ok('G3: bump 1.0.1.2 presente — changelog con asse RR adattivo minimo 60 mm (pioggia oraria)',
+  has(/version:\s*'1\.0\.1\.2'/) &&
+  has(/ASSE RR ADATTIVO CON MINIMO 60 MM \(1\.0\.1\.2\)/) &&
+  has(/rrTop\s*=\s*Math\.max\(rrNice\.max,\s*60\)/));
+
+// ---------- H. WHITELIST VARIABILI PER MODELLO (bug: modelli "a vuoto") ----------
+const MODEL_VARS_BLOCK = (src.match(/const ENS_MODEL_VARS\s*=\s*\{[\s\S]*?\n    \};\s*\n/) || [''])[0];
+ok('H1: whitelist per-modello definita (ENS_MODEL_VARS)',
+  MODEL_VARS_BLOCK !== '' && has(/const ENS_MODEL_VARS\s*=\s*\{/));
+ok('H2: GEFS 0.25° (default) NEGA le variabili a livelli di pressione (T850/T500/Z)',
+  /ncep_gefs025:\s*\[[^\]]*temperature_850hPa/.test(MODEL_VARS_BLOCK) === false &&
+  /ncep_gefs025:\s*\[[^\]]*geopotential_height_500hPa/.test(MODEL_VARS_BLOCK) === false &&
+  has(/ncep_gefs025:\s*\[/));
+ok('H3: ICON globale NEGA raffiche e CAPE (limite superficie)',
+  /icon_global_eps:\s*\[[^\]]*wind_gusts_10m/.test(MODEL_VARS_BLOCK) === false &&
+  /icon_global_eps:\s*\[[^\]]*cape/.test(MODEL_VARS_BLOCK) === false);
+ok('H4: ECMWF IFS e GEFS 0.5° coprono TUTTE le 14 dirette + 3 derivate',
+  /ecmwf_ifs025:\s*\[[^\]]*relative_humidity_850hPa[^\]]*freezing_level/.test(MODEL_VARS_BLOCK) &&
+  /ncep_gefs05:\s*\[[^\]]*relative_humidity_850hPa[^\]]*theta_e_850/.test(MODEL_VARS_BLOCK));
+ok('H5: helper ensModelVarIds + popolamento select filtrato per modello',
+  has(/function ensModelVarIds\(/) &&
+  has(/function ensPopulateVarSelect\(modelKey\)/) &&
+  has(/ENS_MODELS\[ensById\('ens-model'\)\.value\]/));
+ok('H6: cambio modello ripopola il select variabili',
+  has(/mSel\.addEventListener\('change',\s*function\(\)\s*\{\s*ensPopulateRange\(\);\s*ensPopulateVarSelect\(mSel\.value\);\s*ensLoad\(\);\s*\}/));
+ok('H7: render con fallback sulla prima variabile reale ricevuta',
+  has(/Filtro sulla risposta REALE/) &&
+  has(/const firstId\s*=\s*Object\.keys\(ensState\.cache\.vars\)\[0\]/));
+
+// ---------- I. RRA: PRECIPITAZIONI A RIGHE + RIEPILOGO METEOCIEL T850+T500+RR ----------
+ok('I1: precipitation e\' un grafico A LINEE (spaghetti) come le altre variabili (non piu\' barre)',
+  has(/id:\s*'precipitation'[\s\S]{0,220}chart:\s*'spaghetti'/) &&
+  has(/id:\s*'snowfall'[\s\S]{0,220}chart:\s*'bars'/));
+ok('I2: nuova variabile Riepilogo t850_t500_precip in ENS_VARS (chart composite, derived)',
+  has(/id:\s*'t850_t500_precip'[\s\S]{0,240}chart:\s*'composite'[\s\S]{0,220}derived:\s*true/));
+ok('I3: composito in whitelist SOLO per modelli con T a 850/500 hPa (IFS/AIFS/GEFS 0.5°)',
+  MODEL_VARS_BLOCK !== '' &&
+  /ecmwf_ifs025:\s*\[[^\]]*t850_t500_precip/.test(MODEL_VARS_BLOCK) &&
+  /ecmwf_aifs025:\s*\[[^\]]*t850_t500_precip/.test(MODEL_VARS_BLOCK) &&
+  /ncep_gefs05:\s*\[[^\]]*t850_t500_precip/.test(MODEL_VARS_BLOCK) &&
+  /ncep_gefs025:\s*\[[^\]]*t850_t500_precip/.test(MODEL_VARS_BLOCK) === false &&
+  /icon_eu_eps:\s*\[[^\]]*t850_t500_precip/.test(MODEL_VARS_BLOCK) === false &&
+  /icon_global_eps:\s*\[[^\]]*t850_t500_precip/.test(MODEL_VARS_BLOCK) === false &&
+  /ukmo_global_ensemble_20km:\s*\[[^\]]*t850_t500_precip/.test(MODEL_VARS_BLOCK) === false);
+ok('I4: composito costruito solo con dati REALI (helper ensVarHasData + gate in ensComputeDerived)',
+  has(/function ensVarHasData\(/) &&
+  has(/varsOut\['t850_t500_precip'\]\s*=\s*\{/) &&
+  has(/ensVarHasData\(t85\)/));
+ok('I5: doppio asse Y (sinistra °C, destra mm) nel disegno del composito',
+  has(/isComposite\s*=\s*\(v\.chart\s*===\s*'composite'\)/) &&
+  has(/rrY\s*=\s*function\(mm\)/) &&
+  has(/ENS_THEME\.composite/));
+ok('I5b: tema composito con struttura annidata t850/t500/rr = { member, mean, band } coerente col disegno',
+  has(/composite:\s*\{\s*t850:\s*\{\s*member:/) &&
+  has(/t500:\s*\{\s*member:/) &&
+  has(/rr:\s*\{\s*member:/) &&
+  has(/ct\.t500/) &&
+  has(/ct\.t850/) &&
+  has(/ct\.rr/) &&
+  has(/theme\.band/) &&
+  has(/theme\.member/) &&
+  has(/theme\.mean/));
+ok('I5c: la pioggia nel grafico composito e\' disegnata a LINEE come le altre variabili (nessuna barra RR)',
+  has(/ensTraceSpaghetti\(v\.subs\.rr,\s*rrY,\s*ct\.rr\)/) &&
+  has(/RR in verde a LINEE/) &&
+  has(/ct\.rr\.mean/) === false &&
+  has(/ct\.rr;\s*ctx\.fillStyle/) === false);
+ok('I6: leggenda + tooltip dedicate al grafico composito',
+  has(/v\.chart\s*===\s*'composite'/) &&
+  has(/T850 hPa \(membri blu\)/) &&
+  has(/RR \(media\):/));
+ok('I7: nel Riepilogo la RR resta la pioggia ORARIA (mai cumulata) e l\'asse destro si adatta ai valori con minimo 60 mm',
+  has(/subs:\s*\{\s*t850:\s*t85,\s*t500:\s*t50,\s*rr:\s*prC\s*\}/) &&
+  has(/mm di pioggia ORARIA, adattivo/) &&
+  has(/rrTop\s*=\s*Math\.max\(rrNice\.max,\s*60\)/) &&
+  has(/RR media \(mm, asse destro\)/) &&
+  has(/rrMax\s*=\s*mv;/) &&
+  (src.indexOf("varsOut['cum_precipitation'] || prC") === -1));
+ok('I8: l\'asse destro considera anche run operativa e massimo membri (episodi intensi mai tagliati), nessuna cumulata residua',
+  has(/const rv = \(rrs\.run && rrs\.run\.values\) \? rrs\.run\.values\[i\] : NaN;/) &&
+  has(/const xv = \(rrs\.stats && rrs\.stats\.max\) \? rrs\.stats\.max\[i\] : NaN;/) &&
+  has(/if \(ensFin\(rv\) && rv > rrMax\) rrMax = rv;/) &&
+  has(/if \(ensFin\(xv\) && xv > rrMax\) rrMax = xv;/) &&
+  (src.indexOf('precipitation_det_cum') === -1));
+
+// ---------- J. RUN OPERATIVA DETERMINISTICA (overlay "principale" su tutti i grafici) ----------
+ok('J1: mappa ENS_DET_MODELS con id deterministico autonomo per OGNI modello ensemble',
+  has(/const ENS_DET_MODELS\s*=\s*\{/) &&
+  has(/ecmwf_ifs025:\s*\{\s*api:\s*'ecmwf_ifs025'/) &&
+  has(/ecmwf_aifs025:\s*\{\s*api:\s*'ecmwf_aifs025'/) &&
+  has(/ncep_gefs025:\s*\{\s*api:\s*'gfs_seamless'/) &&
+  has(/ncep_gefs05:\s*\{\s*api:\s*'gfs_seamless'/) &&
+  has(/icon_eu_eps:\s*\{\s*api:\s*'icon_eu'/) &&
+  has(/icon_global_eps:\s*\{\s*api:\s*'icon_global'/) &&
+  has(/ukmo_global_ensemble_20km:\s*\{\s*api:\s*'ukmo_seamless'/));
+ok('J1b: endpoint forecast (separato dall\'ensemble) per la run deterministica',
+  has(/const ENS_DET_API\s*=\s*'https:\/\/api\.open-meteo\.com\/v1\/forecast';/) &&
+  has(/dq\.set\('models',\s*detCfg\.api\);/));
+ok('J2: fetch BEST-EFFORT in parallelo all\'ensemble, non blocca MAI il render (catch -> null)',
+  has(/Promise\.all\(\[ensChain,\s*ensDetFetch\(ENS_DET_MODELS\[model\.api\],\s*q\)\]\)/) &&
+  has(/function ensDetFetch\(detCfg,\s*q\)/) &&
+  has(/\.catch\(function\s*\(\)\s*\{\s*clearTimeout\(dTimer\);\s*return null;\s*\}\)/) &&
+  has(/if\s*\(!detCfg\)\s*return\s*Promise\.resolve\(null\);/));
+ok('J3: detJson viaggia da ensLoad a ensOnData a ensNormalize (mai usato se null)',
+  has(/function ensOnData\(json,\s*key,\s*model,\s*loc,\s*days,\s*detJson\)/) &&
+  has(/ensNormalize\(json,\s*key,\s*model,\s*loc,\s*days,\s*detJson\)/) &&
+  has(/function ensNormalize\(json,\s*key,\s*model,\s*loc,\s*days,\s*detJson\)/) &&
+  has(/detJson\s*&&\s*typeof\s*detJson\s*===\s*'object'/));
+ok('J4: run operativa allineata per STRINGA tempo e attaccata SOLO alle variabili dirette',
+  has(/const detMap\s*=\s*\{\};/) &&
+  has(/detMap\[detTimes\[j\]\]\s*=\s*dv;/) &&
+  has(/runValues\[i\]\s*=\s*\(x\s*===\s*undefined\)\s*\?\s*null\s*:\s*x;/) &&
+  has(/run:\s*run,\s*\/\/ run operativa deterministica/) &&
+  has(/Solo le variabili DIRETTE: le derivate/));
+ok('J5: il disegno disegna la run in ENTRAMBI i percorsi (spaghetti standard + trace composito)',
+  has(/v\.run\s*&&\s*v\.run\.values/) &&
+  has(/sv\.run\s*&&\s*sv\.run\.values/) &&
+  (src.match(/ctx\.strokeStyle\s*=\s*ENS_THEME\.oper;\s*ctx\.lineWidth\s*=\s*1\.8;/g) || []).length === 2);
+ok('J6: colore dorato della run operativa nel tema (ENS_THEME.oper)',
+  /ENS_THEME\s*=\s*\{[\s\S]*?oper:\s*'#facc15'/.test(src));
+ok('J7: legenda e tooltip con la voce "Run operativa"',
+  has(/Run operativa \(det\.\)/) &&
+  has(/Run operativa:/) &&
+  has(/Run operativa \(T850\):/));
+ok('J8: metadata normalizzato espone runAvailable/runLabel (per eventuali consumatori)',
+  has(/runAvailable:\s*\(runLabel\s*!==\s*null\)/) &&
+  has(/runLabel:\s*runLabel/));
+
+console.log(`\nRESULT: ${failures === 0 ? 'PASS' : 'FAIL'} (${failures} errori)`);
+process.exit(failures === 0 ? 0 : 1);
