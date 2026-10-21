@@ -70,6 +70,10 @@ ok('A14: token anti-race fmWebpIndexGen',
   has(/var fmWebpIndexGen\s*=/, moduleSrc) && has(/gen\s*!==\s*fmWebpIndexGen/, moduleSrc));
 ok('A15: FM_RENDER_REGION_MAP mappa domain->domain',
   /FM_RENDER_REGION_MAP\s*=\s*\{[^}]*'domain'\s*:\s*'domain'/.test(moduleSrc));
+ok('A15b: Emisfero nord disponibile ai modelli globali e collegato al renderer',
+  /'north'\s*:\s*'north'/.test(moduleSrc) &&
+  /id:\s*'north',\s*label:\s*'Emisfero nord'/.test(moduleSrc) &&
+  /return\s*\['north',\s*'domain',\s*'europe',\s*'italy',\s*'natl'\]/.test(moduleSrc));
 // ensureChartJs vive FUORI dal blocco FM -> asserzioni sull'intero file.
 ok("A16: ensureChartJs ha handle singolo _chartJsWaitTimer",
   has(/var _chartJsWaitTimer/));
@@ -145,6 +149,24 @@ ok('C2: il tema scuro non esiste piu\' -> il frame usa SEMPRE themes.light.dir',
   dk && dk.url);
 ok('C2b: il percorso "dark" NON viene mai richiesto',
   !!dk && dk.url.indexOf('/dark/') < 0, dk && dk.url);
+
+ctx.fmDomain = 'ecmwf_ifs025';
+ctx.fmRegion = 'north';
+ctx.fmIdx = 0;
+ctx.fmMeta = { valid_times: [VALID] };
+ctx.fmWebpIndexRegion = 'north';
+ctx.fmWebpIndex = {
+  themes: ['light'],
+  domains: { ecmwf_ifs025: { bounds: [20, -180, 85.05112878, 180], variables: { temperature_850hPa: {
+    dir: 'ecmwf_ifs025/temperature_850hPa',
+    themes: { light: { dir: 'ecmwf_ifs025/temperature_850hPa', valid_times: [VALID] } },
+  } } } },
+};
+ctx.fmVariable = 'temperature_850hPa';
+const nh = ctx.fmWebpFrameUrl(0);
+ok('C3: URL frame T850 della regione Emisfero nord',
+  !!nh && nh.url === BASE + 'north/ecmwf_ifs025/temperature_850hPa/' + TOKEN + '.webp',
+  nh && nh.url);
 
 // valid_times letto da themes[theme]: se il tema non elenca il frame -> null
 setIndex(['light']);

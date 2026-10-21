@@ -87,6 +87,28 @@ def test_domain_sentinel_is_none_and_constants():
     # Default della CLI: la nuova regione e' inclusa.
     assert mod.parse_args([]).regions is None
     assert "domain" in mod.REGIONS
+    assert mod.REGIONS["north"] == (20.0, -180.0, 85.05112878, 180.0)
+    assert mod.NORTH_REGION == "north"
+    assert mod.NORTH_REGION_SKIP_NON_GLOBAL is True
+
+
+def test_north_region_covers_global_model_hemisphere_and_skips_regional_domains():
+    north = mod.REGIONS["north"]
+    global_bbox = _bbox_dict((-90.0, -180.0, 90.0, 179.75))
+    global_crop = mod.region_crop(global_bbox, {
+        "nx": 1440, "ny": 721, "lonMin": -180.0, "latMin": -90.0,
+        "dx": 0.25, "dy": 0.25,
+    }, north)
+    assert global_crop is not None
+    r0, r1, c0, c1, grid = global_crop
+    assert r0 > 0 and r1 == 701
+    assert c0 == 0 and c1 == 1440
+    assert grid["latMin"] >= north[0]
+    assert grid["latMin"] + (grid["ny"] - 1) * grid["dy"] <= north[2]
+
+    regional_bbox = _bbox_dict((34.0, -15.0, 62.0, 40.0))
+    assert mod._is_global_bbox(global_bbox) is True
+    assert mod._is_global_bbox(regional_bbox) is False
 
 
 def test_resolve_region_bbox_domain_maps_to_manifest_bbox():

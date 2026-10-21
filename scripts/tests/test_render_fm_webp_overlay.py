@@ -157,6 +157,13 @@ def test_format_level_integer_or_one_decimal():
     assert mod._format_level(8.5, 0.5) == "8.5"
 
 
+def test_temperature_850_contours_follow_meteociel_four_degree_labels():
+    assert mod.CONTOUR_INTERVALS["temperature_850hPa"] == 4.0
+    assert mod.contour_levels(4.0, -21.0, 17.0) == [
+        -20.0, -16.0, -12.0, -8.0, -4.0, 0.0, 4.0, 8.0, 12.0, 16.0
+    ]
+
+
 # --------------------------------------------------------------------------- #
 # frecce del vento (convenzione)
 # --------------------------------------------------------------------------- #

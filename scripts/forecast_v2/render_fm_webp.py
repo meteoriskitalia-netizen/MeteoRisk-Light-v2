@@ -124,6 +124,9 @@ UPSCALE_MAX_DEFAULT = 8
 REGIONS = {
     "italia": (36.5, 6.5, 47.2, 18.6),
     "europa": (34.0, -25.0, 72.0, 45.0),
+    # Vista globale dei modelli tagliati sul Nord (dai 20°N al limite Mercator).
+    # L'immagine resta in EPSG:3857, quindi si apre direttamente in Leaflet.
+    "north": (20.0, -180.0, 85.05112878, 180.0),
     "domain": None,
 }
 
@@ -135,6 +138,8 @@ REGIONS = {
 # lon_span > 300 || lat_span > 120) -- the same classification on both sides.
 DOMAIN_REGION = "domain"
 DOMAIN_REGION_SKIP_GLOBAL = True
+NORTH_REGION = "north"
+NORTH_REGION_SKIP_NON_GLOBAL = True
 
 
 # --------------------------------------------------------------------------- #
@@ -351,7 +356,9 @@ def build_row_resampler(grid: dict, scale: int = 1):
 CONTOUR_INTERVALS = {
     "temperature_2m": 1.0,
     "dew_point_2m": 1.0,
-    "temperature_850hPa": 2.0,
+    # Etichette ogni 4°C come la carta T850 di Meteociel; mantiene una densità
+    # leggibile sull'intero emisfero nord.
+    "temperature_850hPa": 4.0,
     "temperature_500hPa": 2.0,
     "relative_humidity_2m": 5.0,
     "relative_humidity_850hPa": 5.0,
@@ -1222,6 +1229,9 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
     for rname in regions:
         if (rname == DOMAIN_REGION and DOMAIN_REGION_SKIP_GLOBAL
                 and _is_global_bbox(bbox)):
+            continue
+        if (rname == NORTH_REGION and NORTH_REGION_SKIP_NON_GLOBAL
+                and not _is_global_bbox(bbox)):
             continue
         rbbox = resolve_region_bbox(regions[rname], bbox)
         cr = region_crop(bbox, grid, rbbox)
