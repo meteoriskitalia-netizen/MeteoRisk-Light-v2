@@ -201,7 +201,7 @@ jobs:
           {
             echo "## MeteoRisk — Forecast Maps Index (index.json aggregato)"
             echo ""
-            for r in italia europa domain; do
+            for r in italia europa north domain; do
               if [ -f "data/fm2-rendered/$r/index.json" ]; then
                 python -c "import json; d=json.load(open('data/fm2-rendered/$r/index.json')); doms=d.get('domains',{}); print('$r — themes:', ','.join(d.get('themes',[])), '— domini:', len(doms), '->', ', '.join(sorted(doms)))"
               else

@@ -245,7 +245,7 @@ jobs:
 
   render:
     # SHARD PER-DOMINIO: un job per dominio, ciascuno renderizza SOLO il proprio
-    # dominio (`--domains ${{ matrix.domain }}`, le TRE regioni italia/europa/domain,
+    # dominio (`--domains ${{ matrix.domain }}`, le QUATTRO regioni italia/europa/north/domain,
     # entrambi i temi) in un albero vuoto e carica l'artifact fm2r-<dominio>.
     # Gli shard NON scrivono index.json (li scrive `forecast-maps-index.yml`).
     name: render (${{ matrix.domain }})
@@ -295,7 +295,7 @@ jobs:
           mkdir -p "data/fm2/${{ matrix.domain }}"
           cp -a /tmp/fm2art/. "data/fm2/${{ matrix.domain }}/"
 
-      - name: Build WebP shard ${{ matrix.domain }} (italia/europa/domain, light+dark)
+      - name: Build WebP shard ${{ matrix.domain }} (italia/europa/north/domain, light+dark)
         run: |
           python scripts/forecast_v2/render_fm_webp.py \
             --in data/fm2 \
@@ -327,6 +327,7 @@ jobs:
           path: |
             data/fm2-rendered/italia/${{ matrix.domain }}
             data/fm2-rendered/europa/${{ matrix.domain }}
+            data/fm2-rendered/north/${{ matrix.domain }}
             data/fm2-rendered/domain/${{ matrix.domain }}
           if-no-files-found: warn
           retention-days: 1
@@ -422,7 +423,7 @@ jobs:
           # e NESSUN index.json viene scritto ne' rimosso (sono fuori dalle path
           # <regione>/<dominio> e restano di proprieta' dell'index-builder).
           got=0
-          for region in italia europa domain; do
+          for region in italia europa north domain; do
             src=""
             # download-artifact con pattern fm2r-* estrae in /tmp/fm2r/<artifact-name>/:
             # prova i layout noti e, in fallback, cerca il dominio sotto /tmp/fm2r.
@@ -480,7 +481,7 @@ jobs:
           # fornitore possono superare da soli il limite di pack di GitHub
           # (2,00 GiB), quindi si partizionano i path CAMBIATI con i byte reali
           # sotto THRESHOLD=1,4 GiB. Ogni gruppo e' un push separato.
-          MSG="chore(fm2): aggiornamento WebP meteofrance (regioni italia/europa/domain, light+dark)"
+          MSG="chore(fm2): aggiornamento WebP meteofrance (regioni italia/europa/north/domain, light+dark)"
           THRESHOLD=$((1400 * 1024 * 1024))
           GQ="-c core.quotePath=false"
           # ALLOWLIST di scope del merge: SOLO i path WebP dei PROPRI domini.
@@ -507,7 +508,7 @@ jobs:
             IDXT="$(mktemp -u)"; rm -f "$IDXT"
             GIT_INDEX_FILE="$IDXT" git read-tree "$BASE"
             add_paths=""
-            for region in italia europa domain; do
+            for region in italia europa north domain; do
               d="data/fm2-rendered/$region/meteofrance_arpege_world025"
               if [ -d "$d" ]; then
                 GIT_INDEX_FILE="$IDXT" git ls-files -- "$d" \
