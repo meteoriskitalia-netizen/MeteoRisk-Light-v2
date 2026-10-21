@@ -121,7 +121,7 @@ def test_index_only_writes_schema_prunes_and_copies_scales(tree):
     assert idx["version"] == mod.WEBP_VERSION
     assert idx["region"] == "italia"
     assert idx["theme"] == "light"
-    assert idx["themes"] == ["light", "dark"]
+    assert idx["themes"] == ["light"]
     assert idx["bbox"] == {"lat_min": 36.5, "lon_min": 6.5,
                            "lat_max": 47.2, "lon_max": 18.6}
     assert "domA" in idx["domains"]
@@ -135,22 +135,21 @@ def test_index_only_writes_schema_prunes_and_copies_scales(tree):
     varx = dom["variables"]["varX"]
     assert varx["dir"] == "domA/varX"
     assert varx["unit"] == "degC"
-    assert set(varx["themes"]) == {"light", "dark"}
+    # 1.2.4.13: il tema scuro e' stato RIMOSSO -> una sola chiave.
+    assert set(varx["themes"]) == {"light"}
     light = varx["themes"]["light"]
     assert light == {"count": 3, "valid_times": VALID_TIMES,
                      "dir": "domA/varX", "manifest": "domA/varX/latest.json"}
-    dark = varx["themes"]["dark"]
-    assert dark == {"count": 3, "valid_times": VALID_TIMES,
-                    "dir": "domA/varX/dark",
-                    "manifest": "domA/varX/dark/latest.json"}
     # (3) varMalformed: saltata interamente, ABSENTE dall'indice.
     assert "varMalformed" not in dom["variables"]
 
-    # (2) prune: stale rimosso, i 3 listati restano (light E dark, keep-set propri).
-    for sub in ("varX", os.path.join("varX", "dark")):
-        tdir = os.path.join(tree["out"], "italia", "domA", sub)
-        assert _webp_names(tdir) == sorted(FRAME_FILES)
-        assert STALE_FILE not in os.listdir(tdir)
+    # (2) prune: stale rimosso, i 3 listati restano (keep-set proprio).
+    tdir = os.path.join(tree["out"], "italia", "domA", "varX")
+    assert _webp_names(tdir) == sorted(FRAME_FILES)
+    assert STALE_FILE not in os.listdir(tdir)
+    # Il sottoalbero legacy "dark/" (1.2.4.12) e' stato RIMOSSO dall'albero
+    # pubblicato: prune_dir cancella solo i *.webp, serve il rmtree esplicito.
+    assert not os.path.exists(os.path.join(tdir, "dark"))
     # (3) file della var malformed NON potati.
     mdir = os.path.join(tree["out"], "italia", "domA", "varMalformed")
     assert os.path.isfile(os.path.join(mdir, STALE_FILE))
@@ -225,6 +224,22 @@ def test_parse_args_method_default_and_override():
     assert mod.parse_args(["--method", "4"]).method == 4
     assert mod.parse_args([]).index_only is False
     assert mod.parse_args(["--index-only"]).index_only is True
+
+
+def test_default_theme_is_light_only():
+    # 1.2.4.13: il tema scuro e' stato rimosso, il default e' "light".
+    assert mod.parse_args([]).themes == "light"
+    assert mod.parse_args(["--themes", "light"]).themes == "light"
+
+
+def test_dark_theme_is_rejected_with_exit_2(tree, capsys):
+    # --themes dark: FATAL esplicito + exit 2, NESSUNA scrittura.
+    rc = mod.main(["--in", tree["in"], "--out", tree["out"],
+                   "--index-only", "--domains", "domA", "--themes", "dark"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "dark theme removed in 1.2.4.13" in err
+    assert not os.path.exists(os.path.join(tree["out"], "italia", "index.json"))
 
 
 def test_save_webp_method_parameter():

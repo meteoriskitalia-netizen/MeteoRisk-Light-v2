@@ -6,10 +6,18 @@ Reads the engine output layout ``<in>/<domain>/latest.json`` plus the
 per-frame ``<VALID>.om`` files, dequantizes each requested variable with the
 omfiles reader, remaps rows into Web Mercator vertical spacing, colors every
 pixel with the exact client scale (``color_scales.json``, WML v0.2.2) and
-writes, for every requested REGION and THEME, ``<out>/<region>/<domain>/<var>/<VALID>.webp``
-(the ``dark`` theme nested under ``.../<var>/dark/``) together with a per-variable
-``latest.json`` (one per theme) and a per-region ``index.json`` consumable by the
-client's WebP path.
+writes, for every requested REGION, ``<out>/<region>/<domain>/<var>/<VALID>.webp``
+together with a per-variable ``latest.json`` and a per-region ``index.json``
+consumable by the client's WebP path.
+
+1.2.4.13 changes:
+  * The DARK theme has been REMOVED: only ``light`` is rendered and the
+    legacy ``<var>/dark/`` subtrees are pruned from the published tree.
+  * The isolines (with the VALUE written on the image) and the WIND ARROWS
+    are baked into the WebP: they are drawn on a separate, supersampled RGBA
+    layer and alpha-composited over the base raster, which is NEVER
+    resampled (the pixels where the overlay is transparent stay
+    byte-identical to the base raster).
 
 Regions
 -------
@@ -66,6 +74,18 @@ try:
     from PIL import Image
 except Exception as exc:  # pragma: no cover
     Image = None
+    _IMPORT_ERRORS["PIL"] = exc
+
+try:
+    from PIL import ImageDraw
+except Exception as exc:  # pragma: no cover
+    ImageDraw = None
+    _IMPORT_ERRORS["PIL"] = exc
+
+try:
+    from PIL import ImageFont
+except Exception as exc:  # pragma: no cover
+    ImageFont = None
     _IMPORT_ERRORS["PIL"] = exc
 
 try:
@@ -313,6 +333,654 @@ def build_row_resampler(grid: dict, scale: int = 1):
 
 
 # --------------------------------------------------------------------------- #
+# Isolines (contours) and wind arrows baked into the WebP
+#
+# 1.2.4.13: il WebP pre-renderizzato non e' piu' "solo raster a bande": le
+# isolinee (con il VALORE scritto sopra) e le frecce del vento sono
+# INCAPSULATE nel WebP stesso. Il raster base NON viene mai risamplato: le
+# isolinee/frecce sono disegnate su un layer RGBA separato (sovracampionato
+# 2x, ridimensionato con LANCZOS) e poi composte per alpha: i pixel dove il
+# layer e' completamente trasparente restano byte-identici al raster base.
+# --------------------------------------------------------------------------- #
+# Intervallo delle isolinee per variabile (unita' native). Tabella ALLINEATA
+# alla densita' "fitta" del client (fmContourInterval): solo le variabili per
+# le quali l'isolinea da' informazione (gradiente termico, umidita',
+# pressione, geopotenziale, vento) ne ricevono. Le altre (nubi,
+# precipitazioni, neve, weather_code, cape, freezing level) restano "raster a
+# bande": le isolinee aggiungerebbero solo rumore.
+CONTOUR_INTERVALS = {
+    "temperature_2m": 1.0,
+    "dew_point_2m": 1.0,
+    "temperature_850hPa": 2.0,
+    "temperature_500hPa": 2.0,
+    "relative_humidity_2m": 5.0,
+    "relative_humidity_850hPa": 5.0,
+    "relative_humidity_700hPa": 5.0,
+    "pressure_msl": 5.0,
+    "surface_pressure": 5.0,
+    "geopotential_height_500hPa": 40.0,
+    "geopotential_height_850hPa": 40.0,
+    "geopotential_height_1000hPa": 40.0,
+    "wind_speed_10m": 2.0,
+    "wind_speed_850hPa": 2.0,
+    "wind_speed_300hPa": 2.0,
+    "wind_gusts_10m": 2.0,
+}
+CONTOUR_VARS = frozenset(CONTOUR_INTERVALS.keys())
+
+# Variabili di VELOCITA' del vento -> variabile di DIREZIONE (gradi, "da cui
+# soffia") letta dallo STESSO frame .om. Le direzioni NON hanno color scale
+# (quindi non generano un WebP proprio): servono solo alle frecce.
+ARROW_VARS = {
+    "wind_speed_10m": "wind_direction_10m",
+    "wind_speed_850hPa": "wind_direction_850hPa",
+    "wind_speed_300hPa": "wind_direction_300hPa",
+}
+
+MAX_CONTOUR_LEVELS = 64           # cap sui livelli per variabile
+LABEL_MIN_SPACING_PX = 110.0      # spaziatura minima fra le etichette
+LABEL_FONT_PX = 12                # altezza del carattere (px di output)
+LABEL_MIN_POLYLINE_PX = 60.0      # sotto questa lunghezza il livello non e' etichettato
+CONTOUR_LINE_WIDTH = 1.2          # px (come lo strokeStyle del client)
+CONTOUR_ALPHA = 0.95              # opacita' delle isolinee (client: globalAlpha 0.95)
+CONTOUR_FALLBACK_COLOR = (15, 23, 42, 191)    # rgba(15,23,42,0.75) - inchiostro
+INK_COLOR = (15, 23, 42, 242)                 # rgba(15,23,42,0.95) - testo
+HALO_COLOR = (255, 255, 255, 217)             # bianco alpha 0.85 - alone
+ARROW_COLOR = (15, 23, 42, 191)               # rgba(15,23,42,0.75) - frecce
+ARROW_STEP_PX = 26.0              # passo del reticolo delle frecce (px output)
+ARROW_LEN_MIN = 7.0               # lunghezza minima della freccia (px)
+ARROW_LEN_MAX = 20.0              # lunghezza massima della freccia (px)
+ARROW_MIN_SPEED = 0.5             # sotto questa velocita' (m/s) nessuna freccia
+ARROW_LINE_WIDTH = 1.4            # px (come lo strokeStyle del client)
+ARROW_HEAD_RATIO = 0.45           # lunghezza della punta / lunghezza freccia
+ARROW_HEAD_HALF_WIDTH_RATIO = 0.22
+OVERLAY_SIZE_LIMIT = 1600         # sopra questo lato l'overlay non e' piu' 2x
+OVERLAY_SIZE_LIMIT_LARGE = 3200
+OVERLAY_SUPERSAMPLE_SMALL = 2.0
+OVERLAY_SUPERSAMPLE_MEDIUM = 1.5
+OVERLAY_SUPERSAMPLE_LARGE = 1.0
+
+# Tabella dei 16 casi di marching squares: coppie di LATI da collegare.
+# Lati: 0 = ovest (fra z00 e z10), 1 = nord (fra z10 e z11), 2 = est (fra z01 e
+# z11), 3 = sud (fra z00 e z01). Bit degli angoli: b00 (SO) = 1, b10 (NO) = 2,
+# b11 (NE) = 4, b01 (SE) = 8. None = caso ambiguo (5 e 10: risolto con il
+# decider asintotico sul centro bilineare).
+_MS_CASE_PAIRS = {
+    0: (),
+    1: ((0, 3),),
+    2: ((0, 1),),
+    3: ((1, 3),),
+    4: ((1, 2),),
+    5: None,
+    6: ((0, 2),),
+    7: ((2, 3),),
+    8: ((2, 3),),
+    9: ((0, 2),),
+    10: None,
+    11: ((1, 2),),
+    12: ((1, 3),),
+    13: ((0, 1),),
+    14: ((0, 3),),
+    15: (),
+}
+# Casi ambigui: chiave = centro DENTRO il livello (i due angoli "inside" sono
+# collegati fra loro -> i due angoli "outside" restano separati) oppure centro
+# FUORI (gli "outside" sono collegati -> gli "inside" restano separati).
+_MS_AMBIGUOUS = {
+    5: {True: ((0, 1), (2, 3)), False: ((0, 3), (1, 2))},
+    10: {True: ((0, 3), (1, 2)), False: ((0, 1), (2, 3))},
+}
+
+
+def contour_segments(z, level):
+    """Segments of the iso-line ``level`` over the field ``z`` (marching squares).
+
+    ``z`` is a 2D array of REAL units with row 0 = SOUTH. The result is an
+    (N, 4) float64 array of segments ``(x0, y0, x1, y1)`` in DATA-GRID
+    coordinates (x = column index, y = row index). Fully vectorized: the loop
+    runs over the 16 marching-squares CASES, never over the cells.
+
+    Cells with a non-finite corner are discarded; a crossing whose
+    interpolation is degenerate (0/0, t non finito o fuori [0, 1]) is discarded
+    too. The ambiguous cases (5 and 10) are resolved with the asymptotic
+    decider: the bilinear centre ``(z00+z01+z10+z11)/4`` is compared with the
+    level.
+    """
+    z = np.asarray(z)
+    if z.ndim != 2 or z.shape[0] < 2 or z.shape[1] < 2:
+        return np.zeros((0, 4), dtype=np.float64)
+    level = float(level)
+    z00 = z[:-1, :-1]
+    z01 = z[:-1, 1:]
+    z11 = z[1:, 1:]
+    z10 = z[1:, :-1]
+    fin = np.isfinite(z)
+    v00 = fin[:-1, :-1]
+    v01 = fin[:-1, 1:]
+    v11 = fin[1:, 1:]
+    v10 = fin[1:, :-1]
+    b00 = (z00 >= level) & v00
+    b01 = (z01 >= level) & v01
+    b11 = (z11 >= level) & v11
+    b10 = (z10 >= level) & v10
+    case = (b00.astype(np.int16)
+            | (b10.astype(np.int16) << 1)
+            | (b11.astype(np.int16) << 2)
+            | (b01.astype(np.int16) << 3))
+    ok = v00 & v01 & v11 & v10
+    case = np.where(ok, case, 16).astype(np.int16)
+
+    out = []
+    for c in range(16):
+        sel = (case == c)
+        if not sel.any():
+            continue
+        rows, cols = np.nonzero(sel)
+        a00 = z00[rows, cols].astype(np.float64)
+        a01 = z01[rows, cols].astype(np.float64)
+        a11 = z11[rows, cols].astype(np.float64)
+        a10 = z10[rows, cols].astype(np.float64)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            tL = (level - a00) / (a10 - a00)
+            tT = (level - a10) / (a11 - a10)
+            tR = (level - a01) / (a11 - a01)
+            tB = (level - a00) / (a01 - a00)
+        okL = np.isfinite(tL) & (tL >= 0.0) & (tL <= 1.0)
+        okT = np.isfinite(tT) & (tT >= 0.0) & (tT <= 1.0)
+        okR = np.isfinite(tR) & (tR >= 0.0) & (tR <= 1.0)
+        okB = np.isfinite(tB) & (tB >= 0.0) & (tB <= 1.0)
+        r = rows.astype(np.float64)
+        cc = cols.astype(np.float64)
+        # Punto di attraversamento di ogni lato (coordinate del grid dati).
+        pts = {
+            0: (cc, r + tL),          # ovest: fra z00 (SO) e z10 (NO)
+            1: (cc + tT, r + 1.0),    # nord:  fra z10 (NO) e z11 (NE)
+            2: (cc + 1.0, r + tR),    # est:   fra z01 (SE) e z11 (NE)
+            3: (cc + tB, r),          # sud:   fra z00 (SO) e z01 (SE)
+        }
+        good = {0: okL, 1: okT, 2: okR, 3: okB}
+        base_pairs = _MS_CASE_PAIRS[c]
+        if base_pairs is None:
+            centre = (a00 + a01 + a10 + a11) * 0.25
+            inside = centre >= level
+            groups = []
+            for flag in (True, False):
+                m = (inside == flag)
+                if m.any():
+                    groups.append((m, _MS_AMBIGUOUS[c][flag]))
+        else:
+            groups = [(None, base_pairs)]
+        for mask, pairs in groups:
+            for ea, eb in pairs:
+                m = good[ea] & good[eb]
+                if mask is not None:
+                    m = m & mask
+                if not m.any():
+                    continue
+                x0, y0 = pts[ea]
+                x1, y1 = pts[eb]
+                out.append(np.stack([x0[m], y0[m], x1[m], y1[m]], axis=1))
+    if not out:
+        return np.zeros((0, 4), dtype=np.float64)
+    segs = np.concatenate(out, axis=0)
+    # Scarta i segmenti DEGENERI (entrambi gli estremi sullo stesso punto:
+    # capita quando il livello passa esattamente per un vertice della cella).
+    # Non portano informazione e inquinerebbero il concatenamento.
+    length = np.hypot(segs[:, 2] - segs[:, 0], segs[:, 3] - segs[:, 1])
+    segs = segs[length > 1e-12]
+    if segs.shape[0] == 0:
+        return np.zeros((0, 4), dtype=np.float64)
+    return segs
+
+
+def contour_levels(interval, data_min, data_max):
+    """Levels (multiples of ``interval``) inside ``[data_min, data_max]``.
+
+    The levels are the "clean" values (12.0, not 11.999999) because they are
+    written as labels on the image. If more than ``MAX_CONTOUR_LEVELS`` levels
+    would be needed, the interval is DOUBLED (and the levels recomputed) until
+    the count fits: the contour density stays bounded on any field.
+    """
+    try:
+        step = float(interval)
+        dmin = float(data_min)
+        dmax = float(data_max)
+    except (TypeError, ValueError):
+        return []
+    if not (np.isfinite(step) and step > 0.0):
+        return []
+    if not (np.isfinite(dmin) and np.isfinite(dmax)) or dmax < dmin:
+        return []
+    for _ in range(32):
+        lo = int(math.ceil(dmin / step - 1e-9))
+        hi = int(math.floor(dmax / step + 1e-9))
+        if hi < lo:
+            return []
+        count = hi - lo + 1
+        if count <= MAX_CONTOUR_LEVELS:
+            return [round((lo + k) * step, 6) for k in range(count)]
+        step *= 2.0
+        if not np.isfinite(step) or step > 1e12:
+            return []
+    return []
+
+
+def _grid_to_pixel(cgrid: dict, scale: int):
+    """Map DATA-grid coordinates -> OUTPUT-raster pixels.
+
+    Returns ``(row_of, col_of, H, W)``:
+      * ``row_of[j]`` = output row (0 = NORD) of the data row j (0 = SUD);
+      * ``col_of[i]`` = output column of the data column i;
+      * ``H``/``W`` = output raster size.
+
+    The vertical mapping is the SAME Mercator remap used by
+    ``build_row_resampler``: the output raster has ``(ny-1)*scale+1`` rows,
+    row 0 = north.
+    """
+    ny = int(cgrid["ny"])
+    nx = int(cgrid["nx"])
+    dy = float(cgrid["dy"])
+    lat_min = float(cgrid["latMin"])
+    scale = max(1, int(scale))
+    H = (ny - 1) * scale + 1
+    W = (nx - 1) * scale + 1
+    my_s = _merc_y(lat_min)
+    my_n = _merc_y(lat_min + (ny - 1) * dy)
+    span = my_n - my_s
+    lats = lat_min + np.arange(ny, dtype=np.float64) * dy
+    mys = np.array([_merc_y(float(v)) for v in lats], dtype=np.float64)
+    if span > 0:
+        row_of = (H - 1) * (my_n - mys) / span
+    else:
+        row_of = np.arange(ny, dtype=np.float64) * (H - 1) / max(ny - 1, 1)
+    col_of = np.arange(nx, dtype=np.float64) * float(scale)
+    return row_of, col_of, H, W
+
+
+def _data_to_pixel(row_of, col_of, scale, x, y):
+    """``(x, y)`` in DATA-grid coords -> ``(px, py)`` in OUTPUT-raster pixels."""
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    px = x * float(scale)
+    py = np.interp(y, np.arange(row_of.shape[0], dtype=np.float64), row_of)
+    return px, py
+
+
+def _level_color(variant, level):
+    """RGBA of the scale band containing ``level``.
+
+    Same logic as the client (``fmContourColor`` -> ``searchsorted`` on the
+    breakpoints). Only the RGB of the band is used and the alpha is forced to
+    0.95: many scales have ``colors[0]`` fully transparent, and the alpha of
+    the scale would make the isoline invisible.
+    """
+    if not variant:
+        return CONTOUR_FALLBACK_COLOR
+    try:
+        bps = np.asarray(variant["breakpoints"], dtype=np.float64)
+        cols = np.asarray(variant["colors"], dtype=np.float64)
+    except Exception:
+        return CONTOUR_FALLBACK_COLOR
+    if (bps.ndim != 1 or cols.ndim != 2 or bps.size == 0
+            or cols.shape[0] != bps.shape[0] or cols.shape[1] < 3):
+        return CONTOUR_FALLBACK_COLOR
+    idx = int(np.searchsorted(bps, float(level), side="right") - 1)
+    idx = max(0, min(int(bps.size) - 1, idx))
+    rgb = np.clip(cols[idx, 0:3], 0.0, 255.0).astype(np.uint8)
+    return (int(rgb[0]), int(rgb[1]), int(rgb[2]),
+            int(round(CONTOUR_ALPHA * 255.0)))
+
+
+def _font(px):
+    """Pillow font of the requested pixel size (Pillow >= 10.1 supports ``size=``)."""
+    try:
+        return ImageFont.load_default(size=px)
+    except (TypeError, AttributeError, ValueError):
+        return ImageFont.load_default()
+
+
+def _draw_label(draw, x, y, text, font, halo_r=1):
+    """Text with a white halo and dark ink on top (orizzontale: no rotation)."""
+    for dx in (-halo_r, 0, halo_r):
+        for dy in (-halo_r, 0, halo_r):
+            if dx == 0 and dy == 0:
+                continue
+            draw.text((x + dx, y + dy), text, font=font, fill=HALO_COLOR)
+    draw.text((x, y), text, font=font, fill=INK_COLOR)
+
+
+def _format_level(level, interval):
+    """Label text of a level: integer if the interval is integer, else 1 decimal."""
+    if float(interval).is_integer():
+        return "%d" % int(round(level))
+    return "%.1f" % float(level)
+
+
+def _chain_segments(segs):
+    """Chain marching-squares segments into polylines.
+
+    ``segs`` is an (N, 4) sequence of ``(x0, y0, x1, y1)``. Two segments
+    that share an edge compute the SAME crossing (same corner values, same
+    formula), so the chaining is exact. Returns a list of polylines (lists of
+    ``(x, y)``).
+    """
+    if segs is None or len(segs) == 0:
+        return []
+
+    def key(x, y):
+        return (round(float(x), 9), round(float(y), 9))
+
+    items = [(float(s[0]), float(s[1]), float(s[2]), float(s[3])) for s in segs]
+    adj = {}
+    for idx, (x0, y0, x1, y1) in enumerate(items):
+        adj.setdefault(key(x0, y0), []).append((idx, True))
+        adj.setdefault(key(x1, y1), []).append((idx, False))
+    used = [False] * len(items)
+    lines = []
+    for i in range(len(items)):
+        if used[i]:
+            continue
+        used[i] = True
+        x0, y0, x1, y1 = items[i]
+        pts = [(x0, y0), (x1, y1)]
+        while True:
+            nxt = None
+            for idx, from_start in adj.get(key(pts[-1][0], pts[-1][1]), []):
+                if not used[idx]:
+                    nxt = (idx, from_start)
+                    break
+            if nxt is None:
+                break
+            idx, from_start = nxt
+            used[idx] = True
+            a, b, c, d = items[idx]
+            pts.append((c, d) if from_start else (a, b))
+        lines.append(pts)
+    return lines
+
+
+def _polyline_length(line):
+    """Lenght of a polyline (sum of the segment lengths)."""
+    total = 0.0
+    for i in range(len(line) - 1):
+        x0, y0 = line[i]
+        x1, y1 = line[i + 1]
+        total += math.hypot(x1 - x0, y1 - y0)
+    return total
+
+
+def _label_candidates(lines, spacing):
+    """Anchor positions (px) along the polylines, one every ``spacing`` px."""
+    out = []
+    for line in lines:
+        acc = 0.0
+        nxt = spacing * 0.5
+        for i in range(len(line) - 1):
+            x0, y0 = line[i]
+            x1, y1 = line[i + 1]
+            seg = math.hypot(x1 - x0, y1 - y0)
+            if seg <= 0.0:
+                continue
+            while nxt <= acc + seg:
+                f = (nxt - acc) / seg
+                out.append((x0 + (x1 - x0) * f, y0 + (y1 - y0) * f))
+                nxt += spacing
+            acc += seg
+    return out
+
+
+def _min_distance(placed, c):
+    """Distance from ``c`` to the closest already placed label (inf if none)."""
+    if not placed:
+        return float("inf")
+    best = float("inf")
+    for p in placed:
+        d = math.hypot(p[0] - c[0], p[1] - c[1])
+        if d < best:
+            best = d
+    return best
+
+
+def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=None):
+    """Draw the isolines of ``sub`` (and their VALUE labels) on ``draw``.
+
+    ``draw`` is an ImageDraw on the SUPERSAMPLED overlay: every coordinate is
+    multiplied by ``ss``. Returns ``{"levels": [...], "labels": [...]}`` with the
+    levels actually drawn and the ``(level, x, y)`` anchors of the labels (in
+    OUTPUT pixel coordinates).
+    """
+    empty = {"levels": [], "labels": []}
+    if sub is None:
+        return empty
+    z = np.asarray(sub)
+    if z.ndim != 2 or z.size == 0:
+        return empty
+    finite = np.isfinite(z)
+    if not finite.any():
+        return empty
+    dmin = float(z[finite].min())
+    dmax = float(z[finite].max())
+    levels = contour_levels(interval, dmin, dmax)
+    if not levels:
+        return empty
+    row_of, col_of, H, W = _grid_to_pixel(cgrid, scale)
+    if placed is None:
+        placed = []
+    font = _font(max(1, int(round(LABEL_FONT_PX * ss))))
+    width = max(1, int(round(CONTOUR_LINE_WIDTH * ss)))
+    drawn_levels = []
+    drawn_labels = []
+    for level in levels:
+        segs = contour_segments(z, level)
+        if len(segs) < 2:
+            continue
+        px0, py0 = _data_to_pixel(row_of, col_of, scale, segs[:, 0], segs[:, 1])
+        px1, py1 = _data_to_pixel(row_of, col_of, scale, segs[:, 2], segs[:, 3])
+        seg_px = np.stack([px0, py0, px1, py1], axis=1)
+        lines = _chain_segments(seg_px)
+        if not lines:
+            continue
+        color = _level_color(variant, level)
+        for (x0, y0, x1, y1) in seg_px:
+            draw.line([(x0 * ss, y0 * ss), (x1 * ss, y1 * ss)],
+                      fill=color, width=width)
+        drawn_levels.append(level)
+        total = 0.0
+        for line in lines:
+            total += _polyline_length(line)
+        if total < LABEL_MIN_POLYLINE_PX:
+            continue
+        text = _format_level(level, interval)
+        candidates = _label_candidates(lines, LABEL_MIN_SPACING_PX)
+        chosen = [c for c in candidates
+                  if _min_distance(placed, c) >= LABEL_MIN_SPACING_PX]
+        if not chosen and candidates:
+            # Ogni livello DEVE avere il valore scritto sull'immagine: se la
+            # spaziatura lo impedisce, si tiene il candidato piu' lontano.
+            chosen = [max(candidates, key=lambda c: _min_distance(placed, c))]
+        for c in chosen:
+            placed.append(c)
+            drawn_labels.append((level, c[0], c[1]))
+            _draw_label(draw, c[0] * ss, c[1] * ss, text, font)
+    return {"levels": drawn_levels, "labels": drawn_labels}
+
+
+def _wind_flow_vector(direction_deg):
+    """Unit vector of the FLOW (where the wind blows TO) in pixel axes.
+
+    ``direction_deg`` is the meteorological direction "FROM which the wind
+    blows" (0 = nord, 90 = est, 180 = sud, 270 = ovest): the convention of the
+    engine (``wind_direction_from_uv``). The flow is the opposite direction.
+    In pixel axes +x = EST and +y = SUD (the raster rows grow downwards), so::
+
+        dir = 0   (da nord) -> la freccia punta a SUD   (dy > 0)
+        dir = 180 (da sud)  -> la freccia punta a NORD   (dy < 0)
+        dir = 90  (da est)  -> la freccia punta a OVEST  (dx < 0)
+    """
+    b = (np.asarray(direction_deg, dtype=np.float64) + 180.0) % 360.0
+    rad = np.radians(b)
+    return np.sin(rad), -np.cos(rad)
+
+
+def _unwrap_direction(deg):
+    """Unwrap the 0/360 discontinuity of the wind direction.
+
+    Without this the bilinear resampler would average 350 deg with 10 deg and
+    produce 180 deg (a wrong arrow) along the discontinuity. The unwrapped
+    field is the SAME field on a continuous branch: sin/cos of the flow
+    direction are unchanged.
+    """
+    rad = np.radians(np.asarray(deg, dtype=np.float64))
+    rad = np.unwrap(rad, axis=1)
+    rad = np.unwrap(rad.T, axis=1).T
+    return np.degrees(rad)
+
+
+def _draw_wind_arrows(draw, speed_px, dir_px, cgrid, scale, speed_ref, ss=1.0):
+    """Draw the wind arrows on ``draw`` (supersampled overlay).
+
+    ``speed_px``/``dir_px`` are the resampled fields in OUTPUT pixel space
+    (same shape as the rendered raster); ``dir_px`` is the meteorological
+    direction "from". The arrows are sampled on a coarse lattice (every
+    ``ARROW_STEP_PX`` output pixels, at least 3 data cells). Returns the number
+    of arrows drawn.
+    """
+    if speed_px is None or dir_px is None:
+        return 0
+    speed = np.asarray(speed_px, dtype=np.float64)
+    dirs = np.asarray(dir_px, dtype=np.float64)
+    if speed.ndim != 2 or speed.shape != dirs.shape:
+        return 0
+    row_of, col_of, H, W = _grid_to_pixel(cgrid, scale)
+    ny = int(cgrid["ny"])
+    nx = int(cgrid["nx"])
+    step = max(ARROW_STEP_PX / float(scale), 3.0)
+    idx_i = np.unique(np.arange(0, nx, step).astype(np.int64))
+    idx_j = np.unique(np.arange(0, ny, step).astype(np.int64))
+    col_px = np.rint(idx_i * float(scale)).astype(np.int64)
+    row_px = np.rint(row_of[idx_j]).astype(np.int64)
+    np.clip(col_px, 0, W - 1, out=col_px)
+    np.clip(row_px, 0, H - 1, out=row_px)
+    sp = speed[np.ix_(row_px, col_px)]
+    dd = dirs[np.ix_(row_px, col_px)]
+    ok = np.isfinite(sp) & np.isfinite(dd) & (sp >= ARROW_MIN_SPEED)
+    if not ok.any():
+        return 0
+    ref = float(speed_ref) if speed_ref else 40.0
+    if not (ref > 0.0):
+        ref = 40.0
+    ux, uy = _wind_flow_vector(dd)
+    ratio = np.clip(sp / ref, 0.0, 1.0)
+    length = ARROW_LEN_MIN + (ARROW_LEN_MAX - ARROW_LEN_MIN) * ratio
+    head_len = ARROW_HEAD_RATIO * length
+    half_w = ARROW_HEAD_HALF_WIDTH_RATIO * length
+    width = max(1, int(round(ARROW_LINE_WIDTH * ss)))
+    count = 0
+    r_idx, c_idx = np.nonzero(ok)
+    for r, c in zip(r_idx, c_idx):
+        L = float(length[r, c])
+        if L <= 0.0:
+            continue
+        dx = float(ux[r, c])
+        dy = float(uy[r, c])
+        cx = float(col_px[c])
+        cy = float(row_px[r])
+        tipx = cx + dx * (L * 0.5)
+        tipy = cy + dy * (L * 0.5)
+        tailx = cx - dx * (L * 0.5)
+        taily = cy - dy * (L * 0.5)
+        basex = tipx - dx * float(head_len[r, c])
+        basey = tipy - dy * float(head_len[r, c])
+        ppx = -dy
+        ppy = dx
+        c1x = basex + ppx * float(half_w[r, c])
+        c1y = basey + ppy * float(half_w[r, c])
+        c2x = basex - ppx * float(half_w[r, c])
+        c2y = basey - ppy * float(half_w[r, c])
+        draw.line([(tailx * ss, taily * ss), (basex * ss, basey * ss)],
+                  fill=ARROW_COLOR, width=width)
+        draw.polygon([(tipx * ss, tipy * ss),
+                      (c1x * ss, c1y * ss),
+                      (c2x * ss, c2y * ss)],
+                     fill=ARROW_COLOR)
+        count += 1
+    return count
+
+
+def _overlay_scale(h, w):
+    """Supersampling factor of the overlay layer (anti-aliasing)."""
+    m = max(int(h), int(w))
+    if m <= OVERLAY_SIZE_LIMIT:
+        return OVERLAY_SUPERSAMPLE_SMALL
+    if m <= OVERLAY_SIZE_LIMIT_LARGE:
+        return OVERLAY_SUPERSAMPLE_MEDIUM
+    return OVERLAY_SUPERSAMPLE_LARGE
+
+
+def _make_overlay(h, w, ss, draw_fn):
+    """Build the (already resized) RGBA overlay layer for a base of (h, w)."""
+    ow = max(1, int(math.ceil(w * ss)))
+    oh = max(1, int(math.ceil(h * ss)))
+    layer = Image.new("RGBA", (ow, oh), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+    draw_fn(draw, ss)
+    if (ow, oh) != (w, h):
+        layer = layer.resize((w, h), Image.LANCZOS)
+    return layer
+
+
+def _apply_overlay(base_rgba, draw_fn):
+    """Composite the overlay on the base raster (the base is NEVER resampled).
+
+    The overlay is drawn on a separate RGBA layer (supersampled), resized with
+    LANCZOS to the base size and alpha-composited: the pixels where the layer
+    is completely transparent stay byte-identical to the base raster.
+    """
+    arr = np.asarray(base_rgba)
+    h = int(arr.shape[0])
+    w = int(arr.shape[1])
+    ss = _overlay_scale(h, w)
+    layer = _make_overlay(h, w, ss, draw_fn)
+    base = Image.fromarray(arr, "RGBA")
+    return np.asarray(Image.alpha_composite(base, layer))
+
+
+def _overlay_drawer(sub, cgrid, scale, variant, interval, placed,
+                    speed_out=None, dir_out=None, speed_ref=0.0):
+    """Build the draw callback of the overlay (isolines + wind arrows).
+
+    ``sub`` is the data-grid field (for the isolines), ``speed_out``/
+    ``dir_out`` are the OUTPUT-raster fields (for the arrows). The callback
+    receives the ImageDraw of the supersampled layer and the supersampling
+    factor.
+    """
+    def _draw(draw, ss):
+        if interval is not None:
+            _draw_contours(draw, sub, cgrid, scale, variant, interval,
+                           ss=ss, placed=placed)
+        if speed_out is not None and dir_out is not None:
+            _draw_wind_arrows(draw, speed_out, dir_out, cgrid, scale, speed_ref,
+                              ss=ss)
+    return _draw
+
+
+def _speed_reference(variant, default=40.0):
+    """Reference speed (m/s) of a wind speed scale: its last breakpoint."""
+    if not variant:
+        return default
+    try:
+        bps = variant.get("breakpoints") or []
+    except AttributeError:
+        return default
+    if not len(bps):
+        return default
+    try:
+        return float(bps[-1])
+    except (TypeError, ValueError):
+        return default
+
+
+# --------------------------------------------------------------------------- #
 # Region cropping
 # --------------------------------------------------------------------------- #
 def region_crop(bbox: dict, grid: dict, region):
@@ -504,11 +1172,21 @@ def _utcnow_iso() -> str:
 def _theme_var_dir(out_root: str, region: str, domain: str, var: str, theme: str) -> str:
     """Output directory for one region/domain/var/theme.
 
-    ``light`` (the client default) keeps the plain path; ``dark`` is nested in a
-    ``dark/`` subdir so both themes can coexist in a single published root.
+    1.2.4.13: the dark theme has been REMOVED (light only), so the output
+    directory is ALWAYS the plain ``<region>/<domain>/<var>`` path: there is no
+    ``dark/`` subdirectory any more.
     """
-    base = os.path.join(out_root, region, domain, var)
-    return os.path.join(base, "dark") if theme == "dark" else base
+    return os.path.join(out_root, region, domain, var)
+
+
+def _prune_legacy_theme_dirs(out_root: str, region: str, domain: str, var: str) -> None:
+    """Remove the legacy ``<var>/dark/`` subtree published by 1.2.4.12.
+
+    ``prune_dir`` only deletes the stale ``*.webp`` files, so without this the
+    dark subtree would stay in the published tree forever.
+    """
+    vdir = os.path.join(out_root, region, domain, var)
+    shutil.rmtree(os.path.join(vdir, "dark"), ignore_errors=True)
 
 
 def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: dict) -> tuple:
@@ -570,7 +1248,7 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
     skipped = 0
     frames_done = 0
     bytes_written = 0
-    themes = args.themes
+    themes = ["light"]
     # rname -> var -> theme -> [frame records]
     var_frames = {rname: {} for rname in crops}
     var_meta = {}                                # var -> unit
@@ -604,13 +1282,12 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                           % (valid_time, ",".join(missing)), file=sys.stderr)
 
             base_name = valid_time_to_filename(valid_time)
+            # Cache per FRAME degli array di direzione del vento: letti una
+            # volta sola (non una volta per regione/variabile).
+            dir_cache = {}
             for var in names:
-                theme_lookups = {}
-                for t in themes:
-                    lk = make_lookup(scales, var, t)
-                    if lk is not None:
-                        theme_lookups[t] = lk
-                if not theme_lookups:
+                lk = make_lookup(scales, var, themes[0])
+                if lk is None:
                     print("  ~ no color scale for %r (skip)" % var, file=sys.stderr)
                     continue
                 try:
@@ -620,25 +1297,61 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                           file=sys.stderr)
                     continue
 
+                variant = _scale_variant(scales, var, themes[0])
                 if var not in var_meta:
-                    variant = _scale_variant(scales, var, themes[0])
                     var_meta[var] = variant.get("unit") if variant else None
+
+                # Frecce vento: l'array di DIREZIONE (gradi, "da cui soffia")
+                # non ha color scale (quindi non genera un WebP proprio) e va
+                # letto esplicitamente dallo stesso frame .om.
+                dir_arr = None
+                dir_name = ARROW_VARS.get(var)
+                if dir_name:
+                    if dir_name in dir_cache:
+                        dir_arr = dir_cache[dir_name]
+                    else:
+                        try:
+                            raw_dir = read_frame_array(reader, dir_name)
+                            dir_arr = _unwrap_direction(raw_dir)
+                            dir_cache[dir_name] = dir_arr
+                        except Exception as exc:
+                            print("  ! %s/%s read failed: %s"
+                                  % (valid_time, dir_name, exc), file=sys.stderr)
+                            dir_arr = None
+
+                interval = CONTOUR_INTERVALS.get(var)
+                speed_ref = _speed_reference(variant) if dir_name else 0.0
 
                 for rname, crop in crops.items():
                     sub = arr[crop["row0"]:crop["row1"], crop["col0"]:crop["col1"]]
                     arr_out = crop["resample"](sub)
-                    for t, lk in theme_lookups.items():
-                        rgba = lk(arr_out)
+                    rgba = lk(arr_out)
 
-                        vdir = _theme_var_dir(out_root, rname, domain, var, t)
-                        os.makedirs(vdir, exist_ok=True)
-                        wpath = os.path.join(vdir, base_name + ".webp")
-                        size = save_webp(rgba, wpath, args.quality, args.lossless,
-                                         args.method)
-                        rendered += 1
-                        bytes_written += size
+                    # Isolinee (con i valori) e frecce vento: disegnate su un
+                    # layer RGBA separato e composte per alpha. Il raster base
+                    # NON viene risamplato.
+                    if interval is not None or dir_arr is not None:
+                        dir_out = None
+                        if dir_arr is not None:
+                            dsub = dir_arr[crop["row0"]:crop["row1"],
+                                           crop["col0"]:crop["col1"]]
+                            dir_out = crop["resample"](dsub)
+                        rgba = _apply_overlay(rgba, _overlay_drawer(
+                            sub, crop["grid"], crop["scale"], variant, interval,
+                            [], arr_out if dir_out is not None else None,
+                            dir_out, speed_ref))
 
-                        var_frames[rname].setdefault(var, {}).setdefault(t, []).append({
+                    vdir = _theme_var_dir(out_root, rname, domain, var, themes[0])
+                    os.makedirs(vdir, exist_ok=True)
+                    _prune_legacy_theme_dirs(out_root, rname, domain, var)
+                    wpath = os.path.join(vdir, base_name + ".webp")
+                    size = save_webp(rgba, wpath, args.quality, args.lossless,
+                                     args.method)
+                    rendered += 1
+                    bytes_written += size
+
+                    var_frames[rname].setdefault(var, {}).setdefault(
+                        themes[0], []).append({
                             "file": base_name + ".webp",
                             "valid_time": valid_time,
                             "bytes": size,
@@ -676,6 +1389,7 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                 keep = {r["file"] for r in recs}
                 vdir = _theme_var_dir(out_root, rname, domain, var, theme)
                 prune_dir(vdir, keep)
+                _prune_legacy_theme_dirs(out_root, rname, domain, var)
                 vmanifest = {
                     "version": WEBP_VERSION,
                     "generated_at": generated_at,
@@ -692,8 +1406,6 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                 }
                 write_json(os.path.join(vdir, "latest.json"), vmanifest)
                 sub = "%s/%s" % (domain, var)
-                if theme == "dark":
-                    sub = "%s/dark" % sub
                 entry["themes"][theme] = {
                     "count": len(recs),
                     "valid_times": [r["valid_time"] for r in recs],
@@ -851,9 +1563,8 @@ def rebuild_index(in_dir: str, out_dir: str, domain_list, region_names, themes) 
                 for theme, (tdir, vman) in sorted(theme_manifests.items()):
                     keep = {f["file"] for f in vman["frames"]}
                     prune_dir(tdir, keep)
+                    _prune_legacy_theme_dirs(out_dir, rname, domain, var)
                     sub = "%s/%s" % (domain, var)
-                    if theme == "dark":
-                        sub = "%s/dark" % sub
                     # Same theme-entry shape as the render path's writer.
                     entry["themes"][theme] = {
                         "count": len(vman["valid_times"]),
@@ -920,9 +1631,9 @@ def parse_args(argv=None):
                     help="comma-separated domain allow-list (default: all found)")
     ap.add_argument("--vars", default=None,
                     help="comma-separated variable allow-list (default: manifest order)")
-    ap.add_argument("--themes", default="light,dark",
-                    help="comma-separated color-scale themes (default: light,dark; "
-                         "dark is written under <var>/dark/)")
+    ap.add_argument("--themes", default="light",
+                    help="comma-separated color-scale themes (default: light; "
+                         "the dark theme has been REMOVED in 1.2.4.13)")
     ap.add_argument("--quality", type=int, default=90, help="WebP quality (lossy)")
     ap.add_argument("--lossless", action="store_true", help="write lossless WebP")
     ap.add_argument("--limit-frames", type=int, default=0,
@@ -948,10 +1659,10 @@ def main(argv=None) -> int:
     args.vars = _split_csv(args.vars)
 
     themes = _split_csv(args.themes) or ["light"]
-    bad = [t for t in themes if t not in ("light", "dark")]
+    bad = [t for t in themes if t != "light"]
     if bad:
-        print("FATAL: unknown theme(s) %s (known: light,dark)" % ",".join(bad),
-              file=sys.stderr)
+        print("FATAL: dark theme removed in 1.2.4.13 (only 'light' is allowed; "
+              "requested: %s)" % ",".join(bad), file=sys.stderr)
         return 2
     args.themes = themes
 

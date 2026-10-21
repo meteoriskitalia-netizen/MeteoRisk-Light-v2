@@ -11,7 +11,7 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.12.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.13.html');
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -128,35 +128,39 @@ function setIndex(themes) {
 const BASE = ctx.FM_RENDERED_BASE;
 const TOKEN = VALID.replace(/:/g, '').replace('Z', '');
 
-setIndex(['light', 'dark']); ctx.fmOpts = { dark: false };
+setIndex(['light', 'dark']);
 const lf = ctx.fmWebpFrameUrl(0);
 ok('C1: light -> url da themes.light.dir',
   !!lf && lf.url === BASE + 'europa/dwd_icon_eu/temperature_2m/' + TOKEN + '.webp',
   lf && lf.url);
 
+// 1.2.4.13: il renderer produce SOLO il tema `light` (niente piu' `dark/`), quindi il
+// client non deve piu' chiedere la variante scura. `ctx.fmOpts` e' un RESIDUO legacy:
+// il modulo non lo legge piu' e questo test dimostra che il tema resta "light" anche se
+// qualcosa provasse a impostare il flag scuro.
 ctx.fmOpts = { dark: true };
 const dk = ctx.fmWebpFrameUrl(0);
-ok('C2: dark -> url da themes.dark.dir (e NON null)',
-  !!dk && dk.url === BASE + 'europa/dwd_icon_eu/temperature_2m/dark/' + TOKEN + '.webp',
+ok('C2: il tema scuro non esiste piu\' -> il frame usa SEMPRE themes.light.dir',
+  !!dk && dk.url === BASE + 'europa/dwd_icon_eu/temperature_2m/' + TOKEN + '.webp',
   dk && dk.url);
+ok('C2b: il percorso "dark" NON viene mai richiesto',
+  !!dk && dk.url.indexOf('/dark/') < 0, dk && dk.url);
 
 // valid_times letto da themes[theme]: se il tema non elenca il frame -> null
 setIndex(['light']);
-ctx.fmOpts = { dark: false };
 ctx.fmWebpIndex.domains.dwd_icon_eu.variables.temperature_2m.themes.light.valid_times = ['2099-01-01T00:00Z'];
 ctx.fmIdx = 0;
 ok('C3: valid_times preso da themes[theme] (frame assente -> null)',
   ctx.fmWebpFrameUrl(0) === null, String(ctx.fmWebpFrameUrl(0)));
 
-// tema non pubblicato nell'index -> null
-setIndex(['light']);
-ctx.fmOpts = { dark: true };
-ok('C4: tema non in index.themes -> null', ctx.fmWebpFrameUrl(0) === null, String(ctx.fmWebpFrameUrl(0)));
+// 1.2.4.13: l'indice NON pubblica il tema `light` (es. indice legacy con il solo `dark`):
+// il client non puo' usare il frame -> null (stessa guardia, tema light).
+setIndex(['dark']);
+ok('C4: indice senza il tema light -> null', ctx.fmWebpFrameUrl(0) === null, String(ctx.fmWebpFrameUrl(0)));
 
 // regione 'domain' -> fmRenderRegionId() === 'domain' (nuova mappa D)
 ctx.fmDomain = 'dwd_icon_eu'; ctx.fmVariable = 'temperature_2m';
 ctx.fmRegion = 'domain'; ctx.fmIdx = 0;
-ctx.fmOpts = { dark: false };
 ctx.fmMeta = { valid_times: [VALID] };
 ctx.fmWebpIndexRegion = 'domain';
 ctx.fmWebpIndex = {
@@ -217,7 +221,6 @@ async function run(useWebp, times) {
   ctx.fmDomain = 'dwd_icon_eu';
   ctx.fmVariable = 'temperature_2m';
   ctx.fmRegion = 'europe';
-  ctx.fmOpts = { dark: false };
   ctx.fmMeta = { valid_times: times.slice() };
   ctx.fmIdx = 0;
   ctx.fmClipBounds = null;

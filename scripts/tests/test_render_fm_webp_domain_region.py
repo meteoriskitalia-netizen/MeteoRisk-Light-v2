@@ -180,7 +180,7 @@ def test_index_only_domain_region_end_to_end(tmp_path):
 # Predicato server PRIMA del fix (bug, assi scambiati):
 #     lat_span > 300 OR lon_span > 120
 # Predicato DOPO il fix == client fmIsGlobalDomain
-# (mri-light-1.2.4.12.html): lon_span > 300 OR lat_span > 120.
+# (mri-light-1.2.4.13.html): lon_span > 300 OR lat_span > 120.
 #
 # Per i 10 domini reali i due predicati coincidono (7 globali / 3 non-globali,
 # nessun cambio di classificazione: golden sotto), ma si DISTINGUONO sui due
@@ -292,7 +292,7 @@ def test_domain_region_render_gate_follows_aligned_predicate(tmp_path):
     args.domains = mod._split_csv(args.domains)
     args.vars = mod._split_csv(args.vars)
     args.themes = mod._split_csv(args.themes) or ["light"]
-    assert args.themes == ["light", "dark"]
+    assert args.themes == ["light"]
     regions = {"domain": None}          # solo la regione sotto test
 
     nx, ny = 20, 10
@@ -325,9 +325,8 @@ def test_domain_region_render_gate_follows_aligned_predicate(tmp_path):
     wpath_a = os.path.join(vdir_a, mod.valid_time_to_filename(vt) + ".webp")
     assert os.path.isfile(wpath_a) and os.path.getsize(wpath_a) > 0
     assert os.path.isfile(os.path.join(vdir_a, "latest.json"))
-    # Anche il theme dark e' stato scritto (default CLI light,dark).
-    assert os.path.isfile(os.path.join(vdir_a, "dark",
-                                       mod.valid_time_to_filename(vt) + ".webp"))
+    # 1.2.4.13: il tema scuro e' stato RIMOSSO -> nessun sottoalbero "dark/".
+    assert not os.path.exists(os.path.join(vdir_a, "dark"))
 
     # (b) GLOBALE (lat_span=150) -> la regione 'domain' DEVE essere SALTATA:
     # col vecchio predicato trasposto qui veniva renderizzata a torto.

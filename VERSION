@@ -1,3 +1,12 @@
+MeteoRisk Light - 1.2.4.13 - MAPPE PREVISIONALI AUTOSUFFICIENTI: ISOLINEE CON I VALORI E FRECCE DEL VENTO DISEGNATE DENTRO IL WEBP (TEMA SCURO E INTERRUTTORI OPZIONALI RIMOSSI) + CI: BRANCH DATI, ARTIFACT E COSTO DELLA PIPELINE CORRETTI, fm2-rendered PUBBLICATA (bump da 1.2.4.12)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=13
+RELEASE_TYPE=release
+DATE=2026-10-21
+NOTE=Release 1.2.4.13 (bump da 1.2.4.12): (a) RENDERER - il WebP diventa autosufficiente: le isolinee fitte (con il valore numerico etichettato) e le frecce del vento sono disegnate dentro l'immagine WebP dal renderer server-side (marching squares vettoriale in numpy, overlay PIL separato con antialiasing e halo sulle etichette, raster base mai risamplato), quindi il livello vettoriale WML sovrapposto non e' piu' necessario; i livelli sono multipli regolari dell'unita' nativa e il tetto di 64 livelli e' rispettato aumentando l'intervallo; il renderer produce la sola variante light (rimosso il ramo dark/ e il flag --themes dark) e la griglia non viene piu' generata. (b) CLIENT - rimossi i 4 interruttori opzionali della sezione Mappe Previsionali (contorni, frecce, griglia, tema scuro) e il selettore di densita': le impostazioni diventano implicite e il fast-path WebP e' sempre preferito quando esiste. (c) CI - corretti i 5 workflow per-fornitore: il fetch dei branch dati usa sparse-checkout in modalita' cone con checkout tollerato (era l'errore 'matched paths that exist outside of your sparse-checkout definition') e il render-merge legge gli artifact dal percorso download-artifact (era 'Nessun output renderizzato: niente da committare'): fm2-rendered viene finalmente pubblicata. (d) CI - l'index-builder materializza solo i manifest JSON e il render-merge non scarica piu' l'intero albero WebP (240+ MiB): il commit usa gia' un indice temporaneo popolato dal tree del branch, quindi i WebP degli altri fornitori non servono (sicurezza PROVATA con git reale 2.53.0). (e) CI - i 3 job cron-job.org dei provider sono stati eliminati (ridondanti col cron nativo dei workflow, che avrebbe prodotto un dispatch triplo su dwd_icon).
+APP_FILE=mri-light-1.2.4.13.html
 MeteoRisk Light - 1.2.4.12 - MAPPE PREVISIONALI: CACHE DATI SPOSTATA SU BRANCH DEDICATO fm2-cache (SQUASH A UN SOLO COMMIT: IL BRANCH NON ACCUMULA STORIA E main NON CRESCE) + CLIENT RIPUNTATO AL NUOVO REPOSITORY MeteoRisk-Light-v2 (bump da 1.2.4.11)
 MAJOR=1
 MINOR=2

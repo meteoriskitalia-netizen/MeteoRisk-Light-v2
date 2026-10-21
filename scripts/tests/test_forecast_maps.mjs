@@ -19,7 +19,7 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.12.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.13.html');
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -133,7 +133,8 @@ ok("B2: fmValidFile('2026-10-10T23:00Z') === '2026-10-10T2300.om'",
 ctx.fmDomain = 'dwd_icon_eu';
 ctx.fmVariable = 'temperature_2m';
 ctx.fmIdx = 0;
-ctx.fmOpts = { contours: false, arrows: false, arrowStyle: 'arrow', grid: false, dark: false };
+// 1.2.4.13: lo stato "fmOpts" variabile e' stato rimosso (i toggle opzionali non esistono
+// piu'): il modulo FM usa la costante FM_OPTS, quindi qui non c'e' piu' nulla da impostare.
 ctx.fmMeta = {
   reference_time: '2026-10-10T18:00:00Z',
   valid_times: ['2026-10-10T23:00Z'],
@@ -181,12 +182,14 @@ ok('B3g: in cache mode l\'URL .om usa il branch del fornitore (fm2-dwd)',
   curCache === PERDOM, curCache);
 ctx.fmSrcCache = false;
 ok('B4: fmCurrentOmUrl().valid = valid_times[0]', cur && cur.valid === '2026-10-10T23:00Z');
-ok('B5: fmVectorUrl(url) === null con tutte le opzioni off',
-  ctx.fmVectorUrl(EXPECTED) === null, String(ctx.fmVectorUrl(EXPECTED)));
-
-ctx.fmOpts.contours = true;
-ok("B6: con contours=true fmVectorUrl ritorna l'URL con &contours=true",
-  ctx.fmVectorUrl(EXPECTED) === EXPECTED + '&contours=true', ctx.fmVectorUrl(EXPECTED));
+// 1.2.4.13: i toggle opzionali (Isolinee / Frecce vento / Griglia / Palette scura) e la
+// densita' sono rimossi: la via di fallback WML/.om chiede SEMPRE isolinee + frecce vento
+// (i WebP non esistono per tutte le regioni/domini) e MAI la griglia.
+ok("B5: fmVectorUrl(url) chiede SEMPRE contours=true + arrows=true (non restituisce null)",
+  ctx.fmVectorUrl(EXPECTED) === EXPECTED + '&contours=true&intervals=1&arrows=true&arrow_style=arrow',
+  String(ctx.fmVectorUrl(EXPECTED)));
+ok("B6: fmVectorUrl NON chiede mai grid=true",
+  String(ctx.fmVectorUrl(EXPECTED)).indexOf('grid=true') < 0, String(ctx.fmVectorUrl(EXPECTED)));
 
 // ---- B7: legenda (fmUpdateLegend) — l'alpha della libreria e' in 0..1, non 0..255 ----
 const legendEl = { innerHTML: '' };
@@ -240,21 +243,26 @@ ctx.document.getElementById = function (id) {
   return null;
 };
 ctx.setTimeout = setTimeout; // timer reali: la catena avanza sul loop di Node
+function makeLayer(url, opts) {
+  const layer = {
+    _url: url, _opts: opts, _handlers: {},
+    on(ev, fn) { this._handlers[ev] = fn; return this; },
+    addTo(m) {
+      createdLayers.push(this);
+      if (m && m._layers) m._layers.add(this);
+      const self = this;
+      setTimeout(function () { if (self._handlers && self._handlers.load) self._handlers.load(); }, 0);
+      return this;
+    },
+  };
+  return layer;
+}
 ctx.fmAdapter = {
-  createTileLayer: function (url, opts) {
-    const layer = {
-      _url: url, _opts: opts, _handlers: {},
-      on(ev, fn) { this._handlers[ev] = fn; return this; },
-      addTo(m) {
-        createdLayers.push(this);
-        if (m && m._layers) m._layers.add(this);
-        const self = this;
-        setTimeout(function () { if (self._handlers && self._handlers.load) self._handlers.load(); }, 0);
-        return this;
-      },
-    };
-    return layer;
-  },
+  createTileLayer: function (url, opts) { return makeLayer(url, opts); },
+  // 1.2.4.13: il fallback WML/.om chiede SEMPRE il layer vettoriale (contours + arrows),
+  // quindi il mock dell'adapter deve implementare anche createVectorTileLayer: senza, il
+  // fmRebuild aborta a meta' e fmVectorLayer resta null (guard cache-by-url mai soddisfatto).
+  createVectorTileLayer: function (url, opts) { return makeLayer(url, opts); },
 };
 ctx.map = {
   _layers: new Set(),
@@ -278,7 +286,6 @@ function resetFmState() {
   ctx.fmVariable = 'temperature_2m';
   ctx.fmActive = true;
   ctx.fmIdx = 0;
-  ctx.fmOpts = { contours: false, arrows: false, arrowStyle: 'arrow', grid: false, dark: false };
   ctx.fmPreloadActive = false;
   ctx.fmPreloadGen = 0;
   ctx.fmWarmLayer = null;

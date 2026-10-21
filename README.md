@@ -6,10 +6,18 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.12
+## Versione attiva: 1.2.4.13
 
-- File applicativo: `mri-light-1.2.4.12.html` (`APP_VERSION = '1.2.4.12'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.12', date: '2026-10-20' }`).
+- File applicativo: `mri-light-1.2.4.13.html` (`APP_VERSION = '1.2.4.13'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.13', date: '2026-10-21' }`).
+- Contenuto della 1.2.4.13 (release sopra la 1.2.4.12):
+  - **Renderer - WebP autosufficiente**: le isolinee (fitte, con il valore numerico etichettato) e le frecce del vento sono disegnate dentro l'immagine WebP dal renderer server-side: il livello vettoriale WML sovrapposto non e' piu' necessario. I livelli sono multipli regolari dell'unita' nativa e il raster base non viene mai risamplato (l'overlay e' un layer separato in alpha).
+  - **Renderer - solo tema light**: rimossa la variante `dark/` e il flag `--themes dark`; il tema scuro non e' piu' generato lato server.
+  - **Client - interruttori opzionali rimossi**: dalla sezione Mappe Previsionali spariscono contorni, frecce, griglia, tema scuro e il selettore di densita' (sono tutti dentro il WebP); il fast-path WebP e' sempre preferito quando esiste.
+  - **CI - pipeline delle mappe sbloccata**: i 5 workflow per-fornitore non fallivano piu' sul fetch dei branch dati (`sparse-checkout` in modalita' cone con checkout tolerato) ne' sul percorso degli artifact (`download-artifact`): `fm2-rendered` viene finalmente pubblicata (4.620 WebP).
+  - **CI - costo della pipeline ridotto**: l'index-builder materializza solo i manifest JSON (non piu' 240+ MiB di WebP) e il render-merge non scarica piu' l'intero albero WebP, perche' il commit usa gia' un indice temporaneo popolato dal tree del branch (sicurezza provata con git reale 2.53.0).
+  - **CI - cron-job.org**: i 3 job dei provider sono stati eliminati (ridondanti col cron nativo dei workflow, che avrebbe prodotto un dispatch triplo su `dwd_icon`); restano i 4 job radar/satellite/data/phenomeni.
+  - **Test**: nuovo `scripts/tests/test_render_fm_webp_overlay.py` (26 test) e nuovo `scripts/tests/test_fm_webp_selfcontained.mjs` (55 controlli); i contratti light-only dei test esistenti sono stati aggiornati.
 - Contenuto della 1.2.4.12 (release sopra la 1.2.4.11):
   - **CI - cache dati su branch dedicato `fm2-cache`**: i frame `.om` e le tile WebP generati
     non vengono piu' committati su `main` ma su un branch dedicato `fm2-cache`, quindi i dati non
@@ -247,7 +255,7 @@ Comandi e conteggi aggiornati sono quelli documentati in `C:\Users\aless\Desktop
 
 ## File chiave
 
-- `mri-light-1.2.4.12.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
+- `mri-light-1.2.4.13.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
 - `VERSION` — bump di versione e storico note di rilascio
 - `.github/workflows/{radar-engine,satellite-engine,update-weather-data,phenomena-verify,deploy-pages,forecast-maps-v2}.yml` — i 6 workflow
 - `scripts/radar_engine/` — motore radar DPC (Fase 1 + candidati supercelle, sperimentali)
