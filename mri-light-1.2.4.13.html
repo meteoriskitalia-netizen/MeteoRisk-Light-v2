@@ -207,6 +207,12 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         /* Stessa protezione per i layer L.imageOverlay (satellite Infoplaza,
            fulmini Infoplaza): nessuna transizione ereditata, swap sempre istantaneo. */
         .leaflet-image-layer { transition: none !important; }
+         /* Transizione dedicata ai frame previsionali WebP: gli altri overlay
+            (satellite/fulmini) restano istantanei per evitare sfarfallii. */
+         .leaflet-image-layer.mri-fm-frame { transition: opacity 180ms ease-out !important; }
+         @media (prefers-reduced-motion: reduce) {
+             .leaflet-image-layer.mri-fm-frame { transition: none !important; }
+         }
         .map-toolbar-scroll::-webkit-scrollbar { height: 4px; }
         .map-toolbar-scroll::-webkit-scrollbar-track { background: #1e293b; border-radius: 2px; }
         .map-toolbar-scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 2px; }
@@ -11277,7 +11283,7 @@ function fmCacheBaseFor(domain) {
 // `fm2-rendered` (scrittore unico: forecast-maps-index.yml), NON piu' su fm2-cache.
 var FM_RENDERED_BASE = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/refs/heads/fm2-rendered/data/fm2-rendered/';
 // Id regione UI FM -> id regione servita dal renderer WebP (europa/italia).
-var FM_RENDER_REGION_MAP = { 'europe': 'europa', 'italy': 'italia', 'domain': 'domain' };
+var FM_RENDER_REGION_MAP = { 'europe': 'europa', 'italy': 'italia', 'north': 'north', 'domain': 'domain' };
 
 var FM_WML_URLS = [
     'https://unpkg.com/@openmeteo/weather-map-layer@0.2.2/dist/index.mjs',
@@ -11295,6 +11301,7 @@ var FM_DOMAINS = [
 // Aree geografiche per i modelli globali (bbox in formato [S, W, N, E])
 var FM_REGIONS = [
     { id: 'domain', label: 'Intero dominio', bbox: null },
+    { id: 'north', label: 'Emisfero nord', bbox: [20, -180, 85.05112878, 180] },
     { id: 'europe', label: 'Europa', bbox: [34, -15, 62, 40] },
     { id: 'med', label: 'Mediterraneo', bbox: [30, -6, 47, 40] },
     { id: 'italy', label: 'Italia', bbox: [35.5, 6.5, 47.5, 19] },
@@ -11515,6 +11522,10 @@ var fmLoaderTimer = null;
     var fmWebpIndexRegion = null; // id regione server a cui appartiene fmWebpIndex
     var fmWebpIndexLoading = null; // id regione server la cui index.json e' in caricamento
     var fmWebpFailedUrl = null; // URL WebP che ha fallito: disabilita il fast-path per quel frame (anti-loop)
+    var fmWebpGeneration = 0;
+    var fmWebpVisibleLayer = null;
+    var fmWebpRetiringLayers = [];
+    var FM_WEBP_FADE_MS = 180;
 
 function fmEl(id) { return document.getElementById(id); }
 function fmSetStatus(text) { var el = fmEl('fm-status'); if (el) el.textContent = text; }
@@ -11625,9 +11636,9 @@ function fmDomainRegionIds(d) {
     // Domini globali ritagliati sull'emisfero nord (1.2.4.13): niente regioni
     // fuori dal crop.
     if (d === 'ecmwf_ifs025' || d === 'ncep_gfs025' || d === 'dwd_icon' || d === 'meteofrance_arpege_world025') {
-        return ['domain', 'europe', 'italy', 'natl'];
+        return ['north', 'domain', 'europe', 'italy', 'natl'];
     }
-    return ['domain', 'europe', 'italy', 'natl'];
+    return ['north', 'domain', 'europe', 'italy', 'natl'];
 }
 function fmPopulateRegions() {
     var sel = fmEl('fm-region-select');
@@ -12189,9 +12200,14 @@ function fmWarmWebpNext() {
     try { var im = new Image(); im.src = f.url; } catch (e) { }
 }
 function fmRemoveLayers() {
+    fmWebpGeneration++;
     if (fmRasterLayer && typeof map !== 'undefined' && map) { try { map.removeLayer(fmRasterLayer); } catch (e) { } }
     if (fmVectorLayer && typeof map !== 'undefined' && map) { try { map.removeLayer(fmVectorLayer); } catch (e) { } }
     if (fmWebpLayer && typeof map !== 'undefined' && map) { try { map.removeLayer(fmWebpLayer); } catch (e) { } }
+    if (fmWebpVisibleLayer && fmWebpVisibleLayer !== fmWebpLayer && typeof map !== 'undefined' && map) { try { map.removeLayer(fmWebpVisibleLayer); } catch (e) { } }
+    fmWebpRetiringLayers.forEach(function (layer) { try { if (typeof map !== 'undefined' && map && map.hasLayer(layer)) map.removeLayer(layer); } catch (e) { } });
+    fmWebpRetiringLayers = [];
+    fmWebpVisibleLayer = null;
     fmRasterLayer = null;
     fmVectorLayer = null;
     fmWebpLayer = null;
@@ -12218,16 +12234,45 @@ function fmRebuild() {
         if (wb) {
             var wkey = 'webp|' + fmWebpTheme() + '|' + webp.url + '|' + webp.bounds[0][0] + ',' + webp.bounds[0][1] + ',' + webp.bounds[1][0] + ',' + webp.bounds[1][1];
             if (wkey === fmLayerKey && fmLayerOnMap(fmWebpLayer)) return;
-            fmRemoveLayers();
+            // Mantieni il frame WebP precedente visibile finche' il successivo
+            // non e' caricato e decodificato: evita il vuoto tra due frame.
+            if (fmRasterLayer && typeof map !== 'undefined' && map) { try { map.removeLayer(fmRasterLayer); } catch (e) { } }
+            if (fmVectorLayer && typeof map !== 'undefined' && map) { try { map.removeLayer(fmVectorLayer); } catch (e) { } }
+            fmRasterLayer = null;
+            fmVectorLayer = null;
             fmTilePending = 0;
             try {
-                fmWebpLayer = L.imageOverlay(webp.url, wb, { opacity: 0.8, pane: 'forecastMapsPane' });
+                var oldWebpLayer = fmWebpVisibleLayer && fmLayerOnMap(fmWebpVisibleLayer) ? fmWebpVisibleLayer : null;
+                var myWebpGeneration = ++fmWebpGeneration;
+                var nextWebpLayer = L.imageOverlay(webp.url, wb, { opacity: 0, pane: 'forecastMapsPane', className: 'mri-fm-frame' });
+                fmWebpLayer = nextWebpLayer;
                 if (fmWebpLayer && fmWebpLayer.once) {
+                    fmWebpLayer.once('load', function () {
+                        if (myWebpGeneration !== fmWebpGeneration) {
+                            try { if (map.hasLayer(nextWebpLayer)) map.removeLayer(nextWebpLayer); } catch (e) { }
+                            return;
+                        }
+                        requestAnimationFrame(function () {
+                            if (myWebpGeneration !== fmWebpGeneration || !map.hasLayer(nextWebpLayer)) return;
+                            nextWebpLayer.setOpacity(0.8);
+                            fmWebpVisibleLayer = nextWebpLayer;
+                            if (oldWebpLayer && map.hasLayer(oldWebpLayer)) {
+                                oldWebpLayer.setOpacity(0);
+                                fmWebpRetiringLayers.push(oldWebpLayer);
+                                setTimeout(function () {
+                                    try { if (map.hasLayer(oldWebpLayer)) map.removeLayer(oldWebpLayer); } catch (e) { }
+                                    fmWebpRetiringLayers = fmWebpRetiringLayers.filter(function (layer) { return layer !== oldWebpLayer; });
+                                }, FM_WEBP_FADE_MS + 30);
+                            }
+                        });
+                    });
                     fmWebpLayer.once('error', function () {
                         // Il .webp non e' disponibile: rimuovi l'overlay e ricadi sul raster .om.
+                        if (myWebpGeneration !== fmWebpGeneration) return;
                         fmWebpFailedUrl = webp.url;
-                        if (fmWebpLayer) { try { if (typeof map !== 'undefined' && map) map.removeLayer(fmWebpLayer); } catch (e) {} }
-                        fmWebpLayer = null;
+                        if (nextWebpLayer) { try { if (typeof map !== 'undefined' && map) map.removeLayer(nextWebpLayer); } catch (e) {} }
+                        fmWebpLayer = oldWebpLayer;
+                        fmWebpVisibleLayer = oldWebpLayer;
                         fmLayerKey = null; // forza il rebuild sul path .om
                         fmSetStatus('Vista pre-renderizzata non disponibile: uso la cache .om');
                         fmRebuild();
