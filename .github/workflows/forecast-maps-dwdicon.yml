@@ -374,20 +374,29 @@ jobs:
             data/fm2-rendered
           sparse-checkout-cone-mode: true
 
-      - name: Recupera i dati da fm2-rendered
+      - name: Recupera lo stato di fm2-rendered (SENZA materializzare i WebP)
         run: |
           set -e
           git fetch --no-tags --depth=1 origin fm2-rendered || { echo "fm2-rendered non esiste ancora: prima esecuzione"; exit 0; }
           git sparse-checkout disable >/dev/null 2>&1 || true
+          # 1.2.4.13: il checkout integrale di `data/fm2-rendered` scaricava
+          # TUTTI i blob WebP del branch (240+ MiB e crescenti: 4.700+ oggetti)
+          # e il job render-merge ci metteva 10-20 minuti PRIMA di iniziare a
+          # lavorare. Ma il commit-step usa gia' un indice TEMPORANEO popolato
+          # da `git read-tree "$BASE"` (il tree DEL BRANCH): i WebP degli altri
+          # fornitori non servono nel working tree, non vengono mai staged e
+          # non possono essere rimossi come cancellazioni.
+          # Il working tree deve contenere SOLO lo shard autorevole del
+          # provider (rm -rf + cp -a piu' avanti).
+          # La sicurezza e' stata PROVATA con git reale: senza il checkout il
+          # tree finale contiene i WebP nuovi del provider, rimuove i vecchi /
+          # il subtree dark / le variabili droppate, lascia INTATTI i WebP degli
+          # altri domini e gli index.json aggregati, e la guardia di scope
+          # (ALLOW_RE) non rileva alcuna violazione.
           if git rev-parse --verify --quiet FETCH_HEAD >/dev/null 2>&1; then
-            for p in data/fm2 data/fm2-rendered; do
-              if git ls-tree --name-only FETCH_HEAD -- "$p" 2>/dev/null | grep -q .; then
-                echo "[fetch] $p presente sul branch: checkout."
-                git checkout FETCH_HEAD -- "$p" 2>/dev/null || echo "[fetch] $p: checkout non riuscito (tollerato)."
-              else
-                echo "[fetch] $p assente sul branch (nessun dato precedente): salto il checkout."
-              fi
-            done
+            echo "[fetch] fm2-rendered: tip=$(git rev-parse --short FETCH_HEAD) (alberi solo, blob NON scaricati)"
+            git ls-tree --name-only FETCH_HEAD -- "data/fm2-rendered" 2>/dev/null | head -n 5 | sed 's/^/[fetch]   /' || true
+            echo "[fetch] nessun checkout: il working tree conterra' SOLO lo shard del provider."
           fi
 
       - name: Setup Python
