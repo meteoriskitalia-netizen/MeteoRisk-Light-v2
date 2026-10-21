@@ -149,7 +149,7 @@ jobs:
           echo "[fetch] manifest engine presenti:"
           find data/fm2 -maxdepth 2 -name latest.json 2>/dev/null | sort || true
 
-      - name: Recupera i WebP aggregati da fm2-rendered
+      - name: Recupera i manifest JSON da fm2-rendered (NON i WebP)
         run: |
           set -e
           git sparse-checkout disable >/dev/null 2>&1 || true
@@ -158,8 +158,21 @@ jobs:
             exit 0
           fi
           if git ls-tree --name-only FETCH_HEAD -- "data/fm2-rendered" 2>/dev/null | grep -q .; then
-            echo "[fetch] fm2-rendered: data/fm2-rendered presente: checkout."
-            git checkout FETCH_HEAD -- "data/fm2-rendered" 2>/dev/null || echo "[fetch] fm2-rendered: checkout non riuscito (tollerato)."
+            # 1.2.4.13: il checkout integrale di `data/fm2-rendered` scaricava TUTTI i
+            # blob WebP (240+ MiB, ~4.700 oggetti) e il job index-builder superava il
+            # timeout di 30'. Ma `rebuild_index --index-only` legge SOLO i manifest
+            # `<var>/latest.json`: i .webp non gli servono. Il commit usa un indice
+            # TEMPORANEO popolato dal tree del branch (git read-tree "$BASE"), quindi i
+            # WebP non sono MAI staged e non possono essere rimossi: si puo' quindi
+            # materializzare solo i JSON (96 blob, ~500 KiB).
+            echo "[fetch] fm2-rendered: presente -> checkout dei SOLI manifest JSON."
+            git ls-tree -r --name-only FETCH_HEAD -- "data/fm2-rendered" \
+              | grep -E '\.json$' \
+              | while read -r p; do
+                  git checkout FETCH_HEAD -- "$p" 2>/dev/null \
+                    || echo "[fetch]   $p: checkout non riuscito (tollerato)."
+                done
+            echo "[fetch] manifest JSON materializzati: $(find data/fm2-rendered -name '*.json' 2>/dev/null | wc -l)"
           else
             echo "[fetch] fm2-rendered: nessun data/fm2-rendered: salto."
           fi
