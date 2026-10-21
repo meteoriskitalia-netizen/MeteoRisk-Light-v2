@@ -100,12 +100,23 @@ jobs:
           filter: blob:none
           sparse-checkout: |
             scripts/forecast_v2
+            data/fm2/${{ matrix.domain }}
           sparse-checkout-cone-mode: true
 
       - name: Recupera i dati da fm2-dwdicon
         run: |
           set -e
           git fetch --no-tags --depth=1 origin fm2-dwdicon || { echo "fm2-dwdicon non esiste ancora: prima esecuzione"; exit 0; }
+          # FIX 21/10/2026 — ripristino REALE dei frame dal branch dati.
+          # Con `filter: blob:none` i blob del branch NON sono in locale e il
+          # checkout dei frame moriva con "unable to read sha1 file": i dati
+          # precedenti non venivano ripristinati (il motore ripartiva da zero e
+          # la guardia NO-OP non poteva scattare). Qui si forza il lazy-fetch del
+          # promisor per i SOLI blob del dominio, poi il checkout funziona.
+          SHAS="$(git ls-tree -r FETCH_HEAD -- "data/fm2/${{ matrix.domain }}" | awk '{print $3}')"
+          if [ -n "$SHAS" ]; then
+            printf '%s\n' "$SHAS" | git cat-file --batch > /dev/null 2>&1 || true
+          fi
           git checkout FETCH_HEAD -- "data/fm2/${{ matrix.domain }}" || echo "nessun dato precedente per data/fm2/${{ matrix.domain }}"
 
       - name: Setup Python
@@ -405,8 +416,20 @@ jobs:
           # <regione>/<dominio> e restano di proprieta' dell'index-builder).
           got=0
           for region in italia europa domain; do
-            src="/tmp/fm2r/$region/dwd_icon"
-            if [ -d "$src" ]; then
+            src=""
+            # download-artifact con pattern fm2r-* estrae in /tmp/fm2r/<artifact-name>/:
+            # prova i layout noti e, in fallback, cerca il dominio sotto /tmp/fm2r.
+            for cand in "/tmp/fm2r/$region/dwd_icon" \
+                        "/tmp/fm2r/fm2r-dwd_icon/$region/dwd_icon" \
+                        "/tmp/fm2r/fm2r-dwd_icon-$region/dwd_icon" \
+                        "/tmp/fm2r/dwd_icon/$region/dwd_icon"; do
+              [ -d "$cand" ] && { src="$cand"; break; }
+            done
+            if [ -z "$src" ]; then
+              found=$(find /tmp/fm2r -type d -name "dwd_icon" 2>/dev/null | grep "/$region/dwd_icon$" | head -n1 || true)
+              [ -n "$found" ] && src="$found"
+            fi
+            if [ -n "$src" ] && [ -d "$src" ]; then
               rm -rf "data/fm2-rendered/$region/dwd_icon"
               mkdir -p "data/fm2-rendered/$region"
               cp -a "$src" "data/fm2-rendered/$region/dwd_icon"
