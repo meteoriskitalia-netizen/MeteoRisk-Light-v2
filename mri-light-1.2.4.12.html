@@ -141,6 +141,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .fm-speed { width: auto; }
         .fm-density { width: auto; padding: 2px 4px; }
         .fm-time { font-size: 12px; color: #f1f5f9; }
+        .fm-run { font-size: 11px; color: #94a3b8; }
         .fm-legend-bar { position: relative; height: 12px; border-radius: 3px; border: 1px solid #334155; overflow: hidden; }
         .fm-legend-band { position: absolute; top: 0; bottom: 0; display: block; }
         .fm-legend-ticks { position: relative; height: 13px; margin-top: 2px; }
@@ -1414,6 +1415,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                     </select>
                 </div>
                 <div id="fm-time-display" class="fm-time">—</div>
+                <div id="fm-run-display" class="fm-run">—</div>
                 <div id="fm-legend" class="fm-legend"></div>
 <div id="fm-status" class="fm-status">Apri per caricare le mappe…</div>
                 <div class="fm-attrib">Dati mappe: © Open-Meteo (Weather Map Layer, CC BY 4.0). Modelli DWD / ECMWF / NOAA / Meteo-France / UKMO / JMA / CMA.</div>
@@ -11252,9 +11254,37 @@ stopSyncPlay();
 // Fonte dati: Open-Meteo Weather Map Layer (maps.open-meteo.com), licenza CC BY 4.0.
 // Scopo: SOLO visualizzazione sinottica; nessun impatto sui calcoli dell'app.
 var FM_CACHE_BASE = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/refs/heads/fm2-cache/data/fm2/';
+// 1.2.4.12 (split per-fornitore): i frame .om NON vivono piu' su un unico branch
+// `fm2-cache`, ma su 6 branch dati (5 fornitore + 1 rendered). Questa mappa dice
+// su QUALE branch sta ciascun dominio; FM_CACHE_BASE resta la base "storica"
+// (branch fm2-cache) usata come fallback quando il dominio e' ignoto (es. stato
+// di test con fmMeta impostato a mano). Vedi fmCacheBaseFor().
+var FM_DOMAIN_BRANCH_MAP = {
+    dwd_icon: 'fm2-dwdicon',
+    dwd_icon_eu: 'fm2-dwd',
+    dwd_icon_d2: 'fm2-dwd',
+    ecmwf_ifs025: 'fm2-ecmwf',
+    ncep_gfs025: 'fm2-ncep',
+    ncep_gfs013: 'fm2-ncep',
+    meteofrance_arpege_world025: 'fm2-meteofrance'
+};
+// Ritorna la base della cache .om per un dominio, sostituendo il segmento di
+// branch in FM_CACHE_BASE. Dominio assente dalla mappa => FM_CACHE_BASE invariato
+// (fallback retro-compatibile: il test test_forecast_maps.mjs usa domain
+// 'dwd_icon_eu' in modalita' legacy, senza prefisso per-dominio).
+function fmCacheBaseFor(domain) {
+    var br = null;
+    if (domain && Object.prototype.hasOwnProperty.call(FM_DOMAIN_BRANCH_MAP, domain)) {
+        br = FM_DOMAIN_BRANCH_MAP[domain];
+    }
+    if (!br) return FM_CACHE_BASE;
+    return FM_CACHE_BASE.replace('/refs/heads/fm2-cache/', '/refs/heads/' + br + '/');
+}
 // Cache raster WebP pre-renderizzate (server: scripts/forecast_v2/render_fm_webp.py).
 // Layout: <base>/<region>/index.json + <base>/<region>/<dominio>/<variabile>/<VALID>.webp
-var FM_RENDERED_BASE = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/refs/heads/fm2-cache/data/fm2-rendered/';
+// 1.2.4.12: i WebP sono AGGREGATI su tutti i domini e stanno su un branch dedicato
+// `fm2-rendered` (scrittore unico: forecast-maps-index.yml), NON piu' su fm2-cache.
+var FM_RENDERED_BASE = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/refs/heads/fm2-rendered/data/fm2-rendered/';
 // Id regione UI FM -> id regione servita dal renderer WebP (europa/italia).
 var FM_RENDER_REGION_MAP = { 'europe': 'europa', 'italy': 'italia', 'domain': 'domain' };
 
@@ -11510,6 +11540,20 @@ function fmFmtTime(iso) {
         return new Date(iso).toLocaleString('it-IT', { timeZone: 'Europe/Rome', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
     } catch (e) { return iso; }
 }
+// 1.2.4.12: run di riferimento (reference_time) del dominio selezionato, in UTC ed
+// etichettato esplicitamente come UTC. I run NON coincidono tra domini nello stesso
+// istante: il valore e' per dominio, mai globale. Elemento dedicato persistente
+// (#fm-run-display), non sovrascritto da fmSetStatus. Segnaposto neutro '—' se assente.
+function fmFmtRunUtc(iso) {
+    var d = new Date(iso);
+    if (!iso || isNaN(d.getTime())) return null;
+    return 'Run ' + fmPad2(d.getUTCHours()) + 'Z del ' + fmPad2(d.getUTCDate()) + '/' + fmPad2(d.getUTCMonth() + 1) + '/' + d.getUTCFullYear() + ' UTC';
+}
+function fmUpdateRunDisplay(refIso) {
+    var el = fmEl('fm-run-display');
+    if (!el) return;
+    el.textContent = fmFmtRunUtc(refIso) || '—';
+}
 function fmFmtNum(v) { if (v === '' || v === null || v === undefined) return ''; var n = Number(v); return isFinite(n) ? (Math.round(n * 100) / 100) : String(v); }
 function fmVarLabel(v) {
     if (FM_VAR_LABELS[v]) return FM_VAR_LABELS[v];
@@ -11755,8 +11799,9 @@ function fmRegisterDomain() {
 }
 function fm2FetchMeta(domain, cb) {
     var myGen = ++fmMetaReqGen;                 // token anti-race: risposta di un dominio precedente scartata
+    var domainBase = fmCacheBaseFor(domain);    // 1.2.4.12: branch per-fornitore del dominio
     var legacyUrl = FM_CACHE_BASE + 'latest.json';
-    var perDomain = domain ? (FM_CACHE_BASE + encodeURIComponent(domain) + '/latest.json') : legacyUrl;
+    var perDomain = domain ? (domainBase + encodeURIComponent(domain) + '/latest.json') : legacyUrl;
     var allowFallback = (!domain || domain === 'fm2') && (perDomain !== legacyUrl);
     // Disponibilita' REALE delle variabili nel dominio corrente (1.2.4.10).
     // Il manifest del motore espone `var_order` SEMPRE completo (24 nomi) anche
@@ -11962,7 +12007,11 @@ function fmOmUrlForIndexVar(idx, variableName) {
     // dopo il load del manifest) la base e' data/fm2/<dominio>/<file>; in assenza di cache
     // (es. stato di test con fmMeta impostato a mano) resta la base storica data/fm2/<file>.
     var dir = (fmSrcCache && fmDomain) ? (encodeURIComponent(fmDomain) + '/') : '';
-    var cbase = FM_CACHE_BASE + dir + ffile;
+    // 1.2.4.12: con la cache per-dominio attiva la base .om deve puntare al branch
+    // del fornitore (fmCacheBaseFor); in modalita' legacy resta FM_CACHE_BASE.
+    var cbase = FM_CACHE_BASE;
+    if (fmSrcCache && fmDomain) cbase = fmCacheBaseFor(fmDomain);
+    cbase = cbase + dir + ffile;
     var vName = variableName || fmVariable;
     var q = 'variable=' + encodeURIComponent(vName) + '&tile_size=512&interpolation=linear';
     if (fmOpts.dark) q += '&dark=true';
@@ -12392,6 +12441,7 @@ function fmDomainChanged() {
     var s = fmEl('fm-domain-select');
     if (s) fmDomain = s.value;
     fmStopPlay();
+    fmUpdateRunDisplay(null);   // 1.2.4.12: reset neutro finche' il nuovo dominio non e' caricato
     fmLoadDomain();
 }
 function fmVariableChanged() {
@@ -12432,7 +12482,7 @@ function fmLoadDomain(dom) {
         fmStopPreload();
     fmSetStatus('Carico il run');
     fmFetchMeta(fmDomain, function (err, meta) {
-        if (err) return;
+        if (err) { fmUpdateRunDisplay(null); return; }
         var vars = [];
         if (fmSrcCache && fm2MetaCache) {
             if (fm2MetaCache.var_order && fm2MetaCache.var_order.length) {
@@ -12460,6 +12510,7 @@ function fmLoadDomain(dom) {
         fmPopulateRegions();
         if (fmIsGlobalDomain() && fmRegion === 'domain') { fmRegion = 'europe'; fmPopulateRegions(); }
         fmSetStatus(meta.valid_times.length + ' ore – run ' + fmFmtTime(meta.reference_time));
+        fmUpdateRunDisplay(meta.reference_time);
         fmApplyRegion(true);
     });
 }

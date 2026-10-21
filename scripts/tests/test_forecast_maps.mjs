@@ -144,6 +144,42 @@ const EXPECTED = (ctx.FM_CACHE_BASE || 'data/fm2/') + '2026-10-10T2300.om'
   + '?variable=temperature_2m&tile_size=512&interpolation=linear';
 const cur = ctx.fmCurrentOmUrl();
 ok('B3: fmCurrentOmUrl().url = URL cache atteso', cur && cur.url === EXPECTED, cur && cur.url);
+
+// ---- B3-bis (1.2.4.12): split per-fornitore su 6 branch dati ----
+// Il client mappa dominio->branch (FM_DOMAIN_BRANCH_MAP) e risolve la base .om con
+// fmCacheBaseFor(domain); i WebP aggregati stanno sul branch dedicato fm2-rendered.
+const MAP = ctx.FM_DOMAIN_BRANCH_MAP;
+ok('B3b: FM_DOMAIN_BRANCH_MAP definita e con 7 domini',
+  !!MAP && Object.keys(MAP).length === 7, MAP && Object.keys(MAP).join(','));
+const BR_MAP = {
+  dwd_icon: 'fm2-dwdicon',
+  dwd_icon_eu: 'fm2-dwd',
+  dwd_icon_d2: 'fm2-dwd',
+  ecmwf_ifs025: 'fm2-ecmwf',
+  ncep_gfs025: 'fm2-ncep',
+  ncep_gfs013: 'fm2-ncep',
+  meteofrance_arpege_world025: 'fm2-meteofrance',
+};
+const brWrong = Object.keys(BR_MAP).filter(function (d) { return MAP[d] !== BR_MAP[d]; });
+ok('B3c: ogni dominio mappa al branch giusto (7/7)',
+  brWrong.length === 0, brWrong.length ? ('errati: ' + brWrong.join(',')) : '7/7');
+ok('B3d: fmCacheBaseFor swappa il branch in FM_CACHE_BASE',
+  ctx.fmCacheBaseFor('ncep_gfs013') === ctx.FM_CACHE_BASE.replace('/refs/heads/fm2-cache/', '/refs/heads/fm2-ncep/'),
+  ctx.fmCacheBaseFor('ncep_gfs013'));
+ok('B3e: fmCacheBaseFor(dominio ignoto) resta FM_CACHE_BASE (fallback legacy)',
+  ctx.fmCacheBaseFor('non_esiste') === ctx.FM_CACHE_BASE);
+ok('B3f: FM_RENDERED_BASE punta al branch fm2-rendered (non fm2-cache)',
+  /\/refs\/heads\/fm2-rendered\/data\/fm2-rendered\/$/.test(ctx.FM_RENDERED_BASE || ''),
+  ctx.FM_RENDERED_BASE);
+// In cache mode (fmSrcCache=true) l'URL .om deve usare il branch del fornitore.
+ctx.fmSrcCache = true;
+const PERDOM = ctx.FM_CACHE_BASE.replace('/refs/heads/fm2-cache/', '/refs/heads/fm2-dwd/')
+  + encodeURIComponent('dwd_icon_eu') + '/2026-10-10T2300.om'
+  + '?variable=temperature_2m&tile_size=512&interpolation=linear';
+const curCache = ctx.fmOmUrlForIndexVar(0, 'temperature_2m');
+ok('B3g: in cache mode l\'URL .om usa il branch del fornitore (fm2-dwd)',
+  curCache === PERDOM, curCache);
+ctx.fmSrcCache = false;
 ok('B4: fmCurrentOmUrl().valid = valid_times[0]', cur && cur.valid === '2026-10-10T23:00Z');
 ok('B5: fmVectorUrl(url) === null con tutte le opzioni off',
   ctx.fmVectorUrl(EXPECTED) === null, String(ctx.fmVectorUrl(EXPECTED)));

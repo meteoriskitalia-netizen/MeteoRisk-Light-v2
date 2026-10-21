@@ -200,8 +200,10 @@ Sito statico piu' sei workflow GitHub Actions che aggiornano i dati e pubblicano
 | `satellite-engine.yml` | ogni 5 min scarica i frame WMS EUMETSAT (6 sorgenti: 3 Europa + 3 Italia), li ri-codifica in WebP e li pubblica con force-push sul branch orfano `satellite-cache` (finestra rolling di 25 slot = 2 ore). **Niente** build/deploy Pages in questo workflow: i frame arrivano su Pages perche' radar-engine e update-weather-data la restaurano da `satellite-cache` nell'artefatto di deploy |
 | `update-weather-data.yml` | ogni 10 min: check del run ECMWF IFS + canary Best Match -> fetch Open-Meteo -> build, validazione e pubblicazione del dataset derivato in `data/latest/` (commit e deploy **solo** con nuovo dataset valido) |
 | `phenomena-verify.yml` | ogni 10 min valuta i fenomeni grandine/rotazione dai derivati radar + fulmini MLI EUMETSAT (WMS anonimo, CC-BY-4.0) e committa `data/phenomena/{events,badges}.json` su `main` (niente build/deploy: i file arrivano su Pages nell'artefatto di radar-engine e update-weather-data) |
-| `forecast-maps-v2.yml` | ogni 10 min genera la cache mappe previsionali V2 in `data/fm2/` (`<VALID>.om` + `latest.json`, crop Italia multi-variabile, orizzonte intero `--valid-frames 0`, prune), con cache CI dei frame full-size S3 (`actions/cache@v4` su `.cache_fm2_frames`) |
+| `forecast-maps-v2.yml` | ogni 6h (cron-job.org) genera la cache mappe previsionali V2 in `data/fm2/` (`<VALID>.om` + `latest.json`, crop multi-variabile, orizzonte intero `--valid-frames 0`, prune). Da 1.2.4.12 i dati (frame `.om` + WebP) NON stanno piu' su `main` ma sul branch `fm2-cache`: il commit nasce dal tree del branch + allowlist dei soli path `data/fm2/**` (isolamento indice), il push dei WebP e' incrementale a soglia 1,4 GiB, il job engine ha `timeout-minutes: 180` |
 | `deploy-pages.yml` | deploy manuale/consolidamento: ricostruisce `_site/` con app + `data/latest`, `data/geography`, `data/radar` (incl. archivio rolling `radar-history`), `data/phenomena`, `data/fm2` e `satellite/` (finestra `satellite-cache`) e pubblica su Pages (`configure-pages` + `upload-pages-artifact@v4` + `deploy-pages@v4`, concurrency dedicata `pages-deploy` come gli altri) |
+
+- I 4 domini **globali** (`dwd_icon`, `ecmwf_ifs025`, `ncep_gfs025`, `meteofrance_arpege_world025`) usano il bbox emisferico `NORTH_HEMISPHERE_BBOX = (20.0, -180.0, 90.0, 180.0)` (lat 20..90N, lon intera), definito in `scripts\forecast_v2\forecast_v2_engine.py`: motivo di prodotto, vedere le **incursioni fredde dalla Siberia** (il freddo deve vedersi nascere, non solo arrivare) e predisporre la futura mappa "emisfero nord stile Meteociel". I 3 regionali mantengono i loro bbox (`dwd_icon_eu`/`ncep_gfs013` `(34,-15,62,40)`, `dwd_icon_d2` `(43.18,-3.94,58.08,20.34)`).
 
 - I frame satellitari sono WebP a **risoluzione invariata**: stesso slot, stesso
   orologio e stessi formati dati della codifica precedente, solo meno byte.
@@ -222,15 +224,15 @@ trigger manuale via `workflow_dispatch`. Nessuna garanzia di latenza fissa sui d
 Verifiche di riferimento (eseguite su questa release):
 
 ```bash
-python -m pytest scripts\tests\radar_engine -q    # 167 test
-python -m pytest scripts\tests\phenomena -q       # 126 test
-python -m pytest scripts\tests -q                 # 460 test (totale)
-python -m py_compile scripts\satellite_engine.py  # OK
-python -c "import yaml,glob; [yaml.safe_load(open(f,encoding='utf-8')) for f in glob.glob('.github/workflows/*.yml')]"  # 6 workflow
-node --test "scripts/tests/**/*.mjs"              # suite .mjs: 15 file test_*.mjs (più contract_dataset_loader.mjs, NON eseguibile senza dataset baseline)
+python -m pytest scripts\tests\radar_engine -q    # 184 passed
+python -m pytest scripts\tests\phenomena -q       # 125 passed, 1 skipped
+python -m pytest scripts\tests -q                 # 544 passed, 9 failed, 1 skipped, 1 error (9 failed + 1 error PRE-ESISTENTI e dataset-bound: assenza di data\geography\regions_data.json e data\state\api_usage.json)
+python -m py_compile scripts\*.py                 # 107 OK, 0 errori
+python -c "import yaml,glob; [yaml.safe_load(open(f,encoding='utf-8')) for f in glob.glob('.github/workflows/*.yml')]"  # 6 workflow, 6/6 OK
+node --test "scripts/tests/**/*.mjs"              # suite .mjs: 18 file, 17 PASS (contract_dataset_loader.mjs NON eseguibile senza dataset baseline -> EXIT 1 atteso)
 ```
 
-Comandi e conteggi aggiornati sono quelli documentati in `AGENTS.md`.
+Comandi e conteggi aggiornati sono quelli documentati in `C:\Users\aless\Desktop\AGENTS.md`, sezione "Verifica/qualita'" (il documento di progetto e' il file in `C:\Users\aless\Desktop\`, NON dentro `meteorisk\`).
 
 ## Convenzioni del repo
 

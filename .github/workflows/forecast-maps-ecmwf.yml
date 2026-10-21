@@ -1,0 +1,591 @@
+name: Forecast Maps V2 - ECMWF IFS 0.25 (mappe .om + WebP, branch fm2-ecmwf)
+
+# MeteoRisk forecast-maps-ecmwf - WORKFLOW PER-FORNITORE per ECMWF IFS 0.25.
+#
+# PERCHE' ESISTE (split del monolite `forecast-maps-v2.yml` in 5 workflow
+# indipendenti, uno per fornitore, con 6 branch dati):
+#   Nel workflow monolitico un dominio lento o fallito BLOCCAVA tutti gli altri:
+#   `render-merge` aspettava l'engine di TUTTI i domini (pattern artifact `fm2-*`),
+#   poi era l'UNICO scrittore di WebP+indice, quindi una run durava fino a ~3h55 e
+#   il fallimento di un singolo dominio rendeva inutile il lavoro degli altri.
+#   Lo split assegna a ogni FORNITORE il proprio workflow e i propri branch dati:
+#   un fornitore lento o KO non tocca gli altri. Ognuno pubblica i frame .om sul
+#   PROPRIO branch `fm2-ecmwf` e i WebP su `fm2-rendered` (path disgiunti).
+#
+# MATRICE DOMINI (1 dominio/i in QUESTO workflow):
+#     - ecmwf_ifs025
+#   `--domains ecmwf_ifs025`, engine e render. Un dominio della matrice puo' fallire
+#   senza cancellare gli altri (fail-fast:false).
+#
+# BRANCH DATI:
+#   - `fm2-ecmwf`   : frame .om + latest.json del fornitore (`data/fm2/<dominio>/**`).
+#   - `fm2-rendered` : WebP pre-renderizzati (`data/fm2-rendered/<regione>/<dominio>/**`).
+#     I 5 workflow per-fornitore CONDIVIDONO `fm2-rendered` ma scrivono SOLO le
+#     directory dei PROPRI domini: path DISGIUNTI per dominio, quindi nessuna
+#     collisione di contenuto. L'unico punto di contatto e' il REF del branch
+#     (push rifiutato perche' un altro merge ha avanzato il tip): gestito dal retry
+#     5x per-rifetch GIA' presente (il commit riparte dal tip fresco). Le concurrency
+#     dei merge sono su gruppi diversi per fornitore, quindi merge di fornitori
+#     diversi possono girare in parallelo senza serializzarsi a vicenda.
+#
+# !!! IL MERGE PER-FORNITORE NON SCRIVE GLI `index.json` - vedi il blocco nel job
+#   `render-merge`. Lo scrittore UNICO dell'indice aggregato e'
+#   `forecast-maps-index.yml`. Motivo: il client legge UN SOLO index.json per
+#   regione (HTML riga 12088) e da li' scopre TUTTI i domini; cinque scrittori
+#   concorrenti su quel file = lost-update garantito.
+#
+# NOTA CLIENT: `data/fm2` e `data/fm2-rendered` NON sono su `main`. Il client legge
+#   i branch dati via FM_CACHE_BASE / FM_RENDERED_BASE + la mappa dominio->branch
+#   (FM_DOMAIN_BRANCH_MAP): dwd_icon->fm2-dwdicon; dwd_icon_eu/dwd_icon_d2->fm2-dwd;
+#   ecmwf_ifs025->fm2-ecmwf; ncep_gfs025/ncep_gfs013->fm2-ncep;
+#   meteofrance_arpege_world025->fm2-meteofrance.
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_update:
+        description: "Ignora il NO-OP guard e riscrive i frame anche se il manifest e' invariato"
+        type: boolean
+        default: false
+  repository_dispatch:
+    types: [ci-run]
+
+# CONCURRENCY A LIVELLO WORKFLOW - GRUPPO PROPRIO del fornitore (prefisso
+# `forecast-maps-ecmwf-`): non si mette in coda dietro gli altri 4 per-fornitore
+# ne' dietro l'index-builder. I 3 lock PER-JOB (engine per-dominio, render
+# per-dominio, merge per-fornitore) restano e serializzano il lavoro fine.
+# `cancel-in-progress: false`: cancellare a meta' lascerebbe la serie di push
+# incrementale parziale (il run successivo la ricompleta, ma nessuna fretta).
+concurrency:
+  group: forecast-maps-ecmwf-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  engine:
+    # ENGINE: scarica/costruisce i frame .om di ECMWF IFS 0.25 e li committa su
+    # `fm2-ecmwf` in `data/fm2/<dominio>/**`.
+    runs-on: ubuntu-latest
+    # Timeout 180': i domini GLOBALI (~209 frame) a 60' venivano CANCELLATI senza
+    # finire. A cache calda (restore-keys fm2-frames-<dominio>-) il run e' molto
+    # piu' corto: il valore e' una rete di sicurezza, non il tempo atteso.
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        domain:
+          - ecmwf_ifs025
+    concurrency:
+      queue: max
+      # Group PER-DOMINIO con prefisso PROPRIO del fornitore.
+      group: forecast-maps-ecmwf-${{ matrix.domain }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            scripts/forecast_v2
+          sparse-checkout-cone-mode: true
+
+      - name: Recupera i dati da fm2-ecmwf
+        run: |
+          set -e
+          git fetch --no-tags --depth=1 origin fm2-ecmwf || { echo "fm2-ecmwf non esiste ancora: prima esecuzione"; exit 0; }
+          git checkout FETCH_HEAD -- "data/fm2/${{ matrix.domain }}" || echo "nessun dato precedente per data/fm2/${{ matrix.domain }}"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r scripts/forecast_v2/requirements.txt
+
+      - name: Cache frame Open-Meteo (.om)
+        uses: actions/cache@v4
+        with:
+          path: .cache_fm2_frames
+          key: fm2-frames-${{ matrix.domain }}-${{ github.run_number }}
+          restore-keys: |
+            fm2-frames-${{ matrix.domain }}-
+
+      - name: Build cache mappe previsionali V2
+        id: engine
+        run: |
+          FORCE=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_update }}" = "true" ]; then
+            FORCE="--force"
+          fi
+          python scripts/forecast_v2/forecast_v2_engine.py \
+            --domains ${{ matrix.domain }} \
+            --valid-frames 0 \
+            --out data/fm2 \
+            --frames-cache .cache_fm2_frames \
+            $FORCE
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## MeteoRisk - Forecast Maps V2 (ecmwf / engine)"
+            echo ""
+            echo "Dominio: \`${{ matrix.domain }}\`"
+            echo ""
+            if [ -f data/fm2/${{ matrix.domain }}/latest.json ]; then
+              python -c "import json; d=json.load(open('data/fm2/${{ matrix.domain }}/latest.json')); f=d.get('frames',[]); print('reference_time:', d.get('reference_time')); print('frame:', len(f), '- valid_times:', len(d.get('valid_times', []))); print('byte totali:', sum(x.get('bytes',0) for x in f)); print('dominio:', d.get('domain')); print('warning:', len(d.get('warnings', []))); print('pruned:', d.get('pruned'))"
+            else
+              echo "latest.json non disponibile per il dominio '${{ matrix.domain }}' (run fallita prima del motore?)."
+            fi
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact fm2-${{ matrix.domain }}
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fm2-${{ matrix.domain }}
+          path: data/fm2/${{ matrix.domain }}
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Commit cache aggiornata su fm2-ecmwf (only if changed)
+        if: success()
+        run: |
+          git config user.name "meteorisk-bot"
+          git config user.email "actions@users.noreply.github.com"
+          if [ ! -d "data/fm2/${{ matrix.domain }}" ]; then
+            echo "[INFO] Nessun output per il dominio '${{ matrix.domain }}': niente da committare."
+            exit 0
+          fi
+          MSG="chore(fm2): aggiornamento cache dominio ${{ matrix.domain }} (.om per-domain crop)"
+          for i in 1 2 3 4 5; do
+            git fetch --no-tags --depth=1 origin fm2-ecmwf || true
+            if git rev-parse --verify --quiet FETCH_HEAD >/dev/null 2>&1; then
+              BASE="$(git rev-parse FETCH_HEAD^{tree})"
+              PARENT="$(git rev-parse FETCH_HEAD)"
+            else
+              echo "[INFO] fm2-ecmwf non esiste ancora: questo e' il primo commit del branch."
+              BASE="$(git hash-object -t tree /dev/null)"
+              PARENT=""
+            fi
+            IDX="$(mktemp -u)"
+            rm -f "$IDX"
+            # (1) base = tree del branch dati (NON l'indice di `main`)
+            GIT_INDEX_FILE="$IDX" git read-tree "$BASE"
+            # (2) METODO MINIMALE (verificato su git reale): NON si usa l'allowlist
+            #     per complemento `:(exclude)data/fm2/**`, che butterebbe via
+            #     dall'indice i path che il working tree non ha ripristinato e li
+            #     registrerebbe come CANCELLAZIONI. Si rimuove dall'indice SOLO il
+            #     path del dominio corrente, che il working tree e' autorevole a
+            #     ri-aggiungere.
+            if [ -d data/fm2 ]; then
+              GIT_INDEX_FILE="$IDX" git ls-files -- "data/fm2/${{ matrix.domain }}" \
+                | while IFS= read -r p; do
+                    GIT_INDEX_FILE="$IDX" git update-index --force-remove -- "$p"
+                  done
+            fi
+            # (3) aggiorna SOLO il dominio corrente dal working tree
+            GIT_INDEX_FILE="$IDX" git add -A -- "data/fm2/${{ matrix.domain }}"
+            TREE="$(GIT_INDEX_FILE="$IDX" git write-tree)"
+            rm -f "$IDX"
+            # (3-bis) GUARDIA DI SCOPE: il commit engine deve toccare SOLO
+            #     data/fm2/${{ matrix.domain }}/**. Un path fuori allowlist => ABORTISCI.
+            git diff-tree -r --no-commit-id --name-only "$BASE" "$TREE" > /tmp/fm2_eng_scope.txt
+            BAD_SCOPE="$(grep -E -v '^data/fm2/${{ matrix.domain }}/' /tmp/fm2_eng_scope.txt || true)"
+            if [ -n "$BAD_SCOPE" ]; then
+              echo "::error::GUARDIA DI SCOPE VIOLATA (engine ecmwf): path fuori allowlist:"
+              printf '%s\n' "$BAD_SCOPE"
+              exit 1
+            fi
+            # NO-OP: albero identico al tip => nessun churn.
+            if [ "$TREE" = "$BASE" ]; then
+              echo "[INFO] Nessuna modifica a data/fm2/${{ matrix.domain }} (NO-OP)."
+              exit 0
+            fi
+            if [ -n "$PARENT" ]; then
+              NEW="$(git commit-tree "$TREE" -p "$PARENT" -m "$MSG")"
+            else
+              NEW="$(git commit-tree "$TREE" -m "$MSG")"
+            fi
+            if git push origin "$NEW:refs/heads/fm2-ecmwf"; then
+              echo "[INFO] Push su fm2-ecmwf riuscito (tentativo $i/5)."
+              exit 0
+            fi
+            echo "[WARN] Push su fm2-ecmwf rifiutato (race sul branch) - tentativo $i/5"
+            sleep $((i*3))
+          done
+          echo "[ERROR] Push su fm2-ecmwf non riuscito dopo 5 tentativi."
+          exit 1
+
+  render:
+    # SHARD PER-DOMINIO: un job per dominio, ciascuno renderizza SOLO il proprio
+    # dominio (`--domains ${{ matrix.domain }}`, le TRE regioni italia/europa/domain,
+    # entrambi i temi) in un albero vuoto e carica l'artifact fm2r-<dominio>.
+    # Gli shard NON scrivono index.json (li scrive `forecast-maps-index.yml`).
+    name: render (${{ matrix.domain }})
+    needs: engine
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        domain:
+          - ecmwf_ifs025
+    concurrency:
+      queue: max
+      group: forecast-maps-ecmwf-render-${{ matrix.domain }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            scripts/forecast_v2
+          sparse-checkout-cone-mode: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r scripts/forecast_v2/requirements.txt
+
+      - name: Download artifact engine fm2-${{ matrix.domain }}
+        uses: actions/download-artifact@v4
+        with:
+          name: fm2-${{ matrix.domain }}
+          path: /tmp/fm2art
+
+      - name: Assemble dominio engine
+        run: |
+          mkdir -p "data/fm2/${{ matrix.domain }}"
+          cp -a /tmp/fm2art/. "data/fm2/${{ matrix.domain }}/"
+
+      - name: Build WebP shard ${{ matrix.domain }} (italia/europa/domain, light+dark)
+        run: |
+          python scripts/forecast_v2/render_fm_webp.py \
+            --in data/fm2 \
+            --out data/fm2-rendered \
+            --domains ${{ matrix.domain }} \
+            --limit-frames 0 \
+            --method 4
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## MeteoRisk - Forecast Maps V2 (ecmwf / shard render ${{ matrix.domain }})"
+            echo ""
+            echo "WebP prodotti: $(find data/fm2-rendered -name '*.webp' 2>/dev/null | wc -l)"
+            if [ -d data/fm2-rendered ]; then
+              echo "Byte totali: $(du -sb data/fm2-rendered | cut -f1)"
+            else
+              echo "Byte totali: 0 (nessun output)"
+            fi
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact fm2r-${{ matrix.domain }}
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fm2r-${{ matrix.domain }}
+          path: |
+            data/fm2-rendered/italia/${{ matrix.domain }}
+            data/fm2-rendered/europa/${{ matrix.domain }}
+            data/fm2-rendered/domain/${{ matrix.domain }}
+          if-no-files-found: warn
+          retention-days: 1
+
+  render-merge:
+    # MERGE PER-FORNITORE: pubblica i WebP di ECMWF IFS 0.25 su `fm2-rendered` nelle
+    # directory `data/fm2-rendered/<regione>/<dominio>/**` (path DISGIUNTI dagli
+    # altri fornitori). NON scrive MAI gli `index.json`.
+    #
+    # !!! PERCHE' NON SCRIVE GLI index.json (LOST-UPDATE): il client legge UN SOLO
+    #   `data/fm2-rendered/<regione>/index.json` per regione (HTML riga 12088) e da
+    #   quell'indice scopre TUTTI i domini. Se questo job eseguisse
+    #   `--index-only --domains ecmwf_ifs025`, l'indice aggregato verrebbe riscritto con i
+    #   SOLI domini del fornitore e gli altri SPARIREBBERO dal client. Cinque
+    #   workflow = cinque scrittori concorrenti sullo stesso file = lost-update.
+    #   SOLUZIONE: l'indice aggregato resta di proprieta' del solo
+    #   `forecast-maps-index.yml` (scrittore unico). Questo job pubblica SOLO i
+    #   WebP di ECMWF IFS 0.25: l'inclusione nell'indice avviene automaticamente al
+    #   successivo `--index-only` dell'index-builder, che legge dal FILESYSTEM
+    #   LOCALE dopo aver materializzato i WebP da `fm2-rendered`.
+    name: render-merge ecmwf (webp su fm2-rendered, nessun index)
+    needs: render
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    concurrency:
+      queue: max
+      # Gruppo PROPRIO del fornitore: merge di fornitori diversi pubblicano path
+      # disgiunti su `fm2-rendered` e possono girare in parallelo; il lock qui
+      # serializza solo le run di QUESTO workflow fra loro.
+      group: forecast-maps-ecmwf-render
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: true
+          filter: blob:none
+          sparse-checkout: |
+            scripts/forecast_v2
+            data/fm2-rendered
+          sparse-checkout-cone-mode: true
+
+      - name: Recupera i dati da fm2-rendered
+        run: |
+          set -e
+          git fetch --no-tags --depth=1 origin fm2-rendered || { echo "fm2-rendered non esiste ancora: prima esecuzione"; exit 0; }
+          git sparse-checkout disable >/dev/null 2>&1 || true
+          if git rev-parse --verify --quiet FETCH_HEAD >/dev/null 2>&1; then
+            for p in data/fm2 data/fm2-rendered; do
+              if git ls-tree --name-only FETCH_HEAD -- "$p" 2>/dev/null | grep -q .; then
+                echo "[fetch] $p presente sul branch: checkout."
+                git checkout FETCH_HEAD -- "$p" 2>/dev/null || echo "[fetch] $p: checkout non riuscito (tollerato)."
+              else
+                echo "[fetch] $p assente sul branch (nessun dato precedente): salto il checkout."
+              fi
+            done
+          fi
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r scripts/forecast_v2/requirements.txt
+
+      - name: Download render shard artifact (fm2r-*)
+        uses: actions/download-artifact@v4
+        with:
+          pattern: 'fm2r-*'
+          path: /tmp/fm2r
+
+      - name: Assemble shard ECMWF IFS 0.25 (sostituisci le directory dominio)
+        id: shards
+        run: |
+          # Sostituisci data/fm2-rendered/<regione>/<dominio> con la versione
+          # autorevole dello shard (rm PRIMA: le variabili droppate vanno pulite).
+          # !!! SOLO i domini ecmwf_ifs025: nessun'altra directory dominio viene toccata,
+          # e NESSUN index.json viene scritto ne' rimosso (sono fuori dalle path
+          # <regione>/<dominio> e restano di proprieta' dell'index-builder).
+          got=0
+          for region in italia europa domain; do
+            src="/tmp/fm2r/$region/ecmwf_ifs025"
+            if [ -d "$src" ]; then
+              rm -rf "data/fm2-rendered/$region/ecmwf_ifs025"
+              mkdir -p "data/fm2-rendered/$region"
+              cp -a "$src" "data/fm2-rendered/$region/ecmwf_ifs025"
+              got=1
+            fi
+          done
+          if [ "$got" -eq 1 ]; then
+            echo "domains=ecmwf_ifs025" >> "$GITHUB_OUTPUT"
+            echo "[shard] domini renderizzati: ecmwf_ifs025"
+          else
+            echo "[WARN] shard ecmwf: nessuna regione presente, merge escluso"
+            echo "domains=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## MeteoRisk - Forecast Maps V2 (ecmwf / render-merge)"
+            echo ""
+            echo "Domini pubblicati: \`ecmwf_ifs025\` (solo WebP; index aggregato NON toccato)"
+            echo ""
+            echo "WebP ecmwf in cache: $(find data/fm2-rendered -path '*ecmwf_ifs025*' -name '*.webp' 2>/dev/null | wc -l)"
+            echo ""
+            echo "NOTA: \`data/fm2-rendered/<regione>/index.json\` resta scritto dal solo"
+            echo "index-builder (\`forecast-maps-index.yml\`): nessun lost-update fra scrittori."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit WebP ecmwf su fm2-rendered (push incrementale, only if changed)
+        if: success()
+        run: |
+          git config user.name "meteorisk-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git sparse-checkout disable >/dev/null 2>&1 || true
+          if [ ! -d "data/fm2-rendered" ]; then
+            echo "[INFO] Nessun output renderizzato: niente da committare."
+            exit 0
+          fi
+          # PUSH INCREMENTALE A SOGLIA (replicato dal monolite): i WebP del
+          # fornitore possono superare da soli il limite di pack di GitHub
+          # (2,00 GiB), quindi si partizionano i path CAMBIATI con i byte reali
+          # sotto THRESHOLD=1,4 GiB. Ogni gruppo e' un push separato.
+          MSG="chore(fm2): aggiornamento WebP ecmwf (regioni italia/europa/domain, light+dark)"
+          THRESHOLD=$((1400 * 1024 * 1024))
+          GQ="-c core.quotePath=false"
+          # ALLOWLIST di scope del merge: SOLO i path WebP dei PROPRI domini.
+          ALLOW_RE='^data/fm2-rendered/[^/]+/(ecmwf_ifs025)/'
+          for i in 1 2 3 4 5; do
+            git fetch --no-tags --depth=1 origin fm2-rendered || true
+            if git rev-parse --verify --quiet FETCH_HEAD >/dev/null 2>&1; then
+              BASE="$(git rev-parse FETCH_HEAD^{tree})"
+              PARENT="$(git rev-parse FETCH_HEAD)"
+            else
+              echo "[INFO] fm2-rendered non esiste ancora: questo e' il primo commit del branch."
+              BASE="$(git hash-object -t tree /dev/null)"
+              PARENT=""
+            fi
+            # ---- (1) costruisci il TREE TARGET su un indice isolato ----
+            # !!! METODO MINIMALE (verificato su git reale): si rimuovono dall'indice
+            # SOLO i path delle directory <regione>/<dominio> che il working tree
+            # FORNISCE DAVVERO (autorevoli), poi le si ri-aggiunge con `git add -A`.
+            # NON si usa il complemento `:(exclude)` (distruggerebbe gli altri
+            # domini, gli index.json aggregati e il codice) e NON si rimuove in blocco
+            # un'intera <regione>/<dominio> che il working tree non ha: quella resta
+            # INTATTA (evita di registrare come cancellazione un WebP legittimo che
+            # questo run non ha riprodotto, es. regione saltata).
+            IDXT="$(mktemp -u)"; rm -f "$IDXT"
+            GIT_INDEX_FILE="$IDXT" git read-tree "$BASE"
+            add_paths=""
+            for region in italia europa domain; do
+              d="data/fm2-rendered/$region/ecmwf_ifs025"
+              if [ -d "$d" ]; then
+                GIT_INDEX_FILE="$IDXT" git ls-files -- "$d" \
+                  | while IFS= read -r p; do
+                      GIT_INDEX_FILE="$IDXT" git update-index --force-remove -- "$p"
+                    done
+                add_paths="$add_paths $d"
+              fi
+            done
+            if [ -n "$add_paths" ]; then
+              # shellcheck disable=SC2086
+              GIT_INDEX_FILE="$IDXT" git add -A -- $add_paths
+            fi
+            TREE="$(GIT_INDEX_FILE="$IDXT" git write-tree)"
+            rm -f "$IDXT"
+            # NO-OP: albero identico al tip => nessun churn.
+            if [ "$TREE" = "$BASE" ]; then
+              echo "[INFO] Nessuna modifica ai WebP ecmwf (NO-OP)."
+              exit 0
+            fi
+            # ---- (1-bis) GUARDIA DI SCOPE (fail-fast, PRIMA di ogni push) ----
+            # Il commit del merge deve toccare ESCLUSIVAMENTE i WebP dei propri
+            # domini. Un solo path fuori allowlist => ABORTISCI (meglio un job rosso
+            # che un branch distrutto).
+            git diff-tree -r --no-commit-id --name-only "$BASE" "$TREE" > /tmp/fm2_scope.txt
+            BAD_SCOPE="$(grep -E -v "$ALLOW_RE" /tmp/fm2_scope.txt || true)"
+            if [ -n "$BAD_SCOPE" ]; then
+              echo "::error::GUARDIA DI SCOPE VIOLATA (merge ecmwf): path fuori allowlist:"
+              printf '%s\n' "$BAD_SCOPE"
+              exit 1
+            fi
+            echo "[guardia] scope OK: $(wc -l < /tmp/fm2_scope.txt) path toccati (solo WebP ecmwf_ifs025)"
+            # ---- (2) lista dei path CAMBIATI con dimensione (per la soglia) ----
+            git $GQ diff-tree -r --no-commit-id --name-status "$BASE" "$TREE" > /tmp/fm2_changed.txt
+            : > /tmp/fm2_sizes.txt
+            : > /tmp/fm2_dels.txt
+            while IFS="$(printf '\t')" read -r st path; do
+              [ -z "$path" ] && continue
+              case "$st" in
+                D) printf '%s\n' "$path" >> /tmp/fm2_dels.txt ;;
+                *)
+                  if [ -f "$path" ]; then
+                    sz="$(stat -c %s -- "$path" 2>/dev/null || echo 0)"
+                  else
+                    sz=0
+                  fi
+                  printf '%s\t%s\n' "$sz" "$path" >> /tmp/fm2_sizes.txt
+                  ;;
+              esac
+            done < /tmp/fm2_changed.txt
+            # ---- (3) partizione a soglia (first-fit-decreasing) ----
+            sort -t"$(printf '\t')" -k1,1nr /tmp/fm2_sizes.txt > /tmp/fm2_sizes_sorted.txt
+            rm -rf /tmp/fm2_groups; mkdir -p /tmp/fm2_groups
+            gidx=1; gbytes=0
+            : > "/tmp/fm2_groups/g_${gidx}.txt"
+            while IFS="$(printf '\t')" read -r sz path; do
+              [ -z "$path" ] && continue
+              if [ "$gbytes" -gt 0 ] && [ $((gbytes + sz)) -gt "$THRESHOLD" ]; then
+                gidx=$((gidx + 1)); gbytes=0
+                : > "/tmp/fm2_groups/g_${gidx}.txt"
+              fi
+              printf '%s\n' "$path" >> "/tmp/fm2_groups/g_${gidx}.txt"
+              gbytes=$((gbytes + sz))
+              if [ "$sz" -gt "$THRESHOLD" ]; then
+                echo "[WARN] path singolo oltre soglia (resta da solo nel suo gruppo): $path ($sz B)"
+              fi
+            done < /tmp/fm2_sizes_sorted.txt
+            if [ -s /tmp/fm2_dels.txt ]; then
+              cat /tmp/fm2_dels.txt >> "/tmp/fm2_groups/g_${gidx}.txt"
+            fi
+            NGROUPS="$gidx"
+            echo "[push] path cambiati: $(wc -l < /tmp/fm2_sizes.txt) A/M + $(wc -l < /tmp/fm2_dels.txt) D = $NGROUPS gruppi (soglia $THRESHOLD B)"
+            # ---- (4) indice evolutivo: parte da BASE INTEGRO ----
+            # NON si applica il complemento. L'indice evolutivo parte dall'INTERO
+            # albero del tip e ogni gruppo vi applica `git add -A --pathspec-from-file`
+            # con path ESCLUSIVAMENTE dei propri domini (derivano dal diff
+            # BASE->TARGET): dopo l'ultimo gruppo il tree coincide con TARGET.
+            IDX="$(mktemp -u)"; rm -f "$IDX"
+            GIT_INDEX_FILE="$IDX" git read-tree "$BASE"
+            # ---- (5) push gruppo per gruppo (N push, ognuno < THRESHOLD) ----
+            RUN_PARENT="$PARENT"
+            pushed_groups=0
+            gi=1
+            while [ "$gi" -le "$NGROUPS" ]; do
+              GFILE="/tmp/fm2_groups/g_${gi}.txt"
+              if [ ! -s "$GFILE" ]; then gi=$((gi + 1)); continue; fi
+              GIT_INDEX_FILE="$IDX" git add -A --pathspec-from-file="$GFILE"
+              GTREE="$(GIT_INDEX_FILE="$IDX" git write-tree)"
+              echo "[push] gruppo $gi/$NGROUPS: $(wc -l < "$GFILE") path -> tree $GTREE"
+              if [ -n "$RUN_PARENT" ]; then
+                GNEW="$(git commit-tree "$GTREE" -p "$RUN_PARENT" -m "$MSG [$gi/$NGROUPS]")"
+              else
+                GNEW="$(git commit-tree "$GTREE" -m "$MSG [$gi/$NGROUPS]")"
+              fi
+              if git push origin "$GNEW:refs/heads/fm2-rendered"; then
+                echo "[push] gruppo $gi/$NGROUPS pubblicato: $GNEW"
+                RUN_PARENT="$GNEW"
+                pushed_groups=$((pushed_groups + 1))
+              else
+                echo "[ERROR] Push del gruppo $gi/$NGROUPS RIFIUTATO (tentativo $i/5)."
+                echo "        La serie e' parziale: i gruppi 1..$((gi-1)) sono pubblicati,"
+                echo "        dal gruppo $gi in poi NO. Il run successivo riparte dal tip"
+                echo "        fresco e ricompleta."
+                rm -f "$IDX"
+                exit 1
+              fi
+              gi=$((gi + 1))
+            done
+            rm -f "$IDX"
+            # ---- (6) VERIFICA: i gruppi DEVONO ricostruire esattamente TARGET ----
+            if [ "$GTREE" != "$TREE" ]; then
+              echo "[ERROR] Incoerenza: il tree finale dei gruppi ($GTREE) != TARGET ($TREE)."
+              echo "        Nessun ulteriore push; il branch ha l'ultimo gruppo pubblicato."
+              exit 1
+            fi
+            echo "[INFO] Push incrementale completato: $pushed_groups/$NGROUPS gruppi, tree finale == TARGET ($TREE), tentativo $i/5."
+            exit 0
+          done
+          echo "[ERROR] Push su fm2-rendered non riuscito dopo 5 tentativi."
+          exit 1
