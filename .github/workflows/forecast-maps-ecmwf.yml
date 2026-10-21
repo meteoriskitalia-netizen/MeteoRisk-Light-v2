@@ -47,6 +47,14 @@ on:
         description: "Ignora il NO-OP guard e riscrive i frame anche se il manifest e' invariato"
         type: boolean
         default: false
+  schedule:
+    # TRIGGER NATIVO (cron GitHub, orario UTC) - rende il workflow AUTO-SUFFICIENTE,
+    # senza dipendere da uno scheduler esterno (cron-job.org) e senza secret.
+    # IFS 0.25: run nominali alle 00/12Z; su Open-Meteo il run e' disponibile ~7h42
+    # dopo il nominale (misurato il 21/10/2026: 7h42 e' il ritardo peggiore fra i
+    # 7 domini) -> si parte +7h45 dal nominale. E' il dominio piu' tardivo: partirlo
+    # prima significa scaricare il run VECCHIO.
+    - cron: "45 7,19 * * *"
   repository_dispatch:
     types: [ci-run]
 

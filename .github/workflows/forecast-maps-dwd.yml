@@ -48,6 +48,15 @@ on:
         description: "Ignora il NO-OP guard e riscrive i frame anche se il manifest e' invariato"
         type: boolean
         default: false
+  schedule:
+    # TRIGGER NATIVO (cron GitHub, orario UTC) - rende il workflow AUTO-SUFFICIENTE,
+    # senza dipendere da uno scheduler esterno (cron-job.org) e senza secret.
+    # ICON EU + ICON-D2: run nominali DWD ogni 3h (00/03/06/.../21Z); su Open-Meteo
+    # il run e' disponibile ~2h53 (EU) / ~1h23 (D2) dopo il nominale (misurato il
+    # 21/10/2026) -> si parte +3h30 dal nominale. Gli 8 slot distano 3h: questi due
+    # domini sono regionali e veloci (engine ~1.4s, render ~2.6s), quindi i run non
+    # si sovrappongono mai.
+    - cron: "30 0,3,6,9,12,15,18,21 * * *"
   repository_dispatch:
     types: [ci-run]
 

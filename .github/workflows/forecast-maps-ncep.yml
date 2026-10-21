@@ -48,6 +48,14 @@ on:
         description: "Ignora il NO-OP guard e riscrive i frame anche se il manifest e' invariato"
         type: boolean
         default: false
+  schedule:
+    # TRIGGER NATIVO (cron GitHub, orario UTC) - rende il workflow AUTO-SUFFICIENTE,
+    # senza dipendere da uno scheduler esterno (cron-job.org) e senza secret.
+    # GFS 0.25 + GFS 0.117: run nominali alle 00/06/12/18Z; su Open-Meteo il run e'
+    # disponibile ~6h05-6h13 dopo il nominale (misurato il 21/10/2026) -> si parte
+    # +6h15 dal nominale. Gli slot distano 6h, piu' della durata dei 2 domini
+    # globali (209 frame ciascuno, ~2-3h a cache fredda, contro il timeout di 180').
+    - cron: "15 0,6,12,18 * * *"
   repository_dispatch:
     types: [ci-run]
 
