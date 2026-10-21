@@ -1,0 +1,725 @@
+name: Forecast Maps V2 — dwd_icon (mappe .om su cache GitHub)
+
+# MeteoRisk forecast-maps-dwdicon — WORKFLOW DEDICATO AL SOLO DOMINIO `dwd_icon`.
+#
+# PERCHE' ESISTE (FIX 1.2.4.16 — ISOLAMENTO DEL DOMINIO dwd_icon):
+#   `dwd_icon` e' un dominio GLOBALE il cui artifact engine `fm2-dwd_icon` pesa
+#   4775 MB (4,66 GiB): il 43% del traffico artifact totale misurato (11.044 MB).
+#   Nel workflow principale `render-merge` scaricava gli artifact engine con
+#   `pattern: fm2-*`, quindi agganciava ANCHE `fm2-dwd_icon` e moriva con
+#     "Unable to download artifact(s): Artifact download failed after 5 retries"
+#   (~21' di retry). Da li' in poi TUTTI gli step successivi (assemble,
+#   `--index-only`, push incrementale, squash) restavano `skipped`: il branch
+#   `fm2-cache` non riceveva MAI `data/fm2-rendered/` e la fast-path WebP del
+#   client non si attivava (0 webp), per COLPA di UN SOLO dominio.
+#   Spostando `dwd_icon` qui, il workflow principale pubblica i suoi 6 domini
+#   (tutti con artifact < 1,5 GB) senza essere bloccato, e `dwd_icon` fallisce —
+#   se fallisce — al massimo per conto suo.
+#
+# STRUTTURA: questo file e' una COPIA RIDOTTA (matrix a UN solo dominio) di
+# `.github/workflows/forecast-maps-v2.yml`. Le tre fasi sono le stesse e usano lo
+# stesso codice (`scripts/forecast_v2/`, INVARIATO):
+#   1) `engine`      : scarica/costruisce i frame .om di dwd_icon e li committa su
+#                      `fm2-cache` in `data/fm2/dwd_icon/**`;
+#   2) `render`      : shard WebP per dwd_icon (`data/fm2-rendered/<regione>/dwd_icon`);
+#   3) `render-merge`: SOLO i WebP di dwd_icon + il proprio index (vedi sotto).
+#
+# ⚠️ LOST-UPDATE SUGLI index.json — LA SCELTA ARCHITETTURALE DI QUESTO FILE.
+#   Il client legge UN SOLO `data/fm2-rendered/<regione>/index.json` per regione
+#   (HTML riga 12088: `FM_RENDERED_BASE + serverRegion + '/index.json'`) e da li'
+#   scopre TUTTI i domini. Se QUESTO workflow riscrivesse l'index aggregato
+#   limitandolo al solo dwd_icon, gli altri 6 domini SPARIREBBERO dall'indice
+#   (lost-update fra due scrittori concorrenti sullo stesso file).
+#   SOLUZIONE ADOTTATA = (B): QUESTO workflow NON scrive MAI
+#   `data/fm2-rendered/<regione>/index.json`. Pubblica SOLO i propri WebP
+#   (le directory `data/fm2-rendered/<regione>/dwd_icon/**`, path DISGIUNTI da
+#   quelli degli altri domini) e lascia l'index aggregato al workflow principale,
+#   che e' l'unico scrittore degli index. La modalita' `--index-only` del
+#   renderer legge dal FILESYSTEM LOCALE (non dagli artifact: vedi
+#   `rebuild_index` in `render_fm_webp.py`, righe 805-895, che usa
+#   `os.path.isfile(os.path.join(in_dir, ...))` e `os.path.isdir(region_var_root)`)
+#   dopo aver fatto il checkout del path `data/fm2-rendered` dal branch `fm2-cache`.
+#   Quindi, appena i WebP di dwd_icon sono SUL BRANCH, il `--index-only` del
+#   workflow principale li vede e li include automaticamente nell'index aggregato.
+#   Questo workflow NON esegue alcuna ricostruzione di indice e NON tocca
+#   color_scales.json (che resta responsabilita' del workflow principale).
+#
+# BRANCH DATI `fm2-cache` e RACE FRA I DUE WORKFLOW:
+#   i path sono DISGIUNTI per dominio (`data/fm2/dwd_icon/**` e
+#   `data/fm2-rendered/<regione>/dwd_icon/**` qui; gli altri domini la'). L'unico
+#   punto di contatto e' il REF del branch: un push rifiutato perche' l'altro
+#   workflow ha avanzato il tip. E' gestito dal retry 5x per-rifetch GIA' presente
+#   (il commit riparte dal tip FRESCO, non da un rebase) e dall'indice isolato
+#   (GIT_INDEX_FILE + `git read-tree <tip-tree>` + SOSTITUZIONE MINIMALE dei soli
+#   path `data/fm2/dwd_icon/**`, mai un'allowlist per complemento), che impedisce
+#   a un commit di contenere path altrui o file di codice. Le due
+#   concurrency sono su GRUPPI DIVERSI (`forecast-maps-v2-*` vs
+#   `forecast-maps-dwdicon-*`), quindi non si serializzano a vicenda.
+#
+# ⚠️ NON esegue lo SQUASH del branch: lo squash e' GLOBALE (riscrive la storia del
+#   branch a UN commit) e appartiene al single-writer del workflow principale,
+#   che lo esegue a fine merge. Farlo anche qui sarebbe un secondo scrittore
+#   concorrente sul ref: si omette di proposito.
+#
+# NOTA CLIENT: data/fm2 e data/fm2-rendered NON sono su `main`; il client legge il
+# branch `fm2-cache` (FM_CACHE_BASE / FM_RENDERED_BASE).
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_update:
+        description: "Ignora il NO-OP guard e riscrive i frame anche se il manifest e' invariato"
+        type: boolean
+        default: false
+  repository_dispatch:
+    types: [ci-run]
+
+# CONCURRENCY A LIVELLO WORKFLOW — GRUPPO DIVERSO dal principale.
+# Deve essere diverso da `forecast-maps-v2-${{ github.ref }}` (workflow
+# principale) altrimenti le due run si metterebbero in coda a vicenda e
+# ri-introdurrebbero il blocco che questo workflow serve a rimuovere.
+concurrency:
+  group: forecast-maps-dwdicon-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  engine:
+    runs-on: ubuntu-latest
+    # UN SOLO dominio (dwd_icon): la matrix a un elemento serve a mantenere la
+    # struttura identica al workflow principale (fail-fast:false, per-dominio).
+    # timeout 180': dwd_icon e' un dominio GLOBALE (~209 frame) che a 60' veniva
+    # CANCELLATO senza aver finito (start 17:00:2x -> killed 18:00:37). A cache
+    # calda (restore-keys fm2-frames-dwd_icon-) il run resta molto piu' corto.
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        domain:
+          - dwd_icon
+    concurrency:
+      queue: max
+      # Group PER-DOMINIO: prefisso DIVERSO dal workflow principale
+      # (`forecast-maps-v2-<dominio>`) per non serializzare dwd_icon dietro gli
+      # altri domini e viceversa.
+      group: forecast-maps-dwdicon-${{ matrix.domain }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Codice da `main`; i DATI arrivano dal branch `fm2-cache` nello step dopo.
+          ref: main
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            scripts/forecast_v2
+            data/fm2/dwd_icon
+          sparse-checkout-cone-mode: true
+
+      # I dati preesistenti del dominio NON stanno su `main` (la cache vive sul
+      # branch `fm2-cache`, storia a un solo commit). Fetch superficiale del branch
+      # + checkout del SOLO path del dominio.
+      - name: Recupera i dati da fm2-cache
+        run: |
+          set -e
+          git fetch --no-tags --depth=1 origin fm2-cache || { echo "fm2-cache non esiste ancora: prima esecuzione"; exit 0; }
+          git checkout FETCH_HEAD -- "data/fm2/dwd_icon" || echo "nessun dato precedente per data/fm2/dwd_icon"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r scripts/forecast_v2/requirements.txt
+
+      # Cache PERSISTENTE PER-DOMINIO dei frame Open-Meteo full-size. Chiave nuova
+      # ad ogni run + restore-keys col prefisso fm2-frames-dwd_icon-.
+      - name: Cache frame Open-Meteo (.om)
+        uses: actions/cache@v4
+        with:
+          path: .cache_fm2_frames
+          key: fm2-frames-dwd_icon-${{ github.run_number }}
+          restore-keys: |
+            fm2-frames-dwd_icon-
+
+      - name: Build cache mappe previsionali V2
+        id: engine
+        run: |
+          FORCE=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_update }}" = "true" ]; then
+            FORCE="--force"
+          fi
+          python scripts/forecast_v2/forecast_v2_engine.py \
+            --domains dwd_icon \
+            --valid-frames 0 \
+            --out data/fm2 \
+            --frames-cache .cache_fm2_frames \
+            $FORCE
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## MeteoRisk — Forecast Maps V2 (dwd_icon)"
+            echo ""
+            echo "Dominio: \`dwd_icon\`"
+            echo ""
+            if [ -f data/fm2/dwd_icon/latest.json ]; then
+              python -c "import json; d=json.load(open('data/fm2/dwd_icon/latest.json')); f=d.get('frames',[]); print('reference_time:', d.get('reference_time')); print('frame:', len(f), '— valid_times:', len(d.get('valid_times', []))); print('byte totali:', sum(x.get('bytes',0) for x in f)); print('dominio:', d.get('domain')); print('warning:', len(d.get('warnings', []))); print('pruned:', d.get('pruned'))"
+            else
+              echo "latest.json non disponibile per il dominio 'dwd_icon' (run fallita prima del motore?)."
+            fi
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact fm2-dwd_icon
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fm2-dwd_icon
+          path: data/fm2/dwd_icon
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Commit cache aggiornata su fm2-cache (only if changed)
+        if: success()
+        run: |
+          # Il commit nasce IN CIMA al tip di `fm2-cache` e il tree e' costruito su
+          # un INDICE ISOLATO; si SOSTITUISCONO i soli path `data/fm2/dwd_icon/**`
+          # (vedi sotto, con guardia di scope) — nessun path altrui e nessun file di
+          # codice entra mai nel branch dati.
+          git config user.name "meteorisk-bot"
+          git config user.email "actions@users.noreply.github.com"
+          if [ ! -d "data/fm2/dwd_icon" ]; then
+            echo "[INFO] Nessun output per il dominio 'dwd_icon': niente da committare."
+            exit 0
+          fi
+          MSG="chore(fm2): aggiornamento cache dominio dwd_icon (.om per-domain crop)"
+          for i in 1 2 3 4 5; do
+            git fetch --no-tags --depth=1 origin fm2-cache || true
+            if git rev-parse --verify --quiet FETCH_HEAD >/dev/null 2>&1; then
+              BASE="$(git rev-parse FETCH_HEAD^{tree})"
+              PARENT="$(git rev-parse FETCH_HEAD)"
+            else
+              echo "[INFO] fm2-cache non esiste ancora: questo e' il primo commit del branch."
+              BASE="$(git hash-object -t tree /dev/null)"
+              PARENT=""
+            fi
+            IDX="$(mktemp -u)"
+            rm -f "$IDX"
+            # (1) base = tree del branch dati (NON l'indice di `main`)
+            GIT_INDEX_FILE="$IDX" git read-tree "$BASE"
+            # (2) SICUREZZA (verificata su git reale): NON si usa l'allowlist per
+            #     complemento `:(exclude)data/fm2/**`. Il complemento BUTTA VIA
+            #     dall'indice i path che il working tree non ha ripristinato
+            #     (data/fm2-rendered/**, scripts/**) e il commit li registra come
+            #     CANCELLAZIONI, distruggendo i webp degli altri domini e l'index.json
+            #     aggregato. Qui NON esiste un job successivo che li ripristini (il
+            #     merge dwd_icon non tocca i data/fm2-rendered altrui), quindi il
+            #     rischio si materializza. Il metodo corretto e' MINIMALE: rimpiazza
+            #     solo data/fm2/dwd_icon, lasciando intatto tutto il resto.
+            if [ -d data/fm2 ]; then
+              GIT_INDEX_FILE="$IDX" git ls-files -- data/fm2/dwd_icon \
+                | while IFS= read -r p; do
+                    GIT_INDEX_FILE="$IDX" git update-index --force-remove -- "$p"
+                  done
+            fi
+            # (3) aggiorna SOLO dwd_icon dal working tree
+            GIT_INDEX_FILE="$IDX" git add -A -- "data/fm2/dwd_icon"
+            TREE="$(GIT_INDEX_FILE="$IDX" git write-tree)"
+            rm -f "$IDX"
+            # (3-bis) GUARDIA DI SCOPE: il commit engine deve toccare SOLO
+            #     data/fm2/dwd_icon/**. Un solo path fuori allowlist => ABORTISCI.
+            git diff-tree -r --no-commit-id --name-only "$BASE" "$TREE" > /tmp/fm2_eng_scope.txt
+            BAD_SCOPE="$(grep -E -v '^data/fm2/dwd_icon/' /tmp/fm2_eng_scope.txt || true)"
+            if [ -n "$BAD_SCOPE" ]; then
+              echo "::error::GUARDIA DI SCOPE VIOLATA (engine dwd_icon): path fuori allowlist:"
+              printf '%s\n' "$BAD_SCOPE"
+              exit 1
+            fi
+            # NO-OP: albero identico al tip => nessun churn.
+            if [ "$TREE" = "$BASE" ]; then
+              echo "[INFO] Nessuna modifica a data/fm2/dwd_icon (NO-OP)."
+              exit 0
+            fi
+            if [ -n "$PARENT" ]; then
+              NEW="$(git commit-tree "$TREE" -p "$PARENT" -m "$MSG")"
+            else
+              NEW="$(git commit-tree "$TREE" -m "$MSG")"
+            fi
+            if git push origin "$NEW:refs/heads/fm2-cache"; then
+              echo "[INFO] Push su fm2-cache riuscito (tentativo $i/5)."
+              exit 0
+            fi
+            echo "[WARN] Push su fm2-cache rifiutato (race sul branch) - tentativo $i/5"
+            sleep $((i*3))
+          done
+          echo "[ERROR] Push su fm2-cache non riuscito dopo 5 tentativi."
+          exit 1
+
+  render:
+    # SHARD PER-DOMINIO (hotfix 1.2.4.8.1): un job per dominio, ciascuno renderizza
+    # SOLO il proprio dominio (--domains ${{ matrix.domain }}, le TRE regioni
+    # italia/europa/domain, entrambi i temi) in un albero vuoto e carica
+    # l'artifact fm2r-<dominio>.
+    # Gli shard NON possono scrivere gli index.json (ognuno vedrebbe solo se stesso):
+    # li ricostruisce il single-writer render-merge.
+    name: render (${{ matrix.domain }})
+    needs: engine
+    # !cancelled(): un dominio engine fallito non blocca gli altri 5 shard — quel
+    # dominio manchera' dal --in del merge e verra' escluso dalla gate.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    # Timeout del shard 150' -> 240': i 227 s/shard misurati PRIMA della 1.2.4.9
+    # non coprono thinning rimosso (+34,0% frame; +23,4% a parita' di run),
+    # upsampling (~9x pixel sul crop piu' piccolo) e regione `domain` (vedi
+    # l'header di questo file). E' MARGINE conservativo, non un fix alla cieca:
+    # va riverificato alla prima run reale. Il vecchio render monolitico
+    # (method=6, tutti i domini) moriva sempre a 90'.
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        # UN SOLO dominio: dwd_icon.
+        domain:
+          - dwd_icon
+    concurrency:
+      queue: max
+      # Group PER-DOMINIO con prefisso DIVERSO dal workflow principale: gli shard
+      # dwd_icon non si serializzano dietro i `forecast-maps-v2-render-<dominio>`.
+      group: forecast-maps-dwdicon-render-${{ matrix.domain }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+          # Shard senza credenziali persistite: non pushano (nessun commit qui).
+          persist-credentials: false
+          filter: blob:none
+          # Solo il renderer: lo shard deve renderizzare in un albero VUOTO
+          # (data/fm2-rendered esistente non serve: il merge fa il continuity).
+          sparse-checkout: |
+            scripts/forecast_v2
+          sparse-checkout-cone-mode: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r scripts/forecast_v2/requirements.txt
+
+      - name: Download artifact engine fm2-dwd_icon
+        uses: actions/download-artifact@v4
+        with:
+          # Nome ESATTO: se l'engine dwd_icon e' fallito questo step fallisce e lo
+          # shard viene escluso (intenzionale).
+          name: fm2-dwd_icon
+          path: /tmp/fm2art
+
+      - name: Assemble dominio engine
+        run: |
+          mkdir -p "data/fm2/dwd_icon"
+          cp -a /tmp/fm2art/. "data/fm2/dwd_icon/"
+
+      - name: Build WebP shard dwd_icon (italia/europa/domain, light+dark)
+        run: |
+          # --method 4 = bilanciamento velocita'/size approvato.
+          # --limit-frames 0 = orizzonte INTERO del manifest.
+          python scripts/forecast_v2/render_fm_webp.py \
+            --in data/fm2 \
+            --out data/fm2-rendered \
+            --domains dwd_icon \
+            --limit-frames 0 \
+            --method 4
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## MeteoRisk — Forecast Maps V2 (shard render dwd_icon)"
+            echo ""
+            echo "WebP prodotti: $(find data/fm2-rendered -name '*.webp' 2>/dev/null | wc -l)"
+            if [ -d data/fm2-rendered ]; then
+              echo "Byte totali: $(du -sb data/fm2-rendered | cut -f1)"
+            else
+              echo "Byte totali: 0 (nessun output)"
+            fi
+            echo ""
+            echo "Manifest per-var (latest.json -> generated_at / variable / theme):"
+            find data/fm2-rendered -name latest.json 2>/dev/null | sort | while read -r m; do
+              python -c "import json,sys; d=json.load(open(sys.argv[1])); print(sys.argv[1], '->', d.get('generated_at'), d.get('variable'), d.get('theme'))" "$m"
+            done
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact fm2r-dwd_icon
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          # Prefisso fm2r-: il download engine `fm2-*` del merge non aggancia gli
+          # shard. Solo le directory dominio: index.json e color_scales.json vivono
+          # fuori da queste path e NON vengono caricati dagli shard.
+          name: fm2r-dwd_icon
+          path: |
+            data/fm2-rendered/italia/dwd_icon
+            data/fm2-rendered/europa/dwd_icon
+            data/fm2-rendered/domain/dwd_icon
+          if-no-files-found: warn
+          retention-days: 1
+
+  render-merge:
+    # MERGE RIDOTTO AL SOLO DOMINIO dwd_icon.
+    # ⚠️ DIFFERENZA ARCHITETTURALE CHIAVE rispetto al `render-merge` del workflow
+    # principale: QUESTO merge NON riscrive gli `index.json` aggregati.
+    # Motivo (LOST-UPDATE): il client legge UN SOLO `data/fm2-rendered/<regione>/
+    # index.json` per regione (HTML riga 12088) e da quell'indice scopre TUTTI i
+    # domini. Se questo job eseguisse `--index-only --domains dwd_icon`, l'indice
+    # aggregato verrebbe riscritto con il SOLO dwd_icon: gli altri 6 domini
+    # SPARIREBBERO dal client. Due workflow che scrivono lo stesso file = scrittori
+    # concorrenti con lost-update, l'ultimo push vince e cancella il lavoro altrui.
+    # SOLUZIONE ADOTTATA = (B): l'index aggregato resta di proprieta' del workflow
+    # principale (che e' l'UNICO scrittore degli index). Questo job pubblica SOLO i
+    # WebP di dwd_icon nelle directory `data/fm2-rendered/<regione>/dwd_icon/**`,
+    # path DISGIUNTI da quelli degli altri domini: nessuna collisione di contenuto.
+    # L'inclusione di dwd_icon nell'indice aggregato avviene AUTOMATICAMENTE al
+    # prossimo `--index-only` del workflow principale: `rebuild_index` legge dal
+    # FILESYSTEM LOCALE (render_fm_webp.py righe 805-895: `os.path.isfile(os.path.
+    # join(in_dir, ...))` e `os.path.isdir(region_var_root)`), e il merge del
+    # principale fa il checkout di `data/fm2-rendered` dal branch `fm2-cache`. Qui
+    # NON serve alcun coordinamento: serve solo che i WebP siano SUL BRANCH.
+    name: render-merge dwd_icon (webp, nessun index)
+    needs: render
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    # Timeout 90': molto meno del principale (120') perche' (a) scarica UN solo
+    # artifact engine (dwd_icon) e UN solo shard, (b) pubblica ~1/6 del volume WebP,
+    # (c) NON ricostruisce gli index. Resta margine per il push incrementale a
+    # soglia (FIX 1.2.4.14), che vale anche qui.
+    timeout-minutes: 90
+    concurrency:
+      queue: max
+      # Gruppo DIVERSO dal single-writer principale (`forecast-maps-v2-render`):
+      # i due merge pubblicano path disgiunti e possono girare in parallelo. Il
+      # lock qui serializza solo le run di QUESTO workflow fra loro.
+      group: forecast-maps-dwdicon-render
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Il codice vive su `main`; i dati WebP sono presi da `fm2-cache`.
+          ref: main
+          fetch-depth: 1
+          persist-credentials: true
+          filter: blob:none
+          # Solo il renderer: questo job NON legge gli index e NON usa --index-only,
+          # ma scarica `data/fm2-rendered` dal branch come BASE di lavoro, cosi' il
+          # push incrementale vede lo stato preesistente (continuita' dei WebP).
+          sparse-checkout: |
+            scripts/forecast_v2
+            data/fm2-rendered
+          sparse-checkout-cone-mode: true
+
+      # Porta da `fm2-cache` lo stato preesistente di `data/fm2-rendered` (e
+      # `data/fm2`, usato dall'assemble dell'engine). Tolleranza del checkout come
+      # nel principale (FIX 1.2.4.15): esistenza verificata con `git ls-tree` e
+      # ogni checkout reso non fatale sul singolo comando.
+      - name: Recupera i dati da fm2-cache
+        run: |
+          set -e
+          git fetch --no-tags --depth=1 origin fm2-cache || { echo "fm2-cache non esiste ancora: prima esecuzione"; exit 0; }
+          git sparse-checkout disable >/dev/null 2>&1 || true
+          if git rev-parse --verify --quiet FETCH_HEAD >/dev/null 2>&1; then
+            for p in data/fm2 data/fm2-rendered; do
+              if git ls-tree --name-only FETCH_HEAD -- "$p" 2>/dev/null | grep -q .; then
+                echo "[fetch] $p presente sul branch: checkout."
+                git checkout FETCH_HEAD -- "$p" 2>/dev/null || echo "[fetch] $p: checkout non riuscito (tollerato)."
+              else
+                echo "[fetch] $p assente sul branch (nessun dato precedente): salto il checkout."
+              fi
+            done
+          fi
+
+      - name: Download fm2 artifact engine (solo dwd_icon)
+        uses: actions/download-artifact@v4
+        with:
+          # Nome ESATTO: solo l'artifact di QUESTO workflow run. Se l'engine e'
+          # fallito questo step fallisce e il merge viene escluso (intenzionale).
+          name: fm2-dwd_icon
+          path: /tmp/fm2arts
+
+      - name: Assemble fm2 domain (engine)
+        run: |
+          mkdir -p "data/fm2/dwd_icon"
+          cp -a /tmp/fm2arts/. "data/fm2/dwd_icon/"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r scripts/forecast_v2/requirements.txt
+
+      - name: Download render shard artifact (fm2r-dwd_icon)
+        uses: actions/download-artifact@v4
+        with:
+          name: fm2r-dwd_icon
+          path: /tmp/fm2r
+
+      - name: Assemble shard dwd_icon (sostituisci le directory dominio)
+        id: shards
+        run: |
+          # Sostituisci data/fm2-rendered/<regione>/dwd_icon con la versione
+          # autorevole dello shard (rm PRIMA: le variabili droppate vanno pulite).
+          # ⚠️ SOLO `dwd_icon`: nessun'altra directory dominio viene toccata, e
+          # NESSUN index.json viene scritto ne' rimosso (sono fuori dalle path
+          # `<regione>/dwd_icon` e restano di proprieta' del workflow principale).
+          got=0
+          for region in italia europa domain; do
+            src="/tmp/fm2r/$region/dwd_icon"
+            if [ -d "$src" ]; then
+              rm -rf "data/fm2-rendered/$region/dwd_icon"
+              mkdir -p "data/fm2-rendered/$region"
+              cp -a "$src" "data/fm2-rendered/$region/dwd_icon"
+              got=1
+            fi
+          done
+          if [ "$got" -eq 1 ]; then
+            echo "domains=dwd_icon" >> "$GITHUB_OUTPUT"
+            echo "[shard] domini renderizzati: dwd_icon"
+          else
+            echo "[WARN] shard dwd_icon: nessuna regione presente, merge escluso"
+            echo "domains=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## MeteoRisk — Forecast Maps V2 (render-merge dwd_icon)"
+            echo ""
+            echo "Dominio pubblicato: \`dwd_icon\` (solo WebP; index aggregato NON toccato)"
+            echo ""
+            echo "WebP dwd_icon in cache: $(find data/fm2-rendered -path '*dwd_icon*' -name '*.webp' 2>/dev/null | wc -l)"
+            echo ""
+            echo "NOTA: \`data/fm2-rendered/<regione>/index.json\` resta scritto dal solo"
+            echo "workflow principale; questo job evita il lost-update fra i due scrittori."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit WebP dwd_icon su fm2-cache (push incrementale, only if changed)
+        if: success()
+        run: |
+          git config user.name "meteorisk-bot"
+          git config user.email "actions@users.noreply.github.com"
+          # SPARSE-CHECKOUT DISABILITATO PRIMA DI TOCCARE L'INDICE (stesso motivo del
+          # principale: i path dati stanno fuori dal cone del checkout).
+          git sparse-checkout disable >/dev/null 2>&1 || true
+          if [ ! -d "data/fm2-rendered" ]; then
+            echo "[INFO] Nessun output renderizzato: niente da committare."
+            exit 0
+          fi
+          # PUSH INCREMENTALE A SOGLIA (FIX 1.2.4.14, replicato): i WebP di dwd_icon
+          # possono superare da soli il limite di pack di GitHub (2,00 GiB), quindi si
+          # partizionano i path CAMBIATI con i byte reali sotto THRESHOLD=1,4 GiB.
+          # ⚠️ ALLOWLIST ALLARGATA AL SOLO DOMINIO: questo job DEVE pubblicare
+          # `data/fm2/dwd_icon/**` e `data/fm2-rendered/*/dwd_icon/**`, e NON deve
+          # poter cancellare o riscrivere gli index.json aggregati ne' gli altri
+          # domini. Il TREE TARGET viene costruito dal tree del branch RIPULITO dei
+          # soli path di QUESTO dominio (drop selettivo), cosi' l'indice del commit
+          # non contiene mai path di altri domini: se un path altrui non e' nel
+          # working tree locale, NON viene interpretato come cancellazione.
+          MSG="chore(fm2): aggiornamento WebP dwd_icon (regioni italia/europa/domain, light+dark)"
+          THRESHOLD=$((1400 * 1024 * 1024))
+          GQ="-c core.quotePath=false"
+          for i in 1 2 3 4 5; do
+            # ---- (0) risolvi BASE / PARENT dal tip FRESCO ----
+            git fetch --no-tags --depth=1 origin fm2-cache || true
+            if git rev-parse --verify --quiet FETCH_HEAD >/dev/null 2>&1; then
+              BASE="$(git rev-parse FETCH_HEAD^{tree})"
+              PARENT="$(git rev-parse FETCH_HEAD)"
+            else
+              echo "[INFO] fm2-cache non esiste ancora: questo e' il primo commit del branch."
+              BASE="$(git hash-object -t tree /dev/null)"
+              PARENT=""
+            fi
+            # ---- (1) costruisci il TREE TARGET su un indice isolato ----
+            # ⚠️ DESIGN VERIFICATO CON GIT REALE (non per ragionamento).
+            # Il metodo INGEGNERIA ERRATA (scartato) era "allowlist per complemento":
+            # elencare tutti i path dell'indice e TENERE solo `data/fm2/dwd_icon/**`
+            # + `data/fm2-rendered/*/dwd_icon/**`. Provato su un repo git reale:
+            # il complemento BUTTA VIA dall'indice i path degli ALTRI domini, gli
+            # index.json aggregati e perfino il codice -> il commit li registra come
+            # CANCELLAZIONI e distrugge il branch. (Lo stesso vale per l'allowlist
+            # `:(exclude)data/fm2/**` del workflow principale applicata a un working
+            # tree che NON contiene gli altri domini: anche quella produce cancellazioni.)
+            # METODO CORRETTO (provato): NON toccare nulla che non sia dwd_icon.
+            #  1) read-tree BASE = l'indice parte dall'INTERO albero del branch;
+            #  2) rimuovi dall'indice SOLO le path dwd_icon (engine + rendered delle
+            #     3 regioni): sono messe in scena come "da ri-aggiungere" dal working
+            #     tree, che e' autorevole per quel dominio;
+            #  3) `git add -A` SOLO su quelle 4 path: aggiorna/aggiunge i file
+            #     dwd_icon presenti e registra le RIMOZIONI delle variabili droppate;
+            #  4) TUTTO il resto (altri domini, index.json aggregati, codice) NON viene
+            #     mai toccato e resta IDENTICO al tip del branch.
+            # Prova su git reale (scenario: branch con 2 domini + 2 index + codice;
+            # working tree locale con il solo dwd_icon): TREE diff = M/A/D SOLO su
+            # data/fm2/dwd_icon/** e data/fm2-rendered/italia/dwd_icon/**; i path
+            # PERSI sono esclusivamente data/fm2/dwd_icon/gone.om (variabile droppata).
+            IDXT="$(mktemp -u)"; rm -f "$IDXT"
+            GIT_INDEX_FILE="$IDXT" git read-tree "$BASE"
+            # stage-out delle path dwd_icon presenti nell'indice (stato del branch)...
+            if [ -d data/fm2 ]; then
+              GIT_INDEX_FILE="$IDXT" git ls-files -- data/fm2/dwd_icon \
+                | while IFS= read -r p; do
+                    GIT_INDEX_FILE="$IDXT" git update-index --force-remove -- "$p"
+                  done
+            fi
+            for region in italia europa domain; do
+              GIT_INDEX_FILE="$IDXT" git ls-files -- "data/fm2-rendered/$region/dwd_icon" \
+                | while IFS= read -r p; do
+                    GIT_INDEX_FILE="$IDXT" git update-index --force-remove -- "$p"
+                  done
+            done
+            # ...poi ri-aggiungile dal working tree (solo quelle che esistono davvero):
+            # `data/fm2-rendered/<regione>/dwd_icon` puo' non esistere per una regione.
+            add_paths=""
+            for p in data/fm2/dwd_icon data/fm2-rendered/italia/dwd_icon data/fm2-rendered/europa/dwd_icon data/fm2-rendered/domain/dwd_icon; do
+              [ -e "$p" ] && add_paths="$add_paths $p"
+            done
+            if [ -n "$add_paths" ]; then
+              # shellcheck disable=SC2086
+              GIT_INDEX_FILE="$IDXT" git add -A -- $add_paths
+            fi
+            TREE="$(GIT_INDEX_FILE="$IDXT" git write-tree)"
+            rm -f "$IDXT"
+            # NO-OP: albero identico al tip => nessun churn.
+            if [ "$TREE" = "$BASE" ]; then
+              echo "[INFO] Nessuna modifica ai dati dwd_icon (NO-OP)."
+              exit 0
+            fi
+            # ---- (2) lista dei path CAMBIATI con dimensione (per la soglia) ----
+            git $GQ diff-tree -r --no-commit-id --name-status "$BASE" "$TREE" > /tmp/fm2_changed.txt
+            : > /tmp/fm2_sizes.txt
+            : > /tmp/fm2_dels.txt
+            while IFS="$(printf '\t')" read -r st path; do
+              [ -z "$path" ] && continue
+              case "$st" in
+                D) printf '%s\n' "$path" >> /tmp/fm2_dels.txt ;;
+                *)
+                  if [ -f "$path" ]; then
+                    sz="$(stat -c %s -- "$path" 2>/dev/null || echo 0)"
+                  else
+                    sz=0
+                  fi
+                  printf '%s\t%s\n' "$sz" "$path" >> /tmp/fm2_sizes.txt
+                  ;;
+              esac
+            done < /tmp/fm2_changed.txt
+            # ---- (3) partizione a soglia (first-fit-decreasing) ----
+            sort -t"$(printf '\t')" -k1,1nr /tmp/fm2_sizes.txt > /tmp/fm2_sizes_sorted.txt
+            rm -rf /tmp/fm2_groups; mkdir -p /tmp/fm2_groups
+            gidx=1; gbytes=0
+            : > "/tmp/fm2_groups/g_${gidx}.txt"
+            while IFS="$(printf '\t')" read -r sz path; do
+              [ -z "$path" ] && continue
+              if [ "$gbytes" -gt 0 ] && [ $((gbytes + sz)) -gt "$THRESHOLD" ]; then
+                gidx=$((gidx + 1)); gbytes=0
+                : > "/tmp/fm2_groups/g_${gidx}.txt"
+              fi
+              printf '%s\n' "$path" >> "/tmp/fm2_groups/g_${gidx}.txt"
+              gbytes=$((gbytes + sz))
+              if [ "$sz" -gt "$THRESHOLD" ]; then
+                echo "[WARN] path singolo oltre soglia (resta da solo nel suo gruppo): $path ($sz B)"
+              fi
+            done < /tmp/fm2_sizes_sorted.txt
+            if [ -s /tmp/fm2_dels.txt ]; then
+              cat /tmp/fm2_dels.txt >> "/tmp/fm2_groups/g_${gidx}.txt"
+            fi
+            NGROUPS="$gidx"
+            echo "[push] path cambiati: $(wc -l < /tmp/fm2_sizes.txt) A/M + $(wc -l < /tmp/fm2_dels.txt) D = $NGROUPS gruppi (soglia $THRESHOLD B)"
+            # ---- (4) indice evolutivo: parte da BASE INTEGRO ----
+            # ⚠️ NON si applica il complemento (distruggerebbe gli altri domini e
+            # gli index aggregati: vedi il commento della fase (1), provato su git
+            # reale). L'indice evolutivo parte dall'INTERO albero del tip e ogni
+            # gruppo di push vi applica `git add -A --pathspec-from-file`, dove i
+            # path elencati sono ESCLUSIVAMENTE dwd_icon (derivano dal diff
+            # BASE->TARGET, che tocca solo dwd_icon). I path NON elencati restano
+            # intatti per costruzione, quindi il tree finale coincide con TARGET.
+            IDX="$(mktemp -u)"; rm -f "$IDX"
+            GIT_INDEX_FILE="$IDX" git read-tree "$BASE"
+            # ---- (4-bis) GUARDIA DI SCOPE (fail-fast, PRIMA di ogni push) ----
+            # Verifica che il diff BASE->TARGET tocchi ESCLUSIVAMENTE path dwd_icon.
+            # Se un solo path fuori allowlist comparisse (modifica o cancellazione),
+            # la guardia ABORTISCE: meglio un job rosso che un branch distrutto.
+            # (Raccomandazione esplicita della verifica indipendente.)
+            git diff-tree -r --no-commit-id --name-only "$BASE" "$TREE" > /tmp/fm2_scope.txt
+            BAD_SCOPE="$(grep -E -v '^data/fm2/dwd_icon/|^data/fm2-rendered/[^/]+/dwd_icon/' /tmp/fm2_scope.txt || true)"
+            if [ -n "$BAD_SCOPE" ]; then
+              echo "::error::GUARDIA DI SCOPE VIOLATA: il commit dwd_icon toccherebbe path fuori allowlist:"
+              printf '%s\n' "$BAD_SCOPE"
+              exit 1
+            fi
+            echo "[guardia] scope OK: $(wc -l < /tmp/fm2_scope.txt) path toccati, tutti sotto dwd_icon"
+            # ---- (5) push gruppo per gruppo (N push, ognuno < THRESHOLD) ----
+            RUN_PARENT="$PARENT"
+            pushed_groups=0
+            gi=1
+            while [ "$gi" -le "$NGROUPS" ]; do
+              GFILE="/tmp/fm2_groups/g_${gi}.txt"
+              if [ ! -s "$GFILE" ]; then gi=$((gi + 1)); continue; fi
+              GIT_INDEX_FILE="$IDX" git add -A --pathspec-from-file="$GFILE"
+              GTREE="$(GIT_INDEX_FILE="$IDX" git write-tree)"
+              echo "[push] gruppo $gi/$NGROUPS: $(wc -l < "$GFILE") path -> tree $GTREE"
+              if [ -n "$RUN_PARENT" ]; then
+                GNEW="$(git commit-tree "$GTREE" -p "$RUN_PARENT" -m "$MSG [$gi/$NGROUPS]")"
+              else
+                GNEW="$(git commit-tree "$GTREE" -m "$MSG [$gi/$NGROUPS]")"
+              fi
+              if git push origin "$GNEW:refs/heads/fm2-cache"; then
+                echo "[push] gruppo $gi/$NGROUPS pubblicato: $GNEW"
+                RUN_PARENT="$GNEW"
+                pushed_groups=$((pushed_groups + 1))
+              else
+                echo "[ERROR] Push del gruppo $gi/$NGROUPS RIFIUTATO (tentativo $i/5)."
+                echo "        La serie e' parziale: i gruppi 1..$((gi-1)) sono pubblicati,"
+                echo "        dal gruppo $gi in poi NO. Il run successivo riparte dal tip"
+                echo "        fresco e ricompleta."
+                rm -f "$IDX"
+                exit 1
+              fi
+              gi=$((gi + 1))
+            done
+            rm -f "$IDX"
+            # ---- (6) VERIFICA: i gruppi DEVONO ricostruire esattamente TARGET ----
+            if [ "$GTREE" != "$TREE" ]; then
+              echo "[ERROR] Incoerenza: il tree finale dei gruppi ($GTREE) != TARGET ($TREE)."
+              echo "        Nessun ulteriore push; il branch ha l'ultimo gruppo pubblicato."
+              exit 1
+            fi
+            echo "[INFO] Push incrementale completato: $pushed_groups/$NGROUPS gruppi, tree finale == TARGET ($TREE), tentativo $i/5."
+            exit 0
+          done
+          echo "[ERROR] Push su fm2-cache non riuscito dopo 5 tentativi."
+          exit 1
+
+      # ⚠️ NESSUNO SQUASH QUI. Lo squash riscrive la storia del branch a UN solo
+      # commit (operazione GLOBALE sul branch) e appartiene all'UNICO single-writer,
+      # cioe' il `render-merge` del workflow principale. Eseguirlo anche in questo
+      # workflow creerebbe un secondo scrittore concorrente sul ref di `fm2-cache`
+      # (race con `--force-with-lease`) senza alcun beneficio.

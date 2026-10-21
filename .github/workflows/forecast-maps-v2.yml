@@ -8,7 +8,8 @@ name: Forecast Maps V2 (mappe .om su cache GitHub)
 #     orizzonte INTERO del manifest del dominio: --valid-frames 0, nessun cap sul
 #     prune). Attribuzione Open-Meteo (CC BY 4.0); omfiles solo a runtime.
 #   - MULTI-DOMINIO = MATRIX (strategia scelta): UN JOB PER DOMINIO
-#     (matrix.domain, 7 domini GEOGCRS). Motivo: i domini globali pubblicano
+#     (matrix.domain, 6 domini GEOGCRS in questo workflow + dwd_icon nel workflow
+#     dedicato forecast-maps-dwdicon.yml, FIX 1.2.4.16). Motivo: i domini globali pubblicano
 #     ~200 frame ciascuno (es. ncep_gfs025 209): un unico job seriale sforerebbe.
 #     Il matrix isola i fallimenti (un dominio KO non uccide gli altri,
 #     fail-fast:false), parallelizza i download e riduce la pressione su S3.
@@ -65,8 +66,8 @@ name: Forecast Maps V2 (mappe .om su cache GitHub)
 #     deve leggere il branch `fm2-cache` (FM_CACHE_BASE / FM_RENDERED_BASE).
 #   - chmi_aladin_central_europe_2km NON e' nella matrice: il suo CRS e' PROJCRS
 #     (Lambert), il motore lo salterebbe con `SKIP dominio ... (PROJCRS/Lambert)`
-#     e un job con SOLO domini skip uscirebbe 1 (nessun dominio ok). Restano i 7
-#     domini GEOGCRS.
+#     e un job con SOLO domini skip uscirebbe 1 (nessun dominio ok). Restano i
+#     domini GEOGCRS: 6 qui, dwd_icon nel workflow dedicato.
 #   - EGRESS: i frame full-size S3 sono tenuti in cache GitHub
 #     (.cache_fm2_frames/<dominio>/<VALID>.om, actions/cache) e riusati tra run via
 #     --frames-cache: si scaricano solo i frame nuovi. Cache PER-DOMINIO
@@ -80,7 +81,7 @@ name: Forecast Maps V2 (mappe .om su cache GitHub)
 #     client non si attivava mai. Architettura attuale (entrambi i temi light/dark
 #     conservati, nessun cap sugli frame; TRE regioni per dominio: `italia`,
 #     `europa` e `domain` = l'intero dominio, resa solo per i domini non globali):
-#     1) `render` = MATRICE per-dominio (stessa lista dei 7 domini dell'engine,
+#     1) `render` = MATRICE per-dominio (stessa lista dei 6 domini dell'engine,
 #        fail-fast:false, concurrency forecast-maps-v2-render-<dominio>,
 #        timeout-minutes:240): ogni shard scarica l'artifact engine ESATTO del
 #        proprio dominio (fm2-<dominio>), renderizza SOLO quel dominio
@@ -128,7 +129,7 @@ name: Forecast Maps V2 (mappe .om su cache GitHub)
 #        viene cancellato dal timeout), pubblicando i WebP dei domini riusciti.
 #        NON parte solo se l'INTERO run viene cancellato dall'utente. Gli shard
 #        `render` hanno gia' `strategy.fail-fast:false` (un dominio KO non
-#        cancella gli altri 6). NB: un timeout di un job della matrix marca
+#        cancella gli altri 5). NB: un timeout di un job della matrix marca
 #        QUEL leg `cancelled` (non `failure`), ma a livello RUN/SHARD il merge
 #        resta avviato perche' `cancelled()` e' vero solo su cancellazione
 #        esplicita del workflow; verificato sui run reali 39420286697 e
@@ -160,17 +161,39 @@ on:
   repository_dispatch:
     types: [ci-run]
 
+# CONCURRENCY A LIVELLO WORKFLOW (FIX 1.2.4.16 — ISOLAMENTO DEL DOMINIO dwd_icon).
+# Motivo: `dwd_icon` (l'artifact engine piu' pesante, 4775 MB = 4,66 GiB, il 43%
+# del traffico artifact totale misurato: 11.044 MB) e' stato spostato nel workflow
+# DEDICATO `forecast-maps-dwdicon.yml`. Qui restano i 6 domini "leggeri" (tutti
+# sotto 1,5 GB per artifact), cosi' `render-merge` NON scarica piu' `fm2-dwd_icon`
+# e non muore piu' su "Unable to download artifact(s): Artifact download failed
+# after 5 retries" (21' di retry) bloccando assemble/index/push/squash.
+# Il lock e' a livello RUN e NON sostituisce i 3 lock PER-JOB (engine per-dominio,
+# render per-dominio, merge single-writer): quelli restano intatti e continuano a
+# serializzare il LAVORO. Questo aggiunge solo la serializzazione delle RUN dello
+# stesso workflow sul medesimo ref (difesa in profondita' contro sovrapposizioni
+# fra run consecutive, es. cron + dispatch manuale) e NON mette in coda i merge
+# del workflow dwd_icon (gruppo diverso, `forecast-maps-dwdicon-*`).
+# `cancel-in-progress: false` perche' cancellare una run a meta' lascerebbe il
+# branch dati con la serie di push incrementale parziale (il run successivo la
+# ricompleta, ma non vogliamo introdurre cancellazioni non necessarie).
+concurrency:
+  group: forecast-maps-v2-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
 jobs:
   engine:
     runs-on: ubuntu-latest
-    # Un job per dominio (7 domini GEOGCRS). Ogni job e' autonomo e parallelo:
+    # Un job per dominio (6 domini GEOGCRS in questo workflow; dwd_icon e' nel
+    # workflow dedicato). Ogni job e' autonomo e parallelo:
     # il fallimento/timeout di un dominio non ferma gli altri (fail-fast:false).
     # timeout per-job alzato (20' -> 60' -> 180'): il limite e' PER-JOB (uno per
     # dominio della matrix), quindi alzarlo NON tocca gli altri job del workflow.
-    # PERCHE' 180' — i due domini GLOBALI (dwd_icon, ncep_gfs025, ~209 frame
+    # PERCHE' 180' — i due domini GLOBALI (dwd_icon [ora nel workflow dedicato],
+    # ncep_gfs025, ~209 frame
     # ciascuno) venivano CANCELLATI a 60' esatti senza aver finito (start 17:00:2x
     # -> killed 18:00:37), quindi non caricavano l'artifact fm2-<dominio> e gli
     # shard render corrispondenti fallivano ("Artifact not found"). Riferimenti
@@ -184,13 +207,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # 6 domini "leggeri". `dwd_icon` e' STATO RIMOSSO dalla matrix (FIX 1.2.4.16)
+        # e vive nel workflow dedicato `forecast-maps-dwdicon.yml`: il suo artifact
+        # engine fm2-dwd_icon (4775 MB) era l'unico sopra 1,5 GB e faceva fallire il
+        # download di `render-merge`), che con il vecchio `pattern: fm2-*` lo agganciava.
         domain:
           - dwd_icon_eu
           - dwd_icon_d2
           - ecmwf_ifs025
           - ncep_gfs025
           - ncep_gfs013
-          - dwd_icon
           - meteofrance_arpege_world025
     concurrency:
       queue: max
@@ -363,7 +389,7 @@ jobs:
     # li ricostruisce il single-writer render-merge.
     name: render (${{ matrix.domain }})
     needs: engine
-    # !cancelled(): un dominio engine fallito non blocca gli altri 6 shard — quel
+    # !cancelled(): un dominio engine fallito non blocca gli altri 5 shard — quel
     # dominio manchera' dal --in del merge e verra' escluso dalla gate.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
@@ -377,18 +403,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Stessa lista "leggera" dell'engine (6 domini): `dwd_icon` e' nel workflow
+        # dedicato `forecast-maps-dwdicon.yml` (FIX 1.2.4.16).
         domain:
           - dwd_icon_eu
           - dwd_icon_d2
           - ecmwf_ifs025
           - ncep_gfs025
           - ncep_gfs013
-          - dwd_icon
           - meteofrance_arpege_world025
     concurrency:
       queue: max
       # Group PER-DOMINIO: gli shard si serializzano solo tra run dello stesso
-      # dominio; i 7 domini procedono in parallelo tra loro e rispetto all'engine.
+      # dominio; i 6 domini procedono in parallelo tra loro e rispetto all'engine.
       group: forecast-maps-v2-render-${{ matrix.domain }}
       cancel-in-progress: false
     steps:
@@ -560,7 +587,20 @@ jobs:
       - name: Download fm2 artifacts (engine)
         uses: actions/download-artifact@v4
         with:
-          pattern: fm2-*
+          # ⚠️ CORRETTEZZA VERIFICATA (minimatch, vedi sotto). `actions/download-artifact@v4`
+          # fa `new Minimatch(inputs.pattern)` su UNA SOLA stringa: NON esiste alcuna
+          # "lista di pattern". Una stringa con newline NON e' una lista (minimatch la
+          # tratta come un pattern letterale, che non matcha nulla): la forma corretta
+          # e' UN pattern, e la negazione `!` all'INIZIO vale per l'INTERO pattern
+          # (minimatch README: "If the pattern starts with a ! character, then it is
+          # negated"). Quindi `!fm2-dwd_icon` = "tutti gli artifact TRANNE dwd_icon".
+          # PROVA: Minimatch('!fm2-dwd_icon').match('fm2-ncep_gfs013') === true,
+          # .match('fm2-dwd_icon') === false; Minimatch('fm2-*\n!fm2-dwd_icon')
+          # === false su ENTRAMBI (avrebbe scaricato ZERO artifact).
+          # NON si usa `merge-multiple` (default false): ogni artifact resta nella
+          # propria sottodirectory `fm2-<dominio>/`, che e' cio' che lo step
+          # "Assemble fm2 domains (engine)" si aspetta.
+          pattern: '!fm2-dwd_icon'
           path: /tmp/fm2arts
 
       - name: Assemble fm2 domains (engine)
@@ -580,7 +620,9 @@ jobs:
       - name: Download render shard artifacts (fm2r-*)
         uses: actions/download-artifact@v4
         with:
-          pattern: fm2r-*
+          # Stesso pattern negato dell'engine (minimatch su UNA stringa): tutti gli
+          # shard `fm2r-*` TRANNE `fm2r-dwd_icon`, che appartiene al workflow dedicato.
+          pattern: '!fm2r-dwd_icon'
           path: /tmp/fm2r
 
       - name: Assemble shard + lista domini renderizzati
@@ -620,11 +662,27 @@ jobs:
           # valido: nessuna pubblicazione, step FAIL visibile) — zero shard validi
           # => nessun commit, nessun prune. Gli index.json e i webp vengono
           # committati INSIEME nel passo successivo (single-writer).
+          #
+          # FIX ISOLAMENTO dwd_icon — l'index aggregato DEVE elencare anche dwd_icon.
+          # `--index-only` include un dominio SOLO se ricorrono ENTRAMBE le condizioni
+          # (verificato eseguendo il renderer: render_fm_webp.py righe 805-813):
+          #   (a) il dominio e' in `--domains`, e
+          #   (b) esiste `data/fm2/<dominio>/latest.json` (manifest ENGINE) in `--in`.
+          # Il manifest di dwd_icon NON arriva da un artifact di questo workflow (il
+          # suo engine vive nel workflow dedicato), ma lo step "Recupera i dati da
+          # fm2-cache" fa `git checkout FETCH_HEAD -- data/fm2`, quindi se il workflow
+          # dwd_icon ha gia' pubblicato il proprio manifest sul branch, (b) e'
+          # soddisfatta. Aggiungiamo percio' `dwd_icon` alla lista: se il manifest e'
+          # presente l'index lo elenca, se NON e' (branch mai popolato da dwd_icon) il
+          # renderer lo esclude da solo con "[index] <regione>/dwd_icon: escluso: non
+          # presente in --in" — nessun errore, nessun index vuoto.
+          # Gli index.json restano di UN SOLO scrittore: questo step. Il workflow
+          # dwd_icon non scrive mai un index (nessun lost-update).
           python scripts/forecast_v2/render_fm_webp.py \
             --in data/fm2 \
             --out data/fm2-rendered \
             --index-only \
-            --domains "${{ steps.shards.outputs.domains }}"
+            --domains "${{ steps.shards.outputs.domains }},dwd_icon"
 
       - name: Summary
         if: always()
@@ -639,7 +697,10 @@ jobs:
             # domini disponibili; qui si dice quanti e quali mancano, invece di
             # lasciare un merge silenziosamente parziale.
             MERGED="${{ steps.shards.outputs.domains }}"
-            EXPECTED="dwd_icon_eu,dwd_icon_d2,ecmwf_ifs025,ncep_gfs025,ncep_gfs013,dwd_icon,meteofrance_arpege_world025"
+            # FIX 1.2.4.16: `dwd_icon` NON e' piu' atteso da QUESTO workflow (vive
+            # nel dedicato `forecast-maps-dwdicon.yml`). La lista resta la fonte di
+            # verita' per la dichiarazione dei domini mancanti del run principale.
+            EXPECTED="dwd_icon_eu,dwd_icon_d2,ecmwf_ifs025,ncep_gfs025,ncep_gfs013,meteofrance_arpege_world025"
             missing=""
             n_missing=0
             IFS=',' read -ra exp <<< "$EXPECTED"
