@@ -1,0 +1,113 @@
+{
+  "repository": "meteoriskitalia-netizen/MeteoRisk-Light-v2",
+  "base_url": "https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows",
+  "auth_header_format": "Bearer <YOUR_GITHUB_PAT_TOKEN>",
+  "common_headers": {
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "MeteoRisk-CronJob/1.0",
+    "Content-Type": "application/json"
+  },
+  "jobs": [
+    {
+      "id": "forecast_dwd_icon_eu_d2",
+      "name": "DWD ICON-EU + ICON-D2 Forecast Maps",
+      "workflow_file": "forecast-maps-dwd.yml",
+      "schedule_utc": "30 0,3,6,9,12,15,18,21 * * *",
+      "schedule_description": "Ogni 3 ore a :30 UTC (+3h30 dal nominale: 00:30, 03:30, 06:30, 09:30, 12:30, 15:30, 18:30, 21:30 UTC)",
+      "model_nominal_runs_utc": ["00Z", "03Z", "06Z", "09Z", "12Z", "15Z", "18Z", "21Z"],
+      "open_meteo_delay": "ICON-D2 ~1h23, ICON-EU ~2h53",
+      "target_endpoint": "https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-dwd.yml/dispatches",
+      "method": "POST",
+      "payload": {
+        "ref": "main",
+        "inputs": {
+          "force_update": false
+        }
+      }
+    },
+    {
+      "id": "forecast_dwd_icon_global",
+      "name": "DWD ICON Global Forecast Maps",
+      "workflow_file": "forecast-maps-dwdicon.yml",
+      "schedule_utc": "30 4,10,16,22 * * *",
+      "schedule_description": "Ogni 6 ore a :30 UTC (+4h30 dal nominale: 04:30, 10:30, 16:30, 22:30 UTC)",
+      "model_nominal_runs_utc": ["00Z", "06Z", "12Z", "18Z"],
+      "open_meteo_delay": "ICON Global ~3h29",
+      "target_endpoint": "https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-dwdicon.yml/dispatches",
+      "method": "POST",
+      "payload": {
+        "ref": "main",
+        "inputs": {
+          "force_update": false
+        }
+      }
+    },
+    {
+      "id": "forecast_meteofrance_arpege",
+      "name": "Météo-France ARPEGE 0.25 Forecast Maps",
+      "workflow_file": "forecast-maps-meteofrance.yml",
+      "schedule_utc": "15 4,10,16,22 * * *",
+      "schedule_description": "Ogni 6 ore a :15 UTC (+4h15 dal nominale: 04:15, 10:15, 16:15, 22:15 UTC)",
+      "model_nominal_runs_utc": ["00Z", "06Z", "12Z", "18Z"],
+      "open_meteo_delay": "ARPEGE World ~4h08",
+      "target_endpoint": "https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-meteofrance.yml/dispatches",
+      "method": "POST",
+      "payload": {
+        "ref": "main",
+        "inputs": {
+          "force_update": false
+        }
+      }
+    },
+    {
+      "id": "forecast_ncep_gfs",
+      "name": "NCEP GFS (0.25 + 0.117) Forecast Maps",
+      "workflow_file": "forecast-maps-ncep.yml",
+      "schedule_utc": "15 0,6,12,18 * * *",
+      "schedule_description": "Ogni 6 ore a :15 UTC (+6h15 dal nominale: 00:15, 06:15, 12:15, 18:15 UTC)",
+      "model_nominal_runs_utc": ["00Z", "06Z", "12Z", "18Z"],
+      "open_meteo_delay": "GFS ~6h05-6h13",
+      "target_endpoint": "https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-ncep.yml/dispatches",
+      "method": "POST",
+      "payload": {
+        "ref": "main",
+        "inputs": {
+          "force_update": false
+        }
+      }
+    },
+    {
+      "id": "forecast_ecmwf_ifs",
+      "name": "ECMWF IFS 0.25 Forecast Maps",
+      "workflow_file": "forecast-maps-ecmwf.yml",
+      "schedule_utc": "45 7,19 * * *",
+      "schedule_description": "Due volte al giorno a :45 UTC (+7h45 dal nominale: 07:45, 19:45 UTC)",
+      "model_nominal_runs_utc": ["00Z", "12Z"],
+      "open_meteo_delay": "IFS 0.25 ~7h42 (il più tardivo)",
+      "target_endpoint": "https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-ecmwf.yml/dispatches",
+      "method": "POST",
+      "payload": {
+        "ref": "main",
+        "inputs": {
+          "force_update": false
+        }
+      }
+    },
+    {
+      "id": "forecast_index_aggregator",
+      "name": "WebP Forecast Maps Index Aggregator",
+      "workflow_file": "forecast-maps-index.yml",
+      "schedule_utc": "50 2,8,14,20 * * *",
+      "schedule_description": "Recupero periodico ogni 6 ore (02:50, 08:50, 14:50, 20:50 UTC)",
+      "model_nominal_runs_utc": ["Auto-triggered post merge"],
+      "open_meteo_delay": "N/A",
+      "target_endpoint": "https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-index.yml/dispatches",
+      "method": "POST",
+      "payload": {
+        "ref": "main",
+        "inputs": {}
+      }
+    }
+  ]
+}
