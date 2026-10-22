@@ -12484,7 +12484,13 @@ function fmFetchRenderedIndex(serverRegion, cb) {
     var done = function (err, idx) {
         if (fmWebpIndexLoading === serverRegion) fmWebpIndexLoading = null;
         if (gen !== fmWebpIndexGen) return;           // risposta superata -> scarta
-        if (err) { if (cb) cb(err); return; }
+        if (err) {
+            if (fmActive && fmRegion === 'north' && fmRenderRegionId() === serverRegion) {
+                fmSetStatus('Indice emisfero nord non disponibile (' + (err.message || 'errore rete') + ')');
+            }
+            if (cb) cb(err);
+            return;
+        }
         fmWebpIndex = idx;
         fmWebpIndexRegion = serverRegion;
         fmWebpFailedUrl = null;                       // nuovo index -> azzera il blacklist WebP
@@ -12568,6 +12574,11 @@ function fmRebuild() {
     var wantWebp = !fmOverlayVariable || fmRegion === 'north';
     var webp = wantWebp ? fmWebpFrameUrl() : null;
     if (webp && webp.url === fmWebpFailedUrl) webp = null; // gia' fallito: resta sul path .om
+    // Rimuove lo stato polare rimasto a schermo quando si torna a una regione normale.
+    var statusEl = fmEl('fm-status');
+    if (fmRegion !== 'north' && statusEl && /^Vista polare:|^Indice emisfero nord/.test(statusEl.textContent || '')) {
+        fmSetStatus(fmMeta.valid_times.length + ' ore – run ' + fmFmtTime(fmMeta.reference_time));
+    }
     // La proiezione dall'alto usa il frame WebP completo, inclusi i valori delle
     // isolinee e le frecce. Il fallback .om/composito resta sul normale Leaflet.
     fmPolarSetActive(!!(fmActive && fmRegion === 'north' && webp));

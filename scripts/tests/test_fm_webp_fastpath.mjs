@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url';
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const HTML = path.join(ROOT, 'mri-light-1.2.4.13.html');
 const src = fs.readFileSync(HTML, 'utf8');
+const INDEX_WORKFLOW = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'forecast-maps-index.yml'), 'utf8');
 
 let failures = 0;
 function ok(label, cond, detail = '') {
@@ -74,6 +75,9 @@ ok('A15b: Emisfero nord disponibile ai modelli globali e collegato al renderer',
   /'north'\s*:\s*'north'/.test(moduleSrc) &&
   /id:\s*'north',\s*label:\s*'Emisfero nord'/.test(moduleSrc) &&
   /return\s*\['north',\s*'domain',\s*'europe',\s*'italy',\s*'natl'\]/.test(moduleSrc));
+ok('A15c: index-builder autorizza e pubblica north/index.json',
+  /\(italia\|europa\|north\|domain\)\/index\\\.json/.test(INDEX_WORKFLOW) &&
+  (INDEX_WORKFLOW.match(/data\/fm2-rendered\/north\/index\.json/g) || []).length >= 2);
 // ensureChartJs vive FUORI dal blocco FM -> asserzioni sull'intero file.
 ok("A16: ensureChartJs ha handle singolo _chartJsWaitTimer",
   has(/var _chartJsWaitTimer/));
@@ -83,7 +87,7 @@ ok("A17: ensureChartJs non crea piu' var _t = setInterval per-chiamata",
 // ---------- B. VM (esecuzione del blocco reale) ----------
 const ctx = {
   document: { getElementById() { return null; } },
-  window: {},
+  window: { addEventListener() {} },
   L: undefined,
   isFeatureEnabled() { return true; },
   fetch() { throw new Error('fetch non consentito'); },
