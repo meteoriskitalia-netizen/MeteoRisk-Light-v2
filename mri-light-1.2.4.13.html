@@ -209,7 +209,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .leaflet-image-layer { transition: none !important; }
          /* Transizione dedicata ai frame previsionali WebP: gli altri overlay
             (satellite/fulmini) restano istantanei per evitare sfarfallii. */
-         .leaflet-image-layer.mri-fm-frame { transition: opacity 180ms ease-out !important; }
+         .leaflet-image-layer.mri-fm-frame { transition: opacity 90ms ease-out !important; }
          @media (prefers-reduced-motion: reduce) {
              .leaflet-image-layer.mri-fm-frame { transition: none !important; }
          }
@@ -224,6 +224,12 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 
         .map-card { background: #1e293b; border-radius: 12px; padding: 14px; border: 1px solid #334155; position: relative; }
         #leaflet-map { width: 100%; height: 560px; border-radius: 8px; background: #080f21; }
+        #leaflet-map.mri-polar-active { overflow: hidden; }
+        #leaflet-map.mri-polar-active .leaflet-pane,
+        #leaflet-map.mri-polar-active .leaflet-control-container,
+        #leaflet-map.mri-polar-active .fm-map-loader { visibility: hidden !important; }
+        .mri-polar-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 900; pointer-events: none; visibility: hidden; }
+        #leaflet-map.mri-polar-active .mri-polar-canvas { visibility: visible; }
         @media (max-width: 950px) { #leaflet-map { height: 60vh; min-height: 300px; } }
         #radar-embed-container { width: 100%; height: 560px; border-radius: 8px; overflow: hidden; position: relative; background: #0f172a; }
         #radar-embed-container #radar-embed-iframe { width: 100%; height: 100%; border: 0; display: block; margin: 0; padding: 0; }
@@ -5104,6 +5110,8 @@ const DAILY_PARAMS = "weathercode,temperature_2m_max,temperature_2m_min,precipit
         map.createPane('borderOverlayPane');
         map.getPane('borderOverlayPane').style.zIndex = 410;
         map.getPane('borderOverlayPane').style.pointerEvents = 'none';
+        // Confini nazionali Natural Earth, disegnati sopra i raster previsionali.
+        fmEnsureCountryBorders();
         // 1.2.4.0: pane per le mappe previsionali (Open-Meteo Weather Map Layer)
         try {
             map.createPane('forecastMapsPane');
@@ -11313,6 +11321,215 @@ var FM_REGIONS = [
     { id: 'oceania', label: 'Oceania', bbox: [-48, 110, -9, 180] },
     { id: 'arctic', label: 'Artico', bbox: [60, -180, 90, 180] }
 ];
+// Vista stereografica polare: riproietta i WebP gia' completi (campi, isolinee,
+// valori e frecce) senza cambiare il CRS Leaflet usato dal resto dell'app.
+var fmPolarCanvas = null;
+var fmPolarCtx = null;
+var fmPolarActive = false;
+var fmPolarFrame = null;
+var fmPolarFrameUrl = null;
+var fmPolarGeneration = 0;
+var fmPolarLand = null;
+var fmPolarLandLoading = false;
+var FM_POLAR_LAND_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_land.geojson';
+var FM_COUNTRY_BORDERS_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_boundary_lines_land.geojson';
+var fmCountryBordersLayer = null;
+var fmCountryBordersHaloLayer = null;
+var fmCountryBordersLoading = false;
+function fmEnsureCountryBorders() {
+    if (fmCountryBordersLayer || fmCountryBordersLoading || typeof map === 'undefined' || !map || typeof L === 'undefined') return;
+    fmCountryBordersLoading = true;
+    fetch(FM_COUNTRY_BORDERS_URL, { cache: 'force-cache' }).then(function (r) {
+        if (!r || !r.ok) throw new Error('HTTP ' + (r ? r.status : '?'));
+        return r.json();
+    }).then(function (geo) {
+        fmCountryBordersLoading = false;
+        if (typeof map === 'undefined' || !map || !map.getPane('borderOverlayPane')) return;
+        fmCountryBordersHaloLayer = L.geoJSON(geo, {
+            pane: 'borderOverlayPane', interactive: false, fill: false,
+            style: function () { return { fill: false, color: '#0f172a', weight: 3.1, opacity: 0.76 }; }
+        }).addTo(map);
+        fmCountryBordersLayer = L.geoJSON(geo, {
+            pane: 'borderOverlayPane', interactive: false, fill: false,
+            style: function () { return { fill: false, color: '#ffffff', weight: 1.45, opacity: 0.96 }; }
+        }).addTo(map);
+        fmCountryBordersHaloLayer.bringToFront();
+        fmCountryBordersLayer.bringToFront();
+    }).catch(function () { fmCountryBordersLoading = false; });
+}
+function fmPolarEnsureCanvas() {
+    if (fmPolarCanvas && fmPolarCanvas.isConnected) return true;
+    var container = document.getElementById('leaflet-map');
+    if (!container) return false;
+    fmPolarCanvas = document.createElement('canvas');
+    fmPolarCanvas.className = 'mri-polar-canvas';
+    fmPolarCanvas.setAttribute('aria-label', 'Emisfero nord in proiezione stereografica polare');
+    container.appendChild(fmPolarCanvas);
+    fmPolarCtx = fmPolarCanvas.getContext('2d', { alpha: false });
+    return !!fmPolarCtx;
+}
+function fmPolarSetActive(active) {
+    fmPolarActive = !!active;
+    var container = document.getElementById('leaflet-map');
+    if (!container) return;
+    if (!fmPolarActive) {
+        container.classList.remove('mri-polar-active');
+        return;
+    }
+    if (!fmPolarEnsureCanvas()) return;
+    container.classList.add('mri-polar-active');
+    fmPolarLoadLand();
+    var frame = (typeof fmWebpFrameUrl === 'function') ? fmWebpFrameUrl() : null;
+    if (frame) {
+        if (fmPolarFrame) fmPolarPaintBase();
+        fmPolarLoadFrame(frame.url, frame.bounds);
+    }
+    else fmPolarPaintBase();
+}
+function fmPolarLoadLand() {
+    if (fmPolarLand || fmPolarLandLoading) return;
+    fmPolarLandLoading = true;
+    fetch(FM_POLAR_LAND_URL, { cache: 'force-cache' }).then(function (r) {
+        if (!r || !r.ok) throw new Error('HTTP ' + (r ? r.status : '?'));
+        return r.json();
+    }).then(function (geo) {
+        fmPolarLand = geo;
+        fmPolarLandLoading = false;
+        if (fmPolarActive) fmPolarDrawOverlays();
+    }).catch(function () { fmPolarLandLoading = false; });
+}
+function fmPolarDrawOverlays() {
+    if (!fmPolarCtx || !fmPolarCanvas || !fmPolarActive) return;
+    var ctx = fmPolarCtx, w = fmPolarCanvas.width, h = fmPolarCanvas.height;
+    var scale = Math.min(w, h) / 560;
+    var radius = Math.max(1, Math.min(w, h) * 0.48);
+    var cx = w * 0.5, cy = h * 0.5;
+    var cap = Math.tan(35 * Math.PI / 180);
+    function point(lat, lon) {
+        var rho = Math.tan((90 - Math.max(-89.9, Math.min(90, lat))) * Math.PI / 360) / cap;
+        var a = lon * Math.PI / 180;
+        return [cx + radius * rho * Math.sin(a), cy - radius * rho * Math.cos(a)];
+    }
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.clip();
+    if (fmPolarLand && fmPolarLand.features) {
+        ctx.fillStyle = 'rgba(226,232,240,0.12)';
+        ctx.strokeStyle = 'rgba(2,6,23,0.92)';
+        ctx.lineWidth = Math.max(0.8, 1.05 * scale);
+        fmPolarLand.features.forEach(function (feature) {
+            var geom = feature && feature.geometry;
+            if (!geom) return;
+            var polys = geom.type === 'Polygon' ? [geom.coordinates] : (geom.type === 'MultiPolygon' ? geom.coordinates : []);
+            polys.forEach(function (poly) {
+                ctx.beginPath();
+                poly.forEach(function (ring) {
+                    if (!ring || ring.length < 3) return;
+                    var p0 = point(ring[0][1], ring[0][0]);
+                    ctx.moveTo(p0[0], p0[1]);
+                    for (var i = 1; i < ring.length; i++) {
+                        var p = point(ring[i][1], ring[i][0]);
+                        ctx.lineTo(p[0], p[1]);
+                    }
+                    ctx.closePath();
+                });
+                try { ctx.fill('evenodd'); } catch (e) { ctx.fill(); }
+                ctx.stroke();
+            });
+        });
+    }
+    ctx.strokeStyle = 'rgba(226,232,240,0.48)';
+    ctx.lineWidth = Math.max(0.65, 0.8 * scale);
+    [30, 40, 50, 60, 70, 80].forEach(function (lat) {
+        var p = point(lat, 0), rr = Math.hypot(p[0] - cx, p[1] - cy);
+        ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = 'rgba(248,250,252,0.9)';
+        ctx.font = '600 ' + Math.max(9, 10 * scale) + 'px system-ui, sans-serif';
+        ctx.fillText(lat + '°N', cx + 4 * scale, cy - rr + 12 * scale);
+    });
+    for (var lon = 0; lon < 360; lon += 30) {
+        var a = lon * Math.PI / 180;
+        var edge = point(20, lon);
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(edge[0], edge[1]); ctx.stroke();
+        var lab = lon === 0 ? '0°' : (lon < 180 ? lon + '°E' : (360 - lon) + '°W');
+        ctx.fillStyle = 'rgba(248,250,252,0.92)';
+        ctx.font = '600 ' + Math.max(9, 10 * scale) + 'px system-ui, sans-serif';
+        var lp = point(18, lon); ctx.fillText(lab, lp[0] - 10 * scale, lp[1]);
+    }
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(248,250,252,0.92)'; ctx.lineWidth = Math.max(1.2, 1.5 * scale); ctx.stroke();
+    ctx.fillStyle = 'rgba(2,6,23,0.72)';
+    ctx.fillRect(10 * scale, 10 * scale, Math.min(w - 20 * scale, 270 * scale), 48 * scale);
+    ctx.fillStyle = '#f8fafc'; ctx.font = '700 ' + Math.max(10, 12 * scale) + 'px system-ui, sans-serif';
+    ctx.fillText('EMISFERO NORD · STEREOGRAFICA POLARE', 18 * scale, 30 * scale);
+    ctx.font = '500 ' + Math.max(8, 9 * scale) + 'px system-ui, sans-serif';
+    ctx.fillText('Open-Meteo · coste Natural Earth', 18 * scale, 45 * scale);
+}
+function fmPolarPaintBase() {
+    if (!fmPolarActive || !fmPolarEnsureCanvas()) return;
+    var rect = fmPolarCanvas.getBoundingClientRect();
+    var pixelScale = Math.min(window.devicePixelRatio || 1, 1.5, 1000 / Math.max(1, rect.width), 760 / Math.max(1, rect.height));
+    var w = Math.max(1, Math.round(rect.width * pixelScale));
+    var h = Math.max(1, Math.round(rect.height * pixelScale));
+    if (fmPolarCanvas.width !== w || fmPolarCanvas.height !== h) { fmPolarCanvas.width = w; fmPolarCanvas.height = h; }
+    fmPolarCtx.fillStyle = '#0b1830'; fmPolarCtx.fillRect(0, 0, w, h);
+    if (fmPolarFrame && fmPolarFrame.pixels) {
+        var src = fmPolarFrame.pixels, sw = src.width, sh = src.height;
+        var bounds = fmPolarFrame.bounds;
+        var south = Number(bounds[0][0]), west = Number(bounds[0][1]);
+        var north = Number(bounds[1][0]), east = Number(bounds[1][1]);
+        if (!(south < north && west < east)) { fmPolarDrawOverlays(); return; }
+        var data = src.data;
+        var out = fmPolarCtx.createImageData(w, h), dst = out.data;
+        var cx = w * 0.5, cy = h * 0.5, radius = Math.max(1, Math.min(w, h) * 0.48);
+        var cap = Math.tan(35 * Math.PI / 180);
+        var mySouth = Math.log(Math.tan(Math.PI / 4 + south * Math.PI / 360));
+        var myNorth = Math.log(Math.tan(Math.PI / 4 + north * Math.PI / 360));
+        var ySpan = myNorth - mySouth;
+        for (var y = 0; y < h; y++) {
+            var dy = (y - cy) / radius;
+            for (var x = 0; x < w; x++) {
+                var dx = (x - cx) / radius, rho = Math.hypot(dx, dy);
+                var o = (y * w + x) * 4;
+                if (rho > 1) { dst[o] = 11; dst[o + 1] = 24; dst[o + 2] = 48; dst[o + 3] = 255; continue; }
+                var lat = 90 - 2 * Math.atan(rho * cap) * 180 / Math.PI;
+                lat = Math.max(south, Math.min(north, lat));
+                var lon = Math.atan2(dx, -dy) * 180 / Math.PI;
+                var sx = Math.floor(((lon - west) / (east - west)) * sw);
+                sx = ((sx % sw) + sw) % sw;
+                var merc = Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360));
+                var sy = Math.max(0, Math.min(sh - 1, Math.floor((myNorth - merc) / ySpan * sh)));
+                var si = (sy * sw + sx) * 4;
+                dst[o] = data[si]; dst[o + 1] = data[si + 1]; dst[o + 2] = data[si + 2]; dst[o + 3] = data[si + 3];
+            }
+        }
+        fmPolarCtx.putImageData(out, 0, 0);
+    }
+    fmPolarDrawOverlays();
+}
+function fmPolarLoadFrame(url, bounds) {
+    if (!fmPolarActive || !url || !bounds || url === fmPolarFrameUrl || url === fmPolarLoadingUrl) return;
+    fmPolarLoadingUrl = url;
+    var gen = ++fmPolarGeneration;
+    var img = new Image(); img.crossOrigin = 'anonymous';
+    img.onload = function () {
+        if (gen !== fmPolarGeneration || !fmPolarActive) return;
+        try {
+            var source = document.createElement('canvas'); source.width = img.naturalWidth; source.height = img.naturalHeight;
+            var sctx = source.getContext('2d', { willReadFrequently: true }); sctx.drawImage(img, 0, 0);
+            fmPolarFrame = { pixels: sctx.getImageData(0, 0, source.width, source.height), bounds: bounds };
+            fmPolarFrameUrl = url; fmPolarLoadingUrl = null; fmPolarPaintBase();
+        } catch (e) {
+            fmPolarLoadingUrl = null;
+            fmPolarSetActive(false);
+            fmSetStatus('Proiezione polare non disponibile: il frame non consente la riproiezione.');
+        }
+    };
+    img.onerror = function () { if (gen === fmPolarGeneration) fmPolarLoadingUrl = null; };
+    img.src = url;
+}
+var fmPolarLoadingUrl = null;
+window.addEventListener('resize', function () { if (fmPolarActive) fmPolarPaintBase(); });
 // MODIFICA B: pseudo-variabile sintetica "Pressione / Geopotenziale" (carta unificata Z500
 // colorato + isobare MSL). NON inserita in FM_CURATED_VARS/FM_VAR_LABELS: iniettata a runtime
 // in fmPopulateVariables dopo il raggruppamento per categoria.
@@ -11525,7 +11742,27 @@ var fmLoaderTimer = null;
     var fmWebpGeneration = 0;
     var fmWebpVisibleLayer = null;
     var fmWebpRetiringLayers = [];
-    var FM_WEBP_FADE_MS = 180;
+    var fmWebpDecodedImages = Object.create(null);
+    var fmWebpDecodedOrder = [];
+    var FM_WEBP_DECODE_CACHE_LIMIT = 6;
+    var FM_WEBP_FADE_MS = 90;
+    function fmRememberDecodedWebp(url, image) {
+        if (!url || !image) return;
+        if (!fmWebpDecodedImages[url]) fmWebpDecodedOrder.push(url);
+        fmWebpDecodedImages[url] = image;
+        while (fmWebpDecodedOrder.length > FM_WEBP_DECODE_CACHE_LIMIT) {
+            var expired = fmWebpDecodedOrder.shift();
+            if (expired !== url) delete fmWebpDecodedImages[expired];
+        }
+    }
+    function fmTakeDecodedWebp(url) {
+        var image = fmWebpDecodedImages[url] || null;
+        if (image) {
+            delete fmWebpDecodedImages[url];
+            fmWebpDecodedOrder = fmWebpDecodedOrder.filter(function (item) { return item !== url; });
+        }
+        return image;
+    }
 
 function fmEl(id) { return document.getElementById(id); }
 function fmSetStatus(text) { var el = fmEl('fm-status'); if (el) el.textContent = text; }
@@ -11685,7 +11922,11 @@ function fmApplyRegion(refit) {
     } catch (e) { }
     if (typeof map !== 'undefined' && map) {
         try {
-            if (clip) {
+            if (fmRegion === 'north') {
+                // La selezione emisferica ha una propria vista stereografica; non
+                // forzare il Leaflet Mercator a inquadrare il bbox mondo.
+                map.setMaxBounds(null);
+            } else if (clip) {
                 map.setMaxBounds([[clip[1], clip[0]], [clip[3], clip[2]]]);
                 if (refit) map.fitBounds([[clip[1], clip[0]], [clip[3], clip[2]]], { padding: [8, 8] });
             } else {
@@ -12206,7 +12447,16 @@ function fmWarmWebpNext() {
     var n = (fmIdx + 1) % fmMeta.valid_times.length;
     var f = fmWebpFrameUrl(n);
     if (!f) return;
-    try { var im = new Image(); im.src = f.url; } catch (e) { }
+    if (fmWebpDecodedImages[f.url]) return;
+    try {
+        var im = new Image();
+        im.crossOrigin = 'anonymous';
+        im.onload = function () {
+            var decoded = im.decode ? im.decode() : Promise.resolve();
+            decoded.then(function () { fmRememberDecodedWebp(f.url, im); }).catch(function () { });
+        };
+        im.src = f.url;
+    } catch (e) { }
 }
 function fmRemoveLayers() {
     fmWebpGeneration++;
@@ -12233,11 +12483,15 @@ function fmRebuild() {
     var wantWebp = !fmOverlayVariable;
     var webp = wantWebp ? fmWebpFrameUrl() : null;
     if (webp && webp.url === fmWebpFailedUrl) webp = null; // gia' fallito: resta sul path .om
+    // La proiezione dall'alto usa il frame WebP completo, inclusi i valori delle
+    // isolinee e le frecce. Il fallback .om/composito resta sul normale Leaflet.
+    fmPolarSetActive(!!(fmActive && fmRegion === 'north' && webp));
     if (wantWebp && !webp) {
         var rr = fmRenderRegionId();
         if (rr) fmFetchRenderedIndex(rr);
     }
     if (webp) {
+        if (fmPolarActive) fmPolarLoadFrame(webp.url, webp.bounds);
         var wb = null;
         try { wb = L.latLngBounds([[webp.bounds[0][0], webp.bounds[0][1]], [webp.bounds[1][0], webp.bounds[1][1]]]); } catch (e) { wb = null; }
         if (wb) {
@@ -12253,7 +12507,8 @@ function fmRebuild() {
             try {
                 var oldWebpLayer = fmWebpVisibleLayer && fmLayerOnMap(fmWebpVisibleLayer) ? fmWebpVisibleLayer : null;
                 var myWebpGeneration = ++fmWebpGeneration;
-                var nextWebpLayer = L.imageOverlay(webp.url, wb, { opacity: 0, pane: 'forecastMapsPane', className: 'mri-fm-frame' });
+                var readyImage = fmTakeDecodedWebp(webp.url);
+                var nextWebpLayer = L.imageOverlay(readyImage || webp.url, wb, { opacity: 0, pane: 'forecastMapsPane', className: 'mri-fm-frame' });
                 fmWebpLayer = nextWebpLayer;
                 if (fmWebpLayer && fmWebpLayer.once) {
                     fmWebpLayer.once('load', function () {
@@ -12264,7 +12519,7 @@ function fmRebuild() {
                         requestAnimationFrame(function () {
                             if (myWebpGeneration !== fmWebpGeneration || !map.hasLayer(nextWebpLayer)) return;
                             fmLoaderHide();
-                            nextWebpLayer.setOpacity(0.8);
+                            nextWebpLayer.setOpacity(0.74);
                             fmWebpVisibleLayer = nextWebpLayer;
                             if (oldWebpLayer && map.hasLayer(oldWebpLayer)) {
                                 oldWebpLayer.setOpacity(0);
@@ -12327,7 +12582,7 @@ function fmRebuild() {
         try { layerBounds = L.latLngBounds([[fmClipBounds[1], fmClipBounds[0]], [fmClipBounds[3], fmClipBounds[2]]]); } catch (e) { layerBounds = null; }
     }
     try {
-        var rasterOpts = { opacity: 0.8, pane: 'forecastMapsPane' };
+        var rasterOpts = { opacity: 0.74, pane: 'forecastMapsPane' };
         if (layerBounds) rasterOpts.bounds = layerBounds;
         fmRasterLayer = fmAdapter.createTileLayer('om://' + cur.url, rasterOpts);
         fmAttachTileEvents(fmRasterLayer);
@@ -12647,6 +12902,7 @@ function fmStopPlay() {
             var btn = fmEl('fm-preload-btn');
             if (btn) { btn.textContent = '⏬ Preload'; btn.disabled = false; }
             fmPreloadStatus(state.total + '/' + state.total + ' ✓');
+            fmWarmWebpNext();
             fmWarmNext();
             return;
         }
@@ -12664,7 +12920,17 @@ function fmStopPlay() {
         var bad = function () { if (settled) return; settled = true; fmPreloadOmFrame(idx, gen, state, launch); };
         try {
             var im = new Image();
-            im.onload = ok;
+            im.crossOrigin = 'anonymous';
+            im.onload = function () {
+                var decoded = im.decode ? im.decode() : Promise.resolve();
+                decoded.then(function () {
+                    if (gen !== fmPreloadGen) return;
+                    var count = fmMeta && fmMeta.valid_times ? fmMeta.valid_times.length : 0;
+                    var distance = count ? (idx - fmIdx + count) % count : 99;
+                    if (distance > 0 && distance <= FM_WEBP_DECODE_CACHE_LIMIT) fmRememberDecodedWebp(f.url, im);
+                    ok();
+                }).catch(bad);
+            };
             im.onerror = bad;
             im.src = f.url;
             setTimeout(function () { if (!settled) { settled = true; fmPreloadOmFrame(idx, gen, state, launch); } }, 12000);
@@ -12748,6 +13014,7 @@ function toggleForecastMaps() {
     if (panel.classList.contains('active')) {
         panel.classList.remove('active');
         fmActive = false;
+        fmPolarSetActive(false);
         fmStopPlay();
         fmRemoveLayers();
         fmLoaderHide();
