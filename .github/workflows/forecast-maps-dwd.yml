@@ -93,6 +93,8 @@ jobs:
       # Group PER-DOMINIO con prefisso PROPRIO del fornitore.
       group: forecast-maps-dwd-${{ matrix.domain }}
       cancel-in-progress: false
+    outputs:
+      changed: ${{ steps.run_engine.outputs.changed }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -141,6 +143,7 @@ jobs:
             fm2-frames-${{ matrix.domain }}-
 
       - name: Engine + render in parallelo (frame-by-frame)
+        id: run_engine
         run: |
           set +e
           FORCE=""
@@ -176,6 +179,11 @@ jobs:
             echo "[ERROR] Render streaming terminato con codice $RENDER_STATUS."
             exit "$RENDER_STATUS"
           fi
+          if python -c "import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get('noop') else 1)" "$PROGRESS" 2>/dev/null; then
+            echo "[INFO] Dominio ${{ matrix.domain }} in NO-OP: salto upload shard."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Summary
         if: always()
         run: |
@@ -193,7 +201,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifact fm2-${{ matrix.domain }}
-        if: success()
+        if: success() && steps.run_engine.outputs.changed == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: fm2-${{ matrix.domain }}
@@ -202,7 +210,7 @@ jobs:
           retention-days: 1
 
       - name: Upload render shard fm2r-${{ matrix.domain }}
-        if: success()
+        if: success() && steps.run_engine.outputs.changed == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: fm2r-${{ matrix.domain }}
@@ -300,7 +308,7 @@ jobs:
     #   LOCALE dopo aver materializzato i WebP da `fm2-rendered`.
     name: render-merge dwd (webp su fm2-rendered, nessun index)
     needs: engine
-    if: ${{ success() }}
+    if: ${{ !cancelled() && needs.engine.outputs.changed == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     concurrency:
@@ -438,6 +446,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Commit WebP dwd su fm2-rendered (push incrementale, only if changed)
+        id: commit_webp
         if: success()
         run: |
           git config user.name "meteorisk-bot"
@@ -598,13 +607,14 @@ jobs:
               exit 1
             fi
             echo "[INFO] Push incrementale completato: $pushed_groups/$NGROUPS gruppi, tree finale == TARGET ($TREE), tentativo $i/5."
+            echo "published=true" >> "$GITHUB_OUTPUT"
             exit 0
           done
           echo "[ERROR] Push su fm2-rendered non riuscito dopo 5 tentativi."
           exit 1
 
       - name: Aggiorna subito l'indice aggregato
-        if: success()
+        if: success() && steps.commit_webp.outputs.published == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

@@ -1247,6 +1247,10 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
         if not os.path.isfile(manifest_path):
             return 0, 0, "no latest.json", {}, 0, 0
         manifest = read_manifest(manifest_path)
+    if manifest.get("noop"):
+        domain = os.path.basename(os.path.normpath(domain_dir))
+        print("  [noop] %s: manifest invariato, nessun WebP da rigenerare" % domain)
+        return 0, 0, "noop", {}, 0, 0
     grid = manifest.get("grid")
     bbox = manifest.get("bbox")
     frames = manifest.get("frames") or []
@@ -1312,6 +1316,9 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
         except (OSError, ValueError):
             time.sleep(0.25)
             continue
+        if manifest.get("noop"):
+            print("  [noop] %s: manifest invariato, nessun WebP da rigenerare" % domain)
+            return 0, 0, "noop", {}, 0, 0
         available = manifest.get("frames") or []
         pending = []
         for candidate in available:
@@ -1877,6 +1884,11 @@ def main(argv=None) -> int:
         ddir = os.path.join(in_dir, name)
         if os.path.isdir(ddir) and os.path.isfile(os.path.join(ddir, "latest.json")):
             in_domains.append(name)
+    if args.watch_manifest and args.domains:
+        for name in args.domains:
+            os.makedirs(os.path.join(in_dir, name), exist_ok=True)
+            if name not in in_domains:
+                in_domains.append(name)
 
     if args.index_only:
         # --index-only: rebuild the region indexes ONLY (no rendering, no heavy
@@ -1940,17 +1952,21 @@ def main(argv=None) -> int:
             total_ok += ok
             print("  ok=%d skipped=%d%s"
                   % (ok, skipped, (" (%s)" % err) if err else ""))
+        elif err == "noop":
+            any_domain_ok = True
+            print("  noop (manifest invariato)")
         else:
             print("  ok=0 skipped=%d (%s)" % (skipped, err or "empty"))
         for rname, entry in contrib.items():
             index_domains[rname][domain] = entry
 
-    for rname in regions:
-        write_region_index(out_dir, rname, regions[rname], index_domains[rname], args.themes)
+    if total_ok > 0:
+        for rname in regions:
+            write_region_index(out_dir, rname, regions[rname], index_domains[rname], args.themes)
 
-    # Publish the exact color scales the renderer used so the client legend and
-    # the raster agree (single source of truth in the cache root).
-    copy_color_scales(out_dir)
+        # Publish the exact color scales the renderer used so the client legend and
+        # the raster agree (single source of truth in the cache root).
+        copy_color_scales(out_dir)
 
     print("[done] frames written: %d -> %s" % (total_ok, out_dir))
     return 0 if any_domain_ok else 1

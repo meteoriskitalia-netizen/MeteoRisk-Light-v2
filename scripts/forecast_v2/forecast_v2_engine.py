@@ -918,6 +918,7 @@ def range_supported():
 # fresca), chiuso a fine lettura: niente sessioni stantie tra frame.
 _HTTP_LOOP = None
 _ACTIVE_STATS = None
+_DOMAIN_CHILD_MAP_CACHE = {}
 
 
 def _http_loop():
@@ -1013,21 +1014,85 @@ async def _selective_arrays_async(url, domain, risk_vars, grid, tgt_lats,
         await _close_http_fs(fs)
         raise
     try:
+        sem = asyncio.Semaphore(32)
+        cache_key = (domain, int(root.num_children))
+        cached = _DOMAIN_CHILD_MAP_CACHE.get(cache_key)
+        children_by_name = {}
+        names = None
         shape = None
-        names = set()
-        for i in range(root.num_children):
-            c = await root.get_child_by_index(i)
-            if c.is_scalar:
-                continue
-            names.add(c.name)
-            if shape is None:
-                shp = getattr(c, "shape", None)
-                if shp is not None and len(shp) == 2:
-                    shape = (int(shp[0]), int(shp[1]))
+
+        if cached is not None:
+            idx_map = cached.get("indices") or {}
+            cand_names = set(idx_map.keys()) - {"crs_wkt"}
+            needed_names = []
+            seen_needed = set()
+            for rv in risk_vars:
+                src = resolve_direct(rv, cand_names)
+                if src is not None and src in idx_map and src not in seen_needed:
+                    seen_needed.add(src)
+                    needed_names.append(src)
+            if "crs_wkt" in idx_map and "crs_wkt" not in seen_needed:
+                seen_needed.add("crs_wkt")
+                needed_names.append("crs_wkt")
+
+            async def _get_cached_child(nm):
+                async with sem:
+                    return await root.get_child_by_index(idx_map[nm])
+
+            fetched = await asyncio.gather(
+                *[_get_cached_child(nm) for nm in needed_names],
+                return_exceptions=True)
+            cache_ok = True
+            for nm, c in zip(needed_names, fetched):
+                if (isinstance(c, BaseException) or c is None
+                        or getattr(c, "name", None) != nm):
+                    cache_ok = False
+                    break
+                children_by_name[nm] = c
+            if cache_ok:
+                names = cand_names
+                shape = cached.get("shape")
+            else:
+                _DOMAIN_CHILD_MAP_CACHE.pop(cache_key, None)
+                children_by_name = {}
+                names = None
+                shape = None
+
+        if names is None:
+            async def _get_child_idx(i):
+                async with sem:
+                    return await root.get_child_by_index(i)
+
+            all_children = await asyncio.gather(
+                *[_get_child_idx(i) for i in range(root.num_children)],
+                return_exceptions=True)
+            for c in all_children:
+                if isinstance(c, BaseException):
+                    raise c
+            idx_map = {}
+            names = set()
+            shape = None
+            for i, c in enumerate(all_children):
+                if c is None:
+                    continue
+                children_by_name[c.name] = c
+                idx_map[c.name] = i
+                if c.is_scalar:
+                    continue
+                names.add(c.name)
+                if shape is None:
+                    shp = getattr(c, "shape", None)
+                    if shp is not None and len(shp) == 2:
+                        shape = (int(shp[0]), int(shp[1]))
+            if shape is not None and idx_map:
+                _DOMAIN_CHILD_MAP_CACHE[cache_key] = {
+                    "shape": shape,
+                    "indices": idx_map,
+                }
 
         crs_frame = ""
         try:
-            crs = await root.get_child_by_name("crs_wkt")
+            crs = children_by_name.get("crs_wkt")
             if crs is not None:
                 crs_frame = crs.read_scalar()
         except Exception:  # noqa: BLE001
@@ -1047,8 +1112,12 @@ async def _selective_arrays_async(url, domain, risk_vars, grid, tgt_lats,
                 plan.append((rv["name"], src))
 
         async def _read_one(src):
-            child = await root.get_child_by_name(src)
-            window = await child.read_array(sel)
+            child = children_by_name.get(src)
+            if child is None:
+                async with sem:
+                    child = await root.get_child_by_name(src)
+            async with sem:
+                window = await child.read_array(sel)
             return _resample_window(window, jj, ii, jmin, imin)
 
         # return_exceptions=True: TUTTE le letture della finestra arrivano a
@@ -1443,6 +1512,8 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
                 and bb_same):
             if args.progress_manifest:
                 progress = dict(old)
+                progress["frames"] = []
+                progress["noop"] = True
                 progress["complete"] = True
                 write_json_atomic(args.progress_manifest, progress)
             res["status"] = "ok"

@@ -8,21 +8,28 @@ Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
 ## Versione attiva: 1.2.4.14
 
-- File applicativo: mri-light-1.2.4.14.html (APP_VERSION = '1.2.4.14'; ultimo blocco
-  changelog in-app { version: '1.2.4.14', date: '2026-10-22' }).
+- File applicativo: `mri-light-1.2.4.14.html` (`APP_VERSION = '1.2.4.14'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.14', date: '2026-10-22' }`).
 - Contenuto della 1.2.4.14 (release sopra la 1.2.4.13):
   - **Selettore multi-run WebP e retention**:
-    - Archiviazione multi-run con percorsi dedicati e retention delle run storiche per (regione, dominio).
+    - Archiviazione multi-run con percorsi dedicati (`runs/<run_id>/`) e retention delle ultime 3 run storiche per `(regione, dominio)` tramite `scripts/forecast_v2/prune_fm2_run_index.py`.
     - Selettore della run accanto ai controlli del player con data/ora locale, conteggio frame e percentuale di completezza WebP.
-    - Flag mRunManual: preserva la run scelta manualmente dall'utente durante il cambio di dominio.
-    - Allineamento mDisplayValidTimes / mUpdateTimeDisplay / mRebuild: corretta visualizzazione e gestione oraria per frame storici e attuali.
+    - Flag `fmRunManual`: preserva la run scelta manualmente dall'utente durante il cambio di dominio.
+    - Allineamento `fmDisplayValidTimes` / `fmUpdateTimeDisplay` / `fmRebuild`: corretta visualizzazione e gestione oraria per frame storici e attuali.
+    - Integrazione completa di tutte le fonti in 'Fonti & Metodologie' (Mappe previsionali `.om`/WebP multi-run, Ensemble, METAR, SSI radar supercelle) e correzione refusi attribuzione.
   - **Manifest polling a due sorgenti indipendente**:
-    - Polling ogni 5 minuti con verifica sia del manifest engine (latest.json) sia dell'indice WebP (index.json).
-    - Eliminata la guardia restrittiva su generated_at per ricaricare tempestivamente l'indice WebP appena disponibile.
+    - Polling ogni 5 minuti con verifica sia del manifest engine (`latest.json`) sia dell'indice WebP (`index.json`).
+    - Eliminata la guardia restrittiva su `generated_at` per ricaricare tempestivamente l'indice WebP appena disponibile.
+  - **Motore V2 e renderer in streaming frame-by-frame**:
+    - Cache `_DOMAIN_CHILD_MAP_CACHE` e letture parallele con `asyncio.Semaphore(32)` in `_selective_arrays_async` (`forecast_v2_engine.py`): elimina le scansioni sequenziali ripetute di `get_child_by_name`, riducendo su `ncep_gfs025` le richieste HTTP Range da 4.633 (~90,8 s/frame) a 2.272–2.293 (~13,2 s/frame a cache fredda) e 1.968–1.974 (~10,4–10,7 s/frame a cache calda).
+    - Guardia NO-OP in streaming: `forecast_v2_engine.py` scrive `noop: true` e `frames: []` nel `--progress-manifest`, e `render_fm_webp.py` termina subito con codice `0` senza rigenerare i WebP né sporcare `out_dir`; in modalità `--watch-manifest` garantisce la presenza delle directory dei domini anche a partenza a freddo.
+  - **CI e automazione cron-job.org**:
+    - Nei 5 workflow per-fornitore (`forecast-maps-{dwd,dwdicon,ecmwf,ncep,meteofrance}.yml`): output `changed=true` dal job `engine` (salta upload degli shard e `render-merge` in caso di NO-OP; `render-merge` gira con `if: ${{ !cancelled() && needs.engine.outputs.changed == 'true' }}` così un dominio cambiato viene pubblicato anche se l'altro dominio della matrice fallisce), rimosso il `fi` orfano in `forecast-maps-ecmwf.yml`, e dispatch `forecast-maps-published` condizionato a `steps.commit_webp.outputs.published == 'true'`.
+    - Script `scripts/cronjobs/setup_cronjobs_api.js` (aggiornamento `PATCH` idempotente, payload senza `inputs` per `forecast-maps-index.yml`, rimozione header `User-Agent`, fail-fast su errore `getExistingJobs`, rate-limit 13 s su `PUT` e 1,5 s su `PATCH`) e documentazione `docs/CRONJOBS_SETUP.md`.
 
 ## Versione precedente: 1.2.4.13
 
-- File applicativo: `mri-light-1.2.4.14.html` (`APP_VERSION = '1.2.4.13'`; ultimo blocco
+- File applicativo: `mri-light-1.2.4.13.html` (`APP_VERSION = '1.2.4.13'`; ultimo blocco
   changelog in-app `{ version: '1.2.4.13', date: '2026-10-21' }`).
 - Contenuto della 1.2.4.13 (release sopra la 1.2.4.12):
   - **Renderer - WebP autosufficiente**: le isolinee (fitte, con il valore numerico etichettato) e le frecce del vento sono disegnate dentro l'immagine WebP dal renderer server-side: il livello vettoriale WML sovrapposto non e' piu' necessario. I livelli sono multipli regolari dell'unita' nativa e il raster base non viene mai risamplato (l'overlay e' un layer separato in alpha).
