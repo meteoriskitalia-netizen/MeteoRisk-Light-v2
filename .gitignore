@@ -1,0 +1,38 @@
+# ---- Dati grezzi : MAI committati / pubblicati / deployati ----
+# L'eccezione .gitkeep mantiene la struttura a runtime; i contenuti sono
+# rigenerati dalla pipeline e vanno esclusi dal repository.
+data/_raw/*
+!data/_raw/.gitkeep
+data/_staging/*
+!data/_staging/.gitkeep
+data/_workdir/*
+!data/_workdir/.gitkeep
+
+# Backup interni (publish) / report efficienza / coordinate rigenerabili
+data/state/_latest_backup/
+data/workdir-tmp/
+
+# ---- Meteorisk Radar Engine (Fase 1): raw radar MAI committati ----
+# I GeoTIFF VMI scaricati vivono solo nella cache del motore (mai nel repo).
+scripts/radar_engine/temp/
+scripts/radar_engine/cache/
+temp/
+cache/
+data/radar/*.tmp
+
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# ---- OS / editor ----
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
+
+# ---- Node & Studio runtime ----
+node_modules/
+.aistudio/
+bun.lock

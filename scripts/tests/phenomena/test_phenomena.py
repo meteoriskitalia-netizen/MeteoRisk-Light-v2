@@ -1,0 +1,2330 @@
+# -*- coding: utf-8 -*-
+"""Test PARTE 4a + S4b — phenomena-verify (HAIL + VORTEX), ENGINE-ONLY.
+
+Copertura (NESSUN test tocca la rete: opener/client sempre iniettati o
+network=False):
+  - provider fulmini DPC: decode finestra, backoff 403, fail-fast su errore di
+    rete, finestra stale, cache per run, network_disabled, schema risposta;
+  - provider fulmini MLI EUMETSAT (S4b): URL GetMap, decode PNG RGBA sintetico
+    (stdlib, MAI PIL), campionamento disco, backoff su slot mancanti, trend dal
+    confronto con lo scan -5 min, schema risposta esteso (strength/note/
+    attribution), cache dello scan per run;
+  - gate fulmini provider-agnostico: soglie per-sorgente (dpc count>=10,
+    mli strength>=0.01) in lightning_corroborates / lightning_strength;
+  - registry provider: "dpc" e "mli" registrati, nome ignoto rifiutato, hook
+    register_provider funzionante (ripulito a fine test);
+  - logica HAIL: persistenza >=2 punti, finestra 15 min, CORROBORATED solo con
+    fulmini, SUSPECT senza fulmini, sorgente duration, H0 come evidence sola,
+    evidence MLI (nota AFA + attribution EUMETSAT) in labels e dict;
+  - logica VORTEX: organization_score, morfologia hook-proxy con coerenza
+    temporale PER-FRAME (firma completa in >= MORPH_HOOK_MIN_FRAMES frame
+    distinti, aggregati sparsi su frame diversi NON promuovono), persistenza,
+    CORROBORATED solo con fulmini, disclaimer Doppler sempre presente;
+  - events store: merge per id, first_seen minore, prune, ANCORA ai dati,
+    scrittura atomica (nessun tmp residuo), badges SOLO attivi;
+  - NO-OP GUARD: content_digest ignora SOLO i campi volubili designati;
+    write_json_if_changed non tocca i file a contenuto sostanziale invariato
+    (anti commit-churn, campagne di commit piu' fitte di una scan);
+  - engine e2e: run a rete spenta su input sintetici (default mli),
+    promozione con opener DPC iniettato + H0, promozione con opener MLI
+    iniettato (PNG sintetici, niente rete), CLI subprocess, provider ignoto ->
+    exit 1, status != "ok" -> solo prune, idempotenza + no-op guard su file,
+    piu' schema sui dati reali della release (skip se assente).
+
+I valori soglia usati qui sono quelli di phenomena/{hail,vortex,lightning}.py
+con THRESHOLDS_VERSION = pheno-1.2.0 (gate hook per-frame con K frame coerenti):
+se cambia una soglia, questo file deve cambiare insieme (non e' un test che si
+misura da solo).
+"""
+
+import datetime as _dt
+import json
+import os
+import re
+import struct
+import subprocess
+import sys
+import urllib.error
+
+import numpy as np
+import pytest
+
+from phenomena import THRESHOLDS_VERSION, WINDOW_HOURS
+from phenomena import engine
+from phenomena import events as ev_store
+from phenomena import hail
+from phenomena import lightning as pltg
+from phenomena import vortex
+from radar_engine.phase2 import lightning as raw_ltg
+
+TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
+SCRIPTS_DIR = os.path.dirname(os.path.dirname(TESTS_DIR))
+RELEASE_ROOT = os.path.dirname(SCRIPTS_DIR)
+REAL_RADAR_DIR = os.path.join(RELEASE_ROOT, "data", "radar")
+
+# Slot radar usato da tutti i test sintetici: 2026-10-07T00:05:00Z, allineato
+# alla griglia DPC da 5 minuti (i fulmini DPC sono slot da 5 minuti).
+RADAR_ISO = "2026-10-07T00:05:00Z"
+RADAR_MS = 1791331500000
+PERIOD_MS = pltg.LTG_PERIOD_MS
+
+REQUIRED_RESPONSE_KEYS = (
+    "available", "source", "reason", "epoch_ms", "anchor_ms", "staleness_ms",
+    "window_slots", "slots_ok", "radius_km", "center", "strikes",
+    "count_total", "count_near", "per_slot_counts", "trend", "score",
+    "strength", "note", "attribution",
+)
+REQUIRED_EVENT_KEYS = (
+    "id", "type", "state", "score", "first_seen", "last_seen", "position",
+    "evidence", "thresholds_version",
+)
+REQUIRED_BADGE_KEYS = (
+    "id", "type", "state", "position", "area_id", "labels", "evidence",
+)
+
+LTG_OFF = {"available": False, "source": "dpc", "reason": "network_disabled",
+           "count_near": 0, "count_total": 0, "radius_km": 30.0,
+           "trend": {"direction": "flat"}, "score": None}
+LTG_OK = {"available": True, "source": "dpc", "reason": None, "count_near": 12,
+          "count_total": 12, "radius_km": 30.0,
+          "trend": {"direction": "flat"}, "score": 5.0}
+LTG_UP = {"available": True, "source": "dpc", "reason": None, "count_near": 6,
+          "count_total": 6, "radius_km": 30.0,
+          "trend": {"direction": "up"}, "score": 60.0}
+
+
+# ---------------------------------------------------------------------------
+# Helper: Blitz v2 sintetico (stessa codifica di scripts/tests/test_lightning.py,
+# copiato localmente: nessun import fra suite)
+# ---------------------------------------------------------------------------
+def _blitz(records):
+    """File Blitz v2 sintetico da (lon, lat) — verificato da decode qui sotto."""
+    body = bytearray(b"\x02")
+    body += struct.pack(">H", len(records))
+    for lon, lat in records:
+        lon_raw = int(round((float(lon) + 180.0) * 262144.0 / 360.0))
+        lat_raw = int(round((float(lat) + 90.0) * 262144.0 / 180.0))
+        rec = bytearray(6)
+        rec[0:2] = struct.pack(">H", lon_raw & 0xFFFF)
+        rec[2:4] = struct.pack(">H", lat_raw & 0xFFFF)
+        rec[4] = (((lon_raw >> 16) & 3) << 6) | (((lat_raw >> 16) & 3) << 4)
+        rec[5] = 0
+        body += rec
+    return bytes(body)
+
+
+class FakeOpener:
+    """Opener sintetico per fetch_ltg: (url, timeout_s) -> bytes | None (403).
+
+    `payloads` = {epoch_ms: bytes|None}; `default` per gli epoch non elencati
+    (None = 403 "non ancora pubblicato"); `error` solleva a ogni chiamata."""
+
+    def __init__(self, payloads=None, default=None, error=None):
+        self.payloads = dict(payloads or {})
+        self.default = default
+        self.error = error
+        self.calls = []
+
+    def __call__(self, url, timeout_s):
+        self.calls.append(url)
+        if self.error is not None:
+            raise self.error
+        match = re.search(r"lgt_5min_(\d+)\.bin", url)
+        epoch = int(match.group(1)) if match else None
+        return self.payloads.get(epoch, self.default)
+
+
+def _payloads(base, records_by_offset):
+    """{epoch: blitz} per epoch = base - offset*PERIOD_MS."""
+    return {base - off * PERIOD_MS: _blitz(recs)
+            for off, recs in records_by_offset.items()}
+
+
+NEAR = [(12.0, 41.0), (12.1, 41.0), (11.9, 41.0)]   # tutti entro 30 km
+# 6 strike vicini (per finestre in salita: 1-2-3-6 da piu' vecchio a recente)
+NEAR6 = NEAR + [(12.0, 41.1), (12.0, 40.9), (12.05, 41.05)]
+
+
+# ---------------------------------------------------------------------------
+# Helper MLI: PNG RGBA sintetico (zlib+struct stdlib, MAI PIL) e opener fake
+# ---------------------------------------------------------------------------
+def _png_rgba(width, height, block=None):
+    """PNG RGBA width x height (bitdepth 8) con alpha=255 dentro `block`.
+
+    `block` = (x0, y0, x1, y1) esclusivo; writer PNG in pura stdlib perche'
+    PIL NON e' dichiarato tra le dipendenze del modulo phenomena."""
+    import binascii
+    import zlib
+
+    rows = bytearray()
+    for y in range(height):
+        rows.append(0)                              # filtro "None" per riga
+        for x in range(width):
+            a = 255 if (block and block[0] <= x < block[2]
+                        and block[1] <= y < block[3]) else 0
+            rows += bytes((a, a, a, a))             # RGBA (alpha nel byte 4)
+    return _png_chunks(width, height, bytes(rows))
+
+
+def _png_chunks(width, height, raw):
+    import binascii
+    import struct
+    import zlib
+
+    def chunk(tag, data):
+        return (struct.pack(">I", len(data)) + tag + data
+                + struct.pack(">I", binascii.crc32(tag + data) & 0xFFFFFFFF))
+
+    ihdr = struct.pack(">IIBBBBB", int(width), int(height), 8, 6, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr)
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+# Box sintetici AFA centrati su (12.0, 41.0): il blocchetto recente e' piu'
+# ampio di quello a -5 min (trend in salita) ed e' dentro il disco 30 km.
+_MLI_XY = (452, 516, 460, 524)                      # 8x8 px
+_MLI_PREV_XY = (454, 518, 458, 522)                 # 4x4 px
+MLI_PNG_NOW = _png_rgba(pltg.MLI_WIDTH, pltg.MLI_HEIGHT, _MLI_XY)
+MLI_PNG_PREV = _png_rgba(pltg.MLI_WIDTH, pltg.MLI_HEIGHT, _MLI_PREV_XY)
+# Box lontano dal centro Italia (per count_total senza centro).
+MLI_PNG_FAR = _png_rgba(pltg.MLI_WIDTH, pltg.MLI_HEIGHT, (900, 40, 1000, 60))
+
+
+class MliFakeOpener:
+    """Opener sintetico per MliWmsProvider: (url, timeout_s) -> bytes PNG.
+
+    `slots` = {epoch_ms: bytes}; `fail_http_codes` = {epoch_ms: code} alza
+    HTTPError a OGNI chiamata allo slot; `error_times` alza URLError a ogni
+    chiamata; `fail_first_http`/`fail_first_error` = {epoch_ms: n} alzano
+    l'errore solo le prime n chiamate (errore TRANSIENTE, poi successo).
+    `calls` registra ogni URL; `seen` il numero di chiamate per slot (per
+    verificare retry per-slot e cache condivisa dello scan)."""
+
+    def __init__(self, slots=None, fail_http_codes=None, error_times=None,
+                 fail_first_http=None, fail_first_error=None):
+        self.slots = dict(slots or {})
+        self.fail_http_codes = dict(fail_http_codes or {})
+        self.error_times = set(error_times or ())
+        self.fail_first_http = {int(k): int(v)
+                                for k, v in (fail_first_http or {}).items()}
+        self.fail_first_error = {int(k): int(v)
+                                 for k, v in (fail_first_error or {}).items()}
+        self.calls = []
+        self.seen = {}
+
+    def __call__(self, url, timeout_s):
+        self.calls.append(url)
+        # urlencode trasforma i ":" in "%3A": il TIME_ISO puo' essere sia
+        # "2026-10-07T00:05:00Z" sia "2026-10-07T00%3A05%3A00Z"
+        m = re.search(r"time=(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"
+                      r"|\d{4}-\d{2}-\d{2}T\d{2}%3A\d{2}%3A\d{2}Z)", url)
+        if m is None:
+            return None
+        iso = m.group(1).replace("%3A", ":")
+        ms = int(_dt.datetime.strptime(iso, "%Y-%m-%dT%H:%M:%SZ")
+                 .replace(tzinfo=_dt.timezone.utc).timestamp() * 1000)
+        ms = ms - ms % PERIOD_MS
+        n = self.seen.get(ms, 0)
+        self.seen[ms] = n + 1
+        if ms in self.error_times:
+            raise urllib.error.URLError("dns fail")
+        if ms in self.fail_http_codes:
+            raise urllib.error.HTTPError(url, self.fail_http_codes[ms],
+                                         "nope", {}, None)
+        if n < self.fail_first_error.get(ms, 0):
+            raise urllib.error.URLError("transient dns")
+        if n < self.fail_first_http.get(ms, 0):
+            raise urllib.error.HTTPError(url, 502, "bad gateway", {}, None)
+        return self.slots.get(ms)
+
+
+def _no_sleep(*_args, **_kwargs):
+    """Sleep no-op iniettato: i test non dormono MAI davvero."""
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Helper: osservazioni e input radar sintetici
+# ---------------------------------------------------------------------------
+def _points(values, lon=12.0, lat=41.0):
+    """Point di track ordinati oldest->newest che terminano su RADAR_MS."""
+    n = len(values)
+    out = []
+    for i, dbz in enumerate(values):
+        ms = RADAR_MS - (n - 1 - i) * PERIOD_MS
+        out.append({"timestamp_ms": ms, "timestamp": ev_store.ms_to_iso(ms),
+                    "lonlat": [lon, lat], "max_dbz": float(dbz),
+                    "mean_dbz": float(dbz) - 2.0, "area_km2": 60.0})
+    return out
+
+
+def _points_morph(specs, lon=12.0, lat=41.0):
+    """Point di track con morfologia PER-FRAME (schema nuovo di tracks.json).
+
+    specs = [(max_dbz, ecc, sol, comp), ...] oldest->newest, termina su
+    RADAR_MS con passo PERIOD_MS: replica un tracks.json con morfologia."""
+    n = len(specs)
+    out = []
+    for i, (dbz, ecc, sol, comp) in enumerate(specs):
+        ms = RADAR_MS - (n - 1 - i) * PERIOD_MS
+        out.append({"timestamp_ms": ms, "timestamp": ev_store.ms_to_iso(ms),
+                    "lonlat": [lon, lat], "max_dbz": float(dbz),
+                    "mean_dbz": float(dbz) - 2.0, "area_km2": 60.0,
+                    "eccentricity": float(ecc), "solidity": float(sol),
+                    "compactness": float(comp)})
+    return out
+
+
+def _obs_from_tracks(points, **track_extra):
+    """Prima osservazione di build_observations con morfologia nei POINT del
+    track (nuovo schema tracks.json), senza storms.geojson."""
+    track = {"track_id": 1, "duration_min": 15.0, "points": points}
+    track.update(track_extra)
+    return engine.build_observations({}, {"tracks": [track]}, {"features": []},
+                                     RADAR_MS, RADAR_ISO)[0]
+
+
+def _obs(points, max_dbz=None, source="points", **extra):
+    """Osservazione normalizzata (forma attesa da evaluate_*)."""
+    dbz = [p["max_dbz"] for p in points]
+    obs = {
+        "anchor": "cell-1",
+        "type": "cell",
+        "position": [12.0, 41.0],
+        "first_seen": (ev_store.ms_to_iso(points[0]["timestamp_ms"])
+                       if points else RADAR_ISO),
+        "last_seen": RADAR_ISO,
+        "persistence_source": source,
+        "recent_points": list(points),
+        "max_dbz": max(dbz) if (max_dbz is None and dbz) else max_dbz,
+        "duration_min": 15.0,
+        "on_latest_frame": True,
+        "organization_score": 65,
+        "classification": "Organized Convective Cell",
+        "n_frames": 4,
+        "eccentricity_max": 0.70,
+        "solidity_min": 0.95,
+        "compactness_max": 1.8,
+    }
+    obs.update(extra)
+    return obs
+
+
+def _morph_frame(ts_ms, ecc=0.95, sol=0.80, comp=4.0):
+    """Campione morfologico di UN frame (stesso schema di
+    engine._morph_from_storms / properties Point di storms.geojson)."""
+    return {"timestamp_ms": ts_ms, "timestamp": ev_store.ms_to_iso(ts_ms),
+            "eccentricity": ecc, "solidity": sol, "compactness": comp}
+
+
+def _hook_frames(n=2, **kwargs):
+    """n frame consecutivi (da RADAR_MS indietro) con la firma hook completa."""
+    return [_morph_frame(RADAR_MS - i * PERIOD_MS, **kwargs) for i in range(n)]
+
+
+def _storm_point(ts_ms, ecc=0.95, sol=0.80, comp=4.0, track_id=1,
+                 lon=12.0, lat=41.0):
+    """Feature Point di storms.geojson: UN frame della cella track_id."""
+    return {"type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [lon, lat]},
+            "properties": {"track_id": track_id, "cell_id": f"cell-{track_id}",
+                           "timestamp": ev_store.ms_to_iso(ts_ms),
+                           "timestamp_ms": ts_ms, "area_km2": 60.0,
+                           "max_dbz": 58.0, "mean_dbz": 56.0,
+                           "eccentricity": ecc, "solidity": sol,
+                           "compactness": comp, "source": "test"}}
+
+
+def _write_json(path, payload):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def _write_radar(radar_dir, track_dbz=(58.0, 58.0, 58.0, 58.0),
+                 track_org=80, status="ok"):
+    """Input radar sintetici: 1 track cell + 1 candidato storm_object."""
+    radar_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(radar_dir / "latest.json",
+                {"status": status, "radar_timestamp": RADAR_ISO,
+                 "radar_timestamp_ms": RADAR_MS, "warnings": []})
+    _write_json(radar_dir / "tracks.json",
+                {"radar_timestamp": RADAR_ISO, "generated_at": RADAR_ISO,
+                 "tracks": [{
+                     "track_id": 1, "status": "active",
+                     "classification": "Organized Convective Cell",
+                     "organization_score": track_org,
+                     "duration_min": 15.0, "n_frames": len(track_dbz),
+                     "velocity_kmh": 30.0, "direction_toward_deg": 45.0,
+                     "points": _points(list(track_dbz)),
+                 }]})
+    _write_json(radar_dir / "supercells.json",
+                {"radar_timestamp": RADAR_ISO, "candidates": [{
+                    "supercell_id": "sc-7", "track_id": 7,
+                    "track_type": "storm_object",
+                    "first_seen": "2026-10-06T23:45:00Z",
+                    "last_seen": RADAR_ISO, "position": [12.5, 41.5],
+                    "intensity": {"max_dbz": 62.0},
+                    "organization": {"organization_score": 80,
+                                     "classification": "Organized"},
+                    "motion": {"velocity_kmh": 40.0, "duration_min": 12.0},
+                    "on_latest_frame": True,
+                }]})
+    _write_json(radar_dir / "storms.geojson",
+                {"type": "FeatureCollection", "features": [{
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [12.0, 41.0]},
+                    "properties": {
+                        "track_id": 1, "cell_id": "cell-1",
+                        "timestamp": RADAR_ISO, "timestamp_ms": RADAR_MS,
+                        "area_km2": 60.0, "max_dbz": 58.0, "mean_dbz": 56.0,
+                        "eccentricity": 0.95, "solidity": 0.80,
+                        "compactness": 4.0, "source": "test",
+                    },
+                }]})
+    return radar_dir
+
+
+@pytest.fixture
+def radar_case(tmp_path):
+    """Coppia (radar_dir, out_dir) con input sintetici e out pulito."""
+    radar = _write_radar(tmp_path / "radar")
+    return {"radar": str(radar), "out": str(tmp_path / "phenomena")}
+
+
+def _h0_client(value=2500.0):
+    def client(url):
+        assert "freezing_level_height" in url
+        return {"hourly": {"time": ["2020-01-01T00:00", "2020-01-01T01:00"],
+                           "freezing_level_height": [5000.0, value]}}
+    return client
+
+
+# ===========================================================================
+# Provider fulmini DPC
+# ===========================================================================
+def test_blitz_helper_roundtrip():
+    """Il costruttore di payload Blitz va e viene dal decoder reale."""
+    parsed = raw_ltg.decode_blitz_v2(_blitz(NEAR))
+    assert parsed["version"] == 2
+    assert parsed["count"] == 3
+    assert abs(parsed["strikes"][0][0] - 12.0) < 0.002
+    assert abs(parsed["strikes"][0][1] - 41.0) < 0.002
+
+
+def test_radar_slot_is_five_minutes_aligned():
+    assert RADAR_MS % PERIOD_MS == 0
+
+
+def test_dpc_window_counts_trend_and_center():
+    opener = FakeOpener(payloads=_payloads(RADAR_MS, {0: NEAR, 1: NEAR,
+                                                      2: NEAR, 3: NEAR}),
+                        default=None)
+    provider = pltg.get_provider("dpc", network=True, opener=opener)
+    resp = provider.strikes_in_window(epoch_ms=RADAR_MS, window_slots=4,
+                                      radius_km=30.0,
+                                      center_lonlat=[12.0, 41.0])
+    assert resp["available"] is True
+    assert resp["source"] == "dpc"
+    assert resp["slots_ok"] == 4
+    assert resp["window_slots"] == 4
+    assert resp["anchor_ms"] == RADAR_MS
+    assert resp["staleness_ms"] == 0
+    assert resp["count_near"] == 12
+    assert resp["count_total"] == 12
+    assert resp["per_slot_counts"] == [3, 3, 3, 3]
+    assert resp["trend"]["direction"] == "flat"
+    assert resp["center"] == [12.0, 41.0]
+    assert resp["score"] is not None
+
+
+def test_dpc_count_near_ignores_far_strike_and_needs_center():
+    far = NEAR + [(0.0, 0.0)]
+    opener = FakeOpener(payloads=_payloads(RADAR_MS, {0: far, 1: NEAR,
+                                                      2: NEAR, 3: NEAR}))
+    provider = pltg.get_provider("dpc", network=True, opener=opener)
+    with_center = provider.strikes_in_window(
+        epoch_ms=RADAR_MS, center_lonlat=[12.0, 41.0])
+    assert with_center["count_total"] == 13
+    assert with_center["count_near"] == 12       # (0,0) e' fuori 30 km
+    without = provider.strikes_in_window(epoch_ms=RADAR_MS)
+    assert without["center"] is None
+    assert without["count_near"] == 0            # nessun anchor = nessun raggio
+    assert without["count_total"] == 13
+    assert without["per_slot_counts"] == [3, 3, 3, 4]  # lo slot recente ultimo
+
+
+def test_dpc_all_403_is_unavailable_with_reason():
+    opener = FakeOpener(default=None)
+    provider = pltg.get_provider("dpc", network=True, opener=opener)
+    resp = provider.strikes_in_window(epoch_ms=RADAR_MS)
+    assert resp["available"] is False
+    assert "ltg_unavailable" in resp["reason"]
+    assert "not_published_403" in resp["reason"]
+    assert resp["count_near"] == 0
+    assert resp["strikes"] == []
+    assert len(opener.calls) == raw_ltg.LTG_MAX_BACKOFF_STEPS + 1
+
+
+def test_dpc_network_error_fails_fast_without_backoff():
+    opener = FakeOpener(error=urllib.error.URLError("dns fail"))
+    provider = pltg.get_provider("dpc", network=True, opener=opener)
+    resp = provider.strikes_in_window(epoch_ms=RADAR_MS)
+    assert resp["available"] is False
+    assert "URLError" in resp["reason"]
+    assert len(opener.calls) == 1                 # nessun retry su errore rete
+
+
+def test_dpc_backoff_to_published_slot():
+    anchor = RADAR_MS - 3 * PERIOD_MS
+    opener = FakeOpener(payloads={anchor: _blitz(NEAR)}, default=None)
+    provider = pltg.get_provider("dpc", network=True, opener=opener)
+    resp = provider.strikes_in_window(epoch_ms=RADAR_MS, window_slots=4,
+                                      center_lonlat=[12.0, 41.0])
+    assert resp["available"] is True
+    assert resp["anchor_ms"] == anchor
+    assert resp["staleness_ms"] == 3 * PERIOD_MS
+    assert resp["slots_ok"] == 1                  # solo lo slot ancorato
+    assert resp["count_near"] == 3
+    assert len(opener.calls) == 7      # 3 slot 403 + anchor + 3 slot precedenti
+
+
+def test_dpc_stale_window_is_declined():
+    stale_anchor = RADAR_MS - 7 * PERIOD_MS      # 35 min > 30 min massimi
+    opener = FakeOpener(payloads={stale_anchor: _blitz(NEAR)}, default=None)
+    provider = pltg.get_provider("dpc", network=True, opener=opener)
+    resp = provider.strikes_in_window(epoch_ms=RADAR_MS)
+    assert resp["available"] is False
+    assert resp["reason"].startswith("stale_ltg:")
+    assert resp["count_near"] == 0
+
+
+def test_dpc_network_disabled_never_calls_transport():
+    opener = FakeOpener(default=_blitz(NEAR))
+    provider = pltg.get_provider("dpc", network=False, opener=opener)
+    resp = provider.strikes_in_window(epoch_ms=RADAR_MS)
+    assert resp["available"] is False
+    assert resp["reason"] == "network_disabled"
+    assert opener.calls == []
+
+
+def test_dpc_window_is_cached_per_run():
+    opener = FakeOpener(default=_blitz(NEAR))
+    provider = pltg.get_provider("dpc", network=True, opener=opener)
+    first = provider.strikes_in_window(epoch_ms=RADAR_MS, window_slots=4)
+    second = provider.strikes_in_window(epoch_ms=RADAR_MS, window_slots=4)
+    # senza centro count_near e' 0 (nessun anchor): si conta il totale
+    assert first["count_total"] == second["count_total"] == 12
+    assert len(opener.calls) == 4                 # una sola finestra scaricata
+
+
+def test_response_schema_is_stable_available_or_not():
+    for provider in (pltg.get_provider("dpc", network=False),
+                     pltg.get_provider("mli", network=False)):
+        for resp in (provider.strikes_in_window(epoch_ms=RADAR_MS),
+                     pltg.unavailable(provider.name, "reason_test")):
+            assert set(resp) == set(REQUIRED_RESPONSE_KEYS)
+            assert isinstance(resp["available"], bool)
+            assert isinstance(resp["count_near"], int)
+            assert isinstance(resp["trend"], dict)
+            assert resp["note"] is None or isinstance(resp["note"], str)
+            assert resp["attribution"] is None or isinstance(
+                resp["attribution"], str)
+        unavailable = pltg.unavailable(provider.name, "not_configured")
+        assert unavailable["available"] is False
+        assert unavailable["source"] == provider.name
+        assert unavailable["count_near"] == 0
+        assert unavailable["strength"] is None
+        assert unavailable["note"] is None
+        assert unavailable["attribution"] is None
+
+
+# ===========================================================================
+# Registry provider (gancio S4b)
+# ===========================================================================
+def test_registry_has_dpc_and_mli_and_unknown_rejected():
+    assert "dpc" in pltg.available_providers()
+    assert "mli" in pltg.available_providers()      # registrato da S4b
+    with pytest.raises(pltg.UnknownProviderError) as exc:
+        pltg.get_provider("nope")
+    assert "unknown_lightning_provider:nope" in str(exc.value)
+
+
+def test_registry_register_hook_is_usable_and_cleaned_up():
+    class DummyProvider(pltg.LightningProvider):
+        name = "dummy-test"
+
+        def fetch_window(self, epoch_ms=None, window_slots=4):
+            return pltg.unavailable(self.name, "test_only")
+
+    try:
+        pltg.register_provider("dummy-test", DummyProvider)
+        assert "dummy-test" in pltg.available_providers()
+        provider = pltg.get_provider("dummy-test", network=False)
+        resp = provider.strikes_in_window(epoch_ms=RADAR_MS)
+        assert resp["available"] is False
+        assert resp["reason"] == "test_only"
+    finally:
+        pltg._PROVIDERS.pop("dummy-test", None)
+    assert "dummy-test" not in pltg.available_providers()
+
+
+def test_unknown_provider_name_is_rejected():
+    with pytest.raises(pltg.UnknownProviderError):
+        pltg.get_provider("")
+    with pytest.raises(pltg.UnknownProviderError):
+        pltg.get_provider(None)
+
+
+# ===========================================================================
+# Logica HAIL
+# ===========================================================================
+def test_hail_suspect_from_two_recent_points():
+    event = hail.evaluate_hail(_obs(_points([58.0, 58.0])), LTG_OFF, None)
+    assert event is not None
+    assert event["type"] == "HAIL"
+    assert event["state"] == "SUSPECT"
+    assert event["thresholds_version"] == THRESHOLDS_VERSION
+    assert 0.0 <= event["score"] <= 69.0
+    assert event["id"] == "HAIL-cell-1"
+    assert event["evidence"]["points_ge_55"] == 2
+    assert event["evidence"]["max_dbz"] == 58.0
+    assert event["evidence"]["persistence_source"] == "points"
+    assert event["evidence"]["lightning"]["available"] is False
+
+
+def test_hail_single_point_is_not_enough():
+    assert hail.evaluate_hail(_obs(_points([62.0])), LTG_OK, None) is None
+
+
+def test_hail_point_outside_window_is_ignored():
+    old = {"timestamp_ms": RADAR_MS - 20 * 60 * 1000,
+           "timestamp": ev_store.ms_to_iso(RADAR_MS - 20 * 60 * 1000),
+           "lonlat": [12.0, 41.0], "max_dbz": 70.0}
+    recent = _points([58.0, 58.0])
+    windowed = hail.recent_points(recent + [old], RADAR_MS)
+    # il punto da 70 dBZ di 20 minuti prima NON entra nella finestra di 15 min
+    assert [p["timestamp_ms"] for p in windowed] == \
+        [p["timestamp_ms"] for p in recent]
+    event = hail.evaluate_hail(_obs(windowed), LTG_OFF, None)
+    assert event is not None
+    assert event["evidence"]["recent_points"] == 2
+    assert event["evidence"]["max_dbz"] == 58.0     # il 70 dBZ vecchio non conta
+
+
+def test_hail_corroborated_with_dbz60_and_lightning():
+    event = hail.evaluate_hail(_obs(_points([58.0, 62.0])), LTG_OK, None)
+    assert event is not None
+    assert event["state"] == "CORROBORATED"
+    assert 70.0 <= event["score"] <= 99.0
+
+
+def test_hail_stays_suspect_when_lightning_unavailable():
+    event = hail.evaluate_hail(_obs(_points([62.0, 62.0])), LTG_OFF, None)
+    assert event is not None
+    assert event["state"] == "SUSPECT"
+    labels = event["evidence"]["labels"]
+    assert any("fulmini non disponibili" in lab for lab in labels)
+
+
+def test_hail_positive_dbz_trend_promotes():
+    event = hail.evaluate_hail(_obs(_points([55.0, 55.0, 58.0])), LTG_OK,
+                               None)
+    assert event is not None
+    assert event["state"] == "CORROBORATED"
+    assert event["evidence"]["dbz_trend_per_frame"] == 1.5
+
+
+# --- Tier MULTI-FONTE (pheno-1.3.0): struttura verticale + H0 per-cella -----
+def _vertical(**kw):
+    """Evidenza verticale compatta (forma prodotta da engine)."""
+    base = {"poh_percent": None, "etm_km": None, "vil_kg_m2": None,
+            "overhang": None}
+    base.update(kw)
+    return base
+
+
+def _strong_structure():
+    return _vertical(poh_percent=80.0, etm_km=11.0, vil_kg_m2=55.0,
+                     overhang=0.40)
+
+
+def test_hail_corroborates_with_high_poh_and_strong_vertical():
+    obs = _obs(_points([58.0, 58.0]), structure_score=88.0,
+               vertical=_strong_structure())
+    event = hail.evaluate_hail(obs, LTG_OFF, None)
+    assert event is not None
+    assert event["state"] == "CORROBORATED"
+    st = event["evidence"]["structure"]
+    assert st["available"] is True
+    assert st["score"] == 88.0
+    assert st["poh_percent"] == 80.0
+    assert st["etm_km"] == 11.0
+    assert st["vil_kg_m2"] == 55.0
+    assert st["overhang"] == 0.40
+    assert st["poh_primary"] is True
+    assert st["strong"] is True
+    corr = event["evidence"]["corroboration"]
+    assert corr["primary"] == "poh"
+    assert corr["structure"] is True
+    assert 70.0 <= event["score"] <= 99.0
+    labels = event["evidence"]["labels"]
+    # promozione SENZA fulmini: la struttura verticale sostituisce il gate
+    assert any("fulmini non disponibili" in lab for lab in labels)
+    assert any("POH >= 50%" in lab for lab in labels)
+
+
+def test_hail_fail_closed_without_poh_or_strong_dbz():
+    # (58,58) senza trend, senza struttura verticale: anche con gate fulmini OK
+    # il primary e' debole -> resta SUSPECT (nessuna promozione da una sola
+    # evidenza: multi-fonte non significa "una qualunque evidenza").
+    event = hail.evaluate_hail(_obs(_points([58.0, 58.0])), LTG_OK, None)
+    assert event is not None
+    assert event["state"] == "SUSPECT"
+    assert event["evidence"]["corroboration"]["primary"] is None
+    assert event["evidence"]["structure"]["available"] is False
+
+
+def test_hail_strong_dbz_with_low_h0_promotes_without_lightning():
+    obs = _obs(_points([62.0, 62.0]))
+    low = hail.evaluate_hail(obs, LTG_OFF, 2500.0)
+    high = hail.evaluate_hail(obs, LTG_OFF, 4200.0)
+    assert low is not None and high is not None
+    assert low["state"] == "CORROBORATED"        # H0 basso corrobora la base forte
+    assert high["state"] == "SUSPECT"            # H0 alto non basta
+    assert low["evidence"]["freezing_level_low"] is True
+    assert low["evidence"]["corroboration"]["h0_low"] is True
+    assert high["evidence"]["corroboration"]["h0_low"] is False
+
+
+def test_hail_poh_fraction_normalization():
+    # DPC POH e' una frazione [0,1] -> convertita a % (0.5354 -> 53.54);
+    # gia' in % resta invariato; None/NaN -> None (mai un valore inventato)
+    assert hail._poh_percent(0.5354) == 53.54
+    assert hail._poh_percent(53.5) == 53.5
+    assert hail._poh_percent(0.0) == 0.0
+    assert hail._poh_percent(None) is None
+    assert hail._poh_percent(float("nan")) is None
+
+
+def test_hail_vertical_partial_absent_is_fail_closed():
+    # solo ETM presente ma debole, senza POH/VIL/overhang: composito basso,
+    # niente promozione (i campi mancanti valgono 0, mai rinormalizzati)
+    obs = _obs(_points([58.0, 58.0]), structure_score=40.0,
+               vertical=_vertical(etm_km=7.0))
+    event = hail.evaluate_hail(obs, LTG_OFF, None)
+    assert event is not None
+    assert event["state"] == "SUSPECT"
+    st = event["evidence"]["structure"]
+    assert st["available"] is True
+    assert st["poh_percent"] is None
+    assert st["poh_primary"] is False
+    assert st["strong"] is False
+
+
+def test_fzl_bucket_grid():
+    # cache H0 per-cella: nodo piu' vicino entro ~0.5 gradi
+    assert hail.fzl_bucket(41.0, 12.0) == (41.0, 12.0)
+    assert hail.fzl_bucket(41.23, 12.11) == (41.0, 12.0)
+    assert hail.fzl_bucket(41.8, 12.4) == (42.0, 12.5)
+    assert hail.fzl_bucket(41.6, 12.4) == (41.5, 12.5)
+    assert hail.fzl_bucket(40.6, 12.9) == (40.5, 13.0)
+
+
+def test_build_observations_attaches_vertical_from_candidate():
+    sc = {"candidates": [
+        {"track_id": 1, "track_type": "cell", "position": [12.0, 41.0],
+         "structure": 88.0,
+         "structure_features": {"poh_max": 0.62, "etm_max": 11000.0,
+                                "vil_max": 55.0, "overhang": 0.40}},
+        {"track_id": 7, "track_type": "storm_object",
+         "position": [12.5, 41.5], "structure": 70.0,
+         "structure_features": {"poh_max": 55.0, "etm_max": 8.0,
+                                "vil_max": 30.0, "overhang": 0.10}},
+    ]}
+    tracks = {"tracks": [
+        {"track_id": 1, "duration_min": 15.0, "points": _points([58.0, 58.0])},
+    ]}
+    obs = engine.build_observations(sc, tracks, {"features": []}, RADAR_MS,
+                                    RADAR_ISO)
+    by_anchor = {o["anchor"]: o for o in obs}
+    cell = by_anchor["cell-1"]
+    assert cell["structure_score"] == 88.0
+    # frazione POH legacy 0.62 -> 62.0%; ETM legacy in METRI 11000 -> 11 km
+    assert cell["vertical"]["poh_percent"] == 62.0
+    assert cell["vertical"]["etm_km"] == 11.0
+    assert cell["vertical"]["vil_kg_m2"] == 55.0
+    so = by_anchor["storm_object-7"]
+    assert so["structure_score"] == 70.0
+    assert so["vertical"]["poh_percent"] == 55.0
+    # candidato senza struttura (feature mancanti) -> fail-closed vertical None
+    bare = engine.build_observations(
+        {"candidates": [{"track_id": 9, "track_type": "storm_object",
+                         "position": [13.0, 42.0]}]},
+        {"tracks": []}, {"features": []}, RADAR_MS, RADAR_ISO)
+    assert bare[0]["vertical"] is None
+
+
+def test_hail_duration_source_for_targets_without_points():
+    obs = _obs([], max_dbz=62.0, source="duration", recent_points=[],
+               duration_min=12.0, on_latest_frame=True, anchor="storm_object-7",
+               type="storm_object")
+    event = hail.evaluate_hail(obs, LTG_OFF, None)
+    assert event is not None
+    assert event["state"] == "SUSPECT"
+    assert event["id"] == "HAIL-storm_object-7"
+    assert event["evidence"]["persistence_source"] == "duration"
+
+
+def test_hail_duration_source_requires_persistence_and_freshness():
+    base = dict(anchor="storm_object-7", type="storm_object",
+                position=[12.5, 41.5], first_seen=RADAR_ISO,
+                last_seen=RADAR_ISO, persistence_source="duration",
+                recent_points=[], classification=None, n_frames=None)
+    too_short = hail.evaluate_hail(
+        dict(base, max_dbz=62.0, duration_min=5.0, on_latest_frame=True),
+        LTG_OFF, None)
+    stale = hail.evaluate_hail(
+        dict(base, max_dbz=62.0, duration_min=12.0, on_latest_frame=False),
+        LTG_OFF, None)
+    assert too_short is None
+    assert stale is None
+
+
+def test_hail_freezing_level_is_evidence_not_a_gate():
+    obs = _obs(_points([58.0, 58.0]))
+    without = hail.evaluate_hail(obs, LTG_OFF, None)
+    with_h0 = hail.evaluate_hail(obs, LTG_OFF, 2500.0)
+    high_h0 = hail.evaluate_hail(obs, LTG_OFF, 4200.0)
+    assert without["state"] == with_h0["state"] == high_h0["state"] == "SUSPECT"
+    assert with_h0["evidence"]["freezing_level_low"] is True
+    assert high_h0["evidence"]["freezing_level_low"] is False
+    assert any(lab.startswith("H0 ") for lab in with_h0["evidence"]["labels"])
+    assert not any(lab.startswith("H0 ")
+                   for lab in high_h0["evidence"]["labels"])
+
+
+def test_fetch_freezing_level_never_raises():
+    assert hail.fetch_freezing_level(41.0, 12.0, client=_h0_client()) == 2500.0
+
+    def boom(url):
+        raise RuntimeError("rete spenta")
+
+    assert hail.fetch_freezing_level(41.0, 12.0, client=boom) is None
+    assert hail.fetch_freezing_level(41.0, 12.0,
+                                     client=lambda url: None) is None
+    assert hail.fetch_freezing_level(41.0, 12.0,
+                                     client=lambda url: {"hourly": {}}) is None
+
+    class Client:
+        def get_json(self, url):
+            return _h0_client()(url)
+
+    assert hail.fetch_freezing_level(41.0, 12.0, client=Client()) == 2500.0
+
+
+def test_hail_score_is_bounded():
+    assert hail.hail_score("SUSPECT", 55.0, LTG_OFF, None) == 40.0
+    assert hail.hail_score("CORROBORATED", 70.0, LTG_OK, 2500.0) <= 99.0
+    assert hail.hail_score("VERIFIED", None, LTG_OFF, None) == 100.0
+
+
+# ===========================================================================
+# Logica VORTEX
+# ===========================================================================
+def test_vortex_suspect_from_organization_score():
+    # Soglia alzata a 76 (banda "Highly Organized"): 60 era la soglia del
+    # candidato supercella (56) e faceva emettere ogni cella organizzata.
+    # AGGIORNATO (B2): il gate "sustained" conta i frame RECENTI distinti
+    # (>= 3), non piu' il lifetime n_frames: servono 3 punti recenti.
+    event = vortex.evaluate_vortex(_obs(_points([50.0, 50.0, 50.0]),
+                                        organization_score=76), LTG_OFF)
+    assert event is not None
+    assert event["type"] == "VORTEX"
+    assert event["state"] == "SUSPECT"
+    assert event["id"] == "VORTEX-cell-1"
+    assert event["evidence"]["organization_score"] == 76
+    assert event["evidence"]["doppler"] is False
+
+
+def test_vortex_morphology_only_is_suspect():
+    # AGGIORNATO (coerenza temporale per-frame): il gate morfologia richiede
+    # ora la firma hook COMPLETA in >= vortex.MORPH_HOOK_MIN_FRAMES frame
+    # distinti. Prima bastava eccentricity_max/solidity_min/compactness_max
+    # presi su frame DIVERSI, che promuoveva celle allungate in un frame e
+    # frastagliate in un altro (falsi positivi su linee/squall line/bow
+    # echo/merger/anvil). L'asserzione di fondo (sola morfologia -> SUSPECT)
+    # resta invariata, con dati che dimostrano la coerenza richiesta.
+    event = vortex.evaluate_vortex(
+        _obs(_points([50.0, 50.0]), organization_score=None,
+             morph_frames=_hook_frames(vortex.MORPH_HOOK_MIN_FRAMES)),
+        LTG_OFF)
+    assert event is not None
+    assert event["state"] == "SUSPECT"
+    assert event["evidence"]["hookish_morphology"] is True
+    assert event["evidence"]["morphology"]["hook_frames"] == \
+        vortex.MORPH_HOOK_MIN_FRAMES
+
+
+def test_vortex_hook_scattered_across_frames_is_not_hookish():
+    """Firma hook MAI completa in un singolo frame (ecc/sol/comp sparsi su
+    frame diversi): gli aggregati supererebbero le tre soglie, ma nessun
+    frame le ha insieme -> non hookish e, senza organization_score,
+    nessun evento (era il meccanismo dei falsi positivi)."""
+    scattered = [
+        _morph_frame(RADAR_MS, ecc=0.97, sol=1.00, comp=1.5),      # solo ecc
+        _morph_frame(RADAR_MS - PERIOD_MS, ecc=0.55, sol=0.70,
+                     comp=5.5),                          # solo sol+comp
+        _morph_frame(RADAR_MS - 2 * PERIOD_MS, ecc=0.96, sol=0.90,
+                     comp=4.5),                          # ecc+comp, sol no
+    ]
+    obs = _obs(_points([50.0, 50.0]), organization_score=None,
+               morph_frames=scattered,
+               eccentricity_max=0.97, solidity_min=0.70, compactness_max=5.5)
+    assert vortex.hook_frame_count(obs) == 0
+    assert vortex.is_hookish(obs) is False
+    assert vortex.evaluate_vortex(obs, LTG_OFF) is None
+
+
+def test_vortex_single_complete_frame_is_not_enough():
+    """La firma hook completa in UN solo frame non basta: servono >= K frame
+    coerenti (K = vortex.MORPH_HOOK_MIN_FRAMES)."""
+    obs = _obs(_points([50.0, 50.0]), organization_score=None,
+               morph_frames=_hook_frames(1),
+               eccentricity_max=0.95, solidity_min=0.80, compactness_max=4.0)
+    assert vortex.hook_frame_count(obs) == 1
+    assert vortex.is_hookish(obs) is False
+    assert vortex.evaluate_vortex(obs, LTG_OFF) is None
+
+
+def test_vortex_hookish_on_k_coherent_frames():
+    k = vortex.MORPH_HOOK_MIN_FRAMES
+    obs = _obs(_points([50.0, 50.0]), organization_score=None,
+               morph_frames=_hook_frames(k + 1))
+    assert vortex.hook_frame_count(obs) == k + 1
+    assert vortex.is_hookish(obs) is True
+    event = vortex.evaluate_vortex(obs, LTG_OFF)
+    assert event is not None
+    assert event["state"] == "SUSPECT"
+    morph = event["evidence"]["morphology"]
+    assert morph["hook_frames"] == k + 1
+    assert morph["hook_frames_required"] == k
+    assert morph["frames_observed"] == k + 1
+    assert any("coerente su" in lab for lab in event["evidence"]["labels"])
+    assert any(vortex.DOPPLER_DISCLAIMER in lab
+               for lab in event["evidence"]["labels"])
+
+
+def test_vortex_hook_frames_count_only_joint_frames():
+    """Contano solo i frame con TUTTE e tre le condizioni: un frame che ne
+    supera due su tre non entra nel conteggio."""
+    frames = [
+        _morph_frame(RADAR_MS),                                # completo
+        _morph_frame(RADAR_MS - PERIOD_MS, ecc=0.50, sol=0.80,
+                     comp=4.0),                    # ecc sotto soglia
+        _morph_frame(RADAR_MS - 2 * PERIOD_MS),                # completo
+        _morph_frame(RADAR_MS - 3 * PERIOD_MS),                # completo
+    ]
+    obs = _obs(_points([50.0, 50.0]), organization_score=None,
+               morph_frames=frames)
+    assert vortex.hook_frame_count(obs) == 3
+    assert vortex.is_hookish(obs) is True          # >= K (3) -> hookish
+
+
+def test_vortex_same_timestamp_samples_count_as_one_frame():
+    """Due campioni con lo STESSO timestamp sono lo stesso frame: la
+    coerenza temporale non si puo' fabbricare duplicando il campione, e
+    campioni discordanti dello stesso frame lo fanno fallire (fail-closed)."""
+    duplicated = _hook_frames(1) + _hook_frames(1)   # stesso timestamp x2
+    obs = _obs(_points([50.0, 50.0]), organization_score=None,
+               morph_frames=duplicated)
+    assert vortex.hook_frame_count(obs) == 1
+    assert vortex.is_hookish(obs) is False
+    discordant = _hook_frames(1) + [_morph_frame(RADAR_MS, ecc=0.50)]
+    obs2 = _obs(_points([50.0, 50.0]), organization_score=None,
+                morph_frames=discordant)
+    assert vortex.hook_frame_count(obs2) == 0
+
+
+def test_vortex_without_gate_is_not_an_event():
+    assert vortex.evaluate_vortex(
+        _obs(_points([50.0, 50.0]), organization_score=None,
+             eccentricity_max=0.70, solidity_min=1.0, compactness_max=1.8),
+        LTG_OFF) is None
+    assert vortex.evaluate_vortex(
+        _obs(_points([50.0]), organization_score=80, duration_min=5.0),
+        LTG_OFF) is None                       # persistenza insufficiente
+
+
+def test_vortex_corroborated_needs_org_and_lightning():
+    # AGGIORNATO (B2): 3 frame recenti per superare il gate "sustained".
+    event = vortex.evaluate_vortex(_obs(_points([50.0, 50.0, 50.0]),
+                                        organization_score=80), LTG_UP)
+    assert event is not None
+    assert event["state"] == "CORROBORATED"
+    assert 70.0 <= event["score"] <= 99.0
+
+
+def test_vortex_corroborated_blocked_without_lightning():
+    event = vortex.evaluate_vortex(_obs(_points([50.0, 50.0, 50.0]),
+                                        organization_score=80), LTG_OFF)
+    assert event is not None
+    assert event["state"] == "SUSPECT"
+    assert event["evidence"]["lightning"]["available"] is False
+
+
+def test_vortex_corroborated_blocked_with_low_org():
+    # Input aggiornato al gate per-frame: gli aggregati soli (max/min su
+    # frame diversi) non promuovono piu', quindi la morfologia va data come
+    # frame coerenti (>= K = 3). L'asserzione (org < 80 -> nessuna
+    # promozione) e' quella di prima, invariata.
+    event = vortex.evaluate_vortex(
+        _obs(_points([50.0, 50.0]), organization_score=55,
+             morph_frames=_hook_frames(vortex.MORPH_HOOK_MIN_FRAMES)),
+        LTG_UP)
+    assert event is not None
+    assert event["state"] == "SUSPECT"        # org < 80: niente promozione
+
+
+def test_vortex_requires_persistence():
+    assert vortex.evaluate_vortex(
+        _obs([], source="duration", recent_points=[], duration_min=4.0,
+             on_latest_frame=True, organization_score=80), LTG_OFF) is None
+
+
+def test_vortex_always_disclaims_doppler():
+    event = vortex.evaluate_vortex(_obs(_points([50.0, 50.0, 50.0]),
+                                        organization_score=80), LTG_UP)
+    labels = event["evidence"]["labels"]
+    assert any(vortex.DOPPLER_DISCLAIMER in lab for lab in labels)
+    assert any("Doppler" in lab for lab in labels)
+
+
+def test_vortex_score_is_bounded():
+    assert vortex.vortex_score("SUSPECT", 60, LTG_OFF) == 40.0
+    assert vortex.vortex_score("CORROBORATED", 80, LTG_UP) <= 99.0
+    assert vortex.vortex_score("VERIFIED", None, LTG_OFF) == 100.0
+
+
+# --- Anti-falsi-positivi (pheno-1.4.0): evidenza osservata sostenuta --------
+def test_vortex_org_below_suspect_gate_without_hook_is_none():
+    """organization_score 75 (< 76) senza hook coerente -> nessun evento."""
+    obs = _obs(_points([50.0, 50.0]), organization_score=75)
+    assert vortex.evaluate_vortex(obs, LTG_OFF) is None
+
+
+def test_vortex_below_min_dbz_is_not_emitted():
+    """Senza core convettivo (max_dbz < 45) nessun badge, anche con org alta."""
+    obs = _obs(_points([30.0, 30.0]), organization_score=80)
+    assert obs["max_dbz"] == 30.0
+    assert vortex.evaluate_vortex(obs, LTG_OFF) is None
+
+
+def test_vortex_single_look_is_not_sustained():
+    """Persistenza minima (2 punti) ma nessuna evidenza sostenuta (2 frame,
+    n_frames assente): org alta da sola non basta piu'."""
+    obs = _obs(_points([50.0, 50.0]), organization_score=80,
+               morph_frames=[], n_frames=None, duration_min=5.0)
+    assert vortex.observed_frame_count(obs) == 2
+    assert vortex.evaluate_vortex(obs, LTG_OFF) is None
+
+
+def test_vortex_observed_frame_count_excludes_lifetime_and_lifetime_gate():
+    """B2: un solo frame RECENTE distinto con n_frames=10 -> observed == 1 e
+    il lifetime NON soddisfa il gate "sustained" (org alta ma nessun evento)."""
+    obs = _obs(_points([50.0]), organization_score=80, morph_frames=[],
+               n_frames=10)
+    assert vortex.observed_frame_count(obs) == 1
+    assert vortex.track_frame_count(obs) == 10      # lifetime esposto a parte
+    assert vortex.evaluate_vortex(obs, LTG_OFF) is None
+
+
+def test_vortex_observed_frame_count_union_of_recent_sources():
+    """B2: unione fra frame morfologici e punti recenti; i frame condivisi
+    (stesso timestamp) contano UNA volta, il lifetime e' escluso."""
+    obs = _obs(_points([50.0, 50.0, 50.0]), organization_score=80,
+               morph_frames=_hook_frames(2), n_frames=9)
+    # points: RADAR_MS, -P, -2P ; morph: RADAR_MS, -P -> unione = 3
+    assert vortex.observed_frame_count(obs) == 3
+    assert vortex.track_frame_count(obs) == 9
+
+
+def test_vortex_observed_frame_count_recent_threshold_emits():
+    """B2 caso positivo: >= VORTEX_MIN_FRAMES frame recenti distinti ->
+    observed raggiunge la soglia e il gate org (>= 76) emette l'evento."""
+    obs = _obs(_points([50.0, 50.0, 50.0]), organization_score=80)
+    assert vortex.observed_frame_count(obs) == vortex.VORTEX_MIN_FRAMES
+    event = vortex.evaluate_vortex(obs, LTG_OFF)
+    assert event is not None
+    assert event["evidence"]["observed_frames"] == vortex.VORTEX_MIN_FRAMES
+    assert event["evidence"]["sustained"] is True
+
+
+def test_vortex_observed_frame_count_track_frame_count_absent_is_zero():
+    assert vortex.track_frame_count({}) == 0
+    assert vortex.track_frame_count(None) == 0
+    assert vortex.track_frame_count({"n_frames": "nope"}) == 0
+
+
+def test_vortex_corroborated_via_hook_and_strong_structure():
+    """Gate primario = hook sostenuto; corroboratore indipendente = struttura
+    verticale forte -> CORROBORATED anche senza fulmini e senza org."""
+    obs = _obs(_points([50.0, 50.0]), organization_score=None,
+               morph_frames=_hook_frames(vortex.MORPH_HOOK_MIN_FRAMES),
+               vertical=_strong_structure())
+    event = vortex.evaluate_vortex(obs, LTG_OFF)
+    assert event is not None
+    assert event["state"] == "CORROBORATED"
+    assert event["evidence"]["structure"]["strong"] is True
+    assert event["evidence"]["corroboration"]["structure"] is True
+
+
+def test_vortex_hook_without_strong_structure_stays_suspect():
+    """Hook sostenuto ma struttura verticale debole/assente -> SUSPECT."""
+    obs = _obs(_points([50.0, 50.0]), organization_score=None,
+               morph_frames=_hook_frames(vortex.MORPH_HOOK_MIN_FRAMES),
+               vertical=_vertical(poh_percent=20.0))
+    event = vortex.evaluate_vortex(obs, LTG_OFF)
+    assert event is not None
+    assert event["state"] == "SUSPECT"
+
+
+# ===========================================================================
+# Events store + badges
+# ===========================================================================
+def test_merge_updates_same_id_and_keeps_earliest_first_seen():
+    existing = ev_store.empty_events("2026-10-07T00:00:00Z")
+    first = {"id": "HAIL-cell-1", "type": "HAIL", "state": "SUSPECT",
+             "score": 40.0, "first_seen": "2026-10-06T23:00:00Z",
+             "last_seen": "2026-10-07T00:00:00Z", "position": [12.0, 41.0],
+             "evidence": {"anchor": "cell-1"}}
+    merged = ev_store.merge_events(existing, [first], "2026-10-07T00:00:00Z")
+    second = dict(first, last_seen=RADAR_ISO, state="CORROBORATED", score=75.0,
+                  first_seen="2026-10-07T00:00:00Z")
+    merged = ev_store.merge_events(merged, [second], RADAR_ISO)
+    assert [e["id"] for e in merged["events"]] == ["HAIL-cell-1"]
+    event = merged["events"][0]
+    assert event["first_seen"] == "2026-10-06T23:00:00Z"
+    assert event["last_seen"] == RADAR_ISO
+    assert event["state"] == "CORROBORATED"
+    assert merged["window_hours"] == WINDOW_HOURS
+
+
+def test_merge_keeps_absent_ids_until_they_expire():
+    existing = {"generated_at": RADAR_ISO, "window_hours": 24, "events": [
+        {"id": "HAIL-cell-1", "last_seen": RADAR_ISO,
+         "first_seen": RADAR_ISO},
+        {"id": "HAIL-cell-9", "last_seen": "2026-10-01T00:00:00Z",
+         "first_seen": "2026-10-01T00:00:00Z"},
+    ]}
+    merged = ev_store.merge_events(existing, [], RADAR_ISO)
+    assert [e["id"] for e in merged["events"]] == ["HAIL-cell-1"]
+
+
+def test_merge_prune_anchor_is_data_time_not_wall_clock():
+    incoming = [{"id": "HAIL-cell-1", "type": "HAIL", "state": "SUSPECT",
+                 "score": 40.0, "first_seen": "2026-10-06T23:00:00Z",
+                 "last_seen": RADAR_ISO, "position": [12.0, 41.0],
+                 "evidence": {}}]
+    clock = "2026-10-08T18:00:00Z"                # 42h avanti dai dati
+    by_clock = ev_store.merge_events(None, incoming, clock, 24)
+    assert by_clock["events"] == []               # finestra a orologio: vuota
+    by_data = ev_store.merge_events(None, incoming, clock, 24,
+                                    prune_anchor=RADAR_ISO)
+    assert [e["id"] for e in by_data["events"]] == ["HAIL-cell-1"]
+
+
+def test_merge_orders_events_by_id():
+    incoming = [{"id": "VORTEX-cell-2", "last_seen": RADAR_ISO},
+                {"id": "HAIL-cell-1", "last_seen": RADAR_ISO}]
+    merged = ev_store.merge_events(None, incoming, RADAR_ISO)
+    assert [e["id"] for e in merged["events"]] == ["HAIL-cell-1",
+                                                   "VORTEX-cell-2"]
+
+
+def test_atomic_write_json_is_valid_and_leaves_no_tmp(tmp_path):
+    path = tmp_path / "out" / "events.json"
+    ev_store.atomic_write_json(str(path), {"a": 1})
+    assert json.loads(path.read_text(encoding="utf-8")) == {"a": 1}
+    assert list(path.parent.glob(".phenomena-*.tmp")) == []
+    with pytest.raises(TypeError):
+        ev_store.atomic_write_json(str(path), {"bad": object()})
+    assert json.loads(path.read_text(encoding="utf-8")) == {"a": 1}
+    assert list(path.parent.glob(".phenomena-*.tmp")) == []
+
+
+def test_load_events_corrupt_or_missing_returns_empty(tmp_path):
+    assert ev_store.load_events(str(tmp_path / "nope.json"))["events"] == []
+    broken = tmp_path / "events.json"
+    broken.write_text("{not json", encoding="utf-8")
+    assert ev_store.load_events(str(broken))["events"] == []
+    wrong = tmp_path / "wrong.json"
+    wrong.write_text(json.dumps([1, 2]), encoding="utf-8")
+    assert ev_store.load_events(str(wrong))["events"] == []
+
+
+def test_build_badges_only_active_and_promotes_labels():
+    active = {"id": "HAIL-cell-1", "type": "HAIL", "state": "SUSPECT",
+              "score": 40.0, "first_seen": RADAR_ISO, "last_seen": RADAR_ISO,
+              "position": [12.0, 41.0],
+              "evidence": {"anchor": "cell-1", "labels": ["tier SUSPECT"]}}
+    stale = dict(active, id="HAIL-cell-2", last_seen="2026-10-06T23:00:00Z")
+    payload = ev_store.build_badges([stale, active], RADAR_ISO, RADAR_ISO)
+    assert [b["id"] for b in payload["badges"]] == ["HAIL-cell-1"]
+    assert payload["radar_timestamp"] == RADAR_ISO
+    badge = payload["badges"][0]
+    assert set(badge) == set(REQUIRED_BADGE_KEYS)
+    assert badge["area_id"] == "cell-1"
+    assert badge["labels"] == ["tier SUSPECT"]
+    assert "labels" not in badge["evidence"]
+    assert ev_store.is_active(stale, RADAR_ISO) is False
+    assert ev_store.is_active(active, RADAR_ISO) is True
+
+
+# ===========================================================================
+# Aggregazione eventi per tempesta (anti-duplicati)
+# ===========================================================================
+def _agg_event(ev_id, etype="VORTEX", first="2026-10-07T00:00:00Z",
+               last="2026-10-07T00:00:00Z", lon=12.0, lat=41.0,
+               state="SUSPECT", score=40.0, frames=1.0):
+    """Evento minimale per i test di aggregate_events."""
+    return {"id": ev_id, "type": etype, "state": state, "score": score,
+            "first_seen": first, "last_seen": last, "position": [lon, lat],
+            "evidence": {"anchor": ev_id.split("-", 1)[1],
+                         "frame_count": frames, "labels": []}}
+
+
+def test_aggregate_events_collapses_same_storm_across_ids():
+    a = _agg_event("VORTEX-cell-1", first="2026-10-07T00:00:00Z",
+                   last="2026-10-07T00:00:00Z", lon=12.0, lat=41.0, frames=2)
+    b = _agg_event("VORTEX-cell-9", first="2026-10-07T00:20:00Z",
+                   last="2026-10-07T00:20:00Z", lon=12.05, lat=41.02,
+                   state="CORROBORATED", score=72.0, frames=3)
+    out = ev_store.aggregate_events([a, b])
+    assert len(out) == 1
+    event = out[0]
+    assert event["id"] == "VORTEX-cell-1"          # id/first del piu' vecchio
+    assert event["first_seen"] == a["first_seen"]
+    assert event["last_seen"] == b["last_seen"]    # last piu' recente
+    assert event["state"] == "CORROBORATED"        # rappresentante (b)
+    assert event["score"] == 72.0                  # score del rappresentante
+    ev = event["evidence"]
+    assert ev["aggregated_events"] == 2
+    assert ev["aggregated_ids"] == ["VORTEX-cell-1", "VORTEX-cell-9"]
+    assert ev["frame_count"] == 3                  # max dei membri (no id frame)
+    assert ev["frame_count_method"] == "max_member"
+    assert ev["aggregated_max_score"] == 72.0
+    assert ev["event_span_min"] == 20.0
+
+
+def test_aggregate_events_keeps_far_or_late_storms_separate():
+    a = _agg_event("VORTEX-cell-1")
+    far = _agg_event("VORTEX-cell-2", lon=13.0, lat=42.0)     # > 25 km
+    late = _agg_event("VORTEX-cell-3", first="2026-10-07T02:00:00Z",
+                      last="2026-10-07T02:00:00Z")            # > 45 min
+    out = ev_store.aggregate_events([a, far, late])
+    assert sorted(e["id"] for e in out) == [
+        "VORTEX-cell-1", "VORTEX-cell-2", "VORTEX-cell-3"]
+
+
+def test_aggregate_events_never_merges_different_types():
+    vortex_ev = _agg_event("VORTEX-cell-1")
+    hail_ev = _agg_event("HAIL-cell-1", etype="HAIL")
+    out = ev_store.aggregate_events([vortex_ev, hail_ev])
+    assert sorted(e["id"] for e in out) == ["HAIL-cell-1", "VORTEX-cell-1"]
+
+
+def test_aggregate_events_chain_is_transitive():
+    """A-B e B-C entro raggio, A-C oltre: la catena unisce tutti e tre."""
+    a = _agg_event("VORTEX-cell-1", lon=12.0, lat=41.0)
+    b = _agg_event("VORTEX-cell-2", lon=12.2, lat=41.0)   # ~17 km da A
+    c = _agg_event("VORTEX-cell-3", lon=12.4, lat=41.0)   # ~34 km da A, 17 da B
+    out = ev_store.aggregate_events([a, b, c])
+    assert len(out) == 1
+    assert out[0]["evidence"]["aggregated_events"] == 3
+
+
+def test_aggregate_events_empty_and_single_are_stable():
+    a = _agg_event("VORTEX-cell-1")
+    assert ev_store.aggregate_events([a]) == [a]
+    assert ev_store.aggregate_events([]) == []
+    assert ev_store.aggregate_events(None) == []
+
+
+def test_merge_then_aggregate_collapses_reidentified_storm_to_one_badge():
+    """Due run identificano la stessa cella con id diversi: lo store ha due
+    eventi, l'aggregazione ne fa UNO -> UN badge attivo (era il meccanismo di
+    moltiplicazione dei falsi positivi)."""
+    existing = ev_store.empty_events(RADAR_ISO)
+    a = _agg_event("VORTEX-cell-1", last=RADAR_ISO)
+    b = _agg_event("VORTEX-cell-7", last=RADAR_ISO, lon=12.05, lat=41.0)
+    merged = ev_store.merge_events(existing, [a], RADAR_ISO,
+                                   prune_anchor=RADAR_ISO)
+    merged = ev_store.merge_events(merged, [b], RADAR_ISO,
+                                   prune_anchor=RADAR_ISO)
+    assert len(merged["events"]) == 2              # id distinti nello store
+    aggregated = ev_store.aggregate_events(merged["events"])
+    assert len(aggregated) == 1
+    badges = ev_store.build_badges(aggregated, RADAR_ISO, RADAR_ISO)
+    assert [b["id"] for b in badges["badges"]] == ["VORTEX-cell-1"]
+
+
+def test_same_storm_gap_is_symmetric():
+    """B1: il gap temporale e' simmetrico; _same_storm(A,B) == _same_storm(B,A)
+    per ogni coppia, con il verdetto corretto."""
+    r, g = ev_store.EVENT_DEDUP_KM, ev_store.EVENT_MERGE_GAP_MIN
+    # (a)/(b) A prima di B entro il gap -> True in entrambi gli ordini
+    a = _agg_event("VORTEX-cell-1", first="2026-10-07T00:00:00Z",
+                   last="2026-10-07T00:00:00Z")
+    b = _agg_event("VORTEX-cell-9", first="2026-10-07T00:30:00Z",
+                   last="2026-10-07T00:30:00Z")
+    assert ev_store._same_storm(a, b, r, g) is True
+    assert ev_store._same_storm(b, a, r, g) is True
+    # (d) oltre il gap -> False in entrambi gli ordini. Il vecchio calcolo
+    # (b.first - a.last) dava True quando l'evento piu' recente era il primo
+    # argomento: qui il risultato non dipende piu' dall'ordine.
+    far_a = _agg_event("VORTEX-cell-1", first="2026-10-07T00:00:00Z",
+                       last="2026-10-07T10:00:00Z")
+    far_b = _agg_event("VORTEX-cell-9", first="2026-10-07T11:00:00Z",
+                       last="2026-10-07T12:00:00Z")
+    assert ev_store._same_storm(far_a, far_b, r, g) is False
+    assert ev_store._same_storm(far_b, far_a, r, g) is False
+    # (c) intervalli sovrapposti -> gap 0 -> True in entrambi gli ordini
+    ov_a = _agg_event("VORTEX-cell-1", first="2026-10-07T00:00:00Z",
+                      last="2026-10-07T01:00:00Z")
+    ov_b = _agg_event("VORTEX-cell-9", first="2026-10-07T00:30:00Z",
+                      last="2026-10-07T01:30:00Z")
+    assert ev_store._same_storm(ov_a, ov_b, r, g) is True
+    assert ev_store._same_storm(ov_b, ov_a, r, g) is True
+    # (e) istanti con un solo estremo (first oppure last) entro il gap
+    inst_first = _agg_event("VORTEX-cell-1", first="2026-10-07T00:10:00Z",
+                            last=None)
+    inst_last = _agg_event("VORTEX-cell-9", first=None,
+                           last="2026-10-07T00:40:00Z")
+    assert ev_store._same_storm(inst_first, inst_last, r, g) is True
+    assert ev_store._same_storm(inst_last, inst_first, r, g) is True
+
+
+def test_aggregate_events_merge_is_order_independent():
+    """B1 end-to-end: due eventi entro il gap vengono fusi a prescindere
+    dall'ordine degli id in input."""
+    a = _agg_event("VORTEX-cell-1", first="2026-10-07T00:00:00Z",
+                   last="2026-10-07T00:00:00Z")
+    b = _agg_event("VORTEX-cell-9", first="2026-10-07T00:20:00Z",
+                   last="2026-10-07T00:20:00Z", lon=12.05, lat=41.02)
+    ab = ev_store.aggregate_events([a, b])
+    ba = ev_store.aggregate_events([b, a])
+    assert len(ab) == 1 and len(ba) == 1
+    assert ab[0]["id"] == ba[0]["id"] == "VORTEX-cell-1"
+    assert ab[0]["evidence"]["aggregated_ids"] == \
+        ba[0]["evidence"]["aggregated_ids"]
+
+
+def test_absorb_event_frame_count_is_union_when_ids_present():
+    """B3: con identita' frame esposte dai membri il conteggio e' l'UNIONE
+    (mai la somma) e il metodo e' dichiarato "union"."""
+    a = _agg_event("VORTEX-cell-1", frames=5)
+    a["evidence"]["frame_keys"] = ["f1", "f2", "f3", "f4", "f5"]
+    b = _agg_event("VORTEX-cell-9", first="2026-10-07T00:20:00Z",
+                   last="2026-10-07T00:20:00Z", lon=12.05, lat=41.02, frames=3)
+    b["evidence"]["frame_keys"] = ["f3", "f4", "f5"]         # 3 condivisi
+    out = ev_store.aggregate_events([a, b])
+    assert len(out) == 1
+    ev = out[0]["evidence"]
+    assert ev["frame_count"] == 5                  # unione {f1..f5}
+    assert ev["frame_count"] < 5 + 3               # non la somma (8)
+    assert ev["frame_count_method"] == "union"
+
+
+def test_absorb_event_frame_count_falls_back_to_max_without_ids():
+    """B3: senza identita' frame il proxy conservativo e' max dei membri
+    (non la somma) e il metodo lo dichiara "max_member"."""
+    a = _agg_event("VORTEX-cell-1", frames=5)
+    b = _agg_event("VORTEX-cell-9", first="2026-10-07T00:20:00Z",
+                   last="2026-10-07T00:20:00Z", lon=12.05, lat=41.02, frames=3)
+    out = ev_store.aggregate_events([a, b])
+    ev = out[0]["evidence"]
+    assert ev["frame_count"] == 5                  # max, non 8 (somma)
+    assert ev["frame_count_method"] == "max_member"
+
+
+def test_absorb_event_score_and_evidence_share_the_representative():
+    """B4: state/score/evidence provengono dallo STESSO rappresentante (rank
+    di stato, poi il piu' recente); il max degli score resta solo come
+    metadato aggregated_max_score."""
+    rep = _agg_event("VORTEX-cell-9", first="2026-10-07T00:20:00Z",
+                     last="2026-10-07T00:20:00Z", lon=12.05, lat=41.02,
+                     state="CORROBORATED", score=70.0)
+    other = _agg_event("VORTEX-cell-1", first="2026-10-07T00:00:00Z",
+                       last="2026-10-07T00:00:00Z", state="SUSPECT",
+                       score=95.0)
+    out = ev_store.aggregate_events([other, rep])
+    assert len(out) == 1
+    event = out[0]
+    assert event["id"] == "VORTEX-cell-1"          # id del piu' vecchio
+    assert event["state"] == "CORROBORATED"        # del rappresentante (rep)
+    assert event["score"] == 70.0                  # score di rep, NON 95
+    ev = event["evidence"]
+    assert ev["anchor"] == "cell-9"                # evidenza di rep
+    assert ev["aggregated_max_score"] == 95.0      # max dei membri
+    assert ev["aggregated_ids"] == ["VORTEX-cell-1", "VORTEX-cell-9"]
+
+
+# ===========================================================================
+# build_observations
+# ===========================================================================
+def test_build_observations_dedupes_cell_candidate_and_keeps_storm_object(tmp_path):
+    radar_dir = _write_radar(tmp_path / "radar")
+    # il candidato "cell" con lo stesso track_id della track va saltato
+    data = json.loads((radar_dir / "supercells.json").read_text(
+        encoding="utf-8"))
+    data["candidates"].append({
+        "track_id": 1, "track_type": "cell", "position": [12.0, 41.0],
+        "first_seen": RADAR_ISO, "last_seen": RADAR_ISO,
+        "intensity": {"max_dbz": 70.0},
+        "organization": {"organization_score": 90},
+        "motion": {"duration_min": 15.0}, "on_latest_frame": True})
+    _write_json(radar_dir / "supercells.json", data)
+    tracks = json.loads((radar_dir / "tracks.json").read_text(encoding="utf-8"))
+    supercells = json.loads((radar_dir / "supercells.json").read_text(
+        encoding="utf-8"))
+    storms = json.loads((radar_dir / "storms.geojson").read_text(
+        encoding="utf-8"))
+    obs = engine.build_observations(supercells, tracks, storms, RADAR_MS,
+                                    RADAR_ISO)
+    anchors = [o["anchor"] for o in obs]
+    assert anchors == ["cell-1", "storm_object-7"]
+    cell = obs[0]
+    assert cell["persistence_source"] == "points"
+    assert len(cell["recent_points"]) == 4
+    assert cell["max_dbz"] == 58.0            # dal track, non dal candidato
+    assert cell["eccentricity_max"] == 0.95   # morfologia da storms.geojson
+    assert cell["solidity_min"] == 0.80
+    assert cell["compactness_max"] == 4.0
+    # il Point di storms.geojson e' UN frame: morph_frames lo conserva come
+    # tale (timestamp incluso), non solo gli aggregati
+    assert len(cell["morph_frames"]) == 1
+    assert cell["morph_frames"][0]["timestamp_ms"] == RADAR_MS
+    assert cell["morph_frames"][0]["eccentricity"] == 0.95
+    storm_object = obs[1]
+    assert storm_object["type"] == "storm_object"
+    assert storm_object["persistence_source"] == "duration"
+    assert storm_object["max_dbz"] == 62.0
+    assert storm_object["duration_min"] == 12.0
+
+
+def _obs_from_storms(features, tmp_path):
+    """Prima osservazione di build_observations con storms.geojson = features."""
+    radar_dir = _write_radar(tmp_path / "radar")
+    _write_json(radar_dir / "storms.geojson",
+                {"type": "FeatureCollection", "features": features})
+    tracks = json.loads((radar_dir / "tracks.json").read_text(encoding="utf-8"))
+    supercells = json.loads((radar_dir / "supercells.json").read_text(
+        encoding="utf-8"))
+    storms = json.loads((radar_dir / "storms.geojson").read_text(
+        encoding="utf-8"))
+    obs = engine.build_observations(supercells, tracks, storms, RADAR_MS,
+                                    RADAR_ISO)
+    return obs[0]
+
+
+def test_build_observations_morph_frames_keep_one_sample_per_frame(tmp_path):
+    """Multi-frame in storms.geojson: un Point per frame -> morph_frames con
+    un campione per timestamp; gli aggregati restano max/min su TUTTI i
+    frame (solo evidence). Un frame completo su due -> non hookish: non si
+    combina la firma di frame diversi."""
+    cell = _obs_from_storms([
+        _storm_point(RADAR_MS, ecc=0.95, sol=0.80, comp=4.0),
+        _storm_point(RADAR_MS - PERIOD_MS, ecc=0.60, sol=0.95, comp=1.5),
+    ], tmp_path)
+    assert [f["timestamp_ms"] for f in cell["morph_frames"]] == [
+        RADAR_MS, RADAR_MS - PERIOD_MS]
+    assert cell["eccentricity_max"] == 0.95        # aggregati invariati
+    assert cell["solidity_min"] == 0.80
+    assert cell["compactness_max"] == 4.0
+    assert vortex.hook_frame_count(cell) == 1
+    assert vortex.is_hookish(cell) is False
+
+
+def test_build_observations_k_coherent_hook_frames_are_hookish(tmp_path):
+    """Firma hook completa in K (=3) frame consecutivi -> hookish: il percorso
+    morfologico resta percorribile quando i dati mostrano coerenza."""
+    k = vortex.MORPH_HOOK_MIN_FRAMES
+    cell = _obs_from_storms([
+        _storm_point(RADAR_MS, ecc=0.95, sol=0.80, comp=4.0),
+        _storm_point(RADAR_MS - PERIOD_MS, ecc=0.93, sol=0.82, comp=3.6),
+        _storm_point(RADAR_MS - 2 * PERIOD_MS, ecc=0.94, sol=0.81, comp=3.8),
+    ], tmp_path)
+    assert vortex.hook_frame_count(cell) == k
+    assert vortex.is_hookish(cell) is True
+
+
+def test_build_observations_morph_frames_from_track_points_per_frame():
+    """Morfologia PER-FRAME dai PUNTI di tracks.json: i frame nella finestra
+    recente diventano campioni con timestamp reale; gli aggregati max/min
+    restano come evidence."""
+    cell = _obs_from_tracks(_points_morph([
+        (58.0, 0.95, 0.80, 4.0),
+        (58.0, 0.93, 0.82, 3.6),
+        (58.0, 0.94, 0.81, 3.8),
+    ]))
+    assert [f["timestamp_ms"] for f in cell["morph_frames"]] == [
+        RADAR_MS - 2 * PERIOD_MS, RADAR_MS - PERIOD_MS, RADAR_MS]
+    assert cell["morph_frames"][0]["eccentricity"] == 0.95
+    assert cell["morph_frames"][0]["solidity"] == 0.80
+    assert cell["morph_frames"][0]["compactness"] == 4.0
+    assert cell["eccentricity_max"] == 0.95
+    assert cell["solidity_min"] == 0.80
+    assert cell["compactness_max"] == 4.0
+    assert vortex.hook_frame_count(cell) == 3
+    assert vortex.is_hookish(cell) is True
+
+
+def test_build_observations_track_hook_on_k_frames_is_hookish():
+    """Un track con >= K frame hook-COERENTI nei points -> VORTEX SUSPECT
+    anche senza organization_score: il gate morfologico per-frame e'
+    percorribile sui dati reali (chiusura del data gap)."""
+    k = vortex.MORPH_HOOK_MIN_FRAMES
+    cell = _obs_from_tracks(_points_morph([(58.0, 0.95, 0.80, 4.0)] * k))
+    assert cell["organization_score"] is None
+    assert vortex.hook_frame_count(cell) == k
+    event = vortex.evaluate_vortex(cell, {"available": False})
+    assert event is not None
+    assert event["state"] == "SUSPECT"
+    assert event["evidence"]["hookish_morphology"] is True
+    assert event["evidence"]["morphology"]["hook_frames"] == k
+
+
+def test_build_observations_track_hook_only_last_frame_is_not_hookish():
+    """Firma hook solo sull'ULTIMO frame -> NON hookish (serve coerenza su K
+    frame): senza org nessun evento. E' esattamente il caso che il vecchio
+    Point-latest di storms.geojson produceva sempre."""
+    cell = _obs_from_tracks(_points_morph([
+        (58.0, 0.60, 0.95, 1.5),
+        (58.0, 0.62, 0.90, 2.0),
+        (58.0, 0.95, 0.80, 4.0),
+    ]))
+    assert cell["organization_score"] is None
+    assert vortex.hook_frame_count(cell) == 1
+    assert vortex.is_hookish(cell) is False
+    assert vortex.evaluate_vortex(cell, {"available": False}) is None
+
+
+def test_build_observations_track_without_morphology_fails_closed():
+    """Punti senza morfologia (schema legacy) -> morph_frames vuoto e nessun
+    aggregato inventato: il gate non puo' essere promosso (fail-closed)."""
+    cell = _obs_from_tracks(_points([58.0, 58.0, 58.0]))
+    assert cell["morph_frames"] == []
+    assert cell["eccentricity_max"] is None
+    assert cell["solidity_min"] is None
+    assert cell["compactness_max"] is None
+    assert vortex.hook_frame_count(cell) == 0
+    assert vortex.is_hookish(cell) is False
+
+
+def test_build_observations_track_morphology_window_limits_frames():
+    """La serie per-frame rispetta la finestra recente (15 min): su 6 frame a
+    passo 5 min entrano solo quelli entro 15 min dal radar (4)."""
+    cell = _obs_from_tracks(_points_morph([(58.0, 0.95, 0.80, 4.0)] * 6))
+    assert len(cell["morph_frames"]) == 4
+    assert cell["morph_frames"][-1]["timestamp_ms"] == RADAR_MS
+    assert cell["morph_frames"][0]["timestamp_ms"] == RADAR_MS - 3 * PERIOD_MS
+
+
+def test_build_observations_track_without_points_falls_back_to_candidate(tmp_path):
+    radar_dir = _write_radar(tmp_path / "radar")
+    tracks = {"tracks": [{"track_id": 1, "points": [],
+                          "organization_score": 40}]}
+    supercells = {"candidates": [{
+        "track_id": 1, "track_type": "cell", "position": [12.0, 41.0],
+        "first_seen": RADAR_ISO, "last_seen": RADAR_ISO,
+        "intensity": {"max_dbz": 57.0},
+        "organization": {"organization_score": 66},
+        "motion": {"duration_min": 11.0}, "on_latest_frame": True}]}
+    storms = {"features": []}
+    obs = engine.build_observations(supercells, tracks, storms, RADAR_MS,
+                                    RADAR_ISO)
+    assert len(obs) == 1
+    assert obs[0]["anchor"] == "cell-1"
+    assert obs[0]["persistence_source"] == "duration"
+    assert obs[0]["max_dbz"] == 57.0
+    assert obs[0]["organization_score"] == 66
+
+
+def test_build_observations_spatial_dedup_keeps_track_cell_not_storm_object():
+    """Uno storm_object coincidente con una track cell non genera un badge
+    doppio: resta solo la track (priorita' per ordine), con source "points"."""
+    tracks = {"tracks": [{
+        "track_id": 1, "status": "active",
+        "classification": "Organized Convective Cell",
+        "organization_score": 80, "duration_min": 15.0, "n_frames": 4,
+        "points": _points([58.0, 58.0, 58.0, 58.0]),
+    }]}
+    supercells = {"candidates": [{
+        "track_id": 7, "track_type": "storm_object", "position": [12.0, 41.0],
+        "intensity": {"max_dbz": 62.0},
+        "organization": {"organization_score": 72},
+        "motion": {"duration_min": 12.0}, "on_latest_frame": True,
+    }]}
+    obs = engine.build_observations(supercells, tracks, {"features": []},
+                                    RADAR_MS, RADAR_ISO)
+    assert [o["anchor"] for o in obs] == ["cell-1"]
+    assert obs[0]["persistence_source"] == "points"
+
+
+def test_build_observations_storm_object_dedup_radius_boundary():
+    """storm_object < 5 km da una cella -> scartato; > 5 km -> tenuto."""
+    def anchors_for(storm_lat):
+        tracks = {"tracks": [{
+            "track_id": 1, "duration_min": 15.0,
+            "points": _points([58.0, 58.0, 58.0, 58.0]),
+        }]}
+        supercells = {"candidates": [{
+            "track_id": 7, "track_type": "storm_object",
+            "position": [12.0, storm_lat], "intensity": {"max_dbz": 62.0},
+            "motion": {"duration_min": 12.0}, "on_latest_frame": True,
+        }]}
+        return [o["anchor"] for o in engine.build_observations(
+            supercells, tracks, {"features": []}, RADAR_MS, RADAR_ISO)]
+
+    assert anchors_for(41.03) == ["cell-1"]           # ~3.3 km < 5 km
+    assert anchors_for(41.1) == ["cell-1", "storm_object-7"]  # ~11.1 km
+
+
+def test_build_observations_keeps_two_distant_storm_objects():
+    supercells = {"candidates": [
+        {"track_id": 1, "track_type": "storm_object", "position": [12.0, 41.0],
+         "intensity": {"max_dbz": 60.0}, "motion": {"duration_min": 12.0},
+         "on_latest_frame": True},
+        {"track_id": 2, "track_type": "storm_object", "position": [13.0, 42.0],
+         "intensity": {"max_dbz": 60.0}, "motion": {"duration_min": 12.0},
+         "on_latest_frame": True},
+    ]}
+    obs = engine.build_observations(supercells, {}, {"features": []},
+                                    RADAR_MS, RADAR_ISO)
+    assert [o["anchor"] for o in obs] == ["storm_object-1", "storm_object-2"]
+
+
+def test_build_observations_is_deterministic():
+    supercells = {"candidates": [
+        {"track_id": 7, "track_type": "storm_object", "position": [12.5, 41.5],
+         "intensity": {"max_dbz": 62.0}, "motion": {"duration_min": 12.0},
+         "on_latest_frame": True},
+        {"track_id": 8, "track_type": "storm_object", "position": [12.5, 41.5],
+         "intensity": {"max_dbz": 61.0}, "motion": {"duration_min": 9.0},
+         "on_latest_frame": True},
+    ]}
+    tracks = {"tracks": [{
+        "track_id": 1, "duration_min": 15.0,
+        "points": _points([58.0, 58.0, 58.0, 58.0]),
+    }]}
+    first = engine.build_observations(supercells, tracks, {"features": []},
+                                      RADAR_MS, RADAR_ISO)
+    second = engine.build_observations(supercells, tracks, {"features": []},
+                                       RADAR_MS, RADAR_ISO)
+    assert first == second
+    # il secondo storm_object coincide col primo (< 5 km): dedup -> uno solo
+    assert [o["anchor"] for o in first] == ["cell-1", "storm_object-7"]
+
+
+# ===========================================================================
+# Engine e2e
+# ===========================================================================
+def test_engine_run_no_network_writes_events_and_badges(radar_case, capsys):
+    summary = engine.run(radar_dir=radar_case["radar"],
+                         out_dir=radar_case["out"], network=False)
+    out = capsys.readouterr().out
+    assert re.search(r"\[phenomena\] events=4 active=4 "
+                     r"\(hail=2 vortex=2\) source=mli "
+                     r"events_written=True badges_written=True", out)
+    assert summary["ok"] is True
+    assert summary["degraded"] is False
+    assert summary["events"] == 4
+    assert summary["active"] == 4
+    assert "mli" == summary["source"]
+    assert summary["events_written"] is True
+    assert summary["badges_written"] is True
+
+    events_path = os.path.join(radar_case["out"], "events.json")
+    badges_path = os.path.join(radar_case["out"], "badges.json")
+    with open(events_path, encoding="utf-8") as fh:
+        events = json.load(fh)
+    with open(badges_path, encoding="utf-8") as fh:
+        badges = json.load(fh)
+    assert set(events) == {"generated_at", "window_hours", "events"}
+    assert set(badges) == {"generated_at", "radar_timestamp", "badges"}
+    assert [e["id"] for e in events["events"]] == [
+        "HAIL-cell-1", "HAIL-storm_object-7", "VORTEX-cell-1",
+        "VORTEX-storm_object-7"]
+    for event in events["events"]:
+        assert set(event) == set(REQUIRED_EVENT_KEYS)
+        assert event["state"] == "SUSPECT"      # nessun fulmini: nessun salto
+        assert event["thresholds_version"] == THRESHOLDS_VERSION
+        assert event["last_seen"] == RADAR_ISO
+    for badge in badges["badges"]:
+        assert set(badge) == set(REQUIRED_BADGE_KEYS)
+    assert badges["radar_timestamp"] == RADAR_ISO
+    assert len(badges["badges"]) == 4
+    events_by_id = {e["id"]: e for e in events["events"]}
+    for badge in badges["badges"]:
+        assert badge["id"] in events_by_id
+        assert ev_store.is_active(events_by_id[badge["id"]], RADAR_ISO)
+    vortex_badges = [b for b in badges["badges"] if b["type"] == "VORTEX"]
+    assert all(any("Doppler" in lab for lab in b["labels"])
+               for b in vortex_badges)
+
+
+def test_engine_cli_subprocess_no_network(radar_case):
+    proc = subprocess.run(
+        [sys.executable,
+         os.path.join(SCRIPTS_DIR, "phenomena", "engine.py"),
+         "--radar-dir", radar_case["radar"],
+         "--out-dir", radar_case["out"], "--no-network"],
+        cwd=RELEASE_ROOT, capture_output=True, text=True, timeout=120)
+    assert proc.returncode == 0, proc.stderr
+    assert "[phenomena] events=4 active=4" in proc.stdout
+    assert os.path.isfile(os.path.join(radar_case["out"], "events.json"))
+    assert os.path.isfile(os.path.join(radar_case["out"], "badges.json"))
+
+
+def test_engine_injected_lightning_and_h0_promote(tmp_path, capsys):
+    radar_dir = _write_radar(tmp_path / "radar",
+                             track_dbz=(58.0, 60.0, 62.0, 62.0))
+    opener = FakeOpener(payloads=_payloads(
+        RADAR_MS, {0: NEAR6, 1: NEAR, 2: NEAR[:2], 3: NEAR[:1]}))
+    summary = engine.run(radar_dir=str(radar_dir),
+                         out_dir=str(tmp_path / "phenomena"),
+                         provider_name="dpc",     # opener DPC iniettato
+                         network=True, opener=opener, h0_client=_h0_client())
+    capsys.readouterr()
+    events = json.loads(open(os.path.join(tmp_path, "phenomena",
+                                          "events.json"),
+                             encoding="utf-8").read())
+    by_id = {e["id"]: e for e in events["events"]}
+    assert by_id["HAIL-cell-1"]["state"] == "CORROBORATED"
+    assert by_id["VORTEX-cell-1"]["state"] == "CORROBORATED"
+    assert by_id["HAIL-cell-1"]["evidence"]["lightning"]["count_near"] == 12
+    assert by_id["HAIL-cell-1"]["evidence"]["freezing_level_m"] == 2500.0
+    assert by_id["HAIL-cell-1"]["evidence"]["freezing_level_low"] is True
+    assert summary["hail"] >= 1
+    assert len(opener.calls) == 4               # una sola finestra DPC
+
+
+def test_engine_status_not_ok_prunes_only_and_clears_badges(tmp_path):
+    radar_dir = _write_radar(tmp_path / "radar", status="error")
+    out_dir = tmp_path / "phenomena"
+    stale = {"id": "HAIL-cell-9", "type": "HAIL", "state": "SUSPECT",
+             "score": 40.0, "first_seen": "2026-10-01T00:00:00Z",
+             "last_seen": "2026-10-01T00:00:00Z", "position": [12.0, 41.0],
+             "evidence": {"anchor": "cell-9"}}
+    fresh = dict(stale, id="HAIL-cell-1", first_seen=RADAR_ISO,
+                 last_seen=RADAR_ISO)
+    _write_json(out_dir / "events.json",
+                {"generated_at": RADAR_ISO, "window_hours": 24,
+                 "events": [stale, fresh]})
+    summary = engine.run(radar_dir=str(radar_dir), out_dir=str(out_dir),
+                         network=False)
+    assert summary["degraded"] is True
+    assert summary["active"] == 0
+    events = json.loads((out_dir / "events.json").read_text(encoding="utf-8"))
+    badges = json.loads((out_dir / "badges.json").read_text(encoding="utf-8"))
+    assert [e["id"] for e in events["events"]] == ["HAIL-cell-1"]
+    assert events["events"][0]["state"] == "SUSPECT"   # invariato
+    assert badges["badges"] == []
+    assert badges["radar_timestamp"] == RADAR_ISO
+
+
+def test_engine_missing_latest_is_degraded_not_a_crash(tmp_path, capsys):
+    out_dir = tmp_path / "phenomena"
+    (tmp_path / "radar").mkdir()
+    summary = engine.run(radar_dir=str(tmp_path / "radar"),
+                         out_dir=str(out_dir), network=False)
+    capsys.readouterr()
+    assert summary["degraded"] is True
+    assert summary["events"] == 0
+    assert json.loads((out_dir / "badges.json").read_text(
+        encoding="utf-8"))["badges"] == []
+    assert os.path.isfile(str(out_dir / "events.json"))
+
+
+def test_engine_unknown_provider_exits_1_without_writing(tmp_path):
+    out_dir = tmp_path / "phenomena"
+    code = engine.main(["--radar-dir", str(tmp_path / "radar"),
+                        "--out-dir", str(out_dir),
+                        "--lightning-provider", "nope", "--no-network"])
+    assert code == 1
+    assert list(out_dir.glob("*.json")) == []
+
+
+def test_engine_is_idempotent_on_same_inputs(radar_case, capsys):
+    engine.run(radar_dir=radar_case["radar"], out_dir=radar_case["out"],
+               network=False)
+    capsys.readouterr()
+    first_events = json.loads(open(os.path.join(radar_case["out"],
+                                                "events.json"),
+                                   encoding="utf-8").read())
+    first_badges = json.loads(open(os.path.join(radar_case["out"],
+                                                "badges.json"),
+                                   encoding="utf-8").read())
+    engine.run(radar_dir=radar_case["radar"], out_dir=radar_case["out"],
+               network=False)
+    capsys.readouterr()
+    second_events = json.loads(open(os.path.join(radar_case["out"],
+                                                 "events.json"),
+                                    encoding="utf-8").read())
+    second_badges = json.loads(open(os.path.join(radar_case["out"],
+                                                 "badges.json"),
+                                    encoding="utf-8").read())
+    assert first_events["events"] == second_events["events"]
+    assert first_badges["badges"] == second_badges["badges"]
+    assert [e["id"] for e in second_events["events"]] == sorted(
+        e["id"] for e in second_events["events"])
+
+
+@pytest.mark.skipif(not os.path.isdir(REAL_RADAR_DIR),
+                    reason="data/radar della release assente")
+def test_engine_on_real_release_data_respects_schema(tmp_path, capsys):
+    latest_path = os.path.join(REAL_RADAR_DIR, "latest.json")
+    if not os.path.isfile(latest_path):
+        pytest.skip("data/radar/latest.json assente")
+    real_latest = json.load(open(latest_path, encoding="utf-8"))
+    real_radar_iso = real_latest.get("radar_timestamp")
+    if real_latest.get("status") != "ok" or not real_radar_iso:
+        pytest.skip("snapshot radar reale non 'ok' o senza radar_timestamp")
+    summary = engine.run(radar_dir=REAL_RADAR_DIR,
+                         out_dir=str(tmp_path / "phenomena"), network=False)
+    capsys.readouterr()
+    assert summary["ok"] is True
+    events = json.loads(open(os.path.join(tmp_path, "phenomena",
+                                          "events.json"),
+                             encoding="utf-8").read())
+    badges = json.loads(open(os.path.join(tmp_path, "phenomena",
+                                          "badges.json"),
+                             encoding="utf-8").read())
+    ids = [e["id"] for e in events["events"]]
+    assert ids == sorted(ids) and len(ids) == len(set(ids))
+    for event in events["events"]:
+        assert set(event) == set(REQUIRED_EVENT_KEYS)
+        assert event["state"] in {"SUSPECT", "CORROBORATED"}   # mai VERIFIED
+        assert 0.0 <= event["score"] <= 100.0
+        assert event["thresholds_version"] == THRESHOLDS_VERSION
+        assert "labels" in event["evidence"]
+        assert event["evidence"]["anchor"]
+    assert events["window_hours"] == WINDOW_HOURS
+    assert badges["radar_timestamp"] == summary["radar_timestamp"] == real_radar_iso
+    assert [b["id"] for b in badges["badges"]] == sorted(
+        b["id"] for b in badges["badges"])
+    events_by_id = {e["id"]: e for e in events["events"]}
+    for badge in badges["badges"]:
+        assert set(badge) == set(REQUIRED_BADGE_KEYS)
+        assert badge["id"] in events_by_id
+        assert ev_store.is_active(events_by_id[badge["id"]], real_radar_iso)
+    assert len(events["events"]) == summary["events"]
+    assert len(badges["badges"]) == summary["active"]
+
+
+# ===========================================================================
+# MLI EUMETSAT (S4b) — utility pure, provider, gate per-sorgente
+# ===========================================================================
+def test_mli_getmap_url_and_slot_helpers():
+    url = pltg.build_mli_getmap_url("2026-10-07T00:00:00Z")
+    assert url.startswith(pltg.MLI_WMS_URL + "?")
+    assert "request=GetMap" in url
+    assert "layers=mtg_fd%3Ali_afa" in url
+    assert "time=2026-10-07T00%3A00%3A00Z" in url
+    assert "bbox=6.6%2C36.5%2C18.8%2C47.2" in url
+    assert pltg.build_mli_getmap_url() == pltg.build_mli_getmap_url(None)
+    assert "time=" not in pltg.build_mli_getmap_url()
+    assert pltg._slot_floor(RADAR_MS + 90 * 1000) == RADAR_MS
+    assert pltg._slot_iso(RADAR_MS) == "2026-10-07T00:05:00Z"
+
+
+def test_mli_decode_png_counts_active_pixels():
+    mask = pltg.decode_afa_png(MLI_PNG_NOW)
+    assert mask.shape == (pltg.MLI_HEIGHT, pltg.MLI_WIDTH)
+    assert int(mask.sum()) == 64
+    assert int(pltg.decode_afa_png(MLI_PNG_PREV).sum()) == 16
+    assert int(pltg.decode_afa_png(MLI_PNG_FAR).sum()) == 2000
+    with pytest.raises(ValueError):
+        pltg.decode_afa_png(b"PNG-not-really")
+    with pytest.raises(ValueError):
+        pltg.decode_afa_png(None)
+
+
+def test_mli_sample_field_radius_disk_and_coverage():
+    mask = pltg.decode_afa_png(MLI_PNG_NOW)
+    sample = pltg.sample_afa_field(mask, pltg.MLI_BBOX, [12.0, 41.0], 30.0)
+    assert sample["in_coverage"] is True
+    assert sample["count_near"] == 64
+    assert abs(sample["count_disk"] - 2134) < 10     # disco 30 km ~2134 px
+    outside = pltg.sample_afa_field(mask, pltg.MLI_BBOX, [0.0, 0.0], 30.0)
+    assert outside["in_coverage"] is False
+    assert outside["count_near"] == 0
+    with pytest.raises(ValueError):
+        pltg.sample_afa_field(np.zeros(4), pltg.MLI_BBOX, [12.0, 41.0])
+    with pytest.raises(ValueError):
+        pltg.sample_afa_field(mask, pltg.MLI_BBOX, None, 12.0)
+
+
+def test_mli_provider_network_disabled_makes_no_calls():
+    opener = MliFakeOpener(slots={RADAR_MS: MLI_PNG_NOW})
+    provider = pltg.get_provider("mli", network=False, opener=opener)
+    resp = provider.strikes_in_window(epoch_ms=RADAR_MS,
+                                      center_lonlat=[12.0, 41.0])
+    assert resp["available"] is False
+    assert resp["reason"] == "network_disabled"
+    assert opener.calls == []
+
+
+def test_mli_provider_counts_trend_and_shared_cache():
+    opener = MliFakeOpener(slots={RADAR_MS: MLI_PNG_NOW,
+                                  RADAR_MS - PERIOD_MS: MLI_PNG_PREV})
+    provider = pltg.get_provider("mli", network=True, opener=opener,
+                                 sleep=_no_sleep)
+    resp = provider.strikes_in_window(epoch_ms=RADAR_MS,
+                                      center_lonlat=[12.0, 41.0])
+    assert resp["available"] is True
+    assert resp["source"] == "mli"
+    assert resp["window_slots"] == resp["slots_ok"] == 1   # AFA accumulato
+    assert resp["anchor_ms"] == RADAR_MS
+    assert resp["staleness_ms"] == 0
+    assert resp["count_total"] == 64
+    assert resp["count_near"] == 64
+    assert resp["center"] == [12.0, 41.0]
+    assert resp["per_slot_counts"] == [16, 64]
+    assert resp["trend"]["direction"] == "up"
+    assert resp["strength"] == 0.03
+    assert resp["score"] == pytest.approx(3.0, abs=0.3)
+    assert resp["strikes"] == []
+    assert resp["note"] == pltg.MLI_NOTE
+    assert resp["attribution"] == pltg.MLI_ATTRIBUTION
+    assert len(opener.calls) == 2        # scan corrente + precedente, cachati
+    following = provider.strikes_in_window(epoch_ms=RADAR_MS + PERIOD_MS,
+                                           center_lonlat=[12.0, 41.0])
+    assert following["available"] is True
+    # il base richiesto (RADAR_MS+PERIOD_MS) non e' pubblicato: retry per-slot
+    # (3 tentativi) poi backoff allo slot RADAR_MS; il precedente e' in cache.
+    assert len(opener.calls) == 2 + pltg.LIGHTNING_RETRY_PER_SLOT + 1
+
+
+def test_mli_trend_none_when_previous_scan_missing():
+    opener = MliFakeOpener(slots={RADAR_MS: MLI_PNG_NOW},
+                           error_times={RADAR_MS - PERIOD_MS})
+    provider = pltg.get_provider("mli", network=True, opener=opener,
+                                 sleep=_no_sleep)
+    resp = provider.strikes_in_window(epoch_ms=RADAR_MS,
+                                      center_lonlat=[12.0, 41.0])
+    assert resp["available"] is True
+    assert resp["trend"] is None
+    assert resp["per_slot_counts"] == [64]
+    assert resp["count_near"] == 64
+
+
+def test_mli_all_slots_http_error_backoffs_to_unavailable():
+    opener = MliFakeOpener(slots={}, fail_http_codes={
+        RADAR_MS - k * PERIOD_MS: 502
+        for k in range(pltg.MLI_MAX_BACKOFF_STEPS + 1)})
+    provider = pltg.get_provider("mli", network=True, opener=opener,
+                                 sleep=_no_sleep)
+    resp = provider.strikes_in_window(epoch_ms=RADAR_MS,
+                                      center_lonlat=[12.0, 41.0])
+    assert resp["available"] is False
+    assert "mli_unavailable" in resp["reason"]
+    assert "http_502" in resp["reason"]
+    assert f"attempts={(pltg.MLI_MAX_BACKOFF_STEPS + 1) * pltg.LIGHTNING_RETRY_PER_SLOT}" \
+        in resp["reason"]
+    assert f"slots_tried={pltg.MLI_MAX_BACKOFF_STEPS + 1}" in resp["reason"]
+
+
+def test_mli_5xx_then_200_same_slot_recovers():
+    opener = MliFakeOpener(slots={RADAR_MS: MLI_PNG_NOW,
+                                  RADAR_MS - PERIOD_MS: MLI_PNG_PREV},
+                           fail_first_http={RADAR_MS: 1})
+    provider = pltg.get_provider("mli", network=True, opener=opener,
+                                 sleep=_no_sleep)
+    resp = provider.strikes_in_window(epoch_ms=RADAR_MS,
+                                      center_lonlat=[12.0, 41.0])
+    assert resp["available"] is True                   # recupera, non fallisce
+    assert resp["reason"] is None
+    assert resp["anchor_ms"] == RADAR_MS
+    assert resp["count_near"] == 64
+    assert opener.seen[RADAR_MS] == 2                  # 1 x 502 + 1 x 200
+
+
+def test_mli_urlerror_then_200_same_slot_recovers():
+    opener = MliFakeOpener(slots={RADAR_MS: MLI_PNG_NOW,
+                                  RADAR_MS - PERIOD_MS: MLI_PNG_PREV},
+                           fail_first_error={RADAR_MS: 1})
+    provider = pltg.get_provider("mli", network=True, opener=opener,
+                                 sleep=_no_sleep)
+    resp = provider.strikes_in_window(epoch_ms=RADAR_MS,
+                                      center_lonlat=[12.0, 41.0])
+    assert resp["available"] is True                   # no fail-fast
+    assert resp["reason"] is None
+    assert resp["count_near"] == 64
+    assert opener.seen[RADAR_MS] == 2                  # 1 x URLError + 1 x 200
+
+
+def test_mli_all_slots_all_attempts_fail_is_diagnostic():
+    opener = MliFakeOpener(slots={}, error_times={
+        RADAR_MS - k * PERIOD_MS
+        for k in range(pltg.MLI_MAX_BACKOFF_STEPS + 1)})
+    provider = pltg.get_provider("mli", network=True, opener=opener,
+                                 sleep=_no_sleep)
+    resp = provider.strikes_in_window(epoch_ms=RADAR_MS,
+                                      center_lonlat=[12.0, 41.0])
+    assert resp["available"] is False
+    assert "mli_unavailable" in resp["reason"]
+    assert "network:URLError" in resp["reason"]        # ultimo errore
+    assert f"attempts={(pltg.MLI_MAX_BACKOFF_STEPS + 1) * pltg.LIGHTNING_RETRY_PER_SLOT}" \
+        in resp["reason"]
+    assert f"slots_tried={pltg.MLI_MAX_BACKOFF_STEPS + 1}" in resp["reason"]
+
+
+def test_mli_retries_each_slot_before_backing_off():
+    finished = {RADAR_MS - k * PERIOD_MS: 502
+                for k in range(pltg.MLI_MAX_BACKOFF_STEPS + 1)}
+    opener = MliFakeOpener(slots={}, fail_http_codes=finished)
+    provider = pltg.get_provider("mli", network=True, opener=opener,
+                                 sleep=_no_sleep)
+    resp = provider.strikes_in_window(epoch_ms=RADAR_MS,
+                                      center_lonlat=[12.0, 41.0])
+    assert resp["available"] is False
+    total = ((pltg.MLI_MAX_BACKOFF_STEPS + 1)
+             * pltg.LIGHTNING_RETRY_PER_SLOT)
+    assert len(opener.calls) == total
+    for k in range(pltg.MLI_MAX_BACKOFF_STEPS + 1):
+        slot = RADAR_MS - k * PERIOD_MS
+        assert opener.seen[slot] == pltg.LIGHTNING_RETRY_PER_SLOT
+
+
+def test_mli_without_center_reports_total_only():
+    opener = MliFakeOpener(slots={RADAR_MS: MLI_PNG_NOW,
+                                  RADAR_MS - PERIOD_MS: MLI_PNG_PREV})
+    provider = pltg.get_provider("mli", network=True, opener=opener)
+    resp = provider.strikes_in_window(epoch_ms=RADAR_MS)
+    assert resp["available"] is True
+    assert resp["center"] is None
+    assert resp["count_near"] == 0                     # 0 = nessuna misura
+    assert resp["strength"] == 0.0
+    assert resp["count_total"] == 64
+    assert resp["per_slot_counts"] == [16, 64]         # totali Italia per slot
+
+
+def test_mli_center_outside_coverage_is_declined():
+    opener = MliFakeOpener(slots={RADAR_MS: MLI_PNG_NOW})
+    provider = pltg.get_provider("mli", network=True, opener=opener,
+                                 sleep=_no_sleep)
+    resp = provider.strikes_in_window(epoch_ms=RADAR_MS,
+                                      center_lonlat=[0.0, 0.0])
+    assert resp["available"] is False
+    assert resp["reason"] == "center_outside_coverage"
+
+
+# ===========================================================================
+# Gate fulmini provider-agnostico
+# ===========================================================================
+def test_lightning_strength_fallback_and_clamp():
+    assert pltg.lightning_strength({"available": True, "strength": 0.05}) == 0.05
+    assert pltg.lightning_strength({"available": True, "strength": 1.7}) == 1.0
+    assert pltg.lightning_strength({"available": True, "count_near": 30}) == 1.0
+    assert pltg.lightning_strength({"available": True, "count_near": 15}) == 0.5
+    assert pltg.lightning_strength({"available": False}) == 0.0
+    assert pltg.lightning_strength({}) == 0.0
+    assert pltg.lightning_strength(None) == 0.0
+
+
+def test_lightning_corroborates_per_source_thresholds():
+    # MLI 1.3.0: densita'/rate del disco (strength_min 0.05, count_min 107)
+    assert pltg.lightning_corroborates(
+        {"available": True, "source": "mli", "strength": 0.06}) is True
+    assert pltg.lightning_corroborates(
+        {"available": True, "source": "mli", "strength": 0.05}) is True
+    assert pltg.lightning_corroborates(
+        {"available": True, "source": "mli", "strength": 0.02}) is False
+    assert pltg.lightning_corroborates(
+        {"available": True, "source": "mli", "strength": 0.005}) is False
+    # fallback count_min in pixel per MLI (0.05 * ~2134 disco), quando strength
+    # manca: ~107 px, sotto (106) resta False
+    assert pltg.lightning_corroborates(
+        {"available": True, "source": "mli", "count_near": 107}) is True
+    assert pltg.lightning_corroborates(
+        {"available": True, "source": "mli", "count_near": 106}) is False
+    assert pltg.lightning_corroborates(
+        {"available": True, "source": "dpc", "count_near": 10}) is True
+    assert pltg.lightning_corroborates(
+        {"available": True, "source": "dpc", "count_near": 9}) is False
+    # DPC con strength esplicito: vale la soglia strength (0.33), NON count
+    assert pltg.lightning_corroborates(
+        {"available": True, "source": "dpc", "count_near": 25,
+         "strength": 0.10}) is False
+    assert pltg.lightning_corroborates({"available": False}) is False
+    assert pltg.lightning_corroborates(None) is False
+    assert pltg.lightning_corroborates({}) is False
+    # sorgente ignota -> soglia di DEFAULT (dpc): si promuove, non si muore
+    unknown = {"available": True, "source": "wms-foo", "count_near": 10}
+    assert pltg.lightning_corroborates(unknown) is True
+
+
+# ===========================================================================
+# MLI — evidence in HAIL/VORTEX (nota AFA + attribution EUMETSAT)
+# ===========================================================================
+MLI_OK = {"available": True, "source": "mli", "reason": None,
+          "count_near": 64, "count_total": 64, "per_slot_counts": [16, 64],
+          "radius_km": 30.0, "center": [12.0, 41.0],
+          "trend": {"direction": "up"}, "score": 3.0, "strength": 0.03,
+          "note": pltg.MLI_NOTE, "attribution": pltg.MLI_ATTRIBUTION}
+MLI_WEAK = dict(MLI_OK, count_near=4, strength=0.002, score=0.2,
+                trend={"direction": "flat"})
+
+
+def test_hail_corroborates_with_mli_gate_and_attribution():
+    event = hail.evaluate_hail(_obs(_points([62.0, 62.0])), MLI_OK, None)
+    assert event["state"] == "CORROBORATED"
+    lg = event["evidence"]["lightning"]
+    assert lg["source"] == "mli"
+    assert lg["strength"] == 0.03
+    assert lg["note"] == pltg.MLI_NOTE
+    assert lg["attribution"] == pltg.MLI_ATTRIBUTION
+    labels = event["evidence"]["labels"]
+    assert any("px AFA nel raggio 30.0 km (trend up)" in lab for lab in labels)
+    assert any(pltg.MLI_ATTRIBUTION in lab for lab in labels)
+
+
+def test_hail_stays_suspect_below_mli_strength_threshold():
+    event = hail.evaluate_hail(_obs(_points([62.0, 62.0])), MLI_WEAK, None)
+    assert event is not None
+    assert event["state"] == "SUSPECT"               # sotto 0.01: nessun salto
+
+
+def test_vortex_corroborates_with_mli_gate_and_attribution():
+    event = vortex.evaluate_vortex(_obs(_points([50.0, 50.0, 50.0]),
+                                        organization_score=80), MLI_OK)
+    assert event is not None
+    assert event["state"] == "CORROBORATED"
+    lg = event["evidence"]["lightning"]
+    assert lg["source"] == "mli"
+    assert lg["strength"] == 0.03
+    assert lg["note"] == pltg.MLI_NOTE
+    assert any("px AFA" in lab for lab in event["evidence"]["labels"])
+
+
+def test_vortex_blocked_when_mli_strength_below_gate():
+    event = vortex.evaluate_vortex(_obs(_points([50.0, 50.0, 50.0]),
+                                        organization_score=80), MLI_WEAK)
+    assert event is not None
+    assert event["state"] == "SUSPECT"
+
+
+# ===========================================================================
+# Engine e2e con provider MLI iniettato (PNG sintetici, ZERO rete)
+# ===========================================================================
+def test_engine_mli_promotes_full_run_with_synthetic_pngs(tmp_path, capsys):
+    radar_dir = _write_radar(tmp_path / "radar",
+                             track_dbz=(58.0, 60.0, 62.0, 62.0))
+    opener = MliFakeOpener(slots={RADAR_MS: MLI_PNG_NOW,
+                                  RADAR_MS - PERIOD_MS: MLI_PNG_PREV})
+    summary = engine.run(radar_dir=str(radar_dir),
+                         out_dir=str(tmp_path / "phenomena"),
+                         network=True, opener=opener)
+    capsys.readouterr()
+    events = json.loads(open(os.path.join(tmp_path, "phenomena",
+                                          "events.json"),
+                             encoding="utf-8").read())
+    by_id = {e["id"]: e for e in events["events"]}
+    assert summary["source"] == "mli"
+    assert summary["events_written"] is True
+    assert by_id["HAIL-cell-1"]["state"] == "CORROBORATED"
+    assert by_id["VORTEX-cell-1"]["state"] == "CORROBORATED"
+    lg_hail = by_id["HAIL-cell-1"]["evidence"]["lightning"]
+    assert lg_hail["source"] == "mli"
+    assert lg_hail["strength"] == 0.03
+    assert lg_hail["count_near"] == 64
+    assert lg_hail["note"] == pltg.MLI_NOTE
+    assert lg_hail["attribution"] == pltg.MLI_ATTRIBUTION
+    assert len(opener.calls) == 2        # cur + prev, condivisi da tutti i target
+
+
+# ===========================================================================
+# NO-OP GUARD (anti commit-churn)
+# ===========================================================================
+def test_content_digest_ignores_only_volatile_keys():
+    a = {"generated_at": "A", "events": [1, 2], "nested": {"x": 1}}
+    b = {"generated_at": "B", "events": [1, 2], "nested": {"x": 1}}
+    assert ev_store.content_digest(a) == ev_store.content_digest(b)
+    assert (ev_store.content_digest(a, volatile_keys=())
+            != ev_store.content_digest(b, volatile_keys=()))
+    c = dict(b, events=[1, 2, 3])
+    assert ev_store.content_digest(a) != ev_store.content_digest(c)
+
+
+def test_write_json_if_changed_noop_guard(tmp_path):
+    path = tmp_path / "out" / "events.json"
+    base = {"generated_at": "2026-10-07T00:00:00Z", "events": [{"id": "X"}]}
+    assert ev_store.write_json_if_changed(str(path), base) is True
+    first_txt = path.read_text(encoding="utf-8")
+    same = {"generated_at": "2026-10-07T00:30:00Z", "events": [{"id": "X"}]}
+    assert ev_store.write_json_if_changed(str(path), same) is False
+    assert path.read_text(encoding="utf-8") == first_txt    # intatto, no diff
+    changed = dict(same, events=[{"id": "X"}, {"id": "Y"}])
+    assert ev_store.write_json_if_changed(str(path), changed) is True
+    assert json.loads(path.read_text(encoding="utf-8"))["events"] == [
+        {"id": "X"}, {"id": "Y"}]
+    # volatile_keys vuoti: generated_at conta -> riscrittura
+    assert ev_store.write_json_if_changed(str(path), same,
+                                          volatile_keys=()) is True
+
+
+def test_write_json_if_changed_badges_ignore_radar_timestamp(tmp_path):
+    path = tmp_path / "out" / "badges.json"
+    badge = {"generated_at": "2026-10-07T00:05:00Z",
+             "radar_timestamp": "2026-10-07T00:00:00Z", "badges": []}
+    assert ev_store.write_json_if_changed(
+        str(path), badge, ev_store.VOLATILE_BADGE_KEYS) is True
+    assert ev_store.write_json_if_changed(
+        str(path), dict(badge, radar_timestamp="2026-10-07T00:05:00Z"),
+        ev_store.VOLATILE_BADGE_KEYS) is False
+    assert ev_store.write_json_if_changed(
+        str(path), dict(badge, badges=[{"id": "B"}], radar_timestamp=RADAR_ISO),
+        ev_store.VOLATILE_BADGE_KEYS) is True
+
+
+def test_write_json_if_changed_recovers_corrupt_or_missing(tmp_path):
+    missing = tmp_path / "nope.json"
+    assert ev_store.write_json_if_changed(str(missing), {"a": 1}) is True
+    broken = tmp_path / "broken.json"
+    broken.write_text("{not json", encoding="utf-8")
+    assert ev_store.write_json_if_changed(str(broken), {"a": 2}) is True
+    assert json.loads(broken.read_text(encoding="utf-8")) == {"a": 2}
+
+
+def test_engine_guard_does_not_rewrite_unchanged_output(radar_case, capsys):
+    engine.run(radar_dir=radar_case["radar"], out_dir=radar_case["out"],
+               network=False)
+    capsys.readouterr()
+    events_path = os.path.join(radar_case["out"], "events.json")
+    badges_path = os.path.join(radar_case["out"], "badges.json")
+    st_events = os.stat(events_path)
+    st_badges = os.stat(badges_path)
+    body_events = open(events_path, "rb").read()
+    body_badges = open(badges_path, "rb").read()
+    summary = engine.run(radar_dir=radar_case["radar"], out_dir=radar_case["out"],
+                         network=False)
+    capsys.readouterr()
+    assert summary["events_written"] is False
+    assert summary["badges_written"] is False
+    assert os.stat(events_path).st_mtime_ns == st_events.st_mtime_ns
+    assert os.stat(badges_path).st_mtime_ns == st_badges.st_mtime_ns
+    assert open(events_path, "rb").read() == body_events
+    assert open(badges_path, "rb").read() == body_badges
+    assert summary["events"] == 4
+    assert summary["active"] == 4
+
+
+# ---------------------------------------------------------------------------
+# Overshooting top IR_108 come corroboratore SATELLITE (pheno-1.5.0)
+# ---------------------------------------------------------------------------
+def test_engine_ot_from_candidate_compaction():
+    assert engine._ot_from_candidate(None) is None
+    assert engine._ot_from_candidate({}) is None
+    ot = engine._ot_from_candidate({
+        "ot": 100.0,
+        "ot_details": {"ot_flag": True, "cold_top": True, "ctt_min_c": -63.0,
+                       "n_flags": 9},
+    })
+    assert ot == {"score": 100.0, "ot_flag": True, "cold_top": True,
+                  "ctt_min_c": -63.0, "n_flags": 9}
+    # nessun OT (score 0.0 + details senza flag): comunque un descrittore reale
+    ot0 = engine._ot_from_candidate({
+        "ot": 0.0,
+        "ot_details": {"ot_flag": False, "cold_top": False, "ctt_min_c": -50.0,
+                       "n_flags": 0},
+    })
+    assert ot0["score"] == 0.0 and ot0["ot_flag"] is False
+
+
+def test_engine_ot_propagates_to_candidate_observation():
+    obs = engine.build_observations(
+        {"candidates": [{
+            "track_id": 7, "track_type": "storm_object",
+            "position": [12.5, 41.5], "on_latest_frame": True,
+            "ot": 100.0,
+            "ot_details": {"ot_flag": True, "cold_top": True,
+                           "ctt_min_c": -63.0, "n_flags": 9},
+        }]}, {}, {}, RADAR_MS, RADAR_ISO)
+    assert len(obs) == 1
+    assert obs[0]["satellite_ot"]["ot_flag"] is True
+    assert obs[0]["satellite_ot"]["ctt_min_c"] == -63.0
+    # candidato senza OT -> satellite_ot None (fail-closed)
+    obs_none = engine.build_observations(
+        {"candidates": [{"track_id": 8, "track_type": "storm_object",
+                         "position": [12.5, 41.5], "on_latest_frame": True}]},
+        {}, {}, RADAR_MS, RADAR_ISO)
+    assert obs_none[0]["satellite_ot"] is None
+
+
+def test_engine_ot_propagates_to_track_observation():
+    track = {"track_id": 1, "duration_min": 15.0,
+             "points": _points([58.0, 58.0])}
+    obs = engine.build_observations(
+        {"candidates": [{
+            "track_id": 1, "track_type": "cell", "position": [12.0, 41.0],
+            "ot": 50.0,
+            "ot_details": {"ot_flag": True, "cold_top": True,
+                           "ctt_min_c": -60.0, "n_flags": 5},
+        }]}, {"tracks": [track]}, {"features": []}, RADAR_MS, RADAR_ISO)
+    assert obs[0]["satellite_ot"]["ot_flag"] is True
+    assert obs[0]["satellite_ot"]["ctt_min_c"] == -60.0
+
+
+def test_hail_ot_corroborates_strong_dbz_base():
+    # base forte (62 dBZ) senza fulmini/H0/struttura; OT (IR_108) -> CORROBORATED
+    obs = _obs(_points([62.0, 62.0]),
+               satellite_ot={"score": 100.0, "ot_flag": True,
+                             "ctt_min_c": -64.0, "n_flags": 9,
+                             "cold_top": True})
+    event = hail.evaluate_hail(obs, LTG_OFF, None)
+    assert event is not None
+    assert event["state"] == "CORROBORATED"
+    assert event["evidence"]["corroboration"]["ot"] is True
+    assert event["evidence"]["satellite_ot"]["flag"] is True
+    assert event["evidence"]["satellite_ot"]["ctt_min_c"] == -64.0
+    assert any("overshooting top (IR_108)" in lab
+               for lab in event["evidence"]["labels"])
+
+
+def test_hail_ot_absent_or_false_is_fail_closed():
+    # stessa base forte ma SENZA OT -> resta SUSPECT (comportamento invariato)
+    event = hail.evaluate_hail(_obs(_points([62.0, 62.0])), LTG_OFF, None)
+    assert event["state"] == "SUSPECT"
+    assert event["evidence"]["corroboration"]["ot"] is False
+    # OT presente ma NON flaggato (IR valutato, nessun OT) -> nessuna promozione
+    obs = _obs(_points([62.0, 62.0]),
+               satellite_ot={"score": 0.0, "ot_flag": False,
+                             "ctt_min_c": -40.0, "n_flags": 0,
+                             "cold_top": False})
+    event2 = hail.evaluate_hail(obs, LTG_OFF, None)
+    assert event2["state"] == "SUSPECT"
+    assert event2["evidence"]["corroboration"]["ot"] is False
+
+
+def test_vortex_ot_corroborates_high_organization():
+    # organization alta (80) senza fulmini/struttura; OT -> CORROBORATED
+    obs = _obs(_points([50.0, 50.0, 50.0]), organization_score=80,
+               satellite_ot={"score": 100.0, "ot_flag": True,
+                             "ctt_min_c": -63.0, "n_flags": 9,
+                             "cold_top": True})
+    event = vortex.evaluate_vortex(obs, LTG_OFF)
+    assert event is not None
+    assert event["state"] == "CORROBORATED"
+    assert event["evidence"]["corroboration"]["ot"] is True
+    assert event["evidence"]["satellite_ot"]["flag"] is True
+    assert any("overshooting top (IR_108)" in lab
+               for lab in event["evidence"]["labels"])
+
+
+def test_vortex_ot_absent_is_fail_closed():
+    obs = _obs(_points([50.0, 50.0, 50.0]), organization_score=80)
+    event = vortex.evaluate_vortex(obs, LTG_OFF)
+    assert event is not None
+    assert event["state"] == "SUSPECT"
+    assert event["evidence"]["corroboration"]["ot"] is False
