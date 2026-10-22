@@ -11696,7 +11696,16 @@ function fmApplyRegion(refit) {
     fmUpdateBounds();
     fmRebuild();
 }
+function fmLoaderHasVisiblePlaybackFrame() {
+    if (!fmIsPlaying || typeof map === 'undefined' || !map || !map.hasLayer) return false;
+    try {
+        return !!((fmWebpVisibleLayer && map.hasLayer(fmWebpVisibleLayer))
+            || (fmRasterLayer && map.hasLayer(fmRasterLayer)));
+    } catch (e) { return false; }
+}
 function fmLoaderShow() {
+    // Durante il play il frame precedente resta visibile mentre si decodifica il successivo.
+    if (fmLoaderHasVisiblePlaybackFrame()) { fmLoaderHide(); return; }
     if (fmLoaderTimer !== null) return;
     fmLoaderTimer = setTimeout(function () {
         fmLoaderTimer = -1;
@@ -12254,6 +12263,7 @@ function fmRebuild() {
                         }
                         requestAnimationFrame(function () {
                             if (myWebpGeneration !== fmWebpGeneration || !map.hasLayer(nextWebpLayer)) return;
+                            fmLoaderHide();
                             nextWebpLayer.setOpacity(0.8);
                             fmWebpVisibleLayer = nextWebpLayer;
                             if (oldWebpLayer && map.hasLayer(oldWebpLayer)) {
