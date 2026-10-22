@@ -404,10 +404,10 @@ def fetch_frame(url, domain, valid_name, cache_dir, frames_cache, label="frame")
     """Percorso locale del frame, riusando la cache quando valida.
 
     Con `frames_cache` attivo (cache persistente, ripristinata via
-    actions/cache): file in `<frames_cache>/<domain>/<valid_name>.om`. Se esiste
-    ed e' aggiornato (Content-Length via HEAD combacia; fallback: size locale se
-    la HEAD non e' disponibile) NON esegue alcuna GET e riusa il file. Se assente
-    o stale lo scarica (atomico) in quella posizione.
+    actions/cache): file in `<frames_cache>/<domain>/<valid_name>.om` con un
+    sidecar `.url` che lega il contenuto all'URL esatto della run. La sola
+    Content-Length non identifica una run: URL diverso forza il download anche
+    quando la dimensione coincide. Una HEAD controlla inoltre la completezza.
 
     Senza `frames_cache`: comportamento INVARIATO su `cache_dir`
     (`<cache_dir>/<domain>__<valid_name>.om`, flat, nessuna HEAD).
@@ -416,17 +416,14 @@ def fetch_frame(url, domain, valid_name, cache_dir, frames_cache, label="frame")
     """
     if frames_cache:
         dst = os.path.join(frames_cache, domain, valid_name + ".om")
-        if os.path.isfile(dst):
-            expected = http_content_length(url)
-            local = os.path.getsize(dst)
-            if expected is None or local == expected:
-                print("%s   %s reuse (cache %s, %d byte%s)"
-                      % (LOG, label, dst, local,
-                         "" if expected is None else ", Content-Length ok"))
-                return dst, True
-            print("%s   %s cache stale (%d != %d byte, %s): riscarico"
-                  % (LOG, label, local, expected, dst))
+        if _cached_path(url, domain, valid_name, frames_cache):
+            return dst, True
         if download(url, dst):
+            marker = dst + ".url"
+            marker_tmp = marker + ".tmp"
+            with open(marker_tmp, "w", encoding="utf-8") as fh:
+                fh.write(url)
+            os.replace(marker_tmp, marker)
             return dst, False
         return None, False
 
@@ -1137,11 +1134,21 @@ def _read_local_frame(path, domain, risk_vars, grid, tgt_lats, tgt_lons, idx):
 
 
 def _cached_path(url, domain, valid_name, frames_cache):
-    """Percorso del frame in frames-cache se PRESENTE e aggiornato (nessuna GET)."""
+    """Riusa la cache solo se URL sorgente e dimensione corrispondono."""
     if not frames_cache:
         return None
     dst = os.path.join(frames_cache, domain, valid_name + ".om")
     if not os.path.isfile(dst):
+        return None
+    marker = dst + ".url"
+    try:
+        with open(marker, "r", encoding="utf-8") as fh:
+            cached_url = fh.read()
+    except OSError:
+        cached_url = ""
+    if cached_url != url:
+        print("%s   frame cache di altra run (%s): non riusato"
+              % (LOG, dst))
         return None
     expected = http_content_length(url)
     local = os.path.getsize(dst)
@@ -1434,6 +1441,10 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
         if (old and old.get("reference_time") == ref_time
                 and list(old.get("valid_times", [])) == list(anchors)
                 and bb_same):
+            if args.progress_manifest:
+                progress = dict(old)
+                progress["complete"] = True
+                write_json_atomic(args.progress_manifest, progress)
             res["status"] = "ok"
             res["noop"] = True
             res["reason"] = "manifest invariato"
@@ -1491,6 +1502,27 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
     sizes_map = {}
     all_warnings = []
 
+    def publish_progress(complete=False):
+        if not args.progress_manifest:
+            return
+        bb_progress = bbox_for(domain)
+        write_json_atomic(args.progress_manifest, {
+            "version": "fm2-progress-1",
+            "domain": domain,
+            "reference_time": ref_time,
+            "valid_times": anchors,
+            "bbox": {"lat_min": bb_progress[0], "lon_min": bb_progress[1],
+                     "lat_max": bb_progress[2], "lon_max": bb_progress[3]},
+            "grid": out_grid,
+            "var_order": ordered_names,
+            "frames": list(frames),
+            "complete": bool(complete),
+        })
+
+    # Il consumer di render puo' partire appena il motore ha determinato la
+    # griglia; un frame viene annunciato solo dopo la scrittura atomica del .om.
+    publish_progress(complete=False)
+
     for vi, anchor in enumerate(anchors):
         print("%s   frame %d/%d valid_time=%s" % (LOG, vi + 1, len(anchors), anchor))
         vname = valid_time_to_filename(anchor)
@@ -1535,10 +1567,12 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
         variables_map[anchor] = vmeta
         sizes_map[anchor] = size
         all_warnings.extend(["%s: %s" % (anchor, w) for w in warns])
+        publish_progress(complete=False)
         print("%s   scritto %s (%d byte, %d var, src=%s)"
               % (LOG, fname, size, nvars, frame["mode"]))
 
     if not frames:
+        publish_progress(complete=True)
         res["reason"] = "nessun frame scritto (tutti i download falliti?)"
         print("%s [FAIL] dominio '%s': %s." % (LOG, domain, res["reason"]))
         return res
@@ -1590,6 +1624,7 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
         "download": dl,
     }
     write_json_atomic(latest_path, manifest)
+    publish_progress(complete=True)
 
     total_bytes = sum(f["bytes"] for f in frames)
     print("%s [OK] dominio '%s': %d frame, %d byte totali (%.1f KiB)."
@@ -1645,6 +1680,8 @@ def main(argv=None):
                     help="Cache PERSISTENTE dei frame .om (<dir>/<dominio>/<VALID>.om), "
                          "riusata se la Content-Length remota combacia (default: vuoto = "
                          "disabilitata, comportamento invariato).")
+    ap.add_argument("--progress-manifest", default="",
+                    help="Scrive un manifest atomico dei frame pronti per il render streaming.")
     args = ap.parse_args(argv)
 
     if not args.domains:

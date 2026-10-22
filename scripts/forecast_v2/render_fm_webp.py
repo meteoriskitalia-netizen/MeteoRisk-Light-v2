@@ -54,6 +54,7 @@ import datetime as _dt
 import json
 import math
 import os
+import re
 import shutil
 import sys
 import time
@@ -1194,13 +1195,22 @@ def _utcnow_iso() -> str:
     )
 
 
-def _theme_var_dir(out_root: str, region: str, domain: str, var: str, theme: str) -> str:
-    """Output directory for one region/domain/var/theme.
+def _run_id(reference_time: str | None) -> str:
+    """Stable, path-safe identifier ordered chronologically for a model run."""
+    cleaned = re.sub(r"[^0-9A-Za-z]", "", str(reference_time or ""))
+    return cleaned or _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _theme_var_dir(out_root: str, region: str, domain: str, var: str, theme: str,
+                   run_id: str | None = None) -> str:
+    """Output directory for one region/domain/run/var/theme.
 
     1.2.4.13: the dark theme has been REMOVED (light only), so the output
     directory is ALWAYS the plain ``<region>/<domain>/<var>`` path: there is no
     ``dark/`` subdirectory any more.
     """
+    if run_id:
+        return os.path.join(out_root, region, domain, "runs", run_id, var)
     return os.path.join(out_root, region, domain, var)
 
 
@@ -1224,15 +1234,27 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
     is the number of ``.om`` frames actually opened/processed and
     ``bytes_written`` the total size of the WebP files produced (observability).
     """
-    manifest_path = os.path.join(domain_dir, "latest.json")
-    if not os.path.isfile(manifest_path):
-        return 0, 0, "no latest.json", {}, 0, 0
-
-    manifest = read_manifest(manifest_path)
+    manifest_path = (args.watch_manifest or
+                     os.path.join(domain_dir, "latest.json"))
+    if args.watch_manifest:
+        while True:
+            try:
+                manifest = read_manifest(manifest_path)
+                break
+            except (OSError, ValueError):
+                time.sleep(0.25)
+    else:
+        if not os.path.isfile(manifest_path):
+            return 0, 0, "no latest.json", {}, 0, 0
+        manifest = read_manifest(manifest_path)
     grid = manifest.get("grid")
     bbox = manifest.get("bbox")
     frames = manifest.get("frames") or []
-    if not isinstance(grid, dict) or not isinstance(bbox, dict) or not frames:
+    reference_time = manifest.get("reference_time")
+    run_id = _run_id(reference_time)
+    expected_frames = len(manifest.get("valid_times") or frames)
+    if (not isinstance(grid, dict) or not isinstance(bbox, dict)
+            or (not frames and not args.watch_manifest)):
         return 0, 0, "manifest missing grid/bbox/frames", {}, 0, 0
 
     if args.limit_frames and args.limit_frames > 0:
@@ -1281,7 +1303,28 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
     var_frames = {rname: {} for rname in crops}
     var_meta = {}                                # var -> unit
 
-    for frame in frames:
+    seen_frames = set()
+    watch_complete = not bool(args.watch_manifest)
+    while True:
+      if args.watch_manifest:
+        try:
+            manifest = read_manifest(manifest_path)
+        except (OSError, ValueError):
+            time.sleep(0.25)
+            continue
+        available = manifest.get("frames") or []
+        pending = []
+        for candidate in available:
+            key = (candidate.get("file"), candidate.get("valid_time"))
+            if key not in seen_frames:
+                seen_frames.add(key)
+                pending.append(candidate)
+        watch_complete = bool(manifest.get("complete"))
+      else:
+        pending = frames
+        frames = []
+
+      for frame in pending:
         fname = frame.get("file")
         valid_time = frame.get("valid_time")
         if not fname or not valid_time:
@@ -1373,7 +1416,7 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                             speed_out=arr_out if dir_out is not None else None,
                             dir_out=dir_out, speed_ref=speed_ref))
 
-                    vdir = _theme_var_dir(out_root, rname, domain, var, themes[0])
+                    vdir = _theme_var_dir(out_root, rname, domain, var, themes[0], run_id)
                     os.makedirs(vdir, exist_ok=True)
                     _prune_legacy_theme_dirs(out_root, rname, domain, var)
                     wpath = os.path.join(vdir, base_name + ".webp")
@@ -1395,6 +1438,10 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                 pass
         frames_done += 1
 
+      if watch_complete:
+          break
+      time.sleep(0.25)
+
     if not any(var_frames[r] for r in var_frames):
         return rendered, skipped, "nothing rendered", {}, frames_done, bytes_written
 
@@ -1413,18 +1460,21 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
             unit = var_meta.get(var)
             entry = {
                 "unit": unit,
-                "dir": "%s/%s" % (domain, var),
+                "dir": "%s/runs/%s/%s" % (domain, run_id, var),
                 "themes": {},
             }
             for theme, recs in recs_by_theme.items():
                 recs.sort(key=lambda r: r["valid_time"])
                 keep = {r["file"] for r in recs}
-                vdir = _theme_var_dir(out_root, rname, domain, var, theme)
+                vdir = _theme_var_dir(out_root, rname, domain, var, theme, run_id)
                 prune_dir(vdir, keep)
-                _prune_legacy_theme_dirs(out_root, rname, domain, var)
+                shutil.rmtree(os.path.join(vdir, "dark"), ignore_errors=True)
                 vmanifest = {
                     "version": WEBP_VERSION,
                     "generated_at": generated_at,
+                    "reference_time": reference_time,
+                    "run_id": run_id,
+                    "expected_frames": expected_frames,
                     "region": rname,
                     "domain": domain,
                     "variable": var,
@@ -1437,7 +1487,7 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                     "valid_times": [r["valid_time"] for r in recs],
                 }
                 write_json(os.path.join(vdir, "latest.json"), vmanifest)
-                sub = "%s/%s" % (domain, var)
+                sub = "%s/runs/%s/%s" % (domain, run_id, var)
                 entry["themes"][theme] = {
                     "count": len(recs),
                     "valid_times": [r["valid_time"] for r in recs],
@@ -1449,6 +1499,15 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
             "bbox": cbbox,
             "bounds": bounds,
             "grid": grid_summary,
+            "reference_time": reference_time,
+            "current_run": run_id,
+            "runs": [{
+                "id": run_id,
+                "reference_time": reference_time,
+                "generated_at": generated_at,
+                "expected_frames": expected_frames,
+                "variables": variables,
+            }],
             "variables": variables,
         }
 
@@ -1526,6 +1585,85 @@ def _valid_var_manifest(obj) -> bool:
     return True
 
 
+def _collect_index_run(run_root: str, out_dir: str, region: str, domain: str,
+                       run_id: str, themes, legacy: bool = False):
+    """Read manifests for one archived/current run and shape its index entry."""
+    variables = {}
+    ref_time = generated_at = None
+    expected = 0
+    bbox = bounds = grid = None
+    for var in sorted(os.listdir(run_root)):
+        var_dir = os.path.join(run_root, var)
+        if not os.path.isdir(var_dir):
+            continue
+        theme_manifests = {}
+        invalid = False
+        for theme in themes:
+            tdir = var_dir if legacy else _theme_var_dir(
+                out_dir, region, domain, var, theme, run_id)
+            mpath = os.path.join(tdir, "latest.json")
+            if not os.path.isfile(mpath):
+                continue
+            try:
+                vman = read_manifest(mpath)
+            except Exception as exc:
+                print("  ! %s/%s/%s/%s: manifest illeggibile (%s): skip"
+                      % (region, domain, run_id, var, exc), file=sys.stderr)
+                invalid = True
+                break
+            if not _valid_var_manifest(vman):
+                invalid = True
+                break
+            theme_manifests[theme] = (tdir, vman)
+        if invalid or not theme_manifests:
+            continue
+
+        entry = {"unit": None, "dir": "%s/%s" % (domain, var), "themes": {}}
+        for theme, (tdir, vman) in sorted(theme_manifests.items()):
+            keep = {f["file"] for f in vman["frames"]}
+            prune_dir(tdir, keep)
+            if entry["unit"] is None:
+                entry["unit"] = vman.get("unit")
+            ref_time = ref_time or vman.get("reference_time")
+            generated_at = generated_at or vman.get("generated_at")
+            expected = max(expected, int(vman.get("expected_frames") or len(vman["valid_times"])))
+            bbox = bbox or vman.get("bbox")
+            bounds = bounds or vman.get("bounds")
+            grid = grid or vman.get("grid")
+            sub = ("%s/%s" % (domain, var) if legacy else
+                   "%s/runs/%s/%s" % (domain, run_id, var))
+            entry["dir"] = sub
+            entry["themes"][theme] = {
+                "count": len(vman["valid_times"]),
+                "valid_times": list(vman["valid_times"]),
+                "dir": sub,
+                "manifest": "%s/latest.json" % sub,
+            }
+        variables[var] = entry
+
+    if not variables:
+        return None
+    if legacy:
+        ref_time = ref_time or generated_at
+        run_id = "legacy-" + _run_id(ref_time)
+    counts = [max((len(t.get("valid_times", [])) for t in v.get("themes", {}).values()), default=0)
+              for v in variables.values()]
+    actual = max(counts) if counts else 0
+    pct = round(100.0 * min(actual, expected) / expected, 1) if expected else 100.0
+    return {
+        "id": run_id,
+        "reference_time": ref_time,
+        "generated_at": generated_at,
+        "expected_frames": expected or actual,
+        "frames_available": actual,
+        "completion_pct": pct,
+        "variables": variables,
+        "bbox": bbox,
+        "bounds": bounds,
+        "grid": grid,
+    }
+
+
 def rebuild_index(in_dir: str, out_dir: str, domain_list, region_names, themes) -> int:
     """Rebuild ``<out>/<region>/index.json`` from the existing per-var manifests.
 
@@ -1556,74 +1694,91 @@ def rebuild_index(in_dir: str, out_dir: str, domain_list, region_names, themes) 
                       % (rname, domain))
                 continue
 
-            variables = {}
-            dom_bbox = dom_bounds = dom_grid = None
-            for var in sorted(os.listdir(region_var_root)):
-                var_dir = os.path.join(region_var_root, var)
-                if not os.path.isdir(var_dir):
-                    continue
-                theme_manifests = {}          # theme -> (theme_dir, manifest)
-                invalid = False
-                for theme in themes:
-                    tdir = _theme_var_dir(out_dir, rname, domain, var, theme)
-                    mpath = os.path.join(tdir, "latest.json")
-                    if not os.path.isfile(mpath):
-                        continue              # theme not rendered for this var
-                    try:
-                        vman = read_manifest(mpath)
-                    except Exception as exc:
-                        print("  ! %s/%s/%s/%s: manifest illeggibile (%s): "
-                              "variabile saltata (nessun prune)"
-                              % (rname, domain, var, theme, exc), file=sys.stderr)
-                        invalid = True
-                        break
-                    if not _valid_var_manifest(vman):
-                        print("  ! %s/%s/%s/%s: manifest non valido: variabile "
-                              "saltata (nessun prune)"
-                              % (rname, domain, var, theme), file=sys.stderr)
-                        invalid = True
-                        break
-                    theme_manifests[theme] = (tdir, vman)
-                if invalid:
-                    continue                  # NO prune, NO index entry
-                if not theme_manifests:
-                    print("  ~ %s/%s/%s: nessun latest.json per alcun tema (skip)"
-                          % (rname, domain, var), file=sys.stderr)
-                    continue
-
-                entry = {"unit": None, "dir": "%s/%s" % (domain, var), "themes": {}}
-                for theme, (tdir, vman) in sorted(theme_manifests.items()):
-                    keep = {f["file"] for f in vman["frames"]}
-                    prune_dir(tdir, keep)
-                    _prune_legacy_theme_dirs(out_dir, rname, domain, var)
-                    sub = "%s/%s" % (domain, var)
-                    # Same theme-entry shape as the render path's writer.
-                    entry["themes"][theme] = {
-                        "count": len(vman["valid_times"]),
-                        "valid_times": list(vman["valid_times"]),
-                        "dir": sub,
-                        "manifest": "%s/latest.json" % sub,
-                    }
-                    region_themes.add(theme)
-                    if entry["unit"] is None:
-                        entry["unit"] = vman.get("unit")
-                    # bbox/bounds/grid: first valid var manifest of this domain in
-                    # this region (identical across vars by construction).
-                    if dom_bbox is None:
-                        dom_bbox = vman.get("bbox")
-                        dom_bounds = vman.get("bounds")
-                        dom_grid = vman.get("grid")
-                variables[var] = entry
-
-            if not variables:
+            runs_root = os.path.join(region_var_root, "runs")
+            runs = []
+            if os.path.isdir(runs_root):
+                for run_id in os.listdir(runs_root):
+                    rr = os.path.join(runs_root, run_id)
+                    if os.path.isdir(rr):
+                        rec = _collect_index_run(rr, out_dir, rname, domain,
+                                                 run_id, themes)
+                        if rec:
+                            runs.append(rec)
+            # Migrazione compatibile: la vecchia struttura <domain>/<var> resta
+            # leggibile come una run finché il branch non ha tre run versionate.
+            legacy_dirs = [n for n in os.listdir(region_var_root)
+                           if n != "runs" and os.path.isdir(os.path.join(region_var_root, n))]
+            if legacy_dirs:
+                legacy_root = os.path.join(region_var_root, "__legacy_scan")
+                # Legge le variabili una per una senza spostare i file del branch.
+                legacy_vars = {}
+                legacy_ref = legacy_generated = None
+                legacy_expected = 0
+                legacy_bbox = legacy_bounds = legacy_grid = None
+                for var in legacy_dirs:
+                    var_dir = os.path.join(region_var_root, var)
+                    valid_manifests = []
+                    for theme in themes:
+                        mp = os.path.join(var_dir, "latest.json")
+                        if os.path.isfile(mp):
+                            try:
+                                vm = read_manifest(mp)
+                            except Exception:
+                                continue
+                            if _valid_var_manifest(vm):
+                                valid_manifests.append((theme, vm))
+                    if not valid_manifests:
+                        continue
+                    vm = valid_manifests[0][1]
+                    legacy_ref = legacy_ref or vm.get("reference_time")
+                    legacy_generated = legacy_generated or vm.get("generated_at")
+                    legacy_expected = max(legacy_expected, int(vm.get("expected_frames") or len(vm["valid_times"])))
+                    legacy_bbox = legacy_bbox or vm.get("bbox")
+                    legacy_bounds = legacy_bounds or vm.get("bounds")
+                    legacy_grid = legacy_grid or vm.get("grid")
+                    var_entry = {"unit": vm.get("unit"), "dir": "%s/%s" % (domain, var), "themes": {}}
+                    for theme, tman in valid_manifests:
+                        var_entry["themes"][theme] = {
+                            "count": len(tman["valid_times"]),
+                            "valid_times": list(tman["valid_times"]),
+                            "dir": "%s/%s" % (domain, var),
+                            "manifest": "%s/latest.json" % (domain + "/" + var),
+                        }
+                    legacy_vars[var] = var_entry
+                if legacy_vars:
+                    legacy_counts = [max((len(t.get("valid_times", [])) for t in v.get("themes", {}).values()), default=0)
+                                     for v in legacy_vars.values()]
+                    legacy_actual = max(legacy_counts) if legacy_counts else 0
+                    legacy_ref = legacy_ref or legacy_generated
+                    runs.append({
+                        "id": "legacy-" + _run_id(legacy_ref),
+                        "reference_time": legacy_ref,
+                        "generated_at": legacy_generated,
+                        "expected_frames": legacy_expected or legacy_actual,
+                        "frames_available": legacy_actual,
+                        "completion_pct": round(100.0 * min(legacy_actual, legacy_expected) / legacy_expected, 1) if legacy_expected else 100.0,
+                        "variables": legacy_vars,
+                        "bbox": legacy_bbox, "bounds": legacy_bounds, "grid": legacy_grid,
+                    })
+            runs.sort(key=lambda r: str(r.get("reference_time") or r.get("id") or ""), reverse=True)
+            runs = runs[:3]
+            if not runs:
                 print("[index] %s/%s: escluso: nessun manifest variabile valido"
                       % (rname, domain), file=sys.stderr)
                 continue
+            latest_run = runs[0]
+            variables = latest_run["variables"]
+            dom_bbox, dom_bounds, dom_grid = latest_run.get("bbox"), latest_run.get("bounds"), latest_run.get("grid")
+            for run in runs:
+                for variable in run["variables"].values():
+                    region_themes.update(variable.get("themes", {}).keys())
             index_domains[domain] = {
                 "bbox": dom_bbox,
                 "bounds": dom_bounds,
                 "grid": dom_grid,
                 "variables": variables,
+                "current_run": latest_run["id"],
+                "runs": runs,
             }
 
         if not index_domains:
@@ -1682,6 +1837,8 @@ def parse_args(argv=None):
     ap.add_argument("--index-only", action="store_true",
                     help="rebuild region index.json from existing per-var latest.json "
                          "manifests; no rendering (works without numpy/Pillow/omfiles)")
+    ap.add_argument("--watch-manifest", default=None,
+                    help="wait for atomically announced .om frames in an engine progress manifest")
     return ap.parse_args(argv)
 
 

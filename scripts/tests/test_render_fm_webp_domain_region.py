@@ -308,6 +308,13 @@ def test_domain_region_render_gate_follows_aligned_predicate(tmp_path):
     vt = "2026-10-14T16:00Z"
     fname = mod.valid_time_to_filename(vt) + ".om"
     scales = mod.load_color_scales()
+    # 1.2.4.13: l'output e' versionato per RUN del modello. Il renderer
+    # calcola run_id = reference_time del manifest ENGINE sanitizzato
+    # (re.sub("[^0-9A-Za-z]")) e scrive sotto
+    # <out>/<regione>/<dominio>/runs/<run_id>/<variabile>/.
+    ref_time = "2026-10-14T12:00Z"
+    run_id = mod._run_id(ref_time)
+    assert run_id == "20261014T1200Z"
     # Normalizzazione CLI esattamente come main() fa prima di render_domain
     # (main riga 951-960: _split_csv su domains/vars/themes).
     args = mod.parse_args([])
@@ -328,6 +335,7 @@ def test_domain_region_render_gate_follows_aligned_predicate(tmp_path):
         _write_json(os.path.join(d, "latest.json"),
                     {"domain": name, "bbox": bbox,
                      "grid": _grid_for_bbox(bbox, nx, ny),
+                     "reference_time": ref_time,
                      "frames": [{"file": fname, "valid_time": vt}],
                      "var_order": [var], "valid_times": [vt]})
         return d
@@ -343,10 +351,29 @@ def test_domain_region_render_gate_follows_aligned_predicate(tmp_path):
     assert rendered > 0, got
     assert frames_done == 1 and bytes_written > 0, got
     assert "domain" in contrib and contrib["domain"]["variables"][var]
-    vdir_a = os.path.join(out_a, "domain", "wide_lon", var)
+    # 1.2.4.13: la run corrente e' esposta dalla contribuzione del render.
+    assert contrib["domain"]["current_run"] == run_id
+    assert contrib["domain"]["runs"][0]["id"] == run_id
+    assert contrib["domain"]["variables"][var]["dir"] == \
+        "wide_lon/runs/%s/%s" % (run_id, var)
+    assert contrib["domain"]["variables"][var]["themes"]["light"]["dir"] == \
+        "wide_lon/runs/%s/%s" % (run_id, var)
+    # L'output e' sotto <region>/<domain>/runs/<run_id>/<var>/ (NON piu'
+    # <region>/<domain>/<var>: dal 1.2.4.13 ogni run del modello ha la sua
+    # directory, versionata dal reference_time del manifest engine).
+    vdir_a = os.path.join(out_a, "domain", "wide_lon", "runs", run_id, var)
     wpath_a = os.path.join(vdir_a, mod.valid_time_to_filename(vt) + ".webp")
     assert os.path.isfile(wpath_a) and os.path.getsize(wpath_a) > 0
     assert os.path.isfile(os.path.join(vdir_a, "latest.json"))
+    # il layout pre-1.2.4.13 (senza il livello "runs/") NON viene piu' prodotto
+    assert not os.path.exists(os.path.join(out_a, "domain", "wide_lon", var))
+    # il manifest per-var dichiara la run da cui proviene
+    with open(os.path.join(vdir_a, "latest.json"), encoding="utf-8") as fh:
+        vman = json.load(fh)
+    assert vman["run_id"] == run_id
+    assert vman["reference_time"] == ref_time
+    assert vman["expected_frames"] == 1
+    assert vman["valid_times"] == [vt]
     # 1.2.4.13: il tema scuro e' stato RIMOSSO -> nessun sottoalbero "dark/".
     assert not os.path.exists(os.path.join(vdir_a, "dark"))
 

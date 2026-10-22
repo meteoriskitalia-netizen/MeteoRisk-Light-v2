@@ -6,9 +6,23 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.13
+## Versione attiva: 1.2.4.14
 
-- File applicativo: `mri-light-1.2.4.13.html` (`APP_VERSION = '1.2.4.13'`; ultimo blocco
+- File applicativo: mri-light-1.2.4.14.html (APP_VERSION = '1.2.4.14'; ultimo blocco
+  changelog in-app { version: '1.2.4.14', date: '2026-10-22' }).
+- Contenuto della 1.2.4.14 (release sopra la 1.2.4.13):
+  - **Selettore multi-run WebP e retention**:
+    - Archiviazione multi-run con percorsi dedicati e retention delle run storiche per (regione, dominio).
+    - Selettore della run accanto ai controlli del player con data/ora locale, conteggio frame e percentuale di completezza WebP.
+    - Flag mRunManual: preserva la run scelta manualmente dall'utente durante il cambio di dominio.
+    - Allineamento mDisplayValidTimes / mUpdateTimeDisplay / mRebuild: corretta visualizzazione e gestione oraria per frame storici e attuali.
+  - **Manifest polling a due sorgenti indipendente**:
+    - Polling ogni 5 minuti con verifica sia del manifest engine (latest.json) sia dell'indice WebP (index.json).
+    - Eliminata la guardia restrittiva su generated_at per ricaricare tempestivamente l'indice WebP appena disponibile.
+
+## Versione precedente: 1.2.4.13
+
+- File applicativo: `mri-light-1.2.4.14.html` (`APP_VERSION = '1.2.4.13'`; ultimo blocco
   changelog in-app `{ version: '1.2.4.13', date: '2026-10-21' }`).
 - Contenuto della 1.2.4.13 (release sopra la 1.2.4.12):
   - **Renderer - WebP autosufficiente**: le isolinee (fitte, con il valore numerico etichettato) e le frecce del vento sono disegnate dentro l'immagine WebP dal renderer server-side: il livello vettoriale WML sovrapposto non e' piu' necessario. I livelli sono multipli regolari dell'unita' nativa e il raster base non viene mai risamplato (l'overlay e' un layer separato in alpha).
@@ -255,7 +269,7 @@ Comandi e conteggi aggiornati sono quelli documentati in `C:\Users\aless\Desktop
 
 ## File chiave
 
-- `mri-light-1.2.4.13.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
+- `mri-light-1.2.4.14.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
 - `VERSION` — bump di versione e storico note di rilascio
 - `.github/workflows/{radar-engine,satellite-engine,update-weather-data,phenomena-verify,deploy-pages,forecast-maps-v2}.yml` — i 6 workflow
 - `scripts/radar_engine/` — motore radar DPC (Fase 1 + candidati supercelle, sperimentali)

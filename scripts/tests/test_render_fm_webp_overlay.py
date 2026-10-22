@@ -327,6 +327,11 @@ def _write_frame_om(path, arrays, valid_unix, ref_unix):
 BBOX = {"lat_min": 36.0, "lon_min": 6.5, "lat_max": 46.0, "lon_max": 16.0}
 NX, NY = 40, 31
 VT = "2026-10-14T16:00Z"
+# 1.2.4.13: l'output WebP e' versionato per RUN del modello: il renderer
+# ricava run_id dal reference_time del manifest ENGINE (sanitizzato) e scrive
+# sotto <out>/<regione>/<dominio>/runs/<run_id>/<variabile>/.
+REF_TIME = "2026-10-14T12:00Z"
+RUN_ID = "20261014T1200Z"
 
 
 def _setup_domain(tmp_path, name, arrays):
@@ -340,6 +345,7 @@ def _setup_domain(tmp_path, name, arrays):
                           "latMin": BBOX["lat_min"],
                           "dx": (BBOX["lon_max"] - BBOX["lon_min"]) / (NX - 1),
                           "dy": (BBOX["lat_max"] - BBOX["lat_min"]) / (NY - 1)},
+                 "reference_time": REF_TIME,
                  "frames": [{"file": fname, "valid_time": VT}],
                  "var_order": sorted(arrays.keys()),
                  "valid_times": [VT]})
@@ -374,8 +380,13 @@ def _render(domain_dir, out_dir, vars_list, overlay=True):
     rendered, skipped, err, contrib, frames_done, bytes_written = got
     assert err is None, err
     assert rendered == len(vars_list), got
+    # Il percorso REALE del 1.2.4.13: <out>/<regione>/<dominio>/runs/
+    # <run_id>/<variabile>/<VALID>.webp (il run_id viene dal reference_time
+    # del manifest engine, sanitizzato).
+    assert mod._run_id(REF_TIME) == RUN_ID
     path = os.path.join(out_dir, "domain", os.path.basename(domain_dir),
-                        vars_list[0], mod.valid_time_to_filename(VT) + ".webp")
+                        "runs", RUN_ID, vars_list[0],
+                        mod.valid_time_to_filename(VT) + ".webp")
     assert os.path.isfile(path)
     with Image.open(path) as im:
         return np.asarray(im.convert("RGBA")), contrib
@@ -428,7 +439,8 @@ def test_end_to_end_wind_arrows_are_baked_into_the_webp(tmp_path):
     # La direzione NON ha color scale: nessun WebP e' prodotto per lei.
     assert "wind_direction_10m" not in contrib["domain"]["variables"]
     assert not os.path.exists(os.path.join(str(tmp_path / "out1"), "domain",
-                                           "ncep_gfs025", "wind_direction_10m"))
+                                           "ncep_gfs025", "runs", RUN_ID,
+                                           "wind_direction_10m"))
 
 
 def test_draw_wind_arrows_count_and_geometry():
@@ -550,6 +562,18 @@ def test_theme_var_dir_has_no_dark_subdirectory(tmp_path):
                                theme)
         assert d == os.path.join(root, "italia", "dwd_icon_eu", "temperature_2m")
         assert "dark" not in os.path.normpath(d).split(os.sep)
+    # 1.2.4.13: con run_id (il percorso USATO dal renderer) la directory e'
+    # <region>/<domain>/runs/<run_id>/<var>: ogni run del modello ha la sua
+    # directory, e il tema scuro non c'e' piu' in nessuno dei due livelli.
+    run_id = mod._run_id("2026-10-14T12:00Z")
+    assert run_id == "20261014T1200Z"
+    d = mod._theme_var_dir(root, "italia", "dwd_icon_eu", "temperature_2m",
+                           "light", run_id)
+    assert d == os.path.join(root, "italia", "dwd_icon_eu", "runs", run_id,
+                             "temperature_2m")
+    parts = os.path.normpath(d).split(os.sep)
+    assert "dark" not in parts
+    assert parts[-3:] == ["runs", run_id, "temperature_2m"]
 
 
 def test_prune_legacy_theme_dirs_removes_the_dark_subtree(tmp_path):
