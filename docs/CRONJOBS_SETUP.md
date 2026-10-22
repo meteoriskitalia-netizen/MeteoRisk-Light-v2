@@ -68,7 +68,7 @@ Ogni slot cade **dopo** la disponibilità del run che deve servire; i run "lungh
 | **ECMWF IFS 0.25** | `02:50`←18Z (g. prec.) · `09:50`←00Z · `14:50`←06Z · `21:50`←12Z | **44 min** (`21:50` vs 21:06:47) |
 | **WebP Index Backup** | sfasato di ~50 min dai dispatch provider, nessuna sovrapposizione | n/a |
 
-> ⚠️ **Margine più stretto dell'intera matrice: 7 minuti** sullo slot DWD `04:30` (run 00Z). Se DWD rallenta oltre ~4h30 sul run 00Z, quello slot dispatcha il run precedente: è accettato perché il run precedente è comunque servito 2 ore prima e il workflow successivo riallinea. Il margine è documentato, non nascosto.
+> ⚠️ **Margine più stretto dell'intera matrice: 7 minuti** sullo slot DWD `04:30` (run 00Z pronto alle 04:22:58). Conseguenza dichiarata: se il run 00Z tarda oltre le 04:30, quello slot dispatcha il run ancora presente su S3 (tipicamente il 21Z) e il 00Z può **non** essere servito da nessuno slot successivo, perché `06:30` troverà già disponibile il 03Z. Il margine è stretto per scelta (l'alternativa sarebbe servire ogni run 2 ore più tardi); è documentato qui e in `measured_utc_availability.tightest_margin_min`, non nascosto.
 
 > ℹ️ **Nota Fuso Orario**: Impostare il fuso orario di ciascun job su cron-job.org su **UTC** (Coordinated Universal Time). In ora solare italiana (CET) corrisponde a UTC+1; in ora legale (CEST) corrisponde a UTC+2. Mantenere UTC garantisce che le run meteo rimangano sempre allineate indipendentemente dal cambio dell'ora.
 
