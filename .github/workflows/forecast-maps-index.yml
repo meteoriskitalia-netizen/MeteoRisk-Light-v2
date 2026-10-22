@@ -98,7 +98,7 @@ jobs:
     runs-on: ubuntu-latest
     # Leggero: 5 checkout di manifest JSON (piccoli), un checkout di `data/fm2-rendered`
     # (i WebP sono CACHED LATO GIT, non ri-renderizzati: `--index-only` non usa
-    # Pillow/numpy), la scrittura di 3 index.json + color_scales.json e UN push.
+    # Pillow/numpy), la scrittura di 4 index.json + color_scales.json e UN push.
     # 30' e' margine abbondante per il checkout di `data/fm2-rendered` su un albero
     # WebP grande; da riverificare alla prima run reale.
     timeout-minutes: 30
@@ -223,11 +223,11 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           git sparse-checkout disable >/dev/null 2>&1 || true
           # L'index-builder e' lo SCRITTORE UNICO di: <regione>/index.json per
-          # italia/europa/domain, e color_scales.json. Sono gli unici path che
+          # italia/europa/north/domain, e color_scales.json. Sono gli unici path che
           # questo job puo' toccare. NON tocca MAI le directory WebP
           # `data/fm2-rendered/<regione>/<dominio>/**` (di proprieta' dei 5 merge
           # per-fornitore): path disgiunti.
-          ALLOW_RE='^data/fm2-rendered/(italia|europa|domain)/index\.json$|^data/fm2-rendered/color_scales\.json$'
+          ALLOW_RE='^data/fm2-rendered/(italia|europa|north|domain)/index\.json$|^data/fm2-rendered/color_scales\.json$'
           MSG="chore(fm2): rebuild index.json aggregato (7 domini) + color_scales"
           for i in 1 2 3 4 5; do
             git fetch --no-tags --depth=1 origin fm2-rendered || true
@@ -242,10 +242,10 @@ jobs:
             IDX="$(mktemp -u)"; rm -f "$IDX"
             GIT_INDEX_FILE="$IDX" git read-tree "$BASE"
             # (1) stage-out dei SOLI path di proprieta' dell'index-builder che
-            #     esistono nell'indice del branch (index.json delle 3 regioni +
+            #     esistono nell'indice del branch (index.json delle 4 regioni +
             #     color_scales.json): verranno ri-aggiunti dal working tree.
             #     ⚠️ NON si tocca nulla sotto <regione>/<dominio>/ (WebP).
-            for p in "data/fm2-rendered/italia/index.json" "data/fm2-rendered/europa/index.json" "data/fm2-rendered/domain/index.json" "data/fm2-rendered/color_scales.json"; do
+            for p in "data/fm2-rendered/italia/index.json" "data/fm2-rendered/europa/index.json" "data/fm2-rendered/north/index.json" "data/fm2-rendered/domain/index.json" "data/fm2-rendered/color_scales.json"; do
               if GIT_INDEX_FILE="$IDX" git ls-files -- "$p" | grep -q .; then
                 GIT_INDEX_FILE="$IDX" git update-index --force-remove -- "$p"
               fi
@@ -253,7 +253,7 @@ jobs:
             # (2) ri-aggiungi dal working tree i SOLI path che esistono davvero
             #     (una regione senza domini validi non ha scritto l'index).
             add_paths=""
-            for p in "data/fm2-rendered/italia/index.json" "data/fm2-rendered/europa/index.json" "data/fm2-rendered/domain/index.json" "data/fm2-rendered/color_scales.json"; do
+            for p in "data/fm2-rendered/italia/index.json" "data/fm2-rendered/europa/index.json" "data/fm2-rendered/north/index.json" "data/fm2-rendered/domain/index.json" "data/fm2-rendered/color_scales.json"; do
               [ -e "$p" ] && add_paths="$add_paths $p"
             done
             if [ -n "$add_paths" ]; then
@@ -268,7 +268,7 @@ jobs:
               exit 0
             fi
             # (3) GUARDIA DI SCOPE: il commit dell'index-builder deve toccare SOLO
-            #     gli index.json delle 3 regioni + color_scales.json. Un solo path
+            #     gli index.json delle 4 regioni + color_scales.json. Un solo path
             #     fuori allowlist (es. un WebP di un dominio) => ABORTISCI.
             git diff-tree -r --no-commit-id --name-only "$BASE" "$TREE" > /tmp/fm2_idx_scope.txt
             BAD_SCOPE="$(grep -E -v "$ALLOW_RE" /tmp/fm2_idx_scope.txt || true)"
