@@ -78,9 +78,13 @@ ok('A15b: Emisfero nord disponibile ai modelli globali e collegato al renderer',
 ok('A15c: index-builder autorizza e pubblica north/index.json',
   /\(italia\|europa\|north\|domain\)\/index\\\.json/.test(INDEX_WORKFLOW) &&
   (INDEX_WORKFLOW.match(/data\/fm2-rendered\/north\/index\.json/g) || []).length >= 2);
-ok('A15d: raster allineato alla proiezione coste (Greenwich in alto)',
-  /function fmPolarLongitude\(dx,\s*dy\)\s*\{\s*return Math\.atan2\(dx,\s*-dy\)/.test(moduleSrc));
-ok('A15e: playback attende il WebP e Leaflet riceve sempre un URL',
+ok('A15d: lookup raster polare con Greenwich in basso',
+  /function fmPolarLongitude\(dx,\s*dy\)\s*\{\s*return Math\.atan2\(-dx,\s*dy\)/.test(moduleSrc));
+ok('A15e: il raster polare ribalta le colonne WebP',
+  /sx\s*=\s*sw\s*-\s*1\s*-\s*sx/.test(moduleSrc));
+ok('A15f: geografia Greenwich in basso, est a destra e ovest a sinistra',
+  /return\s*\[cx\s*\+\s*radius\s*\*\s*rho\s*\*\s*Math\.sin\(a\),\s*cy\s*\+\s*radius\s*\*\s*rho\s*\*\s*Math\.cos\(a\)\]/.test(moduleSrc));
+ok('A15g: playback attende il WebP e Leaflet riceve sempre un URL',
   /if\s*\(!fmPlaybackFramePending\)\s*fmNextFrame\(\)/.test(moduleSrc) &&
   /L\.imageOverlay\(webp\.url,\s*wb/.test(moduleSrc) &&
   !/L\.imageOverlay\(readyImage\s*\|\|\s*webp\.url/.test(moduleSrc));
@@ -109,10 +113,10 @@ try {
 }
 failFast('fmWebpFrameUrl non estratta', typeof ctx.fmWebpFrameUrl === 'function');
 failFast('FM_PRELOAD_CONCURRENCY non esposta', typeof ctx.FM_PRELOAD_CONCURRENCY === 'number');
-ok('C6: Greenwich allineato in alto come le coste',
-  Math.abs(ctx.fmPolarLongitude(0, -1)) < 1e-9 && Math.abs(Math.abs(ctx.fmPolarLongitude(0, 1)) - 180) < 1e-9);
-ok("C7: est a destra e ovest a sinistra come le coste",
-  Math.abs(ctx.fmPolarLongitude(1, 0) - 90) < 1e-9 && Math.abs(ctx.fmPolarLongitude(-1, 0) + 90) < 1e-9);
+ok('C6: lookup raster con Greenwich in basso',
+  Math.abs(ctx.fmPolarLongitude(0, 1)) < 1e-9 && Math.abs(Math.abs(ctx.fmPolarLongitude(0, -1)) - 180) < 1e-9);
+ok("C7: asse est/ovest orientato con Greenwich in basso",
+  Math.abs(ctx.fmPolarLongitude(1, 0) + 90) < 1e-9 && Math.abs(ctx.fmPolarLongitude(-1, 0) - 90) < 1e-9);
 
 // Il timer del player non deve invalidare il frame WebP mentre sta ancora caricando.
 let playTick = null, playAdvanceCount = 0;
