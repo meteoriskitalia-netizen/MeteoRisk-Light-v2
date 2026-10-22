@@ -123,11 +123,12 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/forecast_v2/requirements.txt
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
           python -m pip install -r scripts/forecast_v2/requirements.txt
 
       - name: Cache frame Open-Meteo (.om)
@@ -281,11 +282,12 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/forecast_v2/requirements.txt
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
           python -m pip install -r scripts/forecast_v2/requirements.txt
 
       - name: Download artifact engine fm2-${{ matrix.domain }}
@@ -405,11 +407,12 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/forecast_v2/requirements.txt
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
           python -m pip install -r scripts/forecast_v2/requirements.txt
 
       - name: Download render shard artifact (fm2r-*)

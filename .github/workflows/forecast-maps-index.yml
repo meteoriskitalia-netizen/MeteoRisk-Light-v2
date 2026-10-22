@@ -120,6 +120,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/forecast_v2/requirements.txt
 
       # `--index-only` NON richiede numpy/Pillow/omfiles (rebuild_index e' puro
       # JSON/filesystem): nessun `pip install` di requirements.txt, che servirebbe
