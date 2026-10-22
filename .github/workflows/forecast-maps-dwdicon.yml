@@ -91,8 +91,6 @@ jobs:
       # Group PER-DOMINIO con prefisso PROPRIO del fornitore.
       group: forecast-maps-dwdicon-${{ matrix.domain }}
       cancel-in-progress: false
-    outputs:
-      changed: ${{ steps.run_engine.outputs.changed }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -306,7 +304,7 @@ jobs:
     #   LOCALE dopo aver materializzato i WebP da `fm2-rendered`.
     name: render-merge dwdicon (webp su fm2-rendered, nessun index)
     needs: engine
-    if: ${{ !cancelled() && needs.engine.outputs.changed == 'true' }}
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     concurrency:
@@ -426,7 +424,7 @@ jobs:
 
       - name: Commit WebP dwdicon su fm2-rendered (push incrementale, only if changed)
         id: commit_webp
-        if: success()
+        if: success() && steps.shards.outputs.domains != ''
         run: |
           git config user.name "meteorisk-bot"
           git config user.email "actions@users.noreply.github.com"
