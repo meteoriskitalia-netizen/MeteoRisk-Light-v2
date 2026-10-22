@@ -11338,9 +11338,8 @@ var fmPolarFrameUrl = null;
 var fmPolarGeneration = 0;
 var fmPolarLand = null;
 var fmPolarLandLoading = false;
-// I WebP emisferici hanno l'asse longitudine specchiato: inverti dx nel lookup.
-// Greenwich resta in basso; i settori est/ovest tornano sui lati geografici corretti.
-function fmPolarLongitude(dx, dy) { return Math.atan2(-dx, dy) * 180 / Math.PI; }
+// Inversa della stessa proiezione usata da fmPolarDrawOverlays: Greenwich in alto, est a destra.
+function fmPolarLongitude(dx, dy) { return Math.atan2(dx, -dy) * 180 / Math.PI; }
 var FM_POLAR_LAND_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_land.geojson';
 var FM_COUNTRY_BORDERS_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_boundary_lines_land.geojson';
 var FM_COASTLINES_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_coastline.geojson';
