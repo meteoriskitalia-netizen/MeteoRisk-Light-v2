@@ -78,6 +78,12 @@ ok('A15b: Emisfero nord disponibile ai modelli globali e collegato al renderer',
 ok('A15c: index-builder autorizza e pubblica north/index.json',
   /\(italia\|europa\|north\|domain\)\/index\\\.json/.test(INDEX_WORKFLOW) &&
   (INDEX_WORKFLOW.match(/data\/fm2-rendered\/north\/index\.json/g) || []).length >= 2);
+ok('A15d: polar orientata come Meteociel (Greenwich in basso, est a destra)',
+  /function fmPolarLongitude\(dx,\s*dy\)\s*\{\s*return Math\.atan2\(dx,\s*dy\)/.test(moduleSrc));
+ok('A15e: playback attende il WebP e Leaflet riceve sempre un URL',
+  /if\s*\(!fmPlaybackFramePending\)\s*fmNextFrame\(\)/.test(moduleSrc) &&
+  /L\.imageOverlay\(webp\.url,\s*wb/.test(moduleSrc) &&
+  !/L\.imageOverlay\(readyImage\s*\|\|\s*webp\.url/.test(moduleSrc));
 // ensureChartJs vive FUORI dal blocco FM -> asserzioni sull'intero file.
 ok("A16: ensureChartJs ha handle singolo _chartJsWaitTimer",
   has(/var _chartJsWaitTimer/));
@@ -103,6 +109,28 @@ try {
 }
 failFast('fmWebpFrameUrl non estratta', typeof ctx.fmWebpFrameUrl === 'function');
 failFast('FM_PRELOAD_CONCURRENCY non esposta', typeof ctx.FM_PRELOAD_CONCURRENCY === 'number');
+ok('C6: orientamento polare Greenwich in basso',
+  Math.abs(ctx.fmPolarLongitude(0, 1)) < 1e-9 && Math.abs(Math.abs(ctx.fmPolarLongitude(0, -1)) - 180) < 1e-9);
+ok('C7: orientamento polare est a destra e ovest a sinistra',
+  Math.abs(ctx.fmPolarLongitude(1, 0) - 90) < 1e-9 && Math.abs(ctx.fmPolarLongitude(-1, 0) + 90) < 1e-9);
+
+// Il timer del player non deve invalidare il frame WebP mentre sta ancora caricando.
+let playTick = null, playAdvanceCount = 0;
+const originalNextFrame = ctx.fmNextFrame;
+ctx.setTimeout = setTimeout; ctx.clearTimeout = clearTimeout;
+ctx.setInterval = function (fn) { playTick = fn; return 7; };
+ctx.clearInterval = function () {};
+ctx.fmNextFrame = function () { playAdvanceCount++; };
+ctx.fmMeta = { valid_times: ['2026-10-14T16:00Z', '2026-10-14T17:00Z'] };
+ctx.fmStartPlay();
+ctx.fmPlaybackSetFramePending(true);
+playTick();
+ok('C8: il player aspetta il WebP pendente', playAdvanceCount === 0);
+ctx.fmPlaybackSetFramePending(false);
+playTick();
+ok('C9: il player riparte quando il WebP e pronto', playAdvanceCount === 1);
+ctx.fmStopPlay();
+ctx.fmNextFrame = originalNextFrame;
 
 // ---------- C. BEHAVIOR: fmWebpFrameUrl (light/dark/valid_times/regione) ----------
 const VALID = '2026-10-14T16:00Z';

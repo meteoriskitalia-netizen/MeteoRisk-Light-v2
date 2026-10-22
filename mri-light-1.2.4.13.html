@@ -11338,6 +11338,8 @@ var fmPolarFrameUrl = null;
 var fmPolarGeneration = 0;
 var fmPolarLand = null;
 var fmPolarLandLoading = false;
+// Orientamento Meteociel: meridiano 0° in basso, con longitudini est verso destra.
+function fmPolarLongitude(dx, dy) { return Math.atan2(dx, dy) * 180 / Math.PI; }
 var FM_POLAR_LAND_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_land.geojson';
 var FM_COUNTRY_BORDERS_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_boundary_lines_land.geojson';
 var FM_COASTLINES_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_coastline.geojson';
@@ -11576,7 +11578,7 @@ function fmPolarPaintBase() {
                 if (rho > 1) { dst[o] = 11; dst[o + 1] = 24; dst[o + 2] = 48; dst[o + 3] = 255; continue; }
                 var lat = 90 - 2 * Math.atan(rho * cap) * 180 / Math.PI;
                 lat = Math.max(south, Math.min(north, lat));
-                var lon = Math.atan2(dx, -dy) * 180 / Math.PI;
+                var lon = fmPolarLongitude(dx, dy);
                 var sx = Math.floor(((lon - west) / (east - west)) * sw);
                 sx = ((sx % sw) + sw) % sw;
                 var merc = Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360));
@@ -11776,6 +11778,19 @@ var FM_LEVEL_KIND_LABELS = {
 var fmActive = false;
 var fmIsPlaying = false;
 var fmInterval = null;
+var fmPlaybackFramePending = false;
+var fmPlaybackFrameTimer = null;
+function fmPlaybackSetFramePending(pending) {
+    fmPlaybackFramePending = !!pending;
+    if (fmPlaybackFrameTimer) { clearTimeout(fmPlaybackFrameTimer); fmPlaybackFrameTimer = null; }
+    if (fmPlaybackFramePending && fmIsPlaying) {
+        // Evita un blocco permanente se un browser omette load/error per un'immagine.
+        fmPlaybackFrameTimer = setTimeout(function () {
+            fmPlaybackFramePending = false;
+            fmPlaybackFrameTimer = null;
+        }, 15000);
+    }
+}
 var fmSpeed = 800;
 var fmMoveHooked = false;
 var fmModule = null;
@@ -12547,6 +12562,7 @@ function fmWarmWebpNext() {
     } catch (e) { }
 }
 function fmRemoveLayers() {
+    fmPlaybackSetFramePending(false);
     fmWebpGeneration++;
     if (fmRasterLayer && typeof map !== 'undefined' && map) { try { map.removeLayer(fmRasterLayer); } catch (e) { } }
     if (fmVectorLayer && typeof map !== 'undefined' && map) { try { map.removeLayer(fmVectorLayer); } catch (e) { } }
@@ -12600,7 +12616,7 @@ function fmRebuild() {
         try { wb = L.latLngBounds([[webp.bounds[0][0], webp.bounds[0][1]], [webp.bounds[1][0], webp.bounds[1][1]]]); } catch (e) { wb = null; }
         if (wb) {
             var wkey = 'webp|' + fmWebpTheme() + '|' + webp.url + '|' + webp.bounds[0][0] + ',' + webp.bounds[0][1] + ',' + webp.bounds[1][0] + ',' + webp.bounds[1][1];
-            if (wkey === fmLayerKey && fmLayerOnMap(fmWebpLayer)) return;
+            if (wkey === fmLayerKey && fmLayerOnMap(fmWebpLayer)) { fmPlaybackSetFramePending(false); return; }
             // Mantieni il frame WebP precedente visibile finche' il successivo
             // non e' caricato e decodificato: evita il vuoto tra due frame.
             if (fmRasterLayer && typeof map !== 'undefined' && map) { try { map.removeLayer(fmRasterLayer); } catch (e) { } }
@@ -12611,9 +12627,12 @@ function fmRebuild() {
             try {
                 var oldWebpLayer = fmWebpVisibleLayer && fmLayerOnMap(fmWebpVisibleLayer) ? fmWebpVisibleLayer : null;
                 var myWebpGeneration = ++fmWebpGeneration;
-                var readyImage = fmTakeDecodedWebp(webp.url);
-                var nextWebpLayer = L.imageOverlay(readyImage || webp.url, wb, { opacity: 0, pane: 'forecastMapsPane', className: 'mri-fm-frame' });
+                // Passa sempre l'URL a Leaflet: riusare un elemento Image gia' caricato
+                // puo' perdere l'evento `load` e lasciare il layer a opacita' zero.
+                // Il preload ha gia' scaldato la cache HTTP/decode del browser.
+                var nextWebpLayer = L.imageOverlay(webp.url, wb, { opacity: 0, pane: 'forecastMapsPane', className: 'mri-fm-frame' });
                 fmWebpLayer = nextWebpLayer;
+                fmPlaybackSetFramePending(fmIsPlaying);
                 if (fmWebpLayer && fmWebpLayer.once) {
                     fmWebpLayer.once('load', function () {
                         if (myWebpGeneration !== fmWebpGeneration) {
@@ -12622,6 +12641,7 @@ function fmRebuild() {
                         }
                         requestAnimationFrame(function () {
                             if (myWebpGeneration !== fmWebpGeneration || !map.hasLayer(nextWebpLayer)) return;
+                            fmPlaybackSetFramePending(false);
                             fmLoaderHide();
                             nextWebpLayer.setOpacity(0.74);
                             fmWebpVisibleLayer = nextWebpLayer;
@@ -12638,6 +12658,7 @@ function fmRebuild() {
                     fmWebpLayer.once('error', function () {
                         // Il .webp non e' disponibile: rimuovi l'overlay e ricadi sul raster .om.
                         if (myWebpGeneration !== fmWebpGeneration) return;
+                        fmPlaybackSetFramePending(false);
                         fmWebpFailedUrl = webp.url;
                         if (nextWebpLayer) { try { if (typeof map !== 'undefined' && map) map.removeLayer(nextWebpLayer); } catch (e) {} }
                         fmWebpLayer = oldWebpLayer;
@@ -12649,6 +12670,7 @@ function fmRebuild() {
                 }
                 fmWebpLayer.addTo(map);
             } catch (e) {
+                fmPlaybackSetFramePending(false);
                 fmSetStatus('Errore rendering: ' + (e && e.message ? e.message : e));
             }
             fmLayerKey = wkey;
@@ -12945,11 +12967,16 @@ function fmStartPlay() {
     fmIsPlaying = true;
     var b = fmEl('fm-play-btn');
     if (b) b.textContent = '⏸';
-    fmInterval = setInterval(function () { fmNextFrame(); }, fmSpeed);
+    fmInterval = setInterval(function () {
+        // Non invalidare un'immagine che sta ancora arrivando: il player aspetta il
+        // prossimo frame WebP invece di saltarlo quando rete o decodifica rallentano.
+        if (!fmPlaybackFramePending) fmNextFrame();
+    }, fmSpeed);
 }
 function fmStopPlay() {
     fmIsPlaying = false;
     if (fmInterval) { clearInterval(fmInterval); fmInterval = null; }
+    fmPlaybackSetFramePending(false);
     var b = fmEl('fm-play-btn');
     if (b) b.textContent = '▶';
 }
