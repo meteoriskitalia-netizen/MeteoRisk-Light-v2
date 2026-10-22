@@ -12050,7 +12050,7 @@ function fmContourInterval(v) {
     else if (/wind_speed|wind_gusts/.test(v)) base = 2;
     else if (/visibility/.test(v)) base = 2;
     else if (/relative_humidity/.test(v)) base = 5;
-    else if (/pressure_msl|surface_pressure/.test(v)) base = 2;
+    else if (/pressure_msl|surface_pressure/.test(v)) base = 5;
     else if (/precipitation|^rain$|^showers$|snowfall|freezing_rain|graupel/.test(v)) base = 1;
     // 1.2.4.13: la densita' delle isolinee e' fissa ("fitta"), quindi il fattore di densita'
     // (x3 media / x6 sparsa) e' morto e stato rimosso: i valori restano IDENTICI (prova:

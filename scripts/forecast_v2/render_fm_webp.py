@@ -748,7 +748,8 @@ def _min_distance(placed, c):
     return best
 
 
-def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=None):
+def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=None,
+                   force_labels=False):
     """Draw the isolines of ``sub`` (and their VALUE labels) on ``draw``.
 
     ``draw`` is an ImageDraw on the SUPERSAMPLED overlay: every coordinate is
@@ -795,10 +796,26 @@ def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=No
         total = 0.0
         for line in lines:
             total += _polyline_length(line)
-        if total < LABEL_MIN_POLYLINE_PX:
+        if total < LABEL_MIN_POLYLINE_PX and not force_labels:
             continue
         text = _format_level(level, interval)
         candidates = _label_candidates(lines, LABEL_MIN_SPACING_PX)
+        if force_labels and not candidates and lines:
+            # Pressione e geopotenziale devono mantenere il valore anche sui
+            # nuclei chiusi (minimi/massimi), spesso piu' corti della spaziatura
+            # standard. Ancora l'etichetta al centro della linea piu' lunga.
+            line = max(lines, key=_polyline_length)
+            half = _polyline_length(line) * 0.5
+            walked = 0.0
+            for i in range(len(line) - 1):
+                x0, y0 = line[i]
+                x1, y1 = line[i + 1]
+                seg = math.hypot(x1 - x0, y1 - y0)
+                if seg > 0 and walked + seg >= half:
+                    f = (half - walked) / seg
+                    candidates = [(x0 + (x1 - x0) * f, y0 + (y1 - y0) * f)]
+                    break
+                walked += seg
         chosen = [c for c in candidates
                   if _min_distance(placed, c) >= LABEL_MIN_SPACING_PX]
         if not chosen and candidates:
@@ -953,6 +970,7 @@ def _apply_overlay(base_rgba, draw_fn):
 
 
 def _overlay_drawer(sub, cgrid, scale, variant, interval, placed,
+                    force_labels=False,
                     speed_out=None, dir_out=None, speed_ref=0.0):
     """Build the draw callback of the overlay (isolines + wind arrows).
 
@@ -964,7 +982,7 @@ def _overlay_drawer(sub, cgrid, scale, variant, interval, placed,
     def _draw(draw, ss):
         if interval is not None:
             _draw_contours(draw, sub, cgrid, scale, variant, interval,
-                           ss=ss, placed=placed)
+                           ss=ss, placed=placed, force_labels=force_labels)
         if speed_out is not None and dir_out is not None:
             _draw_wind_arrows(draw, speed_out, dir_out, cgrid, scale, speed_ref,
                               ss=ss)
@@ -1348,8 +1366,12 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                             dir_out = crop["resample"](dsub)
                         rgba = _apply_overlay(rgba, _overlay_drawer(
                             sub, crop["grid"], crop["scale"], variant, interval,
-                            [], arr_out if dir_out is not None else None,
-                            dir_out, speed_ref))
+                            [], force_labels=(var in {"pressure_msl", "surface_pressure",
+                                                      "geopotential_height_500hPa",
+                                                      "geopotential_height_850hPa",
+                                                      "geopotential_height_1000hPa"}),
+                            speed_out=arr_out if dir_out is not None else None,
+                            dir_out=dir_out, speed_ref=speed_ref))
 
                     vdir = _theme_var_dir(out_root, rname, domain, var, themes[0])
                     os.makedirs(vdir, exist_ok=True)
