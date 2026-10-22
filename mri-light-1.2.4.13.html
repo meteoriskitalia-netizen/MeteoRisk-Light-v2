@@ -5112,6 +5112,7 @@ const DAILY_PARAMS = "weathercode,temperature_2m_max,temperature_2m_min,precipit
         map.getPane('borderOverlayPane').style.pointerEvents = 'none';
         // Confini nazionali Natural Earth, disegnati sopra i raster previsionali.
         fmEnsureCountryBorders();
+        fmEnsureCoastlines();
         // 1.2.4.0: pane per le mappe previsionali (Open-Meteo Weather Map Layer)
         try {
             map.createPane('forecastMapsPane');
@@ -11333,9 +11334,15 @@ var fmPolarLand = null;
 var fmPolarLandLoading = false;
 var FM_POLAR_LAND_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_land.geojson';
 var FM_COUNTRY_BORDERS_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_boundary_lines_land.geojson';
+var FM_COASTLINES_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_coastline.geojson';
 var fmCountryBordersLayer = null;
 var fmCountryBordersHaloLayer = null;
 var fmCountryBordersLoading = false;
+var fmCountryBorderGeo = null;
+var fmCoastlinesLayer = null;
+var fmCoastlinesHaloLayer = null;
+var fmCoastlinesLoading = false;
+var fmCoastlineGeo = null;
 function fmEnsureCountryBorders() {
     if (fmCountryBordersLayer || fmCountryBordersLoading || typeof map === 'undefined' || !map || typeof L === 'undefined') return;
     fmCountryBordersLoading = true;
@@ -11343,19 +11350,44 @@ function fmEnsureCountryBorders() {
         if (!r || !r.ok) throw new Error('HTTP ' + (r ? r.status : '?'));
         return r.json();
     }).then(function (geo) {
+        fmCountryBorderGeo = geo;
         fmCountryBordersLoading = false;
         if (typeof map === 'undefined' || !map || !map.getPane('borderOverlayPane')) return;
         fmCountryBordersHaloLayer = L.geoJSON(geo, {
             pane: 'borderOverlayPane', interactive: false, fill: false,
-            style: function () { return { fill: false, color: '#0f172a', weight: 3.1, opacity: 0.76 }; }
+            style: function () { return { fill: false, color: '#0f172a', weight: 1.05, opacity: 0.4 }; }
         }).addTo(map);
         fmCountryBordersLayer = L.geoJSON(geo, {
             pane: 'borderOverlayPane', interactive: false, fill: false,
-            style: function () { return { fill: false, color: '#ffffff', weight: 1.45, opacity: 0.96 }; }
+            style: function () { return { fill: false, color: '#cbd5e1', weight: 0.55, opacity: 0.58 }; }
         }).addTo(map);
         fmCountryBordersHaloLayer.bringToFront();
         fmCountryBordersLayer.bringToFront();
+        if (fmPolarActive) fmPolarPaintBase();
     }).catch(function () { fmCountryBordersLoading = false; });
+}
+function fmEnsureCoastlines() {
+    if (fmCoastlinesLayer || fmCoastlinesLoading || typeof map === 'undefined' || !map || typeof L === 'undefined') return;
+    fmCoastlinesLoading = true;
+    fetch(FM_COASTLINES_URL, { cache: 'force-cache' }).then(function (r) {
+        if (!r || !r.ok) throw new Error('HTTP ' + (r ? r.status : '?'));
+        return r.json();
+    }).then(function (geo) {
+        fmCoastlineGeo = geo;
+        fmCoastlinesLoading = false;
+        if (typeof map === 'undefined' || !map || !map.getPane('borderOverlayPane')) return;
+        fmCoastlinesHaloLayer = L.geoJSON(geo, {
+            pane: 'borderOverlayPane', interactive: false, fill: false,
+            style: function () { return { fill: false, color: '#ffffff', weight: 2.2, opacity: 0.72 }; }
+        }).addTo(map);
+        fmCoastlinesLayer = L.geoJSON(geo, {
+            pane: 'borderOverlayPane', interactive: false, fill: false,
+            style: function () { return { fill: false, color: '#0b1220', weight: 1.05, opacity: 0.88 }; }
+        }).addTo(map);
+        fmCoastlinesHaloLayer.bringToFront();
+        fmCoastlinesLayer.bringToFront();
+        if (fmPolarActive) fmPolarPaintBase();
+    }).catch(function () { fmCoastlinesLoading = false; });
 }
 function fmPolarEnsureCanvas() {
     if (fmPolarCanvas && fmPolarCanvas.isConnected) return true;
@@ -11379,6 +11411,8 @@ function fmPolarSetActive(active) {
     if (!fmPolarEnsureCanvas()) return;
     container.classList.add('mri-polar-active');
     fmPolarLoadLand();
+    fmEnsureCountryBorders();
+    fmEnsureCoastlines();
     var frame = (typeof fmWebpFrameUrl === 'function') ? fmWebpFrameUrl() : null;
     if (frame) {
         if (fmPolarFrame) fmPolarPaintBase();
@@ -11410,6 +11444,28 @@ function fmPolarDrawOverlays() {
         var a = lon * Math.PI / 180;
         return [cx + radius * rho * Math.sin(a), cy - radius * rho * Math.cos(a)];
     }
+    function strokeLineCollection(geo, color, width) {
+        if (!geo || !geo.features) return;
+        ctx.strokeStyle = color; ctx.lineWidth = Math.max(width * scale, 0.7); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+        geo.features.forEach(function (feature) {
+            var geom = feature && feature.geometry;
+            if (!geom) return;
+            var lines = geom.type === 'LineString' ? [geom.coordinates] : (geom.type === 'MultiLineString' ? geom.coordinates : []);
+            lines.forEach(function (line) {
+                if (!line || line.length < 2) return;
+                ctx.beginPath();
+                var previousLon = null;
+                line.forEach(function (coord) {
+                    if (!coord || coord.length < 2) return;
+                    var p = point(coord[1], coord[0]);
+                    if (previousLon === null || Math.abs(coord[0] - previousLon) > 180) ctx.moveTo(p[0], p[1]);
+                    else ctx.lineTo(p[0], p[1]);
+                    previousLon = coord[0];
+                });
+                ctx.stroke();
+            });
+        });
+    }
     ctx.save();
     ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.clip();
     if (fmPolarLand && fmPolarLand.features) {
@@ -11437,6 +11493,11 @@ function fmPolarDrawOverlays() {
             });
         });
     }
+    // Doppio tratto in stereografica: coste e confini restano distinguibili
+    // anche sulle zone scure e sui nuclei colorati del raster meteo.
+    strokeLineCollection(fmCountryBorderGeo, 'rgba(51,65,85,0.68)', 0.75);
+    strokeLineCollection(fmCoastlineGeo, 'rgba(248,250,252,0.92)', 2.2);
+    strokeLineCollection(fmCoastlineGeo, 'rgba(15,23,42,0.88)', 1.05);
     ctx.strokeStyle = 'rgba(226,232,240,0.48)';
     ctx.lineWidth = Math.max(0.65, 0.8 * scale);
     [30, 40, 50, 60, 70, 80].forEach(function (lat) {
@@ -11463,7 +11524,10 @@ function fmPolarDrawOverlays() {
     ctx.fillStyle = '#f8fafc'; ctx.font = '700 ' + Math.max(10, 12 * scale) + 'px system-ui, sans-serif';
     ctx.fillText('EMISFERO NORD · STEREOGRAFICA POLARE', 18 * scale, 30 * scale);
     ctx.font = '500 ' + Math.max(8, 9 * scale) + 'px system-ui, sans-serif';
-    ctx.fillText('Open-Meteo · coste Natural Earth', 18 * scale, 45 * scale);
+    var polarNote = (fmOverlayVariable === 'pressure_msl')
+        ? 'Z500 · coste/confini Natural Earth · isobare MSL escluse'
+        : 'Open-Meteo · coste e confini Natural Earth';
+    ctx.fillText(polarNote, 18 * scale, 45 * scale);
 }
 function fmPolarPaintBase() {
     if (!fmPolarActive || !fmPolarEnsureCanvas()) return;
@@ -12480,17 +12544,28 @@ function fmRebuild() {
     // vento, quindi non sono piu' disabilitati da un toggle: si usa il fast-path WebP
     // sempre, tranne quando e' attivo l'overlay isobare MSL sul raster Z500 (che vuole il
     // layer vettoriale WML e non e' rappresentabile in un singolo WebP).
-    var wantWebp = !fmOverlayVariable;
+    // Nell'emisfero nord, anche la carta composta Pressione/Geopotenziale usa
+    // il WebP Z500 come base riproiettabile. L'overlay MSL vettoriale resta
+    // disponibile nelle viste Leaflet normali, ma non e' ancora riproiettabile.
+    var wantWebp = !fmOverlayVariable || fmRegion === 'north';
     var webp = wantWebp ? fmWebpFrameUrl() : null;
     if (webp && webp.url === fmWebpFailedUrl) webp = null; // gia' fallito: resta sul path .om
     // La proiezione dall'alto usa il frame WebP completo, inclusi i valori delle
     // isolinee e le frecce. Il fallback .om/composito resta sul normale Leaflet.
     fmPolarSetActive(!!(fmActive && fmRegion === 'north' && webp));
+    if (fmActive && fmRegion === 'north' && wantWebp && !webp) {
+        fmSetStatus(fmWebpIndex && fmWebpIndexRegion === fmRenderRegionId()
+            ? 'Vista polare: frame WebP non disponibile per questa mappa o scadenza'
+            : 'Vista polare: caricamento indice e frame emisferico…');
+    }
     if (wantWebp && !webp) {
         var rr = fmRenderRegionId();
         if (rr) fmFetchRenderedIndex(rr);
     }
     if (webp) {
+        if (fmRegion === 'north' && fmOverlayVariable === 'pressure_msl') {
+            fmSetStatus('Vista polare Z500 attiva; isobare MSL non incluse in questa proiezione');
+        }
         if (fmPolarActive) fmPolarLoadFrame(webp.url, webp.bounds);
         var wb = null;
         try { wb = L.latLngBounds([[webp.bounds[0][0], webp.bounds[0][1]], [webp.bounds[1][0], webp.bounds[1][1]]]); } catch (e) { wb = null; }
