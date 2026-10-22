@@ -15,7 +15,7 @@ name: Forecast Maps V2 - DWD ICON EU + ICON-D2 (mappe .om + WebP, branch fm2-dwd
 # MATRICE DOMINI (2 dominio/i in QUESTO workflow):
 #     - dwd_icon_eu
 #     - dwd_icon_d2
-#   `--domains dwd_icon_eu,dwd_icon_d2`, engine e render. Un dominio della matrice puo' fallire
+#   `--domains dwd_icon_eu,dwd_icon_d2`, engine e render streaming nello stesso job. Un dominio della matrice puo' fallire
 #   senza cancellare gli altri (fail-fast:false).
 #
 # BRANCH DATI:
@@ -62,7 +62,7 @@ on:
 
 # CONCURRENCY A LIVELLO WORKFLOW - GRUPPO PROPRIO del fornitore (prefisso
 # `forecast-maps-dwd-`): non si mette in coda dietro gli altri 4 per-fornitore
-# ne' dietro l'index-builder. I 3 lock PER-JOB (engine per-dominio, render
+# ne' dietro l'index-builder. I lock PER-JOB (pipeline engine+render per-dominio,
 # per-dominio, merge per-fornitore) restano e serializzano il lavoro fine.
 # `cancel-in-progress: false`: cancellare a meta' lascerebbe la serie di push
 # incrementale parziale (il run successivo la ricompleta, ma nessuna fretta).
@@ -78,10 +78,10 @@ jobs:
     # ENGINE: scarica/costruisce i frame .om di DWD ICON EU + ICON-D2 e li committa su
     # `fm2-dwd` in `data/fm2/<dominio>/**`.
     runs-on: ubuntu-latest
-    # Timeout 180': i domini GLOBALI (~209 frame) a 60' venivano CANCELLATI senza
+    # Timeout 360': i domini GLOBALI (~209 frame) a 60' venivano CANCELLATI senza
     # finire. A cache calda (restore-keys fm2-frames-<dominio>-) il run e' molto
     # piu' corto: il valore e' una rete di sicurezza, non il tempo atteso.
-    timeout-minutes: 180
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
@@ -124,7 +124,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.12"
           cache: pip
           cache-dependency-path: scripts/forecast_v2/requirements.txt
 
@@ -140,20 +140,42 @@ jobs:
           restore-keys: |
             fm2-frames-${{ matrix.domain }}-
 
-      - name: Build cache mappe previsionali V2
-        id: engine
+      - name: Engine + render in parallelo (frame-by-frame)
         run: |
+          set +e
           FORCE=""
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_update }}" = "true" ]; then
             FORCE="--force"
           fi
+          PROGRESS="$RUNNER_TEMP/fm2-progress-${{ matrix.domain }}.json"
           python scripts/forecast_v2/forecast_v2_engine.py \
             --domains ${{ matrix.domain }} \
             --valid-frames 0 \
             --out data/fm2 \
             --frames-cache .cache_fm2_frames \
-            $FORCE
-
+            --progress-manifest "$PROGRESS" \
+            $FORCE &
+          ENGINE_PID=$!
+          python scripts/forecast_v2/render_fm_webp.py \
+            --in data/fm2 \
+            --out data/fm2-rendered \
+            --domains ${{ matrix.domain }} \
+            --watch-manifest "$PROGRESS" \
+            --limit-frames 0 \
+            --method 4 &
+          RENDER_PID=$!
+          if wait "$ENGINE_PID"; then ENGINE_STATUS=0; else ENGINE_STATUS=$?; fi
+          if [ "$ENGINE_STATUS" -ne 0 ]; then
+            echo "[ERROR] Engine terminato con codice $ENGINE_STATUS; arresto il consumer render."
+            kill "$RENDER_PID" 2>/dev/null || true
+            wait "$RENDER_PID" 2>/dev/null || true
+            exit "$ENGINE_STATUS"
+          fi
+          if wait "$RENDER_PID"; then RENDER_STATUS=0; else RENDER_STATUS=$?; fi
+          if [ "$RENDER_STATUS" -ne 0 ]; then
+            echo "[ERROR] Render streaming terminato con codice $RENDER_STATUS."
+            exit "$RENDER_STATUS"
+          fi
       - name: Summary
         if: always()
         run: |
@@ -179,6 +201,18 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
 
+      - name: Upload render shard fm2r-${{ matrix.domain }}
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fm2r-${{ matrix.domain }}
+          path: |
+            data/fm2-rendered/italia/${{ matrix.domain }}
+            data/fm2-rendered/europa/${{ matrix.domain }}
+            data/fm2-rendered/north/${{ matrix.domain }}
+            data/fm2-rendered/domain/${{ matrix.domain }}
+          if-no-files-found: warn
+          retention-days: 1
       - name: Commit cache aggiornata su fm2-dwd (only if changed)
         if: success()
         run: |
@@ -248,97 +282,6 @@ jobs:
           echo "[ERROR] Push su fm2-dwd non riuscito dopo 5 tentativi."
           exit 1
 
-  render:
-    # SHARD PER-DOMINIO: un job per dominio, ciascuno renderizza SOLO il proprio
-    # dominio (`--domains ${{ matrix.domain }}`, le QUATTRO regioni italia/europa/north/domain,
-    # entrambi i temi) in un albero vuoto e carica l'artifact fm2r-<dominio>.
-    # Gli shard NON scrivono index.json (li scrive `forecast-maps-index.yml`).
-    name: render (${{ matrix.domain }})
-    needs: engine
-    if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 240
-    strategy:
-      fail-fast: false
-      matrix:
-        domain:
-          - dwd_icon_eu
-          - dwd_icon_d2
-    concurrency:
-      queue: max
-      group: forecast-maps-dwd-render-${{ matrix.domain }}
-      cancel-in-progress: false
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 1
-          persist-credentials: false
-          filter: blob:none
-          sparse-checkout: |
-            scripts/forecast_v2
-          sparse-checkout-cone-mode: true
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: scripts/forecast_v2/requirements.txt
-
-      - name: Install dependencies
-        run: |
-          python -m pip install -r scripts/forecast_v2/requirements.txt
-
-      - name: Download artifact engine fm2-${{ matrix.domain }}
-        uses: actions/download-artifact@v4
-        with:
-          name: fm2-${{ matrix.domain }}
-          path: /tmp/fm2art
-
-      - name: Assemble dominio engine
-        run: |
-          mkdir -p "data/fm2/${{ matrix.domain }}"
-          cp -a /tmp/fm2art/. "data/fm2/${{ matrix.domain }}/"
-
-      - name: Build WebP shard ${{ matrix.domain }} (italia/europa/north/domain, light+dark)
-        run: |
-          python scripts/forecast_v2/render_fm_webp.py \
-            --in data/fm2 \
-            --out data/fm2-rendered \
-            --domains ${{ matrix.domain }} \
-            --limit-frames 0 \
-            --method 4
-
-      - name: Summary
-        if: always()
-        run: |
-          {
-            echo "## MeteoRisk - Forecast Maps V2 (dwd / shard render ${{ matrix.domain }})"
-            echo ""
-            echo "WebP prodotti: $(find data/fm2-rendered -name '*.webp' 2>/dev/null | wc -l)"
-            if [ -d data/fm2-rendered ]; then
-              echo "Byte totali: $(du -sb data/fm2-rendered | cut -f1)"
-            else
-              echo "Byte totali: 0 (nessun output)"
-            fi
-            echo ""
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload artifact fm2r-${{ matrix.domain }}
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fm2r-${{ matrix.domain }}
-          path: |
-            data/fm2-rendered/italia/${{ matrix.domain }}
-            data/fm2-rendered/europa/${{ matrix.domain }}
-            data/fm2-rendered/north/${{ matrix.domain }}
-            data/fm2-rendered/domain/${{ matrix.domain }}
-          if-no-files-found: warn
-          retention-days: 1
-
   render-merge:
     # MERGE PER-FORNITORE: pubblica i WebP di DWD ICON EU + ICON-D2 su `fm2-rendered` nelle
     # directory `data/fm2-rendered/<regione>/<dominio>/**` (path DISGIUNTI dagli
@@ -356,8 +299,8 @@ jobs:
     #   successivo `--index-only` dell'index-builder, che legge dal FILESYSTEM
     #   LOCALE dopo aver materializzato i WebP da `fm2-rendered`.
     name: render-merge dwd (webp su fm2-rendered, nessun index)
-    needs: render
-    if: ${{ !cancelled() }}
+    needs: engine
+    if: ${{ success() }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     concurrency:
@@ -408,7 +351,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.12"
           cache: pip
           cache-dependency-path: scripts/forecast_v2/requirements.txt
 
@@ -534,29 +477,24 @@ jobs:
             # questo run non ha riprodotto, es. regione saltata).
             IDXT="$(mktemp -u)"; rm -f "$IDXT"
             GIT_INDEX_FILE="$IDXT" git read-tree "$BASE"
-            add_paths=""
             for region in italia europa north domain; do
               d="data/fm2-rendered/$region/dwd_icon_eu"
-              if [ -d "$d" ]; then
-                GIT_INDEX_FILE="$IDXT" git ls-files -- "$d" \
-                  | while IFS= read -r p; do
-                      GIT_INDEX_FILE="$IDXT" git update-index --force-remove -- "$p"
-                    done
-                add_paths="$add_paths $d"
+              if [ -d "$d/runs" ]; then
+                for rd in "$d"/runs/*; do
+                  [ -d "$rd" ] || continue
+                  GIT_INDEX_FILE="$IDXT" git add -A -- "$rd"
+                done
+                GIT_INDEX_FILE="$IDXT" python scripts/forecast_v2/prune_fm2_run_index.py --index "$IDXT" --path "$d" --keep 3
               fi
               d="data/fm2-rendered/$region/dwd_icon_d2"
-              if [ -d "$d" ]; then
-                GIT_INDEX_FILE="$IDXT" git ls-files -- "$d" \
-                  | while IFS= read -r p; do
-                      GIT_INDEX_FILE="$IDXT" git update-index --force-remove -- "$p"
-                    done
-                add_paths="$add_paths $d"
+              if [ -d "$d/runs" ]; then
+                for rd in "$d"/runs/*; do
+                  [ -d "$rd" ] || continue
+                  GIT_INDEX_FILE="$IDXT" git add -A -- "$rd"
+                done
+                GIT_INDEX_FILE="$IDXT" python scripts/forecast_v2/prune_fm2_run_index.py --index "$IDXT" --path "$d" --keep 3
               fi
             done
-            if [ -n "$add_paths" ]; then
-              # shellcheck disable=SC2086
-              GIT_INDEX_FILE="$IDXT" git add -A -- $add_paths
-            fi
             TREE="$(GIT_INDEX_FILE="$IDXT" git write-tree)"
             rm -f "$IDXT"
             # NO-OP: albero identico al tip => nessun churn.
@@ -664,3 +602,16 @@ jobs:
           done
           echo "[ERROR] Push su fm2-rendered non riuscito dopo 5 tentativi."
           exit 1
+
+      - name: Aggiorna subito l'indice aggregato
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/dispatches" \
+            -d '{"event_type":"forecast-maps-published"}'

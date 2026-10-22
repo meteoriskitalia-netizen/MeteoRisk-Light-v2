@@ -52,32 +52,16 @@ name: Forecast Maps Index (index.json aggregato su fm2-rendered)
 #   escludera' da solo i domini senza manifest con
 #   "[index] <regione>/<dominio>: escluso: non presente in --in".
 #
-# TRIGGER (scelta motivata — vedi anche il commento sotto `on:`):
-#   `workflow_run` NON e' adatto qui: i 5 workflow per-fornitore finiscono in momenti
-#   DIVERSI (durata per-fornitore molto diversa: dwd_icon globale e' il piu' lento,
-#   ncep ha 2 domini globali, gli altri sono rapidi) e `workflow_run` scatenerebbe
-#   l'index-builder 5 volte per ogni giro, ognuna su uno stato PARZIALE (solo alcuni
-#   branch aggiornati). L'indice sarebbe corretto ma riscritto 5 volte, con 5 push
-#   concorrenti serializzati dalla concurrency e 4 esecuzioni su 5 inutili.
-#   `repository_dispatch` richiede un chiamante esplicito e un PAT: gli altri workflow
-#   non hanno il token per dispatcharlo senza aggiungere un secret (vincolo: ZERO
-#   secrets su v2).
-#   SCELTA: `workflow_dispatch` (manuale, per il ricontrollo a comando) + `schedule`
-#   (cron). Lo `schedule` e' l'unico trigger nativo SENZA secret che gira a orario
-#   fisso, DOPO che tutti e 5 i workflow hanno avuto il tempo di finire: e' la
-#   soluzione robusta al "finiscono in momenti diversi". Il cron e' sfalsato di ~40'
-#   rispetto al cron di `forecast-maps-v2` per lasciargli completare i run (i domini
-#   globali possono durare ~1-2h: l'indice aggregato e' comunque IDEMPOTENTE e
-#   autocorrettivo, un run successivo ricostruisce l'indice dallo stato reale dei
-#   branch). NON si usa `needs`/`workflow_run` perche' non coprono run indipendenti.
+# TRIGGER: ogni merge fornitore invia `repository_dispatch` dopo aver pubblicato
+# i WebP. Il GITHUB_TOKEN con contents:write puo' avviare questo evento senza PAT.
+# Lo schedule resta come recupero periodico in caso di dispatch mancato.
 
 on:
   workflow_dispatch:
+  repository_dispatch:
+    types: [ci-run, forecast-maps-published]
   schedule:
-    # Ogni 6 ore, al minuto 50 (sfalsato di 40' dal :10 di forecast-maps-v2):
-    # quando parte, i run per-fornitore lanciati al :10 hanno avuto ~40' per
-    # completare. L'operazione e' idempotente: ricostruisce l'indice dallo stato
-    # reale dei 5 branch a ogni esecuzione, quindi un run sovrapposto e' innocuo.
+    # Recupero periodico in caso di dispatch mancato.
     - cron: "50 */6 * * *"
 
 # CONCURRENCY PROPRIA: `cancel-in-progress: false` (mai interrompere a meta' una
