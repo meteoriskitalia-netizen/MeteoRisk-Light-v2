@@ -5110,6 +5110,12 @@ const DAILY_PARAMS = "weathercode,temperature_2m_max,temperature_2m_min,precipit
         map.createPane('borderOverlayPane');
         map.getPane('borderOverlayPane').style.zIndex = 410;
         map.getPane('borderOverlayPane').style.pointerEvents = 'none';
+        // Geografia aggiuntiva solo per le mappe previsionali: i confini italiani
+        // restano quelli ISTAT del layer amministrativo esistente.
+        map.createPane('forecastGeographyPane');
+        map.getPane('forecastGeographyPane').style.zIndex = 411;
+        map.getPane('forecastGeographyPane').style.pointerEvents = 'none';
+        map.getPane('forecastGeographyPane').style.display = 'none';
         // Confini nazionali Natural Earth, disegnati sopra i raster previsionali.
         fmEnsureCountryBorders();
         fmEnsureCoastlines();
@@ -11332,9 +11338,9 @@ var fmPolarFrameUrl = null;
 var fmPolarGeneration = 0;
 var fmPolarLand = null;
 var fmPolarLandLoading = false;
-var FM_POLAR_LAND_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_land.geojson';
-var FM_COUNTRY_BORDERS_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_boundary_lines_land.geojson';
-var FM_COASTLINES_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_coastline.geojson';
+var FM_POLAR_LAND_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_land.geojson';
+var FM_COUNTRY_BORDERS_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_boundary_lines_land.geojson';
+var FM_COASTLINES_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_coastline.geojson';
 var fmCountryBordersLayer = null;
 var fmCountryBordersHaloLayer = null;
 var fmCountryBordersLoading = false;
@@ -11352,14 +11358,14 @@ function fmEnsureCountryBorders() {
     }).then(function (geo) {
         fmCountryBorderGeo = geo;
         fmCountryBordersLoading = false;
-        if (typeof map === 'undefined' || !map || !map.getPane('borderOverlayPane')) return;
+        if (typeof map === 'undefined' || !map || !map.getPane('forecastGeographyPane')) return;
         fmCountryBordersHaloLayer = L.geoJSON(geo, {
-            pane: 'borderOverlayPane', interactive: false, fill: false,
-            style: function () { return { fill: false, color: '#0f172a', weight: 1.05, opacity: 0.4 }; }
+            pane: 'forecastGeographyPane', interactive: false, fill: false, filter: fmIsItalyBoundaryFeature,
+            style: function () { return { fill: false, color: '#0f172a', weight: 0.8, opacity: 0.32 }; }
         }).addTo(map);
         fmCountryBordersLayer = L.geoJSON(geo, {
-            pane: 'borderOverlayPane', interactive: false, fill: false,
-            style: function () { return { fill: false, color: '#cbd5e1', weight: 0.55, opacity: 0.58 }; }
+            pane: 'forecastGeographyPane', interactive: false, fill: false, filter: fmIsItalyBoundaryFeature,
+            style: function () { return { fill: false, color: '#cbd5e1', weight: 0.45, opacity: 0.44 }; }
         }).addTo(map);
         fmCountryBordersHaloLayer.bringToFront();
         fmCountryBordersLayer.bringToFront();
@@ -11375,19 +11381,30 @@ function fmEnsureCoastlines() {
     }).then(function (geo) {
         fmCoastlineGeo = geo;
         fmCoastlinesLoading = false;
-        if (typeof map === 'undefined' || !map || !map.getPane('borderOverlayPane')) return;
+        if (typeof map === 'undefined' || !map || !map.getPane('forecastGeographyPane')) return;
         fmCoastlinesHaloLayer = L.geoJSON(geo, {
-            pane: 'borderOverlayPane', interactive: false, fill: false,
-            style: function () { return { fill: false, color: '#ffffff', weight: 2.2, opacity: 0.72 }; }
+            pane: 'forecastGeographyPane', interactive: false, fill: false,
+            style: function () { return { fill: false, color: '#ffffff', weight: 1.8, opacity: 0.62 }; }
         }).addTo(map);
         fmCoastlinesLayer = L.geoJSON(geo, {
-            pane: 'borderOverlayPane', interactive: false, fill: false,
-            style: function () { return { fill: false, color: '#0b1220', weight: 1.05, opacity: 0.88 }; }
+            pane: 'forecastGeographyPane', interactive: false, fill: false,
+            style: function () { return { fill: false, color: '#0b1220', weight: 0.9, opacity: 0.82 }; }
         }).addTo(map);
         fmCoastlinesHaloLayer.bringToFront();
         fmCoastlinesLayer.bringToFront();
         if (fmPolarActive) fmPolarPaintBase();
     }).catch(function () { fmCoastlinesLoading = false; });
+}
+function fmIsItalyBoundaryFeature(feature) {
+    var p = feature && feature.properties ? feature.properties : {};
+    var left = String(p.ADM0_A3_L || p.adm0_a3_l || p.ADM0_A3 || p.adm0_a3 || '').toUpperCase();
+    var right = String(p.ADM0_A3_R || p.adm0_a3_r || '').toUpperCase();
+    return left !== 'ITA' && right !== 'ITA';
+}
+function fmSetForecastGeographyVisible(visible) {
+    if (typeof map === 'undefined' || !map || !map.getPane) return;
+    var pane = map.getPane('forecastGeographyPane');
+    if (pane) pane.style.display = visible ? '' : 'none';
 }
 function fmPolarEnsureCanvas() {
     if (fmPolarCanvas && fmPolarCanvas.isConnected) return true;
@@ -11448,6 +11465,7 @@ function fmPolarDrawOverlays() {
         if (!geo || !geo.features) return;
         ctx.strokeStyle = color; ctx.lineWidth = Math.max(width * scale, 0.7); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
         geo.features.forEach(function (feature) {
+            if (geo === fmCountryBorderGeo && !fmIsItalyBoundaryFeature(feature)) return;
             var geom = feature && feature.geometry;
             if (!geom) return;
             var lines = geom.type === 'LineString' ? [geom.coordinates] : (geom.type === 'MultiLineString' ? geom.coordinates : []);
@@ -13089,6 +13107,7 @@ function toggleForecastMaps() {
     if (panel.classList.contains('active')) {
         panel.classList.remove('active');
         fmActive = false;
+        fmSetForecastGeographyVisible(false);
         fmPolarSetActive(false);
         fmStopPlay();
         fmRemoveLayers();
@@ -13101,6 +13120,7 @@ function toggleForecastMaps() {
     }
     panel.classList.add('active');
     fmActive = true;
+    fmSetForecastGeographyVisible(true);
     if (btn) btn.textContent = '🗺️ Mappe previsionali (ON)';
     fmInvalidateSize();
     fmPopulateDomains();
