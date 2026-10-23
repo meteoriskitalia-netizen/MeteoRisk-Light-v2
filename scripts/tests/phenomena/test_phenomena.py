@@ -357,9 +357,9 @@ def _write_radar(radar_dir, track_dbz=(58.0, 58.0, 58.0, 58.0),
                      "velocity_kmh": 30.0, "direction_toward_deg": 45.0,
                      "points": _points(list(track_dbz)),
                  }]})
-    _write_json(radar_dir / "supercells.json",
-                {"radar_timestamp": RADAR_ISO, "candidates": [{
-                    "supercell_id": "sc-7", "track_id": 7,
+    _write_json(radar_dir / "convective_structures.json",
+                {"radar_timestamp": RADAR_ISO, "structures": [{
+                    "structure_id": "cs-7", "track_id": 7,
                     "track_type": "storm_object",
                     "first_seen": "2026-10-06T23:45:00Z",
                     "last_seen": RADAR_ISO, "position": [12.5, 41.5],
@@ -1375,17 +1375,17 @@ def test_absorb_event_score_and_evidence_share_the_representative():
 def test_build_observations_dedupes_cell_candidate_and_keeps_storm_object(tmp_path):
     radar_dir = _write_radar(tmp_path / "radar")
     # il candidato "cell" con lo stesso track_id della track va saltato
-    data = json.loads((radar_dir / "supercells.json").read_text(
+    data = json.loads((radar_dir / "convective_structures.json").read_text(
         encoding="utf-8"))
-    data["candidates"].append({
+    data["structures"].append({
         "track_id": 1, "track_type": "cell", "position": [12.0, 41.0],
         "first_seen": RADAR_ISO, "last_seen": RADAR_ISO,
         "intensity": {"max_dbz": 70.0},
         "organization": {"organization_score": 90},
         "motion": {"duration_min": 15.0}, "on_latest_frame": True})
-    _write_json(radar_dir / "supercells.json", data)
+    _write_json(radar_dir / "convective_structures.json", data)
     tracks = json.loads((radar_dir / "tracks.json").read_text(encoding="utf-8"))
-    supercells = json.loads((radar_dir / "supercells.json").read_text(
+    supercells = json.loads((radar_dir / "convective_structures.json").read_text(
         encoding="utf-8"))
     storms = json.loads((radar_dir / "storms.geojson").read_text(
         encoding="utf-8"))
@@ -1418,7 +1418,7 @@ def _obs_from_storms(features, tmp_path):
     _write_json(radar_dir / "storms.geojson",
                 {"type": "FeatureCollection", "features": features})
     tracks = json.loads((radar_dir / "tracks.json").read_text(encoding="utf-8"))
-    supercells = json.loads((radar_dir / "supercells.json").read_text(
+    supercells = json.loads((radar_dir / "convective_structures.json").read_text(
         encoding="utf-8"))
     storms = json.loads((radar_dir / "storms.geojson").read_text(
         encoding="utf-8"))

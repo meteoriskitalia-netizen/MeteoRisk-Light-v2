@@ -9,7 +9,8 @@ Pipeline:
   -> convective cell detection (per frame)
   -> storm tracking multi-frame (Hungarian, cost combinata)
   -> preliminary scoring (Organization Score 0-100)
-  -> Phase 2 SUPERCELL (additivo): hook/struttura/ambiente/fulmini -> SSI v2
+  -> convective structure (additivo): SOI 0-100 su celle + storm object
+  -> Phase 2 (additivo): hook/struttura/ambiente/fulmini/OT -> stack severo
   -> output atomico derivati (data/radar)
 
 FAILURE POLICY (exit codes):
@@ -341,8 +342,144 @@ def _hook_for_candidate(frames, lon, lat, radius_km, hcfg, hook_mod):
         windows, dbz_threshold=hcfg.get("dbz_threshold"))
 
 
+def _fetch_extra_cappi(config, scfg, products, ref_shape, warnings):
+    """Scarica i livelli CAPPI configurati che NON sono gia' in `products`.
+
+    Serve a MESH (Witt et al. 1998: >= 4 livelli per il profilo dBZ(H)). Con la
+    config di default `cappi_products` = {2.0: CAPPI_2, 6.0: CAPPI_6} questa
+    funzione NON fa richieste: i due prodotti sono product_low/product_high,
+    gia' scaricati. Ogni livello in piu' costa un download DPC: il costo e'
+    dichiarato nella config, non nascosto.
+
+    Ritorna {nome_prodotto: RasterData|None}; prodotto non scaricabile o con
+    shape diverso -> None con warning (fail-closed, nessuna griglia finta)."""
+    already = {}
+    if scfg.get("product_low"):
+        already[str(scfg["product_low"])] = products.get("low")
+    if scfg.get("product_high"):
+        already[str(scfg["product_high"])] = products.get("high")
+    extra = {}
+    for name in (scfg.get("cappi_products") or {}).values():
+        name = str(name)
+        if name in already or name in extra:
+            continue
+        try:
+            gframes, gwarn, _ts = fetch.fetch_frames(config, product=name,
+                                                      max_frames=1)
+            warnings.extend(gwarn)
+        except Exception as exc:
+            warnings.append(f"cappi {name}: {exc}")
+            extra[name] = None
+            continue
+        if not gframes:
+            warnings.append(f"cappi {name}: no frames")
+            extra[name] = None
+            continue
+        rd = gframes[-1]
+        if tuple(rd.data.shape) != tuple(ref_shape):
+            warnings.append(f"cappi {name}: shape mismatch")
+            extra[name] = None
+            continue
+        extra[name] = rd
+    return extra
+
+
+def _cappi_level_map(scfg, products, extra):
+    """{quota_km: RasterData|None} dei livelli CAPPI disponibili per MESH."""
+    by_name = {}
+    if scfg.get("product_low"):
+        by_name[str(scfg["product_low"])] = products.get("low")
+    if scfg.get("product_high"):
+        by_name[str(scfg["product_high"])] = products.get("high")
+    for name, rd in (extra or {}).items():
+        by_name[str(name)] = rd
+    out = {}
+    for key, name in (scfg.get("cappi_products") or {}).items():
+        try:
+            h = float(key)
+        except (TypeError, ValueError):
+            continue
+        out[h] = by_name.get(str(name))
+    return out
+
+
+def _structure_summary(cand):
+    """Sintesi del descrittore per lo stack severo (campo con fonte)."""
+    from radar_engine import severe_stack as ss
+    from radar_engine.convective_structure import ROTATION_NULL_REASON
+    soi = cand.get("soi")
+    return {
+        "structure_id": cand.get("structure_id"),
+        "soi": ss.field(
+            None if soi is None else int(soi),
+            "radar_engine.convective_structure (SOI 0-100)",
+            "descrittore morfologico interno: nessuna validazione locale, "
+            "NON una probabilita'",
+            null_reason=None if soi is not None else "soi_not_computed"),
+        "level": cand.get("level"),
+        "phase": cand.get("phase"),
+        "rotation_measurable": False,
+        "rotation_null_reason": ROTATION_NULL_REASON,
+    }
+
+
+def _severe_stack_for_candidate(window, products, cappi, env_detail,
+                                ot_details, bundle):
+    """S1 + S2 + S3 del candidato (1.2.4.17).
+
+    Ogni componente mancante esce con `null_reason`: nessun valore inventato.
+    S3 riusa satellite_ot (details gia' calcolati sulla stessa finestra IR)."""
+    from radar_engine import severe_stack as ss
+
+    env_layer = ss.environment_layer(env_detail)
+
+    vil = etm = None
+    levels = []
+    if window is not None:
+        if products.get("vil") is not None:
+            vil = _crop(window, products["vil"].data)
+        if products.get("etm") is not None:
+            etm = _crop(window, products["etm"].data)
+        for h_km in sorted(cappi or {}):
+            rd = cappi[h_km]
+            if rd is not None:
+                levels.append((h_km, _crop(window, rd.data)))
+    h0 = (env_detail or {}).get("freezing_level_m")
+    lr = (env_detail or {}).get("lr_700_500")
+    h20 = ss.minus20_from_lapse(h0, lr)
+    hail = ss.hail_layer(levels, vil, etm, h0_m=h0, h20_m=h20)
+    ot = ss.ot_layer_from_details(
+        ot_details, timestamp_iso=getattr(bundle, "radar_timestamp_iso", None))
+    return {"environment": env_layer, "hail": hail, "ot": ot,
+            "h0_m": h0, "h20_m": h20, "cappi_levels": len(levels)}
+
+
+def _record_predictions(bundle, config, out_dir):
+    """Registro JSONL delle predizioni (1.2.4.17, best-effort).
+
+    Rotazione a `predictions_retention_days` (30) + append. Un errore NON
+    cambia l'rc del run: finisce nei warning (stessa politica di history)."""
+    try:
+        from radar_engine import severe_predictions as pred_mod
+    except Exception as exc:                      # pragma: no cover
+        bundle.warnings.append(f"severe_predictions import failed: {exc}")
+        return None
+    secfg = ((config.get("phase2") or {}).get("severe_stack") or {})
+    if not secfg.get("predictions_enabled", True):
+        return None
+    try:
+        bundle.severe_predictions = pred_mod.record_predictions(
+            bundle, out_dir,
+            version=(bundle.engine or {}).get("version"),
+            retention_days=int(secfg.get("predictions_retention_days",
+                                         pred_mod.RETENTION_DAYS)))
+    except Exception as exc:
+        bundle.warnings.append(f"severe_predictions failed: {exc}")
+    return bundle.severe_predictions
+
+
 def _phase2_evaluate(bundle, config):
-    """Layer Fase 2 SUPERCELL (additivo): sub-layer A1 -> SSI v2 PER CANDIDATO.
+    """Fase 2 (additivo): sub-layer A1 -> indice v2 + stack severo PER CANDIDATO.
 
     Policy: ogni sotto-layer e' OPZIONALE; errore/dato assente -> warning in
     bundle.warnings + sub-score None PER IL CANDIDATO toccato (mai crash del
@@ -354,11 +491,12 @@ def _phase2_evaluate(bundle, config):
     ARRICCHITI: ssi/level/... e bundle.status restano intatti (lo status e'
     gia' calcolato alla riga 85 del pipeline, prima di questo layer)."""
     p2_cfg = config.get("phase2") or {}
+    cs_cfg = config.get("convective_structure") or {}
     warnings = bundle.warnings
     if not p2_cfg.get("enabled"):
         bundle.phase2 = {"status": "disabled", "warnings": warnings}
         return
-    candidates = getattr(bundle, "supercells", None) or []
+    candidates = getattr(bundle, "convective_structures", None) or []
     if not candidates:
         warnings.append("phase2: no candidates")
         bundle.phase2 = {"status": "unavailable", "warnings": warnings}
@@ -408,11 +546,17 @@ def _phase2_evaluate(bundle, config):
     # --- STRUTTURA + IR_108: prodotti DPC scaricati UNA VOLTA (rif. VMI) ----
     products = {}
     ir_rd = None
+    cappi = {}
     if frames:
         products = _fetch_structure_products(config, scfg,
                                              frames[-1].data.shape, warnings)
         if not any(rd is not None for rd in products.values()):
             warnings.append("phase2 structure: no products available")
+        # CAPPI per MESH: default 2 livelli (CAPPI_2/CAPPI_6, GIA' scaricati),
+        # nessuna richiesta extra. >=4 livelli solo se configurati.
+        extra_cappi = _fetch_extra_cappi(config, scfg, products,
+                                         frames[-1].data.shape, warnings)
+        cappi = _cappi_level_map(scfg, products, extra_cappi)
         # OVERSHOOTING TOP: frame IR_108 (stessa griglia TM della VMI).
         ir_rd = _fetch_ir108(config, otcfg, frames[-1], warnings)
     else:
@@ -428,12 +572,33 @@ def _phase2_evaluate(bundle, config):
                             lightning.LIGHTNING_TREND_WINDOW))
     except (TypeError, ValueError):
         window = lightning.LIGHTNING_TREND_WINDOW
+    # E (1.2.4.17): il backoff effettivo e' il MINIMO fra config e costante
+    # del modulo (LTG_MAX_BACKOFF_STEPS = 12). Prima la config diceva 36 e il
+    # modulo 12: un run senza slot pubblicati produceva 37 richieste HTTP 403
+    # (STUDIO_SUPERCELLE_RADAR sez. 6.4). Ora: un solo tentativo per slot e
+    # stop dopo `max_consecutive_failures` errori CONSECUTIVI, ma SOLO dopo il
+    # grace period dei 9 passi di ritardo di pubblicazione MISURATO: fermarsi
+    # prima azzererebbe il layer fulmini in ogni run (il primo slot utile e'
+    # tipicamente a k=9) invece di risparmiare richieste.
     try:
-        max_backoff = max(0, int(lcfg.get("max_backoff_steps", 36)))
+        max_backoff = max(0, min(int(lcfg.get("max_backoff_steps",
+                                              lightning.LTG_MAX_BACKOFF_STEPS)),
+                                 int(lightning.LTG_MAX_BACKOFF_STEPS)))
     except (TypeError, ValueError):
-        max_backoff = 36
+        max_backoff = int(lightning.LTG_MAX_BACKOFF_STEPS)
+    try:
+        max_failures = max(1, int(lcfg.get("max_consecutive_failures", 3)))
+    except (TypeError, ValueError):
+        max_failures = 3
+    try:
+        grace = max(0, min(int(lcfg.get("publication_grace_steps",
+                                        lightning.LTG_PUBLICATION_DELAY_STEPS)),
+                          max_backoff))
+    except (TypeError, ValueError):
+        grace = min(lightning.LTG_PUBLICATION_DELAY_STEPS, max_backoff)
     slot_cache = {}
     ltg_slots_recent = []
+    failures_after_grace = 0      # errori di fila DOPO il grace (criterio di stop)
     for k in range(0, max_backoff + 1):   # dal piu' recente all'indietro
         if len(ltg_slots_recent) >= window:
             break
@@ -451,7 +616,17 @@ def _phase2_evaluate(bundle, config):
                 slot = None
             slot_cache[epoch] = slot
         if slot is not None:
+            failures_after_grace = 0
             ltg_slots_recent.append(slot)
+        else:
+            if k >= grace:
+                failures_after_grace += 1
+                if failures_after_grace >= max_failures:
+                    warnings.append(
+                        f"phase2 lightning: stop dopo {failures_after_grace} "
+                        f"errori consecutivi oltre il grace di {grace} passi "
+                        f"(backoff max {max_backoff})")
+                    break
     # dal piu' vecchio al piu' recente (ordine atteso da lightning_spatial_score)
     ltg_slots = list(reversed(ltg_slots_recent))
     if not ltg_slots:
@@ -538,6 +713,7 @@ def _phase2_evaluate(bundle, config):
                 _warn(f"phase2 lightning failed: {exc}")
 
         env_score = None
+        env_detail = None
         if env_enabled and lon is not None:
             detail = None
             try:
@@ -550,6 +726,7 @@ def _phase2_evaluate(bundle, config):
                 env_failures += 1
             else:
                 env_score = detail.get("env_score")
+                env_detail = detail
                 if result.get("environment") is None:
                     result["environment"] = {
                         "scp": detail.get("scp"), "stp": detail.get("stp"),
@@ -577,6 +754,20 @@ def _phase2_evaluate(bundle, config):
         c["env"] = env_score
         c["env_scp"] = env_score        # chip 'Env' (0-100; SCP grezzo sopra)
 
+        # --- STACK SEVERO (1.2.4.17): S1 + S2 + S3 per candidato -------------
+        try:
+            parts = _severe_stack_for_candidate(
+                window, products, cappi, env_detail, ot_details, bundle)
+            from radar_engine import severe_stack as _severe
+            c["severe_stack"] = _severe.combine(
+                structure=_structure_summary(c), hail=parts["hail"],
+                environment=parts["environment"], ot=parts["ot"])
+            c["hail"] = parts["hail"]
+        except Exception as exc:
+            _warn(f"phase2 severe_stack failed: {exc}")
+            c["severe_stack"] = None
+            c["hail"] = None
+
     if no_position:
         _warn("phase2: candidate without valid position -> per-cell layers None")
     if env_failures:
@@ -593,12 +784,24 @@ def _phase2_evaluate(bundle, config):
 
     # --- SSI v2 per candidato (pesi rinormalizzati sui presenti) ------------
     weights = (p2_cfg.get("aggregate") or {}).get("weights")
+    from radar_engine.convective_structure import derive_confidence
     try:
         for c in candidates:
             v2 = aggregate.aggregate_ssi_v2(
-                float(c.get("ssi") or 0.0), c.get("hook"), c.get("structure"),
+                float(c.get("soi") or 0.0), c.get("hook"), c.get("structure"),
                 c.get("env"), c.get("ot"), c.get("lightning"), weights=weights)
-            c["ssi_v2"] = v2["ssi_v2"]
+            c["soi_v2"] = v2["soi_v2"]
+            # A (1.2.4.17): la confidenza si RICALCOLA con la copertura dati
+            # nota (5 descrittori Fase 2) invece di restare la costante "low".
+            present = sum(1 for k in _PHASE2_COMPONENTS
+                          if c.get(k) is not None)
+            conf = derive_confidence(
+                gates=c.get("gates") or {},
+                n_points=int(c.get("n_points") or 0),
+                coverage=present / float(len(_PHASE2_COMPONENTS)),
+                cfg=cs_cfg)
+            c["confidence"] = conf["confidence"]
+            c["confidence_detail"] = conf
     except ValueError as exc:
         warnings.append(f"phase2 aggregate weights invalid: {exc}")
 
@@ -677,19 +880,19 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None):
             bundle.storm_objects_by_frame = []
             bundle.storm_tracks = []
 
-    # ---- SUPERCELL SIGNATURE INDEX (Fase 1 SUPERCELL, additivo) ------------
-    # SSI su celle + storm object tracciati (stessi dati Fase 1, zero richieste
-    # rete aggiuntive). Sperimentale e senza Doppler: un errore NON fa fallire
-    # il run (warning) e i candidati restano [].
-    sc_cfg = config.get("supercell", {"enabled": False})
-    if sc_cfg.get("enabled"):
+    # ---- CONVECTIVE STRUCTURE (descrittore SOI, additivo) ------------------
+    # SOI su celle + storm object tracciati (stessi dati Fase 1, zero richieste
+    # rete aggiuntive). Nessun Doppler: rotation_measurable=false. Un errore
+    # NON fa fallire il run (warning) e la lista resta [].
+    cs_cfg = config.get("convective_structure", {"enabled": False})
+    if cs_cfg.get("enabled"):
         try:
-            from radar_engine import supercell as sc_mod
-            sc_mod.evaluate(bundle, sc_cfg)
+            from radar_engine import convective_structure as cs_mod
+            cs_mod.evaluate(bundle, cs_cfg)
         except Exception as exc:  # layer additivo: mai rompere il pipeline base
-            bundle.warnings.append(f"supercell layer failed: {exc}")
-            bundle.supercells = []
-            bundle.supercell_tracks_evaluated = 0
+            bundle.warnings.append(f"convective_structure layer failed: {exc}")
+            bundle.convective_structures = []
+            bundle.structure_tracks_evaluated = 0
 
     # ---- PHASE 2 (Fase 2, additivo): sub-layer A1 -> SSI v2 sui candidati --
     # Layer ADDITIVO: nessun errore fa fallire il pipeline base (warning) e
@@ -718,6 +921,7 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None):
                             f"unexpected:{exc.__class__.__name__}:{exc}")
     if history_dir:
         _archive_history(bundle, history_dir)
+    _record_predictions(bundle, config, out_dir)
     return bundle, _OK if bundle.status == "ok" else _DEGRADED
 
 
@@ -776,6 +980,7 @@ def main(argv=None):
         "frames": len(bundle.frames),
         "cells": sum(len(c) for c in bundle.cells_by_frame),
         "tracks": len([t for t in bundle.tracks if len(t.points) >= 2]),
+        "structures": len(getattr(bundle, "convective_structures", []) or []),
         "radar_timestamp": bundle.radar_timestamp_iso,
         "latency_min": bundle.data_latency_minutes,
         "warnings": bundle.warnings,
@@ -791,7 +996,8 @@ def main(argv=None):
             fh.write(f"frames={len(bundle.frames)}\n")
             fh.write(f"cells={summary['cells']}\n")
             fh.write(f"tracks={summary['tracks']}\n")
-            fh.write(f"supercell_candidates={len(getattr(bundle, 'supercells', []))}\n")
+            fh.write("structure_candidates={}\n".format(
+                len(getattr(bundle, "convective_structures", []) or [])))
             fh.write(f"phase2_status={summary['phase2_status']}\n")
             fh.write(f"radar_timestamp={bundle.radar_timestamp_iso or ''}\n")
     return rc

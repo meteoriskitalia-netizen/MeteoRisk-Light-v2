@@ -9,7 +9,7 @@ Scrittura ATOMICA degli output derivati (data/radar):
     tracks.json            — dettaglio delle track con motion e classificazione
     storm_objects.geojson  — FeatureCollection: STORM OBJECT layer (Fase 1.7)
     storm_tracks.json      — dettaglio delle storm track (motion + confidenze)
-    supercells.json        — candidati Supercell Signature Index (Fase 1 SUPERCELL)
+    convective_structures.json — record del descrittore SOI (1.2.4.17)
 
 Garanzie:
   - scrittura su *.tmp nella stessa directory -> json load di validazione ->
@@ -25,7 +25,7 @@ import tempfile
 import numpy as np
 
 from . import models
-from . import supercell as sc_mod
+from . import convective_structure as cs_mod
 
 SOURCE_LABEL = "Radar-DPC VMI (GeoTIFF quantitativo)"
 
@@ -86,8 +86,9 @@ def build_latest(bundle, engine_meta=None):
                                    getattr(bundle, "storm_tracks", [])
                                    if len(t.points) >= 2]),
         "tracking_confidence": _tracking_confidence(bundle.tracks),
-        "supercell_tracks_evaluated": getattr(bundle, "supercell_tracks_evaluated", 0),
-        **_supercell_summary(bundle),
+        "structure_tracks_evaluated": getattr(
+            bundle, "structure_tracks_evaluated", 0),
+        **_structure_summary(bundle),
         **_phase2_summary(bundle),
         "warnings": bundle.warnings[-50:],
     }
@@ -105,24 +106,24 @@ def _tracking_confidence(tracks):
     return "insufficient"
 
 
-def _supercell_summary(bundle):
-    """Riepilogo candidati supercell (Fase 1 SUPERCELL) per latest.json."""
-    cells = getattr(bundle, "supercells", None) or []
+def _structure_summary(bundle):
+    """Riepilogo dei record del descrittore SOI per latest.json."""
+    cells = getattr(bundle, "convective_structures", None) or []
     if not cells:
         return {
-            "supercell_candidates": 0,
-            "supercell_births": 0,
-            "supercell_on_latest": 0,
-            "supercell_ssi_max": None,
+            "structure_candidates": 0,
+            "structure_births": 0,
+            "structure_on_latest": 0,
+            "soi_max": None,
         }
     births = sum(1 for c in cells if c.get("phase") == "birth")
     on_latest = sum(1 for c in cells if c.get("on_latest_frame"))
-    ssi_max = max((float(c.get("ssi", 0)) for c in cells), default=None)
+    soi_max = max((float(c.get("soi", 0)) for c in cells), default=None)
     return {
-        "supercell_candidates": len(cells),
-        "supercell_births": births,
-        "supercell_on_latest": on_latest,
-        "supercell_ssi_max": ssi_max,
+        "structure_candidates": len(cells),
+        "structure_births": births,
+        "structure_on_latest": on_latest,
+        "soi_max": soi_max,
     }
 
 
@@ -130,37 +131,37 @@ def _phase2_summary(bundle):
     """Riepilogo Fase 2 per latest.json (layer additivo, nessun dato raw).
 
     Da B2 (PHASE2_VERSION 0.4.0) i sub-valori hook/struttura/env/fulmini sono
-    PER CANDIDATO: qui si emette il riepilogo del candidato con ssi_v2 piu'
-    alto (o il primo candidato se ssi_v2 e' nullo ovunque) più il conteggio
+    PER CANDIDATO: qui si emette il riepilogo del candidato con soi_v2 piu'
+    alto (o il primo candidato se soi_v2 e' nullo ovunque) più il conteggio
     dei candidati con componente presente (components_status, visto anche nel
-    blocco phase2 di supercells.json). Nessun dato raw (celle, lat/lon, griglie)
-    entra nel latest.json."""
+    blocco phase2 di convective_structures.json). Nessun dato raw (celle,
+    lat/lon, griglie) entra nel latest.json."""
     p2 = getattr(bundle, "phase2", None)
     if not isinstance(p2, dict):
         return {"phase2_status": "unavailable"}
-    cells = getattr(bundle, "supercells", None) or []
+    cells = getattr(bundle, "convective_structures", None) or []
     comps = p2.get("components_status")
     if not isinstance(comps, dict):
         comps = {name: sum(1 for c in cells if c.get(name) is not None)
                  for name in ("hook", "structure", "env", "ot", "lightning")}
     best = None
     for c in cells:
-        if c.get("ssi_v2") is None:
+        if c.get("soi_v2") is None:
             continue
-        if best is None or float(c["ssi_v2"]) > float(best["ssi_v2"]):
+        if best is None or float(c["soi_v2"]) > float(best["soi_v2"]):
             best = c
     if best is None and cells:
         best = cells[0]
     out = {
         "phase2_status": p2.get("status", "unavailable"),
-        "phase2_ssi_v2_max": max(
-            (float(c["ssi_v2"]) for c in cells
-             if c.get("ssi_v2") is not None), default=None),
+        "phase2_soi_v2_max": max(
+            (float(c["soi_v2"]) for c in cells
+             if c.get("soi_v2") is not None), default=None),
         "phase2_components_status": dict(comps),
     }
     if best is not None:
         out["phase2_best_candidate"] = {
-            "ssi_v2": best.get("ssi_v2"),
+            "soi_v2": best.get("soi_v2"),
             "hook": best.get("hook"),
             "structure": best.get("structure"),
             "env": best.get("env"),
@@ -290,22 +291,27 @@ def build_storm_tracks(bundle):
     }
 
 
-def build_supercells(bundle, engine_meta=None):
-    """supercells.json — candidati Supercell Signature Index (Fase 1 SUPERCELL).
+def build_convective_structures(bundle, engine_meta=None):
+    """convective_structures.json — record del descrittore SOI.
 
-    Solo track con candidate=True (SSI + gate di intensità + frame minimi).
-    Nessun claim Doppler: la nota data_limits è inclusa sempre nel payload."""
-    cells = getattr(bundle, "supercells", None) or []
+    Solo track con candidate=True (SOI + gate di intensità + frame minimi),
+    DEDUP per sistema (un record per storm object + finestra temporale).
+    Nessun claim Doppler: ogni record porta rotation_measurable=false con la
+    motivazione, e la nota data_limits è inclusa sempre nel payload."""
+    cells = getattr(bundle, "convective_structures", None) or []
     summary = {
-        "tracks_evaluated": getattr(bundle, "supercell_tracks_evaluated", 0),
-        "candidates": len(cells),
+        "tracks_evaluated": getattr(bundle, "structure_tracks_evaluated", 0),
+        "structures": len(cells),
         "births": sum(1 for c in cells if c.get("phase") == "birth"),
-        "possible": sum(1 for c in cells if c.get("level") == "possible"),
-        "marked": sum(1 for c in cells if c.get("level") == "marked"),
+        "organized": sum(1 for c in cells if c.get("level") == "organized"),
+        "strong": sum(1 for c in cells if c.get("level") == "strong"),
+        "intense": sum(1 for c in cells if c.get("level") == "intense"),
         "on_latest_frame": sum(1 for c in cells if c.get("on_latest_frame")),
-        "ssi_max": max((float(c.get("ssi", 0)) for c in cells), default=None),
-        "ssi_v2_max": max((float(c["ssi_v2"]) for c in cells
-                           if c.get("ssi_v2") is not None), default=None),
+        "soi_max": max((float(c.get("soi", 0)) for c in cells), default=None),
+        "soi_v2_max": max((float(c["soi_v2"]) for c in cells
+                           if c.get("soi_v2") is not None), default=None),
+        "merged": sum(1 for c in cells
+                      if len(c.get("merged_from") or []) > 1),
     }
     return {
         "generated_at": bundle.generated_at_iso,
@@ -313,15 +319,17 @@ def build_supercells(bundle, engine_meta=None):
         "status": bundle.status,
         "engine": engine_meta or {},
         "source": bundle.source,
-        "data_limits": sc_mod.DATA_LIMITS_NOTE,
+        "data_limits": cs_mod.DATA_LIMITS_NOTE,
+        "rotation_measurable": False,
+        "rotation_null_reason": cs_mod.ROTATION_NULL_REASON,
         "phase2": getattr(bundle, "phase2", None),
         "summary": summary,
-        "candidates": cells,
+        "structures": cells,
     }
 
 
 def write_outputs(bundle, out_dir, engine_meta=None):
-    """Scrive i cinque file derivati in modo atomico. Ritorna le path scritte."""
+    """Scrive i sei file derivati in modo atomico. Ritorna le path scritte."""
     os.makedirs(out_dir, exist_ok=True)
     paths = {
         "latest.json": os.path.join(out_dir, "latest.json"),
@@ -329,7 +337,8 @@ def write_outputs(bundle, out_dir, engine_meta=None):
         "tracks.json": os.path.join(out_dir, "tracks.json"),
         "storm_objects.geojson": os.path.join(out_dir, "storm_objects.geojson"),
         "storm_tracks.json": os.path.join(out_dir, "storm_tracks.json"),
-        "supercells.json": os.path.join(out_dir, "supercells.json"),
+        "convective_structures.json": os.path.join(
+            out_dir, "convective_structures.json"),
     }
     contents = {
         "latest.json": json.dumps(build_latest(bundle, engine_meta),
@@ -342,8 +351,9 @@ def write_outputs(bundle, out_dir, engine_meta=None):
                                             default=_json_default),
         "storm_tracks.json": json.dumps(build_storm_tracks(bundle),
                                         default=_json_default),
-        "supercells.json": json.dumps(build_supercells(bundle, engine_meta),
-                                      default=_json_default),
+        "convective_structures.json": json.dumps(
+            build_convective_structures(bundle, engine_meta),
+            default=_json_default),
     }
     # Fase 1: scrivi tutti i tmp e poi replace (atomicità per file);
     # su errore il blocco viene interrotto e i vecchi file restano intatti.
@@ -410,19 +420,21 @@ def validate_outputs(out_dir):
             errors.append(f"{name} not FeatureCollection")
         if name == "storm_tracks.json" and not isinstance(payload.get("tracks"), list):
             errors.append("storm_tracks.json missing 'tracks' list")
-    # Fase 1 SUPERCELL layer (additivo; richiesto se presente)
-    spath = os.path.join(out_dir, "supercells.json")
+    # descrittore SOI (additivo; richiesto se presente)
+    spath = os.path.join(out_dir, "convective_structures.json")
     if os.path.exists(spath):
         try:
             with open(spath, encoding="utf-8") as fh:
                 sp = json.load(fh)
         except (OSError, ValueError) as exc:
-            errors.append(f"supercells.json: {exc}")
+            errors.append(f"convective_structures.json: {exc}")
             return errors
-        if not isinstance(sp.get("candidates"), list):
-            errors.append("supercells.json missing 'candidates' list")
+        if not isinstance(sp.get("structures"), list):
+            errors.append("convective_structures.json missing 'structures' list")
         if "data_limits" not in sp:
-            errors.append("supercells.json missing 'data_limits'")
+            errors.append("convective_structures.json missing 'data_limits'")
         if "phase2" not in sp:
-            errors.append("supercells.json missing 'phase2'")
+            errors.append("convective_structures.json missing 'phase2'")
+        if sp.get("rotation_measurable") is not False:
+            errors.append("convective_structures.json rotation_measurable!=False")
     return errors

@@ -14,7 +14,7 @@ mesocyclone o rotation:
     motion_consistency     -> 15%   (regolarità velocità + direzione)
     growth_sustained       -> 15%   (crescita area e mantensi intensità)
 
-Classificazione probabilistica (NON "Supercell Detected"):
+Classificazione probabilistica (nessuna diagnosi di rotazione):
     0-30   Weak Convective Cell
     31-55  Convective Cell
     56-75  Organized Convective Cell

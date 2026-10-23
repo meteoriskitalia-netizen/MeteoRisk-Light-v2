@@ -4,7 +4,7 @@
 Meteorisk Radar Engine — fusion/opera_cirrus.py  (PROTOTIPO ISOLATO, 1.2.3.1)
 
 Adapter multi-sorgente per il composito OPERA CIRRUS (EUMETNET, Open Radar Data /
-MeteoGate) da usare come SECONDA FONTE a supporto dei candidati supercella
+MeteoGate) da usare come SECONDA FONTE a supporto dei record di struttura
 rilevati sulla VMI Radar-DPC.
 
 STATO: PROTOTIPO NON ATTIVO. Questo modulo non e' importato da main.py/config.py

@@ -20,7 +20,7 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.16.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.17.html');
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -256,12 +256,12 @@ vm.runInNewContext(pure, ctx);
 // ---------- C. BADGE -> CANDIDATO (soglia 30 km) ----------
 {
   const cands = [
-    { supercell_id: 'SC-A', track_id: 1, track_type: 'cell', position: [12.0, 42.0] },
-    { supercell_id: 'SC-B', track_id: 2, track_type: 'cell', position: [13.0, 43.0] },
+    { structure_id: 'CS-A', track_id: 1, track_type: 'cell', position: [12.0, 42.0] },
+    { structure_id: 'CS-B', track_id: 2, track_type: 'cell', position: [13.0, 43.0] },
   ];
   const inside = ctx.scMatchBadgeCandidate({ position: [12.0, 42.1] }, cands); // ~11.1 km
   ok('C1: inside 30 km -> match sul candidato più vicino (SC-A)',
-    inside && inside.candidate.supercell_id === 'SC-A');
+    inside && inside.candidate.structure_id === 'CS-A');
   ok('C2: distance_km coerente (~11.13)', inside && Math.abs(inside.distance_km - 11.13) < 0.2,
     inside && String(inside.distance_km));
   ok('C3: outside 30 km -> null', ctx.scMatchBadgeCandidate({ position: [15.0, 40.0] }, cands) === null);

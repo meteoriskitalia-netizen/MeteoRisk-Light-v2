@@ -7,7 +7,7 @@ Phenomena — engine.py: motore phenomena-verify (HAIL + VORTEX), ENGINE-ONLY.
         --out-dir data/phenomena [--lightning-provider mli] [--no-network]
 
 Lette dai derivati radar (sola lettura: data/radar/{latest.json,
-supercells.json, tracks.json, storms.geojson}) e scritte ATOMICHE in
+convective_structures.json, tracks.json, storms.geojson}) e scritte ATOMICHE in
 data/phenomena/{events.json, badges.json}.
 
 Decisioni documentate:
@@ -23,7 +23,8 @@ Decisioni documentate:
     hail.fzl_bucket): piu' celle vicine condividono un fetch NON bloccante;
     se manca la rete il tier NON viene forzato (mai bloccante).
   - STRUTTURA VERTICALE: la struttura multi-prodotto (POH/ETM/VIL/overhang)
-    arriva da supercells.json > candidates[*].structure_features; per i track
+    arriva da convective_structures.json > structures[*].structure_features;
+    per i track
     cella e' agganciata per track_id dal candidato omonimo. Se il candidato non
     la espone, l'osservazione resta senza vertical (fail-closed: nessun valore
     inventato).
@@ -285,7 +286,7 @@ def _ot_from_candidate(cand):
     }
 
 
-def build_observations(supercells, tracks, storms, radar_ts_ms, radar_ts=None):
+def build_observations(structures, tracks, storms, radar_ts_ms, radar_ts=None):
     """Normalizza gli input radar in osservazioni per hail/vortex.
 
     Una cella con track in tracks.json -> osservazione "points" (persistenza
@@ -304,7 +305,12 @@ def build_observations(supercells, tracks, storms, radar_ts_ms, radar_ts=None):
     morph = _morph_from_storms(storms or {})
     covered = set()
     cell_candidates = {}
-    for cand in ((supercells or {}).get("candidates") or []):
+    # 1.2.4.17: il campo pubblico e' `structures`. Il fallback su
+    # `candidates` serve SOLO a leggere un payload scritto dal motore
+    # precedente durante la finestra di transizione (nessun campo inventato).
+    cand_list = ((structures or {}).get("structures")
+                 or (structures or {}).get("candidates") or [])
+    for cand in cand_list:
         if not isinstance(cand, dict) or cand.get("track_id") is None:
             continue
         if (cand.get("track_type") or "cell") == "cell":
@@ -362,7 +368,7 @@ def build_observations(supercells, tracks, storms, radar_ts_ms, radar_ts=None):
         covered.add(key)
 
     anchors = {o["anchor"] for o in obs}
-    for cand in ((supercells or {}).get("candidates") or []):
+    for cand in cand_list:
         if not isinstance(cand, dict) or cand.get("track_id") is None:
             continue
         track_type = cand.get("track_type") or "cell"
@@ -468,12 +474,13 @@ def run(radar_dir=DEFAULT_RADAR_DIR, out_dir=DEFAULT_OUT_DIR,
                 "events_written": events_written,
                 "badges_written": badges_written}
 
-    supercells = _load_json(os.path.join(radar_dir, "supercells.json"),
-                            "supercells.json")
+    structures = _load_json(
+        os.path.join(radar_dir, "convective_structures.json"),
+        "convective_structures.json")
     tracks = _load_json(os.path.join(radar_dir, "tracks.json"), "tracks.json")
     storms = _load_json(os.path.join(radar_dir, "storms.geojson"),
                         "storms.geojson")
-    observations = build_observations(supercells, tracks, storms,
+    observations = build_observations(structures, tracks, storms,
                                       radar_ts_ms, radar_ts)
 
     # H0 PER-CELLA con cache a griglia (~0.5 gradi): piu' celle vicine

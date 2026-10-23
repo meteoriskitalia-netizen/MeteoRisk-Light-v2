@@ -35,6 +35,8 @@ EVENT_TYPES = (
     "ORGANIZED_MULTICELL",
     "LINEAR_CONVECTION",
     "SEVERE_CONVECTION",
+    # nome storico, non usare in output: categoria di validazione ammessa solo
+    # con reference_sources (nessun modulo classifica "supercella" da solo)
     "DOCUMENTED_SUPERCELL",
     "UNKNOWN",
 )

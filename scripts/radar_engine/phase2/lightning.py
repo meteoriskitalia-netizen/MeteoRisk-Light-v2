@@ -55,6 +55,11 @@ LTG_PERIOD_MS = 5 * 60 * 1000        # cadenza file (A0: lgt_5min_*)
 # primo slot disponibile e' a 9 passi (45 min di ritardo di pubblicazione)
 # -> 12 passi (1 ora) con margine. Ogni 403 e' una risposta piccola.
 LTG_MAX_BACKOFF_STEPS = 12
+# 1.2.4.17 (E): i primi 9 passi sono ATTESI in 403 (ritardo di pubblicazione
+# misurato). Un tetto "stop dopo N errori consecutivi" applicato PRIMA di
+# questo punto azzererebbe il layer fulmini in ogni run invece di risparmiare
+# richieste: il grace period e' quindi il numero di passi misurato.
+LTG_PUBLICATION_DELAY_STEPS = 9
 LTG_HTTP_TIMEOUT_S = 30
 # WMS DPC (solo frame generici, NON fulmini): URL e bbox VERIFICATI 200/GetMap
 DEFAULT_WMS_URL = "https://radar-geowebcache.protezionecivile.it/service/wms"

@@ -15,7 +15,7 @@ Convective Cell Detection (Fase 1):
 
 Le metriche per cella sono DESCRITTORI GEOMETRICI (area, centroide, bbox, max/
 mean/p90 dBZ, eccentricità, solidity, compactness): NON vengono interpretate
-come firma supercellulare in Fase 1 (niente hook-echo/mesocyclone).
+come firma di struttura in Fase 1 (niente hook-echo/mesociclone).
 """
 
 import numpy as np

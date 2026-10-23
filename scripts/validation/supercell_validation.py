@@ -1083,13 +1083,18 @@ def load_truth(path: str, fmt: str = "auto") -> List[TruthEvent]:
 # ---------------------------------------------------------------------------
 def _detections_from_supercells(payload: Dict[str, Any], path: str,
                                 warnings: List[str]) -> Tuple[List[Detection], Dict[str, Any]]:
-    candidates = payload.get("candidates")
+    # 1.2.4.17: il radar engine pubblica `structures` (record SOI). Il tool
+    # resta compatibile con i payload storici che usavano `candidates`:
+    # nessuna rottura del banco gia' pubblicato, nessun campo inventato.
+    candidates = payload.get("structures")
     if candidates is None:
-        warnings.append("%s: nessuna chiave 'candidates' (trattata come lista vuota)"
-                        % path)
+        candidates = payload.get("candidates")
+    if candidates is None:
+        warnings.append("%s: nessuna chiave 'structures'/'candidates' "
+                        "(trattata come lista vuota)" % path)
         candidates = []
     if not isinstance(candidates, list):
-        raise ValueError("%s: 'candidates' non e' una lista" % path)
+        raise ValueError("%s: 'structures' non e' una lista" % path)
     detections: List[Detection] = []
     for index, cand in enumerate(candidates):
         if not isinstance(cand, dict):
@@ -1108,12 +1113,16 @@ def _detections_from_supercells(payload: Dict[str, Any], path: str,
             warnings.append("%s: candidato #%d senza first_seen/last_seen, saltato"
                             % (path, index))
             continue
-        extras = {key: cand.get(key) for key in
-                  ("supercell_id", "track_id", "track_type", "ssi", "ssi_v2",
-                   "level", "phase", "status", "on_latest_frame")
-                  if cand.get(key) is not None}
+        extras = {}
+        for key in ("structure_id", "supercell_id", "track_id", "track_type",
+                    "soi", "ssi", "soi_v2", "ssi_v2", "level", "phase",
+                    "status", "on_latest_frame", "merged_from",
+                    "rotation_measurable"):
+            if cand.get(key) is not None:
+                extras[key] = cand.get(key)
         detections.append(Detection(
-            id=str(cand.get("supercell_id") or "SC-track-%s" % cand.get("track_id", index)),
+            id=str(cand.get("structure_id") or cand.get("supercell_id")
+                   or "CS-track-%s" % cand.get("track_id", index)),
             time_utc=parse_time_utc(stamp),
             lon=float(position[0]),
             lat=float(position[1]),
@@ -1131,8 +1140,10 @@ def _detections_from_supercells(payload: Dict[str, Any], path: str,
     summary = payload.get("summary")
     if isinstance(summary, dict):
         meta["summary"] = {k: summary[k] for k in
-                           ("tracks_evaluated", "candidates", "births", "possible",
-                            "marked", "ssi_max") if k in summary}
+                           ("tracks_evaluated", "structures", "candidates",
+                            "births", "organized", "strong", "intense",
+                            "possible", "marked", "soi_max", "ssi_max")
+                           if k in summary}
     return detections, meta
 
 

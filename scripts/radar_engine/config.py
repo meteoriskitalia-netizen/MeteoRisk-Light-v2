@@ -10,11 +10,13 @@ validati retrospettivamente prima di qualunque uso operativo.
 Il file può essere sovrascritto parzialmente con un JSON (opzione --config /
 variabile RADAR_ENGINE_CONFIG): l'override è un merge RICORSIVO (i dict si
 fondono a ogni profondità; scalari/liste sostituiti) sui blocchi (source,
-preprocess, detect, tracking, storm, scoring, supercell, phase2, output).
+preprocess, detect, tracking, storm, scoring, convective_structure, phase2,
+output).
 """
 
 import json
 import os
+import warnings as warnings_mod
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -171,11 +173,12 @@ CONFIG = {
             (76.0, 100.0, "Highly Organized Convective Cell"),
         ],
     },
-    "supercell": {
-        # Fase 1 SUPERCELL (EXPERIMENTAL): Supercell Signature Index.
+    "convective_structure": {
+        # 1.2.4.17 — DESCRITTORE di struttura convettiva (blocco ex-SSI).
         # Layer ADDITIVO: stessi dati Fase 1 (celle+track+Organization Score),
         # nessuna richiesta rete aggiuntiva. Nessun Doppler nel prodotto VMI:
-        # mesocyclone/hook-echo NON vengono MAI dichiarati.
+        # la rotazione NON e' misurabile (rotation_measurable=false in output) e
+        # nessun campo dichiara mesocicloni o diagnosi che il dato non contiene.
         "enabled": True,
         "weights": {
             "intensity_core": 0.25,
@@ -184,25 +187,26 @@ CONFIG = {
             "persistence": 0.15,
             "growth_sustained": 0.20,
         },
-        "intensity_core_dbz": 45.0,   # GATE: core convettivo reale per il claim
+        "intensity_core_dbz": 45.0,   # GATE: core convettivo reale per il record
         "intensity_ref_dbz": [35.0, 55.0],
         "persistence_ref_frames": 5,
         "compactness_ref": 8.0,
-        "candidate_ssi": 65.0,        # SSI per il livello 'possible'
-        "birth_frames": 3,            # candidate con <=n frame nella finestra -> 'birth'
+        "candidate_soi": 65.0,        # SOI minimo per emettere un record
+        "birth_frames": 3,            # candidati con <=n frame -> phase 'birth'
         "min_frames": 2,
+        # Livelli DESCRITTIVI (0-49 non e' un'assenza: e' SOI sotto 50).
         "bands": [
-            (0.0, 49.0, "non_supercell"),
-            (50.0, 64.0, "weak"),
-            (65.0, 79.0, "possible"),
-            (80.0, 100.0, "marked"),
+            (0.0, 49.0, "unorganized"),
+            (50.0, 64.0, "organized"),
+            (65.0, 79.0, "strong"),
+            (80.0, 100.0, "intense"),
         ],
     },
     "phase2": {
-        # Fase 2 SUPERCELL (EXPERIMENTAL): layer additivi A1 -> SSI v2.
+        # Fase 2 (EXPERIMENTAL): layer additivi A1 -> indice v2 del descrittore.
         # Policy: ogni sotto-layer e' OPZIONALE; errore/dato assente ->
         # warning + sub-score None (mai crash del run, stessa politica dei
-        # layer storm/supercell della Fase 1). Nessun dato inventato.
+        # layer storm/descrittore della Fase 1). Nessun dato inventato.
         "enabled": True,
         "hook": {
             # Hook echo morfologico da griglia VMI (nessun Doppler):
@@ -224,6 +228,12 @@ CONFIG = {
             "product_low": "CAPPI_2",  # CAPPI 2 km: verificato live (findLastProductByType)
             "product_high": "CAPPI_6", # CAPPI 6 km: verificato live -> overhang attivo
             "local_radius_km": 45.0,   # finestra ±km attorno al candidato
+            # 1.2.4.17 — MESH (Witt et al. 1998) richiede un PROFILO dBZ(H):
+            # >= 4 livelli CAPPI. Qui si dichiara la mappa quota_km -> prodotto.
+            # Con i 2 livelli attuali il campo esce null con
+            # mesh_unavailable_reason="cappi_levels<4" (nessun "MESH-like" da
+            # VIL). Aggiungere livelli costa un download DPC per livello.
+            "cappi_products": {"2.0": "CAPPI_2", "6.0": "CAPPI_6"},
         },
         "environment": {
             # Open-Meteo sul punto di OGNI candidato (urllib diretto,
@@ -241,8 +251,25 @@ CONFIG = {
             "window_slots": 4,         # = lightning.LIGHTNING_TREND_WINDOW
             "radius_km": 30.0,         # = lightning.LIGHTNING_RADIUS_KM
             "min_strikes": 1,          # rate < min_strikes -> componente None
-            "max_backoff_steps": 36,   # scansione indietro max (slot 5 min) se
-                                       # gli slot recenti non sono pubblicati
+            # 1.2.4.17 — E: il vecchio valore 36 non arrivava mai al modulo
+            # (LTG_MAX_BACKOFF_STEPS = 12) e un run senza dati produceva 37
+            # richieste HTTP 403 (STUDIO_SUPERCELLE_RADAR sez. 6.4). Ora il
+            # valore e' ALLINEATO al modulo (12) e main.py applica comunque il
+            # minimo fra config e costante del modulo: un tentativo per slot.
+            "max_backoff_steps": 12,       # = lightning.LTG_MAX_BACKOFF_STEPS
+            # Stop dopo N errori CONSECUTIVI, applicato solo DOPO i 9 passi di
+            # ritardo di pubblicazione misurato (LTG_PUBLICATION_DELAY_STEPS):
+            # fermarsi prima svuoterebbe il layer in ogni run. Costo massimo
+            # per run: 9 + 3 = 12 richieste (prima: 37).
+            "publication_grace_steps": 9,  # = lightning.LTG_PUBLICATION_DELAY_STEPS
+            "max_consecutive_failures": 3, # stop dopo 3 errori consecutivi oltre il grace
+        },
+        "severe_stack": {
+            # 1.2.4.17 — S1 (ambiente) + S2 (grandine) + S3 (overshooting top)
+            # e registro delle predizioni per la futura validazione POD/FAR.
+            "enabled": True,
+            "predictions_enabled": True,
+            "predictions_retention_days": 30,
         },
         "ot": {
             # IR_108 DPC (MSG SEVIRI 10.8 um, GeoTIFF Float32 in °C, PT5M,
@@ -266,12 +293,12 @@ CONFIG = {
             "ir_threshold_k": 215.0,     # = overshoot.OT_IR_THRESHOLD_K
         },
         "aggregate": {
-            # Pesi SSI v2: SOMMA ESATTAMENTE 1.00 (aggregate.DEFAULT_WEIGHTS).
-            # Somma > 1.0 -> ValueError -> warning + nessun ssi_v2 (v. A2-2).
+            # Pesi indice v2: SOMMA ESATTAMENTE 1.00 (aggregate.DEFAULT_WEIGHTS).
+            # Somma > 1.0 -> ValueError -> warning + nessun soi_v2 (v. A2-2).
             # B2: i componenti None per candidato vengono ESCLUSI e i pesi
-            # RINORMALIZZATI sui presenti (somma 1.0); tutti None -> ssi_v2 None.
+            # RINORMALIZZATI sui presenti (somma 1.0); tutti None -> soi_v2 None.
             "weights": {
-                "base": 0.60,          # SSI Fase 1 (supercell.py) — fondamento
+                "base": 0.60,          # SOI Fase 1 (convective_structure) — base
                 "hook": 0.15,
                 "structure": 0.10,
                 "env": 0.08,
@@ -284,7 +311,11 @@ CONFIG = {
         "out_dir": "data/radar",
         "files": ["latest.json", "storms.geojson", "tracks.json",
                   "storm_objects.geojson", "storm_tracks.json",
-                  "supercells.json"],
+                  "convective_structures.json"],
+        # 1.2.4.17 — registro delle PREDIZIONI (JSONL, append, rotazione 30 gg).
+        # Percorso relativo alla radice del repo: data/state/, non data/radar/.
+        "predictions_file": "data/state/severe_predictions.jsonl",
+        "predictions_retention_days": 30,
     },
 }
 
@@ -311,12 +342,29 @@ def merge_config(base, overrides):
 
 
 def load_config(path=None):
-    """Carica la configurazione con eventuale override JSON (merge ricorsivo)."""
+    """Carica la configurazione con eventuale override JSON (merge ricorsivo).
+
+    1.2.4.17: il blocco `supercell` e' stato rinominato `convective_structure`.
+    Un override JSON che usa ancora la chiave storica viene RIMAPPATO (con
+    DeprecationWarning): nessuna configurazione silenziosamente ignorata."""
     cfg = merge_config(CONFIG, {})
     path = path or os.environ.get("RADAR_ENGINE_CONFIG")
     if path:
         with open(path, "r", encoding="utf-8") as fh:
-            cfg = merge_config(CONFIG, json.load(fh))
+            overrides = json.load(fh)
+        if isinstance(overrides, dict) and "supercell" in overrides:
+            # nome storico, non usare in output (solo chiave JSON legacy)
+            warnings_mod.warn(
+                "config key 'supercell' is deprecated: use "
+                "'convective_structure' (1.2.4.17)", DeprecationWarning,
+                stacklevel=2)
+            legacy = overrides.pop("supercell")
+            conv = overrides.setdefault("convective_structure", {})
+            if isinstance(legacy, dict) and isinstance(conv, dict):
+                overrides["convective_structure"] = merge_config(legacy, conv)
+            else:                                    # pragma: no cover
+                overrides["convective_structure"] = legacy
+        cfg = merge_config(CONFIG, overrides)
     if cfg["source"].get("cache_dir") is None:
         cfg["source"]["cache_dir"] = str(
             Path(__file__).resolve().parent / "temp"

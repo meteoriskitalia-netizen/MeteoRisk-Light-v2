@@ -534,6 +534,7 @@ def evaluate_environment(lat, lon, openmeteo_client=None, timeout_s=None):
     srh_0_3 = None
     srh_1km = None
     storm = None
+    srh_profile_nodes = 0
     deep_full = ([sfc] if sfc is not None else []) + deep
     if len(deep_full) >= 2:
         storm = bunkers_right_mover(deep_full)
@@ -545,9 +546,14 @@ def evaluate_environment(lat, lon, openmeteo_client=None, timeout_s=None):
         prof03 = ([sfc] if sfc is not None else []) + low
         if len(prof03) >= 2:
             srh_0_3 = srh_discrete(prof03, storm)
+            srh_profile_nodes = len(prof03)
         prof01 = ([sfc] if sfc is not None else []) + low1
         if len(prof01) >= 2:
             srh_1km = srh_discrete(prof01, storm)
+    # 1.2.4.17: numero REALE di nodi dell'hodografo usato per SRH_0_3
+    # (superficie + livelli di pressione effettivamente presenti). E' il gate
+    # che severe_stack applica: con meno di 4 nodi l'SRH NON si pubblica.
+    flags["srh_profile_nodes"] = srh_profile_nodes
 
     # --- EBWD proxy 0-6 km (sfc -> 500 hPa) ---
     ebwd = None

@@ -85,10 +85,10 @@ def _frame_custom(rows=ROWS, cols=COLS, value=-50.0, px=PX, epsg=4326,
 def _bundle():
     bundle = models.EngineBundle("ok", "2026-10-07T00:00:00Z", "test")
     bundle.frames = [_frame(), _frame()]
-    bundle.supercells = [
-        {"id": 1, "position": [IN_GRID[0], IN_GRID[1]], "ssi": 80.0},
-        {"id": 2, "position": [OUT_GRID[0], OUT_GRID[1]], "ssi": 70.0},
-        {"id": 3, "ssi": 90.0},                 # nessuna posizione
+    bundle.convective_structures = [
+        {"id": 1, "position": [IN_GRID[0], IN_GRID[1]], "soi": 80.0},
+        {"id": 2, "position": [OUT_GRID[0], OUT_GRID[1]], "soi": 70.0},
+        {"id": 3, "soi": 90.0},                 # nessuna posizione
     ]
     # deepcopy: merge_config e' shallow, mutare la config toccherebbe CONFIG
     cfg = copy.deepcopy(eng.load_config())
@@ -239,7 +239,7 @@ def test_phase2_evaluate_per_candidate_no_network(monkeypatch):
     assert fetch_calls == ["VIL", "ETM", "POH", "CAPPI_2", "CAPPI_6", "IR_108"]
     assert len(ltg_calls) == 4
 
-    c1, c2, c3 = bundle.supercells
+    c1, c2, c3 = bundle.convective_structures
     # candidato 1 in griglia: hook + fulmini presenti, struttura/env/OT no
     assert c1["hook"] == 0.0
     assert c1["lightning"] == 70.0
@@ -248,21 +248,21 @@ def test_phase2_evaluate_per_candidate_no_network(monkeypatch):
     assert c1["env"] is None
     assert c1["env_scp"] is None
     assert c1["ot"] is None
-    assert c1["ssi_v2"] == 64
+    assert c1["soi_v2"] == 64
     # candidato 2 fuori griglia: nessun layer per-candidato, base NON penalizzata
     assert c2["hook"] is None
     assert c2["lightning"] is None
     assert c2["structure"] is None
-    assert c2["ssi_v2"] == 70
+    assert c2["soi_v2"] == 70
     # candidato 3 senza posizione: tutte le chiavi presenti, tutti None
     for key in ("hook", "structure", "structure_features", "env", "env_scp",
-                "ot", "lightning", "ssi_v2"):
+                "ot", "lightning", "soi_v2"):
         assert key in c3
     assert c3["hook"] is None and c3["lightning"] is None
-    assert c3["ssi_v2"] == 90
+    assert c3["soi_v2"] == 90
 
     # status dai componenti presenti su almeno un candidato
-    assert result["version"] == "0.5.0"
+    assert result["version"] == "0.6.0"
     assert result["components_status"] == {"hook": 1, "structure": 0,
                                            "env": 0, "ot": 0, "lightning": 1}
     assert result["status"] == "partial"
@@ -391,7 +391,7 @@ def test_phase2_evaluate_all_layers_absent_keeps_candidates(monkeypatch):
     assert result["status"] == "unavailable"
     assert result["components_status"] == {"hook": 0, "structure": 0,
                                            "env": 0, "ot": 0, "lightning": 0}
-    assert [c["ssi_v2"] for c in bundle.supercells] == [80, 70, 90]
+    assert [c["soi_v2"] for c in bundle.convective_structures] == [80, 70, 90]
 
 
 # ---------------------------------------------------------------------------
@@ -407,36 +407,118 @@ def test_phase2_summary_best_candidate_and_status():
     b.phase2 = {"status": "partial",
                 "components_status": {"hook": 1, "structure": 0, "env": 0,
                                       "ot": 0, "lightning": 2}}
-    b.supercells = [
-        {"ssi_v2": 70, "hook": 0.0, "structure": None, "env": None,
+    b.convective_structures = [
+        {"soi_v2": 70, "hook": 0.0, "structure": None, "env": None,
          "ot": None, "lightning": 55.0},
-        {"ssi_v2": 85, "hook": 12.0, "structure": None, "env": None,
+        {"soi_v2": 85, "hook": 12.0, "structure": None, "env": None,
          "ot": None, "lightning": 70.0},
-        {"ssi_v2": None},
+        {"soi_v2": None},
     ]
     out = eng_out._phase2_summary(b)
     assert out["phase2_status"] == "partial"
-    assert out["phase2_ssi_v2_max"] == 85
+    assert out["phase2_soi_v2_max"] == 85
     assert out["phase2_components_status"] == b.phase2["components_status"]
     best = out["phase2_best_candidate"]
-    assert best["ssi_v2"] == 85
+    assert best["soi_v2"] == 85
     assert best["hook"] == 12.0
     assert best["structure"] is None
     assert best["lightning"] == 70.0
 
 
+def test_lightning_backoff_stops_after_consecutive_failures(monkeypatch):
+    """E (1.2.4.17): niente 37 richieste 403.
+
+    Con config max_backoff_steps=36 e modulo LTG_MAX_BACKOFF_STEPS=12, il
+    vecchio codice faceva 1+36 richieste. Ora il backoff effettivo e' il
+    minimo fra config e modulo (12) e il ciclo si interrompe dopo
+    `max_consecutive_failures` (3) errori di fila, ma SOLO dopo il grace
+    period dei 9 passi di ritardo di pubblicazione misurato: 9 + 3 = 12
+    richieste, non 3. Fermarsi prima azzererebbe il layer fulmini in ogni run
+    perche' il primo slot utile e' tipicamente a k=9 (misurato 2026-10-07)."""
+    ltg_calls = []
+
+    def fake_fetch_frames(config, product=None, max_frames=None):
+        return [], [], None
+
+    def fake_fetch_ltg(epoch_ms=None, **kw):
+        ltg_calls.append(epoch_ms)
+        raise ltg_mod.LightningFetchError("http_403")
+
+    monkeypatch.setattr("radar_engine.fetch.fetch_frames", fake_fetch_frames)
+    monkeypatch.setattr("radar_engine.phase2.lightning.fetch_ltg", fake_fetch_ltg)
+
+    bundle, cfg = _bundle()
+    cfg["phase2"]["lightning"]["max_backoff_steps"] = 36
+    cfg["phase2"]["lightning"]["max_consecutive_failures"] = 3
+    eng._phase2_evaluate(bundle, cfg)
+
+    assert len(ltg_calls) == 12                    # 37 -> 12 richieste
+    assert len(ltg_calls) <= ltg_mod.LTG_MAX_BACKOFF_STEPS + 1
+    assert any("errori consecutivi" in w for w in bundle.warnings)
+    assert all(c["lightning"] is None for c in bundle.convective_structures)
+
+
+def test_lightning_backoff_finds_slot_published_after_delay(monkeypatch):
+    """E (1.2.4.17): il grace period NON deve nascondere lo slot reale.
+
+    Il ritardo di pubblicazione misurato e' 9 passi: con i primi 9 slot in 403
+    e gli ultimi pubblicati, il layer deve comunque raccogliere i fulmini.
+    (Una soglia "stop dopo 3 errori" senza grace restituirebbe zero slot.)"""
+    ltg_calls = []
+
+    def fake_fetch_frames(config, product=None, max_frames=None):
+        return [], [], None
+
+    def fake_fetch_ltg(epoch_ms=None, **kw):
+        ltg_calls.append(epoch_ms)
+        # i primi 9 passi (dal piu' recente) non sono ancora pubblicati
+        if len(ltg_calls) <= ltg_mod.LTG_PUBLICATION_DELAY_STEPS:
+            raise ltg_mod.LightningFetchError("http_403")
+        return {"strikes": [(13.0, 41.0)] * 10}
+
+    monkeypatch.setattr("radar_engine.fetch.fetch_frames", fake_fetch_frames)
+    monkeypatch.setattr("radar_engine.phase2.lightning.fetch_ltg", fake_fetch_ltg)
+
+    bundle, cfg = _bundle()
+    cfg["phase2"]["lightning"]["max_backoff_steps"] = 12
+    eng._phase2_evaluate(bundle, cfg)
+
+    assert len(ltg_calls) >= ltg_mod.LTG_PUBLICATION_DELAY_STEPS + 1
+    assert len(ltg_calls) <= ltg_mod.LTG_MAX_BACKOFF_STEPS + 1
+    assert any(c["lightning"] is not None
+               for c in bundle.convective_structures)
+
+
+def test_severe_stack_wiring_two_cappi_levels():
+    """S2 via main._severe_stack_for_candidate: 2 livelli -> MESH null."""
+    import types
+    rd = types.SimpleNamespace(data=np.full((3, 3), 50.0))
+    parts = eng._severe_stack_for_candidate(
+        window=(0, 2, 0, 2),
+        products={"vil": types.SimpleNamespace(data=np.full((3, 3), 30.0)),
+                  "etm": types.SimpleNamespace(data=np.full((3, 3), 9000.0))},
+        cappi={2.0: rd, 6.0: rd},
+        env_detail=None, ot_details=None,
+        bundle=types.SimpleNamespace(radar_timestamp_iso="2026-10-23T12:00:00Z"))
+    assert parts["cappi_levels"] == 2
+    assert parts["hail"]["mesh_unavailable_reason"] == "cappi_levels<4"
+    assert parts["hail"]["vil_density_g_m3"]["value"] == 30.0 / 9000.0 * 1000.0
+    assert parts["ot"]["null_reason"] == "ir108_frame_unavailable"
+    assert parts["environment"]["srh_0_3_m2s2"]["value"] is None
+
+
 def test_phase2_summary_fallback_and_unavailable():
     b = _Bundle()
     b.phase2 = {"status": "unavailable"}          # senza components_status
-    b.supercells = [{"ssi_v2": None, "hook": None, "structure": None,
-                     "env": None, "ot": None, "lightning": None}]
+    b.convective_structures = [{"soi_v2": None, "hook": None, "structure": None,
+                                 "env": None, "ot": None, "lightning": None}]
     out = eng_out._phase2_summary(b)
     assert out["phase2_status"] == "unavailable"
-    assert out["phase2_ssi_v2_max"] is None
+    assert out["phase2_soi_v2_max"] is None
     assert out["phase2_components_status"] == {"hook": 0, "structure": 0,
                                                "env": 0, "ot": 0,
                                                "lightning": 0}
-    assert out["phase2_best_candidate"]["ssi_v2"] is None
+    assert out["phase2_best_candidate"]["soi_v2"] is None
     # bundle senza phase2 -> solo lo status, nessuna eccezione
     assert eng_out._phase2_summary(_Bundle()) == {"phase2_status": "unavailable"}
 
@@ -447,9 +529,9 @@ def test_phase2_summary_is_importable_from_output_helpers():
     b.phase2 = {"status": "ok", "components_status": {"hook": 1, "structure": 1,
                                                       "env": 1, "ot": 0,
                                                       "lightning": 1}}
-    b.supercells = [{"ssi_v2": 77, "hook": 10.0, "structure": 20.0,
-                     "env": 30.0, "ot": None, "lightning": 40.0}]
+    b.convective_structures = [{"soi_v2": 77, "hook": 10.0, "structure": 20.0,
+                                 "env": 30.0, "ot": None, "lightning": 40.0}]
     out = eng_out._phase2_summary(b)
-    assert set(out) == {"phase2_status", "phase2_ssi_v2_max",
+    assert set(out) == {"phase2_status", "phase2_soi_v2_max",
                         "phase2_components_status", "phase2_best_candidate"}
     assert "position" not in out["phase2_best_candidate"]

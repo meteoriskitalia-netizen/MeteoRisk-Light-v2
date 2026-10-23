@@ -470,10 +470,32 @@ class EngineBundle:
         self.tracks = []                # lista Track
         self.storm_objects_by_frame = []  # lista lista[StormObject] (Fase 1.7)
         self.storm_tracks = []          # lista StormTrack (Fase 1.7)
-        self.supercells = []            # lista dict supercell candidati (Fase 1 SUPERCELL)
-        self.supercell_tracks_evaluated = 0
+        self.convective_structures = []  # record del descrittore SOI (1.2.4.17)
+        self.structure_tracks_evaluated = 0
+        self.severe_predictions = None   # esito del registro JSONL (o None)
         self.warnings = []
         self.engine = {}
+
+    # --- ALIAS DI COMPATIBILITA' (1.2.4.17) --------------------------------
+    # Il layer si chiama `convective_structures`: questi due accessor esistono
+    # solo per non rompere i chiamanti storici (properties, non campi
+    # duplicati: un solo stato, nessuna divergenza possibile).
+    # nome storico, non usare in output
+    @property
+    def supercells(self):
+        return self.convective_structures
+
+    @supercells.setter
+    def supercells(self, value):
+        self.convective_structures = value
+
+    @property
+    def supercell_tracks_evaluated(self):
+        return self.structure_tracks_evaluated
+
+    @supercell_tracks_evaluated.setter
+    def supercell_tracks_evaluated(self, value):
+        self.structure_tracks_evaluated = value
 
 
 def utcnow_iso():

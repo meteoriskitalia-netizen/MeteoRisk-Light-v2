@@ -7,7 +7,9 @@ Pacchetto sperimentale di fusione multi-sorgente. NON fa parte della pipeline di
 produzione: nessun modulo di `radar_engine` (main.py, config.py, ...) importa
 questo pacchetto. Serve a progettare e validare dal vivo l'aggiunta del
 composito OPERA CIRRUS (EUMETNET) come seconda fonte a supporto dei candidati
-supercella rilevati sulla VMI Radar-DPC.
+di struttura convettiva (`convective_structure`) rilevati sulla VMI Radar-DPC:
+descrittori, NON diagnosi di supercella — il mosaico DPC e' a singola
+riflettivita' e la rotazione non e' misurabile.
 
 Sotto-moduli:
   - opera_cirrus : adapter S3/ORD per OPERA CIRRUS + primitive di allineamento

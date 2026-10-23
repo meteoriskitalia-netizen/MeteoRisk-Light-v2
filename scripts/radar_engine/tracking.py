@@ -216,6 +216,9 @@ class Tracker:
         self.diag = []                      # diagnostica per-match (opzionale)
         self._diagnostics = bool(diagnostics or cfg_tracking.get("diagnostics", False))
         self._improved = str(cfg_tracking.get("cost_formula", "legacy")) == "improved"
+        # D2 (1.2.4.17): ultimo frame PROCESSATO. Serve a complete_cycles per
+        # non dichiarare "dead" una track osservata sull'ultimo frame.
+        self._last_frame_index = None
 
     # -- feature/diagnostica helper ----------------------------------------
     def _features(self, track, cfg):
@@ -294,6 +297,7 @@ class Tracker:
         sopravvive fino a N frame consecutivi privi di celle (riga diagnostica
         assignment_status='coasting'); se una cella torna assegnabile la track
         la riprende e il contatore si azzera."""
+        self._last_frame_index = int(frame_index)
         active = [t for t in self.tracks if t.status == models.STATUS_ACTIVE]
         if not active or not cells:
             rows = []
@@ -489,11 +493,21 @@ class Tracker:
         return self.tracks
 
     def complete_cycles(self):
-        """Chiude eventuali track attive (fine sequenza)."""
+        """Chiude le track attive NON osservate sull'ultimo frame processato.
+
+        D2 (1.2.4.17): prima TUTTE le track aperte diventavano "dead", anche
+        quelle con un punto sull'ultimo frame: ogni record pubblicato usciva
+        con status="dead" pur essendo `on_latest_frame: true`. Ora la chiusura
+        dipende dal frame: una track vista sull'ultimo frame resta "active"."""
+        last = getattr(self, "_last_frame_index", None)
         for track in self.tracks:
-            if track.status == models.STATUS_ACTIVE:
-                track.status = models.STATUS_DEAD
-                track.death_ms = track.points[-1].timestamp_ms
+            if track.status != models.STATUS_ACTIVE:
+                continue
+            if last is not None and track.points and \
+                    track.points[-1].frame_index == last:
+                continue                      # osservata sull'ultimo frame
+            track.status = models.STATUS_DEAD
+            track.death_ms = track.points[-1].timestamp_ms
         return self.tracks
 
 

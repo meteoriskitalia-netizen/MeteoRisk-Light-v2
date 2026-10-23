@@ -1,20 +1,22 @@
 name: Radar Engine (Fase 1 — Storm Detection & Tracking)
 
-# Meteorisk Radar Engine — Fase 1 (MVP + Fase 1 SUPERCELL).
+# Meteorisk Radar Engine — Fase 1 (MVP + descrittore di struttura convettiva).
 # Cattura VMI Radar-DPC (GeoTIFF Float32 quantitativo, licenza CC-BY-SA 4.0),
 # rileva celle convettive, le traccia multi-frame e pubblica SOLO output derivati
-# (data/radar/{latest.json, storms.geojson, tracks.json, supercells.json}).
+# (data/radar/{latest.json, storms.geojson, tracks.json, convective_structures.json}).
 #   - Fonte: REST API ufficiale DPC (findLastProductByType + downloadProduct).
 #   - MAI pubblicato/committato il GeoTIFF raw (cache temporanea solo runtime).
 #   - Failure policy: rc 0 ok | rc 3 degraded (fetch parziale) | rc 4 error
 #     (nessun frame valido / GeoTIFF corrotto / CRS non interpretabile).
 #   - In caso di errore il motore scrive SOLO latest.json (status=error):
-#     storms.geojson/tracks.json/supercells.json dell'ultimo dataset valido
-#     restano intatti.
-#   - Commit SOLO se data/radar cambia (nessuna commit su no-op).
-#   - Fase 1 SUPERCELL: supercells.json (candidati SSI, EXPERIMENTAL) viene
-#     committato insieme ai derivati cella/track (alimenta il toggle
-#     "Supercelle Radar" dell'app).
+#     storms.geojson/tracks.json/convective_structures.json dell'ultimo dataset
+#     valido restano intatti.
+#   - Commit SOLO se data/radar (o data/state) cambia (nessuna commit su no-op).
+#   - Descrittore di struttura convettiva: convective_structures.json (SOI,
+#     EXPERIMENTAL, rotazione NON misurabile) viene committato insieme ai
+#     derivati cella/track (alimenta il pannello "Struttura convettiva"
+#     dell'app); data/state/severe_predictions.jsonl e' il registro append-only
+#     delle predizioni (rotazione 30 giorni) per la futura validazione.
 
 on:
   workflow_dispatch:
@@ -76,7 +78,7 @@ jobs:
         run: |
           python -m pytest scripts/tests/radar_engine -q
 
-      # L'ARCHIVIO ROLLING 2h (celle+tracks+supercelle) vive nel branch
+      # L'ARCHIVIO ROLLING 2h (celle+tracks+strutture) vive nel branch
       # radar-history (mai su main): ogni run lo ripristina PRIMA del motore,
       # cosi' history.build_history() mergea lo slot corrente nei 24 slot
       # precedenti (clone dello step satellite-engine). Branch assente ->
@@ -110,9 +112,9 @@ jobs:
         if: always()
         run: |
           {
-            echo "## Meteorisk Radar Engine — Fase 1 (+ SUPERCELL)"
+            echo "## Meteorisk Radar Engine — Fase 1 (+ struttura convettiva)"
             echo ""
-            echo "status: \`${{ steps.run.outputs.status || 'n/a' }}\` — frames: \`${{ steps.run.outputs.frames || 'n/a' }}\` — celle: \`${{ steps.run.outputs.cells || 'n/a' }}\` — track: \`${{ steps.run.outputs.tracks || 'n/a' }}\` — candidati supercelle: \`${{ steps.run.outputs.supercell_candidates || 'n/a' }}\`"
+            echo "status: \`${{ steps.run.outputs.status || 'n/a' }}\` — frames: \`${{ steps.run.outputs.frames || 'n/a' }}\` — celle: \`${{ steps.run.outputs.cells || 'n/a' }}\` — track: \`${{ steps.run.outputs.tracks || 'n/a' }}\` — strutture convettive: \`${{ steps.run.outputs.structure_candidates || 'n/a' }}\`"
             echo "radar timestamp: \`${{ steps.run.outputs.radar_timestamp || 'n/a' }}\`"
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"
@@ -122,11 +124,24 @@ jobs:
         run: |
           git config user.name "meteorisk-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add data/radar/latest.json data/radar/storms.geojson data/radar/tracks.json data/radar/supercells.json
+          # Derivati scritti da output.write_outputs(): lista ESPLICITA (mai
+          # data/radar/history, che vive sul branch radar-history) e guardia di
+          # esistenza per il ramo status-only (rc 4: solo latest.json).
+          for f in latest.json storms.geojson tracks.json storm_objects.geojson \
+                   storm_tracks.json convective_structures.json; do
+            if [ -f "data/radar/$f" ]; then git add "data/radar/$f"; fi
+          done
+          # Registro append-only delle predizioni (data/state, rotazione 30 gg).
+          if [ -f data/state/severe_predictions.jsonl ]; then
+            git add data/state/severe_predictions.jsonl
+          fi
+          # 1.2.4.17: l'artefatto si chiama convective_structures.json; il vecchio
+          # supercells.json non e' piu' prodotto (rimozione dal repo, se tracciato).
+          git rm -q --cached --ignore-unmatch data/radar/supercells.json || true
           if git diff --cached --quiet; then
             echo "[INFO] Nessuna modifica ai dati radar derivati."
           else
-            git commit -m "chore(radar): aggiornamento rilevamento celle convettive + candidati supercelle (Radar-DPC VMI)"
+            git commit -m "chore(radar): celle convettive + strutture convettive (SOI, rotazione non misurabile) da Radar-DPC VMI"
             ok=0; for i in 1 2 3 4 5; do if git pull --rebase --autostash origin main && git push origin main; then ok=1; break; fi; echo "[retry] push $i"; sleep $((i*5)); done; if [ "$ok" != "1" ]; then echo "[ERRORE] push radar fallito"; exit 1; fi
           fi
 
@@ -172,7 +187,8 @@ jobs:
           exit 1
 
       # L'ARTEFATTO di deploy contiene: app, dataset derivati, geografie richieste,
-      # derivati radar (data/radar: latest.json/storms.geojson/tracks.json/supercells.json),
+      # derivati radar (data/radar: latest.json/storms.geojson/tracks.json/
+      # convective_structures.json),
       # gli eventi phenomena (data/phenomena: events.json/badges.json, prodotti dal
       # workflow phenomena-verify e qui SOLO copiati in _site) e la finestra rolling
       # satellite/ (branch satellite-cache, ripristinata qui
@@ -182,8 +198,9 @@ jobs:
       # (limite Pages).
       # perché viva solo su quel branch: senza i frame il deploy seguirebbe quello
       # di satellite-engine e li cancellerebbe da Pages) — MAI _raw / _staging /
-      # _workdir / payload esterni. Senza questa build il toggle "Supercelle Radar"
-      # non troverebbe supercells.json su Pages (Pages serve _site, non il repo root).
+      # _workdir / payload esterni. Senza questa build il pannello "Struttura
+      # convettiva" non troverebbe convective_structures.json su Pages (Pages
+      # serve _site, non il repo root).
       # Serializzazione SOLO sul deploy (job deploy-pages, group "pages-deploy",
       # condiviso con update-weather-data e satellite-engine, cancel-in-progress:
       # false). Questo job (dati/motore) ha concurrency SOLO sul group PROPRIO
@@ -193,7 +210,7 @@ jobs:
         if: success()
         run: |
           mkdir -p _site/data
-          cp mri-light-1.2.4.16.html _site/index.html
+          cp mri-light-1.2.4.17.html _site/index.html
           cp sw.js _site/sw.js                                      # 1.2.4.15: Service Worker (cache applicativa)
           if [ -d data/latest ]; then cp -R data/latest _site/data/latest; fi
           if [ -d data/geography ]; then cp -R data/geography _site/data/geography; fi

@@ -400,9 +400,9 @@ def test_evaluate_e_supercells_json_contengono_forecast(tmp_path):
     bundle.radar_timestamp_ms = alive.points[-1].timestamp_ms
     bundle.radar_timestamp_iso = _iso(bundle.radar_timestamp_ms)
     bundle.cells_by_frame = [[c] for c in cells]
-    sc_mod.evaluate(bundle, CONFIG["supercell"])
-    assert len(bundle.supercells) == 2
-    by_id = {c["track_id"]: c for c in bundle.supercells}
+    sc_mod.evaluate(bundle, CONFIG["convective_structure"])
+    assert len(bundle.convective_structures) == 2
+    by_id = {c["track_id"]: c for c in bundle.convective_structures}
     assert by_id[1]["on_latest_frame"] is True
     assert isinstance(by_id[1]["forecast"], dict)
     assert [s["offset_min"] for s in by_id[1]["forecast"]["steps"]] == \
@@ -410,9 +410,9 @@ def test_evaluate_e_supercells_json_contengono_forecast(tmp_path):
     assert by_id[2]["on_latest_frame"] is False
     assert by_id[2]["forecast"] is None
     paths = output.write_outputs(bundle, str(tmp_path / "radar"))
-    with open(paths["supercells.json"], encoding="utf-8") as fh:
+    with open(paths["convective_structures.json"], encoding="utf-8") as fh:
         payload = json.load(fh)
-    forecasts = {c["track_id"]: c["forecast"] for c in payload["candidates"]}
+    forecasts = {c["track_id"]: c["forecast"] for c in payload["structures"]}
     assert forecasts[1]["basis_frames"] >= 4
     assert forecasts[2] is None
     assert output.validate_outputs(str(tmp_path / "radar")) == []

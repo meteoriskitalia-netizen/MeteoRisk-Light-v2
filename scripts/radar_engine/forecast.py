@@ -3,14 +3,14 @@
 """
 Meteorisk Radar Engine — forecast.py (tracking 2h + nowcast, PARTE 3)
 
-Forecast cinematico <=2h per i candidati supercell: estrapolazione lineare
+Forecast cinematico <=2h per i record di struttura convettiva: estrapolazione lineare
 PESSATA dai centroidi della track associata (TITAN/SCIT-style, NO fit
 quadratico), proiezione haversine (riuso di tracking.dest_from), cono di
 incertezza che cresce nel tempo e intensita' che decade esponenzialmente
 verso la media regionale con gate sul trend recente (dBZ/scansione clampato).
 
 Layer ADDITIVO ed ENGINE-ONLY: la chiave `forecast` viene aggiunta ai dict
-candidato di supercells.json. Candidato non proiettabile (non sull'ultimo
+record di convective_structures.json. Record non proiettabile (non sull'ultimo
 frame, basis < 2 punti, qualsiasi errore) -> forecast = None: nessun errore
 del modulo fa fallire il run.
 """
@@ -382,7 +382,7 @@ def _build(candidate_ctx, bundle):
 
 
 def build_forecast(candidate_ctx, bundle):
-    """Blocco `forecast` per un candidato supercell, None se non computabile.
+    """Blocco `forecast` per un record di struttura, None se non computabile.
 
     candidate_ctx = dict candidato (on_latest_frame/track_id/track_type) con
     eventuale track associata sotto la chiave 'track'; senza 'track' la track
@@ -395,12 +395,12 @@ def build_forecast(candidate_ctx, bundle):
 
 
 def attach_forecasts(bundle):
-    """Aggiunge la chiave `forecast` a ogni candidato di bundle.supercells.
+    """Aggiunge `forecast` a ogni record di bundle.convective_structures.
 
     Ritorna il numero di candidati con forecast calcolato (0 su bundle senza
     candidati)."""
     count = 0
-    for candidate in (getattr(bundle, "supercells", None) or []):
+    for candidate in (getattr(bundle, "convective_structures", None) or []):
         block = build_forecast(candidate, bundle)
         candidate["forecast"] = block
         if block is not None:

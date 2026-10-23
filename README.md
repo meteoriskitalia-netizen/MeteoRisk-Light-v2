@@ -6,12 +6,40 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.16
+## Versione attiva: 1.2.4.17
 
-- File applicativo: `mri-light-1.2.4.16.html` (`APP_VERSION = '1.2.4.16'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.16', date: '2026-10-23' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.16'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+- File applicativo: `mri-light-1.2.4.17.html` (`APP_VERSION = '1.2.4.17'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.17', date: '2026-10-23' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.17'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
+- Contenuto della 1.2.4.17 (release sopra la 1.2.4.16) — **stack severo con etichette oneste**:
+  - **S1 ambiente** (`scripts/radar_engine/severe_stack.py`): CAPE/CIN, shear 0-6 km (proxy
+    10 m / 500 hPa dichiarato), SRH 0-3 km **solo** se ci sono almeno 4 livelli di vento e uno
+    sopra i 2 km (altrimenti `srh: null` con `null_reason`), LCL e WMAXSHEAR. Riferimento
+    europeo Pucik et al. 2015 (MWR 143:4805) citato **come riferimento**, mai come soglia locale.
+  - **S2 grandine**: VIL density da `VIL`/`ETM` (Amburn & Wolf 1997, soglia 3,5 g/m3 riportata
+    come citazione bibliografica, non tarata qui) e MESH (Witt et al. 1998) **solo** con >= 4
+    livelli CAPPI: con i 2 livelli configurati (CAPPI_2, CAPPI_6) il campo esce `null` con
+    `mesh_unavailable_reason = "cappi_levels<4"`. Nessun "MESH-like" derivato dal VIL.
+  - **S3 overshooting top**: riuso di `phase2/satellite_ot.py` (Bedka et al. 2010) con booleano,
+    confidence, fonte e timestamp del frame IR.
+  - **`combine()`**: verdetto unico dichiarativo con `rotation_measurable: false` e
+    `probability: null` + motivo (nessuna etichetta ESWD: nessuna probabilita' calibrata).
+  - **Terminologia e artefatti**: `supercell.py` -> `convective_structure.py` (alias di import
+    mantenuto), indice `ssi` -> `soi` (`structural_organization_index`), livelli
+    `organized / strong / intense`, `data/radar/supercells.json` ->
+    `data/radar/convective_structures.json` (chiave `structures`, `structure_id`).
+  - **Dedup** cella/storm object (un record per sistema, `merged_from`), fix
+    `latest_frame_index` e `status`, `confidence` **derivata** (gate + persistenza + copertura,
+    formula nel docstring) al posto della costante `"low"`.
+  - **Fulmini**: backoff allineato al modulo (12 passi) e stop dopo 3 errori consecutivi,
+    applicato **solo oltre il grace di 9 passi** di ritardo di pubblicazione misurato — da 37
+    richieste HTTP 403 per run a 12, un tentativo per slot (fermarsi a 3 azzererebbe il layer,
+    perché il primo slot utile arriva tipicamente a k=9).
+  - **Registro predizioni**: `data/state/severe_predictions.jsonl` in append con rotazione a
+    30 giorni (`ts, cell_id, lat, lon, soi, vil_density, mesh, ot, environment, version`).
+## Versione precedente: 1.2.4.16
+
 - Contenuto della 1.2.4.16 (release sopra la 1.2.4.15):
   - **Polo senza pixel "spalmati"** (`fmPolarCapMean` / `fmPolarCapColor`). Due precisazioni
     verificate il 2026-10-23, perche' cambiano la diagnosi rispetto alla 1.2.4.15: (1) la vista
@@ -321,12 +349,18 @@ trigger manuale via `workflow_dispatch`. Nessuna garanzia di latenza fissa sui d
 Verifiche di riferimento (eseguite su questa release):
 
 ```bash
-python -m pytest scripts\tests\radar_engine -q    # 184 passed
-python -m pytest scripts\tests\phenomena -q       # 125 passed, 1 skipped
-python -m pytest scripts\tests -q                 # 544 passed, 9 failed, 1 skipped, 1 error (9 failed + 1 error PRE-ESISTENTI e dataset-bound: assenza di data\geography\regions_data.json e data\state\api_usage.json)
-python -m py_compile scripts\*.py                 # 107 OK, 0 errori
-python -c "import yaml,glob; [yaml.safe_load(open(f,encoding='utf-8')) for f in glob.glob('.github/workflows/*.yml')]"  # 6 workflow, 6/6 OK
-node --test "scripts/tests/**/*.mjs"              # suite .mjs: 18 file, 17 PASS (contract_dataset_loader.mjs NON eseguibile senza dataset baseline -> EXIT 1 atteso)
+# Comando ufficiale su questo host: la cattura fd di pytest e' instabile
+# (OSError: [WinError 6] Handle non valido sui test che lanciano subprocess) e
+# con -s la console cp1252 rompe sul carattere U+2192, quindi --capture=sys.
+$env:PYTHONIOENCODING='utf-8'                        # PowerShell
+python -m pytest scripts\tests\radar_engine -q       # 227 passed
+python -m pytest scripts\tests\phenomena -q          # 125 passed, 1 skipped
+python -m pytest scripts\tests -q --ignore=scripts\tests\test_decide_cycle.py --capture=sys
+                                                     # 649 passed, 9 failed PRE-ESISTENTI, 1 skipped
+                                                     # 9 = 6 FileNotFoundError regions_data.json + 1 api_usage.json + 2 AssertionError (test_bootstrap)
+python -m py_compile <tutti i .py sotto scripts\>    # 118/118 OK, 0 errori (118 file, ricorsivo)
+python -c "import yaml,glob; [yaml.safe_load(open(f,encoding='utf-8')) for f in glob.glob('.github/workflows/*.yml')]"  # 12 workflow, 12/12 OK
+node --test "scripts/tests/**/*.mjs"                 # suite .mjs: 25 file, 17 PASS, 8 EXIT 1 (7 pre-esistenti + contract_dataset_loader.mjs senza dataset baseline)
 ```
 
 Comandi e conteggi aggiornati sono quelli documentati in `C:\Users\aless\Desktop\AGENTS.md`, sezione "Verifica/qualita'" (il documento di progetto e' il file in `C:\Users\aless\Desktop\`, NON dentro `meteorisk\`).
@@ -344,11 +378,12 @@ Comandi e conteggi aggiornati sono quelli documentati in `C:\Users\aless\Desktop
 
 ## File chiave
 
-- `mri-light-1.2.4.15.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
+- `mri-light-1.2.4.17.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
 - `sw.js` — Service Worker (cache applicativa: WebP, indici; mai le richieste Range `.om`)
 - `VERSION` — bump di versione e storico note di rilascio
 - `.github/workflows/{radar-engine,satellite-engine,update-weather-data,phenomena-verify,deploy-pages,forecast-maps-v2}.yml` — i 6 workflow
-- `scripts/radar_engine/` — motore radar DPC (Fase 1 + candidati supercelle, sperimentali)
+- `scripts/radar_engine/` — motore radar DPC (Fase 1 + descrittore di struttura convettiva
+  `convective_structure.py`/SOI + stack severo `severe_stack.py`, sperimentali)
 - `scripts/satellite_engine.py` + `scripts/satellite_engine_requirements.txt` — download
   dei frame EUMETSAT e ri-codifica WebP
 - `scripts/*.py` — pipeline meteo (check, decision, fetch, build, validate, publish)

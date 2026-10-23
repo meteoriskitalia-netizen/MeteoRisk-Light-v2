@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Meteorisk Phase 2 — aggregate.py (SSI v2, EXPERIMENTAL)
+Meteorisk Phase 2 — aggregate.py (indice v2 del descrittore, EXPERIMENTAL)
 
-Combinazione pesata dei layer Fase 2 nello Supercell Signature Index v2:
+Combinazione pesata dei layer Fase 2 nell'indice v2 del descrittore SOI:
 
   ssi_v2 = min(100, round( sum_k w_eff[k] * value[k] ))   k sui componenti PRESENTI
 
 Pesi DEFAULT (somma ESATTAMENTE 1.00, nessun iperparametro):
-  base      0.60   SSI Fase 1 (supercell.py) — resta il fondamento
+  base      0.60   SOI Fase 1 (convective_structure) — resta la base
   hook      0.15   morphologia uncino (hook.py)
   structure 0.10   struttura verticale VIL/ETM/POH/overhang (vertical_structure)
   env       0.08   ambiente NWP SCP/STP/SHIP (environment)
@@ -115,7 +115,7 @@ def effective_weights(weights, present):
 
 def aggregate_ssi_v2(base_ssi, hook, structure, env, ot, lightning,
                      weights=None):
-    """Combina i layer in SSI v2 (0-100 intero) con RINORMALIZZAZIONE PESI.
+    """Combina i layer nell'indice v2 (0-100 intero) con RINORMALIZZAZIONE PESI.
 
     Componenti None ESCLUSI e pesi ridistribuiti sui presenti (somma 1.00);
     tutti None -> ssi_v2 None. Ritorna dict con le singole voci (componenti
@@ -147,6 +147,11 @@ def aggregate_ssi_v2(base_ssi, hook, structure, env, ot, lightning,
         ssi_v2 = int(min(100, round(acc)))
 
     out["ssi_v2"] = ssi_v2
+    # 1.2.4.17: il campo pubblico e' soi_v2. `ssi_v2` resta SOLO come alias
+    # DEPRECATO (stesso valore) per non rompere i consumer e i test gia'
+    # pubblicati: non usarlo nel codice nuovo e rimuoverlo al prossimo bump di
+    # contratto dell'artefatto.
+    out["soi_v2"] = ssi_v2
     out["weights"] = dict(w)
     out["weights_effective"] = {k: round(v, 6) for k, v in eff.items()}
     out["weights_effective_sum"] = round(sum(eff.values()), 6)

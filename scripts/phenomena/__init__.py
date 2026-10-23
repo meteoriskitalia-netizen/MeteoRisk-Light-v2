@@ -4,7 +4,8 @@
 MeteoRisk phenomena-verify — verifica eventi GRANDINE (HAIL) e VORTICI (VORTEX).
 
 Motore ENGINE-ONLY (nessun lato client in questo step): legge i derivati radar
-(data/radar: latest.json, supercells.json, tracks.json, storms.geojson), combina
+(data/radar: latest.json, convective_structures.json, tracks.json,
+storms.geojson), combina
 persistenza di riflettivita', morfologia e fulmini (provider PLUGGABLE) e
 scrive in modo atomico:
     data/phenomena/events.json   — evento rolling con finestra 24h (merge per id)
@@ -65,7 +66,7 @@ WINDOW_HOURS = 24
 #         svincola il gate dalla risoluzione/num_scan. In 1.3.0 il gate e'
 #         stato RI-STRETTO (era 0.01, ~1% ~= 21 px, troppo vicino al rumore):
 #         strength_min 0.05 == ~5% del disco (>= ~107 px / ~140 km² di AFA),
-#         coerente con una supercella in sviluppo reale; count_min documenta
+#         coerente con un nucleo convettivo in sviluppo; count_min documenta
 #         lo stesso valore in pixel (0.05 * ~2134). Resta sperimentale (come
 #         tutte le soglie di questo modulo, NON calibrate su report esterni).
 LIGHTNING_SOURCE_THRESHOLDS = {

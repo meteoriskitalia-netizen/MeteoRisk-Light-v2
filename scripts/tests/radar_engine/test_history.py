@@ -18,12 +18,12 @@ from conftest import make_cell, make_track
 T0 = 1_777_027_200_000  # 2026-04-24T10:40:00Z (multiplo di 5 min)
 SLOT0 = "2026-04-24T10-40-00Z"
 
-_SUPERCELL = {
-    "supercell_id": "SC-2026-04-24T10-cell001",
+_RECORD = {
+    "structure_id": "CS-2026-04-24T10-cel001",
     "track_id": 1,
     "track_type": "cell",
-    "ssi": 72,
-    "level": "possible",
+    "soi": 72,
+    "level": "strong",
     "candidate": True,
     "phase": "birth",
     "on_latest_frame": True,
@@ -49,14 +49,14 @@ def _bundle(ts_ms=T0, supers=None, dead_track=False):
     b.tracks = [tr]
     if dead_track:
         b.tracks.append(make_track([c1], 2))
-    b.supercells = [_SUPERCELL] if supers is None else list(supers)
+    b.convective_structures = [_RECORD] if supers is None else list(supers)
     return b
 
 
 def _slot_payload(slot=SLOT0, ts_iso="2026-04-24T10:40:00Z"):
     return {"slot": slot, "radar_timestamp": ts_iso,
             "radar_timestamp_ms": 1777027200000, "tracks": [],
-            "supercells": []}
+            "structures": []}
 
 
 def _slot_iso(offset_s):
@@ -216,18 +216,18 @@ def test_build_slot_payload_schema():
         assert isinstance(t[key], float)
     assert t["velocity_kmh"] == 48.5
     assert t["direction_toward_deg"] == 90.0
-    assert len(payload["supercells"]) == 1
+    assert len(payload["structures"]) == 1
 
 
 def test_build_slot_payload_supercells_on_latest_only():
-    stale = dict(_SUPERCELL, on_latest_frame=False)
-    payload = history.build_slot_payload(_bundle(supers=[_SUPERCELL, stale]))
-    assert len(payload["supercells"]) == 1
-    sc = payload["supercells"][0]
-    assert sc["supercell_id"] == _SUPERCELL["supercell_id"]
+    stale = dict(_RECORD, on_latest_frame=False)
+    payload = history.build_slot_payload(_bundle(supers=[_RECORD, stale]))
+    assert len(payload["structures"]) == 1
+    sc = payload["structures"][0]
+    assert sc["structure_id"] == _RECORD["structure_id"]
     assert isinstance(sc["track_id"], int) and sc["track_id"] == 1
-    assert isinstance(sc["ssi"], int) and sc["ssi"] == 72
-    assert sc["level"] == "possible" and sc["phase"] == "birth"
+    assert isinstance(sc["soi"], int) and sc["soi"] == 72
+    assert sc["level"] == "strong" and sc["phase"] == "birth"
     assert isinstance(sc["position"], list) and len(sc["position"]) == 2
     assert sc["intensity"]["max_dbz"] == 52.0
     assert sc["motion"]["velocity_kmh"] == 48.5
@@ -298,7 +298,7 @@ def _bundle_at(lon, lat, ts_ms, track_id=1):
     b.radar_timestamp_ms = ts_ms
     b.cells_by_frame = [[c1], [c2]]
     b.tracks = [tr]
-    b.supercells = [dict(_SUPERCELL, track_id=track_id)]
+    b.convective_structures = [dict(_RECORD, track_id=track_id)]
     return b
 
 
@@ -318,7 +318,7 @@ def _bundle_multi(specs, ts_ms):
     b.radar_timestamp_ms = ts_ms
     b.cells_by_frame = [first, last]
     b.tracks = tracks
-    b.supercells = []
+    b.convective_structures = []
     return b
 
 
@@ -330,8 +330,8 @@ def test_build_slot_payload_has_uid_placeholders():
     payload = history.build_slot_payload(_bundle())
     assert "uid" in payload["tracks"][0]
     assert payload["tracks"][0]["uid"] is None    # assegnato in build_history
-    assert "track_uid" in payload["supercells"][0]
-    assert payload["supercells"][0]["track_uid"] is None
+    assert "track_uid" in payload["structures"][0]
+    assert payload["structures"][0]["track_uid"] is None
 
 
 def test_uid_stable_when_cell_moves_little(tmp_path):
@@ -394,7 +394,7 @@ def test_supercell_track_uid_matches_track(tmp_path):
     history.build_history(_bundle_at(12.0, 41.0, T0), root)
     payload = history.read_slot(root, history.slot_name(_slot_iso(0)))
     track = payload["tracks"][0]
-    assert payload["supercells"][0]["track_uid"] == track["uid"]
+    assert payload["structures"][0]["track_uid"] == track["uid"]
     assert track["uid"] == 1
 
 

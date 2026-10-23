@@ -140,6 +140,8 @@ class StormObjectTracker:
         self._diagnostics = bool(
             diagnostics if diagnostics is not None
             else self.tracking_cfg.get("diagnostics", False))
+        # D2 (1.2.4.17): ultimo frame PROCESSATO (v. complete_cycles).
+        self._last_frame_index = None
 
     # ------------------------------------------------------------------
     # matching helpers
@@ -205,6 +207,7 @@ class StormObjectTracker:
 
     # ------------------------------------------------------------------
     def update(self, objs, frame_index):
+        self._last_frame_index = int(frame_index)
         active = [t for t in self.tracks if t.status == models.STATUS_ACTIVE]
         if not active or not objs:
             rows = []
@@ -380,10 +383,19 @@ class StormObjectTracker:
             self.diag.append({"frame": frame_index, "matches": rows})
 
     def complete_cycles(self):
+        """Chiude le storm track non osservate sull'ultimo frame processato.
+
+        D2 (1.2.4.17): stesso fix del tracker cella — una track vista
+        sull'ultimo frame resta "active", non "dead"."""
+        last = getattr(self, "_last_frame_index", None)
         for track in self.tracks:
-            if track.status == models.STATUS_ACTIVE:
-                track.status = models.STATUS_DEAD
-                track.death_ms = track.points[-1].timestamp_ms
+            if track.status != models.STATUS_ACTIVE:
+                continue
+            if last is not None and track.points and \
+                    track.points[-1].frame_index == last:
+                continue
+            track.status = models.STATUS_DEAD
+            track.death_ms = track.points[-1].timestamp_ms
         return self.tracks
 
     # ------------------------------------------------------------------

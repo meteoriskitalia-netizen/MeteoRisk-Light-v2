@@ -9,7 +9,7 @@ in data/radar/history/ (FUORI dai 4 file derivati committati su main):
     index.json            as_of + window_slots + slot ordinati (cronologico,
                           il piu' recente in fondo)
     slots/<SLOT>.json     payload dello scan: tracks (punto all'ultimo frame
-                          per track viva) + supercelle on_latest_frame
+                          per track viva) + record SOI su on_latest_frame
 
 Pattern replicato dalla finestra rolling satellite (satellite_engine.py /
 branch satellite-cache):
@@ -266,7 +266,7 @@ def _previous_slot(slots, current):
 
 
 def _apply_uids(payload, prev_payload, next_uid):
-    """Assegna uid stabili alle track e track_uid alle supercelle.
+    """Assegna uid stabili alle track e track_uid ai record SOI.
 
     Associa ogni track nuova alla track piu' vicina (greedy nearest-first)
     dello slot precedente con lo stesso track_type e uid presente, entro una
@@ -321,9 +321,9 @@ def _apply_uids(payload, prev_payload, next_uid):
         if track.get("track_id") is None or track.get("uid") is None:
             continue
         uid_by_key.setdefault(key, track["uid"])
-    for supercell in payload.get("supercells") or []:
-        key = (supercell.get("track_type"), supercell.get("track_id"))
-        supercell["track_uid"] = uid_by_key.get(key)
+    for rec in payload.get("structures") or []:
+        key = (rec.get("track_type"), rec.get("track_id"))
+        rec["track_uid"] = uid_by_key.get(key)
     return next_uid
 
 
@@ -353,19 +353,19 @@ def _track_entry(track, latest_frame_index, track_type, uid=None):
     }
 
 
-def _supercell_entry(candidate):
-    """Voce supercella sul frame corrente (intensity/motion dal bundle)."""
+def _structure_entry(candidate):
+    """Voce del descrittore SOI sul frame corrente (intensity/motion dal bundle)."""
     position = candidate.get("position") or []
     if len(position) == 2:
         position = [_round(position[0], 5), _round(position[1], 5)]
     else:
         position = None
     return {
-        "supercell_id": candidate.get("supercell_id"),
+        "structure_id": candidate.get("structure_id"),
         "track_id": _as_int(candidate.get("track_id")),
         "track_type": candidate.get("track_type"),
         "track_uid": None,
-        "ssi": _as_int(candidate.get("ssi")),
+        "soi": _as_int(candidate.get("soi")),
         "level": candidate.get("level"),
         "phase": candidate.get("phase"),
         "position": position,
@@ -378,9 +378,9 @@ def build_slot_payload(bundle_like):
     """Payload dello scan corrente per slots/<SLOT>.json (None se assente).
 
     tracks: una voce per track VIVA all'ultimo frame (punto del frame piu'
-    recente + velocity/direction dal motion radice); supercells: soli
-    candidati con on_latest_frame=True. I campi mancanti restano None/omessi
-    (nessun dato inventato)."""
+    recente + velocity/direction dal motion radice); structures: soli record
+    con on_latest_frame=True. I campi mancanti restano None/omessi (nessun
+    dato inventato)."""
     ts_iso = getattr(bundle_like, "radar_timestamp_iso", None)
     if not ts_iso:
         return None
@@ -400,15 +400,16 @@ def build_slot_payload(bundle_like):
         entry = _track_entry(trk, latest, "storm_object")
         if entry is not None:
             tracks.append(entry)
-    supercells = [_supercell_entry(c)
-                  for c in (getattr(bundle_like, "supercells", None) or [])
+    structures = [_structure_entry(c)
+                  for c in (getattr(bundle_like, "convective_structures",
+                                     None) or [])
                   if c.get("on_latest_frame")]
     return _safe({
         "slot": slot_name(ts_iso),
         "radar_timestamp": ts_iso,
         "radar_timestamp_ms": getattr(bundle_like, "radar_timestamp_ms", None),
         "tracks": tracks,
-        "supercells": supercells,
+        "structures": structures,
     })
 
 
@@ -417,7 +418,7 @@ def _slot_valid(payload, slot):
     return (isinstance(payload, dict) and payload.get("slot") == slot
             and isinstance(payload.get("radar_timestamp"), str)
             and isinstance(payload.get("tracks"), list)
-            and isinstance(payload.get("supercells"), list))
+            and isinstance(payload.get("structures"), list))
 
 
 def build_history(bundle_like, out_root, window_slots=WINDOW_SLOTS):

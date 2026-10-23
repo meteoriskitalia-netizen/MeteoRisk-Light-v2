@@ -11,20 +11,21 @@ Sorgente dati: Radar-DPC (Dipartimento della Protezione Civile), licenza
 CC-BY-SA 4.0. Il motore pubblica SOLO output derivati (coordinate di celle,
 geometrie, metriche, score, classificazioni) e mai immagini/tile/raw radar.
 
-Classificazione Fase 1 (probabilistica, NON "supercell"):
+Classificazione Fase 1 (probabilistica, nessuna diagnosi di rotazione):
   - Weak Convective Cell [0-30]
   - Convective Cell [31-55]
   - Organized Convective Cell [56-75]
   - Highly Organized Convective Cell [76-100]
 Nessun hook-echo/mesocyclone/rotation in Fase 1 (riferimenti Fase 2+).
 
-Fase 1 SUPERCELL (0.2.0, EXPERIMENTAL): il modulo supercell.py combina i
-descrittori Fase 1 (celle + tracking + Organization Score) in un Supercell
-Signature Index 0-100. Il layer resta ad ESPLICITO GATE di intensità e NON
-dichiara mesocyclone/hook-echo (prodotto VMI a singola riflettività, nessun
-Doppler). Output: data/radar/supercells.json (additivo, mai sostitutivo).
+Descrittore di struttura convettiva (1.2.4.17; ex indice 0.2.0):
+il modulo convective_structure.py combina i descrittori Fase 1 (celle +
+tracking + Organization Score) in uno structural_organization_index (SOI)
+0-100. Il layer resta ad ESPLICITO GATE di intensità e dichiara
+rotation_measurable=false (prodotto VMI a singola riflettività, nessun
+Doppler). Output: data/radar/convective_structures.json (additivo).
 """
 
 ENGINE_NAME = "Meteorisk Radar Engine"
-ENGINE_VERSION = "0.2.0"
+ENGINE_VERSION = "0.3.0"
 ENGINE_PHASE = 1
