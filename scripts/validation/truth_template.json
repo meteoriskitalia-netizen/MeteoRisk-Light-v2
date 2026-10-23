@@ -1,0 +1,68 @@
+{
+  "schema_version": "1.0",
+  "_warning": "TEMPLATE. Gli eventi in 'events' sono ESEMPI FITTIZI (example: true): NON sono eventi reali, servono solo a mostrare lo schema. Sostituirli con eventi verificati prima di usare il banco. Con --exclude-examples il CLI li scarta tutti.",
+  "_instructions": [
+    "1) Base minima: rapporti ESWD con QC >= 1 (European Severe Weather Database) per supercelle, grandine grossa, tornado e raffiche convettive. Un solo report singolo non verificato (QC 0) NON basta come evento: usarlo solo se confermato da una seconda fonte.",
+    "2) Ogni evento va INCROCIATO con la rianalisi radar (volumi VMI del giorno, celle/tracce del motore) per fissare l'ora dell'evento al minuto e la posizione al km. La posizione dell'evento e' quella del DANNO/osservazione, non quella della cella radar.",
+    "3) Aggiungere, dove disponibili, sopralluoghi e stime di danno (forza del vento, diametro grandine, path del tornado): la categoria e la qualita' dell'evento si assegnano su quella base.",
+    "4) Per ogni evento mancato dall'algoritmo compilare 'miss_reason' con una delle tre categorie NSSL: visible_but_missed (era visibile e l'algoritmo non l'ha visto), not_visible_sampling (fuori copertura, oltre il raggio utile, buco di scansione, volume mancante), bad_data (dato radar degradato/inutilizzabile). Per gli eventi rilevati lasciare null.",
+    "5) Compilare 'radar_distance_km' con la distanza great-circle dal radar DPC piu' vicino: serve per la stratificazione per fasce (<60, 60-120, 120-180, >180 km). Se non nota, mettere null (finisce nel secchio 'unknown').",
+    "6) 'quality': verified (rianalisi radar + fonte indipendente o sopralluogo), reported (ESWD QC >= 1 non ulteriormente verificato), unverified (report singolo). Il report conta gli eventi per qualita', non li pesa: la scelta e' dichiarata e visibile.",
+    "7) Casi NULLI (correct negatives): inserire in 'null_events' i campioni in cui NON si e' verificato l'evento (es. temporale ordinario etichettato come non-supercella, giornata di convezione debole nella stessa area/ora). Senza casi nulli il CN e' 0 e HSS non e' calcolabile: il report lo dichiara invece di inventare un valore.",
+    "8) NON inventare eventi, orari o posizioni. Un dataset di verita' incompleto produce FAR sovrastimati e POD non rappresentativi: il report contiene un disclaimer esplicito in merito.",
+    "9) Gli eventi marcati example: true sono fittizi e vengono esclusi con --exclude-examples: il template si usa cosi' finche' non contiene eventi reali.",
+    "10) Formato alternativo CSV: stesse colonne dell'oggetto JSON in 'events', una riga per evento, intestazione obbligatoria, UTF-8. I casi nulli nel CSV si marcano con category=null oppure is_null=true."
+  ],
+  "_schema": {
+    "id": "stringa univoca, es. 'ESWD-2026-0123' oppure 'RADAR-2026-05-12-T01'",
+    "time_utc": "ISO 8601 UTC, es. '2026-05-12T14:20:00Z' (una stringa senza fuso e' assunta UTC)",
+    "lon": "longitudine in gradi decimali (WGS84), positivi a est",
+    "lat": "latitudine in gradi decimali (WGS84), positivi a nord",
+    "category": "categoria dell'evento: supercell | large_hail | tornado | severe_wind | null (null = caso nullo)",
+    "quality": "verified | reported | unverified | null",
+    "miss_reason": "visible_but_missed | not_visible_sampling | bad_data | null (null per eventi rilevati)",
+    "source": "fonte dell'etichetta: ESWD, rianalisi radar, sopralluogo, ...",
+    "radar_distance_km": "distanza in km dal radar DPC piu' vicino (numero) oppure null",
+    "example": "true solo per gli esempi fittizi del template; assente/false per gli eventi reali"
+  },
+  "events": [
+    {
+      "id": "EX-001",
+      "time_utc": "2026-05-12T14:20:00Z",
+      "lon": 9.19,
+      "lat": 45.46,
+      "category": "supercell",
+      "quality": "reported",
+      "miss_reason": null,
+      "source": "ESEMPIO FITTIZIO — non e' un evento reale",
+      "radar_distance_km": 48.0,
+      "example": true
+    },
+    {
+      "id": "EX-002",
+      "time_utc": "2026-06-03T16:05:00Z",
+      "lon": 12.49,
+      "lat": 41.9,
+      "category": "large_hail",
+      "quality": "reported",
+      "miss_reason": "visible_but_missed",
+      "source": "ESEMPIO FITTIZIO — non e' un evento reale",
+      "radar_distance_km": 112.5,
+      "example": true
+    },
+    {
+      "id": "EX-003",
+      "time_utc": "2026-08-21T18:40:00Z",
+      "lon": 16.87,
+      "lat": 41.12,
+      "category": "tornado",
+      "quality": "unverified",
+      "miss_reason": "not_visible_sampling",
+      "source": "ESEMPIO FITTIZIO — non e' un evento reale",
+      "radar_distance_km": 176.0,
+      "example": true
+    }
+  ],
+  "null_events": [],
+  "_null_events_instructions": "Casi in cui l'evento NON si e' verificato (correct negatives). Stesso schema di 'events', con category=null. Esempio di come popolarli: un temporale ordinario nello stesso giorno/area, etichettato 'null' SOLO se la rianalisi radar conferma che non aveva firma supercellulare. Vuoto = CN 0 e HSS non calcolabile (dichiarato nel report)."
+}
