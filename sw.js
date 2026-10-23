@@ -1,4 +1,4 @@
-/* MeteoRisk-Light 1.2.4.15 - Service Worker (cache applicativa).
+/* MeteoRisk-Light 1.2.4.16 - Service Worker (cache applicativa).
  *
  * SCOPO: far partire l'app anche offline/su rete lenta e togliere dalla rete i
  * payload che non cambiano (WebP pre-renderizzati e indici delle mappe), senza
@@ -29,7 +29,7 @@
  */
 'use strict';
 
-var CACHE_NAME = 'mri-1.2.4.15';
+var CACHE_NAME = 'mri-1.2.4.16';
 var MAX_ENTRIES = 1200;
 var NETWORK_TIMEOUT_MS = 3000;
 

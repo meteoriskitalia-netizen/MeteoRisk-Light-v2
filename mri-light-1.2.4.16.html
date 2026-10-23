@@ -1871,9 +1871,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.15';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.16';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-23';
     const APP_CHANGELOG = [
+        { version: '1.2.4.16', date: '2026-10-23', changes: [
+  'FX= Polo: niente piu\' pixel spalmati. Il colore del capolo e\' la MEDIANA per canale dei pixel opachi della riga 0 (la media era trascinata dalle etichette bianche e dalle frecce disegnate dentro il WebP) e la dissolvenza dell\'azimuth e\' CUBICA (w0=(1-t)^3): continuita\' sul bordo a 85,05 N, capolo dominante gia\' a ~2 gradi dal polo, raggiera confinata ai primi pixel',
+  'MAPPE= Zone a rischio nascoste all\'apertura delle mappe previsionali: province colorate per rischio/metrica, poligoni con la colorazione DPC e sfumatura della vista continua vengono rimossi dalla mappa con uno stato PER LAYER, e alla chiusura torna esattamente lo stato precedente (se l\'utente le aveva spente, restano spente)',
+  'PLAYER= Cambio modello/variabile/run: il player si ferma (bottone ▶), lo slider torna a 0, contatore e data/ora si azzerano, il frame in volo e le cache di prefetch/decode del modello precedente vengono invalidati e non parte nessuna richiesta del modello vecchio; se il nuovo frame non e\' pronto resta lo stato di caricamento (mai un frame vecchio a schermo)',
+  'DOC= Bump versione 1.2.4.16'
+  ] },
         { version: '1.2.4.15', date: '2026-10-23', changes: [
   'FX= Polare: l\'artefatto a stella sul polo non c\'e\' piu\'. Sopra 85,05 N il WebP non ha dato (limite Mercator) e ogni pixel veniva mandato sulla riga 0 con azimuth variabile, replicando la riga 0 a ventaglio (raggi convergenti). Ora la fascia 85..90 N e\' interpolata: bordo nord = dato reale della riga 0, centro = colore medio del capolo',
   'MAPPE= I 4 domini globali (DWD ICON, GFS 0.25, ECMWF IFS 0.25, ARPEGE World) usano SEMPRE la regione Emisfero nord per index.json e WebP: la regione "Intero dominio" non esiste piu\' per loro (dava 404 sull\'indice e fallback ai soli frame .om)',
@@ -11611,46 +11617,73 @@ function fmPolarDrawOverlays() {
 }
 // 1.2.4.15 - CAPOLO (lat > bordo nord del WebP).
 // Il WebP del renderer si ferma alla latitudine di taglio Mercator (85.05112878 N): sopra
-// quel parallelo il fast-path WebP NON ha dato, anche se il frame `.om` arriva fino a 90 N.
-// Prima di questa release il clamp `lat = min(north, lat)` mandava OGNI pixel sopra 85 N
-// sulla riga 0 del WebP mentre `sx` continuava a variare con l'azimuth: la riga 0 veniva
-// replicata a ventaglio su 360 gradi e, siccome isolinee/valori/frecce sono disegnati
-// DENTRO il WebP, si vedevano raggi a stella convergenti sul polo. Il clamp non era un
-// errore di proiezione: era il bordo del dato.
-// Ora il cap e' interpolato: sul bordo (lat ~= north) resta il colore reale della riga 0
-// all'azimuth del pixel, al centro (lat = 90) domina il colore medio dei pixel opachi
-// della riga 0 -> nessuna struttura angolare inventata.
-// Colore medio del capolo = media dei pixel OPACHI della riga 0 (se il WebP non ha alpha,
-// usa tutti). Calcolato UNA volta per frame e cacheato sulla chiave `fmPolarFrame.pixels`,
-// che cambia a ogni frame caricato: non viene ricalcolato per pixel.
+// quel parallelo il fast-path WebP NON ha dato. Prima della 1.2.4.15 il clamp
+// `lat = min(north, lat)` mandava OGNI pixel sopra 85 N sulla riga 0 del WebP mentre `sx`
+// continuava a variare con l'azimuth: la riga 0 veniva replicata a ventaglio su 360 gradi
+// e, siccome isolinee/valori/frecce sono disegnati DENTRO il WebP, si vedevano raggi a
+// stella convergenti sul polo. Il clamp non era un errore di proiezione: era il bordo del
+// dato. La 1.2.4.15 ha sostituito il clamp con un cap interpolato.
+//
+// 1.2.4.16 - NIENTE PIU' PIXEL "SPALMATI" AL POLO. Due correzioni, stesso criterio
+// (nessun dato inventato: sopra il bordo del WebP si usa solo il colore del capolo).
+//  (a) Il colore del capolo non e' piu' la MEDIA dei pixel opachi della riga 0 ma la
+//      MEDIANA per canale. Il renderer disegna DENTRO il WebP etichette bianche e frecce
+//      scure: la media ne viene trascinata (un'etichetta da 255 tira su tutto il cap),
+//      la mediana no. Il capolo resta il colore tipico del bordo del dato.
+//  (b) La dissolvenza dell'azimuth e' CUBICA, non lineare: w0 = (1 - t)^3. Sul bordo
+//      (t = 0) w0 = 1 -> continuita' esatta con la riga 0 all'azimuth del pixel; a un
+//      grado dal bordo (t = 0,2) w0 = 0,51; a due gradi (t = 0,4) w0 = 0,22; a tre gradi
+//      (t = 0,6) w0 = 0,06. Con la dissolvenza lineare della 1.2.4.15 la riga 0 (e le sue
+//      etichette/frecce) restava al 40-60% per quasi tutto il cap e si vedeva come una
+//      raggiera di pixel "spalmati" fino al polo: ora il ventaglio e' confinato ai primi
+//      pixel sopra il bordo e il centro e' il colore del capolo.
+// PERCHE' NON SI CAMPIONA LA LATITUDINE VERA DAL FRAME `.om` (verificato il 2026-10-23):
+// la `bbox` del manifest dice lat 20..90, ma l'array valori del file `.om` (letto dal
+// protocollo Open-Meteo) ha 262 righe a 0,25 gradi = 20..85,05 N (2879x522 a 0,125 per
+// dwd_icon), cioe' il dato si ferma ESATTAMENTE al limite Mercator; `getValueFromLatLong`
+// su 86/88/90 N restituisce NaN su ncep_gfs025 e dwd_icon. Non esiste quindi nessun pixel
+// reale da campionare sopra 85,05 N: l'unica strada onesta e' il cap con il colore del
+// bordo. Il dettaglio e' verificato da scripts/tests/test_fm_polar_cap_fade.mjs.
 var fmPolarCapCache = null;
+// Mediana di un array di numeri (funzione PURA, usata da fmPolarCapMean e dai test).
+function fmPolarMedian(values) {
+    var n = values ? values.length : 0;
+    if (!n) return 0;
+    var copy = Array.prototype.slice.call(values).sort(function (a, b) { return a - b; });
+    var mid = n >> 1;
+    return (n % 2) ? copy[mid] : Math.round((copy[mid - 1] + copy[mid]) / 2);
+}
+// Colore del capolo = MEDIANA per canale dei pixel OPACHI della riga 0 (se il WebP non ha
+// alpha, usa tutti). Calcolato UNA volta per frame e cacheato sulla chiave
+// `fmPolarFrame.pixels`, che cambia a ogni frame caricato: non viene ricalcolato per pixel.
 function fmPolarCapMean(data, sw) {
     var frame = (typeof fmPolarFrame !== 'undefined' && fmPolarFrame) ? fmPolarFrame.pixels : null;
     if (fmPolarCapCache && frame && fmPolarCapCache.pixels === frame) return fmPolarCapCache.mean;
     var hasAlpha = false;
     for (var a = 3; a < sw * 4; a += 4) { if (data[a] !== 255) { hasAlpha = true; break; } }
-    var rs = 0, gs = 0, bs = 0, as = 0, n = 0;
+    var chR = [], chG = [], chB = [], chA = [];
     for (var i = 0; i < sw; i++) {
         var si = i * 4;
         if (hasAlpha && data[si + 3] === 0) continue;   // pixel trasparente: fuori dal dato
-        rs += data[si]; gs += data[si + 1]; bs += data[si + 2]; as += data[si + 3]; n++;
+        chR.push(data[si]); chG.push(data[si + 1]); chB.push(data[si + 2]); chA.push(data[si + 3]);
     }
-    if (!n) { // riga 0 completamente trasparente: media su tutti i pixel (nessun dato opaco)
-        n = sw;
-        for (var j = 0; j < sw; j++) { var sj = j * 4; rs += data[sj]; gs += data[sj + 1]; bs += data[sj + 2]; as += data[sj + 3]; }
+    if (!chR.length) { // riga 0 completamente trasparente: mediana su tutti i pixel
+        for (var j = 0; j < sw; j++) { var sj = j * 4; chR.push(data[sj]); chG.push(data[sj + 1]); chB.push(data[sj + 2]); chA.push(data[sj + 3]); }
     }
-    var mean = [Math.round(rs / n), Math.round(gs / n), Math.round(bs / n), Math.round(as / n)];
+    var mean = [fmPolarMedian(chR), fmPolarMedian(chG), fmPolarMedian(chB), fmPolarMedian(chA)];
     fmPolarCapCache = { pixels: frame, mean: mean };
     return mean;
 }
 // Colore di un pixel con latitudine VERA sopra il bordo nord del WebP. Funzione PURA
-// (usata dal loop di fmPolarPaintBase e dai test in scripts/tests/test_fm_polar_cap.mjs).
-// t = clamp((lat - north) / (90 - north), 0, 1); colore = lerp(capolo, riga0_azimuth, 1 - t).
+// (usata dal loop di fmPolarPaintBase e dai test in scripts/tests/test_fm_polar_cap*.mjs).
+// t = clamp((lat - north) / (90 - north), 0, 1); w0 = (1 - t)^3 (dissolvenza CUBICA:
+// continuita' sul bordo, capolo dominante gia' a ~2 gradi dal bordo);
+// colore = lerp(capolo, riga0_azimuth, w0).
 function fmPolarCapColor(capMean, rowColor, lat, north) {
     var span = 90 - north;
     var t = span > 0 ? (lat - north) / span : 0;
     if (!(t > 0)) t = 0; else if (t > 1) t = 1;
-    var w0 = 1 - t;
+    var w0 = Math.pow(1 - t, 3);
     return [
         Math.round(capMean[0] + (rowColor[0] - capMean[0]) * w0),
         Math.round(capMean[1] + (rowColor[1] - capMean[1]) * w0),
@@ -12103,8 +12136,8 @@ function fmRunChanged() {
     fmSelectedRunId = sel.value || null;
     fmRunManual = true; // 1.2.4.14: l'utente ha scelto manualmente
     var times = fmDisplayValidTimes();
-    fmStopPlay(); fmStopPreload(); fmStopWarm();
-    fmIdx = Math.min(fmIdx, Math.max(0, times.length - 1));
+    fmResetPlayerForModelChange('run');   // 1.2.4.16: stop animazione + slider a 0 + cache invalidate
+    fmIdx = 0;
     fmPopulateTimes(times); fmSyncSlider();
     var run = fmSelectedRun();
     fmUpdateRunDisplay(run && (run.reference_time || run.generated_at));
@@ -13151,7 +13184,7 @@ function fmDomainChanged() {
     var s = fmEl('fm-domain-select');
     if (s) fmDomain = s.value;
     fmRunManual = false; // 1.2.4.14: cambio dominio esplicito resetta la scelta manuale
-    fmStopPlay();
+    fmResetPlayerForModelChange('domain');   // 1.2.4.16: player fermo a 0, niente frame vecchio
     fmUpdateRunDisplay(null);   // 1.2.4.12: reset neutro finche' il nuovo dominio non e' caricato
     fmLoadDomain();
 }
@@ -13167,6 +13200,7 @@ function fmVariableChanged() {
     }
     // 1.2.4.13: niente checkbox da spuntare (i toggle sono rimosti): l'overlay MSL richiede
     // SEMPRE le isobare e la via di fallback le chiede gia' sempre (fmVectorUrl).
+    fmResetPlayerForModelChange('variable');  // 1.2.4.16: la variabile cambia il frame, si riparte da 0
     fmIdx = 0;
     fmPopulateTimes(fmDisplayValidTimes());
     fmSyncSlider();
@@ -13255,6 +13289,53 @@ function fmStopPlay() {
     fmPlaybackSetFramePending(false);
     var b = fmEl('fm-play-btn');
     if (b) b.textContent = '▶';
+}
+// ================= 1.2.4.16 - RESET DEL PLAYER AL CAMBIO MODELLO/VARIABILE/RUN =========
+// Requisito: cambiando modello, variabile o run il player NON deve restare a meta'
+// animazione con lo stato del modello precedente. Si ferma, torna a 0, invalida il frame
+// corrente e le cache di prefetch del modello precedente e riparte dal primo frame nuovo;
+// se il frame nuovo non e' pronto resta lo stato di caricamento (nessun frame vecchio).
+// La DECISIONE e' una funzione PURA (testata da scripts/tests/test_fm_player_reset.mjs),
+// l'effetto sul DOM/mappa sta in fmResetPlayerForModelChange().
+function fmPlayerResetState(prev) {
+    var p = prev || {};
+    var gen = (typeof p.generation === 'number' && isFinite(p.generation)) ? p.generation : 0;
+    return {
+        playing: false,          // niente animazione in corso
+        interval: null,          // timer azzerato (il chiamante fa clearInterval)
+        idx: 0,                  // si riparte dal PRIMO frame del nuovo modello
+        slider: '0',             // fm-slider.value === '0'
+        playButton: '▶',         // il bottone torna a play
+        framePending: false,     // nessun frame in volo considerato valido
+        generation: gen + 1,     // invalida i callback onload del modello precedente
+        loader: true,            // stato di caricamento visibile finche' il frame non c'e'
+        timeLabel: '—'           // contatore/data azzerati (nulla di vecchio a schermo)
+    };
+}
+function fmResetPlayerForModelChange(reason) {
+    var st = fmPlayerResetState({ generation: fmWebpGeneration });
+    // 1) stop animazione (timer, play-btn, frame pending)
+    fmStopPlay();
+    // 2) stop delle richieste di prefetch/warm del modello precedente
+    fmStopPreload();
+    fmStopWarm();
+    // 3) invalida il frame in volo e le cache di decodifica legate al modello precedente
+    fmRemoveLayers();
+    if (fmWebpGeneration < st.generation) fmWebpGeneration = st.generation;
+    fmPlaybackSetFramePending(st.framePending);
+    fmWebpDecodedImages = Object.create(null);
+    fmLayerKey = null;
+    // 4) via anche il frame della vista polare (altrimenti il polo mostra il modello vecchio)
+    if (typeof fmPolarSetActive === 'function') fmPolarSetActive(false);
+    if (typeof fmPolarFrame !== 'undefined') { fmPolarFrame = null; fmPolarFrameUrl = null; fmPolarLoadingUrl = null; }
+    // 5) player a zero
+    fmIdx = st.idx;
+    fmSyncSlider();
+    var sl = fmEl('fm-slider'); if (sl) sl.value = st.slider;
+    var td = fmEl('fm-time-display'); if (td) td.textContent = st.timeLabel;
+    var b = fmEl('fm-play-btn'); if (b) b.textContent = st.playButton;
+    // 6) caricamento visibile finche' il nuovo frame non e' pronto
+    fmLoaderShow();
 }
     function fmPreloadStatus(txt) { var s = fmEl('fm-preload-status'); if (s) s.textContent = txt; }
 
@@ -13426,6 +13507,80 @@ function fmInvalidateSize() {
         if (map && typeof map.invalidateSize === 'function') map.invalidateSize();
     }, 0);
 }
+// ================= 1.2.4.16 - ZONE A RISCHIO E MAPPE PREVISIONALI =================
+// Requisito: all'APERTURA delle mappe previsionali non si deve vedere NIENTE delle zone
+// a rischio (province colorate per metrica/rischio, poligoni con la colorazione DPC,
+// sfumatura "vista continua"); alla CHIUSURA lo stato precedente deve tornare com'era.
+// I layer coinvolti (trovati nel DOM/Leaflet della 1.2.4.15, non ipotizzati):
+//   - provinceGeoJsonLayer: L.geoJSON dei 107 poligoni provinciali, pane 'tilePane'
+//     (z 200), riempiti con colorForMetric(currentMetric, agg); la modalita' DPC
+//     (toggleDpcAlert) RICOLORA LO STESSO LAYER con DPC_ALERT_COLORS -> coperti entrambi.
+//   - provinceLayerMap[idx]: i singoli layer provincia (stessi path del gruppo, servono
+//     a bringToFront) -> se il gruppo e' gia' nascosto risultano gia' assenti.
+//   - continuousOverlay: L.imageOverlay della vista continua (overlayPane, z 400) ->
+//     sta SOPRA al pane delle mappe (forecastMapsPane, z 360) e sarebbe visibile.
+//   - borderOverlayLayer (bordi provinciali ISTAT, z 410) NON viene nascosto: non porta
+//     colore di rischio ed e' l'unico disegnatore dei confini italiani (la geografia
+//     Natural Earth delle mappe esclude i confini con l'Italia, vedi fmIsItalyBoundaryFeature).
+// Lo stato e' PER LAYER (visibile/nascosto), non un booleano globale: se l'utente aveva
+// le zone a rischio spente prima di aprire le mappe, alla chiusura restano spente.
+var fmRiskOverlaySaved = null;
+// PURA (testata da scripts/tests/test_fm_risk_overlay_state.mjs): dato l'elenco dei layer
+// candidati e un predicato di visibilita', restituisce { hide:[layer...], state:[{layer,visible}] }.
+// Non tocca la mappa: la decisione e' separata dall'effetto.
+function fmRiskOverlayPlan(candidates, isVisible) {
+    var plan = { hide: [], state: [] };
+    if (!candidates || !candidates.length) return plan;
+    for (var i = 0; i < candidates.length; i++) {
+        var entry = candidates[i];
+        var layer = (entry && entry.layer) ? entry.layer : entry;
+        if (!layer) continue;
+        var name = (entry && entry.name) ? entry.name : ('layer' + i);
+        var visible = isVisible ? !!isVisible(layer) : false;
+        plan.state.push({ layer: layer, name: name, visible: visible });
+        if (visible) plan.hide.push(layer);
+    }
+    return plan;
+}
+function fmRiskOverlayCandidates() {
+    var out = [];
+    function add(layer, name) {
+        if (!layer) return;
+        for (var i = 0; i < out.length; i++) { if (out[i].layer === layer) return; }
+        out.push({ layer: layer, name: name });
+    }
+    if (typeof continuousOverlay !== 'undefined' && continuousOverlay) add(continuousOverlay, 'continuous');
+    if (typeof provinceGeoJsonLayer !== 'undefined' && provinceGeoJsonLayer) add(provinceGeoJsonLayer, 'provinces');
+    if (typeof provinceLayerMap !== 'undefined' && provinceLayerMap) {
+        for (var k in provinceLayerMap) {
+            if (Object.prototype.hasOwnProperty.call(provinceLayerMap, k)) add(provinceLayerMap[k], 'province:' + k);
+        }
+    }
+    return out;
+}
+function fmHideRiskOverlays() {
+    if (fmRiskOverlaySaved) return;   // gia' nascoste: non risalvare uno stato gia' alterato
+    if (typeof map === 'undefined' || !map) return;
+    var plan = fmRiskOverlayPlan(fmRiskOverlayCandidates(), function (l) {
+        try { return !!map.hasLayer(l); } catch (e) { return false; }
+    });
+    for (var i = 0; i < plan.hide.length; i++) {
+        try { map.removeLayer(plan.hide[i]); } catch (e) { }
+    }
+    fmRiskOverlaySaved = plan.state;
+}
+function fmRestoreRiskOverlays() {
+    if (!fmRiskOverlaySaved) return;
+    var saved = fmRiskOverlaySaved;
+    fmRiskOverlaySaved = null;
+    if (typeof map === 'undefined' || !map) return;
+    for (var i = 0; i < saved.length; i++) {
+        if (!saved[i].visible) continue;   // era spento prima: resta spento
+        try {
+            if (!map.hasLayer(saved[i].layer)) saved[i].layer.addTo(map);
+        } catch (e) { }
+    }
+}
 function toggleForecastMaps() {
     if (!isFeatureEnabled('forecastMaps')) return;
     var panel = fmEl('forecast-maps-panel');
@@ -13441,12 +13596,14 @@ function toggleForecastMaps() {
         fmLoaderHide();
         fmStopPreload();
         fmStopWarm();
+        fmRestoreRiskOverlays();   // 1.2.4.16: torna lo stato per-layer precedente
         fmInvalidateSize();
         if (btn) btn.textContent = '🗺️ Mappe previsionali (OFF)';
         return;
     }
     panel.classList.add('active');
     fmActive = true;
+    fmHideRiskOverlays();          // 1.2.4.16: nessuna zona a rischio sopra le mappe
     fmSetForecastGeographyVisible(true);
     if (btn) btn.textContent = '🗺️ Mappe previsionali (ON)';
     fmInvalidateSize();

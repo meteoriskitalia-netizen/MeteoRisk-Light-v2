@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// TEST 1.2.4.15 - CAPOLO POLARE (artefatto a stella al polo).
+// TEST 1.2.4.16 - CAPOLO POLARE (artefatto a stella al polo).
 //
 // COSA COPRE DAVVERO: la logica del cap e' ESTRATTA dall'html di release
-// (fmPolarCapMean + fmPolarCapColor, estratte per nome dal sorgente servito) e
+// (fmPolarCapMean a MEDIANA + fmPolarCapColor con dissolvenza CUBICA, estratte per nome dal sorgente servito) e
 // eseguita su un WebP sintetico in un contesto vm. Non e' una replica della
 // funzione: se l'html cambia, il test legge il codice nuovo.
 //
@@ -20,8 +20,8 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const htmls = fs.readdirSync(ROOT).filter((f) => /^mri-light-1\.2\.4\.15\.html$/.test(f));
-if (!htmls.length) { console.error('FATAL: mri-light-1.2.4.15.html non trovato in ' + ROOT); process.exit(1); }
+const htmls = fs.readdirSync(ROOT).filter((f) => /^mri-light-1.2.4.16.html$/.test(f));
+if (!htmls.length) { console.error('FATAL: mri-light-1.2.4.16.html non trovato in ' + ROOT); process.exit(1); }
 const HTML = path.join(ROOT, htmls[0]);
 const src = fs.readFileSync(HTML, 'utf8');
 
@@ -41,10 +41,11 @@ function extractFn(source, name) {
 }
 
 // ---------- ESTRAZIONE DAL SORGENTE REALE ----------
-let capMeanSrc, capColorSrc;
+let capMeanSrc, capColorSrc, medianSrc;
 try {
   capMeanSrc = extractFn(src, 'fmPolarCapMean');
   capColorSrc = extractFn(src, 'fmPolarCapColor');
+  medianSrc = extractFn(src, 'fmPolarMedian');
 } catch (e) {
   console.error('FATAL: ' + e.message);
   process.exit(1);
@@ -52,10 +53,11 @@ try {
 
 const sandbox = { console, fmPolarFrame: null };
 vm.createContext(sandbox);
-vm.runInContext('var fmPolarCapCache = null;\n' + capMeanSrc + '\n' + capColorSrc + '\n', sandbox);
+vm.runInContext('var fmPolarCapCache = null;\n' + medianSrc + '\n' + capMeanSrc + '\n' + capColorSrc + '\n', sandbox);
+const fmPolarMedian = sandbox.fmPolarMedian;
 const fmPolarCapMean = sandbox.fmPolarCapMean;
 const fmPolarCapColor = sandbox.fmPolarCapColor;
-ok('E1: fmPolarCapMean e fmPolarCapColor estratte ed eseguibili', typeof fmPolarCapMean === 'function' && typeof fmPolarCapColor === 'function');
+ok('E1: fmPolarMedian, fmPolarCapMean e fmPolarCapColor estratte ed eseguibili', typeof fmPolarMedian === 'function' && typeof fmPolarCapMean === 'function' && typeof fmPolarCapColor === 'function');
 
 // ---------- DATI SINTETICI: RIGA 0 CON COLORE VARIABILE E BUCHI TRASPARENTI ----------
 const SW = 360, SH = 8, NORTH = 85.05112878;
@@ -81,15 +83,39 @@ sandbox.fmPolarFrame = { pixels: pixels, bounds: [[20, -180], [NORTH, 180]] };
 const row0 = (x) => [data[x * 4], data[x * 4 + 1], data[x * 4 + 2], data[x * 4 + 3]];
 
 const mean = fmPolarCapMean(data, SW);
-// check esatto: media aritmetica dei soli x >= 10
-let sr = 0, sg = 0, sb = 0, sa = 0, n = 0;
-for (let x = 10; x < SW; x++) { const i = x * 4; sr += data[i]; sg += data[i + 1]; sb += data[i + 2]; sa += data[i + 3]; n++; }
-const exp = [Math.round(sr / n), Math.round(sg / n), Math.round(sb / n), Math.round(sa / n)];
-ok('A1: colore del capolo = media esatta dei pixel OPACHI della riga 0',
+// 1.2.4.16: il capolo e' la MEDIANA per canale dei soli x >= 10 (buchi trasparenti esclusi)
+function medianOf(arr) {
+  const c = arr.slice().sort((a, b) => a - b);
+  const m = c.length >> 1;
+  return (c.length % 2) ? c[m] : Math.round((c[m - 1] + c[m]) / 2);
+}
+const rv = [], gv = [], bv = [], av = [];
+for (let x = 10; x < SW; x++) { const i = x * 4; rv.push(data[i]); gv.push(data[i + 1]); bv.push(data[i + 2]); av.push(data[i + 3]); }
+const exp = [medianOf(rv), medianOf(gv), medianOf(bv), medianOf(av)];
+ok('A1: colore del capolo = MEDIANA esatta dei pixel OPACHI della riga 0',
   mean.length === 4 && mean.every((v, k) => v === exp[k]), `capMean=[${mean}] atteso=[${exp}]`);
-ok('A2: i pixel trasparenti non entrano nella media (i 10 buchi valgono 250,250,250)',
+ok('A2: i pixel trasparenti non entrano nella mediana (i 10 buchi valgono 250,250,250)',
   mean[0] !== 250 || mean[1] !== 250 || mean[2] !== 250);
 ok('A3: alpha del capolo = 255 (tutti i pixel contati sono opachi)', mean[3] === 255);
+// A4: ROBUSTEZZA ALLE ETICHETTE/FRECCE DEL RENDERER. Riga 0 di 360 px con colore di campo
+// [200,200,200] e 40 px bianchi (etichette disegnate DENTRO il WebP): la MEDIANA resta sul
+// colore di campo, la MEDIA aritmetica no (sarebbe 206). È il motivo della 1.2.4.16.
+const SW2 = 360, labelData = new Uint8ClampedArray(SW2 * 2 * 4);
+let sr = 0, n = 0;
+for (let x = 0; x < SW2; x++) {
+  const i = x * 4;
+  const white = (x % 9 === 0);                    // 40 etichette
+  const v = white ? 255 : 200;
+  labelData[i] = v; labelData[i + 1] = v; labelData[i + 2] = v; labelData[i + 3] = 255;
+  sr += v; n++;
+}
+sandbox.fmPolarFrame = { pixels: { width: SW2, height: 2, data: labelData }, bounds: [[20, -180], [NORTH, 180]] };
+const labelCap = fmPolarCapMean(labelData, SW2);
+const arithmeticMean = Math.round(sr / n);
+ok('A4: la mediana del capolo non e\' trascinata dalle etichette bianche (media != mediana)',
+  labelCap[0] === 200 && arithmeticMean !== 200,
+  `mediana=${labelCap[0]} media=${arithmeticMean}`);
+sandbox.fmPolarFrame = { pixels: pixels, bounds: [[20, -180], [NORTH, 180]] };
 
 // (i) BORDO DEL CAP: lat = north -> colore REALE della riga 0 all'azimuth del pixel
 const sxBorder = 200;
@@ -118,8 +144,10 @@ const cAbove = fmPolarCapColor(mean, rowMid, 85.1, NORTH);
 ok('iii1: a lat 84.9 (sotto il cap) il colore coincide con la riga 0 (nessun salto al bordo)',
   cBelow.every((v, k) => v === rowMid[k]));
 const jump = Math.max(...cAbove.map((v, k) => Math.abs(v - cBelow[k])));
-ok('iii2: nessun salto tra 84.9 e 85.1 (delta max per canale <= 3)',
-  jump <= 3, `delta=${jump}`);
+// 1.2.4.16: dissolvenza CUBICA -> la pendenza sul bordo e' 3x quella lineare, ma 0,1 gradi
+// sopra il bordo sono ~0,6 px: il salto resta impercettibile (<= 5 livelli per canale).
+ok('iii2: nessun salto tra 84.9 e 85.1 (delta max per canale <= 5)',
+  jump <= 5, `delta=${jump}`);
 const distTo = (c) => c.reduce((acc, v, k) => acc + Math.abs(v - mean[k]), 0);
 const ladder = [85.06, 86, 88, 89.9].map((lat) => distTo(fmPolarCapColor(mean, rowMid, lat, NORTH)));
 ok('iii3: avvicinandosi al polo il colore converge monotonicamente al capolo',

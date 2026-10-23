@@ -6,48 +6,73 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.15
+## Versione attiva: 1.2.4.16
 
-- File applicativo: `mri-light-1.2.4.15.html` (`APP_VERSION = '1.2.4.15'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.15', date: '2026-10-23' }`) + `sw.js` (Service Worker,
-  servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
-  `update-weather-data.yml`).
+- File applicativo: `mri-light-1.2.4.16.html` (`APP_VERSION = '1.2.4.16'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.16', date: '2026-10-23' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.16'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+  `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
+- Contenuto della 1.2.4.16 (release sopra la 1.2.4.15):
+  - **Polo senza pixel "spalmati"** (`fmPolarCapMean` / `fmPolarCapColor`). Due precisazioni
+    verificate il 2026-10-23, perche' cambiano la diagnosi rispetto alla 1.2.4.15: (1) la vista
+    polare usa SOLO il WebP pre-renderizzato (`fmPolarSetActive` e' attiva solo quando
+    `fmWebpFrameUrl()` esiste) e **non esiste alcun painter del frame `.om` in proiezione
+    polare**, quindi non c'e' un secondo ramo con il clamp a 85 da correggere; (2) il frame
+    `.om` **non contiene dato sopra 85,05 N**: la `bbox` del manifest dice 20..90 ma l'array
+    valori del file ha 262 righe a 0,25 gradi (20..85,05; 522 righe a 0,125 per `dwd_icon`) e
+    `getValueFromLatLong` a 86/88/90 N restituisce `NaN` sia su `ncep_gfs025` sia su `dwd_icon`,
+    quindi "campionare la latitudine vera dal `.om`" e' impraticabile: il dato non esiste.
+    Il residuo visibile era il cap: la dissolvenza lineare teneva l'azimuth della riga 0 (con le
+    etichette bianche e le frecce scure disegnate dentro il WebP) al 40-60% per quasi tutto il
+    cap, e il colore del capolo era la **media**, trascinata dalle etichette. Ora il capolo e'
+    la **mediana per canale** dei pixel opachi della riga 0 (helper pura `fmPolarMedian`,
+    cacheata su `fmPolarFrame.pixels`) e la dissolvenza e' **cubica** `w0 = (1 - t)^3`:
+    continuita' esatta sul bordo (t = 0), 0,51 a un grado, 0,22 a due gradi, 0,06 a tre gradi.
+    Misura dell'anello attorno al polo (720 campioni per raggio, frame `ncep_gfs025`
+    `pressure_msl` 2026-10-23T00Z): deviazione standard angolare 10,66 -> 2,99 a r = 2 px
+    (lat ~89 N), 11,37 -> 6,47 a r = 4, 11,45 -> 9,56 a r = 6; colori distinti 7 -> 13 a r = 2.
+  - **Zone a rischio nascoste all'apertura delle mappe previsionali**: `fmRiskOverlayPlan`
+    (pura), `fmRiskOverlayCandidates`, `fmHideRiskOverlays` e `fmRestoreRiskOverlays`,
+    richiamate da `toggleForecastMaps()`. Lo stato e' **per layer** (visibile/nascosto), non un
+    booleano: si nascondono `provinceGeoJsonLayer` (107 poligoni, pane `tilePane`, riempiti da
+    `colorForMetric` e **ricolorati** dalla modalita' DPC con `DPC_ALERT_COLORS`), le voci di
+    `provinceLayerMap` e `continuousOverlay` (immagine della vista continua, `overlayPane`
+    z 400, **sopra** il pane delle mappe a z 360). `borderOverlayLayer` (bordi ISTAT, z 410)
+    resta visibile: non porta colore di rischio ed e' l'unico disegnatore dei confini italiani
+    (la geografia Natural Earth delle mappe esclude i confini con l'Italia). Se l'utente aveva
+    le zone spente, alla chiusura restano spente.
+  - **Reset del player al cambio modello/variabile/run**: `fmPlayerResetState` (pura) +
+    `fmResetPlayerForModelChange`, agganciata a `fmDomainChanged`, `fmVariableChanged` e
+    `fmRunChanged`. Ferma la riproduzione (bottone ▶), riporta `fm-slider` a `0`, azzera
+    contatore e data/ora, invalida il frame in volo (`fmWebpGeneration`) e le cache di
+    prefetch/decode del modello precedente (`fmStopPreload`, `fmStopWarm`,
+    `fmWebpDecodedImages`), toglie i layer e il frame polare vecchi e mostra il loader finche'
+    il primo frame del nuovo modello non e' pronto.
+  - **Test**: nuovi `scripts/tests/test_fm_polar_cap_fade.mjs` (mediana robusta, dissolvenza
+    cubica, assenza di clamp a 85 nel painter, assenza del ramo `.om` polare),
+    `scripts/tests/test_fm_risk_overlay_state.mjs` (`fmRiskOverlayPlan` per-layer) e
+    `scripts/tests/test_fm_player_reset.mjs` (`fmPlayerResetState`); `test_fm_polar_cap.mjs`
+    aggiornato alla nuova formula e al file 1.2.4.16.
+
+## Versione precedente: 1.2.4.15
+
+- File applicativo: `mri-light-1.2.4.15.html` (`APP_VERSION = '1.2.4.15'`).
 - Contenuto della 1.2.4.15 (release sopra la 1.2.4.14):
-  - **Polare - fix dell'artefatto a stella al polo** (`fmPolarPaintBase`): il WebP del renderer si
-    ferma a 85,05112878 N (latitudine di taglio Mercator), quindi sopra quel parallelo il
-    fast-path non ha dato anche se il frame `.om` arriva a 90 N. Il clamp `lat = min(north, lat)`
-    mandava ogni pixel sopra 85 N sulla riga 0 del WebP mentre `sx` continuava a variare con
-    l'azimuth: la riga 0 veniva replicata a ventaglio su 360 gradi e, con isolinee/valori/frecce
-    disegnati dentro il WebP, si vedevano raggi a stella convergenti sul polo. Ora la fascia
-    85..90 N e' interpolata: `fmPolarCapMean` calcola una volta per frame il colore del capolo
-    (media dei pixel opachi della riga 0, cacheata su `fmPolarFrame.pixels`), `fmPolarCapColor`
-    applica `t = clamp((lat - north) / (90 - north), 0, 1)` e `lerp(capolo, riga0_azimuth, 1 - t)`,
-    quindi sul bordo resta il dato reale della riga 0 e al centro domina la media (nessun dato
-    inventato). Flip di colonne e proiezione inversa invariati.
+  - **Polare - primo fix dell'artefatto a stella al polo** (`fmPolarPaintBase`): il WebP del
+    renderer si ferma a 85,05112878 N (latitudine di taglio Mercator). Il clamp
+    `lat = min(north, lat)` mandava ogni pixel sopra 85 N sulla riga 0 del WebP mentre `sx`
+    continuava a variare con l'azimuth: la riga 0 veniva replicata a ventaglio su 360 gradi e,
+    con isolinee/valori/frecce disegnati dentro il WebP, si vedevano raggi a stella convergenti
+    sul polo. La 1.2.4.15 ha interpolato la fascia 85..90 N con `fmPolarCapMean` (media dei
+    pixel opachi della riga 0) e `fmPolarCapColor` (`lerp(capolo, riga0_azimuth, 1 - t)`).
   - **Regione Emisfero nord per i 4 domini globali**: `dwd_icon`, `ncep_gfs025`, `ecmwf_ifs025`,
     `meteofrance_arpege_world025` usano sempre la regione `north` per `index.json` e per gli URL
-    dei WebP, qualunque sia il valore del selettore UI. La regola e' centralizzata in
-    `fmRegionForDomain(domain, region)` (elenco esplicito `FM_GLOBAL_DOMAINS`) e usata da
-    `fmRenderRegionId()`; per i globali la regione `domain` non e' piu' offerta ne'
-    pre-renderizzata (chiederla dava 404 sull'indice con fallback ai soli frame `.om`).
-    `dwd_icon_eu`, `dwd_icon_d2` e `ncep_gfs013` restano su `domain` / `europe` / `italy`.
-  - **Service Worker con cache applicativa**: `CACHE_NAME = 'mri-1.2.4.15'`, `skipWaiting` +
-    `clients.claim`, nessun precache dell'html da 2 MB, cache precedenti eliminate all'activate.
-    Policy: **nessuna intercettazione** per metodi non-GET e per qualunque richiesta con header
-    `Range` (i frame `.om` usano 206: cachearli romperebbe il player); stale-while-revalidate per
-    `data/fm2-rendered/**/*.json` e `data/fm2/**/latest.json`; cache-first con refresh in
-    background per `data/fm2-rendered/**/*.webp`; network-first con timeout 3 s e fallback in
-    cache per la navigazione; il resto passa in rete. `cache.put` solo per risposte `ok`, limite
-    di 1200 voci con potatura delle chiavi piu' vecchie (LRU approssimata per ordine di
-    inserimento, limite sul numero di voci e non sui byte).
-  - **CI - merge su `fm2-rendered` serializzati**: nei 5 workflow per-fornitore il job
-    `render-merge` usa il gruppo di concurrency unico `fm2-rendered-writer`
-    (`cancel-in-progress: false`): i nomi di gruppo sono globali al repo, quindi i merge dei
-    diversi fornitori non collidono piu' sul push (`! [rejected] ... (fetch first)`, run ncep
-    `39881544372`) lasciando WebP orfani negli artifact.
-  - **Test**: nuovi `scripts/tests/test_fm_polar_cap.mjs` (logica del cap estratta dall'html),
-    `scripts/tests/test_fm_region_global.mjs` (`fmRegionForDomain`) e
-    `scripts/tests/test_sw_cache_policy.mjs` (policy del SW letta dal `sw.js`).
+    dei WebP, qualunque sia il valore del selettore UI (`fmRegionForDomain`, `FM_GLOBAL_DOMAINS`).
+  - **Service Worker con cache applicativa**: `CACHE_NAME = 'mri-1.2.4.15'`, nessun precache
+    dell'html da 2 MB, nessuna intercettazione delle richieste con header `Range` (i frame `.om`
+    usano 206), stale-while-revalidate per gli indici e cache-first per i WebP.
+  - **CI - merge su `fm2-rendered` serializzati**: gruppo di concurrency unico
+    `fm2-rendered-writer` nei 5 workflow per-fornitore.
 
 ## Versione precedente: 1.2.4.14
 
