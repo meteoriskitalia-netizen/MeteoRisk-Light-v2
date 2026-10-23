@@ -1871,9 +1871,16 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.14';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-10-22';
+    const APP_VERSION = '1.2.4.15';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-10-23';
     const APP_CHANGELOG = [
+        { version: '1.2.4.15', date: '2026-10-23', changes: [
+  'FX= Polare: l\'artefatto a stella sul polo non c\'e\' piu\'. Sopra 85,05 N il WebP non ha dato (limite Mercator) e ogni pixel veniva mandato sulla riga 0 con azimuth variabile, replicando la riga 0 a ventaglio (raggi convergenti). Ora la fascia 85..90 N e\' interpolata: bordo nord = dato reale della riga 0, centro = colore medio del capolo',
+  'MAPPE= I 4 domini globali (DWD ICON, GFS 0.25, ECMWF IFS 0.25, ARPEGE World) usano SEMPRE la regione Emisfero nord per index.json e WebP: la regione "Intero dominio" non esiste piu\' per loro (dava 404 sull\'indice e fallback ai soli frame .om)',
+  'ADD= Service Worker (sw.js): cache applicativa offline-first per WebP e indici delle mappe, network-first con timeout 3 s per la pagina; le richieste Range (frame .om) non vengono mai intercettate',
+  'CI= I merge su fm2-rendered dei 5 workflow per-fornitore sono serializzati da un unico gruppo di concurrency: basta push rifiutati (fetch first) e WebP orfani negli artifact',
+  'DOC= Bump versione 1.2.4.15'
+  ] },
         { version: '1.2.4.14', date: '2026-10-22', changes: [
   'Selettore multi-run: flag fmRunManual preserva la run scelta dall\'utente al cambio dominio',
   'Manifest polling semplificato: l\'indice WebP viene ricaricato anche senza generated_at (due sorgenti indipendenti)',
@@ -11602,6 +11609,55 @@ function fmPolarDrawOverlays() {
         : 'Open-Meteo · coste e confini Natural Earth';
     ctx.fillText(polarNote, 18 * scale, 45 * scale);
 }
+// 1.2.4.15 - CAPOLO (lat > bordo nord del WebP).
+// Il WebP del renderer si ferma alla latitudine di taglio Mercator (85.05112878 N): sopra
+// quel parallelo il fast-path WebP NON ha dato, anche se il frame `.om` arriva fino a 90 N.
+// Prima di questa release il clamp `lat = min(north, lat)` mandava OGNI pixel sopra 85 N
+// sulla riga 0 del WebP mentre `sx` continuava a variare con l'azimuth: la riga 0 veniva
+// replicata a ventaglio su 360 gradi e, siccome isolinee/valori/frecce sono disegnati
+// DENTRO il WebP, si vedevano raggi a stella convergenti sul polo. Il clamp non era un
+// errore di proiezione: era il bordo del dato.
+// Ora il cap e' interpolato: sul bordo (lat ~= north) resta il colore reale della riga 0
+// all'azimuth del pixel, al centro (lat = 90) domina il colore medio dei pixel opachi
+// della riga 0 -> nessuna struttura angolare inventata.
+// Colore medio del capolo = media dei pixel OPACHI della riga 0 (se il WebP non ha alpha,
+// usa tutti). Calcolato UNA volta per frame e cacheato sulla chiave `fmPolarFrame.pixels`,
+// che cambia a ogni frame caricato: non viene ricalcolato per pixel.
+var fmPolarCapCache = null;
+function fmPolarCapMean(data, sw) {
+    var frame = (typeof fmPolarFrame !== 'undefined' && fmPolarFrame) ? fmPolarFrame.pixels : null;
+    if (fmPolarCapCache && frame && fmPolarCapCache.pixels === frame) return fmPolarCapCache.mean;
+    var hasAlpha = false;
+    for (var a = 3; a < sw * 4; a += 4) { if (data[a] !== 255) { hasAlpha = true; break; } }
+    var rs = 0, gs = 0, bs = 0, as = 0, n = 0;
+    for (var i = 0; i < sw; i++) {
+        var si = i * 4;
+        if (hasAlpha && data[si + 3] === 0) continue;   // pixel trasparente: fuori dal dato
+        rs += data[si]; gs += data[si + 1]; bs += data[si + 2]; as += data[si + 3]; n++;
+    }
+    if (!n) { // riga 0 completamente trasparente: media su tutti i pixel (nessun dato opaco)
+        n = sw;
+        for (var j = 0; j < sw; j++) { var sj = j * 4; rs += data[sj]; gs += data[sj + 1]; bs += data[sj + 2]; as += data[sj + 3]; }
+    }
+    var mean = [Math.round(rs / n), Math.round(gs / n), Math.round(bs / n), Math.round(as / n)];
+    fmPolarCapCache = { pixels: frame, mean: mean };
+    return mean;
+}
+// Colore di un pixel con latitudine VERA sopra il bordo nord del WebP. Funzione PURA
+// (usata dal loop di fmPolarPaintBase e dai test in scripts/tests/test_fm_polar_cap.mjs).
+// t = clamp((lat - north) / (90 - north), 0, 1); colore = lerp(capolo, riga0_azimuth, 1 - t).
+function fmPolarCapColor(capMean, rowColor, lat, north) {
+    var span = 90 - north;
+    var t = span > 0 ? (lat - north) / span : 0;
+    if (!(t > 0)) t = 0; else if (t > 1) t = 1;
+    var w0 = 1 - t;
+    return [
+        Math.round(capMean[0] + (rowColor[0] - capMean[0]) * w0),
+        Math.round(capMean[1] + (rowColor[1] - capMean[1]) * w0),
+        Math.round(capMean[2] + (rowColor[2] - capMean[2]) * w0),
+        Math.round(capMean[3] + (rowColor[3] - capMean[3]) * w0)
+    ];
+}
 function fmPolarPaintBase() {
     if (!fmPolarActive || !fmPolarEnsureCanvas()) return;
     var rect = fmPolarCanvas.getBoundingClientRect();
@@ -11623,19 +11679,29 @@ function fmPolarPaintBase() {
         var mySouth = Math.log(Math.tan(Math.PI / 4 + south * Math.PI / 360));
         var myNorth = Math.log(Math.tan(Math.PI / 4 + north * Math.PI / 360));
         var ySpan = myNorth - mySouth;
+        var capMean = fmPolarCapMean(data, sw);   // 1.2.4.15: colore del capolo, 1 volta per frame
         for (var y = 0; y < h; y++) {
             var dy = (y - cy) / radius;
             for (var x = 0; x < w; x++) {
                 var dx = (x - cx) / radius, rho = Math.hypot(dx, dy);
                 var o = (y * w + x) * 4;
                 if (rho > 1) { dst[o] = 11; dst[o + 1] = 24; dst[o + 2] = 48; dst[o + 3] = 255; continue; }
-                var lat = 90 - 2 * Math.atan(rho * cap) * 180 / Math.PI;
-                lat = Math.max(south, Math.min(north, lat));
+                var latTrue = 90 - 2 * Math.atan(rho * cap) * 180 / Math.PI;
                 var lon = fmPolarLongitude(dx, dy);
                 var sx = Math.floor(((lon - west) / (east - west)) * sw);
                 // Il WebP emisferico arriva specchiato sull'asse longitudine: ribalta solo le colonne del raster.
                 sx = sw - 1 - sx;
                 sx = ((sx % sw) + sw) % sw;
+                if (latTrue > north) {
+                    // Sopra il bordo nord del WebP: NIENTE campionamento a sy=0 per azimuth
+                    // (era l'artefatto a stella). Riga 0 all'azimuth del pixel sfumata nel
+                    // colore medio del capolo man mano che ci si avvicina al polo.
+                    var r0 = sx * 4;
+                    var cc = fmPolarCapColor(capMean, [data[r0], data[r0 + 1], data[r0 + 2], data[r0 + 3]], latTrue, north);
+                    dst[o] = cc[0]; dst[o + 1] = cc[1]; dst[o + 2] = cc[2]; dst[o + 3] = cc[3];
+                    continue;
+                }
+                var lat = Math.max(south, latTrue);
                 var merc = Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360));
                 var sy = Math.max(0, Math.min(sh - 1, Math.floor((myNorth - merc) / ySpan * sh)));
                 var si = (sy * sw + sx) * 4;
@@ -12097,42 +12163,64 @@ function fmDomainBounds() {
     } catch (e) { }
     return null;
 }
-// Un dominio e' "globale" (vista di default = Europa invece che intero dominio)
-// quando offre regioni OLTRE la sola area europea, cioe' quando `domain` non
-// coincide con l'Europa. Dopo il ritaglio emisfero-nord (1.2.4.13) i 4 domini
-// globali hanno span lon 120 (<300) e lat 60 (<120): il vecchio test
-// geometrico ritornerebbe false e non forzerebbe piu' `europe` come default.
-// La condizione corretta e' quindi la PRESENZA della regione 'natl' (solo i
-// domini con margine extra-europeo la espongono), indipendente dalle dimensioni.
+// Elenco canonico dei DOMINI GLOBALI (crop emisfero nord, nessuna regione `domain`
+// pre-renderizzata). 1.2.4.15: dichiarato qui perche' e' la fonte unica usata da
+// fmIsGlobalDomain() e da fmRegionForDomain().
+var FM_GLOBAL_DOMAINS = ['dwd_icon', 'ncep_gfs025', 'ecmwf_ifs025', 'meteofrance_arpege_world025'];
+// Un dominio e' "globale" quando il suo crop e' l'emisfero nord (1.2.4.13+: bbox
+// 20..90N / lon intera) e il renderer WebP non produce la regione `domain` per lui.
+// 1.2.4.15: l'elenco esplicito FM_GLOBAL_DOMAINS e' la fonte unica (prima si deduceva
+// dalla presenza della regione 'natl', che ora non basta piu' come discriminante).
 function fmIsGlobalDomain() {
-    return fmDomainRegionIds(fmDomain).indexOf('natl') >= 0;
+    return FM_GLOBAL_DOMAINS.indexOf(fmDomain) >= 0;
 }
-// Regioni mostrate per dominio: i modelli GLOBALI (ritagliati sull'emisfero
-// nord dal motore: bbox 20..80N / -60..60E via NORTH_HEMISPHERE_BBOX) espongono
-// solo le aree realmente coperte dal crop, ovvero Europa, Italia e Nord
-// Atlantico ('domain' = intero crop, sempre disponibile). Le regioni extra-globo
-// (namerica/samerica/asia/oceania/arctic) NON sono piu' offerte: mostrerebbero
-// mappe vuote. I modelli a copertura europea/italiana restano su Europa/Italia.
+// Regioni mostrate per dominio. I modelli GLOBALI (ritagliati sull'emisfero nord dal
+// motore: bbox 20..90N / lon intera via NORTH_HEMISPHERE_BBOX) espongono 'north' come
+// PRIMA regione (default), piu' i ritagli di vista Europa / Italia / Nord Atlantico:
+// la regione `domain` NON e' offerta (non esiste in `fm2-rendered` per loro, vedi
+// fmDomainRegionIds). Le regioni extra-globo (namerica/samerica/asia/oceania/arctic)
+// NON sono offerte: mostrerebbero mappe vuote. I modelli a copertura europea/italiana
+// restano su domain/europe/italy.
 function fmDomainRegionIds(d) {
     if (d === 'dwd_icon_eu' || d === 'dwd_icon_d2') return ['domain', 'europe', 'italy'];
     if (d === 'ncep_gfs013') return ['domain', 'europe', 'italy'];
     // Domini globali ritagliati sull'emisfero nord (1.2.4.13): niente regioni
-    // fuori dal crop.
-    if (d === 'ecmwf_ifs025' || d === 'ncep_gfs025' || d === 'dwd_icon' || d === 'meteofrance_arpege_world025') {
-        return ['north', 'domain', 'europe', 'italy', 'natl'];
+    // fuori dal crop. 1.2.4.15: la regione 'domain' NON e' piu' offerta ne' generata
+    // per i globali (il renderer non produce `fm2-rendered/domain` per loro: chiederla
+    // dava 404 sull'indice e fallback ai soli frame `.om`).
+    if (FM_GLOBAL_DOMAINS.indexOf(d) >= 0) {
+        return ['north', 'europe', 'italy', 'natl'];
     }
     return ['north', 'domain', 'europe', 'italy', 'natl'];
+}
+// 1.2.4.15 - DOMINI GLOBALI: solo emisfero nord.
+// Scelta di prodotto: per i 4 domini globali (FM_GLOBAL_DOMAINS) si scarica SOLO la
+// regione `north` (l'intero dominio globale costava troppo in dati e non viene
+// pre-renderizzato). Regola UNICA e centralizzata: fmRegionForDomain() e' l'unico punto
+// in cui la regione UI viene tradotta nella regione effettivamente richiesta;
+// fmRenderRegionId() (index.json + URL dei WebP) la usa, nessun altro posto duplica la
+// logica. Per i 3 domini regionali la regione scelta resta quella dell'utente.
+function fmRegionForDomain(domain, region) {
+    if (FM_GLOBAL_DOMAINS.indexOf(domain) >= 0) return 'north';
+    var ids = fmDomainRegionIds(domain);
+    if (region && ids.indexOf(region) >= 0) return region;
+    return ids[0] || 'domain';
 }
 function fmPopulateRegions() {
     var sel = fmEl('fm-region-select');
     if (!sel) return;
     var allowed = fmDomainRegionIds(fmDomain);
+    // 1.2.4.15: per un dominio globale la prima regione ammessa e' 'north' e la
+    // 'domain' non esiste piu': il selettore mostra "Emisfero nord" invece di
+    // "Intero dominio". I WebP/index.json restano comunque SEMPRE 'north' per i
+    // globali (vedi fmRegionForDomain), qualunque sia la regione scelta in UI.
     if (allowed.indexOf(fmRegion) < 0) fmRegion = allowed[0] || 'domain';
     var html = '';
     for (var i = 0; i < FM_REGIONS.length; i++) {
         var r = FM_REGIONS[i];
         if (allowed.indexOf(r.id) < 0) continue;
-        html += '<option value="' + r.id + '"' + (r.id === fmRegion ? ' selected' : '') + '>' + r.label + '</option>';
+        var lbl = (r.id === 'north' && fmIsGlobalDomain()) ? 'Emisfero nord (globale)' : r.label;
+        html += '<option value="' + r.id + '"' + (r.id === fmRegion ? ' selected' : '') + '>' + lbl + '</option>';
     }
     sel.innerHTML = html;
     if (sel) try { sel.value = fmRegion; } catch (e) {}
@@ -12635,11 +12723,13 @@ function fmLayerOnMap(l) {
     try { return typeof map !== 'undefined' && !!map && (!map.hasLayer || map.hasLayer(l)); } catch (e) { return false; }
 }
 function fmRenderRegionId() {
-    // Id regione servita dal renderer WebP (europa/italia) per la regione UI corrente, o null.
+    // Id regione servita dal renderer WebP (europa/italia/north) per la regione UI corrente, o null.
+    // 1.2.4.15: la regione effettiva passa da fmRegionForDomain() (i globali sono sempre 'north').
     if (!fmRegion) return null;
+    var effective = fmRegionForDomain(fmDomain, fmRegion);
     var ids = fmDomainRegionIds(fmDomain);
-    if (ids.indexOf(fmRegion) < 0) return null;
-    return FM_RENDER_REGION_MAP[fmRegion] || null;
+    if (ids.indexOf(effective) < 0) return null;
+    return FM_RENDER_REGION_MAP[effective] || null;
 }
 // 1.2.4.13: il renderer produce SOLO il tema `light` (niente piu' `dark/`): il tema del
 // WebP e' una costante, non una scelta dell'utente.
@@ -13130,7 +13220,9 @@ function fmLoadDomain(dom) {
         fmPopulateTimes(meta.valid_times);
         fmSyncSlider();
         fmPopulateRegions();
-        if (fmIsGlobalDomain() && fmRegion === 'domain') { fmRegion = 'europe'; fmPopulateRegions(); }
+        // 1.2.4.15: i domini globali non hanno piu' la regione 'domain': il default e'
+        // l'emisfero nord (stessa regione da cui arrivano index.json e WebP).
+        if (fmIsGlobalDomain() && fmRegion === 'domain') { fmRegion = 'north'; fmPopulateRegions(); }
         fmSetStatus(meta.valid_times.length + ' ore – run ' + fmFmtTime(meta.reference_time));
         fmUpdateRunDisplay(meta.reference_time);
         if (!fmRunManual) { fmSelectedRunId = null; } // 1.2.4.14: preserva run se scelta manualmente
@@ -22081,6 +22173,27 @@ function start() {
 
 window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: THRESHOLDS_MIN };
 start();
+</script>
+<script>
+// 1.2.4.15 - SERVICE WORKER (cache applicativa, vedi sw.js nella root del sito).
+// Registrato DOPO `load` per non contendere banda al primo paint. URL RELATIVO: deve
+// funzionare anche se l'app non sta nella root (es. /MeteoRisk-Light-v2/index.html) e,
+// aperta da file://, la register() lancia e viene ignorata in silenzio.
+// Cache: `sw.js` NON intercetta le richieste con header Range (i frame `.om` usano 206).
+(function () {
+  if (!('serviceWorker' in navigator)) return;
+  function fmRegisterServiceWorker() {
+    try {
+      navigator.serviceWorker.register('sw.js').catch(function (err) {
+        if (window.console && console.debug) console.debug('[SW] registrazione non riuscita:', err && err.message ? err.message : err);
+      });
+    } catch (err) {
+      if (window.console && console.debug) console.debug('[SW] registrazione non disponibile:', err && err.message ? err.message : err);
+    }
+  }
+  if (document.readyState === 'complete') fmRegisterServiceWorker();
+  else window.addEventListener('load', fmRegisterServiceWorker, { once: true });
+})();
 </script>
 </body>
 </html>

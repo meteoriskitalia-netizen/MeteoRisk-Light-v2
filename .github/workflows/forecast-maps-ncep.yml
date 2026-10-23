@@ -310,10 +310,14 @@ jobs:
     timeout-minutes: 120
     concurrency:
       queue: max
-      # Gruppo PROPRIO del fornitore: merge di fornitori diversi pubblicano path
-      # disgiunti su `fm2-rendered` e possono girare in parallelo; il lock qui
-      # serializza solo le run di QUESTO workflow fra loro.
-      group: forecast-maps-ncep-render
+      # 1.2.4.15 - SERIALIZZAZIONE DEI MERGE SU `fm2-rendered`.
+      # Causa provata (run ncep 39881544372): i 5 workflow per-fornitore
+      # spingevano sullo STESSO branch `fm2-rendered` senza un lock condiviso
+      # -> `! [rejected] ... (fetch first)` e WebP del run orfani
+      # nell'artifact. Il gruppo e' UNICO per tutti e cinque (i nomi di
+      # group sono globali al repo, non al workflow): i merge si mettono in
+      # fila uno alla volta invece di collidere sul push.
+      group: fm2-rendered-writer
       cancel-in-progress: false
     steps:
       - name: Checkout

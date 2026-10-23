@@ -6,7 +6,50 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.14
+## Versione attiva: 1.2.4.15
+
+- File applicativo: `mri-light-1.2.4.15.html` (`APP_VERSION = '1.2.4.15'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.15', date: '2026-10-23' }`) + `sw.js` (Service Worker,
+  servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
+  `update-weather-data.yml`).
+- Contenuto della 1.2.4.15 (release sopra la 1.2.4.14):
+  - **Polare - fix dell'artefatto a stella al polo** (`fmPolarPaintBase`): il WebP del renderer si
+    ferma a 85,05112878 N (latitudine di taglio Mercator), quindi sopra quel parallelo il
+    fast-path non ha dato anche se il frame `.om` arriva a 90 N. Il clamp `lat = min(north, lat)`
+    mandava ogni pixel sopra 85 N sulla riga 0 del WebP mentre `sx` continuava a variare con
+    l'azimuth: la riga 0 veniva replicata a ventaglio su 360 gradi e, con isolinee/valori/frecce
+    disegnati dentro il WebP, si vedevano raggi a stella convergenti sul polo. Ora la fascia
+    85..90 N e' interpolata: `fmPolarCapMean` calcola una volta per frame il colore del capolo
+    (media dei pixel opachi della riga 0, cacheata su `fmPolarFrame.pixels`), `fmPolarCapColor`
+    applica `t = clamp((lat - north) / (90 - north), 0, 1)` e `lerp(capolo, riga0_azimuth, 1 - t)`,
+    quindi sul bordo resta il dato reale della riga 0 e al centro domina la media (nessun dato
+    inventato). Flip di colonne e proiezione inversa invariati.
+  - **Regione Emisfero nord per i 4 domini globali**: `dwd_icon`, `ncep_gfs025`, `ecmwf_ifs025`,
+    `meteofrance_arpege_world025` usano sempre la regione `north` per `index.json` e per gli URL
+    dei WebP, qualunque sia il valore del selettore UI. La regola e' centralizzata in
+    `fmRegionForDomain(domain, region)` (elenco esplicito `FM_GLOBAL_DOMAINS`) e usata da
+    `fmRenderRegionId()`; per i globali la regione `domain` non e' piu' offerta ne'
+    pre-renderizzata (chiederla dava 404 sull'indice con fallback ai soli frame `.om`).
+    `dwd_icon_eu`, `dwd_icon_d2` e `ncep_gfs013` restano su `domain` / `europe` / `italy`.
+  - **Service Worker con cache applicativa**: `CACHE_NAME = 'mri-1.2.4.15'`, `skipWaiting` +
+    `clients.claim`, nessun precache dell'html da 2 MB, cache precedenti eliminate all'activate.
+    Policy: **nessuna intercettazione** per metodi non-GET e per qualunque richiesta con header
+    `Range` (i frame `.om` usano 206: cachearli romperebbe il player); stale-while-revalidate per
+    `data/fm2-rendered/**/*.json` e `data/fm2/**/latest.json`; cache-first con refresh in
+    background per `data/fm2-rendered/**/*.webp`; network-first con timeout 3 s e fallback in
+    cache per la navigazione; il resto passa in rete. `cache.put` solo per risposte `ok`, limite
+    di 1200 voci con potatura delle chiavi piu' vecchie (LRU approssimata per ordine di
+    inserimento, limite sul numero di voci e non sui byte).
+  - **CI - merge su `fm2-rendered` serializzati**: nei 5 workflow per-fornitore il job
+    `render-merge` usa il gruppo di concurrency unico `fm2-rendered-writer`
+    (`cancel-in-progress: false`): i nomi di gruppo sono globali al repo, quindi i merge dei
+    diversi fornitori non collidono piu' sul push (`! [rejected] ... (fetch first)`, run ncep
+    `39881544372`) lasciando WebP orfani negli artifact.
+  - **Test**: nuovi `scripts/tests/test_fm_polar_cap.mjs` (logica del cap estratta dall'html),
+    `scripts/tests/test_fm_region_global.mjs` (`fmRegionForDomain`) e
+    `scripts/tests/test_sw_cache_policy.mjs` (policy del SW letta dal `sw.js`).
+
+## Versione precedente: 1.2.4.14
 
 - File applicativo: `mri-light-1.2.4.14.html` (`APP_VERSION = '1.2.4.14'`; ultimo blocco
   changelog in-app `{ version: '1.2.4.14', date: '2026-10-22' }`).
@@ -276,7 +319,8 @@ Comandi e conteggi aggiornati sono quelli documentati in `C:\Users\aless\Desktop
 
 ## File chiave
 
-- `mri-light-1.2.4.14.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
+- `mri-light-1.2.4.15.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
+- `sw.js` — Service Worker (cache applicativa: WebP, indici; mai le richieste Range `.om`)
 - `VERSION` — bump di versione e storico note di rilascio
 - `.github/workflows/{radar-engine,satellite-engine,update-weather-data,phenomena-verify,deploy-pages,forecast-maps-v2}.yml` — i 6 workflow
 - `scripts/radar_engine/` — motore radar DPC (Fase 1 + candidati supercelle, sperimentali)
