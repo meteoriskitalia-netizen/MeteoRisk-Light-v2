@@ -58,6 +58,22 @@ Disegno (V2 del motore, scelte DICHIARATE):
   - NO-OP GUARD PER-DOMINIO: se `data/fm2/<dominio>/latest.json` esiste con lo
     stesso `reference_time` e gli stessi `valid_times` (e non --force) il dominio
     viene saltato SENZA scaricare/riscrivere (evita commit inutili).
+  - RUN PARZIALE (P1, `--allow-partial-run`, DEFAULT OFF): il motore puo' partire
+    quando il run ha APPENA INIZIATO a pubblicarsi, senza aspettare che
+    `latest.json` venga riscritto a run completo. Scoperta del run in corso:
+    `<dominio>/in-progress.json` (fonte primaria, 1 GET) e, in fallback, listing
+    del prefix `<dominio>/<YYYY>/<MM>/<DD>/` via ListObjectsV2 + `<run>/meta.json`
+    (MISURATO il 2026-10-24: `in-progress.json` e `<run>/meta.json` hanno lo
+    stesso schema di `latest.json` e i loro `valid_times` coincidono ESATTAMENTE
+    con i `.om` gia' presenti nel run). I frame pubblicati sono trattati come
+    PREFISSO di `valid_times`: al primo `.om` assente ci si FERMA, non si salta
+    (il client risolve il file per INDICE POSIZIONALE: `valid = times[idx]` vs
+    `frames[idx].file`, quindi un sottoinsieme non contiguo mostrerebbe l'ora
+    sbagliata in silenzio). `valid_times` nel manifest pubblicato e' quindi
+    TRONCATO ai soli frame scritti, i mancanti sono dichiarati in
+    `partial.missing` e il dominio fallisce solo se manca il PRIMO frame o se i
+    frame presi sono sotto `--partial-min-frames`. Con il flag OFF non viene
+    fatta NESSUNA richiesta aggiuntiva e il comportamento e' quello storico.
   - PRUNING PER-DOMINIO: in `data/fm2/<dominio>/` resta ESATTAMENTE la finestra
     corrente (le ancore `valid_times` pubblicate in questo run); ogni `.om`
     estraneo (reference_time precedenti) viene rimosso. `V2_MAX_FRAMES` e' un cap
@@ -105,6 +121,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import numpy as np
@@ -135,7 +152,28 @@ LOG = "[forecast_v2]"
 # ---------------------------------------------------------------------------
 # Configurazione (costanti dichiarate)
 # ---------------------------------------------------------------------------
-S3_BASE = "https://openmeteo.s3.amazonaws.com/data_spatial"
+S3_HOST = "https://openmeteo.s3.amazonaws.com"
+S3_BASE = S3_HOST + "/data_spatial"
+# Prefisso relativo al BUCKET per ListObjectsV2 (il listing non usa `/data_spatial`
+# nel path: e' `https://openmeteo.s3.amazonaws.com/?list-type=2&prefix=...`).
+S3_LIST_PREFIX = "data_spatial"
+
+# ---------------------------------------------------------------------------
+# RUN PARZIALE (P1) — CONFIGURAZIONE. Default: DISATTIVATO (comportamento storico)
+# ---------------------------------------------------------------------------
+# `ALLOW_PARTIAL_RUN = True` (oppure `--allow-partial-run`) abilita la scoperta
+# del run in corso (`<dominio>/in-progress.json` / `<run>/meta.json`) e la
+# pubblicazione di un PREFISSO di frame. Con False non si fa NESSUNA richiesta
+# aggiuntiva, il percorso e' quello storico e il manifest non cambia formato.
+ALLOW_PARTIAL_RUN = False
+# Minimo numero di frame pubblicati perche' un run parziale sia pubblicabile
+# (sotto questa soglia il dominio FALLISCE e i .om scritti vengono rimossi:
+# meglio nessun aggiornamento che una mappa con 1 frame di cui 0 utili).
+PARTIAL_MIN_FRAMES = 3
+# Finestra (ore) entro cui si cercano directory di run via listing del prefix.
+# Minimo 2 giorni (oggi + ieri): un run notturno puo' essere ancora in
+# pubblicazione dopo mezzanotte.
+PARTIAL_PROBE_HOURS = 12
 
 # (lat_min, lon_min, lat_max, lon_max) — bbox Italia.
 V2_BBOX = (36.5, 6.5, 47.2, 18.6)
@@ -382,6 +420,26 @@ def download(url, dest, retries=3):
     return False
 
 
+def http_status(url, timeout=30):
+    """Codice HTTP di una HEAD (200/404/403/5xx) o None se la rete non risponde.
+
+    Serve SOLO al percorso `--allow-partial-run`: distingue un `.om` NON ANCORA
+    PUBBLICATO (404: e' la fine del prefisso, ci si ferma) da un guasto di
+    lettura su un oggetto che invece esiste (200: un retry e' legittimo, e se
+    fallisce ancora va dichiarato come tale, non come "frame mancante").
+    """
+    try:
+        req = urllib.request.Request(
+            url, method="HEAD",
+            headers={"User-Agent": "MeteoRisk/1.2.5 multi-domain"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status
+    except urllib.error.HTTPError as exc:
+        return exc.code
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def http_content_length(url, timeout=30):
     """HEAD leggero: Content-Length remoto, o None se non ottenibile.
 
@@ -461,6 +519,150 @@ def s3_url(domain, ref_time_iso, valid_time_iso):
 
 def s3_manifest_url(domain):
     return "%s/%s/latest.json" % (S3_BASE, domain)
+
+
+# ---------------------------------------------------------------------------
+# RUN PARZIALE (P1): scoperta del run in corso
+# ---------------------------------------------------------------------------
+# Regex sul XML di ListObjectsV2 (nessuna dipendenza da xml.etree: il listing
+# e' l'unico punto che parla XML e bastano due campi).
+_RE_LIST_KEY = re.compile(r"<Key>([^<]*)</Key>")
+_RE_LIST_PREFIX = re.compile(
+    r"<CommonPrefixes>\s*<Prefix>([^<]*)</Prefix>", re.DOTALL)
+_RE_RUN_DIR = re.compile(r"^(\d{2})00Z$")
+
+
+def s3_in_progress_url(domain):
+    """`<dominio>/in-progress.json`: manifest del run IN PUBBLICAZIONE.
+
+    MISURATO il 2026-10-24 su `ncep_gfs025`/`dwd_icon_eu`/`ecmwf_ifs025`: stesso
+    schema di `latest.json` (`reference_time`, `valid_times`, `completed`,
+    `last_modified_time`, `crs_wkt`) aggiornato mentre gli oggetti compaiono, e
+    i suoi `valid_times` coincidono con i `.om` gia' presenti nel run (28/28 su
+    `ncep_gfs025` 12Z).
+    """
+    return "%s/%s/in-progress.json" % (S3_BASE, domain)
+
+
+def s3_run_meta_url(domain, ref_time_iso):
+    """`<dominio>/<YYYY>/<MM>/<DD>/<HH>00Z/meta.json` del run (cresce in diretta)."""
+    d = parse_iso(ref_time_iso)
+    return "%s/%s/%04d/%02d/%02d/%02d00Z/meta.json" % (
+        S3_BASE, domain, d.year, d.month, d.day, d.hour)
+
+
+def s3_list_prefix(prefix, delimiter="/", timeout=60):
+    """ListObjectsV2 anonimo sul bucket pubblico. `prefix` relativo al bucket.
+
+    Ritorna `(keys, common_prefixes, errore)`; su 403/404/rete ritorna
+    `(None, None, eccezione)` senza propagare: chi chiama decide il fallback
+    (il percorso del flag OFF non arriva MAI qui).
+    """
+    url = "%s/?list-type=2&prefix=%s" % (
+        S3_HOST, urllib.parse.quote(prefix, safe=""))
+    if delimiter:
+        url += "&delimiter=%s" % urllib.parse.quote(delimiter, safe="")
+    try:
+        with _urlopen(url, timeout=timeout) as r:
+            body = r.read().decode("utf-8", "replace")
+    except Exception as exc:  # noqa: BLE001
+        return None, None, exc
+    return (list(_RE_LIST_KEY.findall(body)),
+            list(_RE_LIST_PREFIX.findall(body)), None)
+
+
+def _run_candidate(payload, source, url):
+    """Normalizza un manifest di run (latest/in-progress/meta). None se inutile.
+
+    Richiede `reference_time` leggibile e `valid_times` NON vuoto: un run appena
+    nato senza ancora un solo valid_time non e' una scoperta, e' un run che non
+    c'e' (si resta su `latest.json`).
+    """
+    if not isinstance(payload, dict):
+        return None
+    ref = payload.get("reference_time")
+    valid = payload.get("valid_times") or []
+    if not ref or not valid:
+        return None
+    try:
+        parse_iso(ref)
+    except (ValueError, TypeError):
+        return None
+    return {
+        "source": source,
+        "url": url,
+        "reference_time": ref,
+        "valid_times": sorted(set(valid)),
+        "completed": payload.get("completed"),
+        "last_modified_time": payload.get("last_modified_time"),
+        "crs_wkt": payload.get("crs_wkt") or "",
+        "n_listed": len(valid),
+        "discovered_at": _now_iso(),
+    }
+
+
+def _is_newer_run(ref_time, latest_ref):
+    """True se `ref_time` e' STRETTAMENTE piu' recente di `latest.json`."""
+    if not ref_time:
+        return False
+    if not latest_ref:
+        return True
+    try:
+        return parse_iso(ref_time) > parse_iso(latest_ref)
+    except (ValueError, TypeError):
+        return False
+
+
+def discover_partial_run(domain, latest=None, now=None,
+                         probe_hours=PARTIAL_PROBE_HOURS):
+    """Run piu' recente anche se `latest.json` NON e' ancora stato aggiornato.
+
+    Ordine (il primo che produce un `reference_time` STRETTAMENTE piu' nuovo di
+    quello di `latest.json` vince):
+      1. `<dominio>/in-progress.json` — manifest del run in pubblicazione, 1 GET;
+      2. listing del prefix `<dominio>/<YYYY>/<MM>/<DD>/` (ListObjectsV2,
+         `delimiter=/`) -> directory `<HH>00Z/` -> `<run>/meta.json`, dalla piu'
+         recente; copre `probe_hours` (minimo 2 giorni: oggi + ieri);
+      3. nessuna scoperta -> None: si usa `latest.json` (comportamento storico).
+
+    Il run scoperto puo' essere `completed: false`: in quel caso il chiamante
+    pubblica un PREFISSO e vieta il NO-OP finche' la sorgente non e' completa.
+    """
+    latest_ref = (latest or {}).get("reference_time")
+
+    # 1) in-progress.json (1 richiesta, nessun listing).
+    url = s3_in_progress_url(domain)
+    payload, _err = http_read_json(url)
+    cand = _run_candidate(payload, "in-progress.json", url)
+    if cand and _is_newer_run(cand["reference_time"], latest_ref):
+        return cand
+
+    # 2) listing per giorno -> <run>/meta.json.
+    now = now or _dt.datetime.now(_dt.timezone.utc)
+    ndays = max(2, int(probe_hours // 24) + 1)
+    for back in range(ndays):
+        day = now - _dt.timedelta(days=back)
+        prefix = "%s/%s/%04d/%02d/%02d/" % (
+            S3_LIST_PREFIX, domain, day.year, day.month, day.day)
+        _keys, prefixes, err = s3_list_prefix(prefix, "/")
+        if err is not None:
+            print("%s [WARN] listing prefix non disponibile per '%s' (%s): %s"
+                  % (LOG, domain, prefix, err))
+            continue
+        runs = []
+        for p in (prefixes or []):
+            name = p.rstrip("/").rsplit("/", 1)[-1]
+            if _RE_RUN_DIR.match(name):
+                runs.append(name)
+        for name in sorted(runs, reverse=True):
+            ref = "%04d-%02d-%02dT%s:%s:00Z" % (
+                day.year, day.month, day.day, name[:2], name[2:4])
+            meta_url = s3_run_meta_url(domain, ref)
+            payload, _err = http_read_json(meta_url)
+            cand = _run_candidate(payload, "prefix-listing+meta.json", meta_url)
+            if cand and _is_newer_run(cand["reference_time"], latest_ref):
+                return cand
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -1411,8 +1613,58 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
     In --dry-run non scarica nulla: la griglia usa il fallback GRIDS per nx/ny.
     """
     res = {"domain": domain, "status": "fail", "reason": None}
+    allow_partial = bool(getattr(args, "allow_partial_run", ALLOW_PARTIAL_RUN))
+    min_frames = int(getattr(args, "partial_min_frames", PARTIAL_MIN_FRAMES))
 
     m = load_manifest(domain)
+
+    # --- RUN PARZIALE (P1): scoperta del run in corso (SOLO se abilitato) ---
+    # Con il flag OFF questo blocco non esegue NESSUNA richiesta: `run_source`
+    # resta descrittivo e non finisce nel manifest pubblicato.
+    run_source = {
+        "name": "latest.json",
+        "url": s3_manifest_url(domain),
+        "reference_time": (m or {}).get("reference_time"),
+        "completed": (m or {}).get("completed"),
+        "last_modified_time": (m or {}).get("last_modified_time"),
+        "discovered_at": _now_iso(),
+        "partial": False,
+    }
+    if allow_partial:
+        latest_ref = (m or {}).get("reference_time")
+        try:
+            disc = discover_partial_run(
+                domain, latest=m,
+                probe_hours=int(getattr(args, "partial_probe_hours",
+                                        PARTIAL_PROBE_HOURS)))
+        except Exception as exc:  # noqa: BLE001 - la scoperta non fa fallire il dominio
+            disc = None
+            print("%s [WARN] dominio '%s': scoperta run parziale fallita: %s"
+                  % (LOG, domain, exc))
+        if disc:
+            base = dict(m or {})
+            base["reference_time"] = disc["reference_time"]
+            base["valid_times"] = disc["valid_times"]
+            base["completed"] = disc["completed"]
+            if disc.get("crs_wkt"):
+                base["crs_wkt"] = disc["crs_wkt"]
+            m = base
+            run_source = {
+                "name": disc["source"],
+                "url": disc["url"],
+                "reference_time": disc["reference_time"],
+                "completed": disc["completed"],
+                "last_modified_time": disc.get("last_modified_time"),
+                "discovered_at": disc["discovered_at"],
+                "partial": True,
+            }
+            print("%s   [partial] run scoperto da %s: ref=%s (%s), %d valid_times, "
+                  "completed=%s"
+                  % (LOG, disc["source"], disc["reference_time"],
+                     "nuovo rispetto a latest.json" if _is_newer_run(
+                         disc["reference_time"], latest_ref) else "invariato",
+                     len(disc["valid_times"]), disc["completed"]))
+
     if not m:
         res["reason"] = "manifest assente"
         print("%s [FAIL] dominio '%s': manifest assente." % (LOG, domain))
@@ -1430,6 +1682,8 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
     res["completed"] = m.get("completed")
     res["n_valid_times"] = len(valid_times)
     res["crs_kind"] = crs_kind(crs_wkt)
+    if allow_partial:
+        res["run_source"] = dict(run_source)
 
     # --- Riconoscimento CRS ---
     if not is_geographic_crs(crs_wkt):
@@ -1498,6 +1752,15 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
         return res
 
     # --- NO-OP GUARD per-dominio (prima di scaricare i frame) ---
+    # RUN PARZIALE: finche' il run non e' `completed: true` il NO-OP e' VIETATO.
+    # Motivo MISURATO: in 2 casi su 6 il flip di `latest.json` avviene PRIMA
+    # dell'ultimo `.om`; un dominio gia' pubblicato su un prefisso verrebbe
+    # saltato mentre la sorgente continua a pubblicare e i frame nuovi non
+    # arriverebbero MAI (il guard confronta solo reference_time/valid_times/bbox).
+    # Costo dichiarato: nei minuti in cui il run si completa il dominio si
+    # rielabora a ogni trigger; i frame gia' scaricati restano in --frames-cache.
+    partial_open = bool(allow_partial and run_source.get("partial")
+                        and m.get("completed") is not True)
     if not args.force and os.path.isfile(latest_path):
         try:
             with open(latest_path, "r", encoding="utf-8") as fh:
@@ -1509,7 +1772,8 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
         bb_same = (old_bb and abs(old_bb.get("lat_min",1e18)-bb_cur[0])<1e-6 and abs(old_bb.get("lon_min",1e18)-bb_cur[1])<1e-6 and abs(old_bb.get("lat_max",-1e18)-bb_cur[2])<1e-6 and abs(old_bb.get("lon_max",-1e18)-bb_cur[3])<1e-6)
         if (old and old.get("reference_time") == ref_time
                 and list(old.get("valid_times", [])) == list(anchors)
-                and bb_same):
+                and bb_same
+                and not partial_open):
             if args.progress_manifest:
                 progress = dict(old)
                 progress["frames"] = []
@@ -1532,7 +1796,12 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
             valid_time_to_filename(first), cache_dir, frames_cache, dl,
             allow_range=not args.no_range)
         if shape is None:
-            res["reason"] = "shape del primo frame non leggibile (mode=%s)" % src_mode
+            if allow_partial:
+                res["reason"] = ("primo frame non disponibile (%s, mode=%s): run "
+                                 "parziale non pubblicabile" % (first, src_mode))
+            else:
+                res["reason"] = ("shape del primo frame non leggibile (mode=%s)"
+                                 % src_mode)
             print("%s [FAIL] dominio '%s': %s." % (LOG, domain, res["reason"]))
             return res
         ny, nx = shape
@@ -1573,11 +1842,17 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
     sizes_map = {}
     all_warnings = []
 
+    # RUN PARZIALE: `n_expected` = valid_times DICHIARATI dalla sorgente;
+    # `missing` = quelli che non si sono potuti leggere (coda del prefisso).
+    n_expected = len(anchors)
+    missing = []
+    missing_reason = None
+
     def publish_progress(complete=False):
         if not args.progress_manifest:
             return
         bb_progress = bbox_for(domain)
-        write_json_atomic(args.progress_manifest, {
+        obj = {
             "version": "fm2-progress-1",
             "domain": domain,
             "reference_time": ref_time,
@@ -1588,7 +1863,18 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
             "var_order": ordered_names,
             "frames": list(frames),
             "complete": bool(complete),
-        })
+        }
+        if allow_partial:
+            obj["run_source"] = dict(run_source)
+            obj["partial"] = {
+                "n_expected": n_expected,
+                "n_published": len(frames),
+                "missing": list(missing),
+                "missing_reason": missing_reason,
+                "min_frames": min(min_frames, n_expected),
+                "completed": m.get("completed"),
+            }
+        write_json_atomic(args.progress_manifest, obj)
 
     # Il consumer di render puo' partire appena il motore ha determinato la
     # griglia; un frame viene annunciato solo dopo la scrittura atomica del .om.
@@ -1604,7 +1890,41 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
                            cache_dir, frames_cache, V2_READ_VARS, grid,
                            tgt_lats, tgt_lons, idx, dl,
                            allow_range=not args.no_range)
+        if frame is None and allow_partial:
+            # Distinzione DICHIARATA: 200 = l'oggetto esiste ma la lettura e'
+            # fallita (un retry e' legittimo); 404/None = non ancora pubblicato
+            # (e' la fine del prefisso). Senza questa HEAD un guasto di rete
+            # verrebbe registrato come "frame mancante" e troncherebbe la mappa.
+            st = http_status(s3_url(domain, ref_time, anchor))
+            if st == 200:
+                frame = load_frame(s3_url(domain, ref_time, anchor), domain,
+                                   vname, cache_dir, frames_cache, V2_READ_VARS,
+                                   grid, tgt_lats, tgt_lons, idx, dl,
+                                   allow_range=not args.no_range)
+                if frame is None:
+                    missing_reason = "head_200_read_failed"
+            elif st is None:
+                missing_reason = "head_unavailable"
+            else:
+                missing_reason = "head_%d" % st
+            if frame is not None:
+                missing_reason = None
         if frame is None:
+            if allow_partial:
+                # PREFISSO, non buchi: al primo frame non leggibile ci si FERMA.
+                # Saltarlo produrrebbe un manifest con `valid_times` piu' lungo
+                # di `frames`, e il client risolve il file per indice posizionale
+                # (`valid = times[idx]` vs `frames[idx].file`): mostrerebbe l'ora
+                # sbagliata in silenzio.
+                missing = list(anchors[vi:])
+                print("%s [PARTIAL] frame %s non disponibile (%s): mi fermo qui. "
+                      "%d/%d frame presi, %d dichiarati mancanti."
+                      % (LOG, anchor, missing_reason, len(frames), n_expected,
+                         len(missing)))
+                all_warnings.append(
+                    "run parziale: fermato al primo frame non disponibile (%s); "
+                    "mancanti %d" % (anchor, len(missing)))
+                break
             print("%s [WARN] salto frame %s (frame non ottenibile)." % (LOG, anchor))
             all_warnings.append("frame %s: frame non ottenibile" % anchor)
             continue
@@ -1644,9 +1964,47 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
 
     if not frames:
         publish_progress(complete=True)
-        res["reason"] = "nessun frame scritto (tutti i download falliti?)"
+        if allow_partial:
+            res["reason"] = ("primo frame non disponibile (%s): run parziale "
+                             "non pubblicabile" % (anchors[0] if anchors else "?"))
+        else:
+            res["reason"] = "nessun frame scritto (tutti i download falliti?)"
         print("%s [FAIL] dominio '%s': %s." % (LOG, domain, res["reason"]))
         return res
+
+    if allow_partial and len(frames) < min(min_frames, n_expected):
+        # Soglia minima: un run con 1-2 frame non e' una mappa. Meglio nessun
+        # aggiornamento che un manifest che accorcia l'orizzonte a 1 frame.
+        # La soglia e' limitata a `n_expected` (che tiene conto di
+        # `--valid-frames N`): un orizzonte VOLUTO di N frame non deve fallire
+        # solo perche' N < --partial-min-frames.
+        # I .om scritti in questo tentativo vengono RIMOSSI: out_dir resta
+        # coerente con il `latest.json` precedente (nessun file orfano in commit).
+        removed_partial = []
+        for f in frames:
+            try:
+                os.remove(os.path.join(out_dir, f["file"]))
+                removed_partial.append(f["file"])
+            except OSError:
+                pass
+        publish_progress(complete=True)
+        res["reason"] = ("frame pubblicati insufficienti: %d < %d (minimo "
+                         "configurabile)" % (len(frames), min(min_frames,
+                                                              n_expected)))
+        res["partial"] = {"enabled": True, "n_expected": n_expected,
+                          "n_published": len(frames), "missing": missing,
+                          "min_frames": min(min_frames, n_expected),
+                          "completed": m.get("completed")}
+        print("%s [FAIL] dominio '%s': %s; rimossi %d .om scritti."
+              % (LOG, domain, res["reason"], len(removed_partial)))
+        return res
+
+    if allow_partial and missing:
+        # PREFISSO: `valid_times` pubblicato = SOLO i frame scritti, cosi'
+        # `len(valid_times) == len(frames)` e l'indice posizionale del client
+        # resta allineato. I mancanti sono dichiarati in `partial.missing`.
+        anchors = anchors[: len(frames)]
+        res["anchors"] = anchors
 
     if not precip_seen:
         all_warnings.append(
@@ -1694,12 +2052,54 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
         "warnings": all_warnings,
         "download": dl,
     }
+    if allow_partial:
+        # Provenienza del run pubblicato: fonte, URL, timestamp, completamento.
+        # Con il flag OFF queste chiavi NON esistono (manifest byte-identico
+        # nella struttura a quello storico, a meno di generated_at/frames).
+        manifest["run_source"] = {
+            "name": run_source["name"],
+            "url": run_source["url"],
+            "reference_time": ref_time,
+            "completed": m.get("completed"),
+            "last_modified_time": run_source.get("last_modified_time"),
+            "discovered_at": run_source.get("discovered_at") or _now_iso(),
+            "partial": bool(run_source.get("partial")),
+        }
+        manifest["partial"] = {
+            "enabled": True,
+            "n_expected": n_expected,
+            "n_published": len(frames),
+            "missing": missing,
+            "missing_reason": missing_reason,
+            "min_frames": min(min_frames, n_expected),
+            "stopped_at_first_gap": bool(missing),
+            "completed": m.get("completed"),
+        }
     write_json_atomic(latest_path, manifest)
     publish_progress(complete=True)
 
     total_bytes = sum(f["bytes"] for f in frames)
     print("%s [OK] dominio '%s': %d frame, %d byte totali (%.1f KiB)."
           % (LOG, domain, len(frames), total_bytes, total_bytes / 1024.0))
+    if allow_partial:
+        res["partial"] = {
+            "enabled": True,
+            "n_expected": n_expected,
+            "n_published": len(frames),
+            "missing": missing,
+            "missing_reason": missing_reason,
+            "min_frames": min(min_frames, n_expected),
+            "completed": m.get("completed"),
+        }
+        if missing:
+            print("%s   [partial] run %s: %d/%d frame pubblicati; mancanti %d "
+                  "(%s .. %s), motivo=%s"
+                  % (LOG, ref_time, len(frames), n_expected, len(missing),
+                     missing[0], missing[-1], missing_reason))
+        else:
+            print("%s   [partial] run %s: %d/%d frame pubblicati (nessun buco), "
+                  "completed=%s" % (LOG, ref_time, len(frames), n_expected,
+                                    m.get("completed")))
     print("%s   download: mode=%s (griglia=%s) | range=%d frame (%d req, %d byte) | "
           "download=%d frame (%d byte) | cache=%d | fallback=%d"
           % (LOG, dl["mode"], dl["grid_probe_mode"], dl["range_frames"],
@@ -1722,7 +2122,8 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-def main(argv=None):
+def build_parser():
+    """Parser CLI del motore (estratto da `main` per essere testabile)."""
     ap = argparse.ArgumentParser(
         description="MeteoRisk Forecast V2 — cache GitHub multi-dominio di mappe .om")
     ap.add_argument("--domains", nargs="+", default=list(V2_DOMAINS),
@@ -1753,7 +2154,27 @@ def main(argv=None):
                          "disabilitata, comportamento invariato).")
     ap.add_argument("--progress-manifest", default="",
                     help="Scrive un manifest atomico dei frame pronti per il render streaming.")
-    args = ap.parse_args(argv)
+    ap.add_argument("--allow-partial-run", action="store_true",
+                    default=ALLOW_PARTIAL_RUN,
+                    help="RUN PARZIALE (default OFF): scopre il run in corso "
+                         "(`<dominio>/in-progress.json`, poi listing + "
+                         "`<run>/meta.json`) e pubblica il PREFISSO di frame gia' "
+                         "disponibili, fermandosi al primo buco. Con il flag OFF il "
+                         "comportamento e' quello storico e non si fa nessuna "
+                         "richiesta aggiuntiva.")
+    ap.add_argument("--partial-min-frames", type=int, default=PARTIAL_MIN_FRAMES,
+                    help="Con --allow-partial-run: minimo numero di frame perche' "
+                         "il run parziale sia pubblicabile (default %d). Sotto la "
+                         "soglia il dominio fallisce e i .om scritti sono rimossi."
+                         % PARTIAL_MIN_FRAMES)
+    ap.add_argument("--partial-probe-hours", type=int, default=PARTIAL_PROBE_HOURS,
+                    help="Con --allow-partial-run: finestra in ore per la ricerca "
+                         "delle directory di run via listing (minimo 2 giorni).")
+    return ap
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
 
     if not args.domains:
         print("%s ERRORE: --domains vuoto" % LOG)
@@ -1765,6 +2186,10 @@ def main(argv=None):
           % (LOG, args.valid_frames,
              "INTERO orizzonte" if args.valid_frames <= 0 else "primi N",
              os.path.abspath(args.out)))
+    if args.allow_partial_run:
+        print("%s run parziale ABILITATO: min-frames=%d, probe-hours=%d "
+              "(fonte: in-progress.json -> listing+meta.json -> latest.json)"
+              % (LOG, args.partial_min_frames, args.partial_probe_hours))
 
     # ---- cache download / frames-cache (non in dry-run: nessuna directory) ----
     cache_dir = args.cache_dir or os.path.join(tempfile.gettempdir(), "mri_fm2_cache")
@@ -1824,6 +2249,15 @@ def main(argv=None):
         "%s [%s]" % (r["domain"], r["reason"]) for r in skip) or "-"))
     print("%s fail (%d): %s" % (LOG, len(fail), ", ".join(
         "%s [%s]" % (r["domain"], r["reason"]) for r in fail) or "-"))
+    if args.allow_partial_run:
+        parts = [r for r in results if r.get("partial")]
+        if parts:
+            print("%s partial (%d): %s" % (LOG, len(parts), ", ".join(
+                "%s %d/%d%s" % (r["domain"], r["partial"]["n_published"],
+                                r["partial"]["n_expected"],
+                                "" if r["partial"].get("completed") is not False
+                                else " (run non completo)")
+                for r in parts)))
 
     # Exit: 0 se almeno un dominio e' ok (anche solo NO-OP); 1 se TUTTI falliscono.
     if not ok:
