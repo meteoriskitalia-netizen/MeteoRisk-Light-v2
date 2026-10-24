@@ -49,34 +49,36 @@ SCHEMA (``fm2-timeline-1``)
       "runs": [                       # piatto, per comodita' (tutti i domini)
         {"domain": "dwd_icon", "run_id": "20261023T180000Z",
          "reference_time": "2026-10-23T18:00:00Z",
-         "reference_time_source": "manifest", "bucket": 0, "completed": true,
-         "expected_frames": 93, "frames": 93, "variables": 27,
-         "first_valid_time": "...", "last_valid_time": "...",
-         "timeline_frames": 96}
+         "reference_time_source": "reference_time", "bucket": 0,
+         "completed": true, "expected_frames": 93, "frames": 93,
+         "variables": 27, "first_valid_time": "2026-10-23T18:00Z",
+         "last_valid_time": "2026-10-28T18:00Z", "timeline_frames": 185}
       ],
       "domains": {
         "dwd_icon": {
           "current_run": "20261023T180000Z",     # bucket 0
           "runs": [ ... stesso record senza "domain" ... ],
           "variables": {
-            "cape": {"group": "g0", "frames": 105,
-                     "by_run": {"20261023T180000Z": 93, "20261023T120000Z": 12}}
+            "cape": {"group": "g0", "frames": 123,
+                     "by_run": {"20261023T180000Z": 93, "20261023T120000Z": 24,
+                                "20261023T060000Z": 6}}
           },
           "timeline_groups": {
             "g0": {
               "variables": ["cape", "cloud_cover", ...],
-              "frames": 105,
+              "frames": 123,
               "timeline": [
                 {"valid_time": "2026-10-23T06:00Z", "run_id": "20261023T060000Z",
-                 "bucket": 0, "file": "2026-10-23T0600.webp"}
+                 "bucket": 2, "file": "2026-10-23T0600.webp"}
               ]
             }
           }
         }
       },
-      "summary": {"domains": 7, "runs": 20, "variables": 152, "groups": 14,
-                  "timeline_frames": 892, "variable_frames": 17120,
-                  "files_checked": 892, "files_missing": 0}
+      "summary": {"domains": 7, "runs": 20, "variables": 153, "groups": 14,
+                  "timeline_frames": 1649, "variable_frames": 17372,
+                  "files_checked": 17372, "files_missing": 0,
+                  "files_verified": true}
     }
 
 Note di schema:
