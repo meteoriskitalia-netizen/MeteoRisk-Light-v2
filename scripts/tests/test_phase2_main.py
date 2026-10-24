@@ -96,6 +96,22 @@ def _bundle():
     return bundle, cfg
 
 
+@pytest.fixture(autouse=True)
+def _no_cappi_network(monkeypatch):
+    """1.2.4.18: il set CAPPI non esce MAI in rete nei test.
+
+    `_phase2_evaluate` scarica i 10 CAPPI allineati al timestamp della VMI:
+    senza questa sostituzione ogni test farebbe 10 download DPC reali. Il
+    default e' "nessun livello disponibile"; i test che vogliono i livelli
+    ripatchano `fetch_cappi_set` con un fake."""
+    def _empty(config, products, ref_time_ms, **kw):
+        return ({p: None for p in products},
+                {"requested": len(products), "fetched": 0, "fallback": 0,
+                 "failed": list(products), "bytes": 0, "seconds": 0.0,
+                 "ref_time_iso": None, "products": {}})
+    monkeypatch.setattr("radar_engine.fetch.fetch_cappi_set", _empty)
+
+
 # ---------------------------------------------------------------------------
 # Intervento 2/3: posizione e finestra per-candidato
 # ---------------------------------------------------------------------------
@@ -234,9 +250,10 @@ def test_phase2_evaluate_per_candidate_no_network(monkeypatch):
     eng._phase2_evaluate(bundle, cfg)
     result = bundle.phase2
 
-    # I/O una volta per prodotto / per slot, MAI per candidato
-    # (VIL/ETM/POH + CAPPI_2/CAPPI_6 di struttura + IR_108 per l'OT)
-    assert fetch_calls == ["VIL", "ETM", "POH", "CAPPI_2", "CAPPI_6", "IR_108"]
+    # I/O una volta per prodotto / per slot, MAI per candidato.
+    # 1.2.4.18: i CAPPI NON passano piu' da `fetch_frames` (timestamp diverso
+    # dalla VMI): li scarica `fetch_cappi_set`, sostituito dal fixture autouse.
+    assert fetch_calls == ["VIL", "ETM", "POH", "IR_108"]
     assert len(ltg_calls) == 4
 
     c1, c2, c3 = bundle.convective_structures

@@ -58,6 +58,26 @@ def _http_json(url, timeout_s, headers=None, method="GET", body=None):
         raise models.SourceError("invalid_json") from exc
 
 
+# Codici/messaggi che significano "prodotto non ancora pubblicato, riprova":
+# misurato il 2026-10-23 — un POST su uno slot non ancora pubblicato risponde
+# HTTP 500 con corpo S3 ("HeadObject ... Forbidden"), NON 404. Trattarlo come
+# "assente definitivo" perderebbe ogni slot corrente.
+_NOT_PUBLISHED_PREFIXES = ("http_500", "http_502", "http_503", "http_504")
+
+
+def is_not_published_error(exc):
+    """True se l'errore puo' significare 'non ancora pubblicato' (5xx/404)."""
+    msg = str(exc)
+    return msg == "not_found" or msg.startswith(_NOT_PUBLISHED_PREFIXES)
+
+
+def is_transient_error(exc):
+    """True per errori transitori (rete, 5xx, download): vale un nuovo tentativo."""
+    msg = str(exc)
+    return (is_not_published_error(exc) or msg.startswith("network:")
+            or msg.startswith("download_failed"))
+
+
 def parse_iso_period(period):
     """ISO-8601 duration 'PT5M'/'PT1H' -> secondi interi (solo minuti/ore)."""
     if not period:

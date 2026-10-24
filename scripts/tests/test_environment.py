@@ -194,3 +194,105 @@ def test_evaluate_environment_cached_dedup_and_failure_not_cached():
     # nessun cache dict -> funziona comunque (cache opzionale)
     assert env.evaluate_environment_cached(41.9, 12.5, cache=None,
                                            evaluator=evaluator)["env_score"] == 42.0
+
+
+# ---------------------------------------------------------------------------
+# 1.2.4.18 — hodografo 0-6 km: quote dai geopotenziali, livelli opzionali
+# ---------------------------------------------------------------------------
+def _payload_deep():
+    p = _payload()
+    h = p["hourly"]
+    h["geopotential_height_1000hPa"] = _seq(110.0)
+    h["geopotential_height_925hPa"] = _seq(780.0)
+    h["geopotential_height_850hPa"] = _seq(1460.0)
+    h["geopotential_height_600hPa"] = _seq(4400.0)
+    h["geopotential_height_450hPa"] = _seq(6300.0)
+    h["wind_speed_600hPa"] = _seq(16.0)
+    h["wind_direction_600hPa"] = _seq(270.0)
+    h["wind_speed_450hPa"] = _seq(22.0)
+    h["wind_direction_450hPa"] = _seq(270.0)
+    h["temperature_600hPa"] = _seq(-8.0)
+    h["temperature_450hPa"] = _seq(-26.0)
+    return p
+
+
+def test_wind_profile_nodes_have_heights_and_source():
+    """Ogni nodo porta la quota: geopotenziale del modello o tabella ISA."""
+    p = _payload_deep()
+    env_parsed = env.parse_environment(p, index=0)
+    winds = env_parsed["winds"]
+    nodes = env.wind_profile_nodes(winds, env_parsed["geopotential_heights"])
+    heights = [n["height_m"] for n in nodes]
+    assert heights == sorted(heights)
+    assert heights[0] == 10.0                       # nodo di superficie
+    assert heights[-1] >= 6000.0                    # 450 hPa ~6,3 km
+    assert nodes[-1]["height_source"] == "geopotential"
+    # 1000 hPa ha il geopotenziale nel payload -> non serve la tabella ISA
+    lv1000 = [n for n in nodes if n["pressure_hpa"] == 1000][0]
+    assert lv1000["height_source"] == "geopotential"
+
+
+def test_wind_profile_nodes_fall_back_to_standard_atmosphere():
+    """Senza geopotenziale la quota viene dalla tabella ISA, DICHIARATA."""
+    nodes = env.wind_profile_nodes({1000: (3.0, 0.0)}, {})
+    assert len(nodes) == 1
+    assert nodes[0]["height_m"] == env.STD_LEVEL_HEIGHT_M[1000]
+    assert nodes[0]["height_source"] == "standard_atmosphere"
+
+
+def test_wind_profile_nodes_skip_levels_without_height():
+    """Nessuna quota disponibile -> nodo assente (mai quota inventata)."""
+    nodes = env.wind_profile_nodes({1234: (3.0, 0.0)}, {})
+    assert nodes == []
+
+
+def test_h20_from_t_profile_interpolates_only_between_nodes():
+    nodes = [(3120.0, 10.0), (4400.0, -8.0), (5840.0, -20.0), (6300.0, -26.0)]
+    # -20 C cade ESATTAMENTE sul nodo a 5840 m
+    assert env.h20_height_from_t_profile(nodes) == pytest.approx(5840.0)
+    # profilo che non arriva a -20 C -> None (nessuna estrapolazione)
+    assert env.h20_height_from_t_profile(nodes[:2]) is None
+    two = [(4400.0, -8.0), (5840.0, -20.0)]
+    assert env.h20_height_from_t_profile(two) == pytest.approx(5840.0)
+
+
+def test_build_openmeteo_url_optional_levels_switch():
+    with_opt = env.build_openmeteo_url(41.9, 12.5)
+    without = env.build_openmeteo_url(41.9, 12.5, include_optional=False)
+    assert "wind_speed_450hPa" in with_opt
+    assert "geopotential_height_450hPa" in with_opt
+    assert "wind_speed_450hPa" not in without
+    for var in env.HOURLY_VARS:
+        assert var in without
+
+
+def test_evaluate_environment_falls_back_when_optional_levels_rejected():
+    """400 sui livelli opzionali -> si ritenta senza e il flag lo dichiara."""
+    calls = []
+
+    def client(url):
+        calls.append(url)
+        if "wind_speed_450hPa" in url:
+            raise env.EnvironmentFetchError("http_400")
+        return _payload()
+
+    res = env.evaluate_environment(41.9, 12.5, openmeteo_client=client)
+    assert len(calls) == 2
+    assert res["flags"]["optional_levels_rejected"] is True
+    assert res["scp"] == 0.675                    # formula invariata
+
+
+def test_evaluate_environment_deep_profile_when_optional_levels_ok():
+    def client(url):
+        assert "wind_speed_450hPa" in url
+        return _payload_deep()
+
+    res = env.evaluate_environment(41.9, 12.5, openmeteo_client=client)
+    assert res["flags"]["optional_levels_rejected"] is False
+    assert res["profile_top_m"] >= 6000.0
+    assert res["h20_from_profile_m"] is not None
+    assert res["flags"]["h20_source"] == "t_profile_interpolation"
+    assert len(res["wind_profile"]) >= 7
+    for node in res["wind_profile"]:
+        assert {"height_m", "u_ms", "v_ms", "height_source"} <= set(node)
+

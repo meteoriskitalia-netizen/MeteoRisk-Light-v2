@@ -105,6 +105,32 @@ HOURLY_VARS = (
     "freezing_level_height",
 )
 
+# 1.2.4.18 — livelli AGGIUNTIVI per l'hodografo 0-6 km (descrittore Bunkers).
+# Verificati live il 2026-10-23 (HTTP 200, stessi 24 slot): 450 hPa sta a
+# ~6,2-6,5 km e 600 hPa a ~4,3 km, quindi il profilo copre i 6 km che il solo
+# 500 hPa (~5,5 km) NON copre. Sono OPZIONALI per costruzione: se l'API li
+# rifiuta (400) si ritenta senza e il flag `optional_levels_rejected` lo dice
+# (nessun layer rotto da una variabile in piu').
+HOURLY_VARS_OPTIONAL = (
+    "wind_speed_600hPa", "wind_direction_600hPa",
+    "wind_speed_450hPa", "wind_direction_450hPa",
+    "temperature_600hPa", "temperature_450hPa",
+    "geopotential_height_1000hPa", "geopotential_height_925hPa",
+    "geopotential_height_850hPa", "geopotential_height_600hPa",
+    "geopotential_height_450hPa",
+)
+
+# Livelli di pressione usati per l'hodografo (ordine crescente di quota).
+PROFILE_LEVELS_HPA = (1000, 925, 850, 700, 600, 500, 450)
+
+# Quote ISA di riserva, usate SOLO se il geopotenziale del livello manca:
+# sono una tabella standard (non una misura) e il campo `height_source` del
+# nodo lo dichiara. Senza questa tabella il nodo esisterebbe senza quota.
+STD_LEVEL_HEIGHT_M = {
+    1000: 110.0, 925: 770.0, 850: 1450.0, 700: 3010.0,
+    600: 4400.0, 500: 5570.0, 450: 6200.0,
+}
+
 REQUIRED_INPUTS = (
     "cape", "cin", "wind_10m", "wind_500hPa", "wind_low_levels",
     "temperature_2m", "dew_point_2m", "surface_humidity",
@@ -204,11 +230,18 @@ def mixing_ratio_gkg(dew_point_c, pressure_hpa):
     return 622.0 * e / (p - e)
 
 
-def build_openmeteo_url(lat, lon):
-    """URL Open-Meteo deterministica per il punto (unit esplicite)."""
+def build_openmeteo_url(lat, lon, include_optional=True):
+    """URL Open-Meteo deterministica per il punto (unit esplicite).
+
+    include_optional=True aggiunge i livelli 600/450 hPa e i geopotenziali
+    1000/925/850/600/450 (1.2.4.18): servono all'hodografo 0-6 km. Se l'API li
+    rifiuta il chiamante ritenta senza (v. evaluate_environment)."""
+    vars_ = list(HOURLY_VARS)
+    if include_optional:
+        vars_.extend(HOURLY_VARS_OPTIONAL)
     q = (
         f"{OPENMETEO_URL}?latitude={float(lat):.5f}&longitude={float(lon):.5f}"
-        f"&hourly={','.join(HOURLY_VARS)}"
+        f"&hourly={','.join(vars_)}"
         "&temperature_unit=celsius&wind_speed_unit=ms"
         "&pressure_unit=hPa&timezone=GMT&forecast_days=1"
     )
@@ -240,6 +273,79 @@ def pick_current_index(times_iso):
         if dt >= now:
             return i
     return last_idx
+
+
+def wind_profile_nodes(winds, geop_heights=None):
+    """Profilo vento con QUOTA: nodo di superficie (10 m) + livelli di pressione.
+
+    winds: {"10m": (u,v), 1000: (u,v), ...} (da parse_environment).
+    geop_heights: {hPa: quota_geometrica_m | None} (geo_to_metres).
+    Ritorna una lista ORDINATA di dict {"height_m","pressure_hpa","u_ms","v_ms",
+    "height_source"}: la quota viene dal geopotenziale del modello
+    ("geopotential") oppure, SOLO se assente, dalla tabella ISA
+    ("standard_atmosphere"); senza nessuna delle due il nodo NON si crea (mai
+    una quota inventata). E' il profilo che serve all'hodografo 0-6 km: il
+    livello piu' alto disponibile e' dichiarato (profile_top_m), non esteso."""
+    geop_heights = geop_heights or {}
+    nodes = []
+    sfc = (winds or {}).get("10m")
+    if sfc is not None:
+        nodes.append({"height_m": 10.0, "pressure_hpa": None,
+                      "u_ms": float(sfc[0]), "v_ms": float(sfc[1]),
+                      "height_source": "anemometer_10m"})
+    for pl in PROFILE_LEVELS_HPA:
+        uv = (winds or {}).get(pl)
+        if uv is None:
+            continue
+        h = geop_heights.get(pl)
+        source = "geopotential"
+        if h is None:
+            h = STD_LEVEL_HEIGHT_M.get(pl)
+            source = "standard_atmosphere"
+        if h is None:
+            continue
+        nodes.append({"height_m": float(h), "pressure_hpa": int(pl),
+                      "u_ms": float(uv[0]), "v_ms": float(uv[1]),
+                      "height_source": source})
+    nodes.sort(key=lambda n: n["height_m"])
+    return nodes
+
+
+def temperature_profile_nodes(temps, geop_heights):
+    """Nodi T(H) per la quota del -20 C (solo quote dal geopotenziale).
+
+    temps: {hPa: T_degC}. Ritorna [(height_m, temp_c)] ordinata; un livello
+    senza temperatura o senza quota geometrica NON entra (nessuna stima)."""
+    nodes = []
+    for pl, t in (temps or {}).items():
+        if t is None:
+            continue
+        h = (geop_heights or {}).get(pl)
+        if h is None:
+            continue
+        nodes.append((float(h), float(t)))
+    nodes.sort(key=lambda n: n[0])
+    return nodes
+
+
+def h20_height_from_t_profile(t_nodes):
+    """Quota del -20 C (m) per interpolazione lineare sulla T(H) fra due nodi.
+
+    Serve che la temperatura ATTRAVERSI -20 C fra due quote note: sotto il
+    primo nodo -20 C non c'e' e sopra l'ultimo non c'e' (profilo che non arriva
+    abbastanza in alto) -> None, senza estrapolare. None anche se la quota
+    risultante e' fuori da un range plausibile (> 20 km)."""
+    for i in range(len(t_nodes or []) - 1):
+        h1, t1 = t_nodes[i]
+        h2, t2 = t_nodes[i + 1]
+        if h2 <= h1:
+            continue
+        if t1 > -20.0 >= t2:
+            f = (t1 + 20.0) / (t1 - t2)
+            h20 = h1 + f * (h2 - h1)
+            if 0.0 < h20 <= 20000.0:
+                return float(h20)
+    return None
 
 
 def srh_discrete(levels_uv, storm_motion_uv):
@@ -468,19 +574,36 @@ def parse_environment(payload, index=None):
         wd = _hourly_get(hourly, f"wind_direction_{pl}hPa", idx)
         if ws is not None and wd is not None:
             winds[pl] = wind_to_uv(ws, wd)
+    # 1.2.4.18: livelli 600/450 hPa (opzionali) — coprono l'hodografo 0-6 km.
+    for pl in (600, 450):
+        ws = _hourly_get(hourly, f"wind_speed_{pl}hPa", idx)
+        wd = _hourly_get(hourly, f"wind_direction_{pl}hPa", idx)
+        if ws is not None and wd is not None:
+            winds[pl] = wind_to_uv(ws, wd)
+    out["geopotential_heights"] = {
+        pl: geo_to_metres(_hourly_get(hourly,
+                                      f"geopotential_height_{pl}hPa", idx))
+        for pl in PROFILE_LEVELS_HPA
+    }
+    out["temperatures"] = {
+        pl: _hourly_get(hourly, f"temperature_{pl}hPa", idx)
+        for pl in PROFILE_LEVELS_HPA
+    }
     return out
 
 
-def fetch_environment(lat, lon, openmeteo_client=None, timeout_s=None):
+def fetch_environment(lat, lon, openmeteo_client=None, timeout_s=None,
+                      include_optional=True):
     """WRAPPER DI RETE: scarica l'ambiente Open-Meteo per (lat, lon).
 
     openmeteo_client:
       None            -> urllib diretto (default, nessuna dipendenza extra)
       callable(url)   -> deve ritornare il dict JSON
       oggetto         -> con metodo get_json/fetch_json/get (url)
-    Ritorna il payload JSON. Solleva EnvironmentFetchError su errori di
-    rete/risposta (il chiamante degrada, NON crasha il run)."""
-    url = build_openmeteo_url(lat, lon)
+    include_optional: aggiunge i livelli 600/450 hPa e i geopotenziali
+    (1.2.4.18). Ritorna il payload JSON. Solleva EnvironmentFetchError su
+    errori di rete/risposta (il chiamante degrada, NON crasha il run)."""
+    url = build_openmeteo_url(lat, lon, include_optional=include_optional)
     to = ENV_HTTP_TIMEOUT_S if timeout_s is None else float(timeout_s)
     if openmeteo_client is None:
         return _http_json(url, to)
@@ -509,9 +632,24 @@ def evaluate_environment(lat, lon, openmeteo_client=None, timeout_s=None):
 
     Ritorna dict con: valori grezzi, srh_0_3, srh_1km, ebwd_ms, sb_lcl_m,
     q_gkg, lr_700_500, scp, stp, ship, env_score (0-100), completeness,
-    partial (bool), missing (lista), flags (dict). Fetch fallito -> solleva
-    EnvironmentFetchError (nessun dato ambiente inventato)."""
-    payload = fetch_environment(lat, lon, openmeteo_client, timeout_s)
+    partial (bool), missing (lista), flags (dict), wind_profile (hodografo con
+    quote, 1.2.4.18), profile_top_m, h20_from_profile_m. Fetch fallito ->
+    solleva EnvironmentFetchError (nessun dato ambiente inventato).
+
+    1.2.4.18: la PRIMA richiesta include i livelli opzionali (600/450 hPa +
+    geopotenziali). Se l'API risponde 400 (variabile non supportata) si ritenta
+    UNA volta con il set storico e il flag `optional_levels_rejected` lo dice:
+    un livello in piu' non deve mai azzerare l'ambiente."""
+    optional_ok = True
+    try:
+        payload = fetch_environment(lat, lon, openmeteo_client, timeout_s,
+                                    include_optional=True)
+    except EnvironmentFetchError as exc:
+        if "http_400" not in str(exc):
+            raise
+        payload = fetch_environment(lat, lon, openmeteo_client, timeout_s,
+                                    include_optional=False)
+        optional_ok = False
     env = parse_environment(payload)
 
     winds = env["winds"]
@@ -528,7 +666,21 @@ def evaluate_environment(lat, lon, openmeteo_client=None, timeout_s=None):
         "cin_term_neutral": False,
         "q_source": None,
         "freezing_correction_applied": False,
+        "optional_levels_rejected": not optional_ok,
     }
+
+    # --- 1.2.4.18: HODOGRAFO CON QUOTE (0-6 km) e quota del -20 C ----------
+    # Il profilo e' quello che i livelli dichiarano: nessuna estrapolazione.
+    geop = env.get("geopotential_heights") or {}
+    wind_profile = wind_profile_nodes(winds, geop)
+    t_nodes = temperature_profile_nodes(env.get("temperatures") or {}, geop)
+    h20_profile = h20_height_from_t_profile(t_nodes)
+    profile_top_m = wind_profile[-1]["height_m"] if wind_profile else None
+    flags["wind_profile_nodes"] = len(wind_profile)
+    flags["profile_height_sources"] = sorted(
+        {n["height_source"] for n in wind_profile})
+    flags["h20_source"] = ("t_profile_interpolation"
+                           if h20_profile is not None else None)
 
     # --- SRH con storm-motion Bunkers dal profilo profondo ---
     srh_0_3 = None
@@ -640,6 +792,12 @@ def evaluate_environment(lat, lon, openmeteo_client=None, timeout_s=None):
         "srh_0_3": round(srh_0_3, 1) if srh_0_3 is not None else None,
         "srh_1km": round(srh_1km, 1) if srh_1km is not None else None,
         "ebwd_ms": round(ebwd, 2) if ebwd is not None else None,
+        "wind_profile": wind_profile,
+        "profile_top_m": profile_top_m,
+        "h20_from_profile_m": (round(h20_profile, 1)
+                               if h20_profile is not None else None),
+        "t_profile": [{"height_m": round(h, 1), "temp_c": t}
+                      for h, t in t_nodes],
         "scp": round(scp, 3) if scp is not None else None,
         "stp": round(stp, 3) if stp is not None else None,
         "ship": round(ship, 3) if ship is not None else None,

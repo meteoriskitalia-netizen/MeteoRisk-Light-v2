@@ -6,13 +6,13 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.17
+## Versione attiva: 1.2.4.18
 
-- File applicativo: `mri-light-1.2.4.17.html` (`APP_VERSION = '1.2.4.17'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.17', date: '2026-10-23' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.17'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+- File applicativo: `mri-light-1.2.4.18.html` (`APP_VERSION = '1.2.4.18'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.18', date: '2026-10-23' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.18'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
-- Contenuto della 1.2.4.17 (release sopra la 1.2.4.16) — **stack severo con etichette oneste**:
+- Contenuto della 1.2.4.18 (release sopra la 1.2.4.17) — **stack severo con etichette oneste**:
   - **S1 ambiente** (`scripts/radar_engine/severe_stack.py`): CAPE/CIN, shear 0-6 km (proxy
     10 m / 500 hPa dichiarato), SRH 0-3 km **solo** se ci sono almeno 4 livelli di vento e uno
     sopra i 2 km (altrimenti `srh: null` con `null_reason`), LCL e WMAXSHEAR. Riferimento
@@ -378,7 +378,7 @@ Comandi e conteggi aggiornati sono quelli documentati in `C:\Users\aless\Desktop
 
 ## File chiave
 
-- `mri-light-1.2.4.17.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
+- `mri-light-1.2.4.18.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
 - `sw.js` — Service Worker (cache applicativa: WebP, indici; mai le richieste Range `.om`)
 - `VERSION` — bump di versione e storico note di rilascio
 - `.github/workflows/{radar-engine,satellite-engine,update-weather-data,phenomena-verify,deploy-pages,forecast-maps-v2}.yml` — i 6 workflow

@@ -83,15 +83,24 @@ def test_mesh_null_with_two_cappi_levels():
 
 
 def test_mesh_computed_with_four_cappi_levels():
-    """4 livelli + quote termiche: SHI/MESH secondo la formula dichiarata."""
+    """4 livelli + quote termiche: SHI/MESH con la formula TRASCRITTA dal paper.
+
+    SHI = 0.1 * sum( E(Z_i) * W_T(H_i) * dh ),  E(Z)=5e-6*10^(0.084 Z)*W(Z),
+    W_T lineare fra H0=3 km e H(-20 C)=5.5 km, dh = 1000 m. Il valore atteso e'
+    ricalcolato qui dalla formula del paper (p. 288), non copiato dall'output.
+    """
     levels = [(2.0, np.full((2, 2), 50.0)), (4.0, np.full((2, 2), 55.0)),
               (6.0, np.full((2, 2), 50.0)), (8.0, np.full((2, 2), 40.0))]
     mesh = ss.mesh_from_cappi(levels, h0_km=3.0, h20_km=5.5)
-    # SHI = 0.1*[0 (2-4 km, sotto 0 C) + 1*0.8*2 (4-6) + 0.5*1*2 (6-8)] = 0.26
-    assert mesh["shi"] == pytest.approx(0.26, abs=1e-9)
-    assert mesh["value"] == pytest.approx(2.54 * math.sqrt(0.26), rel=1e-6)
+    e50 = 5e-6 * 10.0 ** (0.084 * 50.0)
+    e55 = 5e-6 * 10.0 ** (0.084 * 55.0)
+    shi = 0.1 * 1000.0 * (e50 * 0.0 + e55 * 0.4 + e50 * 1.0 + 0.0 * 1.0)
+    assert mesh["shi"] == pytest.approx(shi, rel=1e-9)
+    assert mesh["value"] == pytest.approx(2.54 * math.sqrt(shi), rel=1e-9)
     assert mesh["null_reason"] is None
     assert mesh["cappi_levels"] == 4
+    assert mesh["levels_used"] == [2.0, 4.0, 6.0, 8.0]
+    assert mesh["min_levels_per_pixel"] == 4
 
 
 def test_mesh_null_without_thermal_levels():

@@ -145,14 +145,53 @@ def _crop(window, arr):
     return arr[r0:r1 + 1, c0:c1 + 1]
 
 
-def _fetch_structure_products(config, scfg, ref_shape, warnings):
+def _cappi_product_map(scfg):
+    """{quota_km: product_type} dei livelli CAPPI da scaricare per MESH.
+
+    `mesh_levels_enabled=False` limita il set a product_low/product_high (il
+    comportamento 1.2.4.17): MESH esce null con "cappi_levels<4" e il costo
+    per run torna quello della release precedente. Nessun livello inventato:
+    la mappa e' quella dichiarata in config."""
+    out = {}
+    for key, name in (scfg.get("cappi_products") or {}).items():
+        try:
+            h = float(key)
+        except (TypeError, ValueError):
+            continue
+        out[h] = str(name)
+    if not scfg.get("mesh_levels_enabled", True):
+        low = scfg.get("product_low")
+        high = scfg.get("product_high")
+        out = {h: n for h, n in out.items()
+               if n in (str(low), str(high))}
+    return out
+
+
+def _fetch_structure_products(config, scfg, ref_shape, warnings,
+                              cappi_rd=None):
     """Scarica UNA VOLTA i prodotti DPC di struttura (griglia di riferimento).
 
+    vil/etm/poh: `fetch_frames` (il loro ultimo prodotto, come in 1.2.4.17).
+    low/high (CAPPI): NON si scaricano qui — arrivano da `cappi_rd`, cioe' dal
+    set allineato al timestamp della VMI (fetch.fetch_cappi_set): chiedere
+    `findLastProductByType` per un CAPPI darebbe un istante diverso da quello
+    della VMI e la colonna verticale mescolerebbe due volumi.
     Ritorna dict {nome: RasterData | None}: prodotto non configurato, non
-    scaricabile o con shape diverso dal riferimento VMI -> None con warning
+    scaricabile o con shape diverso dal riferimento -> None con warning
     (nessun dato inventato, nessun crash del layer)."""
     out = {}
     for name, key in _STRUCTURE_PRODUCTS:
+        if name in ("low", "high"):
+            rd = (cappi_rd or {}).get(name)
+            if rd is None:
+                out[name] = None
+                continue
+            if tuple(rd.data.shape) != tuple(ref_shape):
+                warnings.append(f"phase2 structure {name}: shape mismatch")
+                out[name] = None
+                continue
+            out[name] = rd
+            continue
         product = scfg.get(key)
         if not product:
             out[name] = None
@@ -176,6 +215,179 @@ def _fetch_structure_products(config, scfg, ref_shape, warnings):
             continue
         out[name] = rd
     return out
+
+
+def _fetch_cappi_levels(config, scfg, ref_rd, warnings):
+    """Scarica il SET dei CAPPI allo STESSO productDate della VMI (1.2.4.18).
+
+    Ritorna (results {quota_km: RasterData|None}, names {nome_prodotto: rd},
+    summary). Un livello mancante NON ferma il run: il campo che lo usa
+    (MESH/overhang) degrada a null con motivo. La griglia di ogni livello deve
+    combaciare con quella della VMI: altrimenti il livello viene scartato
+    (mai un resampling silenzioso su una colonna verticale)."""
+    cmap = _cappi_product_map(scfg)
+    names = list(dict.fromkeys(cmap.values()))
+    results = {h: None for h in cmap}
+    by_name = {}
+    summary = {"requested": 0, "fetched": 0, "fallback": 0, "failed": [],
+               "bytes": 0, "seconds": 0.0,
+               "ref_time_iso": getattr(ref_rd, "time_iso", None)}
+    if not names:
+        return results, by_name, summary
+    got, summary = fetch.fetch_cappi_set(
+        config, names, int(ref_rd.time_ms), warnings=warnings)
+    # COERENZA VERTICALE: se per qualche ragione i livelli arrivano da slot
+    # diversi (fallback parziale), si tiene SOLO lo slot con piu' livelli (a
+    # parita', il piu' recente): un profilo dBZ(H) mescolato non e' un profilo.
+    by_slot = {}
+    for name, rd in got.items():
+        if rd is not None:
+            by_slot.setdefault(int(rd.time_ms), []).append(name)
+    keep_slot = None
+    if by_slot:
+        keep_slot = max(by_slot, key=lambda s: (len(by_slot[s]), s))
+        keep_iso = fetch._iso(keep_slot)
+        for name, rd in got.items():
+            if rd is not None and int(rd.time_ms) != keep_slot:
+                warnings.append(
+                    "cappi {}: scartato (slot {} != {} del set)".format(
+                        name, rd.time_iso, keep_iso))
+                got[name] = None
+    for h, name in cmap.items():
+        rd = got.get(name)
+        if rd is None:
+            continue
+        if tuple(rd.data.shape) != tuple(ref_rd.data.shape):
+            warnings.append(f"cappi {name}: shape mismatch")
+            continue
+        results[h] = rd
+        by_name[name] = rd
+    summary["kept_slot_iso"] = (None if keep_slot is None
+                                else fetch._iso(keep_slot))
+    summary["kept_slot_ms"] = keep_slot
+    summary["slot_offset_s"] = (None if keep_slot is None
+                                else int((keep_slot - ref_rd.time_ms) / 1000))
+    summary["levels_per_slot"] = {fetch._iso(s): len(v)
+                                  for s, v in by_slot.items()}
+    summary["grid_ok"] = sum(1 for rd in results.values() if rd is not None)
+    return results, by_name, summary
+
+
+def _component_containing(arr, valid, threshold, seed_rc):
+    """Maschera della componente connessa di `arr>=threshold` che contiene il
+    pixel (seed_rc), nello stesso array. None se il seed non e' sopra soglia."""
+    import numpy as np
+    import scipy.ndimage as ndi
+    binary = (valid & (arr >= threshold))
+    if binary.size == 0:
+        return None
+    lab, _n = ndi.label(binary, structure=np.ones((3, 3), dtype=bool))
+    r, c = int(round(seed_rc[0])), int(round(seed_rc[1]))
+    if not (0 <= r < lab.shape[0] and 0 <= c < lab.shape[1]):
+        return None
+    lbl = int(lab[r, c])
+    if lbl == 0:
+        return None
+    return lab == lbl
+
+
+def _cell_footprint(bundle, candidate, config, target_window=None):
+    """(window, mask, source) del footprint della CELLA del candidato.
+
+    Identita' (nessun match geometrico fra blob): `cell_id` del record ->
+    l'unica DetectedCell con quel cell_id nel frame; la maschera e' la
+    componente connessa (soglia detect.dbz_threshold) che contiene il
+    CENTROIDE della cella, ricalcolata sulla VMI di quel frame. Per un record
+    storm_object si usa l'UNIONE delle maschere delle celle membre.
+
+    Ritorna (None, None, motivo) quando la cella non e' risolvibile: il
+    chiamante ricade sulla finestra ±radius_km e lo DICHIARA (`footprint_source`
+    = "candidate_window")."""
+    frames = list(getattr(bundle, "frames", []) or [])
+    if not frames:
+        return None, None, "no_frames"
+    thr = float((config.get("detect") or {}).get("dbz_threshold", 20.0))
+    cells = []
+    cell_id = candidate.get("cell_id")
+    storm_id = candidate.get("storm_object_id")
+    if storm_id is not None:
+        for objs in (getattr(bundle, "storm_objects_by_frame", None) or []):
+            for obj in objs or []:
+                if str(getattr(obj, "storm_object_id", "")) == str(storm_id):
+                    cells = list(getattr(obj, "cells", None) or [])
+                    break
+            if cells:
+                break
+    if not cells and cell_id is not None:
+        for frame_cells in (getattr(bundle, "cells_by_frame", None) or []):
+            for cell in frame_cells or []:
+                if cell.cell_id == cell_id:
+                    cells = [cell]
+                    break
+            if cells:
+                break
+    if not cells:
+        return None, None, "cell_not_found"
+
+    # finestra = unione dei bbox delle celle (clampata al raster)
+    raster = None
+    r0 = c0 = 10 ** 9
+    r1 = c1 = -1
+    for cell in cells:
+        idx = int(getattr(cell, "frame_index", -1))
+        if not (0 <= idx < len(frames)):
+            continue
+        bmin_r, bmin_c, bmax_r, bmax_c = cell.bbox
+        r0, c0 = min(r0, bmin_r), min(c0, bmin_c)
+        r1, c1 = max(r1, bmax_r), max(c1, bmax_c)
+        raster = frames[idx]
+    if raster is None:
+        return None, None, "cell_frame_missing"
+    r0 = max(0, r0 - 1)
+    c0 = max(0, c0 - 1)
+    r1 = min(int(raster.rows) - 1, r1 + 1)
+    c1 = min(int(raster.cols) - 1, c1 + 1)
+    if target_window is not None:
+        # la maschera deve avere la STESSA forma delle griglie ritagliate
+        r0, r1 = int(target_window[0]), int(target_window[1])
+        c0, c1 = int(target_window[2]), int(target_window[3])
+        r0 = max(0, r0)
+        c0 = max(0, c0)
+        r1 = min(int(raster.rows) - 1, r1)
+        c1 = min(int(raster.cols) - 1, c1)
+    if r1 < r0 or c1 < c0:
+        return None, None, "empty_window"
+    import numpy as np
+    mask = np.zeros((r1 - r0 + 1, c1 - c0 + 1), dtype=bool)
+    used = 0
+    for cell in cells:
+        idx = int(getattr(cell, "frame_index", -1))
+        if not (0 <= idx < len(frames)):
+            continue
+        src = frames[idx]
+        bmin_r, bmin_c, bmax_r, bmax_c = cell.bbox
+        rr0, cc0 = max(0, bmin_r - 1), max(0, bmin_c - 1)
+        rr1, cc1 = min(int(src.rows) - 1, bmax_r + 1), min(int(src.cols) - 1,
+                                                          bmax_c + 1)
+        sub = src.data[rr0:rr1 + 1, cc0:cc1 + 1]
+        sub_valid = src.valid_mask[rr0:rr1 + 1, cc0:cc1 + 1]
+        seed = (float(cell.centroid_raster[0]) - rr0,
+                float(cell.centroid_raster[1]) - cc0)
+        comp = _component_containing(sub, sub_valid, thr, seed)
+        if comp is None:
+            continue
+        # intersezione con la finestra comune
+        a0, b0 = max(rr0, r0), max(cc0, c0)
+        a1, b1 = min(rr1, r1), min(cc1, c1)
+        if a1 < a0 or b1 < b0:
+            continue
+        sub_comp = comp[a0 - rr0:a1 - rr0 + 1, b0 - cc0:b1 - cc0 + 1]
+        mask[a0 - r0:a1 - r0 + 1, b0 - c0:b1 - c0 + 1] |= sub_comp
+        used += 1
+    if used == 0 or not bool(mask.any()):
+        return None, None, "cell_mask_not_resolved"
+    source = "storm_object_cells" if len(cells) > 1 else "cell_mask"
+    return (r0, r1, c0, c1), mask, source
 
 
 def _ir108_grid_mismatch(ref, cand):
@@ -342,67 +554,6 @@ def _hook_for_candidate(frames, lon, lat, radius_km, hcfg, hook_mod):
         windows, dbz_threshold=hcfg.get("dbz_threshold"))
 
 
-def _fetch_extra_cappi(config, scfg, products, ref_shape, warnings):
-    """Scarica i livelli CAPPI configurati che NON sono gia' in `products`.
-
-    Serve a MESH (Witt et al. 1998: >= 4 livelli per il profilo dBZ(H)). Con la
-    config di default `cappi_products` = {2.0: CAPPI_2, 6.0: CAPPI_6} questa
-    funzione NON fa richieste: i due prodotti sono product_low/product_high,
-    gia' scaricati. Ogni livello in piu' costa un download DPC: il costo e'
-    dichiarato nella config, non nascosto.
-
-    Ritorna {nome_prodotto: RasterData|None}; prodotto non scaricabile o con
-    shape diverso -> None con warning (fail-closed, nessuna griglia finta)."""
-    already = {}
-    if scfg.get("product_low"):
-        already[str(scfg["product_low"])] = products.get("low")
-    if scfg.get("product_high"):
-        already[str(scfg["product_high"])] = products.get("high")
-    extra = {}
-    for name in (scfg.get("cappi_products") or {}).values():
-        name = str(name)
-        if name in already or name in extra:
-            continue
-        try:
-            gframes, gwarn, _ts = fetch.fetch_frames(config, product=name,
-                                                      max_frames=1)
-            warnings.extend(gwarn)
-        except Exception as exc:
-            warnings.append(f"cappi {name}: {exc}")
-            extra[name] = None
-            continue
-        if not gframes:
-            warnings.append(f"cappi {name}: no frames")
-            extra[name] = None
-            continue
-        rd = gframes[-1]
-        if tuple(rd.data.shape) != tuple(ref_shape):
-            warnings.append(f"cappi {name}: shape mismatch")
-            extra[name] = None
-            continue
-        extra[name] = rd
-    return extra
-
-
-def _cappi_level_map(scfg, products, extra):
-    """{quota_km: RasterData|None} dei livelli CAPPI disponibili per MESH."""
-    by_name = {}
-    if scfg.get("product_low"):
-        by_name[str(scfg["product_low"])] = products.get("low")
-    if scfg.get("product_high"):
-        by_name[str(scfg["product_high"])] = products.get("high")
-    for name, rd in (extra or {}).items():
-        by_name[str(name)] = rd
-    out = {}
-    for key, name in (scfg.get("cappi_products") or {}).items():
-        try:
-            h = float(key)
-        except (TypeError, ValueError):
-            continue
-        out[h] = by_name.get(str(name))
-    return out
-
-
 def _structure_summary(cand):
     """Sintesi del descrittore per lo stack severo (campo con fonte)."""
     from radar_engine import severe_stack as ss
@@ -424,13 +575,22 @@ def _structure_summary(cand):
 
 
 def _severe_stack_for_candidate(window, products, cappi, env_detail,
-                                ot_details, bundle):
-    """S1 + S2 + S3 del candidato (1.2.4.17).
+                                ot_details, bundle, footprint=None,
+                                observed_motion=None, secfg=None,
+                                ocfg=None, cappi_meta=None,
+                                max_observed_speed_kmh=None):
+    """S1 + S1b + S2 + S2b + S3 del candidato (1.2.4.17 + 1.2.4.18).
 
     Ogni componente mancante esce con `null_reason`: nessun valore inventato.
-    S3 riusa satellite_ot (details gia' calcolati sulla stessa finestra IR)."""
+    S3 riusa satellite_ot (details gia' calcolati sulla stessa finestra IR).
+    S2b (overhang) e S2b/MESH usano `footprint` (maschera della CELLA
+    identificata dal cell_id) quando disponibile: nessun matching geometrico
+    fra blob. S1b (Bunkers) usa il profilo vento dell'ambiente e il moto
+    OSSERVATO dello stesso candidato (velocity_kmh/direction_toward_deg)."""
     from radar_engine import severe_stack as ss
 
+    secfg = secfg or {}
+    ocfg = ocfg or {}
     env_layer = ss.environment_layer(env_detail)
 
     vil = etm = None
@@ -444,13 +604,60 @@ def _severe_stack_for_candidate(window, products, cappi, env_detail,
             rd = cappi[h_km]
             if rd is not None:
                 levels.append((h_km, _crop(window, rd.data)))
+
+    # quote termiche: 0 C dal freezing level Open-Meteo, -20 C preferendo
+    # l'INTERPOLAZIONE sul profilo T (1.2.4.18), poi l'estrapolazione sul lapse
     h0 = (env_detail or {}).get("freezing_level_m")
-    lr = (env_detail or {}).get("lr_700_500")
-    h20 = ss.minus20_from_lapse(h0, lr)
-    hail = ss.hail_layer(levels, vil, etm, h0_m=h0, h20_m=h20)
+    h0_source = ("open-meteo freezing_level_height (ASL)"
+                 if h0 is not None else None)
+    h20 = (env_detail or {}).get("h20_from_profile_m")
+    h20_source = None
+    if h20 is not None:
+        h20_source = "interpolazione -20 C sul profilo T Open-Meteo"
+    else:
+        lr = (env_detail or {}).get("lr_700_500")
+        h20 = ss.minus20_from_lapse(h0, lr)
+        if h20 is not None:
+            h20_source = "estrapolazione lineare dal lapse rate 700-500 hPa"
+
+    hail = ss.hail_layer(
+        levels, vil, etm, h0_m=h0, h20_m=h20, mask=footprint,
+        mesh_table_available=bool(secfg.get("mesh_table_verified", True)),
+        mesh_dh_m=float(secfg.get("mesh_dh_m", 1000.0)),
+        h0_source=h0_source, h20_source=h20_source,
+        slot_iso=(cappi_meta or {}).get("kept_slot_iso"),
+        slot_offset_s=(cappi_meta or {}).get("slot_offset_s"))
+
+    # --- S2b: overhang fra i due livelli dichiarati (default 2 e 6 km) ------
+    overhang = None
+    if secfg.get("overhang_enabled", True):
+        low_km = float(ocfg.get("low_km", 2.0))
+        high_km = float(ocfg.get("high_km", 6.0))
+        low_rd = (cappi or {}).get(low_km)
+        high_rd = (cappi or {}).get(high_km)
+        lo = _crop(window, low_rd.data) if (low_rd is not None
+                                           and window is not None) else None
+        hi = _crop(window, high_rd.data) if (high_rd is not None
+                                             and window is not None) else None
+        overhang = ss.overhang_layer(
+            lo, hi, mask=footprint, low_km=low_km, high_km=high_km,
+            core_dbz=float(ocfg.get("core_dbz", ss.OVERHANG_CORE_DBZ)),
+            strong_dbz=float(ocfg.get("strong_core_dbz", ss.OVERHANG_STRONG_DBZ)),
+            slot_iso=(cappi_meta or {}).get("kept_slot_iso"),
+            slot_offset_s=(cappi_meta or {}).get("slot_offset_s"))
+
+    # --- S1b: Bunkers RM/LM (descrittore) + scostamento dal moto osservato --
+    bunkers = ss.bunkers_layer(
+        env_detail=env_detail, observed_motion=observed_motion,
+        top_m=float(secfg.get("bunkers_top_m", ss.BUNKERS_TOP_M)),
+        deviation=float(secfg.get("bunkers_deviation_ms",
+                                  ss.BUNKERS_DEV_MS)),
+        max_observed_speed_kmh=max_observed_speed_kmh)
+
     ot = ss.ot_layer_from_details(
         ot_details, timestamp_iso=getattr(bundle, "radar_timestamp_iso", None))
     return {"environment": env_layer, "hail": hail, "ot": ot,
+            "overhang": overhang, "bunkers": bunkers,
             "h0_m": h0, "h20_m": h20, "cappi_levels": len(levels)}
 
 
@@ -522,6 +729,10 @@ def _phase2_evaluate(bundle, config):
     ecfg = p2_cfg.get("environment") or {}
     lcfg = p2_cfg.get("lightning") or {}
     otcfg = p2_cfg.get("ot") or {}
+    # 1.2.4.18: blocchi dello stack severo (overhang da struttura, Bunkers e
+    # tabella di Witt da severe_stack).
+    stack_cfg = p2_cfg.get("severe_stack") or {}
+    ocfg = scfg.get("overhang") or {}
     # R1: i default di fallback dei raggi NON sono magic numbers, ma i valori
     # base di config.CONFIG["phase2"] (fonte unica); usati solo se la chiave
     # manca nel blocco iniettato.
@@ -547,21 +758,27 @@ def _phase2_evaluate(bundle, config):
     products = {}
     ir_rd = None
     cappi = {}
+    cappi_summary = {}
+    cappi_by_name = {}
     if frames:
+        # 1.2.4.18: prima i CAPPI, ALLINEATI al timestamp della VMI (10 livelli
+        # per MESH + overhang). Un livello mancante -> quel campo degrada a
+        # null con motivo, il run prosegue.
+        cappi, cappi_by_name, cappi_summary = _fetch_cappi_levels(
+            config, scfg, frames[-1], warnings)
+        low_high = {"low": cappi_by_name.get(str(scfg.get("product_low"))),
+                    "high": cappi_by_name.get(str(scfg.get("product_high")))}
         products = _fetch_structure_products(config, scfg,
-                                             frames[-1].data.shape, warnings)
+                                             frames[-1].data.shape, warnings,
+                                             cappi_rd=low_high)
         if not any(rd is not None for rd in products.values()):
             warnings.append("phase2 structure: no products available")
-        # CAPPI per MESH: default 2 livelli (CAPPI_2/CAPPI_6, GIA' scaricati),
-        # nessuna richiesta extra. >=4 livelli solo se configurati.
-        extra_cappi = _fetch_extra_cappi(config, scfg, products,
-                                         frames[-1].data.shape, warnings)
-        cappi = _cappi_level_map(scfg, products, extra_cappi)
         # OVERSHOOTING TOP: frame IR_108 (stessa griglia TM della VMI).
         ir_rd = _fetch_ir108(config, otcfg, frames[-1], warnings)
     else:
         warnings.append("phase2 structure: no frames")
         ir_rd = None
+    result["cappi_fetch"] = cappi_summary
 
     # --- FULMINI: slot scaricati UNA VOLTA, strike in cache per slot --------
     # Scansione all'INDIETRO fino a max_backoff_steps: si raccolgono gli slot
@@ -754,19 +971,53 @@ def _phase2_evaluate(bundle, config):
         c["env"] = env_score
         c["env_scp"] = env_score        # chip 'Env' (0-100; SCP grezzo sopra)
 
-        # --- STACK SEVERO (1.2.4.17): S1 + S2 + S3 per candidato -------------
+        # --- STACK SEVERO (1.2.4.17 + 1.2.4.18): S1/S1b/S2/S2b/S3 -----------
+        footprint = None
+        fp_source = "candidate_window"
+        fp_pixels = None
+        has_ident = (c.get("cell_id") is not None
+                     or c.get("storm_object_id") is not None)
+        if window is not None and has_ident:
+            try:
+                fp_win, fp_mask, fp_src = _cell_footprint(
+                    bundle, c, config, target_window=window)
+            except Exception as exc:
+                _warn(f"phase2 footprint failed: {exc}")
+                fp_win, fp_mask, fp_src = None, None, "footprint_error"
+            if fp_mask is not None:
+                footprint = fp_mask
+                fp_source = fp_src
+                fp_pixels = int(fp_mask.sum())
+            else:
+                fp_source = "candidate_window ({})".format(fp_src)
         try:
             parts = _severe_stack_for_candidate(
-                window, products, cappi, env_detail, ot_details, bundle)
+                window, products, cappi, env_detail, ot_details, bundle,
+                footprint=footprint,
+                observed_motion={"velocity_kmh": (c.get("motion") or {}).get(
+                                     "velocity_kmh"),
+                                 "direction_toward_deg": (
+                                     c.get("motion") or {}).get(
+                                         "direction_toward_deg")},
+                secfg=stack_cfg, ocfg=ocfg, cappi_meta=cappi_summary,
+                max_observed_speed_kmh=((config.get("storm") or {}).get(
+                    "motion") or {}).get("max_validated_velocity_kmh"))
             from radar_engine import severe_stack as _severe
             c["severe_stack"] = _severe.combine(
                 structure=_structure_summary(c), hail=parts["hail"],
-                environment=parts["environment"], ot=parts["ot"])
+                environment=parts["environment"], ot=parts["ot"],
+                overhang=parts["overhang"], bunkers=parts["bunkers"])
             c["hail"] = parts["hail"]
+            c["overhang"] = parts["overhang"]
+            c["bunkers"] = parts["bunkers"]
+            c["footprint"] = {"source": fp_source, "pixels": fp_pixels}
         except Exception as exc:
             _warn(f"phase2 severe_stack failed: {exc}")
             c["severe_stack"] = None
             c["hail"] = None
+            c["overhang"] = None
+            c["bunkers"] = None
+            c["footprint"] = {"source": fp_source, "pixels": fp_pixels}
 
     if no_position:
         _warn("phase2: candidate without valid position -> per-cell layers None")

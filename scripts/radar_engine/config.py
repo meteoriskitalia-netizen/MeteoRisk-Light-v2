@@ -228,12 +228,45 @@ CONFIG = {
             "product_low": "CAPPI_2",  # CAPPI 2 km: verificato live (findLastProductByType)
             "product_high": "CAPPI_6", # CAPPI 6 km: verificato live -> overhang attivo
             "local_radius_km": 45.0,   # finestra ±km attorno al candidato
-            # 1.2.4.17 — MESH (Witt et al. 1998) richiede un PROFILO dBZ(H):
-            # >= 4 livelli CAPPI. Qui si dichiara la mappa quota_km -> prodotto.
-            # Con i 2 livelli attuali il campo esce null con
-            # mesh_unavailable_reason="cappi_levels<4" (nessun "MESH-like" da
-            # VIL). Aggiungere livelli costa un download DPC per livello.
-            "cappi_products": {"2.0": "CAPPI_2", "6.0": "CAPPI_6"},
+            # 1.2.4.18 — MESH (Witt et al. 1998) e OVERHANG hanno bisogno del
+            # PROFILO dBZ(H): la sonda CAPPI del 2026-10-23 ha verificato che
+            # esistono ESATTAMENTE 10 livelli (CAPPI_1..CAPPI_10 = 1000..10000 m
+            # slm, passo 1000 m, griglia 1200x1400 identica alla VMI). Qui la
+            # mappa quota_km -> product type: il fetcher li chiede TUTTI allo
+            # STESSO productDate della VMI (fetch.fetch_cappi_set).
+            "cappi_products": {
+                "1.0": "CAPPI_1", "2.0": "CAPPI_2", "3.0": "CAPPI_3",
+                "4.0": "CAPPI_4", "5.0": "CAPPI_5", "6.0": "CAPPI_6",
+                "7.0": "CAPPI_7", "8.0": "CAPPI_8", "9.0": "CAPPI_9",
+                "10.0": "CAPPI_10",
+            },
+            # Interruttore ESPLICITO del profilo completo: OFF -> si scaricano
+            # solo product_low/product_high (2 livelli -> MESH null con
+            # motivo) e il costo per run torna quello della 1.2.4.17.
+            "mesh_levels_enabled": True,
+            "mesh_min_levels": 4,      # gate piu' restrittivo di Witt (>=2)
+            "mesh_dh_m": 1000.0,       # passo verticale REALE dei CAPPI DPC
+            # Costo dichiarato: 10 file = 5,00-6,31 MB per run (misurato),
+            # cioe' ~4-5x il volume VMI+VIL+ETM. Il download e' sequenziale:
+            # ~0,4-1,1 s per file.
+            "cappi_fetch": {
+                "period_s": 300,           # cadenza misurata PT5M
+                "retry_attempts": 1,       # UN retry sullo slot corrente
+                # Ritardo di pubblicazione MISURATO: VMI +6m53s, CAPPI +9m03s
+                # sullo stesso slot => ~2m10s fra i due. 120 s di attesa UNICA
+                # (condivisa dai 10 livelli) coprono quel divario; senza di
+                # essa lo slot allineato alla VMI sarebbe spesso assente.
+                "retry_wait_s": 120.0,
+                "allow_previous_slot": True,  # fallback t-5min se resta 5xx
+            },
+            "overhang": {
+                # SCELTA INGEGNERISTICA: dBZ(6 km) >= 45 e dBZ(2 km) < 45
+                # (il probe misura 381 colonne cosi' e 583 con dBZ6>=50).
+                "low_km": 2.0,
+                "high_km": 6.0,
+                "core_dbz": 45.0,
+                "strong_core_dbz": 50.0,
+            },
         },
         "environment": {
             # Open-Meteo sul punto di OGNI candidato (urllib diretto,
@@ -267,9 +300,23 @@ CONFIG = {
         "severe_stack": {
             # 1.2.4.17 — S1 (ambiente) + S2 (grandine) + S3 (overshooting top)
             # e registro delle predizioni per la futura validazione POD/FAR.
+            # 1.2.4.18 — aggiunge S2b (overhang da CAPPI_2/CAPPI_6) e S1b
+            # (Bunkers RM/LM come DESCRITTORE del moto atteso, non rotazione).
             "enabled": True,
             "predictions_enabled": True,
             "predictions_retention_days": 30,
+            "overhang_enabled": True,
+            # Bunkers: 0-6 km con offset 7.5 m/s. Se il profilo vento non
+            # arriva a 6 km il campo e' null con motivo (nessuna estrapolazione).
+            "bunkers_top_m": 6000.0,
+            "bunkers_deviation_ms": 7.5,
+            # La tabella W(Z)/E(Z) di Witt e la costante 2.54 sono state
+            # TRASCRITTE dal paper (eq. 1-3 p.288, eq. 6 p.293). Se un domani
+            # la verifica decadesse, portare questa a false produce
+            # mesh null con null_reason "witt_table_unavailable" invece di un
+            # numero non verificato.
+            "mesh_table_verified": True,
+            "mesh_dh_m": 1000.0,
         },
         "ot": {
             # IR_108 DPC (MSG SEVIRI 10.8 um, GeoTIFF Float32 in °C, PT5M,

@@ -1174,7 +1174,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <button class="tool-btn" id="btn-radar" onclick="toggleRadar()" style="display:none;">📡 Radar Timeline (OFF)</button>
         <button class="tool-btn" id="btn-satellite" onclick="toggleSatellite()" style="display:none;">🛰️ SATELLITE (OFF)</button>
         <button class="tool-btn" id="btn-forecast" onclick="toggleForecast()">🌤️ Previsioni (OFF)</button>
-        <button class="tool-btn" id="btn-forecast-maps" onclick="toggleForecastMaps()" style="border-color:#38bdf8;">🗺️ Mappe previsionali (OFF)</button>
         <button class="tool-btn" id="btn-caletta" onclick="showCaletta()" style="display:none;">🍽️ La Caletta</button>
         <button class="tool-btn" id="btn-high-risk" onclick="toggleHighRiskFilter()">🚨 Evidenzia Zone a Rischio</button>
         <button class="tool-btn" id="btn-live" onclick="toggleLivePanel()" style="border-color:#fbbf24;">🔴 LIVE Panel (OFF)</button>
@@ -1527,6 +1526,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                 <option value="paced" selected>Punto per punto (cadenza 400ms entro i limiti)</option>
             </select>
         </span>
+        <button class="tool-btn" id="btn-forecast-maps" onclick="toggleForecastMaps()" style="border-color:#38bdf8;">🗺️ Mappe previsionali (OFF)</button>
     </div>
 
     <!-- Legenda previsioni — visibile solo quando Previsioni è attivo -->
@@ -1873,9 +1873,16 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.17';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.18';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-23';
     const APP_CHANGELOG = [
+        { version: '1.2.4.18', date: '2026-10-23', changes: [
+  'RADAR= MESH REALE (Witt et al. 1998: W(Z) 40-50 dBZ, E=5e-6*10^(0.084*Z)*W(Z), SHI=0.1*int W_T*E dH, MEHS=2.54*sqrt(SHI) in mm, tabella ed equazioni trascritte dal paper p.288 e p.293) calcolato su 10 CAPPI DPC (1..10 km, passo 1 km) chiesti allo STESSO productDate della VMI; con meno di 4 livelli il campo e null con motivo (cappi_levels<4), mai un MESH-like dal VIL',
+  'RADAR= Overhang / nucleo elevato misurato PER CELLA da CAPPI_2 vs CAPPI_6 (dBZ a 6 km >= 45 con dBZ a 2 km < 45: soglia dichiarata come scelta ingegneristica), agganciato al cell_id del tracking, non a un match geometrico fra blob',
+  'RADAR= Bunkers RM/LM come DESCRITTORE del moto atteso (media 0-6 km, offset 7.5 m/s, perpendicolare allo shear) con scostamento dal moto osservato solo se il tracking lo da utilizzabile; rotation_measurable resta false e nessuna probabilita calibrata',
+  'CI= Fetch CAPPI con gestione del 500 sullo slot corrente (retry con UNA attesa condivisa) e fallback allo slot precedente ri-scaricando il set COMPLETO, cosi la colonna dBZ(H) non mescola due volumi; costo misurato 4.90-6.31 MB e 10.5-20.5 s per run su 10 file',
+  'DOC= Bump versione 1.2.4.18',
+  ] },
         { version: '1.2.4.17', date: '2026-10-23', changes: [
   'RADAR= Stack severo S1+S2+S3 con etichette oneste. S1 ambiente (CAPE/CIN, shear 0-6 km, SRH 0-3 km con gate sui livelli di vento) dai modelli Open-Meteo, riferimento europeo Pucik et al. 2015 citato come riferimento e NON come soglia locale; S2 grandine: VIL density con la soglia CITATA di Amburn & Wolf 1997 (3,5 g/m3) e MESH (Witt et al. 1998) calcolato SOLO con almeno 4 livelli CAPPI, altrimenti null con motivo cappi_levels<4; S3 overshooting top dal modulo satellite esistente (Bedka et al. 2010) con fonte e timestamp. Nessuna probabilita\' calibrata: il campo probability e\' null con il motivo (nessuna etichetta ESWD)',
   'TERMINOLOGIA= L\'indice non e\' piu\' una diagnosi: structural_organization_index (SOI 0-100) con livelli organized/strong/intense e rotation_measurable=false dichiarato su ogni record (manca il campo di velocita\' radiale: la rotazione non e\' misurabile, non e\' una soglia piu\' severa). Artefatto rinominato data/radar/convective_structures.json (record con structure_id/soi), pannello radar e badge NWP rietichettati, la rotazione compare come "non misurabile" invece di essere omessa',
@@ -13692,6 +13699,11 @@ function toggleForecastMaps() {
                 ni.classList.remove('active');
             }
             updateUI();
+        }
+        // Se Sviluppo viene spento con le Mappe previsionali aperte, chiude il pannello:
+        // la voce e' dentro #weather-model-wrapper, che con Sviluppo OFF non e' raggiungibile.
+        if (!isSviluppoActive && typeof fmActive !== 'undefined' && fmActive) {
+            toggleForecastMaps();
         }
         // Aggiorna l'etichetta accanto allo switch nel footer
         var lab = document.getElementById('sviluppo-label');
