@@ -121,7 +121,7 @@ const APP_VER = (() => {
 
 // ---------- A. STATICHE DI SICUREZZA (prima di eseguire) ----------
 ok('A1: CACHE_NAME e\' la costante del modulo', /var CACHE_NAME = '[^']+';/.test(swSrc));
-ok('A2: CACHE_NAME versionata con la versione della release', /var CACHE_NAME = 'mri-1\.2\.4\.20';/.test(swSrc), 'app=' + APP_VER);
+ok('A2: CACHE_NAME versionata con la versione della release', /var CACHE_NAME = 'mri-1\.2\.4\.21';/.test(swSrc), 'app=' + APP_VER);
 ok('A2b: CACHE_NAME corrisponde a VERSION (MAJOR.MINOR.PATCH.BUILD)', swSrc.indexOf("'mri-" + APP_VER + "'") >= 0);
 ok('A3: nessun precache pesante (nessun addAll / cache.add)', !/\.addAll\s*\(/.test(swSrc) && !/cache\.add\s*\(/.test(swSrc));
 ok('A4: limite di voci dichiarato a 1200', /var MAX_ENTRIES = 1200;/.test(swSrc));
@@ -139,7 +139,7 @@ ok('A6: timeout della navigazione a 3000 ms', /var NETWORK_TIMEOUT_MS = 3000;/.t
   ok('B2: skipWaiting eseguito e nessuna cache creata all\'install',
     h.flags.skipWaiting === true && h.caches._stores.size === 0);
 
-  h.caches._map('mri-1.2.4.20').set('https://x/y', new Response('cur', { status: 200 }));
+  h.caches._map('mri-1.2.4.21').set('https://x/y', new Response('cur', { status: 200 }));
   h.caches._map('mri-1.2.4.14').set('https://x/y', new Response('old', { status: 200 }));
   h.caches._map('altro-prefisso').set('https://x/z', new Response('old', { status: 200 }));
   const activateEvent = { waitUntil: (p) => { activateEvent.pending = p; } };
@@ -147,7 +147,7 @@ ok('A6: timeout della navigazione a 3000 ms', /var NETWORK_TIMEOUT_MS = 3000;/.t
   await activateEvent.pending;
   const names = Array.from(h.caches._stores.keys());
   ok('B3: activate elimina le cache con nome diverso da CACHE_NAME e tiene la corrente',
-    names.length === 1 && names[0] === 'mri-1.2.4.20', JSON.stringify(names));
+    names.length === 1 && names[0] === 'mri-1.2.4.21', JSON.stringify(names));
   ok('B4: activate chiama clients.claim', h.flags.claim === true);
 }
 
@@ -234,12 +234,12 @@ ok('A6: timeout della navigazione a 3000 ms', /var NETWORK_TIMEOUT_MS = 3000;/.t
   h.ctx._respond = async () => new Response('nope', { status: 404 });
   await (await h.dispatchFetch(new Request(url))).responded;
   await new Promise((r) => setTimeout(r, 10));
-  ok('G1: una 404 non viene messa in cache', h.caches._map('mri-1.2.4.20').size === 0);
+  ok('G1: una 404 non viene messa in cache', h.caches._map('mri-1.2.4.21').size === 0);
   const webp = 'https://x.test/data/fm2-rendered/north/ncep_gfs025/temperature_2m/2026102300.webp';
   h.ctx._respond = async () => new Response('partial', { status: 206 });
   await (await h.dispatchFetch(new Request(webp))).responded;
   await new Promise((r) => setTimeout(r, 10));
-  ok('G2: una 206 non viene messa in cache', h.caches._map('mri-1.2.4.20').size === 0);
+  ok('G2: una 206 non viene messa in cache', h.caches._map('mri-1.2.4.21').size === 0);
 }
 
 // ---------- H. LIMITE DI VOCI (potatura delle piu' vecchie) ----------
@@ -252,7 +252,7 @@ ok('A6: timeout della navigazione a 3000 ms', /var NETWORK_TIMEOUT_MS = 3000;/.t
     await e.responded;
     await new Promise((r) => setTimeout(r, 5));
   }
-  const keys = Array.from(h.caches._map('mri-1.2.4.20').keys());
+  const keys = Array.from(h.caches._map('mri-1.2.4.21').keys());
   ok('H1: oltre MAX_ENTRIES le voci piu\' vecchie vengono eliminate', keys.length === 3, `keys=${keys.length}`);
   ok('H2: restano le 3 piu\' recenti (ordine di inserimento)', keys.every((k) => /2026102[234]\.webp$/.test(k)), JSON.stringify(keys));
 }

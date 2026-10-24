@@ -47,6 +47,7 @@ from radar_engine import models
 from radar_engine import output
 from radar_engine import history
 from radar_engine import fetch
+from radar_engine import footprint as footprint_mod
 from radar_engine import detect as detect_mod
 from radar_engine import tracking as track_mod
 from radar_engine.config import load_config, CONFIG
@@ -299,20 +300,13 @@ def _fetch_cappi_levels(config, scfg, ref_rd, warnings):
 
 def _component_containing(arr, valid, threshold, seed_rc):
     """Maschera della componente connessa di `arr>=threshold` che contiene il
-    pixel (seed_rc), nello stesso array. None se il seed non e' sopra soglia."""
-    import numpy as np
-    import scipy.ndimage as ndi
-    binary = (valid & (arr >= threshold))
-    if binary.size == 0:
-        return None
-    lab, _n = ndi.label(binary, structure=np.ones((3, 3), dtype=bool))
-    r, c = int(round(seed_rc[0])), int(round(seed_rc[1]))
-    if not (0 <= r < lab.shape[0] and 0 <= c < lab.shape[1]):
-        return None
-    lbl = int(lab[r, c])
-    if lbl == 0:
-        return None
-    return lab == lbl
+    pixel (seed_rc), nello stesso array. None se il seed non e' sopra soglia.
+
+    1.2.4.21: UNA sola implementazione — `footprint.component_mask`. Questo
+    wrapper esiste per il chiamante storico (`_cell_footprint`, overhang); la
+    semantica e i numeri sono identici alla 1.2.4.20 (test
+    `test_footprint.py::test_component_mask_matches_legacy_definition`)."""
+    return footprint_mod.component_mask(arr, valid, threshold, seed_rc)
 
 
 def _cell_footprint(bundle, candidate, config, target_window=None):
@@ -1378,6 +1372,13 @@ def main(argv=None):
     ap.add_argument("--as-of", dest="as_of", default=None, metavar="ISO8601",
                     help="istante UTC di replay (es. 2026-07-01T13:20:00Z); "
                          "default: ora corrente")
+    # 1.2.4.21 — FOOTPRINT GEOMETRICO su richiesta: GeoJSON con la componente
+    # connessa poligonizzata di OGNI cella e di OGNI struttura. Senza questo
+    # flag l'output operativo e' byte-identico alla 1.2.4.20 (nessun file in
+    # piu', nessuna soglia toccata).
+    ap.add_argument("--footprints", default=None, metavar="PATH",
+                    help="scrive il footprint GeoJSON (celle + strutture) in "
+                         "PATH; default: non scritto")
     args = ap.parse_args(argv)
 
     config = load_config(args.config)
@@ -1394,6 +1395,15 @@ def main(argv=None):
     bundle, rc = _run(config, out_dir, args.product, args.max_frames,
                       args.dry_run, history_dir=args.history_dir, clock=clock)
 
+    fp_summary = None
+    if args.footprints and not args.dry_run and getattr(bundle, "frames", None):
+        try:
+            fp_summary = footprint_mod.write_geojson(args.footprints, bundle,
+                                                     config)
+        except Exception as exc:  # accessorio: non cambia l'esito del run
+            fp_summary = {"status": "error",
+                          "error": f"{exc.__class__.__name__}: {exc}"}
+
     summary = {
         "status": bundle.status,
         "frames": len(bundle.frames),
@@ -1409,6 +1419,8 @@ def main(argv=None):
     as_of_mode = getattr(bundle, "as_of_mode", None)
     if as_of_mode is not None:
         summary["as_of_mode"] = as_of_mode
+    if fp_summary is not None:
+        summary["footprints"] = fp_summary
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     # GitHub Actions: espone status/stats come step outputs (se presente).
     gh_out = os.environ.get("GITHUB_OUTPUT")

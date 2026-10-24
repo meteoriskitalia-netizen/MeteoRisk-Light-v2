@@ -204,6 +204,19 @@ python scripts\validation\asof_bench.py `
   --work-dir <dir> --report <dir>\report.json --markdown <dir>\report.md
 ```
 
+Per il collaudo su **footprint geometrico** (1.2.4.21, §9) servono anche le
+province italiane (per la frazione d'area) e il GeoJSON dei footprint:
+
+```powershell
+python scripts\radar_engine\main.py --as-of 2026-07-01T13:25:00Z `
+  --out-dir <dir> --footprints <dir>\footprints.geojson
+python scripts\validation\asof_bench_footprint.py `
+  --labels <labels_metar_it_2015_2026.jsonl> `
+  --italy-geojson data\geography\province_italiane.geojson `
+  --work-dir <dir> --report <dir>\report_footprint.json `
+  --markdown <dir>\report_footprint.md
+```
+
 ---
 
 ## 8. Limiti dichiarati
@@ -226,3 +239,157 @@ python scripts\validation\asof_bench.py `
 7. `--as-of` **non** cambia il comportamento operativo: senza l'opzione il clock è
    `live` e il percorso è quello della 1.2.4.19 (verificato: suite completa, §9 del
    report di release).
+
+---
+
+## 9. Accoppiamento sul FOOTPRINT e TASSO BASE (1.2.4.21)
+
+Il collaudo della 1.2.4.20 accoppiava il rapporto METAR al **CENTROIDE** della
+struttura con gate 10 km: **0 hit / 6 miss / 69 falsi allarmi**, POD 0,000
+[0,000-0,390]. Non era un'assenza di eco: il radar vedeva i temporali (48,5 /
+44,0 / 35,5 dBZ sulla verticale di LIPL/LIMF/LIPX) e **nessuna** cella aveva il
+centroide entro 10 km (minimo 20,3 km) mentre le celle sono componenti connesse
+fino a **4.659 km2**. La stazione cade **dentro** l'eco, il centroide e'
+lontano: sbagliava la grandezza dell'accoppiamento, non il prodotto.
+
+### 9.1 Le tre varianti (definizioni)
+
+| variante | allarmi | geometria | domanda a cui risponde |
+| :--- | :--- | :--- | :--- |
+| **(a) `cells`** | ogni cella di ogni frame | poligono della componente connessa (`radar_engine/footprint.py`) | "il radar ha visto qualcosa sulla stazione?" |
+| **(a2) `structures_all`** | ogni struttura convettiva emessa | unione dei poligoni delle celle membre, al frame del `last_seen` | stessa popolazione di allarmi della 1.2.4.20: confronto **a parita' di allarmi** |
+| **(b) `structures_severe`** | solo `level` in `strong`/`intense` | idem | "il prodotto avrebbe avvisato?" |
+
+Un evento e' **hit** se il punto della stazione cade **dentro** il poligono
+oppure entro **10 km dal bordo**; finestra temporale invariata [-20, +6] min,
+greedy 1-a-1 per distanza minima. Nessuna soglia, formula o peso del prodotto
+e' stato modificato: l'unica differenza rispetto alla 1.2.4.20 e' la geometria
+dell'accoppiamento (punto -> poligono invece di punto -> centroide).
+
+Il footprint e' la componente connessa ricalcolata sulla VMI del frame con
+`detect.dbz_threshold`, `morph_radius_px`, `connectivity_8` **della config**
+(nessun valore nuovo), poligonizzata con `rasterio.features.shapes` e
+georeferenziata con l'affine del GeoTIFF. L'identita' della cella e' il suo
+**bbox + numero di pixel** nell'etichetta del frame, non un match geometrico
+fra blob. Difetto trovato e corretto qui: il pixel del **centroide** puo'
+cadere fuori dalla componente (componente concava) e in 1.2.4.20 lasciava 3
+strutture su 69 senza footprint (`cell_mask_not_resolved`); con l'identita'
+bbox+pixel_count i 69/69 record hanno il poligono. L'overhang **non** e' stato
+toccato (usa ancora il seed del centroide) e i suoi numeri restano quelli
+della 1.2.4.20: il residuo e' dichiarato.
+
+### 9.2 Tasso base (misurato: e' il cuore dell'esperimento)
+
+Copertura dell'**unione** dei footprint emessi nella run (episodio di 25-30
+min), indipendentemente dagli eventi. Area d'Italia da `province_italiane.geojson`
+rasterizzato a 0,01 deg con pixel pesati su `cos(lat)`: 301.609 km2 contro
+302.073 km2 di riferimento (-0,15%). Stazioni dentro o entro 10 km dal bordo,
+su **99** stazioni METAR italiane.
+
+| run (evento) | (a) area | (a) stazioni /99 | (a2) area | (a2) stazioni /99 | (b) area | (b) stazioni /99 |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| LIPL 2026-05-28T14:55Z | 12,2% | 22 | 8,2% | 18 | 8,2% | 18 |
+| LIPI 2026-06-10T15:55Z | 12,0% | 19 | 8,7% | 16 | 8,7% | 16 |
+| LIMF 2026-07-01T13:20Z | 23,1% | 37 | 6,4% | 21 | 6,4% | 21 |
+| LIMP 2026-07-01T14:50Z | 8,2% | 22 | 3,8% | 10 | 3,8% | 10 |
+| LIML 2026-07-18T19:50Z | 5,8% | 14 | 3,7% | 12 | 3,7% | 12 |
+| LIPX 2026-10-11T23:50Z | 2,2% | 9 | 0,8% | 3 | 0,8% | 3 |
+| **mediana / massimo** | **10,1% / 23,1%** | **20,7% / 37,4%** | **5,1% / 8,7%** | **14,1% / 21,2%** | idem | idem |
+
+Nessuna run supera il 50% (ne' di area ne' di stazioni): il POD sul footprint
+**e' informativo** secondo la regola dichiarata (> 50% = artefatto). Con
+`cells` una stazione su cinque e' coperta "per caso", con le strutture una su
+sette: numeri che vanno letti accanto al POD, non dopo.
+
+Sulle **13 stazioni con almeno un evento severo** nella finestra (grandine,
+vento severo, imbuto/tornado; QC A/B) la copertura mediana e' **26,9%** in
+tutte e tre le varianti: e' la probabilita' che una stazione con evento cada
+dentro un poligono marcato **per caso**. Da qui: hit attesi a caso 6 x 26,9% =
+**1,6** su 6 contro i 5 osservati, P(X >= 5) = **0,0066** (binomiale,
+diagnostica: n=6, non un test formale).
+
+Nota sulle stazioni: `retro/REPORT.md` dichiarava 14 stazioni severe (1,46% del
+territorio, 4.398 km2 con p * 10^2 km2). Con le etichette attuali la regola
+"tipo severo + QC A/B" da **13** stazioni (4.084 km2 = **1,35%**), con QC A/B/C
+ne da 16. Le 14 non sono riproducibili: si usano **13** e il numero vecchio
+resta dichiarato come non riprodotto.
+
+### 9.3 Matrice 2x2 per variante (6 eventi, 5 giornate)
+
+| variante | hit | miss | falsi allarmi | correct neg. | POD | Wilson 95% | CSI (indicativo) |
+| :--- | ---: | ---: | ---: | ---: | ---: | :--- | ---: |
+| (a) `cells` | 5 | 1 | 1.294 | 0 | 0,833 | [0,436 - 0,970] | 0,004 |
+| (a2) `structures_all` | 5 | 1 | 64 | 0 | 0,833 | [0,436 - 0,970] | 0,071 |
+| (b) `structures_severe` | 5 | 1 | 64 | 0 | 0,833 | [0,436 - 0,970] | 0,071 |
+
+Confronto diretto, **stessi 6 eventi e stesse run**:
+
+| accoppiamento | hit | miss | falsi allarmi | POD | Wilson 95% |
+| :--- | ---: | ---: | ---: | ---: | :--- |
+| centroide, gate 10 km (1.2.4.20) | 0 | 6 | 69 | 0,000 | [0,000 - 0,390] |
+| footprint, (a2) strutture | 5 | 1 | 64 | 0,833 | [0,436 - 0,970] |
+
+Il FAR **non e' stimabile**: il METAR copre 13 stazioni = 1,35% del territorio,
+quindi 64 allarmi non accoppiati non sono 64 falsi allarmi. Il CSI e'
+indicativo per lo stesso motivo. I falsi allarmi della variante (a) sono 1.294
+perche' ogni cella di ogni frame e' un allarme: e' la numerosita' del layer
+grezzo, non un giudizio.
+
+### 9.4 Per evento
+
+| evento | stazione | severita' | (a) cells | (a2)/(b) strutture |
+| :--- | :--- | :--- | :--- | :--- |
+| 2026-05-28T14:55Z | LIPL | small_hail_lt5mm | HIT (dentro) | HIT (dentro, `intense`) |
+| 2026-06-10T15:55Z | LIPI | large_hail_ge5mm | HIT (dentro) | HIT (dentro, `strong`) |
+| 2026-07-01T13:20Z | LIMF | large_hail_ge5mm | HIT (dentro) | HIT (dentro, `strong`) |
+| 2026-07-01T14:50Z | LIMP | small_hail_lt5mm | **miss (40,5 km)** | **miss (57,9 km)** |
+| 2026-07-18T19:50Z | LIML | small_hail_lt5mm | HIT (dentro) | HIT (0,2 km dal bordo, `strong`) |
+| 2026-10-11T23:50Z | LIPX | large_hail_ge5mm | HIT (dentro) | HIT (dentro, `strong`) |
+
+L'unico miss e' LIMP: nessuna cella entro 40,5 km alle 14:50Z, nessuna
+struttura entro 57,9 km. E' un miss **geometrico** (il radar non ha eco li'),
+non un problema di centroide: la variante (a) lo misura correttamente come
+assenza.
+
+### 9.5 La variante (b) coincide con (a2): fatto del prodotto
+
+I 69 record emessi dalle 6 run sono **56 `strong` + 13 `intense`**, zero
+`organized`/`unorganized`: il motore pubblica solo i record con
+`candidate: true` e il gate di organizzazione li porta gia' a `strong`. Quindi
+il filtro (b) non toglie nulla e (b) = (a2) **per costruzione del prodotto**.
+Non e' stata introdotta nessuna soglia nuova per separarli: si dichiara che con
+la politica di emissione attuale "avrebbe avvisato" e "ha emesso una struttura"
+sono lo stesso insieme.
+
+### 9.6 Cosa questo collaudo NON misura (dichiarato)
+
+* **MESH**: in replay e' `null` con `thermal_levels_missing` (l'archivio
+  Open-Meteo non ha CAPE ne' variabili di profilo: 0/24 valori, verificato il
+  2026-10-24). Il collaudo misura **SOI, overhang, VIL density**, non MESH.
+* **Ambiente / fulmini / overshooting top**: `null` con motivo in replay
+  (§3.1). Nessun giudizio su S1, S1b, S3.
+* **FAR**: non stimabile con 13 stazioni (§9.3).
+* **Taratura**: n=6. **Nessuna** soglia, formula o peso e' stato modificato in
+  questa release e nessuna taratura e' stata fatta: con 6 eventi qualunque
+  aggiustamento sarebbe overfitting. Le soglie overhang restano 45/50 dBZ.
+* **Poligono**: il footprint e' la componente connessa a 1 km (pixel interi),
+  non il contorno dell'eco a risoluzione radar nativa; il bordo e' quindi
+  quantizzato a 1 km, coerente con il gate di 10 km.
+
+### 9.7 Risposta alla domanda del collaudo
+
+**Il prodotto avrebbe avvisato?** Si', su 5 dei 6 eventi grandine QC A/B
+(POD 0,833, Wilson [0,436-0,970]), con la stazione DENTRO il poligono in 4 casi
+su 5 e a 0,2 km dal bordo nel quinto; il sesto (LIMP) non ha eco entro 40 km.
+
+**Quanto spesso avrebbe avvisato a vuoto?** Non e' misurabile con questa
+verita': 64 strutture su 69 non hanno un evento associato, ma il METAR vede
+1,35% del territorio e quindi non puo' dire se quei 64 fossero falsi allarmi.
+Quello che si puo' dire e' il **tasso base**: in una run il 5,1-8,7% dell'area
+d'Italia e il 14,1% (mediana) delle stazioni e' dentro o entro 10 km da una
+struttura marcata, e il 26,9% delle stazioni con eventi lo e' per caso. Un POD
+alto con questo tasso base non e' un artefatto (P a caso 0,0066), ma non e'
+nemmeno una misura di accuratezza spaziale: e' "il radar ha visto l'eco e il
+prodotto l'ha etichettata". Per separare le due cose servono etichette negative
+(stazioni senza evento dentro le strutture) e un numero di eventi che renda
+una taratura diversa da un fit su 6 punti.

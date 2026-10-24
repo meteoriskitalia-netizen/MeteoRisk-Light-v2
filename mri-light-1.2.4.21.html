@@ -1873,9 +1873,18 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.20';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-10-24';
+    const APP_VERSION = '1.2.4.21';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-10-25';
     const APP_CHANGELOG = [
+        { version: '1.2.4.21', date: '2026-10-25', changes: [
+  'RADAR= Footprint geometrico: nuova opzione --footprints <path> che scrive un GeoJSON con il poligono (componente connessa sulla VMI, stesse soglie detect) di OGNI cella e di OGNI struttura. Senza il flag l\'output operativo resta quello della 1.2.4.20: nessun file in piu\', nessuna soglia toccata.',
+  'RADAR= Identita\' della cella risolta con bbox + pixel_count dell\'etichetta del frame (stesse soglie e stessa morfologia di detect_cells): il pixel del centroide puo\' cadere FUORI da una componente concava e in 1.2.4.20 lasciava 3 strutture su 69 senza footprint (ora 69/69). L\'overhang NON e\' stato toccato: i suoi numeri restano quelli della 1.2.4.20.',
+  'VAL= Accoppiamento su footprint: nuovo scripts/validation/geo_match.py (point-in-polygon con buchi, MultiPolygon, distanza punto-segmento; shapely non e\' installato e non e\' stato aggiunto) e nuovo scripts/validation/asof_bench_footprint.py con tre varianti dichiarate: celle, tutte le strutture, strutture severe.',
+  'VAL= Collaudo MISURATO sui 6 eventi grandine METAR QC A/B: footprint delle CELLE 5 hit / 1 miss / 1294 allarmi non accoppiati (POD 0,833, Wilson 0,436-0,970, CSI 0,004 indicativo); STRUTTURE 5 / 1 / 64 (POD 0,833, CSI 0,071) contro 0 hit / 6 miss del centroide nella 1.2.4.20. L\'unico miss e\' LIMP: nessuna cella entro 40,5 km alle 14:50Z.',
+  'VAL= Tasso base misurato per run (obbligatorio accanto al POD): area d\'Italia coperta 10,1% mediana per le celle e 5,1% per le strutture; stazioni METAR coperte 20,7% e 14,1%; stazioni con eventi coperte per caso 26,9% (hit attesi a caso 1,6 su 6, P(X>=5)=0,0066). Sotto il 50% di area e di stazioni, quindi il POD sul footprint e\' informativo. La variante severa coincide con tutte le strutture: i 69 record emessi sono 56 strong + 13 intense (il motore pubblica solo i candidati). Nessuna soglia, formula o peso modificato: n=6, nessuna taratura.',
+  'DOC= docs/REPLAY_AS_OF.md sezione 9 (definizione delle varianti, tasso base per run, matrice 2x2 con Wilson, confronto con il centroide, limiti dichiarati: MESH e ambiente null in replay, FAR non stimabile, 13 stazioni severe invece delle 14 dichiarate prima); nuovi test test_footprint.py (10 casi) e test_footprint_geometry.py (11 casi).',
+  'DOC= Bump versione 1.2.4.21'
+  ] },
         { version: '1.2.4.20', date: '2026-10-24', changes: [
   'RADAR= Replay deterministico: nuova opzione --as-of <ISO8601 UTC> che ancora a un istante TUTTE le letture dell\'orologio (slot radar, VIL/ETM/POH, IR_108, ambiente, fulmini) tramite un unico clock iniettato (radar_engine/clock.py). Senza --as-of il comportamento resta identico alla 1.2.4.19.',
   'RADAR= In replay i dati senza archivio storico NON vengono presi da oggi: ambiente dall\'API di archivio Open-Meteo e, se le variabili di profilo mancano, null con environment_unavailable_for_as_of; fulmini null con lightning_history_unavailable; IR_108 con ir108_history_unavailable quando lo slot manca; MESH null con thermal_levels_missing. Riepilogo as_of_mode con requested, environment_source e degraded nell\'output.',

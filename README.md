@@ -6,12 +6,52 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.20
+## Versione attiva: 1.2.4.21
 
-- File applicativo: `mri-light-1.2.4.20.html` (`APP_VERSION = '1.2.4.20'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.20', date: '2026-10-24' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.20'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+- File applicativo: `mri-light-1.2.4.21.html` (`APP_VERSION = '1.2.4.21'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.21', date: '2026-10-25' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.21'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
+- Contenuto della 1.2.4.21 (release sopra la 1.2.4.20) - **footprint geometrico e
+  accoppiamento punto->poligono nel collaudo, nessuna soglia toccata**:
+  - **Perche'**: il collaudo della 1.2.4.20 accoppiava il rapporto METAR al **centroide**
+    con gate 10 km e dava 0 hit / 6 miss / 69 falsi allarmi. Non era un'assenza di eco
+    (48,5 / 44,0 / 35,5 dBZ sulla verticale di LIPL/LIMF/LIPX): nessuna cella aveva il
+    centroide entro 10 km (minimo 20,3 km) mentre le celle sono componenti connesse fino a
+    **4.659 km2**, e la stazione cade **dentro** l'eco.
+  - **`--footprints <path>`** (`scripts/radar_engine/footprint.py`): GeoJSON con il poligono
+    (MultiPolygon, buchi inclusi) di **ogni cella** e di **ogni struttura**, ricavato dalla
+    componente connessa sulla VMI con le soglie **della config** (`dbz_threshold`,
+    `morph_radius_px`, `connectivity_8`) e georeferenziato con l'affine del GeoTIFF. Senza
+    il flag l'output operativo e' **byte-identico** alla 1.2.4.20.
+  - **Identita' della cella** per `bbox` + `pixel_count` dell'etichetta del frame (non un
+    match geometrico fra blob): il pixel del centroide puo' cadere **fuori** da una
+    componente concava e in 1.2.4.20 lasciava 3 strutture su 69 senza footprint
+    (`cell_mask_not_resolved`); ora **69/69**. L'**overhang non e' stato toccato**.
+  - **Accoppiamento** (`scripts/validation/geo_match.py`, `Detection.footprint`): punto
+    dentro il poligono o entro 10 km dal bordo; se l'allarme non ha footprint resta la
+    distanza dal centroide (regressione coperta dai test). `shapely` **non** e' installato e
+    non e' stato aggiunto: point-in-ring, buchi, MultiPolygon e distanza punto-segmento sono
+    implementati e testati qui.
+  - **Collaudo** (`scripts/validation/asof_bench_footprint.py`, tre varianti dichiarate:
+    celle / tutte le strutture / strutture severe) sui 6 eventi grandine METAR QC A/B:
+    **celle 5 hit / 1 miss** (1294 allarmi non accoppiati, POD 0,833, Wilson [0,436-0,970],
+    CSI 0,004 indicativo), **strutture 5 / 1** (64 non accoppiati, POD 0,833, CSI 0,071)
+    contro **0 hit / 6 miss** del centroide. L'unico miss e' **LIMP** (nessuna cella entro
+    40,5 km alle 14:50Z).
+  - **Tasso base misurato per run** (obbligatorio accanto al POD): area d'Italia coperta
+    **10,1%** mediana (celle) e **5,1%** (strutture), massimo 23,1% e 8,7%; stazioni su 99
+    coperte **20,7%** e **14,1%** (massimo 37,4% e 21,2%); stazioni con eventi coperte
+    "per caso" **26,9%** -> hit attesi a caso 1,6 su 6, P(X>=5)=0,0066. Sotto il 50% di area
+    e di stazioni, quindi il POD sul footprint e' informativo. La variante **severa coincide
+    con tutte le strutture** (69 record: 56 `strong` + 13 `intense`, solo candidati).
+  - **Nessuna taratura**: n=6, nessuna soglia/formula/peso modificato. In replay MESH e
+    ambiente sono `null` con motivo: il collaudo misura **SOI, overhang, VIL density**, non
+    MESH. **FAR non stimabile** (13 stazioni severe = 1,35% del territorio).
+  - **Documentazione**: `docs/REPLAY_AS_OF.md` §9 (definizioni, tasso base per run, matrice
+    2x2 con Wilson, confronto con il centroide, limiti dichiarati). **Test**:
+    `scripts/tests/radar_engine/test_footprint.py` (10 casi) e
+    `scripts/tests/test_footprint_geometry.py` (11 casi).
 - Contenuto della 1.2.4.20 (release sopra la 1.2.4.19) - **replay deterministico del radar engine,
   nessuna funzionalita' nuova dell'app**:
   - **`--as-of <ISO8601 UTC>`** (`scripts/radar_engine/main.py`): un unico clock iniettato
@@ -435,7 +475,7 @@ Comandi e conteggi aggiornati sono quelli documentati in `C:\Users\aless\Desktop
 
 ## File chiave
 
-- `mri-light-1.2.4.20.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
+- `mri-light-1.2.4.21.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
 - `sw.js` — Service Worker (cache applicativa: WebP, indici; mai le richieste Range `.om`)
 - `VERSION` — bump di versione e storico note di rilascio
 - `.github/workflows/{radar-engine,satellite-engine,update-weather-data,phenomena-verify,deploy-pages,forecast-maps-v2}.yml` — i 6 workflow

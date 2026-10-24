@@ -397,6 +397,11 @@ class Detection:
     radar_distance_km: Optional[float] = None
     example: bool = False
     extras: Dict[str, Any] = field(default_factory=dict)
+    # 1.2.4.21 — FOOTPRINT GEOMETRICO (GeoJSON Polygon/MultiPolygon, EPSG:4326).
+    # Se presente, la distanza usata dal matching e' quella al POLIGONO
+    # (0 quando il punto e' DENTRO), non quella al centroide. Default None:
+    # comportamento identico alla 1.2.4.20.
+    footprint: Optional[Dict[str, Any]] = None
 
     @property
     def window_start(self) -> datetime:
@@ -546,6 +551,30 @@ def _candidate_pairs(detected: Sequence[Detection], truth: Sequence[TruthEvent],
     d_lon = np.asarray([d.lon for d in detected], dtype=float)
     d_lat = np.asarray([d.lat for d in detected], dtype=float)
     dist = _haversine_matrix(t_lon, t_lat, d_lon, d_lat)
+    # 1.2.4.21 — se un allarme porta un footprint, la distanza e' quella al
+    # BORDO del poligono (0 dentro). Un allarme senza footprint resta alla
+    # distanza dal centroide: il comportamento predefinito non cambia.
+    if any(getattr(d, "footprint", None) for d in detected):
+        from validation import geo_match
+        for di, det in enumerate(detected):
+            fp = getattr(det, "footprint", None)
+            if not fp:
+                continue
+            bbox = geo_match.geometry_bbox(fp)
+            if bbox is None:
+                continue
+            for ti, event in enumerate(truth):
+                # estremo inferiore dalla bbox: se supera il gate la coppia
+                # e' scartata comunque, senza calcolare la distanza esatta.
+                low = geo_match.bbox_distance_lower_bound_km(
+                    event.lon, event.lat, bbox)
+                if low > params.max_distance_km:
+                    dist[ti][di] = low
+                    continue
+                km = geo_match.distance_to_geometry_km(event.lon, event.lat,
+                                                       fp)
+                if km is not None:
+                    dist[ti][di] = km
     pre = timedelta(minutes=float(params.pre_window_min))
     post = timedelta(minutes=float(params.post_window_min))
     pairs: List[Tuple[Any, ...]] = []
