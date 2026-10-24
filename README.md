@@ -6,13 +6,43 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.18
+## Versione attiva: 1.2.4.19
 
-- File applicativo: `mri-light-1.2.4.18.html` (`APP_VERSION = '1.2.4.18'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.18', date: '2026-10-23' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.18'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+- File applicativo: `mri-light-1.2.4.19.html` (`APP_VERSION = '1.2.4.19'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.19', date: '2026-10-24' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.19'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
-- Contenuto della 1.2.4.18 (release sopra la 1.2.4.17) — **stack severo con etichette oneste**:
+- Contenuto della 1.2.4.19 (release sopra la 1.2.4.18) - **solo riparazioni, nessuna
+  funzionalita' nuova dell'app**:
+  - **Storico delle versioni ripristinato** (`VERSION`): la 1.2.4.18 andava da `BUILD=18` a
+    `BUILD=16` perche' il blocco della 1.2.4.17 era stato **sostituito** invece di anteposto
+    (74.274 -> 72.964 byte). Il blocco 1.2.4.17 e' stato reincollato **verbatim** dal `VERSION`
+    della release 1.2.4.17 (titolo, MAJOR/MINOR/PATCH, `BUILD=17`, `RELEASE_TYPE`,
+    `DATE=2026-10-23`, `NOTE` integrale, `APP_FILE`) e l'ordine dei blocchi e' ora 19, 18, 17,
+    16, 15, ... (28 blocchi; `BUILD=19/18/17/16` tutti presenti e in quest'ordine).
+  - **File di validazione consegnati** (esistevano solo nell'albero di lavoro, in nessuna
+    release e su nessun branch): `scripts/validation/build_labels.py` (etichette di eventi
+    severi dai bollettini METAR/SPECI italiani: grandine `GR`/`GS`, tornado `+FC`, imbuto
+    `FC`/`VCFC`, raffica >= 25 m/s, temporale `TS`; QC proprio A/B/C, merge temporale,
+    matching con le celle a tre esiti distinti `matched` / `no_cell_within_gate` /
+    `no_snapshot_in_window`), `scripts/validation/power_analysis.py` (numerosita' minima di
+    eventi severi perche' l'intervallo di Wilson al 95% abbia una semi-larghezza dichiarata,
+    `p = 0,5` come caso peggiore) e `docs/VALIDAZIONE_SEVERO.md` (licenze, dataset, potere
+    statistico, protocollo). Nessun dato ESWD scaricato, costruito o pubblicato: la licenza
+    ESWD vieta pubblicazione e trasmissione dei dati grezzi e dei derivati di scarso valore
+    aggiunto (penale contrattuale fino a 60.000 EUR); il documento dichiara il **METAR come
+    fonte di verita'** e che i termini ISD/NODD e la policy WMO sul riuso dei messaggi di
+    scambio **non sono stati verificati**.
+  - **`AGENTS.md` riallineato ai valori misurati**: per l'html della 1.2.4.18 dichiarava
+    2.048.467 byte e `905607B4DDF00BE8...`, mentre il disco dice **2.048.782 byte** e
+    **`3A442845F14125B6...7E9ADAC0`** (lo stesso valore `rel` del manifest di upload della
+    1.2.4.18); la sezione ora descrive la versione attiva 1.2.4.19 con gli hash misurati.
+  - **Bump**: html rinominato `mri-light-1.2.4.19.html`, `APP_VERSION` / `APP_RELEASE_DATE` /
+    `APP_CHANGELOG` aggiornati in-app, `sw.js` con `CACHE_NAME = 'mri-1.2.4.19'`, righe `cp`
+    dei 3 workflow che costruiscono `_site` e i 24 test `.mjs` riallineati in **entrambe** le
+    forme (letterale e pattern con i punti escapati: sostituire solo la prima lascia 4 test
+    rossi).
+- Contenuto della 1.2.4.18 (release precedente, sopra la 1.2.4.17) - **stack severo con etichette oneste**:
   - **S1 ambiente** (`scripts/radar_engine/severe_stack.py`): CAPE/CIN, shear 0-6 km (proxy
     10 m / 500 hPa dichiarato), SRH 0-3 km **solo** se ci sono almeno 4 livelli di vento e uno
     sopra i 2 km (altrimenti `srh: null` con `null_reason`), LCL e WMAXSHEAR. Riferimento
@@ -378,7 +408,7 @@ Comandi e conteggi aggiornati sono quelli documentati in `C:\Users\aless\Desktop
 
 ## File chiave
 
-- `mri-light-1.2.4.18.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
+- `mri-light-1.2.4.19.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
 - `sw.js` — Service Worker (cache applicativa: WebP, indici; mai le richieste Range `.om`)
 - `VERSION` — bump di versione e storico note di rilascio
 - `.github/workflows/{radar-engine,satellite-engine,update-weather-data,phenomena-verify,deploy-pages,forecast-maps-v2}.yml` — i 6 workflow
