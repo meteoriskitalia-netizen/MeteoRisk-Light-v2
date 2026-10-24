@@ -31,6 +31,10 @@ CONFIG = {
         "origin_header": "https://radar.protezionecivile.it",
         "product_type": "VMI",
         "history_frames": 6,        # finestra candidata: T-25m..T0 (VMI PT5M)
+        # 1.2.4.20 — cadenza del prodotto, usata SOLO dal replay (--as-of):
+        # in modalita' live il passo arriva da `findLastProductByType`.
+        # 300 s = cadenza PT5M misurata; nessun istante inventato.
+        "period_s": 300,
         "http_timeout_s": 30,
         "download_timeout_s": 60,
         "max_download_retries": 2,

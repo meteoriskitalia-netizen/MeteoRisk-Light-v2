@@ -42,6 +42,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import radar_engine as _engine
+from radar_engine import clock as clock_mod
 from radar_engine import models
 from radar_engine import output
 from radar_engine import history
@@ -65,6 +66,9 @@ _PHASE2_COMPONENTS = ("hook", "structure", "env", "ot", "lightning")
 
 
 def _utcnow_str():
+    """STORICO (1.2.4.19): orologio di sistema. Dalla 1.2.4.20 il motore usa
+    SOLO il clock iniettato (`clock.Clock`); questa funzione resta per i
+    chiamanti esterni che la importavano e non e' piu' sul percorso del run."""
     return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -168,7 +172,7 @@ def _cappi_product_map(scfg):
 
 
 def _fetch_structure_products(config, scfg, ref_shape, warnings,
-                              cappi_rd=None):
+                              cappi_rd=None, ref_time_ms=None, replay=False):
     """Scarica UNA VOLTA i prodotti DPC di struttura (griglia di riferimento).
 
     vil/etm/poh: `fetch_frames` (il loro ultimo prodotto, come in 1.2.4.17).
@@ -178,7 +182,12 @@ def _fetch_structure_products(config, scfg, ref_shape, warnings,
     della VMI e la colonna verticale mescolerebbe due volumi.
     Ritorna dict {nome: RasterData | None}: prodotto non configurato, non
     scaricabile o con shape diverso dal riferimento -> None con warning
-    (nessun dato inventato, nessun crash del layer)."""
+    (nessun dato inventato, nessun crash del layer).
+
+    1.2.4.20 (`replay=True`): vil/etm/poh sono chiesti allo STESSO
+    `ref_time_ms` della VMI (`fetch.fetch_product_at`), non all'ultimo
+    prodotto. Era il difetto #2 di retro/REPORT.md §5.2: la VIL density veniva
+    calcolata su un VIL di oggi."""
     out = {}
     for name, key in _STRUCTURE_PRODUCTS:
         if name in ("low", "high"):
@@ -195,6 +204,21 @@ def _fetch_structure_products(config, scfg, ref_shape, warnings,
         product = scfg.get(key)
         if not product:
             out[name] = None
+            continue
+        if replay and ref_time_ms is not None:
+            rd, meta = fetch.fetch_product_at(config, product, ref_time_ms)
+            if rd is None:
+                warnings.append(
+                    "phase2 structure {}: assente allo slot {} ({})".format(
+                        name, fetch._iso(int(ref_time_ms)),
+                        meta.get("error")))
+                out[name] = None
+                continue
+            if tuple(rd.data.shape) != tuple(ref_shape):
+                warnings.append(f"phase2 structure {name}: shape mismatch")
+                out[name] = None
+                continue
+            out[name] = rd
             continue
         try:
             gframes, gwarn, _ts = fetch.fetch_frames(config, product=product,
@@ -452,7 +476,7 @@ def _ir108_grid_mismatch(ref, cand):
     return any(c is False for c in checks)
 
 
-def _fetch_ir108(config, ocfg, ref_rd, warnings):
+def _fetch_ir108(config, ocfg, ref_rd, warnings, replay=False):
     """Scarica il frame DPC IR_108 (OVERSHOOTING TOP), griglia di riferimento.
 
     ref_rd: RasterData VMI di riferimento (frames[-1]). Ritorna RasterData |
@@ -464,11 +488,29 @@ def _fetch_ir108(config, ocfg, ref_rd, warnings):
     pixel_area diversi -> stesso shape ma footprint geografico diverso:
     correrebbe in silenzio male il crop della finestra OT calcolata sulla VMI,
     quindi il frame viene rifiutato (B5). Un metadata assente su almeno un lato
-    non viene confrontato (nessun mismatch inventato)."""
+    non viene confrontato (nessun mismatch inventato).
+
+    1.2.4.20 (`replay=True`): IR_108 chiesto allo slot della VMI
+    (`fetch.fetch_product_at`), non all'ultimo prodotto di oggi."""
     product = ocfg.get("product_ir108")
     if not product:
         warnings.append("ot_unavailable:ir108_non_configurato")
         return None
+    if replay:
+        rd, meta = fetch.fetch_product_at(config, product,
+                                          int(ref_rd.time_ms))
+        if rd is None:
+            warnings.append(
+                "phase2 ot ir108: assente allo slot {} ({})".format(
+                    fetch._iso(int(ref_rd.time_ms)), meta.get("error")))
+            return None
+        if tuple(rd.data.shape) != tuple(ref_rd.data.shape):
+            warnings.append("phase2 ot ir108: shape mismatch")
+            return None
+        if _ir108_grid_mismatch(ref_rd, rd):
+            warnings.append("phase2 ot ir108: grid mismatch")
+            return None
+        return rd
     try:
         gframes, gwarn, _ts = fetch.fetch_frames(config, product=product,
                                                   max_frames=1)
@@ -578,7 +620,8 @@ def _severe_stack_for_candidate(window, products, cappi, env_detail,
                                 ot_details, bundle, footprint=None,
                                 observed_motion=None, secfg=None,
                                 ocfg=None, cappi_meta=None,
-                                max_observed_speed_kmh=None):
+                                max_observed_speed_kmh=None,
+                                env_null_reason=None, ot_null_reason=None):
     """S1 + S1b + S2 + S2b + S3 del candidato (1.2.4.17 + 1.2.4.18).
 
     Ogni componente mancante esce con `null_reason`: nessun valore inventato.
@@ -591,7 +634,7 @@ def _severe_stack_for_candidate(window, products, cappi, env_detail,
 
     secfg = secfg or {}
     ocfg = ocfg or {}
-    env_layer = ss.environment_layer(env_detail)
+    env_layer = ss.environment_layer(env_detail, null_reason=env_null_reason)
 
     vil = etm = None
     levels = []
@@ -655,7 +698,8 @@ def _severe_stack_for_candidate(window, products, cappi, env_detail,
         max_observed_speed_kmh=max_observed_speed_kmh)
 
     ot = ss.ot_layer_from_details(
-        ot_details, timestamp_iso=getattr(bundle, "radar_timestamp_iso", None))
+        ot_details, timestamp_iso=getattr(bundle, "radar_timestamp_iso", None),
+        null_reason=ot_null_reason)
     return {"environment": env_layer, "hail": hail, "ot": ot,
             "overhang": overhang, "bunkers": bunkers,
             "h0_m": h0, "h20_m": h20, "cappi_levels": len(levels)}
@@ -723,6 +767,34 @@ def _phase2_evaluate(bundle, config):
     bundle.phase2 = result
     frames = list(getattr(bundle, "frames", []) or [])
 
+    # --- 1.2.4.20: CLOCK INIETTATO (replay --as-of) -------------------------
+    # Unica sorgente di tempo anche qui: in replay l'istante e' fisso, e le
+    # sorgenti che non hanno archivio storico vengono DICHIARATE assenti
+    # invece di essere lette da oggi.
+    p2_clock = clock_mod.from_config(config)
+    replay = p2_clock.replay
+    as_of_ms = p2_clock.now_ms() if replay else None
+    as_of_mode = getattr(bundle, "as_of_mode", None)
+
+    def _degrade(field, reason, detail=None, count=None):
+        """Registra una degradazione dovuta alla modalita' replay (una voce
+        per campo+motivo, con il numero di candidati/valori toccati)."""
+        if not replay or as_of_mode is None:
+            return
+        for item in as_of_mode["degraded"]:
+            if item.get("field") == field and item.get("null_reason") == reason:
+                if count is not None:
+                    item["count"] = max(item.get("count") or 0, int(count))
+                if detail:
+                    item["detail"] = detail
+                return
+        entry = {"field": field, "null_reason": reason}
+        if count is not None:
+            entry["count"] = int(count)
+        if detail:
+            entry["detail"] = detail
+        as_of_mode["degraded"].append(entry)
+
     # --- CONFIG (raggi finestra per-candidato + finestra fulmini) ----------
     hcfg = p2_cfg.get("hook") or {}
     scfg = p2_cfg.get("structure") or {}
@@ -770,11 +842,19 @@ def _phase2_evaluate(bundle, config):
                     "high": cappi_by_name.get(str(scfg.get("product_high")))}
         products = _fetch_structure_products(config, scfg,
                                              frames[-1].data.shape, warnings,
-                                             cappi_rd=low_high)
+                                             cappi_rd=low_high,
+                                             ref_time_ms=frames[-1].time_ms,
+                                             replay=replay)
         if not any(rd is not None for rd in products.values()):
             warnings.append("phase2 structure: no products available")
         # OVERSHOOTING TOP: frame IR_108 (stessa griglia TM della VMI).
-        ir_rd = _fetch_ir108(config, otcfg, frames[-1], warnings)
+        ir_rd = _fetch_ir108(config, otcfg, frames[-1], warnings, replay=replay)
+        if replay:
+            if ir_rd is None:
+                _degrade("ot", "ir108_history_unavailable")
+            for _name in ("vil", "etm", "poh"):
+                if products.get(_name) is None:
+                    _degrade(_name, "product_not_archived_for_as_of")
     else:
         warnings.append("phase2 structure: no frames")
         ir_rd = None
@@ -815,38 +895,47 @@ def _phase2_evaluate(bundle, config):
         grace = min(lightning.LTG_PUBLICATION_DELAY_STEPS, max_backoff)
     slot_cache = {}
     ltg_slots_recent = []
-    failures_after_grace = 0      # errori di fila DOPO il grace (criterio di stop)
-    for k in range(0, max_backoff + 1):   # dal piu' recente all'indietro
-        if len(ltg_slots_recent) >= window:
-            break
-        epoch = lightning.ltg_epoch_floor(backoff_steps=k)
-        if epoch in slot_cache:
-            slot = slot_cache[epoch]
-        else:
-            try:
-                slot = lightning.fetch_ltg(epoch_ms=epoch)["strikes"]
-            except lightning.LightningFetchError as exc:
-                warnings.append(f"phase2 lightning slot-{k}: {exc}")
-                slot = None
-            except Exception as exc:      # guasto imprevisto -> slot assente
-                warnings.append(f"phase2 lightning failed: {exc}")
-                slot = None
-            slot_cache[epoch] = slot
-        if slot is not None:
-            failures_after_grace = 0
-            ltg_slots_recent.append(slot)
-        else:
-            if k >= grace:
-                failures_after_grace += 1
-                if failures_after_grace >= max_failures:
-                    warnings.append(
-                        f"phase2 lightning: stop dopo {failures_after_grace} "
-                        f"errori consecutivi oltre il grace di {grace} passi "
-                        f"(backoff max {max_backoff})")
-                    break
+    if replay:
+        # 1.2.4.20: NON esiste un archivio pubblico degli slot LTG storici
+        # (misurato: 403 su ogni slot storico, retro/REPORT.md §2.4). Il layer
+        # si dichiara assente con motivo: NON si leggono i fulmini di oggi.
+        _degrade("lightning", "lightning_history_unavailable")
+        warnings.append("phase2 lightning: modalita' --as-of senza archivio "
+                        "storico (lightning_history_unavailable)")
+    else:
+        failures_after_grace = 0  # errori di fila DOPO il grace (criterio stop)
+        for k in range(0, max_backoff + 1):   # dal piu' recente all'indietro
+            if len(ltg_slots_recent) >= window:
+                break
+            epoch = lightning.ltg_epoch_floor(backoff_steps=k,
+                                              now_ms=p2_clock.now_ms())
+            if epoch in slot_cache:
+                slot = slot_cache[epoch]
+            else:
+                try:
+                    slot = lightning.fetch_ltg(epoch_ms=epoch)["strikes"]
+                except lightning.LightningFetchError as exc:
+                    warnings.append(f"phase2 lightning slot-{k}: {exc}")
+                    slot = None
+                except Exception as exc:  # guasto imprevisto -> slot assente
+                    warnings.append(f"phase2 lightning failed: {exc}")
+                    slot = None
+                slot_cache[epoch] = slot
+            if slot is not None:
+                failures_after_grace = 0
+                ltg_slots_recent.append(slot)
+            else:
+                if k >= grace:
+                    failures_after_grace += 1
+                    if failures_after_grace >= max_failures:
+                        warnings.append(
+                            f"phase2 lightning: stop dopo {failures_after_grace} "
+                            f"errori consecutivi oltre il grace di {grace} passi "
+                            f"(backoff max {max_backoff})")
+                        break
     # dal piu' vecchio al piu' recente (ordine atteso da lightning_spatial_score)
     ltg_slots = list(reversed(ltg_slots_recent))
-    if not ltg_slots:
+    if not ltg_slots and not replay:
         warnings.append("phase2 lightning: no slots available (wider window)")
 
     # --- LAYER PER CANDIDATO: hook/struttura/fulmini/ambiente ---------------
@@ -854,6 +943,7 @@ def _phase2_evaluate(bundle, config):
     # N candidati = UNA chiamata per bucket/slot. Ogni sub-valore finisce
     # sul SINGOLO candidato (chiavi lette dai chip dell'app).
     env_cache = {}
+    env_errors = {}          # 1.2.4.20: motivo reale del fallimento per bucket
     env_bucket_deg = ecfg.get("cache_grid_deg", environment.ENV_CACHE_GRID_DEG)
     env_failures = 0
     no_position = False
@@ -936,7 +1026,8 @@ def _phase2_evaluate(bundle, config):
             try:
                 detail = environment.evaluate_environment_cached(
                     lat, lon, cache=env_cache, grid_deg=env_bucket_deg,
-                    timeout_s=ecfg.get("timeout_s"))
+                    timeout_s=ecfg.get("timeout_s"), as_of_ms=as_of_ms,
+                    errors=env_errors)
             except Exception as exc:
                 _warn(f"phase2 environment failed: {exc}")
             if detail is None:
@@ -970,6 +1061,17 @@ def _phase2_evaluate(bundle, config):
         c["lightning"] = lightning_score
         c["env"] = env_score
         c["env_scp"] = env_score        # chip 'Env' (0-100; SCP grezzo sopra)
+        if replay:
+            # Visibilita' PER CAMPO del motivo (replay): il dato non esiste in
+            # archivio, non e' "assente nel payload di oggi".
+            c["as_of_null_reasons"] = {
+                "environment": (None if env_detail is not None
+                                else "environment_unavailable_for_as_of"),
+                "lightning": (None if lightning_score is not None
+                              else "lightning_history_unavailable"),
+                "ot": (None if ot_score is not None
+                       else "ir108_history_unavailable"),
+            }
 
         # --- STACK SEVERO (1.2.4.17 + 1.2.4.18): S1/S1b/S2/S2b/S3 -----------
         footprint = None
@@ -1001,7 +1103,12 @@ def _phase2_evaluate(bundle, config):
                                          "direction_toward_deg")},
                 secfg=stack_cfg, ocfg=ocfg, cappi_meta=cappi_summary,
                 max_observed_speed_kmh=((config.get("storm") or {}).get(
-                    "motion") or {}).get("max_validated_velocity_kmh"))
+                    "motion") or {}).get("max_validated_velocity_kmh"),
+                env_null_reason=("environment_unavailable_for_as_of"
+                                 if (replay and env_detail is None) else None),
+                ot_null_reason=("ir108_history_unavailable"
+                                if (replay and ot_details is None
+                                    and ir_rd is None) else None))
             from radar_engine import severe_stack as _severe
             c["severe_stack"] = _severe.combine(
                 structure=_structure_summary(c), hail=parts["hail"],
@@ -1056,15 +1163,55 @@ def _phase2_evaluate(bundle, config):
     except ValueError as exc:
         warnings.append(f"phase2 aggregate weights invalid: {exc}")
 
+    # --- 1.2.4.20: RIEPILOGO REPLAY (as_of_mode) ----------------------------
+    if replay and as_of_mode is not None:
+        # Ambiente: sorgente DICHIARATA, con l'esito reale della richiesta.
+        if env_failures:
+            reasons = sorted(set(env_errors.values()))
+            _degrade("environment", "environment_unavailable_for_as_of",
+                     detail=("; ".join(reasons))[:500],
+                     count=env_failures)
+            as_of_mode["environment_source"] = (
+                "archive-api.open-meteo.com (non utilizzabile: "
+                + ", ".join(sorted({r.split(":", 1)[-1] for r in reasons}))
+                + ")")
+        elif env_cache:
+            as_of_mode["environment_source"] = (
+                "archive-api.open-meteo.com (ERA5)")
+        # MESH: conseguenza a valle dell'ambiente assente (quote termiche).
+        mesh_null = 0
+        for _c in candidates:
+            _mesh = (((_c.get("hail") or {}).get("mesh_mm")) or {})
+            if (_mesh.get("value") is None
+                    and _mesh.get("null_reason") == "thermal_levels_missing"):
+                mesh_null += 1
+        if mesh_null:
+            _degrade("hail.mesh_mm", "thermal_levels_missing", count=mesh_null,
+                     detail=("conseguenza di environment_unavailable_for_as_of: "
+                             "h0 e H(-20 C) vengono dal profilo termico NWP"))
+        result["as_of_mode"] = as_of_mode
 
-def _run(config, out_dir, product, max_frames, dry_run, history_dir=None):
-    bundle = models.EngineBundle("ok", _utcnow_str(), output.SOURCE_LABEL)
+
+def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
+         clock=None):
+    clock = clock if isinstance(clock, clock_mod.Clock) else \
+        clock_mod.from_config(config)
+    clock_mod.inject(config, clock)
+    period_s = None
+    try:
+        period_s = int((config.get("source") or {}).get("period_s") or 300)
+    except (TypeError, ValueError):
+        period_s = 300
+    as_of_mode = clock.describe(period_s)
+    bundle = models.EngineBundle("ok", clock.now_iso(), output.SOURCE_LABEL)
     bundle.engine = _engine_meta()
+    bundle.as_of_mode = as_of_mode
 
     # ---- FECTH + VALIDAZIONE ------------------------------------------------
     try:
         frames, warnings, latest_ts = fetch.fetch_frames(
-            config, product=product, max_frames=max_frames
+            config, product=product, max_frames=max_frames,
+            anchor_ms=clock.anchor_ms(period_s),
         )
     except models.SourceError as exc:
         bundle.warnings = [f"fetch failed: {exc}"]
@@ -1082,8 +1229,7 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None):
     bundle.radar_timestamp_iso = frames[-1].time_iso
     try:
         bundle.data_latency_minutes = round(
-            (_dt.datetime.now(_dt.timezone.utc).timestamp() * 1000 - frames[-1].time_ms)
-            / 60000.0, 1
+            (clock.now_ms() - frames[-1].time_ms) / 60000.0, 1
         )
     except Exception:
         bundle.data_latency_minutes = None
@@ -1170,9 +1316,19 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None):
     except Exception as exc:  # guasto imprevisto del writer -> OutputError
         return _fail_output(bundle, out_dir,
                             f"unexpected:{exc.__class__.__name__}:{exc}")
-    if history_dir:
-        _archive_history(bundle, history_dir)
-    _record_predictions(bundle, config, out_dir)
+    # 1.2.4.20: in REPLAY non si scrive stato (il registro predizioni appende
+    # righe con l'orologio e ruota a 30 giorni; l'archivio rolling dipende
+    # dall'indice su disco). Un replay non deve avere effetti collaterali.
+    if clock.replay:
+        if history_dir:
+            bundle.warnings.append(
+                "history archive skipped in --as-of mode (nessuno stato scritto)")
+        bundle.severe_predictions = {"status": "skipped",
+                                     "reason": "as_of_replay"}
+    else:
+        if history_dir:
+            _archive_history(bundle, history_dir)
+        _record_predictions(bundle, config, out_dir)
     return bundle, _OK if bundle.status == "ok" else _DEGRADED
 
 
@@ -1216,15 +1372,27 @@ def main(argv=None):
     ap.add_argument("--keep-frames", action="store_true")
     ap.add_argument("--history-dir", default=None)
     ap.add_argument("--dry-run", action="store_true")
+    # 1.2.4.20 — REPLAY DETERMINISTICO: ancora TUTTE le letture dell'orologio
+    # (slot radar, VIL/ETM/POH, IR_108, ambiente, fulmini) a un istante UTC.
+    # Default None = comportamento operativo (ora corrente).
+    ap.add_argument("--as-of", dest="as_of", default=None, metavar="ISO8601",
+                    help="istante UTC di replay (es. 2026-07-01T13:20:00Z); "
+                         "default: ora corrente")
     args = ap.parse_args(argv)
 
     config = load_config(args.config)
     if args.keep_frames:
         config["source"]["keep_raw_frames"] = True
+    try:
+        clock = (clock_mod.Clock.at_iso(args.as_of) if args.as_of
+                 else clock_mod.Clock.live())
+    except ValueError as exc:
+        ap.error(f"--as-of non interpretabile: {exc}")
+    clock_mod.inject(config, clock)
     out_dir = os.path.abspath(args.out_dir or config["output"]["out_dir"])
 
     bundle, rc = _run(config, out_dir, args.product, args.max_frames,
-                      args.dry_run, history_dir=args.history_dir)
+                      args.dry_run, history_dir=args.history_dir, clock=clock)
 
     summary = {
         "status": bundle.status,
@@ -1238,6 +1406,9 @@ def main(argv=None):
         "phase2_status": (getattr(bundle, "phase2", None) or {}).get(
             "status", "unavailable"),
     }
+    as_of_mode = getattr(bundle, "as_of_mode", None)
+    if as_of_mode is not None:
+        summary["as_of_mode"] = as_of_mode
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     # GitHub Actions: espone status/stats come step outputs (se presente).
     gh_out = os.environ.get("GITHUB_OUTPUT")

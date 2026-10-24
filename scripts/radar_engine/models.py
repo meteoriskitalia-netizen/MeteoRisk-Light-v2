@@ -473,6 +473,9 @@ class EngineBundle:
         self.convective_structures = []  # record del descrittore SOI (1.2.4.17)
         self.structure_tracks_evaluated = 0
         self.severe_predictions = None   # esito del registro JSONL (o None)
+        # 1.2.4.20: riepilogo del replay (--as-of). None in modalita' live:
+        # nessuna chiave nuova nell'output operativo.
+        self.as_of_mode = None
         self.warnings = []
         self.engine = {}
 

@@ -127,17 +127,24 @@ def decode_blitz_v2(content):
             "consumed": off}
 
 
-def ltg_epoch_floor(now=None, backoff_steps=0):
+def ltg_epoch_floor(now=None, backoff_steps=0, now_ms=None):
     """epoch_ms dell'ultimo slot LTG (multiplo di 5 minuti) <= `now` (UTC).
 
     backoff_steps: slot indietro (0 = slot corrente, 1 = quello precedente...).
-    Deterministico dato l'istante; nessuna I/O."""
+    Deterministico dato l'istante; nessuna I/O.
+
+    1.2.4.20: `now_ms` (epoch ms UTC) ha la precedenza ed e' la via che usa il
+    motore con il clock iniettato (replay: istante fisso). `now` resta per i
+    chiamanti storici; entrambi assenti -> orologio di sistema."""
     import datetime as _dt
-    if now is None:
-        now = _dt.datetime.now(_dt.timezone.utc)
-    elif now.tzinfo is None:
-        now = now.replace(tzinfo=_dt.timezone.utc)
-    epoch_ms = int(now.timestamp() * 1000)
+    if now_ms is not None:
+        epoch_ms = int(now_ms)
+    else:
+        if now is None:
+            now = _dt.datetime.now(_dt.timezone.utc)
+        elif now.tzinfo is None:
+            now = now.replace(tzinfo=_dt.timezone.utc)
+        epoch_ms = int(now.timestamp() * 1000)
     floor = epoch_ms - (epoch_ms % LTG_PERIOD_MS)
     return floor - backoff_steps * LTG_PERIOD_MS
 

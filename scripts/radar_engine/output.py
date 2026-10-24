@@ -67,6 +67,17 @@ def _atomic_write_text(path, text):
         raise models.OutputError(f"atomic_write_failed:{exc}") from exc
 
 
+def _as_of_summary(bundle):
+    """1.2.4.20: blocco `as_of_mode` presente SOLO in replay.
+
+    In modalita' live torna {} (nessuna chiave in piu': l'output operativo
+    resta byte-identico alla 1.2.4.19)."""
+    as_of = getattr(bundle, "as_of_mode", None)
+    if not isinstance(as_of, dict):
+        return {}
+    return {"as_of_mode": as_of}
+
+
 def build_latest(bundle, engine_meta=None):
     """latest.json (stato del run, mai dati raw)."""
     return {
@@ -90,6 +101,7 @@ def build_latest(bundle, engine_meta=None):
             bundle, "structure_tracks_evaluated", 0),
         **_structure_summary(bundle),
         **_phase2_summary(bundle),
+        **_as_of_summary(bundle),
         "warnings": bundle.warnings[-50:],
     }
 
@@ -325,6 +337,7 @@ def build_convective_structures(bundle, engine_meta=None):
         "phase2": getattr(bundle, "phase2", None),
         "summary": summary,
         "structures": cells,
+        **_as_of_summary(bundle),
     }
 
 

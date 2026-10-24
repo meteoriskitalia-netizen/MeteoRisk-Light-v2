@@ -21,6 +21,7 @@ Regole:
 import os
 from datetime import datetime, timezone
 
+from . import clock as _clock
 from . import models
 from . import preprocess
 from . import source_dpc
@@ -39,30 +40,49 @@ def _save_bytes(path, content):
     return path
 
 
-def fetch_frames(config, product=None, max_frames=None):
+def fetch_frames(config, product=None, max_frames=None, anchor_ms=None):
     """Recupera i frames VMI recenti e li valida, ordinati dal più vecchio.
 
     Ritorna (frames, warnings, latest_time_ms):
       frames:  list[RasterData] ordinata crescente (timestamp reali)
       latest_time_ms: timestamp EPOCH ms del frame più recente (None se vuoto)
-    Solleva SourceError se l'API non risponde affatto (bootstrap fallito)."""
+    Solleva SourceError se l'API non risponde affatto (bootstrap fallito).
+
+    `anchor_ms` (1.2.4.20): ancora ESPLICITA degli slot (modalita' --as-of).
+      None  -> comportamento storico: `findLastProductByType` decide l'ultimo
+               slot disponibile (run operativo).
+      valore-> l'ultimo candidato e' `anchor_ms` arrotondato per difetto al
+               passo del prodotto, letto da `source.period_s` (default 300 s,
+               cadenza PT5M misurata). `findLastProductByType` NON viene
+               chiamato: e' proprio la lettura che rendeva il re-run dipendente
+               dall'orologio. Uno slot assente resta un buco (404 -> warning),
+               mai un timestamp inventato."""
     src = config["source"]
     product = product or src["product_type"]
     max_frames = int(max_frames or src.get("history_frames", 6))
 
-    latest = source_dpc.get_latest_product(
-        product,
-        api_base=src.get("api_base"),
-        origin=src.get("origin_header"),
-        timeout_s=src.get("http_timeout_s", 30),
-    )
+    if anchor_ms is None:
+        latest = source_dpc.get_latest_product(
+            product,
+            api_base=src.get("api_base"),
+            origin=src.get("origin_header"),
+            timeout_s=src.get("http_timeout_s", 30),
+        )
+        period_s = latest.period_s
+        anchor = latest.time_ms
+    else:
+        try:
+            period_s = int(src.get("period_s") or 300)
+        except (TypeError, ValueError):
+            period_s = 300
+        anchor = source_dpc.round_down_to_step(int(anchor_ms), period_s)
 
-    step_ms = latest.period_s * 1000
+    step_ms = period_s * 1000
     candidates = []
     seen = set()
     for k in range(max_frames):
-        raw_ts = latest.time_ms - k * step_ms
-        ts = source_dpc.round_down_to_step(raw_ts, latest.period_s)
+        raw_ts = anchor - k * step_ms
+        ts = source_dpc.round_down_to_step(raw_ts, period_s)
         if ts in seen:
             continue
         seen.add(ts)
@@ -74,7 +94,7 @@ def fetch_frames(config, product=None, max_frames=None):
     frames = []
     warnings = []
     for ts in candidates:
-        probe = models.ProductInfo(product, ts, latest.period_s)
+        probe = models.ProductInfo(product, ts, period_s)
         try:
             s3_key, content = source_dpc.download_product(
                 probe,
@@ -178,6 +198,10 @@ def _read_product_bytes(config, product, time_ms, period_s, downloader):
         retries=src.get("max_download_retries", 2),
     )
     elapsed = _time.monotonic() - t0
+    # 1.2.4.20: in modalita' --as-of il tempo di parete NON e' un risultato e
+    # renderebbe due run identici byte-diversi. Il campo diventa None (assente
+    # come misura), non un numero aggiustato.
+    deterministic = bool(_clock.from_config(config).replay)
     try:
         real_ts = source_dpc.parse_key_timestamp(s3_key)
         key_parsed = True
@@ -209,10 +233,44 @@ def _read_product_bytes(config, product, time_ms, period_s, downloader):
         "used_time_iso": raster.time_iso,
         "key_timestamp_parsed": key_parsed,
         "bytes": len(content),
-        "elapsed_s": round(elapsed, 3),
+        "elapsed_s": (None if deterministic else round(elapsed, 3)),
         "fallback": False,
         "attempts": 1,
     }
+    return raster, meta
+
+
+def fetch_product_at(config, product, time_ms, period_s=None):
+    """Scarica UN prodotto a un timestamp ESPLICITO (modalita' --as-of).
+
+    Perche' esiste: VIL/ETM/POH e IR_108 venivano presi con
+    `fetch_frames(max_frames=1)`, cioe' con `findLastProductByType`: l'ultimo
+    prodotto di OGGI. In replay si chiede invece lo STESSO slot della VMI di
+    riferimento (`ref_rd.time_ms`): un VIL di un altro istante produrrebbe una
+    VIL density che non appartiene al volume, e un IR_108 di oggi un
+    overshooting top di oggi (retro/REPORT.md §5.2 punti 2 e 3).
+
+    Non solleva: (raster|None, meta). Un prodotto assente e' un dato assente
+    dichiarato (`meta["error"]`), non un crash e non un valore inventato."""
+    try:
+        period_s = int(period_s or (config["source"].get("period_s") or 300))
+    except (TypeError, ValueError):
+        period_s = 300
+    try:
+        raster, meta = _read_product_bytes(config, product, int(time_ms),
+                                           period_s, None)
+    except models.SourceError as exc:
+        return None, {"error": str(exc),
+                      "not_published": source_dpc.is_not_published_error(exc),
+                      "requested_time_ms": int(time_ms)}
+    except (models.ValidationError, models.CrsError) as exc:
+        return None, {"error": "invalid:{}".format(exc),
+                      "not_published": False,
+                      "requested_time_ms": int(time_ms)}
+    except Exception as exc:
+        return None, {"error": "{}:{}".format(exc.__class__.__name__, exc),
+                      "not_published": False,
+                      "requested_time_ms": int(time_ms)}
     return raster, meta
 
 
@@ -332,7 +390,8 @@ def fetch_cappi_set(config, products, ref_time_ms, period_s=None, warnings=None,
         "used_slots": [_iso(s) for s in slots],
         "homogeneous": len(slots) == 1,
         "bytes": int(sum(m.get("bytes") or 0 for m in metas.values())),
-        "seconds": round(_time.monotonic() - t_start, 3),
+        "seconds": (None if _clock.from_config(config).replay
+                    else round(_time.monotonic() - t_start, 3)),
         "ref_time_iso": _iso(int(ref_time_ms)),
         "products": metas,
     }

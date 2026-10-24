@@ -235,7 +235,7 @@ def srh_from_hodograph(prof, top_m=3000.0, storm_motion=None):
     return {"value": float(srh), "null_reason": None, "n_levels": len(prof)}
 
 
-def environment_layer(env_detail=None, levels=None):
+def environment_layer(env_detail=None, levels=None, null_reason=None):
     """S1: indici ambientali con fonte, formula e motivo dei null.
 
     env_detail: dict di phase2.environment.evaluate_environment (gia' scaricato).
@@ -243,7 +243,11 @@ def environment_layer(env_detail=None, levels=None):
     locale (test e chiamanti che hanno il profilo completo). Se `levels` e'
     assente si usano i valori gia' calcolati da environment.py, con il gate sui
     livelli dichiarato da `flags.srh_low_levels_used`.
-    """
+
+    1.2.4.20: `null_reason` FORZA il motivo di ogni sub-campo nullo e aggiunge
+    `out["null_reason"]`. Serve al replay: quando l'ambiente manca perche' non
+    esiste l'archivio di quel giorno, il motivo non e' "cape mancante nel
+    payload corrente" ma `environment_unavailable_for_as_of`."""
     env = env_detail or {}
     prof = _levels_uv(levels)
     out = {"source": S1_SOURCE_ENV,
@@ -327,6 +331,11 @@ def environment_layer(env_detail=None, levels=None):
     out["wmaxshear_ms2"] = _field(
         wmax, "calcolato da cape_jkg e shear_0_6_ms", REF_TASZAREK,
         null_reason=wmax_reason)
+    if null_reason:
+        out["null_reason"] = null_reason
+        for key, val in out.items():
+            if isinstance(val, dict) and "value" in val and val.get("value") is None:
+                val["null_reason"] = null_reason
     return out
 
 
@@ -1009,11 +1018,15 @@ def _vec_field(uv):
 # ---------------------------------------------------------------------------
 # S3 — OVERSHOOTING TOP (riuso di phase2.satellite_ot)
 # ---------------------------------------------------------------------------
-def ot_layer_from_details(ot_details, timestamp_iso=None):
-    """S3 da un risultato GIA' calcolato di satellite_ot.evaluate_ir_ot."""
+def ot_layer_from_details(ot_details, timestamp_iso=None, null_reason=None):
+    """S3 da un risultato GIA' calcolato di satellite_ot.evaluate_ir_ot.
+
+    1.2.4.20: `null_reason` sostituisce il motivo quando l'assenza del frame
+    NON e' "non pubblicato" ma "non esiste in archivio" (replay --as-of:
+    `ir108_history_unavailable`). Default invariato."""
     if not ot_details:
         return _field(None, S3_SOURCE_IR, REF_BEDKA,
-                      null_reason="ir108_frame_unavailable",
+                      null_reason=null_reason or "ir108_frame_unavailable",
                       timestamp=timestamp_iso)
     valid = int(ot_details.get("valid_pixels") or 0)
     if valid <= 0:

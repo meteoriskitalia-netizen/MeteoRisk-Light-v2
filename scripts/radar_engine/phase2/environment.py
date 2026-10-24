@@ -64,6 +64,17 @@ import urllib.request
 # Costanti — EXPERIMENTAL DEFAULTS
 # ---------------------------------------------------------------------------
 OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast"
+# 1.2.4.20 — API di ARCHIVIO STORICO per il replay (--as-of). Endpoint diverso,
+# non un parametro in piu' dell'endpoint forecast: l'archivio non risponde "il
+# meteo di adesso", risponde il rianalisi ERA5 del giorno richiesto. Se le
+# variabili che servono al descrittore non ci sono, l'ambiente si dichiara
+# NON disponibile per quella data: non si sostituisce con il meteo corrente.
+OPENMETEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+ARCHIVE_REQUIRED_VARS = (
+    "cape", "convective_inhibition", "lifted_index",
+    "wind_speed_500hPa", "temperature_500hPa",
+    "geopotential_height_500hPa", "freezing_level_height",
+)
 ENV_HTTP_TIMEOUT_S = 30
 ENV_CACHE_GRID_DEG = 0.1           # = config phase2.environment.cache_grid_deg
 ENV_SCP_TANH_SCALE = 3.0          # tanh(SCP/3): SCP=1 -> ~31, SCP=3 -> ~76
@@ -248,15 +259,70 @@ def build_openmeteo_url(lat, lon, include_optional=True):
     return q
 
 
-def pick_current_index(times_iso):
-    """Indice dello slot orario corrente nella serie hourly.time (ISO UTC).
+def build_archive_url(lat, lon, day_iso, include_optional=True):
+    """URL dell'API di ARCHIVIO per UN giorno (modalita' --as-of).
 
-    Primo slot >= ora (UTC); se tutta la serie e' passata, l'ultimo slot.
-    Ritorna None per serie vuota (dato assente: nessun indice inventato)."""
+    Sostituisce `forecast_days=1` con `start_date=end_date=<giorno UTC>`: non
+    si chiede "la previsione di oggi", si chiede la rianalisi del giorno
+    dell'evento. Le unita' sono le stesse dell'endpoint forecast (celsius, m/s,
+    hPa) e il fuso e' GMT, altrimenti il confronto con le soglie cambierebbe.
+    """
+    vars_ = list(HOURLY_VARS)
+    if include_optional:
+        vars_.extend(HOURLY_VARS_OPTIONAL)
+    day = str(day_iso)[:10]
+    return (
+        f"{OPENMETEO_ARCHIVE_URL}?latitude={float(lat):.5f}"
+        f"&longitude={float(lon):.5f}"
+        f"&start_date={day}&end_date={day}"
+        f"&hourly={','.join(vars_)}"
+        "&temperature_unit=celsius&wind_speed_unit=ms"
+        "&pressure_unit=hPa&timezone=GMT"
+    )
+
+
+def pick_archive_index(times_iso, as_of_ms):
+    """Indice dello slot ORARIO che contiene `as_of_ms` (floor all'ora UTC).
+
+    Diverso da `pick_current_index`: qui l'istante e' quello richiesto, non
+    l'orologio. Se l'istante precede la serie si usa il primo slot, se la segue
+    l'ultimo (nessun indice inventato fuori serie). None per serie vuota."""
     import datetime as _dt
     if not times_iso:
         return None
-    now = _dt.datetime.now(_dt.timezone.utc)
+    target = _dt.datetime.fromtimestamp(int(as_of_ms) / 1000.0,
+                                        _dt.timezone.utc).replace(
+                                            minute=0, second=0, microsecond=0)
+    chosen = 0
+    for i, t in enumerate(times_iso):
+        try:
+            dt = _dt.datetime.strptime(str(t)[:16], "%Y-%m-%dT%H:%M").replace(
+                tzinfo=_dt.timezone.utc)
+        except ValueError:
+            continue
+        if dt <= target:
+            chosen = i
+        else:
+            break
+    return chosen
+
+
+def pick_current_index(times_iso, now_ms=None):
+    """Indice dello slot orario corrente nella serie hourly.time (ISO UTC).
+
+    Primo slot >= ora (UTC); se tutta la serie e' passata, l'ultimo slot.
+    Ritorna None per serie vuota (dato assente: nessun indice inventato).
+
+    1.2.4.20: `now_ms` esplicito (replay). Con None legge l'orologio, che e'
+    il comportamento storico del run operativo."""
+    import datetime as _dt
+    if not times_iso:
+        return None
+    if now_ms is None:
+        now = _dt.datetime.now(_dt.timezone.utc)
+    else:
+        now = _dt.datetime.fromtimestamp(int(now_ms) / 1000.0,
+                                        _dt.timezone.utc)
     last_idx = None
     for i, t in enumerate(times_iso):
         try:
@@ -593,7 +659,7 @@ def parse_environment(payload, index=None):
 
 
 def fetch_environment(lat, lon, openmeteo_client=None, timeout_s=None,
-                      include_optional=True):
+                      include_optional=True, as_of_ms=None):
     """WRAPPER DI RETE: scarica l'ambiente Open-Meteo per (lat, lon).
 
     openmeteo_client:
@@ -602,8 +668,19 @@ def fetch_environment(lat, lon, openmeteo_client=None, timeout_s=None,
       oggetto         -> con metodo get_json/fetch_json/get (url)
     include_optional: aggiunge i livelli 600/450 hPa e i geopotenziali
     (1.2.4.18). Ritorna il payload JSON. Solleva EnvironmentFetchError su
-    errori di rete/risposta (il chiamante degrada, NON crasha il run)."""
-    url = build_openmeteo_url(lat, lon, include_optional=include_optional)
+    errori di rete/risposta (il chiamante degrada, NON crasha il run).
+
+    as_of_ms (1.2.4.20): se presente usa l'API di ARCHIVIO per il giorno
+    dell'istante richiesto. Non esiste un percorso in cui `as_of_ms` produca
+    una chiamata all'endpoint forecast."""
+    if as_of_ms is None:
+        url = build_openmeteo_url(lat, lon, include_optional=include_optional)
+    else:
+        import datetime as _dt
+        day = _dt.datetime.fromtimestamp(
+            int(as_of_ms) / 1000.0, _dt.timezone.utc).strftime("%Y-%m-%d")
+        url = build_archive_url(lat, lon, day,
+                                include_optional=include_optional)
     to = ENV_HTTP_TIMEOUT_S if timeout_s is None else float(timeout_s)
     if openmeteo_client is None:
         return _http_json(url, to)
@@ -627,7 +704,8 @@ def fetch_environment(lat, lon, openmeteo_client=None, timeout_s=None,
             f"client_failed:{exc.__class__.__name__}") from exc
 
 
-def evaluate_environment(lat, lon, openmeteo_client=None, timeout_s=None):
+def evaluate_environment(lat, lon, openmeteo_client=None, timeout_s=None,
+                         as_of_ms=None):
     """Ambiente completo per il punto: fetch + parse + SCP/STP/SHIP + score.
 
     Ritorna dict con: valori grezzi, srh_0_3, srh_1km, ebwd_ms, sb_lcl_m,
@@ -639,18 +717,37 @@ def evaluate_environment(lat, lon, openmeteo_client=None, timeout_s=None):
     1.2.4.18: la PRIMA richiesta include i livelli opzionali (600/450 hPa +
     geopotenziali). Se l'API risponde 400 (variabile non supportata) si ritenta
     UNA volta con il set storico e il flag `optional_levels_rejected` lo dice:
-    un livello in piu' non deve mai azzerare l'ambiente."""
+    un livello in piu' non deve mai azzerare l'ambiente.
+
+    1.2.4.20 (`as_of_ms`): sorgente = API di ARCHIVIO del giorno dell'istante
+    richiesto, indice scelto con `pick_archive_index`. Se il payload non porta
+    le variabili di PROFILO necessarie al descrittore
+    (ARCHIVE_REQUIRED_VARS: cape, CIN, lifted index, 500 hPa vento/T/Z,
+    freezing level) si solleva EnvironmentFetchError("archive_unavailable:...")
+    e il chiamante pubblica il campo come null con
+    `environment_unavailable_for_as_of`. L'alternativa - usare comunque il
+    meteo corrente - e' l'errore che questa modalita' esiste per impedire."""
     optional_ok = True
     try:
         payload = fetch_environment(lat, lon, openmeteo_client, timeout_s,
-                                    include_optional=True)
+                                    include_optional=True, as_of_ms=as_of_ms)
     except EnvironmentFetchError as exc:
         if "http_400" not in str(exc):
             raise
         payload = fetch_environment(lat, lon, openmeteo_client, timeout_s,
-                                    include_optional=False)
+                                    include_optional=False, as_of_ms=as_of_ms)
         optional_ok = False
-    env = parse_environment(payload)
+    if as_of_ms is not None:
+        hourly = (payload or {}).get("hourly") or {}
+        idx = pick_archive_index(hourly.get("time") or [], as_of_ms)
+        absent = [v for v in ARCHIVE_REQUIRED_VARS
+                  if _hourly_get(hourly, v, idx) is None]
+        if absent:
+            raise EnvironmentFetchError(
+                "archive_unavailable:" + ",".join(absent))
+        env = parse_environment(payload, index=idx)
+    else:
+        env = parse_environment(payload)
 
     winds = env["winds"]
     sfc = winds.get("10m")
@@ -777,7 +874,7 @@ def evaluate_environment(lat, lon, openmeteo_client=None, timeout_s=None):
     completeness = round(completeness, 4)
     score = env_score(scp, completeness)
 
-    return {
+    out = {
         "lat": float(lat),
         "lon": float(lon),
         "time_iso": env["time_iso"],
@@ -807,6 +904,12 @@ def evaluate_environment(lat, lon, openmeteo_client=None, timeout_s=None):
         "missing": missing,
         "flags": flags,
     }
+    if as_of_ms is not None:
+        # Solo in replay: da dove viene il numero (una rianalisi del giorno
+        # dell'evento e' un'altra sorgente rispetto all'analisi corrente).
+        out["environment_source"] = "archive-api.open-meteo.com (ERA5)"
+        out["as_of_ms"] = int(as_of_ms)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -838,7 +941,7 @@ def cache_bucket(lat, lon, grid_deg=ENV_CACHE_GRID_DEG):
 
 def evaluate_environment_cached(lat, lon, cache=None,
                                 grid_deg=ENV_CACHE_GRID_DEG, timeout_s=None,
-                                evaluator=None):
+                                evaluator=None, as_of_ms=None, errors=None):
     """evaluate_environment con CACHE PER BUCKET (dedup fra candidati vicini).
 
     Ogni candidato chiama la propria posizione; i candidati nello stesso
@@ -849,14 +952,26 @@ def evaluate_environment_cached(lat, lon, cache=None,
 
     FALLIMENTO -> None (nessun dato ambiente inventato) e la voce NON viene
     memorizzata in cache, quindi un candidato successivo sullo stesso bucket
-    puo' riprovare. Ritorna il dict dettaglio oppure None."""
+    puo' riprovare. Ritorna il dict dettaglio oppure None.
+
+    1.2.4.20: `as_of_ms` passa all'API di ARCHIVIO e l'ora dell'istante entra
+    nella chiave di cache, altrimenti due istanti diversi dello stesso giorno
+    condividerebbero lo stesso valore ambiente."""
     key = cache_bucket(lat, lon, grid_deg)
+    if as_of_ms is not None:
+        key = key + (int(as_of_ms) // 3600000,)
     if cache is not None and key in cache:
         return cache[key]
     fn = evaluate_environment if evaluator is None else evaluator
     try:
-        detail = fn(float(lat), float(lon), timeout_s=timeout_s)
-    except Exception:
+        if as_of_ms is None:
+            detail = fn(float(lat), float(lon), timeout_s=timeout_s)
+        else:
+            detail = fn(float(lat), float(lon), timeout_s=timeout_s,
+                        as_of_ms=int(as_of_ms))
+    except Exception as exc:
+        if errors is not None:
+            errors[key] = "{}:{}".format(exc.__class__.__name__, exc)
         return None
     if not isinstance(detail, dict):
         return None

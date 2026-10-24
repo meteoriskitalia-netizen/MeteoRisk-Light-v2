@@ -6,12 +6,39 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.19
+## Versione attiva: 1.2.4.20
 
-- File applicativo: `mri-light-1.2.4.19.html` (`APP_VERSION = '1.2.4.19'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.19', date: '2026-10-24' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.19'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+- File applicativo: `mri-light-1.2.4.20.html` (`APP_VERSION = '1.2.4.20'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.20', date: '2026-10-24' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.20'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
+- Contenuto della 1.2.4.20 (release sopra la 1.2.4.19) - **replay deterministico del radar engine,
+  nessuna funzionalita' nuova dell'app**:
+  - **`--as-of <ISO8601 UTC>`** (`scripts/radar_engine/main.py`): un unico clock iniettato
+    (`scripts/radar_engine/clock.py`) ancora a un istante **tutte** le letture dell'orologio
+    che decidevano quali dati scaricare: slot radar, VIL/ETM/POH, IR_108, ambiente e
+    fulmini. L'ancora e' l'istante arrotondato per difetto al passo del prodotto
+    (`source.period_s = 300`); i 6 frame sono `T0..T-25` come nel run operativo.
+  - **Onesta' in replay**: i dati senza archivio storico **non** vengono presi da oggi.
+    Ambiente dall'API di **archivio** Open-Meteo, con gate esplicito sulle variabili di
+    profilo: se mancano -> `null` con `environment_unavailable_for_as_of`. Fulmini ->
+    `null` con `lightning_history_unavailable`; IR_108 -> `null` con `ir108_history_unavailable`;
+    MESH -> `null` con `thermal_levels_missing` (dipende dalle quote termiche). Riepilogo
+    `as_of_mode {requested, environment_source, degraded[]}` in `latest.json` e
+    `convective_structures.json`, **solo** in replay.
+  - **Determinismo misurato**: due run con lo stesso `--as-of` danno i sei file di output
+    **byte-identici** (sha256 in `docs/REPLAY_AS_OF.md`): `generated_at` e' ancorato
+    all'istante richiesto, i tempi di parete sono `null`, registro predizioni e archivio
+    rolling sono saltati (nessuno stato scritto).
+  - **Collaudo di falsificazione** (`scripts/validation/asof_bench.py`, una volta): 6 eventi
+    grandine METAR QC A/B -> **POD 0/6 = 0,000** (Wilson 95% [0,000, 0,390]), CSI 0,000,
+    **69** allarmi non accoppiati; **FAR non stimabile** (il METAR copre 14 stazioni =
+    1,46% del territorio). L'esito **non e' informativo** (5 esiti su 7 restano compatibili
+    con l'attesa dichiarata POD 0,10-0,30). Soglie overhang 45/50 dBZ **invariate**.
+  - **Documentazione**: `docs/REPLAY_AS_OF.md` (cosa e' riproducibile, cosa no, tabella dei
+    `null_reason`, verifica grep con `file:riga`, limiti dichiarati).
+  - **Test**: `scripts/tests/radar_engine/test_as_of_replay.py` (21 casi: ancoraggio delle
+    5 sorgenti, degradazione dichiarata, determinismo, CLI).
 - Contenuto della 1.2.4.19 (release sopra la 1.2.4.18) - **solo riparazioni, nessuna
   funzionalita' nuova dell'app**:
   - **Storico delle versioni ripristinato** (`VERSION`): la 1.2.4.18 andava da `BUILD=18` a
@@ -408,7 +435,7 @@ Comandi e conteggi aggiornati sono quelli documentati in `C:\Users\aless\Desktop
 
 ## File chiave
 
-- `mri-light-1.2.4.19.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
+- `mri-light-1.2.4.20.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
 - `sw.js` — Service Worker (cache applicativa: WebP, indici; mai le richieste Range `.om`)
 - `VERSION` — bump di versione e storico note di rilascio
 - `.github/workflows/{radar-engine,satellite-engine,update-weather-data,phenomena-verify,deploy-pages,forecast-maps-v2}.yml` — i 6 workflow

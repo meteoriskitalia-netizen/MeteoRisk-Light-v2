@@ -1873,9 +1873,16 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.19';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.20';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-24';
     const APP_CHANGELOG = [
+        { version: '1.2.4.20', date: '2026-10-24', changes: [
+  'RADAR= Replay deterministico: nuova opzione --as-of <ISO8601 UTC> che ancora a un istante TUTTE le letture dell\'orologio (slot radar, VIL/ETM/POH, IR_108, ambiente, fulmini) tramite un unico clock iniettato (radar_engine/clock.py). Senza --as-of il comportamento resta identico alla 1.2.4.19.',
+  'RADAR= In replay i dati senza archivio storico NON vengono presi da oggi: ambiente dall\'API di archivio Open-Meteo e, se le variabili di profilo mancano, null con environment_unavailable_for_as_of; fulmini null con lightning_history_unavailable; IR_108 con ir108_history_unavailable quando lo slot manca; MESH null con thermal_levels_missing. Riepilogo as_of_mode con requested, environment_source e degraded nell\'output.',
+  'RADAR= Determinismo verificato: due run con lo stesso --as-of producono i sei file di output byte-identici (sha256 in docs/REPLAY_AS_OF.md); generated_at e\' ancorato all\'istante e i tempi di parete sono null.',
+  'DOC= Nuovo docs/REPLAY_AS_OF.md (cosa e\' riproducibile, cosa no, i null_reason) e scripts/validation/asof_bench.py (collaudo di falsificazione in replay); nuovi test scripts/tests/radar_engine/test_as_of_replay.py.',
+  'DOC= Bump versione 1.2.4.20'
+  ] },
         { version: '1.2.4.19', date: '2026-10-24', changes: [
   'VAL= Storico delle versioni ripristinato: il VERSION della 1.2.4.18 saltava da BUILD=18 a BUILD=16, perche\' il blocco 1.2.4.17 era stato SOSTITUITO invece di anteposto (74.274 -> 72.964 byte). Il blocco 1.2.4.17 e\' stato reincollato VERBATIM dal VERSION della release 1.2.4.17 (titolo, MAJOR/MINOR/PATCH, BUILD=17, RELEASE_TYPE, DATE=2026-10-23, NOTE integrale, APP_FILE) e l\'ordine dei blocchi ora e\' 19, 18, 17, 16, 15, ... con 28 blocchi e BUILD=19/18/17/16 tutti presenti in quest\'ordine',
   'DOC= Consegna dei tre file di validazione che esistevano solo nell\'albero di lavoro, in nessuna release e su nessun branch: scripts/validation/build_labels.py (etichette severe dai bollettini METAR/SPECI italiani: grandine GR/GS, tornado +FC, imbuto FC/VCFC, raffica >= 25 m/s, temporale TS; QC proprio A/B/C, merge temporale, matching con le celle a tre esiti distinti), scripts/validation/power_analysis.py (numerosita\' minima perche\' l\'intervallo di Wilson al 95% abbia una semi-larghezza dichiarata, p=0,5 come caso peggiore) e docs/VALIDAZIONE_SEVERO.md (licenze, dataset, potere statistico, protocollo). Nessun dato ESWD scaricato, costruito o pubblicato: la licenza ESWD vieta pubblicazione e trasmissione dei dati grezzi e dei derivati di scarso valore aggiunto, con penale contrattuale fino a 60.000 EUR. Il documento dichiara il METAR come fonte di verita\' e dichiara che i termini ISD/NODD e la policy WMO sul riuso dei messaggi di scambio NON sono stati verificati',
