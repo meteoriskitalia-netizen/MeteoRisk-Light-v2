@@ -50,9 +50,11 @@ in a bare Python env; the render path re-FATALS them on first use via
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import datetime as _dt
 import json
 import math
+import multiprocessing
 import os
 import re
 import shutil
@@ -1184,6 +1186,199 @@ def prune_dir(dir_path: str, keep_files: set) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Parallel render workers
+#
+# The heavy part of a frame is PER (frame, variable): the .om array read, the
+# Mercator row resampling, the palette lookup, the (optional) isoline/arrow
+# overlay and the WebP encode. All of it scales with PIXELS, so threads would
+# contend on the GIL for numpy/python work and on libwebp for the encode:
+# separate PROCESSES are the only way to use the 4 vCPUs of the runner.
+#
+# Unit of work = one (frame, variable) across ALL regions: the frame array is
+# read once in the worker (OmFileReader is not picklable), then every region is
+# rendered from that same array. The parent keeps only metadata, so the task
+# order cannot change the output: workers write the deterministic
+# ``<region>/<domain>/<var>/<VALID>.webp`` names and return sizes.
+# --------------------------------------------------------------------------- #
+DEFAULT_MAX_WORKERS = 4
+
+
+def default_workers() -> int:
+    """Default worker count: min(4, cpu_count) -- the runner has 4 vCPU."""
+    return max(1, min(DEFAULT_MAX_WORKERS, os.cpu_count() or 1))
+
+
+def _crop_spec(crops: dict) -> dict:
+    """Picklable crop descriptors (the resampler closure is rebuilt per worker)."""
+    spec = {}
+    for rname, crop in crops.items():
+        spec[rname] = {
+            "row0": crop["row0"],
+            "row1": crop["row1"],
+            "col0": crop["col0"],
+            "col1": crop["col1"],
+            "grid": crop["grid"],
+            "scale": crop["scale"],
+        }
+    return spec
+
+
+def _crops_from_spec(spec: dict) -> dict:
+    crops = {}
+    for rname, crop in spec.items():
+        item = dict(crop)
+        item["resample"] = build_row_resampler(item["grid"], item["scale"])
+        crops[rname] = item
+    return crops
+
+
+_WORKER_STATE: dict = {}
+
+
+def _worker_state_init(scales, out_root, domain, run_id, crops, quality,
+                       lossless, method):
+    """Populate the per-process render state (pool initializer or serial path)."""
+    _WORKER_STATE.clear()
+    _WORKER_STATE.update({
+        "scales": scales,
+        "out_root": out_root,
+        "domain": domain,
+        "run_id": run_id,
+        "crops": crops,
+        "quality": quality,
+        "lossless": lossless,
+        "method": method,
+        "lookups": {},
+        "variants": {},
+    })
+
+
+def _worker_pid(_ignored=None):
+    """Pool probe: forces spawn + initializer and returns the worker pid."""
+    return os.getpid()
+
+
+def _worker_state_init_spec(scales, out_root, domain, run_id, crop_spec,
+                            quality, lossless, method):
+    """Pool initializer: rebuild the (unpicklable) resamplers in the worker."""
+    _worker_state_init(scales, out_root, domain, run_id,
+                       _crops_from_spec(crop_spec), quality, lossless, method)
+
+
+def _render_var_task(payload) -> dict:
+    """Render every region of one (frame, variable); return write metadata.
+
+    Runs inside a worker process (or in-process when ``--workers 1``). Only
+    whole-frame array reads are done here; a read failure is RETURNED (the
+    parent prints the same ``! <valid>/<var> read failed`` line the serial
+    loop printed) while write/encode errors propagate and abort the domain.
+    """
+    frame_path, var, valid_time, base_name = payload
+    st = _WORKER_STATE
+    scales = st["scales"]
+
+    if var not in st["lookups"]:
+        st["lookups"][var] = make_lookup(scales, var, "light")
+    lk = st["lookups"][var]
+    if lk is None:
+        return {"var": var, "valid_time": valid_time, "skip": "no_scale"}
+
+    if var not in st["variants"]:
+        st["variants"][var] = _scale_variant(scales, var, "light")
+    variant = st["variants"][var]
+    unit = variant.get("unit") if variant else None
+
+    interval = CONTOUR_INTERVALS.get(var)
+    dir_name = ARROW_VARS.get(var)
+    speed_ref = _speed_reference(variant) if dir_name else 0.0
+    force_labels = var in {"pressure_msl", "surface_pressure",
+                           "geopotential_height_500hPa",
+                           "geopotential_height_850hPa",
+                           "geopotential_height_1000hPa"}
+
+    try:
+        reader = OmFileReader(frame_path)
+    except Exception as exc:
+        return {"var": var, "valid_time": valid_time,
+                "error": "cannot open %s: %s" % (frame_path, exc)}
+    try:
+        try:
+            arr = read_frame_array(reader, var)
+        except Exception as exc:
+            return {"var": var, "valid_time": valid_time,
+                    "error": "%s/%s read failed: %s" % (valid_time, var, exc)}
+
+        # Wind arrows: the direction array has no color scale of its own; it
+        # is read explicitly from the SAME frame (one read per direction var,
+        # exactly like the per-frame dir_cache of the serial loop).
+        dir_arr = None
+        dir_error = None
+        if dir_name:
+            try:
+                dir_arr = _unwrap_direction(read_frame_array(reader, dir_name))
+            except Exception as exc:
+                dir_error = "%s/%s read failed: %s" % (valid_time, dir_name, exc)
+    finally:
+        try:
+            reader.close()
+        except Exception:
+            pass
+
+    files = []
+    for rname, crop in st["crops"].items():
+        sub = arr[crop["row0"]:crop["row1"], crop["col0"]:crop["col1"]]
+        arr_out = crop["resample"](sub)
+        rgba = lk(arr_out)
+
+        # Isolines (with values) and wind arrows are drawn on a separate RGBA
+        # layer and alpha-composited: the base raster is NEVER resampled.
+        if interval is not None or dir_arr is not None:
+            dir_out = None
+            if dir_arr is not None:
+                dsub = dir_arr[crop["row0"]:crop["row1"],
+                               crop["col0"]:crop["col1"]]
+                dir_out = crop["resample"](dsub)
+            rgba = _apply_overlay(rgba, _overlay_drawer(
+                sub, crop["grid"], crop["scale"], variant, interval,
+                [], force_labels=force_labels,
+                speed_out=arr_out if dir_out is not None else None,
+                dir_out=dir_out, speed_ref=speed_ref))
+
+        vdir = _theme_var_dir(st["out_root"], rname, st["domain"], var, "light",
+                              st["run_id"])
+        os.makedirs(vdir, exist_ok=True)
+        _prune_legacy_theme_dirs(st["out_root"], rname, st["domain"], var)
+        wpath = os.path.join(vdir, base_name + ".webp")
+        size = save_webp(rgba, wpath, st["quality"], st["lossless"],
+                         st["method"])
+        files.append({"region": rname, "file": base_name + ".webp",
+                      "bytes": size})
+
+    return {"var": var, "valid_time": valid_time, "unit": unit,
+            "files": files, "dir_error": dir_error}
+
+
+def _run_var_tasks(executor, payloads: list):
+    """Run one frame's per-variable tasks; return ``(results, executor)``.
+
+    ``executor`` is ``None`` on the serial path. A dead pool (e.g. the runner's
+    OOM killer) is reported once and the frame is retried SERIALLY: file names
+    are deterministic, so the retry overwrites the same WebPs and the final
+    output is identical.
+    """
+    if executor is None:
+        return [_render_var_task(p) for p in payloads], None
+    futures = [executor.submit(_render_var_task, p) for p in payloads]
+    try:
+        return [f.result() for f in futures], executor
+    except concurrent.futures.process.BrokenProcessPool as exc:
+        print("  ! pool di render morto (%s): degrado a 1 worker" % exc,
+              file=sys.stderr)
+        executor.shutdown(wait=False, cancel_futures=True)
+        return [_render_var_task(p) for p in payloads], None
+
+
+# --------------------------------------------------------------------------- #
 # Core render loop
 # --------------------------------------------------------------------------- #
 def _utcnow_iso() -> str:
@@ -1294,6 +1489,38 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
     print("  [upsample] %s"
           % ", ".join("%s x%d" % (r, crops[r]["scale"]) for r in crops))
 
+    # Worker pool (processes). The state is initialised in the parent too so
+    # the serial path and the BrokenProcessPool fallback can run the EXACT
+    # same task function; the initializer builds it once per worker process.
+    workers = max(1, int(getattr(args, "workers", 1) or 1))
+    _worker_state_init(scales, out_root, domain, run_id, crops,
+                       args.quality, args.lossless, args.method)
+    executor = None
+    if workers > 1:
+        try:
+            mp_ctx = multiprocessing.get_context("spawn")
+            executor = concurrent.futures.ProcessPoolExecutor(
+                max_workers=workers,
+                mp_context=mp_ctx,
+                initializer=_worker_state_init_spec,
+                initargs=(scales, out_root, domain, run_id, _crop_spec(crops),
+                          args.quality, args.lossless, args.method),
+            )
+            # Probe NOW: a host that forbids process creation must degrade to
+            # serial here, not blow up at the first frame with work half-done.
+            pids = list(executor.map(_worker_pid, range(workers), chunksize=1))
+            print("  [workers] %d processi (pid %s)"
+                  % (workers, ",".join(str(p) for p in sorted(set(pids)))))
+        except Exception as exc:
+            print("  ! workers=%d non disponibile (%s): degrado a 1 worker"
+                  % (workers, exc), file=sys.stderr)
+            if executor is not None:
+                executor.shutdown(wait=False, cancel_futures=True)
+            executor = None
+            workers = 1
+    if executor is None:
+        print("  [workers] 1 (seriale)")
+
     # Decide variable set: CLI filter, else manifest var_order print-safe.
     var_order = [v for v in (manifest.get("var_order") or []) if isinstance(v, str)]
     requested = args.vars if args.vars else var_order
@@ -1309,49 +1536,62 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
 
     seen_frames = set()
     watch_complete = not bool(args.watch_manifest)
-    while True:
-      if args.watch_manifest:
-        try:
-            manifest = read_manifest(manifest_path)
-        except (OSError, ValueError):
-            time.sleep(0.25)
-            continue
-        if manifest.get("noop"):
-            print("  [noop] %s: manifest invariato, nessun WebP da rigenerare" % domain)
-            return 0, 0, "noop", {}, 0, 0
-        available = manifest.get("frames") or []
-        pending = []
-        for candidate in available:
-            key = (candidate.get("file"), candidate.get("valid_time"))
-            if key not in seen_frames:
-                seen_frames.add(key)
-                pending.append(candidate)
-        watch_complete = bool(manifest.get("complete"))
-      else:
-        pending = frames
-        frames = []
+    try:
+      while True:
+        if args.watch_manifest:
+            try:
+                manifest = read_manifest(manifest_path)
+            except (OSError, ValueError):
+                time.sleep(0.25)
+                continue
+            if manifest.get("noop"):
+                print("  [noop] %s: manifest invariato, nessun WebP da rigenerare" % domain)
+                return 0, 0, "noop", {}, 0, 0
+            available = manifest.get("frames") or []
+            pending = []
+            for candidate in available:
+                key = (candidate.get("file"), candidate.get("valid_time"))
+                if key not in seen_frames:
+                    seen_frames.add(key)
+                    pending.append(candidate)
+            watch_complete = bool(manifest.get("complete"))
+        else:
+            pending = frames
+            frames = []
 
-      for frame in pending:
-        fname = frame.get("file")
-        valid_time = frame.get("valid_time")
-        if not fname or not valid_time:
-            skipped += 1
-            continue
-        frame_path = os.path.join(domain_dir, fname)
-        if not os.path.isfile(frame_path):
-            print("  ! missing frame %s" % frame_path, file=sys.stderr)
-            skipped += 1
-            continue
+        for frame in pending:
+            fname = frame.get("file")
+            valid_time = frame.get("valid_time")
+            if not fname or not valid_time:
+                skipped += 1
+                continue
+            frame_path = os.path.join(domain_dir, fname)
+            if not os.path.isfile(frame_path):
+                print("  ! missing frame %s" % frame_path, file=sys.stderr)
+                skipped += 1
+                continue
 
-        try:
-            reader = OmFileReader(frame_path)
-        except Exception as exc:
-            print("  ! cannot open %s: %s" % (frame_path, exc), file=sys.stderr)
-            skipped += 1
-            continue
+            # Enumerate the frame's children ONCE in the parent (metadata
+            # only): the worker tasks read the arrays themselves because
+            # OmFileReader is not picklable.
+            try:
+                reader = OmFileReader(frame_path)
+            except Exception as exc:
+                print("  ! cannot open %s: %s" % (frame_path, exc), file=sys.stderr)
+                skipped += 1
+                continue
+            try:
+                present = frame_array_names(reader)
+            except Exception as exc:
+                print("  ! cannot read %s: %s" % (frame_path, exc), file=sys.stderr)
+                skipped += 1
+                continue
+            finally:
+                try:
+                    reader.close()
+                except Exception:
+                    pass
 
-        try:
-            present = frame_array_names(reader)
             names = [v for v in requested if v in present] if requested else present
             if args.vars:
                 missing = [v for v in requested if v not in present]
@@ -1360,94 +1600,42 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                           % (valid_time, ",".join(missing)), file=sys.stderr)
 
             base_name = valid_time_to_filename(valid_time)
-            # Cache per FRAME degli array di direzione del vento: letti una
-            # volta sola (non una volta per regione/variabile).
-            dir_cache = {}
-            for var in names:
-                lk = make_lookup(scales, var, themes[0])
-                if lk is None:
-                    print("  ~ no color scale for %r (skip)" % var, file=sys.stderr)
-                    continue
-                try:
-                    arr = read_frame_array(reader, var)
-                except Exception as exc:
-                    print("  ! %s/%s read failed: %s" % (valid_time, var, exc),
+            payloads = [(frame_path, var, valid_time, base_name)
+                        for var in names]
+            # One frame at a time (arrival order preserved in --watch-manifest
+            # mode); the variables of THAT frame are rendered in parallel.
+            results, executor = _run_var_tasks(executor, payloads)
+            for res in results:
+                var = res["var"]
+                if res.get("skip") == "no_scale":
+                    print("  ~ no color scale for %r (skip)" % var,
                           file=sys.stderr)
                     continue
-
-                variant = _scale_variant(scales, var, themes[0])
+                if res.get("error"):
+                    print("  ! %s" % res["error"], file=sys.stderr)
+                    continue
+                if res.get("dir_error"):
+                    print("  ! %s" % res["dir_error"], file=sys.stderr)
                 if var not in var_meta:
-                    var_meta[var] = variant.get("unit") if variant else None
-
-                # Frecce vento: l'array di DIREZIONE (gradi, "da cui soffia")
-                # non ha color scale (quindi non genera un WebP proprio) e va
-                # letto esplicitamente dallo stesso frame .om.
-                dir_arr = None
-                dir_name = ARROW_VARS.get(var)
-                if dir_name:
-                    if dir_name in dir_cache:
-                        dir_arr = dir_cache[dir_name]
-                    else:
-                        try:
-                            raw_dir = read_frame_array(reader, dir_name)
-                            dir_arr = _unwrap_direction(raw_dir)
-                            dir_cache[dir_name] = dir_arr
-                        except Exception as exc:
-                            print("  ! %s/%s read failed: %s"
-                                  % (valid_time, dir_name, exc), file=sys.stderr)
-                            dir_arr = None
-
-                interval = CONTOUR_INTERVALS.get(var)
-                speed_ref = _speed_reference(variant) if dir_name else 0.0
-
-                for rname, crop in crops.items():
-                    sub = arr[crop["row0"]:crop["row1"], crop["col0"]:crop["col1"]]
-                    arr_out = crop["resample"](sub)
-                    rgba = lk(arr_out)
-
-                    # Isolinee (con i valori) e frecce vento: disegnate su un
-                    # layer RGBA separato e composte per alpha. Il raster base
-                    # NON viene risamplato.
-                    if interval is not None or dir_arr is not None:
-                        dir_out = None
-                        if dir_arr is not None:
-                            dsub = dir_arr[crop["row0"]:crop["row1"],
-                                           crop["col0"]:crop["col1"]]
-                            dir_out = crop["resample"](dsub)
-                        rgba = _apply_overlay(rgba, _overlay_drawer(
-                            sub, crop["grid"], crop["scale"], variant, interval,
-                            [], force_labels=(var in {"pressure_msl", "surface_pressure",
-                                                      "geopotential_height_500hPa",
-                                                      "geopotential_height_850hPa",
-                                                      "geopotential_height_1000hPa"}),
-                            speed_out=arr_out if dir_out is not None else None,
-                            dir_out=dir_out, speed_ref=speed_ref))
-
-                    vdir = _theme_var_dir(out_root, rname, domain, var, themes[0], run_id)
-                    os.makedirs(vdir, exist_ok=True)
-                    _prune_legacy_theme_dirs(out_root, rname, domain, var)
-                    wpath = os.path.join(vdir, base_name + ".webp")
-                    size = save_webp(rgba, wpath, args.quality, args.lossless,
-                                     args.method)
+                    var_meta[var] = res.get("unit")
+                for rec in res["files"]:
                     rendered += 1
-                    bytes_written += size
-
-                    var_frames[rname].setdefault(var, {}).setdefault(
-                        themes[0], []).append({
-                            "file": base_name + ".webp",
+                    bytes_written += rec["bytes"]
+                    var_frames[rec["region"]].setdefault(var, {}).setdefault(
+                        "light", []).append({
+                            "file": rec["file"],
                             "valid_time": valid_time,
-                            "bytes": size,
+                            "bytes": rec["bytes"],
                         })
-        finally:
-            try:
-                reader.close()
-            except Exception:
-                pass
-        frames_done += 1
+            frames_done += 1
 
-      if watch_complete:
-          break
-      time.sleep(0.25)
+        if watch_complete:
+            break
+        time.sleep(0.25)
+    finally:
+        if executor is not None:
+            executor.shutdown(wait=True, cancel_futures=True)
+            executor = None
 
     if not any(var_frames[r] for r in var_frames):
         return rendered, skipped, "nothing rendered", {}, frames_done, bytes_written
@@ -1834,6 +2022,11 @@ def parse_args(argv=None):
                     help="render at most N frames per domain (debug)")
     ap.add_argument("--method", type=int, default=6,
                     help="Pillow WebP encode method (0-6; 6=max compression/slowest)")
+    ap.add_argument("--workers", type=int, default=0,
+                    help="render worker PROCESSES: 0=auto (min(%d, cpu_count)), "
+                         "1=serial/historical. One worker renders one "
+                         "(frame, variable) across all regions."
+                         % DEFAULT_MAX_WORKERS)
     ap.add_argument("--upsample", default="auto",
                     help="image upsampling: 'auto' targets ~%d px on the shorter axis "
                          "(capped by --upsample-max) or an integer factor >=1 "
@@ -1853,6 +2046,12 @@ def main(argv=None) -> int:
     args = parse_args(argv)
     args.domains = _split_csv(args.domains)
     args.vars = _split_csv(args.vars)
+
+    # 0 = auto (4 on the 4-vCPU runner, 1 on a single-core host); hard cap 32
+    # so a typo cannot spawn hundreds of processes. --index-only ignores it.
+    if args.workers is None or int(args.workers) <= 0:
+        args.workers = default_workers()
+    args.workers = max(1, min(int(args.workers), 32))
 
     themes = _split_csv(args.themes) or ["light"]
     bad = [t for t in themes if t != "light"]
