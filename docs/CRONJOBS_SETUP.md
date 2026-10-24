@@ -64,14 +64,14 @@ Margine = slot meno il tempo misurato che quello slot deve servire.
 
 | Provider | Run nominale | Slot 1 (parziale) | Margine | Slot 2 (completo) | Margine |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| DWD (D2 parziale) | 00Z | `01:10` | +24' su D2 +0h46 | `03:00` | +13' su EU +2h47 |
+| DWD | 00Z | `01:10` | +24' su D2 +0h46 / chiude EU 21Z del giorno prima a +13' su +3h57 | `03:00` | +13' su EU +2h47 |
 | DWD | 03Z | `04:10` | +24' / chiude EU 00Z a +13' su +3h57 | `06:00` | +13' |
 | DWD | 06Z | `07:10` | +24' / chiude EU 03Z a +13' | `09:00` | +13' |
 | DWD | 09Z | `10:10` | +24' / chiude EU 06Z a +13' | `12:00` | +13' |
 | DWD | 12Z | `13:10` | +24' / chiude EU 09Z a +13' | `15:00` | +13' |
 | DWD | 15Z | `16:10` | +24' / chiude EU 12Z a +13' | `18:00` | +13' |
 | DWD | 18Z | `19:10` | +24' / chiude EU 15Z a +13' | `21:00` | +13' |
-| DWD | 21Z | `22:10` | +24' / chiude EU 18Z a +13' | `00:00` | +13' (run 21Z, EU +3h57 -> 00:57, servito da `01:10`) |
+| DWD | 21Z | `22:10` | +24' / chiude EU 18Z a +13' | `00:00` | +13' su EU 21Z (il completo EU arriva a `01:10` del run 00Z) |
 | DWD ICON Global | 00Z / 06Z / 12Z / 18Z | `03:01` / `09:01` / `15:01` / `21:01` | +15' | `03:41` / `09:41` / `15:41` / `21:41` | +13' |
 | ARPEGE 0.25 | 00Z / 06Z / 12Z / 18Z | `04:20` / `10:20` / `16:20` / `22:20` | +12' (sul massimo +4h08; +63' sul minimo +3h17) | `05:29` / `11:29` / `17:29` / `23:29` | +13' |
 | NCEP GFS | 00Z / 06Z / 12Z / 18Z | `03:55` / `09:55` / `15:55` / `21:55` | +15' | `05:52` / `11:52` / `17:52` / `23:52` | +13' |
