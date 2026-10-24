@@ -439,7 +439,13 @@ jobs:
           GQ="-c core.quotePath=false"
           # ALLOWLIST di scope del merge: SOLO i path WebP dei PROPRI domini.
           ALLOW_RE='^data/fm2-rendered/[^/]+/(dwd_icon)/'
+          # fix P5: questo ciclo RITENTA DAVVERO. Prima ogni percorso di errore
+          # faceva `exit 1` al primo colpo (il ciclo non arrivava mai a i=2); ora
+          # solo i rifiuti di push (concorrenza sul branch) tornano al `git fetch`,
+          # mentre guardia di scope e tree inconsistente escono 1 subito.
           for i in 1 2 3 4 5; do
+            PUSH_FAILED=0
+            PUSH_FAILED_GROUP=""
             git fetch --no-tags --depth=1 origin fm2-rendered || true
             if git rev-parse --verify --quiet FETCH_HEAD >/dev/null 2>&1; then
               BASE="$(git rev-parse FETCH_HEAD^{tree})"
@@ -554,16 +560,35 @@ jobs:
                 RUN_PARENT="$GNEW"
                 pushed_groups=$((pushed_groups + 1))
               else
-                echo "[ERROR] Push del gruppo $gi/$NGROUPS RIFIUTATO (tentativo $i/5)."
-                echo "        La serie e' parziale: i gruppi 1..$((gi-1)) sono pubblicati,"
-                echo "        dal gruppo $gi in poi NO. Il run successivo riparte dal tip"
-                echo "        fresco e ricompleta."
+                # RIFIUTO = CONCORRENZA, non errore fatale: si esce dal ciclo dei
+                # GRUPPI, non da quello dei TENTATIVI. Il push fallito non ha
+                # avanzato il branch (lease scaduto), quindi il tip remoto e'
+                # cambiato sotto di noi: serve un fetch nuovo prima di riprovare.
+                PUSH_FAILED=1
+                PUSH_FAILED_GROUP="$gi"
+                echo "[WARN] Push del gruppo $gi/$NGROUPS RIFIUTATO (tentativo $i/5):"
+                echo "       scrittura concorrente su fm2-rendered (lease scaduto)."
+                echo "       Serie parziale: i gruppi 1..$((gi-1)) sono pubblicati, dal"
+                echo "       gruppo $gi in poi NO. Si ritenta dal fetch del tip fresco."
                 rm -f "$IDX"
-                exit 1
+                break
               fi
               gi=$((gi + 1))
             done
             rm -f "$IDX"
+            # ---- (5-bis) RITENTATIVO REALE (fix P5) ----
+            # Il push di un gruppo e' stato rifiutato: si torna in cima al ciclo dei
+            # tentativi. Li' si rifa' `git fetch`, si ricalcolano BASE/PARENT dal tip
+            # NUOVO, si ricostruisce TREE e si ripartizionano i gruppi sul diff col
+            # tip nuovo: i gruppi gia' pubblicati non compaiono piu' nel diff (il loro
+            # contenuto e' nel tip), quindi si ripubblica dalla parte mancante in poi.
+            # `sleep` crescente per lasciar sfogare la contesa.
+            if [ "$PUSH_FAILED" -ne 0 ]; then
+              echo "[WARN] Serie parziale al tentativo $i/5 (rifiuto al gruppo $PUSH_FAILED_GROUP/$NGROUPS)."
+              echo "       Rifetch del tip, BASE/PARENT ricalcolati, gruppi ripartizionati."
+              sleep $((i * 5))
+              continue
+            fi
             # ---- (6) VERIFICA: i gruppi DEVONO ricostruire esattamente TARGET ----
             if [ "$GTREE" != "$TREE" ]; then
               echo "[ERROR] Incoerenza: il tree finale dei gruppi ($GTREE) != TARGET ($TREE)."
@@ -574,7 +599,7 @@ jobs:
             echo "published=true" >> "$GITHUB_OUTPUT"
             exit 0
           done
-          echo "[ERROR] Push su fm2-rendered non riuscito dopo 5 tentativi."
+          echo "[ERROR] Push su fm2-rendered non riuscito dopo 5 tentativi (ultimo rifiuto al gruppo ${PUSH_FAILED_GROUP:-?}/${NGROUPS:-?})."
           exit 1
 
       - name: Aggiorna subito l'indice aggregato
