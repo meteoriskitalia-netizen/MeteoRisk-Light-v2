@@ -18,7 +18,9 @@ name: Forecast Maps Index (index.json aggregato su fm2-rendered)
 #   (i manifest engine `data/fm2/<dominio>/latest.json` da ciascun branch fornitore)
 #   e i WebP aggregati da `fm2-rendered`, esegue `render_fm_webp.py --index-only` con
 #   la lista COMPLETA dei 7 domini e pubblica `data/fm2-rendered/<regione>/index.json`
-#   + `data/fm2-rendered/color_scales.json` su `fm2-rendered`. Nessun altro workflow
+#   + `data/fm2-rendered/color_scales.json` su `fm2-rendered` (piu', da questa
+#   versione, `data/fm2-rendered/<regione>/timeline.json` generato da
+#   `scripts/forecast_v2/build_timeline_index.py`). Nessun altro workflow
 #   tocca quei file.
 #
 # COESISTENZA COL MONOLITE (AZIONE RICHIESTA ALL'OPERATORE):
@@ -51,6 +53,31 @@ name: Forecast Maps Index (index.json aggregato su fm2-rendered)
 #   checkout viene saltato (tolleranza, come nel resto della pipeline); il renderer
 #   escludera' da solo i domini senza manifest con
 #   "[index] <regione>/<dominio>: escluso: non presente in --in".
+#
+# TIMELINE (`data/fm2-rendered/<regione>/timeline.json`) — aggiunta insieme all'indice:
+#   Oltre agli `index.json`, questo job e' anche lo scrittore UNICO del
+#   `timeline.json` per regione, prodotto da
+#   `scripts/forecast_v2/build_timeline_index.py`: per ogni `valid_time` vince la
+#   run piu' recente che ha un frame RESO, cosi' il client legge UNA sequenza
+#   cronologica sola invece di ricostruirla da 3 run per dominio. Il file cita
+#   SOLO frame presenti nell'albero del branch (`--path-list` preso da
+#   `git ls-tree -r --name-only`: nessun blob WebP scaricato), quindi un
+#   manifest che dichiara un frame assente NON produce un 404 lato client: il
+#   frame viene scartato e dichiarato in `dropped`. Il generatore e' ADDITIVO:
+#   non legge ne' scrive `index.json`.
+#   `--now` NON viene passato di proposito: `generated_at` e' l'ora reale UTC al
+#   secondo (`utcnow_iso` in `build_timeline_index.py`), quindi cambia a ogni
+#   run e il polling del client — che confronta `generated_at` — se ne accorge.
+#   GUARDIA DI SCOPE: `ALLOW_RE` ammette `<regione>/{index,timeline}.json` e
+#   `color_scales.json`; qualunque `.webp` (o qualunque altro path) fa fallire
+#   il commit, come prima.
+#   FALLIMENTO DEL GENERATORE (exit != 0): l'indice si pubblica COMUNQUE — le
+#   mappe non devono dipendere da un file accessorio — e il fallimento diventa
+#   VISIBILE con `::warning::` (log + step summary). `timeline_ok=false`
+#   viaggia verso lo step di commit, che in quel caso NON stagea alcun
+#   `timeline.json`: resta in piedi quello gia' sul branch, perche' non si
+#   cancella un file buono solo perche' una rigenerazione e' andata male.
+#   Il job resta verde: il segnale e' il warning, non un job rosso sulle mappe.
 #
 # TRIGGER: ogni merge fornitore invia `repository_dispatch` dopo aver pubblicato
 # i WebP. Il GITHUB_TOKEN con contents:write puo' avviare questo evento senza PAT.
@@ -283,8 +310,92 @@ jobs:
             --index-only \
             --domains "dwd_icon,dwd_icon_eu,dwd_icon_d2,ecmwf_ifs025,ncep_gfs025,ncep_gfs013,meteofrance_arpege_world025"
 
+      # ── timeline.json: indice UNICO dei run conservati (merge per valid_time) ──
+      # Gira DOPO `--index-only` (i manifest `<regione>/<dominio>/runs/<run_id>/
+      # <variabile>/latest.json` sono gia' nel working tree) e PRIMA del commit.
+      # Scrive in una directory TEMPORANEA (`--out-root`) e copia in
+      # `data/fm2-rendered/<regione>/` solo quando TUTTE le regioni sono andate
+      # a buon fine: se qualcosa fallisce il working tree non e' stato toccato,
+      # quindi nessuna timeline PARZIALE puo' finire nel commit.
+      # Esce SEMPRE 0: il fallimento e' un `::warning::` (vedi intestazione del
+      # file), non un job rosso che fermerebbe la pubblicazione delle mappe.
+      - name: Build timeline.json per regione (merge run, --path-list)
+        id: timeline
+        if: success()
+        run: |
+          set -u
+          TMP_OUT="$(mktemp -d)"
+          FOUND=""
+          # Una regione entra solo se ha almeno un `<dominio>/runs/`: passare a
+          # `--regions` una regione assente farebbe uscire lo script con 2
+          # ("argomenti non validi"), che qui non e' un errore ma una regione
+          # semplicemente vuota.
+          for r in italia europa north domain; do
+            region_dir="data/fm2-rendered/$r"
+            [ -d "$region_dir" ] || continue
+            for candidate in "$region_dir"/*/runs; do
+              if [ -d "$candidate" ]; then FOUND="$FOUND $r"; break; fi
+            done
+          done
+          FOUND="${FOUND# }"
+          if [ -z "$FOUND" ]; then
+            echo "::warning::timeline: nessuna regione con <dominio>/runs/ sotto data/fm2-rendered: nessun timeline.json generato, index.json pubblicato comunque."
+            echo "timeline_ok=false" >> "$GITHUB_OUTPUT"
+            rm -rf "$TMP_OUT"
+            exit 0
+          fi
+          echo "[timeline] regioni con run WebP: $FOUND"
+          status=0
+          for r in $FOUND; do
+            # Inventario dell'ALBERO (non del disco): `--path-list` verifica i
+            # frame citati dai manifest senza scaricare un solo blob WebP.
+            raw="$TMP_OUT/tree_$r.txt"
+            listing="$TMP_OUT/paths_$r.txt"
+            if ! git ls-tree -r --name-only FETCH_HEAD -- "data/fm2-rendered/$r/" > "$raw"; then
+              echo "::warning::timeline: inventario git ls-tree fallito per $r."
+              status=2
+              break
+            fi
+            if [ ! -s "$raw" ]; then
+              echo "::warning::timeline: inventario VUOTO per $r (fm2-rendered non materializzato?): timeline non aggiornata."
+              status=2
+              break
+            fi
+            sed "s|^data/fm2-rendered/$r/||" "$raw" > "$listing"
+            echo "[timeline] $r: $(wc -l < "$listing") path nell'albero del branch."
+            python scripts/forecast_v2/build_timeline_index.py \
+              --root data/fm2-rendered \
+              --out-root "$TMP_OUT" \
+              --regions "$r" \
+              --path-list "$listing"
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              echo "::warning::timeline: build_timeline_index.py rc=$rc su $r."
+              status=$rc
+              break
+            fi
+          done
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::timeline NON aggiornata (rc=$status): index.json viene pubblicato, timeline.json NO (resta quello gia' sul branch, se c'e')."
+            echo "timeline_ok=false" >> "$GITHUB_OUTPUT"
+            rm -rf "$TMP_OUT"
+            exit 0
+          fi
+          for r in $FOUND; do
+            if [ -f "$TMP_OUT/$r/timeline.json" ]; then
+              cp "$TMP_OUT/$r/timeline.json" "data/fm2-rendered/$r/timeline.json"
+              echo "[timeline] $r: timeline.json scritto ($(wc -c < "data/fm2-rendered/$r/timeline.json") byte)."
+            else
+              echo "[timeline] $r: nessuna run valida -> nessun timeline.json (un eventuale file gia' sul branch resta invariato)."
+            fi
+          done
+          echo "timeline_ok=true" >> "$GITHUB_OUTPUT"
+          rm -rf "$TMP_OUT"
+
       - name: Summary
         if: always()
+        env:
+          TIMELINE_OK: ${{ steps.timeline.outputs.timeline_ok }}
         run: |
           {
             echo "## MeteoRisk — Forecast Maps Index (index.json aggregato)"
@@ -297,24 +408,54 @@ jobs:
               fi
             done
             echo ""
+            # Esito della timeline: `timeline_ok` e' l'output dello step che ha
+            # eseguito `build_timeline_index.py` (stringa vuota = step saltato).
+            if [ "${TIMELINE_OK:-}" = "true" ]; then
+              echo "Timeline: aggiornata."
+            else
+              echo "Timeline: NON aggiornata in questa run (step 'Build timeline.json per regione' fallito o saltato: vedi i ::warning:: nel log). I timeline.json gia' sul branch NON sono stati toccati e index.json e' pubblicato comunque."
+            fi
+            for r in italia europa north domain; do
+              if [ -f "data/fm2-rendered/$r/timeline.json" ]; then
+                python -c "import json; d=json.load(open('data/fm2-rendered/$r/timeline.json')); s=d.get('summary',{}); print('  $r - generated_at:', d.get('generated_at'), '- domini:', s.get('domains'), '- run:', s.get('runs'), '- gruppi:', s.get('groups'), '- frame:', s.get('timeline_frames'))"
+              else
+                echo "  $r - timeline.json assente."
+              fi
+            done
+            echo ""
             echo "Manifest engine visti (fonte: 5 branch fornitore):"
             find data/fm2 -maxdepth 2 -name latest.json 2>/dev/null | sort || true
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Commit index.json + color_scales.json su fm2-rendered (only if changed)
+      - name: Commit index.json + color_scales.json + timeline.json su fm2-rendered (only if changed)
         if: success()
         run: |
           git config user.name "meteorisk-bot"
           git config user.email "actions@users.noreply.github.com"
           git sparse-checkout disable >/dev/null 2>&1 || true
           # L'index-builder e' lo SCRITTORE UNICO di: <regione>/index.json per
-          # italia/europa/north/domain, e color_scales.json. Sono gli unici path che
-          # questo job puo' toccare. NON tocca MAI le directory WebP
-          # `data/fm2-rendered/<regione>/<dominio>/**` (di proprieta' dei 5 merge
-          # per-fornitore): path disgiunti.
-          ALLOW_RE='^data/fm2-rendered/(italia|europa|north|domain)/index\.json$|^data/fm2-rendered/color_scales\.json$'
-          MSG="chore(fm2): rebuild index.json aggregato (7 domini) + color_scales"
+          # italia/europa/north/domain, color_scales.json e <regione>/timeline.json.
+          # Sono gli unici path che questo job puo' toccare. NON tocca MAI le
+          # directory WebP `data/fm2-rendered/<regione>/<dominio>/**` (di
+          # proprieta' dei 5 merge per-fornitore): path disgiunti.
+          # `timeline.json` entra nell'allowlist SOLO come nome ESATTO sotto una
+          # delle 4 regioni: `(index|timeline)\.json$` non puo' combaciare con un
+          # `.webp` ne' con un JSON dentro `<regione>/<dominio>/`.
+          ALLOW_RE='^data/fm2-rendered/(italia|europa|north|domain)/(index|timeline)\.json$|^data/fm2-rendered/color_scales\.json$'
+          # Path di proprieta': sempre i 4 index.json + color_scales.json; i 4
+          # timeline.json SOLO se il generatore e' andato a buon fine. Con
+          # `timeline_ok != true` (fallimento o step saltato) i timeline.json non
+          # vengono ne' staged ne' rimossi: resta in piedi quello del branch.
+          OWNED="data/fm2-rendered/italia/index.json data/fm2-rendered/europa/index.json data/fm2-rendered/north/index.json data/fm2-rendered/domain/index.json data/fm2-rendered/color_scales.json"
+          TIMELINE_OK="${{ steps.timeline.outputs.timeline_ok }}"
+          if [ "$TIMELINE_OK" = "true" ]; then
+            OWNED="$OWNED data/fm2-rendered/italia/timeline.json data/fm2-rendered/europa/timeline.json data/fm2-rendered/north/timeline.json data/fm2-rendered/domain/timeline.json"
+            MSG="chore(fm2): rebuild index.json aggregato (7 domini) + color_scales + timeline"
+          else
+            MSG="chore(fm2): rebuild index.json aggregato (7 domini) + color_scales (timeline invariata)"
+            echo "[INFO] timeline_ok=${TIMELINE_OK:-vuoto}: nessun timeline.json entra in questo commit."
+          fi
           for i in 1 2 3 4 5; do
             git fetch --no-tags --depth=1 origin fm2-rendered || true
             if git rev-parse --verify --quiet FETCH_HEAD >/dev/null 2>&1; then
@@ -328,10 +469,11 @@ jobs:
             IDX="$(mktemp -u)"; rm -f "$IDX"
             GIT_INDEX_FILE="$IDX" git read-tree "$BASE"
             # (1) stage-out dei SOLI path di proprieta' dell'index-builder che
-            #     esistono nell'indice del branch (index.json delle 4 regioni +
-            #     color_scales.json): verranno ri-aggiunti dal working tree.
+            #     esistono nell'indice del branch (index.json/timeline.json delle 4
+            #     regioni + color_scales.json): verranno ri-aggiunti dal working
+            #     tree.
             #     ⚠️ NON si tocca nulla sotto <regione>/<dominio>/ (WebP).
-            for p in "data/fm2-rendered/italia/index.json" "data/fm2-rendered/europa/index.json" "data/fm2-rendered/north/index.json" "data/fm2-rendered/domain/index.json" "data/fm2-rendered/color_scales.json"; do
+            for p in $OWNED; do
               if GIT_INDEX_FILE="$IDX" git ls-files -- "$p" | grep -q .; then
                 GIT_INDEX_FILE="$IDX" git update-index --force-remove -- "$p"
               fi
@@ -339,7 +481,7 @@ jobs:
             # (2) ri-aggiungi dal working tree i SOLI path che esistono davvero
             #     (una regione senza domini validi non ha scritto l'index).
             add_paths=""
-            for p in "data/fm2-rendered/italia/index.json" "data/fm2-rendered/europa/index.json" "data/fm2-rendered/north/index.json" "data/fm2-rendered/domain/index.json" "data/fm2-rendered/color_scales.json"; do
+            for p in $OWNED; do
               [ -e "$p" ] && add_paths="$add_paths $p"
             done
             if [ -n "$add_paths" ]; then
@@ -348,22 +490,31 @@ jobs:
             fi
             TREE="$(GIT_INDEX_FILE="$IDX" git write-tree)"
             rm -f "$IDX"
-            # NO-OP: indice invariato => nessun churn.
+            # NO-OP: nessun path cambiato => nessun churn, ZERO file nel commit.
+            # ⚠️ Con la timeline `generated_at` viene dall'ora reale (nessun
+            # `--now`), quindi in pratica il file cambia a ogni run e il branch
+            # riceve un commit per run; il NO-OP resta il comportamento corretto
+            # quando il file rigenerato e' byte-identico a quello del branch
+            # (stesso secondo, oppure `--now` fisso in prova manuale). Non esiste
+            # alcun `git commit --allow-empty`: se il tree coincide, si esce 0
+            # con 0 file modificati.
             if [ "$TREE" = "$BASE" ]; then
-              echo "[INFO] Nessuna modifica agli index.json (NO-OP)."
+              echo "[INFO] Nessuna modifica (0 file): index.json, color_scales.json e timeline.json invariati (NO-OP)."
               exit 0
             fi
             # (3) GUARDIA DI SCOPE: il commit dell'index-builder deve toccare SOLO
-            #     gli index.json delle 4 regioni + color_scales.json. Un solo path
-            #     fuori allowlist (es. un WebP di un dominio) => ABORTISCI.
+            #     <regione>/index.json, <regione>/timeline.json e
+            #     color_scales.json. Un solo path fuori allowlist (es. un WebP di
+            #     un dominio) => ABORTISCI.
             git diff-tree -r --no-commit-id --name-only "$BASE" "$TREE" > /tmp/fm2_idx_scope.txt
+            CHANGED="$(wc -l < /tmp/fm2_idx_scope.txt)"
             BAD_SCOPE="$(grep -E -v "$ALLOW_RE" /tmp/fm2_idx_scope.txt || true)"
             if [ -n "$BAD_SCOPE" ]; then
               echo "::error::GUARDIA DI SCOPE VIOLATA (index-builder): path fuori allowlist:"
               printf '%s\n' "$BAD_SCOPE"
               exit 1
             fi
-            echo "[guardia] scope OK: $(wc -l < /tmp/fm2_idx_scope.txt) path toccati (solo index.json + color_scales.json)"
+            echo "[guardia] scope OK: $CHANGED path toccati (index.json + color_scales.json + timeline.json)"
             # COMMIT ORPHAN (nessun parent) + LEASE: la storia del branch dati
             # resta profonda UN commit, e il push riesce SOLO se il tip remoto e'
             # ancora $PARENT. Se il branch non esiste ($PARENT vuoto) il lease
