@@ -186,7 +186,211 @@ jobs:
             exit "$RENDER_STATUS"
           fi
           if python -c "import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get('noop') else 1)" "$PROGRESS" 2>/dev/null; then
-            echo "[INFO] Dominio ${{ matrix.domain }} in NO-OP: salto upload shard."
+            echo "[INFO] Dominio ${{ matrix.domain }} in NO-OP: verifico che i WebP del run siano su fm2-rendered."
+            # ------------------------------------------------------------------
+            # P6 - SELF-HEALING DEGLI SHARD ORFANI
+            #
+            # PROBLEMA (misurato, non ipotetico): se `render-merge` fallisce, lo
+            # shard WebP resta in un artifact che nessuno riprende. Il run
+            # successivo trova il dominio in NO-OP (`changed=false`), quindi non
+            # carica alcun artifact, e quei WebP non arrivano MAI al client
+            # finche' non cambia `reference_time`. Tre incidenti reali:
+            # dwd_icon_d2 fermo a 09Z invece di 15Z, ncep_gfs025 a 00Z invece di
+            # 06Z, ncep_gfs013 a 00Z invece di 12Z (dwd run 17: 131,7 min per 0
+            # immagini).
+            #
+            # REGOLA: se per il run corrente i WebP attesi NON sono su
+            # `fm2-rendered`, il NO-OP e' falso: si ri-renderizza e si
+            # ripubblica. Se ci sono, il NO-OP resta (nessun riprocessamento a
+            # ogni run: niente loop).
+            #
+            # METODO (economico, misurato il 2026-10-25 su fm2-rendered: 118.587
+            # path, 1.445 oggetti): `git fetch --depth=1 --filter=blob:none`
+            # scarica SOLO gli alberi (pack 2,55 MiB, ~3,6 s) e `git ls-tree -r`
+            # (76 ms) elenca i path del run. Nessun blob WebP viene scaricato.
+            # Alternativa scartata: HEAD su URL raw del manifest - verifica solo
+            # l'esistenza di UNA variabile, non la copertura dei frame.
+            #
+            # RUN PARZIALE (`--allow-partial-run`): i frame "attesi" sono quelli
+            # EFFETTIVAMENTE pubblicati (`latest.json:frames[]`), MAI
+            # `valid_times` ne' `partial.n_expected`: un run parziale pubblica
+            # meno frame per costruzione e un confronto sull'orizzonte completo
+            # riprocesserebbe per sempre.
+            # ------------------------------------------------------------------
+            HEAL_DIR="$RUNNER_TEMP/fm2-heal-${{ matrix.domain }}"
+            rm -rf "$HEAL_DIR"
+            mkdir -p "$HEAL_DIR"
+            HEAL_FETCH="ok"
+            if ! git fetch --no-tags --depth=1 --filter=blob:none origin fm2-rendered 2> "$HEAL_DIR/fetch.log"; then
+              if git ls-remote --heads origin fm2-rendered 2>/dev/null | grep -q "refs/heads/fm2-rendered"; then
+                HEAL_FETCH="error"
+              else
+                HEAL_FETCH="missing-branch"
+              fi
+              sed 's/^/[heal][fetch]   /' "$HEAL_DIR/fetch.log" 2>/dev/null | tail -n 5 || true
+            fi
+            echo "[heal] fm2-rendered: fetch=$HEAL_FETCH tip=$(git rev-parse --short FETCH_HEAD 2>/dev/null || echo -)"
+            HEAL_STATUS=0
+            python - "${{ matrix.domain }}" "$HEAL_DIR" "$HEAL_FETCH" <<'PY' || HEAL_STATUS=$?
+          import json
+          import os
+          import subprocess
+          import sys
+
+          DOMAIN, HEAL_DIR, FETCH_STATUS = sys.argv[1], sys.argv[2], sys.argv[3]
+          sys.path.insert(0, os.path.join("scripts", "forecast_v2"))
+
+
+          def put(name, value):
+              with open(os.path.join(HEAL_DIR, name), "w", encoding="utf-8") as fh:
+                  fh.write(str(value) + "\n")
+
+
+          def finish(code, run_id, kind, detail):
+              put("run_id", run_id or "")
+              put("kind", kind)
+              put("detail", detail)
+              label = {0: "OK", 10: "HEAL", 20: "UNVERIFIABLE"}.get(code, "?")
+              print("[heal] %s run=%s %s" % (label, run_id or "-", detail))
+              raise SystemExit(code)
+
+
+          if FETCH_STATUS == "error":
+              finish(20, "", "unverifiable", "fetch di fm2-rendered fallito (rete/credenziali)")
+
+          try:
+              with open(os.path.join("data", "fm2", DOMAIN, "latest.json"), "r",
+                        encoding="utf-8-sig") as fh:
+                  manifest = json.load(fh)
+          except Exception as exc:
+              finish(20, "", "unverifiable", "latest.json illeggibile (%s)" % exc)
+
+          try:
+              import render_fm_webp as R
+          except Exception as exc:
+              finish(20, "", "unverifiable", "import di render_fm_webp fallito (%s)" % exc)
+
+          run_id = R._run_id(manifest.get("reference_time"))
+          frames = [f for f in (manifest.get("frames") or []) if f.get("valid_time")]
+          partial_info = manifest.get("partial") or {}
+          if not frames:
+              finish(20, run_id, "unverifiable", "manifest senza frame pubblicati")
+          bbox, grid = manifest.get("bbox"), manifest.get("grid")
+          if not isinstance(bbox, dict) or not isinstance(grid, dict):
+              finish(20, run_id, "unverifiable", "manifest senza bbox/grid")
+
+          is_global = R._is_global_bbox(bbox)
+          regions = {}
+          for name, region_bbox in R.REGIONS.items():
+              if name == R.DOMAIN_REGION and R.DOMAIN_REGION_SKIP_GLOBAL and is_global:
+                  continue
+              if name == R.NORTH_REGION and R.NORTH_REGION_SKIP_NON_GLOBAL and not is_global:
+                  continue
+              resolved = R.resolve_region_bbox(region_bbox, bbox)
+              if R.region_crop(bbox, grid, resolved) is None:
+                  continue
+              regions[name] = resolved
+          if not regions:
+              finish(20, run_id, "unverifiable", "nessuna regione interseca il dominio")
+
+          print("[heal] run=%s frame_pubblicati=%d regioni_attese=%s partial=%s"
+                % (run_id, len(frames), ",".join(sorted(regions)),
+                   "on(%d/%s)" % (len(frames), partial_info.get("n_expected"))
+                   if partial_info.get("enabled") else "off"))
+
+          if FETCH_STATUS == "missing-branch":
+              finish(10, run_id, "absent", "branch fm2-rendered assente: nessun WebP pubblicato")
+
+          # NB: `git ls-tree` NON espande il glob in MEZZO al pathspec (verificato:
+          # "data/fm2-rendered/*/<dominio>/runs/<run_id>" restituisce 0 righe,
+          # mentre il path esplicito ne restituisce 1). Si passano quindi le
+          # regioni ATTESE come pathspec distinti, tutti in UNA sola invocazione.
+          specs = ["data/fm2-rendered/%s/%s/runs/%s" % (name, DOMAIN, run_id)
+                   for name in sorted(regions)]
+          try:
+              proc = subprocess.run(["git", "ls-tree", "-r", "--name-only",
+                                     "FETCH_HEAD", "--"] + specs,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE, text=True)
+          except OSError as exc:
+              finish(20, run_id, "unverifiable", "git non eseguibile (%s)" % exc)
+          if proc.returncode != 0:
+              finish(20, run_id, "unverifiable",
+                     "git ls-tree fallito (%s)" % proc.stderr.strip()[:200])
+
+          published = {}
+          for path in proc.stdout.splitlines():
+              parts = path.split("/")
+              if len(parts) != 8 or parts[4] != "runs" or parts[5] != run_id:
+                  continue
+              if not parts[7].endswith(".webp"):
+                  continue
+              published.setdefault(parts[2], set()).add(parts[7][:-5])
+
+          expected = {R.valid_time_to_filename(f["valid_time"]) for f in frames}
+          absent = [r for r in sorted(regions) if not published.get(r)]
+          incomplete = {}
+          for name in sorted(regions):
+              if name in absent:
+                  continue
+              missing = expected - published[name]
+              if missing:
+                  incomplete[name] = missing
+
+          for name in sorted(regions):
+              have = len(published.get(name, ()))
+              print("[heal]   regione=%-7s frame_visti=%d attesi=%d %s"
+                    % (name, have, len(expected),
+                       "ASSENTE" if name in absent else
+                       ("INCOMPLETO (-%d frame)" % len(incomplete[name])
+                        if name in incomplete else "ok")))
+
+          if absent or incomplete:
+              detail = []
+              if absent:
+                  detail.append("regioni senza WebP: %s" % ",".join(absent))
+              for name in sorted(incomplete):
+                  detail.append("frame mancanti in %s: %d/%d (es. %s)"
+                                % (name, len(incomplete[name]), len(expected),
+                                   min(incomplete[name])))
+              finish(10, run_id, "incomplete" if not absent else "absent", "; ".join(detail))
+
+          finish(0, run_id, "ok", "tutte le %d regioni attese hanno i %d frame pubblicati"
+                 % (len(regions), len(expected)))
+          PY
+            HEAL_RUN_ID="$(cat "$HEAL_DIR/run_id" 2>/dev/null || true)"
+            HEAL_KIND="$(cat "$HEAL_DIR/kind" 2>/dev/null || echo unknown)"
+            if [ "$HEAL_STATUS" -eq 10 ]; then
+              case "$HEAL_KIND" in
+                absent)  echo "::notice::[HEAL] WebP del run $HEAL_RUN_ID assenti su fm2-rendered: riprocesso invece del NO-OP." ;;
+                *)       echo "::notice::[HEAL] WebP del run $HEAL_RUN_ID incompleti su fm2-rendered: riprocesso invece del NO-OP." ;;
+              esac
+              # Ri-render dallo shard .om GIA' presente (restaurato da fm2-dwd):
+              # senza `--watch-manifest`, che in NO-OP esce subito senza scrivere
+              # nulla e lascerebbe l'artifact vuoto.
+              python scripts/forecast_v2/render_fm_webp.py \
+                --in data/fm2 \
+                --out data/fm2-rendered \
+                --domains ${{ matrix.domain }} \
+                --limit-frames 0 \
+                --method 4
+              HEAL_RENDER_STATUS=$?
+              if [ "$HEAL_RENDER_STATUS" -ne 0 ]; then
+                echo "::error::[HEAL] Render di recupero fallito (codice $HEAL_RENDER_STATUS): lo shard del run $HEAL_RUN_ID resta non pubblicato."
+                exit "$HEAL_RENDER_STATUS"
+              fi
+              HEAL_WEBP="$(find data/fm2-rendered -path "*/${{ matrix.domain }}/runs/$HEAL_RUN_ID/*" -name '*.webp' 2>/dev/null | wc -l)"
+              echo "[heal] WebP rigenerati per il run $HEAL_RUN_ID: $HEAL_WEBP file."
+              if [ "$HEAL_WEBP" -eq 0 ]; then
+                echo "::error::[HEAL] Nessun WebP rigenerato per il run $HEAL_RUN_ID: shard non pubblicabile."
+                exit 1
+              fi
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+            elif [ "$HEAL_STATUS" -eq 0 ]; then
+              echo "[INFO] WebP del run $HEAL_RUN_ID gia' su fm2-rendered: NO-OP confermato."
+            else
+              echo "::warning::[HEAL] Stato dei WebP del run non verificabile (fetch=$HEAL_FETCH): NO-OP mantenuto, nessun riprocessamento."
+            fi
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
