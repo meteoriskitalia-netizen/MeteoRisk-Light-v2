@@ -196,15 +196,6 @@ jobs:
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload artifact fm2-${{ matrix.domain }}
-        if: success() && steps.run_engine.outputs.changed == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: fm2-${{ matrix.domain }}
-          path: data/fm2/${{ matrix.domain }}
-          if-no-files-found: warn
-          retention-days: 1
-
       - name: Upload render shard fm2r-${{ matrix.domain }}
         if: success() && steps.run_engine.outputs.changed == 'true'
         uses: actions/upload-artifact@v4
@@ -271,12 +262,14 @@ jobs:
               echo "[INFO] Nessuna modifica a data/fm2/${{ matrix.domain }} (NO-OP)."
               exit 0
             fi
-            if [ -n "$PARENT" ]; then
-              NEW="$(git commit-tree "$TREE" -p "$PARENT" -m "$MSG")"
-            else
-              NEW="$(git commit-tree "$TREE" -m "$MSG")"
-            fi
-            if git push origin "$NEW:refs/heads/fm2-dwdicon"; then
+            # COMMIT ORPHAN (nessun parent) + LEASE: la storia del branch dati
+            # resta profonda UN commit, e il push riesce SOLO se il tip remoto e'
+            # ancora $PARENT. Se il branch non esiste ($PARENT vuoto) il lease
+            # pretende che il ref NON esista (forma "refs/heads/<branch>:" senza
+            # valore). Mai `--force` nudo: una sovrascrittura concorrente DEVE
+            # fallire invece di cancellare in silenzio.
+            NEW="$(git commit-tree "$TREE" -m "$MSG")"
+            if git push --force-with-lease="refs/heads/fm2-dwdicon:$PARENT" origin "$NEW:refs/heads/fm2-dwdicon"; then
               echo "[INFO] Push su fm2-dwdicon riuscito (tentativo $i/5)."
               exit 0
             fi
@@ -552,12 +545,11 @@ jobs:
               GIT_INDEX_FILE="$IDX" git add -A --pathspec-from-file="$GFILE"
               GTREE="$(GIT_INDEX_FILE="$IDX" git write-tree)"
               echo "[push] gruppo $gi/$NGROUPS: $(wc -l < "$GFILE") path -> tree $GTREE"
-              if [ -n "$RUN_PARENT" ]; then
-                GNEW="$(git commit-tree "$GTREE" -p "$RUN_PARENT" -m "$MSG [$gi/$NGROUPS]")"
-              else
-                GNEW="$(git commit-tree "$GTREE" -m "$MSG [$gi/$NGROUPS]")"
-              fi
-              if git push origin "$GNEW:refs/heads/fm2-rendered"; then
+              # COMMIT ORPHAN + LEASE (stessa regola dell'engine): storia = 1
+              # commit; il lease pretende che il tip remoto sia ancora
+              # RUN_PARENT (vuoto alla prima pubblicazione: ref inesistente).
+              GNEW="$(git commit-tree "$GTREE" -m "$MSG [$gi/$NGROUPS]")"
+              if git push --force-with-lease="refs/heads/fm2-rendered:$RUN_PARENT" origin "$GNEW:refs/heads/fm2-rendered"; then
                 echo "[push] gruppo $gi/$NGROUPS pubblicato: $GNEW"
                 RUN_PARENT="$GNEW"
                 pushed_groups=$((pushed_groups + 1))
