@@ -378,10 +378,11 @@ def merge_domain(domain: str, runs: list, max_runs: int, exists=None,
                  dropped=None, stats=None) -> dict | None:
     """Costruisce ``domains.<dominio>``: run ordinate, gruppi, timeline.
 
-    ``exists(run_id, var, file)`` (opzionale) e' il predicato di esistenza del
-    frame: un frame dichiarato dal manifest ma assente NON viene citato, e per
-    quel ``valid_time`` si scende alla run successiva (se ce l'ha). Ogni scarto
-    finisce in ``dropped`` con il motivo: nessun buco silenzioso.
+    ``exists(domain, run_id, var, file)`` (opzionale) e' il predicato di
+    esistenza del frame: un frame dichiarato dal manifest ma assente NON viene
+    citato, e per quel ``valid_time`` si scende alla run successiva (se ce
+    l'ha). Ogni scarto finisce in ``dropped`` con il motivo: nessun buco
+    silenzioso.
     """
     runs.sort(key=_run_sort_key, reverse=True)
     if max_runs and max_runs > 0:
@@ -530,7 +531,7 @@ def build_region(root: str, region: str, max_runs: int = 0, exists=None) -> dict
                 continue
             record = collect_run(run_dir)
             if record is None:
-                skipped.append("%s/%s/%s" % (domain, run_id, "nessun manifest valido"))
+                skipped.append("%s/%s: nessun manifest valido" % (domain, run_id))
                 continue
             runs.append(record)
         doc = merge_domain(domain, runs, max_runs, exists=exists,
