@@ -49,13 +49,17 @@ on:
         type: boolean
         default: false
   schedule:
-    # TRIGGER NATIVO (cron GitHub, orario UTC) - rende il workflow AUTO-SUFFICIENTE,
-    # senza dipendere da uno scheduler esterno (cron-job.org) e senza secret.
-    # GFS 0.25 + GFS 0.117: run nominali alle 00/06/12/18Z; su Open-Meteo il run e'
-    # disponibile ~6h05-6h13 dopo il nominale (misurato il 21/10/2026) -> si parte
-    # +6h15 dal nominale. Gli slot distano 6h, piu' della durata dei 2 domini
-    # globali (209 frame ciascuno, ~2-3h a cache fredda, contro il timeout di 180').
-    - cron: "15 0,6,12,18 * * *"
+    # TRIGGER NATIVO (cron GitHub, orario UTC) - RETE DI SICUREZZA.
+    # Il trigger PRIMARIO sono i 2 job cron-job.org per provider (2 slot
+    # per run, vedi scripts/cronjobs/cronjobs_config.json).
+    # DUE SLOT PER RUN (regola P2) su cron-job.org, NON qui:
+    #   03:55, 09:55, 15:55, 21:55 = parziale (+15' su primo step +3h40)
+    #   05:52, 11:52, 17:52, 23:52 = completo (+13' su run completo +5h39)
+    # GFS 0.25 + GFS 0.117: run nominali 00/06/12/18Z. Tempi MISURATI il
+    # 2026-10-24 su gfs025 (gfs013 trattato uguale: nessuna misura separata).
+    # Questo cron e' SOLO la rete di sicurezza: +5h52 (chiusura coda) + 57',
+    # sfasato di 57' dagli slot cron-job.org.
+    - cron: "49 0,6,12,18 * * *"
   repository_dispatch:
     types: [ci-run]
 
@@ -154,6 +158,8 @@ jobs:
             --out data/fm2 \
             --frames-cache .cache_fm2_frames \
             --progress-manifest "$PROGRESS" \
+            --allow-partial-run \
+            --partial-min-frames 3 \
             $FORCE &
           ENGINE_PID=$!
           python scripts/forecast_v2/render_fm_webp.py \

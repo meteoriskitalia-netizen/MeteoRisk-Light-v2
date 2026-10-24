@@ -8,25 +8,55 @@
     "User-Agent": "MeteoRisk-CronJob/1.0",
     "Content-Type": "application/json"
   },
-  "schedule_source_of_truth": "Disponibilita reale dei run su S3 Open-Meteo (LastModified degli oggetti data_spatial/<dominio>/<YYYY>/<MM>/<DD>/<HH>00Z/), misurata con list-type=2. NON i tempi nominali dei modelli e NON i ritardi dichiarati da Open-Meteo.",
+  "schedule_source_of_truth": "Tempi MISURATI del 2026-10-24 (ore dopo il run nominale): primo step (prima pubblicazione utile, con cui parte il run parziale P1) e run completo. NON i tempi nominali dei modelli e NON i ritardi dichiarati da Open-Meteo. La misura precedente (2026-10-21, solo run completo) e' conservata in ogni job sotto measured_utc_availability.previous_measurement_2026_10_21.",
+  "trigger_policy": {
+    "rule": "2 slot per run: il primo subito dopo il PRIMO STEP (pubblicazione parziale, ~24-30 frame su ~209), il secondo dopo la disponibilita COMPLETA.",
+    "why": "il primo slot rende la mappa visibile ore prima; il secondo completa la coda.",
+    "cost": "un render in piu per run; ai primi step esistono solo ~24-30 frame, quindi il lavoro extra e' modesto.",
+    "margin_min": 10,
+    "margin_max": 30,
+    "merge_window_min": 20,
+    "merge_rule": "due slot a meno di 20 minuti si accorpano; nessun accorpamento e' stato necessario tranne quello dichiarato per DWD (4 ruoli per-dominio ridotti a 2 trigger).",
+    "native_safety_net": "il cron nativo dei 5 workflow e' spostato di +57' rispetto allo slot che chiude la coda del run: non coincide mai con gli slot cron-job.org."
+  },
+  "retired_job_titles": [
+    "MeteoRisk - DWD ICON EU + D2",
+    "MeteoRisk - DWD ICON Global",
+    "MeteoRisk - ARPEGE 0.25",
+    "MeteoRisk - NCEP GFS",
+    "MeteoRisk - ECMWF IFS 0.25"
+  ],
   "jobs": [
     {
-      "id": "forecast_dwd_icon_eu_d2",
-      "name": "DWD ICON-EU + ICON-D2 Forecast Maps",
+      "id": "forecast_dwd_icon_eu_d2_partial",
+      "name": "DWD ICON-EU + ICON-D2 Forecast Maps (slot parziale)",
+      "cronjob_title": "MeteoRisk - DWD ICON EU + D2 (parziale)",
       "workflow_file": "forecast-maps-dwd.yml",
-      "schedule_utc": "30 0,4,6,10,12,16,18,22 * * *",
-      "schedule_description": "8 run/giorno: 00,04,06,10,12,16,18,22 a :30 UTC. Gli slot cadono dopo la disponibilita reale di ciascun run (i run 00/06/12/18Z sono lunghi, quelli 03/09/15/21Z corti): 00:30 copre il 21Z del giorno prima, 04:30 il 00Z, 06:30 il 03Z, 10:30 il 06Z, 12:30 il 09Z, 16:30 il 12Z, 18:30 il 15Z, 22:30 il 18Z",
+      "slot_role": "partial",
+      "slot_label": "parziale",
+      "schedule_utc": "10 1,4,7,10,13,16,19,22 * * *",
+      "cronjob_hours": [1, 4, 7, 10, 13, 16, 19, 22],
+      "cronjob_minutes": [10],
+      "schedule_description": "8 slot/giorno (01:10, 04:10, 07:10, 10:10, 13:10, 16:10, 19:10, 22:10 UTC) = slot parziale di ciascuno dei 8 run nominali: parziale subito dopo il primo step (run parziale P1).",
+      "slot_utc_daily": ["01:10", "04:10", "07:10", "10:10", "13:10", "16:10", "19:10", "22:10"],
       "model_nominal_runs_utc": ["00Z", "03Z", "06Z", "09Z", "12Z", "15Z", "18Z", "21Z"],
       "measured_utc_availability": {
-        "source": "S3 LastModified data_spatial/<dominio>/<YYYY>/<MM>/<DD>/<HH>00Z/",
-        "sample": "2026-10-21",
-        "runs_sampled": 8,
-        "median_h": 3.2,
-        "max_h": 4.38,
-        "note": "run lunghi 00/06/12/18Z: mediana 3.71h, max 4.38h (00Z il piu tardivo); run corti 03/09/15/21Z: mediana 3.2h, max 3.2h",
-        "tightest_margin_min": 7,
-        "tightest_margin_ref": "slot 04:30 vs run 00Z disponibile 04:22:58"
+        "source": "misura del 2026-10-24: ore dopo il run nominale (primo step = prima pubblicazione utile del run; run completo = ultimo frame utile). Sostituisce la misura del 2026-10-21, conservata sotto previous_measurement_2026_10_21.",
+        "measured_on": "2026-10-24",
+        "first_step_h": "ICON-D2 +0h46, ICON-EU +2h47",
+        "full_run_h": "ICON-D2 +1h23, ICON-EU +3h57",
+        "margin_min": 24,
+        "margin_ref": "primo step ICON-D2 +0h46 (slot 01:10 = +24')",
+        "margin_rule": "margine 10-15 min su un campione di 1 giorno; nessuno slot oltre 30 min dal tempo misurato",
+        "note": "Il trigger lancia ENTRAMBI i domini: in questo slot ICON-EU non ha ancora pubblicato (primo step +2h47) e il suo NO-OP guard chiude il dominio in pochi minuti; in compenso lo stesso slot chiude ICON-EU del run precedente (completo +3h57, margine +13').",
+        "previous_measurement_2026_10_21": {
+          "median_h": 3.2,
+          "max_h": 4.38,
+          "tightest_margin_min": 7,
+          "tightest_margin_ref": "slot 04:30 vs run 00Z disponibile 04:22:58"
+        }
       },
+      "native_safety_net_cron": "7 2,5,8,11,14,17,20,23 * * *",
       "open_meteo_delay": "misurato 2026-10-21: run lunghi 3.58-4.38h, run corti 3.15-3.20h",
       "target_endpoint": "https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-dwd.yml/dispatches",
       "method": "POST",
@@ -38,22 +68,75 @@
       }
     },
     {
-      "id": "forecast_dwd_icon_global",
-      "name": "DWD ICON Global Forecast Maps",
+      "id": "forecast_dwd_icon_eu_d2_complete",
+      "name": "DWD ICON-EU + ICON-D2 Forecast Maps (slot completo)",
+      "cronjob_title": "MeteoRisk - DWD ICON EU + D2 (completo)",
+      "workflow_file": "forecast-maps-dwd.yml",
+      "slot_role": "complete",
+      "slot_label": "completo",
+      "schedule_utc": "0 0,3,6,9,12,15,18,21 * * *",
+      "cronjob_hours": [0, 3, 6, 9, 12, 15, 18, 21],
+      "cronjob_minutes": [0],
+      "schedule_description": "8 slot/giorno (00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00 UTC) = slot completo di ciascuno dei 8 run nominali: completo dopo la disponibilita completa del run.",
+      "slot_utc_daily": ["00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00"],
+      "model_nominal_runs_utc": ["00Z", "03Z", "06Z", "09Z", "12Z", "15Z", "18Z", "21Z"],
+      "measured_utc_availability": {
+        "source": "misura del 2026-10-24: ore dopo il run nominale (primo step = prima pubblicazione utile del run; run completo = ultimo frame utile). Sostituisce la misura del 2026-10-21, conservata sotto previous_measurement_2026_10_21.",
+        "measured_on": "2026-10-24",
+        "first_step_h": "ICON-D2 +0h46, ICON-EU +2h47",
+        "full_run_h": "ICON-D2 +1h23, ICON-EU +3h57",
+        "margin_min": 13,
+        "margin_ref": "primo step ICON-EU +2h47 (slot 03:00 = +13')",
+        "margin_rule": "margine 10-15 min su un campione di 1 giorno; nessuno slot oltre 30 min dal tempo misurato",
+        "note": "In questo slot ICON-D2 e' completo da 1h37 (run completo +1h23): e' il ruolo secondario dichiarato, non un obbligo dei 30'. Il completo di ICON-EU arriva invece allo slot parziale del run successivo (04:10, +13' su +3h57).",
+        "previous_measurement_2026_10_21": {
+          "median_h": 3.2,
+          "max_h": 4.38,
+          "tightest_margin_min": 7,
+          "tightest_margin_ref": "slot 04:30 vs run 00Z disponibile 04:22:58"
+        }
+      },
+      "native_safety_net_cron": "7 2,5,8,11,14,17,20,23 * * *",
+      "open_meteo_delay": "misurato 2026-10-21: run lunghi 3.58-4.38h, run corti 3.15-3.20h",
+      "target_endpoint": "https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-dwd.yml/dispatches",
+      "method": "POST",
+      "payload": {
+        "ref": "main",
+        "inputs": {
+          "force_update": false
+        }
+      }
+    },
+    {
+      "id": "forecast_dwd_icon_global_partial",
+      "name": "DWD ICON Global Forecast Maps (slot parziale)",
+      "cronjob_title": "MeteoRisk - DWD ICON Global (parziale)",
       "workflow_file": "forecast-maps-dwdicon.yml",
-      "schedule_utc": "45 4,10,16,22 * * *",
-      "schedule_description": "4 run/giorno a :45 UTC (04:45, 10:45, 16:45, 22:45): 04:45 copre il run 00Z, 10:45 il 06Z, 16:45 il 12Z, 22:45 il 18Z",
+      "slot_role": "partial",
+      "slot_label": "parziale",
+      "schedule_utc": "1 3,9,15,21 * * *",
+      "cronjob_hours": [3, 9, 15, 21],
+      "cronjob_minutes": [1],
+      "schedule_description": "4 slot/giorno (03:01, 09:01, 15:01, 21:01 UTC) = slot parziale di ciascuno dei 4 run nominali: parziale subito dopo il primo step (run parziale P1).",
+      "slot_utc_daily": ["03:01", "09:01", "15:01", "21:01"],
       "model_nominal_runs_utc": ["00Z", "06Z", "12Z", "18Z"],
       "measured_utc_availability": {
-        "source": "S3 LastModified data_spatial/<dominio>/<YYYY>/<MM>/<DD>/<HH>00Z/",
-        "sample": "2026-10-21",
-        "runs_sampled": 4,
-        "median_h": 3.72,
-        "max_h": 4.57,
-        "note": "00Z +4.57h, 06Z +3.52h, 12Z +4.05h, 18Z +3.72h",
-        "tightest_margin_min": 11,
-        "tightest_margin_ref": "slot 04:45 vs run 00Z disponibile 04:34:02"
+        "source": "misura del 2026-10-24: ore dopo il run nominale (primo step = prima pubblicazione utile del run; run completo = ultimo frame utile). Sostituisce la misura del 2026-10-21, conservata sotto previous_measurement_2026_10_21.",
+        "measured_on": "2026-10-24",
+        "first_step_h": "+2h46",
+        "full_run_h": "+3h28",
+        "margin_min": 15,
+        "margin_ref": "primo step +2h46 (slot 03:01 = +15')",
+        "margin_rule": "margine 10-15 min su un campione di 1 giorno; nessuno slot oltre 30 min dal tempo misurato",
+        "note": "nessuna nota",
+        "previous_measurement_2026_10_21": {
+          "median_h": 3.72,
+          "max_h": 4.57,
+          "tightest_margin_min": 11,
+          "tightest_margin_ref": "slot 04:45 vs run 00Z disponibile 04:34:02"
+        }
       },
+      "native_safety_net_cron": "38 4,10,16,22 * * *",
       "open_meteo_delay": "misurato 2026-10-21: 3.52-4.57h",
       "target_endpoint": "https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-dwdicon.yml/dispatches",
       "method": "POST",
@@ -65,22 +148,75 @@
       }
     },
     {
-      "id": "forecast_meteofrance_arpege",
-      "name": "Météo-France ARPEGE 0.25 Forecast Maps",
-      "workflow_file": "forecast-maps-meteofrance.yml",
-      "schedule_utc": "45 0,6,12,18 * * *",
-      "schedule_description": "4 run/giorno a :45 UTC (00:45, 06:45, 12:45, 18:45): 00:45 copre il run 18Z del giorno prima, 06:45 il 00Z, 12:45 il 06Z, 18:45 il 12Z",
+      "id": "forecast_dwd_icon_global_complete",
+      "name": "DWD ICON Global Forecast Maps (slot completo)",
+      "cronjob_title": "MeteoRisk - DWD ICON Global (completo)",
+      "workflow_file": "forecast-maps-dwdicon.yml",
+      "slot_role": "complete",
+      "slot_label": "completo",
+      "schedule_utc": "41 3,9,15,21 * * *",
+      "cronjob_hours": [3, 9, 15, 21],
+      "cronjob_minutes": [41],
+      "schedule_description": "4 slot/giorno (03:41, 09:41, 15:41, 21:41 UTC) = slot completo di ciascuno dei 4 run nominali: completo dopo la disponibilita completa del run.",
+      "slot_utc_daily": ["03:41", "09:41", "15:41", "21:41"],
       "model_nominal_runs_utc": ["00Z", "06Z", "12Z", "18Z"],
       "measured_utc_availability": {
-        "source": "S3 LastModified data_spatial/<dominio>/<YYYY>/<MM>/<DD>/<HH>00Z/",
-        "sample": "2026-10-21",
-        "runs_sampled": 4,
-        "median_h": 4.99,
-        "max_h": 6.2,
-        "note": "00Z +4.14h, 06Z +4.99h, 12Z +6.20h (il piu tardivo), 18Z +5.07h",
-        "tightest_margin_min": 34,
-        "tightest_margin_ref": "slot 18:45 vs run 12Z disponibile 18:11:43"
+        "source": "misura del 2026-10-24: ore dopo il run nominale (primo step = prima pubblicazione utile del run; run completo = ultimo frame utile). Sostituisce la misura del 2026-10-21, conservata sotto previous_measurement_2026_10_21.",
+        "measured_on": "2026-10-24",
+        "first_step_h": "+2h46",
+        "full_run_h": "+3h28",
+        "margin_min": 13,
+        "margin_ref": "run completo +3h28 (slot 03:41 = +13')",
+        "margin_rule": "margine 10-15 min su un campione di 1 giorno; nessuno slot oltre 30 min dal tempo misurato",
+        "note": "I due slot distano 40': sotto la soglia di accorpamento (20'), quindi restano separati; il guadagno del primo slot e' 40' di mappa visibile prima.",
+        "previous_measurement_2026_10_21": {
+          "median_h": 3.72,
+          "max_h": 4.57,
+          "tightest_margin_min": 11,
+          "tightest_margin_ref": "slot 04:45 vs run 00Z disponibile 04:34:02"
+        }
       },
+      "native_safety_net_cron": "38 4,10,16,22 * * *",
+      "open_meteo_delay": "misurato 2026-10-21: 3.52-4.57h",
+      "target_endpoint": "https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-dwdicon.yml/dispatches",
+      "method": "POST",
+      "payload": {
+        "ref": "main",
+        "inputs": {
+          "force_update": false
+        }
+      }
+    },
+    {
+      "id": "forecast_meteofrance_arpege_partial",
+      "name": "Meteo-France ARPEGE 0.25 Forecast Maps (slot parziale)",
+      "cronjob_title": "MeteoRisk - ARPEGE 0.25 (parziale)",
+      "workflow_file": "forecast-maps-meteofrance.yml",
+      "slot_role": "partial",
+      "slot_label": "parziale",
+      "schedule_utc": "20 4,10,16,22 * * *",
+      "cronjob_hours": [4, 10, 16, 22],
+      "cronjob_minutes": [20],
+      "schedule_description": "4 slot/giorno (04:20, 10:20, 16:20, 22:20 UTC) = slot parziale di ciascuno dei 4 run nominali: parziale subito dopo il primo step (run parziale P1).",
+      "slot_utc_daily": ["04:20", "10:20", "16:20", "22:20"],
+      "model_nominal_runs_utc": ["00Z", "06Z", "12Z", "18Z"],
+      "measured_utc_availability": {
+        "source": "misura del 2026-10-24: ore dopo il run nominale (primo step = prima pubblicazione utile del run; run completo = ultimo frame utile). Sostituisce la misura del 2026-10-21, conservata sotto previous_measurement_2026_10_21.",
+        "measured_on": "2026-10-24",
+        "first_step_h": "+3h17..+4h08",
+        "full_run_h": "+5h16",
+        "margin_min": 12,
+        "margin_ref": "primo step +3h17..+4h08, margine calcolato sul massimo +4h08 (slot 04:20 = +12')",
+        "margin_rule": "margine 10-15 min su un campione di 1 giorno; nessuno slot oltre 30 min dal tempo misurato",
+        "note": "Il primo step e' un intervallo (3h17-4h08): lo slot e' tarato sul massimo, quindi nel caso migliore arriva 63' dopo il primo step.",
+        "previous_measurement_2026_10_21": {
+          "median_h": 4.99,
+          "max_h": 6.2,
+          "tightest_margin_min": 34,
+          "tightest_margin_ref": "slot 18:45 vs run 12Z disponibile 18:11:43"
+        }
+      },
+      "native_safety_net_cron": "26 0,6,12,18 * * *",
       "open_meteo_delay": "misurato 2026-10-21: 4.14-6.20h",
       "target_endpoint": "https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-meteofrance.yml/dispatches",
       "method": "POST",
@@ -92,22 +228,75 @@
       }
     },
     {
-      "id": "forecast_ncep_gfs",
-      "name": "NCEP GFS (0.25 + 0.117) Forecast Maps",
-      "workflow_file": "forecast-maps-ncep.yml",
-      "schedule_utc": "0 1,7,13,19 * * *",
-      "schedule_description": "4 run/giorno a :00 UTC (01:00, 07:00, 13:00, 19:00): 01:00 copre il run 18Z del giorno prima, 07:00 il 00Z, 13:00 il 06Z, 19:00 il 12Z",
+      "id": "forecast_meteofrance_arpege_complete",
+      "name": "Meteo-France ARPEGE 0.25 Forecast Maps (slot completo)",
+      "cronjob_title": "MeteoRisk - ARPEGE 0.25 (completo)",
+      "workflow_file": "forecast-maps-meteofrance.yml",
+      "slot_role": "complete",
+      "slot_label": "completo",
+      "schedule_utc": "29 5,11,17,23 * * *",
+      "cronjob_hours": [5, 11, 17, 23],
+      "cronjob_minutes": [29],
+      "schedule_description": "4 slot/giorno (05:29, 11:29, 17:29, 23:29 UTC) = slot completo di ciascuno dei 4 run nominali: completo dopo la disponibilita completa del run.",
+      "slot_utc_daily": ["05:29", "11:29", "17:29", "23:29"],
       "model_nominal_runs_utc": ["00Z", "06Z", "12Z", "18Z"],
       "measured_utc_availability": {
-        "source": "S3 LastModified data_spatial/<dominio>/<YYYY>/<MM>/<DD>/<HH>00Z/",
-        "sample": "2026-10-21",
-        "runs_sampled": 4,
-        "median_h": 6.2,
-        "max_h": 6.59,
-        "note": "00Z +6.22h, 06Z +6.59h (il piu tardivo), 12Z +6.17h, 18Z +5.48h",
-        "tightest_margin_min": 25,
-        "tightest_margin_ref": "slot 13:00 vs run 06Z disponibile 12:35:13"
+        "source": "misura del 2026-10-24: ore dopo il run nominale (primo step = prima pubblicazione utile del run; run completo = ultimo frame utile). Sostituisce la misura del 2026-10-21, conservata sotto previous_measurement_2026_10_21.",
+        "measured_on": "2026-10-24",
+        "first_step_h": "+3h17..+4h08",
+        "full_run_h": "+5h16",
+        "margin_min": 13,
+        "margin_ref": "run completo +5h16 (slot 05:29 = +13')",
+        "margin_rule": "margine 10-15 min su un campione di 1 giorno; nessuno slot oltre 30 min dal tempo misurato",
+        "note": "nessuna nota",
+        "previous_measurement_2026_10_21": {
+          "median_h": 4.99,
+          "max_h": 6.2,
+          "tightest_margin_min": 34,
+          "tightest_margin_ref": "slot 18:45 vs run 12Z disponibile 18:11:43"
+        }
       },
+      "native_safety_net_cron": "26 0,6,12,18 * * *",
+      "open_meteo_delay": "misurato 2026-10-21: 4.14-6.20h",
+      "target_endpoint": "https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-meteofrance.yml/dispatches",
+      "method": "POST",
+      "payload": {
+        "ref": "main",
+        "inputs": {
+          "force_update": false
+        }
+      }
+    },
+    {
+      "id": "forecast_ncep_gfs_partial",
+      "name": "NCEP GFS (0.25 + 0.117) Forecast Maps (slot parziale)",
+      "cronjob_title": "MeteoRisk - NCEP GFS (parziale)",
+      "workflow_file": "forecast-maps-ncep.yml",
+      "slot_role": "partial",
+      "slot_label": "parziale",
+      "schedule_utc": "55 3,9,15,21 * * *",
+      "cronjob_hours": [3, 9, 15, 21],
+      "cronjob_minutes": [55],
+      "schedule_description": "4 slot/giorno (03:55, 09:55, 15:55, 21:55 UTC) = slot parziale di ciascuno dei 4 run nominali: parziale subito dopo il primo step (run parziale P1).",
+      "slot_utc_daily": ["03:55", "09:55", "15:55", "21:55"],
+      "model_nominal_runs_utc": ["00Z", "06Z", "12Z", "18Z"],
+      "measured_utc_availability": {
+        "source": "misura del 2026-10-24: ore dopo il run nominale (primo step = prima pubblicazione utile del run; run completo = ultimo frame utile). Sostituisce la misura del 2026-10-21, conservata sotto previous_measurement_2026_10_21.",
+        "measured_on": "2026-10-24",
+        "first_step_h": "+3h40 (ncep_gfs025)",
+        "full_run_h": "+5h39 (ncep_gfs025)",
+        "margin_min": 15,
+        "margin_ref": "primo step ncep_gfs025 +3h40 (slot 03:55 = +15')",
+        "margin_rule": "margine 10-15 min su un campione di 1 giorno; nessuno slot oltre 30 min dal tempo misurato",
+        "note": "La misura copre ncep_gfs025; ncep_gfs013 (regionale) e' trattato uguale: nessuna misura separata, assunzione dichiarata.",
+        "previous_measurement_2026_10_21": {
+          "median_h": 6.2,
+          "max_h": 6.59,
+          "tightest_margin_min": 25,
+          "tightest_margin_ref": "slot 13:00 vs run 06Z disponibile 12:35:13"
+        }
+      },
+      "native_safety_net_cron": "49 0,6,12,18 * * *",
       "open_meteo_delay": "misurato 2026-10-21: 5.48-6.59h",
       "target_endpoint": "https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-ncep.yml/dispatches",
       "method": "POST",
@@ -119,22 +308,115 @@
       }
     },
     {
-      "id": "forecast_ecmwf_ifs",
-      "name": "ECMWF IFS 0.25 Forecast Maps",
-      "workflow_file": "forecast-maps-ecmwf.yml",
-      "schedule_utc": "50 2,9,14,21 * * *",
-      "schedule_description": "4 run/giorno a :50 UTC (02:50, 09:50, 14:50, 21:50): 02:50 copre il run 18Z del giorno prima, 09:50 il 00Z, 14:50 il 06Z, 21:50 il 12Z",
+      "id": "forecast_ncep_gfs_complete",
+      "name": "NCEP GFS (0.25 + 0.117) Forecast Maps (slot completo)",
+      "cronjob_title": "MeteoRisk - NCEP GFS (completo)",
+      "workflow_file": "forecast-maps-ncep.yml",
+      "slot_role": "complete",
+      "slot_label": "completo",
+      "schedule_utc": "52 5,11,17,23 * * *",
+      "cronjob_hours": [5, 11, 17, 23],
+      "cronjob_minutes": [52],
+      "schedule_description": "4 slot/giorno (05:52, 11:52, 17:52, 23:52 UTC) = slot completo di ciascuno dei 4 run nominali: completo dopo la disponibilita completa del run.",
+      "slot_utc_daily": ["05:52", "11:52", "17:52", "23:52"],
       "model_nominal_runs_utc": ["00Z", "06Z", "12Z", "18Z"],
       "measured_utc_availability": {
-        "source": "S3 LastModified data_spatial/<dominio>/<YYYY>/<MM>/<DD>/<HH>00Z/",
-        "sample": "2026-10-21",
-        "runs_sampled": 4,
-        "median_h": 8.24,
-        "max_h": 9.11,
-        "note": "00Z +8.73h, 06Z +7.55h, 12Z +9.11h (il piu tardivo), 18Z +7.74h; i run 06/18Z sono corti (50 file) rispetto a 00/12Z (86 file)",
-        "tightest_margin_min": 44,
-        "tightest_margin_ref": "slot 21:50 vs run 12Z disponibile 21:06:47"
+        "source": "misura del 2026-10-24: ore dopo il run nominale (primo step = prima pubblicazione utile del run; run completo = ultimo frame utile). Sostituisce la misura del 2026-10-21, conservata sotto previous_measurement_2026_10_21.",
+        "measured_on": "2026-10-24",
+        "first_step_h": "+3h40 (ncep_gfs025)",
+        "full_run_h": "+5h39 (ncep_gfs025)",
+        "margin_min": 13,
+        "margin_ref": "run completo ncep_gfs025 +5h39 (slot 05:52 = +13')",
+        "margin_rule": "margine 10-15 min su un campione di 1 giorno; nessuno slot oltre 30 min dal tempo misurato",
+        "note": "nessuna nota",
+        "previous_measurement_2026_10_21": {
+          "median_h": 6.2,
+          "max_h": 6.59,
+          "tightest_margin_min": 25,
+          "tightest_margin_ref": "slot 13:00 vs run 06Z disponibile 12:35:13"
+        }
       },
+      "native_safety_net_cron": "49 0,6,12,18 * * *",
+      "open_meteo_delay": "misurato 2026-10-21: 5.48-6.59h",
+      "target_endpoint": "https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-ncep.yml/dispatches",
+      "method": "POST",
+      "payload": {
+        "ref": "main",
+        "inputs": {
+          "force_update": false
+        }
+      }
+    },
+    {
+      "id": "forecast_ecmwf_ifs_partial",
+      "name": "ECMWF IFS 0.25 Forecast Maps (slot parziale)",
+      "cronjob_title": "MeteoRisk - ECMWF IFS 0.25 (parziale)",
+      "workflow_file": "forecast-maps-ecmwf.yml",
+      "slot_role": "partial",
+      "slot_label": "parziale",
+      "schedule_utc": "48 1,7,13,19 * * *",
+      "cronjob_hours": [1, 7, 13, 19],
+      "cronjob_minutes": [48],
+      "schedule_description": "4 slot/giorno (01:48, 07:48, 13:48, 19:48 UTC) = slot parziale di ciascuno dei 4 run nominali: parziale subito dopo il primo step (run parziale P1).",
+      "slot_utc_daily": ["01:48", "07:48", "13:48", "19:48"],
+      "model_nominal_runs_utc": ["00Z", "06Z", "12Z", "18Z"],
+      "measured_utc_availability": {
+        "source": "misura del 2026-10-24: ore dopo il run nominale (primo step = prima pubblicazione utile del run; run completo = ultimo frame utile). Sostituisce la misura del 2026-10-21, conservata sotto previous_measurement_2026_10_21.",
+        "measured_on": "2026-10-24",
+        "first_step_h": "+7h01..+7h36",
+        "full_run_h": "+9h40",
+        "margin_min": 12,
+        "margin_ref": "primo step +7h01..+7h36, margine calcolato sul massimo +7h36 (slot 07:48 = +12')",
+        "margin_rule": "margine 10-15 min su un campione di 1 giorno; nessuno slot oltre 30 min dal tempo misurato",
+        "note": "Il primo step e' un intervallo (7h01-7h36): lo slot e' tarato sul massimo, quindi nel caso migliore arriva 47' dopo il primo step.",
+        "previous_measurement_2026_10_21": {
+          "median_h": 8.24,
+          "max_h": 9.11,
+          "tightest_margin_min": 44,
+          "tightest_margin_ref": "slot 21:50 vs run 12Z disponibile 21:06:47"
+        }
+      },
+      "native_safety_net_cron": "49 4,10,16,22 * * *",
+      "open_meteo_delay": "misurato 2026-10-21: 7.55-9.11h",
+      "target_endpoint": "https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-ecmwf.yml/dispatches",
+      "method": "POST",
+      "payload": {
+        "ref": "main",
+        "inputs": {
+          "force_update": false
+        }
+      }
+    },
+    {
+      "id": "forecast_ecmwf_ifs_complete",
+      "name": "ECMWF IFS 0.25 Forecast Maps (slot completo)",
+      "cronjob_title": "MeteoRisk - ECMWF IFS 0.25 (completo)",
+      "workflow_file": "forecast-maps-ecmwf.yml",
+      "slot_role": "complete",
+      "slot_label": "completo",
+      "schedule_utc": "52 3,9,15,21 * * *",
+      "cronjob_hours": [3, 9, 15, 21],
+      "cronjob_minutes": [52],
+      "schedule_description": "4 slot/giorno (03:52, 09:52, 15:52, 21:52 UTC) = slot completo di ciascuno dei 4 run nominali: completo dopo la disponibilita completa del run.",
+      "slot_utc_daily": ["03:52", "09:52", "15:52", "21:52"],
+      "model_nominal_runs_utc": ["00Z", "06Z", "12Z", "18Z"],
+      "measured_utc_availability": {
+        "source": "misura del 2026-10-24: ore dopo il run nominale (primo step = prima pubblicazione utile del run; run completo = ultimo frame utile). Sostituisce la misura del 2026-10-21, conservata sotto previous_measurement_2026_10_21.",
+        "measured_on": "2026-10-24",
+        "first_step_h": "+7h01..+7h36",
+        "full_run_h": "+9h40",
+        "margin_min": 12,
+        "margin_ref": "run completo +9h40 (slot 09:52 = +12')",
+        "margin_rule": "margine 10-15 min su un campione di 1 giorno; nessuno slot oltre 30 min dal tempo misurato",
+        "note": "nessuna nota",
+        "previous_measurement_2026_10_21": {
+          "median_h": 8.24,
+          "max_h": 9.11,
+          "tightest_margin_min": 44,
+          "tightest_margin_ref": "slot 21:50 vs run 12Z disponibile 21:06:47"
+        }
+      },
+      "native_safety_net_cron": "49 4,10,16,22 * * *",
       "open_meteo_delay": "misurato 2026-10-21: 7.55-9.11h",
       "target_endpoint": "https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-ecmwf.yml/dispatches",
       "method": "POST",
@@ -148,9 +430,15 @@
     {
       "id": "forecast_index_aggregator",
       "name": "WebP Forecast Maps Index Aggregator",
+      "cronjob_title": "MeteoRisk - WebP Index Backup",
       "workflow_file": "forecast-maps-index.yml",
+      "slot_role": "backup",
+      "slot_label": "backup",
       "schedule_utc": "50 3,11,17,23 * * *",
-      "schedule_description": "Backup dell'indice ogni 6 ore a :50 UTC (03:50, 11:50, 17:50, 23:50), sfasato rispetto ai 5 dispatch per-fornitore per non sovrapporre i run",
+      "cronjob_hours": [3, 11, 17, 23],
+      "cronjob_minutes": [50],
+      "schedule_description": "Backup dell'indice ogni 6 ore a :50 UTC (03:50, 11:50, 17:50, 23:50), sfasato rispetto ai 10 dispatch per-fornitore.",
+      "slot_utc_daily": ["03:50", "11:50", "17:50", "23:50"],
       "model_nominal_runs_utc": ["Auto-triggered post merge"],
       "measured_utc_availability": {
         "source": "n/a",

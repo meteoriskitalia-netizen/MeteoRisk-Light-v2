@@ -44,31 +44,57 @@ Per consentire a cron-job.org di avviare i workflow occorre un token di autentic
 
 ## 3. Matrice Orari e Calibrazione Modelli
 
-Tutti gli orari sono tarati sulla **disponibilità reale misurata su S3** (campione 2026-10-21, `LastModified` massimo degli oggetti `data_spatial/<dominio>/<YYYY>/<MM>/<DD>/<HH>00Z/`), non sui ritardi dichiarati da Open-Meteo né sui tempi nominali dei modelli.
+Tutti gli orari sono tarati sui **tempi MISURATI il 2026-10-24** (ore dopo il run nominale): **primo step** = prima pubblicazione utile del run, **run completo** = ultimo frame utile. Non sono i ritardi dichiarati da Open-Meteo ne' i tempi nominali dei modelli. La misura precedente (2026-10-21, solo run completo) resta registrata in `measured_utc_availability.previous_measurement_2026_10_21` di ogni job.
 
-| Modello Meteo | Workflow GitHub | Run Nominali (UTC) | Disponibilità MISURATA su S3 | Orario Trigger (UTC) | Espressione Cron |
+**Regola P2 — 2 slot per run.** Il primo slot parte subito dopo il **primo step** e pubblica un **run parziale** (`--allow-partial-run`, ~24-30 frame su ~209): la mappa e' visibile ore prima. Il secondo slot parte dopo la **disponibilita' completa** e chiude la coda. Costo dichiarato: **un render in piu' per run**, modesto perche' ai primi step i frame sono ~24-30.
+Margine: **+10..15 min** sul tempo misurato, e **nessuno slot oltre +30 min** (vincolo esplicito: un margine piu' largo annullerebbe il guadagno del primo slot). Su cron-job.org un job copre un solo orario di minuto, quindi **2 slot per run = 2 job per provider**. Due slot a meno di 20 minuti si accorpano: qui e' successo solo per DWD (vedi 3.2).
+
+| Modello Meteo | Workflow GitHub | Run Nominali (UTC) | Primo step (misurato) | Run completo (misurato) | Slot parziale (UTC) | Slot completo (UTC) |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **DWD ICON-EU & ICON-D2** | `forecast-maps-dwd.yml` | 00, 03, 06, 09, 12, 15, 18, 21 | ICON-D2 **+0h46**<br>ICON-EU **+2h47** | ICON-D2 **+1h23**<br>ICON-EU **+3h57** | **8 slot**<br>`01:10, 04:10, 07:10, 10:10, 13:10, 16:10, 19:10, 22:10` | **8 slot**<br>`00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00` |
+| **DWD ICON Global** | `forecast-maps-dwdicon.yml` | 00, 06, 12, 18 | **+2h46** | **+3h28** | **4 slot**<br>`03:01, 09:01, 15:01, 21:01` | **4 slot**<br>`03:41, 09:41, 15:41, 21:41` |
+| **Meteo-France ARPEGE 0.25** | `forecast-maps-meteofrance.yml` | 00, 06, 12, 18 | **+3h17 .. +4h08** | **+5h16** | **4 slot**<br>`04:20, 10:20, 16:20, 22:20` | **4 slot**<br>`05:29, 11:29, 17:29, 23:29` |
+| **NCEP GFS (0.25 + 0.117)** | `forecast-maps-ncep.yml` | 00, 06, 12, 18 | **+3h40** (gfs025) | **+5h39** (gfs025) | **4 slot**<br>`03:55, 09:55, 15:55, 21:55` | **4 slot**<br>`05:52, 11:52, 17:52, 23:52` |
+| **ECMWF IFS 0.25** | `forecast-maps-ecmwf.yml` | 00, 06, 12, 18 | **+7h01 .. +7h36** | **+9h40** | **4 slot**<br>`01:48, 07:48, 13:48, 19:48` | **4 slot**<br>`03:52, 09:52, 15:52, 21:52` |
+| **WebP Index Aggregator** | `forecast-maps-index.yml` | Post-merge (automatico) | n/a | n/a | **Backup ogni 6 ore**<br>`03:50, 11:50, 17:50, 23:50` | - |
+
+### 3.1 Slot per run e margine effettivo
+
+Margine = slot meno il tempo misurato che quello slot deve servire.
+
+| Provider | Run nominale | Slot 1 (parziale) | Margine | Slot 2 (completo) | Margine |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **DWD ICON-EU & ICON-D2** | `forecast-maps-dwd.yml` | 00, 03, 06, 09, 12, 15, 18, 21 | run lunghi (00/06/12/18Z): mediana **3,71h**, max **4,38h**<br>run corti (03/09/15/21Z): mediana **3,20h**, max **3,20h** | **8 slot/giorno**<br>`00:30, 04:30, 06:30, 10:30, 12:30, 16:30, 18:30, 22:30` | `30 0,4,6,10,12,16,18,22 * * *` |
-| **DWD ICON Global** | `forecast-maps-dwdicon.yml` | 00, 06, 12, 18 | mediana **3,72h**, max **4,57h** (00Z) | **4 slot/giorno**<br>`04:45, 10:45, 16:45, 22:45` | `45 4,10,16,22 * * *` |
-| **Météo-France ARPEGE 0.25** | `forecast-maps-meteofrance.yml` | 00, 06, 12, 18 | mediana **4,99h**, max **6,20h** (12Z) | **4 slot/giorno**<br>`00:45, 06:45, 12:45, 18:45` | `45 0,6,12,18 * * *` |
-| **NCEP GFS (0.25 + 0.117)** | `forecast-maps-ncep.yml` | 00, 06, 12, 18 | mediana **6,20h**, max **6,59h** (06Z) | **4 slot/giorno**<br>`01:00, 07:00, 13:00, 19:00` | `0 1,7,13,19 * * *` |
-| **ECMWF IFS 0.25** | `forecast-maps-ecmwf.yml` | 00, 06, 12, 18 (4 run/giorno) | mediana **8,24h**, max **9,11h** (12Z) | **4 slot/giorno**<br>`02:50, 09:50, 14:50, 21:50` | `50 2,9,14,21 * * *` |
-| **WebP Index Aggregator** | `forecast-maps-index.yml` | Post-merge (automatico) | n/a (job di backup: non dipende da un singolo dominio) | **Backup ogni 6 ore**<br>`03:50, 11:50, 17:50, 23:50` | `50 3,11,17,23 * * *` |
+| DWD (D2 parziale) | 00Z | `01:10` | +24' su D2 +0h46 | `03:00` | +13' su EU +2h47 |
+| DWD | 03Z | `04:10` | +24' / chiude EU 00Z a +13' su +3h57 | `06:00` | +13' |
+| DWD | 06Z | `07:10` | +24' / chiude EU 03Z a +13' | `09:00` | +13' |
+| DWD | 09Z | `10:10` | +24' / chiude EU 06Z a +13' | `12:00` | +13' |
+| DWD | 12Z | `13:10` | +24' / chiude EU 09Z a +13' | `15:00` | +13' |
+| DWD | 15Z | `16:10` | +24' / chiude EU 12Z a +13' | `18:00` | +13' |
+| DWD | 18Z | `19:10` | +24' / chiude EU 15Z a +13' | `21:00` | +13' |
+| DWD | 21Z | `22:10` | +24' / chiude EU 18Z a +13' | `00:00` | +13' (run 21Z, EU +3h57 -> 00:57, servito da `01:10`) |
+| DWD ICON Global | 00Z / 06Z / 12Z / 18Z | `03:01` / `09:01` / `15:01` / `21:01` | +15' | `03:41` / `09:41` / `15:41` / `21:41` | +13' |
+| ARPEGE 0.25 | 00Z / 06Z / 12Z / 18Z | `04:20` / `10:20` / `16:20` / `22:20` | +12' (sul massimo +4h08; +63' sul minimo +3h17) | `05:29` / `11:29` / `17:29` / `23:29` | +13' |
+| NCEP GFS | 00Z / 06Z / 12Z / 18Z | `03:55` / `09:55` / `15:55` / `21:55` | +15' | `05:52` / `11:52` / `17:52` / `23:52` | +13' |
+| ECMWF IFS 0.25 | 00Z / 06Z / 12Z / 18Z | `07:48` / `13:48` / `19:48` / `01:48` | +12' (sul massimo +7h36; +47' sul minimo +7h01) | `09:52` / `15:52` / `21:52` / `03:52` | +12' |
 
-### 3.1 Perché quegli slot (mappatura slot → run coperto)
+> ⚠️ **DWD: un trigger lancia entrambi i domini.** ICON-EU e ICON-D2 stanno nella stessa matrice, quindi ogni slot agisce su tutti e due. Conseguenza dichiarata: allo slot `01:10` ICON-EU non ha ancora pubblicato nulla (primo step +2h47) e il suo NO-OP guard lo chiude in pochi minuti; allo slot `03:00` ICON-D2 e' completo da 1h37 (+97' dal run completo +1h23), che e' un ruolo **secondario dichiarato** e non un obbligo dei +30'. Il completo di ICON-EU arriva allo slot `01:10` del run successivo, +13' su +3h57.
 
-Ogni slot cade **dopo** la disponibilità del run che deve servire; i run "lunghi" e "corti" di DWD hanno tempi diversi, quindi la fascia DWD ha 8 slot e non 4.
+### 3.2 Accorpamenti dichiarati
 
-| Job | Slot → run coperto | Margine misurato minimo |
-| :--- | :--- | :--- |
-| **DWD ICON-EU/D2** | `00:30`←21Z (g. prec.) · `04:30`←00Z · `06:30`←03Z · `10:30`←06Z · `12:30`←09Z · `16:30`←12Z · `18:30`←15Z · `22:30`←18Z | **7 min** (`04:30` vs run 00Z pronto alle 04:22:58) |
-| **DWD ICON Global** | `04:45`←00Z · `10:45`←06Z · `16:45`←12Z · `22:45`←18Z | **11 min** (`04:45` vs 04:34:02) |
-| **ARPEGE 0.25** | `00:45`←18Z (g. prec.) · `06:45`←00Z · `12:45`←06Z · `18:45`←12Z | **34 min** (`18:45` vs 18:11:43) |
-| **NCEP GFS** | `01:00`←18Z (g. prec.) · `07:00`←00Z · `13:00`←06Z · `19:00`←12Z | **25 min** (`13:00` vs 12:35:13) |
-| **ECMWF IFS 0.25** | `02:50`←18Z (g. prec.) · `09:50`←00Z · `14:50`←06Z · `21:50`←12Z | **44 min** (`21:50` vs 21:06:47) |
-| **WebP Index Backup** | sfasato di ~50 min dai dispatch provider, nessuna sovrapposizione | n/a |
+- **DWD**: i ruoli per-dominio sarebbero 4 (D2 parziale `00:59`, D2 completo `01:36`, EU parziale `03:00`, EU completo `04:10`). D2 completo (`01:36`) e D2 parziale del run dopo (`03:59`) stanno a 11' l'uno dall'altro e il completo EU (`04:10`) coincide con lo slot `01:10` del run successivo: 4 slot per run darebbero 32 trigger/giorno con due coppie sotto i 20'. Sono stati ridotti a **2 trigger per run** (`01:10` e `03:00`), ognuno con due ruoli. Costo dichiarato: i 209 frame completi di ICON-D2 arrivano alle `03:00` invece che alle `01:36` (+1h24), mentre ICON-D2 parziale e' gia' visibile dalle `01:10`.
+- **Nessun altro accorpamento**: gli altri provider hanno i due slot a 40'-124' di distanza.
 
-> ⚠️ **Margine più stretto dell'intera matrice: 7 minuti** sullo slot DWD `04:30` (run 00Z pronto alle 04:22:58). Conseguenza dichiarata: se il run 00Z tarda oltre le 04:30, quello slot dispatcha il run ancora presente su S3 (tipicamente il 21Z) e il 00Z può **non** essere servito da nessuno slot successivo, perché `06:30` troverà già disponibile il 03Z. Il margine è stretto per scelta (l'alternativa sarebbe servire ogni run 2 ore più tardi); è documentato qui e in `measured_utc_availability.tightest_margin_min`, non nascosto.
+### 3.3 Rete di sicurezza nativa (cron GitHub)
+
+Il blocco `schedule:` dei 5 workflow **non** ripete gli slot di cron-job.org (sarebbero due run per lo stesso run nominale): contiene **una sola riga** per provider, spostata di **+57'** rispetto allo slot che chiude la coda del run.
+
+| Provider | Slot che chiude la coda | Cron nativo (UTC) | Distanza minima dagli slot cron-job.org |
+| :--- | :--- | :--- | :--- |
+| DWD ICON-EU/D2 | `04:10` (EU completo) | `7 2,5,8,11,14,17,20,23 * * *` | 53' |
+| DWD ICON Global | `03:41` | `38 4,10,16,22 * * *` | 57' |
+| ARPEGE 0.25 | `05:29` | `26 0,6,12,18 * * *` | 57' |
+| NCEP GFS | `05:52` | `49 0,6,12,18 * * *` | 57' |
+| ECMWF IFS 0.25 | `09:52` | `49 4,10,16,22 * * *` | 57' |
 
 > ℹ️ **Nota Fuso Orario**: Impostare il fuso orario di ciascun job su cron-job.org su **UTC** (Coordinated Universal Time). In ora solare italiana (CET) corrisponde a UTC+1; in ora legale (CEST) corrisponde a UTC+2. Mantenere UTC garantisce che le run meteo rimangano sempre allineate indipendentemente dal cambio dell'ora.
 
@@ -76,7 +102,7 @@ Ogni slot cade **dopo** la disponibilità del run che deve servire; i run "lungh
 
 ## 4. Configurazione Passo-Passo su cron-job.org
 
-Per ciascuno dei 6 modelli sopra elencati, crea un nuovo cronjob su cron-job.org:
+Servono **11 job**: 2 per ciascuno dei 5 provider + il backup dell'indice. I valori sotto sono la copia esatta di `scripts/cronjobs/cronjobs_config.json`; `scripts/cronjobs/setup_cronjobs_api.js` li applica leggendo quel file (non ci sono piu' costanti duplicate: era il difetto per cui rieseguire lo script riportava i job agli orari vecchi).
 
 ### Parametri Comuni a tutti i job:
 - **Request Method**: `POST`
@@ -92,47 +118,30 @@ Per ciascuno dei 6 modelli sopra elencati, crea un nuovo cronjob su cron-job.org
   ```json
   {"ref":"main","inputs":{"force_update":false}}
   ```
-- **Expected Status Code**: `204` (No Content è la risposta standard di successo di GitHub Actions)
+  (il job di backup dell'indice usa `{"ref":"main"}` senza `inputs`: con `inputs` l'API risponde HTTP 422)
+- **Expected Status Code**: `204` (No Content e' la risposta standard di successo di GitHub Actions)
 
 ---
 
-### Schede di Configurazione per Modello:
+### Schede di Configurazione (11 job)
 
-#### 1. DWD ICON-EU + ICON-D2
-- **Title**: `MeteoRisk - DWD ICON EU + D2`
-- **URL**: `https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-dwd.yml/dispatches`
-- **Schedule**: User-defined (cron expression)
-- **Cron Expression**: `30 0,4,6,10,12,16,18,22 * * *` (Timezone: **UTC**)
+URL: `https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/<workflow_file>/dispatches`
 
-#### 2. DWD ICON Global
-- **Title**: `MeteoRisk - DWD ICON Global`
-- **URL**: `https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-dwdicon.yml/dispatches`
-- **Schedule**: User-defined (cron expression)
-- **Cron Expression**: `45 4,10,16,22 * * *` (Timezone: **UTC**)
+| # | Title (cron-job.org) | Workflow | Cron (UTC) | Orari |
+| :--- | :--- | :--- | :--- | :--- |
+| 1 | `MeteoRisk - DWD ICON EU + D2 (parziale)` | `forecast-maps-dwd.yml` | `10 1,4,7,10,13,16,19,22 * * *` | 01:10, 04:10, 07:10, 10:10, 13:10, 16:10, 19:10, 22:10 |
+| 2 | `MeteoRisk - DWD ICON EU + D2 (completo)` | `forecast-maps-dwd.yml` | `0 0,3,6,9,12,15,18,21 * * *` | 00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00 |
+| 3 | `MeteoRisk - DWD ICON Global (parziale)` | `forecast-maps-dwdicon.yml` | `1 3,9,15,21 * * *` | 03:01, 09:01, 15:01, 21:01 |
+| 4 | `MeteoRisk - DWD ICON Global (completo)` | `forecast-maps-dwdicon.yml` | `41 3,9,15,21 * * *` | 03:41, 09:41, 15:41, 21:41 |
+| 5 | `MeteoRisk - ARPEGE 0.25 (parziale)` | `forecast-maps-meteofrance.yml` | `20 4,10,16,22 * * *` | 04:20, 10:20, 16:20, 22:20 |
+| 6 | `MeteoRisk - ARPEGE 0.25 (completo)` | `forecast-maps-meteofrance.yml` | `29 5,11,17,23 * * *` | 05:29, 11:29, 17:29, 23:29 |
+| 7 | `MeteoRisk - NCEP GFS (parziale)` | `forecast-maps-ncep.yml` | `55 3,9,15,21 * * *` | 03:55, 09:55, 15:55, 21:55 |
+| 8 | `MeteoRisk - NCEP GFS (completo)` | `forecast-maps-ncep.yml` | `52 5,11,17,23 * * *` | 05:52, 11:52, 17:52, 23:52 |
+| 9 | `MeteoRisk - ECMWF IFS 0.25 (parziale)` | `forecast-maps-ecmwf.yml` | `48 1,7,13,19 * * *` | 01:48, 07:48, 13:48, 19:48 |
+| 10 | `MeteoRisk - ECMWF IFS 0.25 (completo)` | `forecast-maps-ecmwf.yml` | `52 3,9,15,21 * * *` | 03:52, 09:52, 15:52, 21:52 |
+| 11 | `MeteoRisk - WebP Index Backup` | `forecast-maps-index.yml` | `50 3,11,17,23 * * *` | 03:50, 11:50, 17:50, 23:50 |
 
-#### 3. Météo-France ARPEGE 0.25
-- **Title**: `MeteoRisk - ARPEGE 0.25`
-- **URL**: `https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-meteofrance.yml/dispatches`
-- **Schedule**: User-defined (cron expression)
-- **Cron Expression**: `45 0,6,12,18 * * *` (Timezone: **UTC**)
-
-#### 4. NCEP GFS (0.25 + 0.117)
-- **Title**: `MeteoRisk - NCEP GFS`
-- **URL**: `https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-ncep.yml/dispatches`
-- **Schedule**: User-defined (cron expression)
-- **Cron Expression**: `0 1,7,13,19 * * *` (Timezone: **UTC**)
-
-#### 5. ECMWF IFS 0.25
-- **Title**: `MeteoRisk - ECMWF IFS 0.25`
-- **URL**: `https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-ecmwf.yml/dispatches`
-- **Schedule**: User-defined (cron expression)
-- **Cron Expression**: `50 2,9,14,21 * * *` (Timezone: **UTC**)
-
-#### 6. WebP Index Aggregator (Backup)
-- **Title**: `MeteoRisk - WebP Index Backup`
-- **URL**: `https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-index.yml/dispatches`
-- **Schedule**: User-defined (cron expression)
-- **Cron Expression**: `50 3,11,17,23 * * *` (Timezone: **UTC**)
+> ⚠️ **I 5 titoli della tabella a 1 slot (`MeteoRisk - DWD ICON EU + D2`, `- DWD ICON Global`, `- ARPEGE 0.25`, `- NCEP GFS`, `- ECMWF IFS 0.25`) vanno DISABILITATI**, altrimenti continuano a dispatchare agli orari vecchi. `setup_cronjobs_api.js` lo fa da solo (lista `retired_job_titles` nel config) e stampa l'esito; se la PATCH viene rifiutata, disabilitarli a mano dalla dashboard.
 
 ---
 

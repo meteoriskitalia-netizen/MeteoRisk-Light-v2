@@ -20,11 +20,11 @@ declare -A WORKFLOWS=(
 )
 
 declare -A DESCRIPTIONS=(
-  ["dwd"]="DWD ICON-EU + ICON-D2 (ogni 3h :30 UTC)"
-  ["dwdicon"]="DWD ICON Global (04:30, 10:30, 16:30, 22:30 UTC)"
-  ["meteofrance"]="Météo-France ARPEGE 0.25 (04:15, 10:15, 16:15, 22:15 UTC)"
-  ["ncep"]="NCEP GFS 0.25 + 0.117 (00:15, 06:15, 12:15, 18:15 UTC)"
-  ["ecmwf"]="ECMWF IFS 0.25 (07:45, 19:45 UTC)"
+  ["dwd"]="DWD ICON-EU + ICON-D2 (8 run; 2 slot/run: parziale 01:10, completo 03:00, ogni 3h UTC)"
+  ["dwdicon"]="DWD ICON Global (4 run; parziale 03:01, completo 03:41, ogni 6h UTC)"
+  ["meteofrance"]="Meteo-France ARPEGE 0.25 (4 run; parziale 04:20, completo 05:29, ogni 6h UTC)"
+  ["ncep"]="NCEP GFS 0.25 + 0.117 (4 run; parziale 03:55, completo 05:52, ogni 6h UTC)"
+  ["ecmwf"]="ECMWF IFS 0.25 (4 run; parziale 07:48, completo 09:52, ogni 6h UTC)"
   ["index"]="WebP Index Aggregator (ogni 6h :50 UTC)"
 )
 

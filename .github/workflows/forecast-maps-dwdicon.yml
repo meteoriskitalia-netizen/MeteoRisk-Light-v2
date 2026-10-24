@@ -48,14 +48,16 @@ on:
         type: boolean
         default: false
   schedule:
-    # TRIGGER NATIVO (cron GitHub, orario UTC) - rende il workflow AUTO-SUFFICIENTE,
-    # senza dipendere da uno scheduler esterno (cron-job.org) e senza secret.
-    # ICON GLOBAL: i run nominali DWD sono alle 00/06/12/18Z e su Open-Meteo il run
-    # diventa disponibile ~3h29 dopo il nominale (misurato il 21/10/2026) -> si
-    # parte +4h30 dal nominale, cosi' il download non gira mai sul run VECCHIO.
-    # I 4 slot distano 6h: piu' della durata massima del dominio globale
-    # (~2h40 a cache fredda, contro il timeout di 180'), la pipeline sovrappone engine e render frame per frame.
-    - cron: "30 4,10,16,22 * * *"
+    # TRIGGER NATIVO (cron GitHub, orario UTC) - RETE DI SICUREZZA.
+    # Il trigger PRIMARIO sono i 2 job cron-job.org per provider (2 slot
+    # per run, vedi scripts/cronjobs/cronjobs_config.json).
+    # DUE SLOT PER RUN (regola P2) su cron-job.org, NON qui:
+    #   03:01, 09:01, 15:01, 21:01 = parziale (+15' su primo step +2h46)
+    #   03:41, 09:41, 15:41, 21:41 = completo (+13' su run completo +3h28)
+    # ICON GLOBAL: run nominali 00/06/12/18Z. Tempi MISURATI il 2026-10-24.
+    # Questo cron e' SOLO la rete di sicurezza: +3h41 (chiusura coda) + 57',
+    # sfasato di 57' dagli slot cron-job.org.
+    - cron: "38 4,10,16,22 * * *"
   repository_dispatch:
     types: [ci-run]
 
@@ -153,6 +155,8 @@ jobs:
             --out data/fm2 \
             --frames-cache .cache_fm2_frames \
             --progress-manifest "$PROGRESS" \
+            --allow-partial-run \
+            --partial-min-frames 3 \
             $FORCE &
           ENGINE_PID=$!
           python scripts/forecast_v2/render_fm_webp.py \
