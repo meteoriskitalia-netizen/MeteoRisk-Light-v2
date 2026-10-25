@@ -12710,8 +12710,23 @@ function fmSetTimeline(doc, serverRegion) {
                     }
                 }
             }
-            // frame sparito dalla timeline (run potato): si resta sull'indice piu' vicino,
-            // NON si torna al frame 0 che e' il piu' vecchio.
+            // frame sparito dalla timeline (run potato): si sceglie il frame con il
+            // valid_time PIU' VICINO a quello che l'utente stava guardando. Non si usa
+            // la stessa posizione numerica: con una timeline potata l'indice n puo'
+            // cadere su un'ora molto diversa, e l'utente vedrebbe un salto silenzioso.
+            if (nextIdx === null && prevFrame && prevFrame.valid_time) {
+                var prevT = Date.parse(prevFrame.valid_time);
+                if (isFinite(prevT)) {
+                    var bestDiff = Infinity;
+                    for (var m = 0; m < frames.length; m++) {
+                        var t = Date.parse(frames[m].valid_time);
+                        if (!isFinite(t)) continue;
+                        var diff = Math.abs(t - prevT);
+                        if (diff < bestDiff) { bestDiff = diff; nextIdx = m; }
+                    }
+                }
+            }
+            // ultima risorsa: stessa posizione (clampata), poi il run corrente.
             if (nextIdx === null) nextIdx = Math.min(prevIdx, frames.length - 1);
             fmIdx = Math.max(0, Math.min(nextIdx, frames.length - 1));
             if (runChanged) fmShowNewRunNotice(newPreferred.run_id);

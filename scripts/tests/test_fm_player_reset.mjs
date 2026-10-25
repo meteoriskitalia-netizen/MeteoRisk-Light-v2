@@ -126,6 +126,8 @@ ok('W18: avviso non bloccante "Nuova run disponibile" con link al frame preferit
 ok('W19: fmSetTimeline ha i due rami (non mosso -> preferred; mosso -> conserva + avviso)',
   /if \(!fmUserMovedFrame\) \{\s*\n\s*fmIdx = fmTimelinePreferredIndex\(frames\);/.test(src) &&
   /if \(runChanged\) fmShowNewRunNotice\(newPreferred\.run_id\);/.test(src));
+ok('W20: frame sparito -> si sceglie il valid_time piu\' vicino, non la stessa posizione',
+  /Date\.parse\(prevFrame\.valid_time\)/.test(src) && /Math\.abs\(t - prevT\)/.test(src));
 
 console.log(failures === 0 ? '\nRESULT: PASS' : `\nRESULT: FAIL (${failures})`);
 process.exit(failures === 0 ? 0 : 1);
