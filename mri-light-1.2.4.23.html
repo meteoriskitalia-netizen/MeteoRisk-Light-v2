@@ -1888,9 +1888,16 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.22';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.23';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-25';
     const APP_CHANGELOG = [
+        { version: '1.2.4.23', date: '2026-10-25', changes: [
+  'MAPPE= Frame iniziale utile: all\'apertura il pannello parte dal PRIMO frame del run piu\' recente (bucket 0), non dal frame 0 che nella timeline reale e\' il piu\' vecchio; se il bucket 0 non esiste usa il bucket piu\' recente disponibile. Il cambio modello/variabile/run usa la stessa scelta.',
+  'MAPPE= Salto dei frame morti: se il WebP di un frame fallisce (404 o errore) il client passa automaticamente al frame successivo (sull\'ultimo, al precedente) senza lasciare la mappa vuota; il salto automatico si ferma dopo 8 tentativi consecutivi con un messaggio esplicito e ferma anche l\'animazione.',
+  'MAPPE= Frame morti ricordati: un URL WebP che ha fallito resta marcato per la sessione e non viene piu\' richiesto dai giri successivi dell\'animazione, dal warm-ahead ne\' dal preload.',
+  'MAPPE= Status coerente: il path .om viene risolto solo quando il WebP non e\' utilizzabile, quindi non compare piu\' "Errore frame cache mappe previsionali mancante" mentre il WebP e\' a schermo; a caricamento riuscito lo status descrive il frame visibile (indice, ora, run). Il binario resta a segmenti colorati contigui con cursore rettangolare, nessun pallino.',
+  'DOC= Bump versione 1.2.4.23'
+  ] },
         { version: '1.2.4.22', date: '2026-10-25', changes: [
   'MAPPE= Nuova timeline dei frame: il pannello legge data/fm2-rendered/<regione>/timeline.json (schema fm2-timeline-1, per dominio e variabile) e usa la sequenza della variabile selezionata. L URL del WebP si compone da file_base + file_template con <dominio>, <run_id>, <variabile> e <file>: non viene ricostruito dal valid_time.',
   'MAPPE= Barra dei frame colorata per run: il binario dello slider e dipinto a segmenti CONTIGUI, un colore per bucket (0 = run piu recente). Il cambio di colore segna il punto in cui cambia il modello. Nessun pallino e nessun indicatore circolare sul binario: il cursore e un rettangolo arrotondato, non un cerchio.',
@@ -12071,6 +12078,15 @@ var fmSelectedRunId = null;
     var fmTimelineGen = 0;                 // token anti-race
     var fmTimelineMiss = Object.create(null); // regione -> timestamp dell'ultimo 404/invalido
     var FM_TIMELINE_RETRY_MS = 60000;
+    // 1.2.4.23 - FRAME WEBP MORTI (404/errore) E SALTO AUTOMATICO.
+    // La timeline puo' citare frame di run gia' potate: l'URL che ha fallito viene
+    // ricordato per la sessione (non ritentato a ogni giro) e il pannello passa al
+    // frame successivo con un tetto di tentativi consecutivi.
+    var fmDeadWebpUrls = Object.create(null); // url -> true
+    var fmDeadWebpOrder = [];
+    var FM_DEAD_WEBP_LIMIT = 512;
+    var fmFrameSkipAttempts = 0;              // fallimenti consecutivi del frame corrente
+    var FM_FRAME_SKIP_MAX = 8;
     var FM_RUN_BUCKET_COLORS = ['#38bdf8', '#a78bfa', '#f59e0b', '#f472b6', '#34d399', '#f87171'];
     var FM_MONTHS_IT = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
     function fmRememberDecodedWebp(url, image) {
@@ -12235,8 +12251,8 @@ function fmRunChanged() {
     fmSelectedRunId = sel.value || null;
     fmRunManual = true; // 1.2.4.14: l'utente ha scelto manualmente
     var times = fmDisplayValidTimes();
-    fmResetPlayerForModelChange('run');   // 1.2.4.16: stop animazione + slider a 0 + cache invalidate
-    fmIdx = 0;
+    fmResetPlayerForModelChange('run');   // 1.2.4.16: stop animazione + slider al primo frame utile + cache invalidate
+    fmIdx = fmStartFrameIndex();
     fmPopulateTimes(times); fmSyncSlider();
     var run = fmSelectedRun();
     fmUpdateRunDisplay(run && (run.reference_time || run.generated_at));
@@ -12400,6 +12416,101 @@ function fmTimelineBounds() {
     if (fmClipBounds) return [[fmClipBounds[1], fmClipBounds[0]], [fmClipBounds[3], fmClipBounds[2]]];
     return null;
 }
+// ================= 1.2.4.23 - FRAME MORTI E SCELTA DEL FRAME INIZIALE ================
+// Difetto misurato in produzione (1.2.4.22): il frame 0 della timeline e' il piu'
+// VECCHIO e puo' appartenere a una run gia' potata (HTTP 404): il pannello si apriva
+// su una mappa vuota. Qui: (a) si parte dal primo frame del run piu' recente (bucket
+// minimo, 0 = corrente), (b) un frame che fallisce viene ricordato e saltato, (c) il
+// salto automatico e' limitato a FM_FRAME_SKIP_MAX tentativi consecutivi.
+function fmDeadWebpRemember(url) {
+    if (!url) return;
+    if (!fmDeadWebpUrls[url]) {
+        fmDeadWebpUrls[url] = true;
+        fmDeadWebpOrder.push(url);
+    }
+    while (fmDeadWebpOrder.length > FM_DEAD_WEBP_LIMIT) {
+        var oldUrl = fmDeadWebpOrder.shift();
+        delete fmDeadWebpUrls[oldUrl];
+    }
+}
+function fmDeadWebpIs(url) { return !!(url && fmDeadWebpUrls[url]); }
+function fmTimelineBucketValue(entry) {
+    var b = Number(entry && entry.bucket);
+    return (isFinite(b) && b >= 0) ? b : 0;
+}
+function fmTimelinePreferredIndex(frames) {
+    // Primo frame del run piu' recente (bucket minimo). Se quel frame e' gia' noto
+    // come morto si scorre in avanti, cosi' non si ripete una richiesta gia' fallita.
+    var list = frames || fmTimelineFramesActive();
+    if (!list.length) return 0;
+    var best = null;
+    for (var i = 0; i < list.length; i++) {
+        var b = fmTimelineBucketValue(list[i]);
+        if (best === null || b < best) best = b;
+    }
+    var start = 0;
+    for (var j = 0; j < list.length; j++) {
+        if (fmTimelineBucketValue(list[j]) === best) { start = j; break; }
+    }
+    for (var k = 0; k < list.length; k++) {
+        var idx = (start + k) % list.length;
+        if (!fmDeadWebpIs(fmTimelineFileUrl(list[idx]))) return idx;
+    }
+    return start;
+}
+function fmStartFrameIndex() {
+    // Con la timeline il primo frame utile e' quello del run piu' recente; senza
+    // timeline resta il frame 0 della 1.2.4.22 (fallback invariato).
+    var frames = fmTimelineFramesActive();
+    return frames.length ? fmTimelinePreferredIndex(frames) : 0;
+}
+function fmNextAliveFrameIndex(from) {
+    // Frame successivo non marcato morto; sull'ultimo si torna indietro. -1 se nessuno.
+    var frames = fmTimelineFramesActive();
+    var n = frames.length;
+    if (!n) return -1;
+    var dir = (from >= n - 1) ? -1 : 1;
+    var idx = from;
+    for (var step = 1; step <= n; step++) {
+        idx = (idx + dir + n) % n;
+        if (!fmDeadWebpIs(fmTimelineFileUrl(frames[idx]))) return idx;
+    }
+    return -1;
+}
+function fmTimelineSkipUnusableFrame(failedUrl) {
+    // Salta un frame che non puo' essere mostrato (WebP 404/errore). L'URL passato dal
+    // chiamante e' quello che ha DAVVERO fallito: solo quello viene marcato morto (un
+    // frame senza URL risolvibile non e' un 404 e non va ricordato come tale). Oltre
+    // FM_FRAME_SKIP_MAX fallimenti CONSECUTIVI si ferma e lo dichiara, invece di
+    // generare una raffica di richieste.
+    var frames = fmTimelineFramesActive();
+    if (!frames.length) return false;
+    if (failedUrl) fmDeadWebpRemember(failedUrl);
+    fmFrameSkipAttempts++;
+    var stop = function (text) {
+        if (fmIsPlaying) fmStopPlay();
+        fmPlaybackSetFramePending(false);
+        fmLoaderHide();
+        fmSetStatus(text);
+        return false;
+    };
+    if (fmFrameSkipAttempts >= FM_FRAME_SKIP_MAX) {
+        return stop('Nessun frame caricabile: ' + FM_FRAME_SKIP_MAX + ' tentativi consecutivi falliti. Controlla che il run selezionato sia ancora pubblicato.');
+    }
+    var nextIdx = fmNextAliveFrameIndex(fmIdx);
+    if (nextIdx < 0 || nextIdx === fmIdx) {
+        return stop('Nessun frame caricabile in questa sequenza: tutti i frame sono risultati non disponibili.');
+    }
+    fmIdx = nextIdx;
+    fmSyncSlider();
+    fmLayerKey = null;
+    var entry = frames[fmIdx];
+    var msg = entry ? (entry.valid_time + ' · run ' + entry.run_id) : '';
+    fmSetStatus('Frame non disponibile: salto al frame ' + (fmIdx + 1) + '/' + frames.length
+        + (msg ? ' (' + msg + ')' : '') + ' · tentativo ' + fmFrameSkipAttempts + '/' + FM_FRAME_SKIP_MAX);
+    fmRebuild();
+    return true;
+}
 function fmSetTimeline(doc, serverRegion) {
     // Applica un documento timeline mantenendo il frame corrente se esiste ancora.
     var prev = fmTimelineFramesActive();
@@ -12408,25 +12519,35 @@ function fmSetTimeline(doc, serverRegion) {
     fmTimelineRegion = serverRegion;
     fmTimelineMiss[serverRegion] = 0;
     var frames = fmTimelineFramesActive();
-    var nextIdx = 0;
+    var nextIdx = null;
     if (prevFrame && frames.length) {
         for (var i = 0; i < frames.length; i++) {
             if (frames[i].valid_time === prevFrame.valid_time && frames[i].file === prevFrame.file) { nextIdx = i; break; }
         }
-        if (!nextIdx) {
+        if (nextIdx === null) {
             for (var j = 0; j < frames.length; j++) {
                 if (frames[j].valid_time === prevFrame.valid_time) { nextIdx = j; break; }
             }
         }
     }
-    if (frames.length) fmIdx = Math.max(0, Math.min(nextIdx, frames.length - 1));
+    if (frames.length) {
+        // 1.2.4.23: senza un frame precedente da conservare si parte dal primo frame
+        // del run piu' recente (bucket minimo), non dal frame 0 che e' il piu' vecchio
+        // e nella timeline reale puo' essere gia' stato potato dal branch dati.
+        if (nextIdx === null) nextIdx = fmTimelinePreferredIndex(frames);
+        fmIdx = Math.max(0, Math.min(nextIdx, frames.length - 1));
+    }
+    fmFrameSkipAttempts = 0;
     fmPopulateRunSelector();
     if (fmActive && fmRenderRegionId() === serverRegion) {
         fmPopulateTimes(fmDisplayValidTimes());
         fmSyncSlider();
         fmUpdateTimelineRunLabel();
         fmLayerKey = null;
-        fmRebuild();
+        // 1.2.4.23: se index.json non e' ancora arrivato, fmTimelineBounds() userebbe il
+        // clip della regione e il layer verrebbe ricreato (stessa URL, bounds diversi)
+        // appena arriva l'indice. Si aspetta l'indice: done()/errore fa UN solo rebuild.
+        if (fmWebpIndex && fmWebpIndexRegion === serverRegion) fmRebuild();
     } else {
         fmPaintTimelineTrack();
         fmUpdateTimelineRunLabel();
@@ -12588,6 +12709,7 @@ function fmRegionChanged() {
     var s = fmEl('fm-region-select');
     if (s) fmRegion = s.value;
     fmWebpFailedUrl = null; // cambio regione: azzera il blacklist WebP
+    fmFrameSkipAttempts = 0; // 1.2.4.23: la sequenza di frame cambia con la regione
     fmApplyRegion(true);
 }
 function fmApplyRegion(refit) {
@@ -12960,7 +13082,7 @@ function fmUpdateTimeDisplay(validIso) {
     if (tl.length && tl[fmIdx]) fmUpdateRunDisplay(fmTimelineRunReference(tl[fmIdx]));
     fmUpdateTimelineRunLabel();
 }
-function fmOmUrlForIndexVar(idx, variableName) {
+function fmOmUrlForIndexVar(idx, variableName, quiet) {
     if (!fmMeta || fmIsHistoricalRun()) return null;
     var times = fmDisplayValidTimes();
     if (!times.length) return null;
@@ -12971,7 +13093,10 @@ function fmOmUrlForIndexVar(idx, variableName) {
     // .om si risolve per valid_time della voce (mai ricostruito a indovinare).
     var ffile = tlFrames.length ? fmMetaFileForValidTime(valid) : fm2FrameFile(idx);
     if (!ffile) {
-        fmSetStatus('Errore frame cache mappe previsionali mancante (data/fm2): ' + fmFmtTime(valid));
+        // 1.2.4.23: il chiamante puo' chiedere una risoluzione SILENZIOSA (warm-ahead,
+        // preload): quel frame non e' il layer visibile e il suo esito non deve
+        // contraddire lo status del WebP che e' davvero a schermo.
+        if (!quiet) fmSetStatus('Errore frame cache mappe previsionali mancante (data/fm2): ' + fmFmtTime(valid));
         return null;
     }
     // MODIFICA A: cache per-dominio. In cache mode (fmSrcCache=true, sempre in produzione
@@ -13135,6 +13260,12 @@ function fmFetchRenderedIndex(serverRegion, cb) {
             if (fmActive && fmRegion === 'north' && fmRenderRegionId() === serverRegion) {
                 fmSetStatus('Indice emisfero nord non disponibile (' + (err.message || 'errore rete') + ')');
             }
+            // 1.2.4.23: senza index.json la timeline puo' comunque mostrare il frame usando
+            // i bounds del clip: si fa il rebuild che fmSetTimeline ha rimandato.
+            if (fmActive && fmRenderRegionId() === serverRegion && fmTimelineFramesActive().length) {
+                fmLayerKey = null;
+                fmRebuild();
+            }
             if (cb) cb(err);
             return;
         }
@@ -13142,7 +13273,13 @@ function fmFetchRenderedIndex(serverRegion, cb) {
         fmWebpIndexRegion = serverRegion;
         fmWebpFailedUrl = null;                       // nuovo index -> azzera il blacklist WebP
         fmPopulateRunSelector();
-        if (fmActive && fmRenderRegionId() === serverRegion) { fmLayerKey = null; fmRebuild(); }
+        if (fmActive && fmRenderRegionId() === serverRegion) {
+            // 1.2.4.23: con la timeline attiva l'URL del frame non dipende da index.json:
+            // non si invalida la chiave (evita di riscaricare lo stesso frame). Se i bounds
+            // cambiano, la chiave di fmRebuild cambia comunque e il layer viene rifatto.
+            if (!fmTimelineFramesActive().length) fmLayerKey = null;
+            fmRebuild();
+        }
         if (cb) cb(null, idx);
     };
     try {
@@ -13203,6 +13340,7 @@ function fmWarmWebpNext() {
     var n = (fmIdx + 1) % times.length;
     var f = fmWebpFrameUrl(n);
     if (!f) return;
+    if (fmDeadWebpIs(f.url)) return; // 1.2.4.23: non riprecaricare un frame gia' fallito
     if (fmWebpDecodedImages[f.url]) return;
     try {
         var im = new Image();
@@ -13240,10 +13378,9 @@ function fmRebuild() {
     }
     // 1.2.4.22: con la timeline il frame WebP puo' esistere anche senza una voce .om
     // corrispondente, quindi il path WebP non puo' dipendere da cur.
+    // 1.2.4.23: il path .om si valuta SOLO quando il WebP non e' utilizzabile: prima
+    // fmCurrentOmUrl() emetteva "cache .om mancante" anche con il WebP gia' a schermo.
     var tlFramesNow = fmTimelineFramesActive();
-    var tlWebpNow = tlFramesNow.length ? fmWebpFrameUrl() : null;
-    var cur = fmCurrentOmUrl();
-    if (!cur && !tlWebpNow) return;
     // 1.2.4.13: i WebP contengono GIA' isolinee (con i valori scritti sopra) e frecce del
     // vento, quindi non sono piu' disabilitati da un toggle: si usa il fast-path WebP
     // sempre, tranne quando e' attivo l'overlay isobare MSL sul raster Z500 (che vuole il
@@ -13253,8 +13390,20 @@ function fmRebuild() {
     // disponibile nelle viste Leaflet normali, ma non e' ancora riproiettabile.
     var wantWebp = !fmOverlayVariable || fmRegion === 'north';
     var webp = wantWebp ? fmWebpFrameUrl() : null;
-    if (webp && webp.url === fmWebpFailedUrl) webp = null; // gia' fallito: resta sul path .om
+    // 1.2.4.23: un frame gia' fallito (404/errore) non viene ritentato.
+    if (webp && (webp.url === fmWebpFailedUrl || fmDeadWebpIs(webp.url))) webp = null;
+    var cur = webp ? null : fmCurrentOmUrl();
+    if (!cur && !webp) {
+        // 1.2.4.23: con la timeline un frame morto non lascia la mappa vuota: si salta
+        // al successivo (tetto ai tentativi). Senza timeline resta il comportamento
+        // della 1.2.4.22 (nessun frame da mostrare, nessun salto).
+        if (tlFramesNow.length) { fmTimelineSkipUnusableFrame(); return; }
+        return;
+    }
     if (fmIsHistoricalRun() && !webp) {
+        // 1.2.4.23: con la timeline questo e' un frame morto (la run storica non ha .om):
+        // si salta, invece di fermarsi sulla mappa vuota come nella 1.2.4.22.
+        if (tlFramesNow.length) { fmTimelineSkipUnusableFrame(); return; }
         fmRemoveLayers(); fmLayerKey = null;
         fmPlaybackSetFramePending(false);
         fmSetStatus('Frame WebP non disponibile in questa run.');
@@ -13321,6 +13470,19 @@ function fmRebuild() {
                             if (myWebpGeneration !== fmWebpGeneration || !map.hasLayer(nextWebpLayer)) return;
                             fmPlaybackSetFramePending(false);
                             fmLoaderHide();
+                            // 1.2.4.23: il layer visibile e' caricato -> lo status descrive
+                            // l'esito EFFETTIVO (non resta un errore .om di un altro frame)
+                            // e la sequenza di salti automatici riparte da zero.
+                            fmFrameSkipAttempts = 0;
+                            var loadedTimes = fmDisplayValidTimes();
+                            var loadedStatus = 'Frame ' + (fmIdx + 1) + '/' + loadedTimes.length + ' · ' + fmFmtTime(webp.valid);
+                            var loadedTl = fmTimelineFramesActive();
+                            if (loadedTl.length && loadedTl[fmIdx]) loadedStatus += ' · ' + fmTimelineRunLabel(loadedTl[fmIdx]);
+                            fmSetStatus(loadedStatus);
+                            // 1.2.4.23: il warm-ahead parte SOLO dopo un caricamento riuscito,
+                            // cosi' un frame morto non viene pre-scaricato invano (e non
+                            // raddoppia le richieste mentre il pannello sta saltando).
+                            fmWarmWebpNext();
                             nextWebpLayer.setOpacity(0.74);
                             fmWebpVisibleLayer = nextWebpLayer;
                             if (oldWebpLayer && map.hasLayer(oldWebpLayer)) {
@@ -13338,10 +13500,17 @@ function fmRebuild() {
                         if (myWebpGeneration !== fmWebpGeneration) return;
                         fmPlaybackSetFramePending(false);
                         fmWebpFailedUrl = webp.url;
+                        fmDeadWebpRemember(webp.url); // 1.2.4.23: non ritentare questo frame
                         if (nextWebpLayer) { try { if (typeof map !== 'undefined' && map) map.removeLayer(nextWebpLayer); } catch (e) {} }
                         fmWebpLayer = oldWebpLayer;
                         fmWebpVisibleLayer = oldWebpLayer;
-                        fmLayerKey = null; // forza il rebuild sul path .om
+                        fmLayerKey = null; // forza il rebuild
+                        if (fmTimelineFramesActive().length) {
+                            // 1.2.4.23: con la timeline un frame morto (es. run potata) non
+                            // deve lasciare la mappa vuota: salta al successivo, max 8 volte.
+                            fmTimelineSkipUnusableFrame(webp.url);
+                            return;
+                        }
                         fmSetStatus('Vista pre-renderizzata non disponibile: uso la cache .om');
                         fmRebuild();
                     });
@@ -13354,7 +13523,7 @@ function fmRebuild() {
             fmLayerKey = wkey;
             fmUpdateTimeDisplay((webp && webp.valid) || displayTimes[fmIdx]);
             fmUpdateLegend();
-            fmWarmWebpNext();
+            // 1.2.4.23: fmWarmWebpNext() e' spostato nel callback di load (solo su successo).
             return;
         }
     }
@@ -13578,8 +13747,8 @@ function fmVariableChanged() {
     }
     // 1.2.4.13: niente checkbox da spuntare (i toggle sono rimosti): l'overlay MSL richiede
     // SEMPRE le isobare e la via di fallback le chiede gia' sempre (fmVectorUrl).
-    fmResetPlayerForModelChange('variable');  // 1.2.4.16: la variabile cambia il frame, si riparte da 0
-    fmIdx = 0;
+    fmResetPlayerForModelChange('variable');  // 1.2.4.16: la variabile cambia il frame, si riparte dal primo utile
+    fmIdx = fmStartFrameIndex();
     fmPopulateTimes(fmDisplayValidTimes());
     fmSyncSlider();
     fmUpdateRunCompletion();
@@ -13646,19 +13815,21 @@ function fmLoadDomain(dom) {
 }
 function fmSliderChange(val) {
     fmIdx = parseInt(val, 10) || 0;
+    fmFrameSkipAttempts = 0; // 1.2.4.23: mossa esplicita dell'utente -> nuova sequenza
     var s = fmEl('fm-slider');
     if (s && String(s.value) !== String(fmIdx)) s.value = fmIdx;
     fmUpdateTimelineRunLabel();
     fmRebuild();
 }
-function fmPrevFrame() { var n = fmDisplayValidTimes().length; if (!fmMeta || !n) return; fmIdx = (fmIdx - 1 + n) % n; fmSyncSlider(); fmRebuild(); }
-function fmNextFrame() { var n = fmDisplayValidTimes().length; if (!fmMeta || !n) return; fmIdx = (fmIdx + 1) % n; fmSyncSlider(); fmRebuild(); }
+function fmPrevFrame() { var n = fmDisplayValidTimes().length; if (!fmMeta || !n) return; if (!fmIsPlaying) fmFrameSkipAttempts = 0; fmIdx = (fmIdx - 1 + n) % n; fmSyncSlider(); fmRebuild(); }
+function fmNextFrame() { var n = fmDisplayValidTimes().length; if (!fmMeta || !n) return; if (!fmIsPlaying) fmFrameSkipAttempts = 0; fmIdx = (fmIdx + 1) % n; fmSyncSlider(); fmRebuild(); }
 function fmSetSpeed(val) { fmSpeed = parseInt(val, 10) || 800; if (fmIsPlaying) { fmStopPlay(); fmStartPlay(); } }
 function fmTogglePlay() { if (fmIsPlaying) fmStopPlay(); else fmStartPlay(); }
 function fmStartPlay() {
     if (!fmMeta || !fmDisplayValidTimes().length || fmIsPlaying) return;
         fmStopPreload();
     fmIsPlaying = true;
+    fmFrameSkipAttempts = 0; // 1.2.4.23: l'animazione parte con una sequenza pulita
     var b = fmEl('fm-play-btn');
     if (b) b.textContent = '⏸';
     fmInterval = setInterval(function () {
@@ -13712,8 +13883,10 @@ function fmResetPlayerForModelChange(reason) {
     // 4) via anche il frame della vista polare (altrimenti il polo mostra il modello vecchio)
     if (typeof fmPolarSetActive === 'function') fmPolarSetActive(false);
     if (typeof fmPolarFrame !== 'undefined') { fmPolarFrame = null; fmPolarFrameUrl = null; fmPolarLoadingUrl = null; }
-    // 5) player a zero
-    fmIdx = st.idx;
+    // 5) player al primo frame UTILE: con la timeline e' il primo frame del run piu'
+    // recente (1.2.4.23), senza timeline resta 0 come nella 1.2.4.22.
+    fmIdx = fmStartFrameIndex();
+    fmFrameSkipAttempts = 0;
     fmSyncSlider();
     var sl = fmEl('fm-slider'); if (sl) sl.value = st.slider;
     var td = fmEl('fm-time-display'); if (td) td.textContent = st.timeLabel;
@@ -13788,6 +13961,7 @@ function fmResetPlayerForModelChange(reason) {
         if (gen !== fmPreloadGen) return;
         var f = fmWebpFrameUrl(idx);
         if (!f || !f.url) { fmPreloadOmFrame(idx, gen, state, launch); return; }
+        if (fmDeadWebpIs(f.url)) { fmPreloadOmFrame(idx, gen, state, launch); return; } // 1.2.4.23: niente retry
         var settled = false;
         var ok = function () { if (settled) return; settled = true; fmPreloadAdvance(gen, state, launch); };
         var bad = function () {
@@ -13809,7 +13983,7 @@ function fmResetPlayerForModelChange(reason) {
                     ok();
                 }).catch(bad);
             };
-            im.onerror = bad;
+            im.onerror = function () { fmDeadWebpRemember(f.url); bad(); };
             im.src = f.url;
             setTimeout(function () {
                 if (!settled) {
@@ -13824,7 +13998,7 @@ function fmResetPlayerForModelChange(reason) {
     // Fallback: layer .om nascosto sul pane pre (come prima), ma su SET tracciato.
     function fmPreloadOmFrame(idx, gen, state, launch) {
         if (gen !== fmPreloadGen) return;
-        var url = fmOmUrlForIndex(idx);
+        var url = fmOmUrlForIndexVar(idx, fmVariable, true);
         if (!url) { fmPreloadAdvance(gen, state, launch); return; }
         var layer;
         try {
@@ -13868,7 +14042,7 @@ function fmResetPlayerForModelChange(reason) {
         if (!fmAdapter || typeof map === 'undefined' || !map) return;
         var n = times.length;
         if (n < 2) return;
-        var url = fmOmUrlForIndex((fmIdx + 1) % n);
+        var url = fmOmUrlForIndexVar((fmIdx + 1) % n, fmVariable, true);
         if (!url) return;
         if (fmWarmKey === url && fmLayerOnMap(fmWarmLayer)) return; // mitigazione churn: warm già pronto per lo stesso frame
         fmStopWarm();

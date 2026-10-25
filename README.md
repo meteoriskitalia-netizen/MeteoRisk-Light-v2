@@ -6,13 +6,36 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.21
+## Versione attiva: 1.2.4.23
 
-- File applicativo: `mri-light-1.2.4.21.html` (`APP_VERSION = '1.2.4.21'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.21', date: '2026-10-25' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.21'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+- File applicativo: `mri-light-1.2.4.23.html` (`APP_VERSION = '1.2.4.23'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.23', date: '2026-10-25' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.23'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
-- Contenuto della 1.2.4.21 (release sopra la 1.2.4.20) - **footprint geometrico e
+- Contenuto della 1.2.4.23 (release sopra la 1.2.4.22) - **pannello Mappe previsionali
+  robusto quando la timeline cita frame che non esistono piu'**:
+  - **Frame iniziale utile**: all'apertura (e al cambio modello/variabile/run) il pannello
+    parte dal primo frame del run piu' recente (`bucket 0`; se assente, dal bucket minimo
+    disponibile), non dal frame 0 che nella timeline reale e' il piu' vecchio. Misurato sulla
+    timeline reale della regione `domain` (dominio `dwd_icon_eu`, 102 frame): apertura al
+    frame 9, `2026-10-23T18:00Z`, run `20261023T180000Z`, layer WebP caricato.
+  - **Salto dei frame morti**: se il WebP fallisce (404/errore) il client passa al frame
+    successivo (sull'ultimo, al precedente), marca l'URL come morto per la sessione e non lo
+    ritenta piu'; il salto automatico si ferma dopo **8 tentativi consecutivi** con un
+    messaggio esplicito. Misurato: 6 frame morti (run 09Z potata) saltati e frame 6 caricato;
+    con tutti i frame assenti, 8 richieste e stop.
+  - **Status coerente**: il path `.om` viene risolto solo quando il WebP non e' utilizzabile;
+    il messaggio "Errore frame cache mappe previsionali mancante" non compare piu' sopra un
+    WebP visibile e, a caricamento riuscito, lo status descrive il frame effettivo.
+  - **Binario invariato**: segmenti colorati contigui e cursore rettangolare (10x16 px,
+    raggio 3 px), nessun pallino.
+  - **Fallback invariato**: senza `timeline.json` il pannello usa `index.json` come la
+    1.2.4.22 (misurati 93 frame e selettore run visibile).
+- Contenuto della 1.2.4.22 (storico, release sopra la 1.2.4.21) - **timeline dei frame**:
+  la sequenza arriva da `data/fm2-rendered/<regione>/timeline.json` per dominio e variabile,
+  il binario dello slider e' colorato per run in segmenti contigui e il selettore di run e'
+  nascosto quando la timeline e' attiva, con fallback obbligatorio a `index.json`.
+- Contenuto della 1.2.4.21 (storico, release sopra la 1.2.4.20) - **footprint geometrico e
   accoppiamento punto->poligono nel collaudo, nessuna soglia toccata**:
   - **Perche'**: il collaudo della 1.2.4.20 accoppiava il rapporto METAR al **centroide**
     con gate 10 km e dava 0 hit / 6 miss / 69 falsi allarmi. Non era un'assenza di eco
@@ -475,7 +498,7 @@ Comandi e conteggi aggiornati sono quelli documentati in `C:\Users\aless\Desktop
 
 ## File chiave
 
-- `mri-light-1.2.4.21.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
+- `mri-light-1.2.4.23.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
 - `sw.js` — Service Worker (cache applicativa: WebP, indici; mai le richieste Range `.om`)
 - `VERSION` — bump di versione e storico note di rilascio
 - `.github/workflows/{radar-engine,satellite-engine,update-weather-data,phenomena-verify,deploy-pages,forecast-maps-v2}.yml` — i 6 workflow
