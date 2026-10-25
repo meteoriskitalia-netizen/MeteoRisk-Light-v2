@@ -1,7 +1,7 @@
 import express from 'express';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import fs from 'node:fs';
+import { dirname } from 'node:path';
+import { resolveAppHtml } from './resolve_app_html.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -17,14 +17,17 @@ app.use((req, res, next) => {
   next();
 });
 
-// Explicit root route
+// Explicit root route: serve the most recent mri-light-<versione>.html in this folder.
+// Nessun nome di file scritto a mano: la release cambia nome a ogni bump.
 app.get('/', (req, res) => {
-  const targetHtml = join(__dirname, 'index.html');
-  if (fs.existsSync(targetHtml)) {
-    res.sendFile(targetHtml);
-  } else {
-    res.sendFile(join(__dirname, 'mri-light-1.2.4.14.html'));
+  const targetHtml = resolveAppHtml(__dirname);
+  if (!targetHtml) {
+    res.status(500).type('text/plain').send(
+      'Nessuna app trovata: attesa un file mri-light-<versione>.html (es. mri-light-1.2.4.21.html) nella root del progetto.'
+    );
+    return;
   }
+  res.sendFile(targetHtml);
 });
 
 // Serve static files from root directory
