@@ -136,8 +136,19 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .fm-btn { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 13px; }
         .fm-btn:hover { background: #334155; }
         .fm-slider { flex: 1; min-width: 90px; }
+        .fm-slider-wrap { flex: 1 1 220px; min-width: 90px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .fm-slider-wrap .fm-slider { flex: 1 1 60px; min-width: 60px; }
         .fm-speed { width: auto; }
         .fm-run-select { width: 282px; max-width: 56vw; }
+        /* 1.2.4.22 - BARRA DEI FRAME COLORATA PER RUN (timeline.json): il colore sta SUL
+           BINARIO, in segmenti contigui. NESSUN pallino/indicatore circolare sul binario:
+           il cursore e' un rettangolo arrotondato, non un cerchio. */
+        .fm-timeline-run { font-size: 10px; color: #cbd5e1; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .fm-slider.fm-slider-run { -webkit-appearance: none; appearance: none; height: 18px; background: transparent; }
+        .fm-slider.fm-slider-run::-webkit-slider-runnable-track { height: 10px; border-radius: 5px; background: var(--fm-track, #334155); border: 1px solid #334155; }
+        .fm-slider.fm-slider-run::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 10px; height: 16px; margin-top: -4px; border-radius: 3px; background: #f8fafc; border: 1px solid #0f172a; box-shadow: 0 0 2px rgba(0,0,0,.55); }
+        .fm-slider.fm-slider-run::-moz-range-track { height: 10px; border-radius: 5px; background: var(--fm-track, #334155); border: 1px solid #334155; }
+        .fm-slider.fm-slider-run::-moz-range-thumb { width: 10px; height: 16px; border-radius: 3px; background: #f8fafc; border: 1px solid #0f172a; }
         .fm-run-completion { font-size: 10px; color: #94a3b8; white-space: nowrap; }
         .fm-time { font-size: 12px; color: #f1f5f9; }
         .fm-run { font-size: 11px; color: #94a3b8; }
@@ -1088,6 +1099,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             .panel-timeline { padding: 8px 10px; gap: 8px; align-items: stretch; }
             .panel-timeline .time-display { min-width: 0; order: 5; flex: 1; }
             .slider-timeline { min-width: 100%; order: 6; }
+            .fm-timeline-run { order: 7; flex: 1 1 100%; white-space: normal; }
             #tile-load-box { min-width: 0; }
             #sync-caption { white-space: normal; }
 
@@ -1407,7 +1419,10 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                     <span id="fm-run-completion" class="fm-run-completion">—</span>
                     <button id="fm-preload-btn" class="fm-btn fm-btn-preload" onclick="fmStartPreload()" title="Precarica tutti i frame">⏬ Preload</button>
                     <span id="fm-preload-status" class="fm-preload-status"></span>
-                    <input type="range" id="fm-slider" class="fm-slider" min="0" max="0" value="0" oninput="fmSliderChange(this.value)">
+                    <div class="fm-slider-wrap">
+                        <input type="range" id="fm-slider" class="fm-slider" min="0" max="0" value="0" oninput="fmSliderChange(this.value)">
+                        <span id="fm-timeline-run" class="fm-timeline-run" aria-live="polite"></span>
+                    </div>
                     <select id="fm-speed" class="fm-select fm-speed" onchange="fmSetSpeed(this.value)">
                         <option value="1200">Lenta</option>
                         <option value="800" selected>Normale</option>
@@ -1873,9 +1888,17 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.21';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.22';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-25';
     const APP_CHANGELOG = [
+        { version: '1.2.4.22', date: '2026-10-25', changes: [
+  'MAPPE= Nuova timeline dei frame: il pannello legge data/fm2-rendered/<regione>/timeline.json (schema fm2-timeline-1, per dominio e variabile) e usa la sequenza della variabile selezionata. L URL del WebP si compone da file_base + file_template con <dominio>, <run_id>, <variabile> e <file>: non viene ricostruito dal valid_time.',
+  'MAPPE= Barra dei frame colorata per run: il binario dello slider e dipinto a segmenti CONTIGUI, un colore per bucket (0 = run piu recente). Il cambio di colore segna il punto in cui cambia il modello. Nessun pallino e nessun indicatore circolare sul binario: il cursore e un rettangolo arrotondato, non un cerchio.',
+  'MAPPE= Etichetta accanto al cursore con il run del frame corrente (es. run 18Z · 24 ott) e, se la run ha piu di 24 h, la sua eta in ore. Il selettore di run viene NASCOSTO quando la timeline e attiva e torna visibile, identico a prima, quando si usa index.json.',
+  'MAPPE= Fallback obbligatorio: se timeline.json manca (404) o non e valido il pannello si comporta ESATTAMENTE come la 1.2.4.21 con index.json. Il fallback .om usa il valid_time della voce di timeline per trovare il file nel manifest del motore, mai l indice posizionale della timeline.',
+  'MAPPE= Polling: quando timeline.json cambia generated_at il pannello aggiorna frame e barra senza ricaricare la pagina, mantenendo il frame corrente se esiste ancora.',
+  'DOC= Bump versione 1.2.4.22'
+  ] },
         { version: '1.2.4.21', date: '2026-10-25', changes: [
   'RADAR= Footprint geometrico: nuova opzione --footprints <path> che scrive un GeoJSON con il poligono (componente connessa sulla VMI, stesse soglie detect) di OGNI cella e di OGNI struttura. Senza il flag l\'output operativo resta quello della 1.2.4.20: nessun file in piu\', nessuna soglia toccata.',
   'RADAR= Identita\' della cella risolta con bbox + pixel_count dell\'etichetta del frame (stesse soglie e stessa morfologia di detect_cells): il pixel del centroide puo\' cadere FUORI da una componente concava e in 1.2.4.20 lasciava 3 strutture su 69 senza footprint (ora 69/69). L\'overhang NON e\' stato toccato: i suoi numeri restano quelli della 1.2.4.20.',
@@ -12039,6 +12062,17 @@ var fmLoaderTimer = null;
     var FM_WEBP_FADE_MS = 90;
 var fmSelectedRunId = null;
     var fmRunManual = false; // 1.2.4.14: true se l'utente ha scelto manualmente una run
+    // 1.2.4.22 - TIMELINE DEI FRAME (data/fm2-rendered/<regione>/timeline.json).
+    // fmTimelineFramesActive() e' l'UNICA condizione che decide se il pannello usa la
+    // timeline; se timeline.json manca (404) o non e' valido si resta su index.json.
+    var fmTimeline = null;                 // documento timeline.json della regione corrente
+    var fmTimelineRegion = null;           // regione server a cui appartiene fmTimeline
+    var fmTimelineLoading = null;          // regione in caricamento
+    var fmTimelineGen = 0;                 // token anti-race
+    var fmTimelineMiss = Object.create(null); // regione -> timestamp dell'ultimo 404/invalido
+    var FM_TIMELINE_RETRY_MS = 60000;
+    var FM_RUN_BUCKET_COLORS = ['#38bdf8', '#a78bfa', '#f59e0b', '#f472b6', '#34d399', '#f87171'];
+    var FM_MONTHS_IT = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
     function fmRememberDecodedWebp(url, image) {
         if (!url || !image) return;
         if (!fmWebpDecodedImages[url]) fmWebpDecodedOrder.push(url);
@@ -12108,6 +12142,12 @@ function fmSelectedRunVariable(run) {
     return rec && rec.variables ? rec.variables[fmVariable] || null : null;
 }
 function fmDisplayValidTimes() {
+    var tl = fmTimelineFramesActive();
+    if (tl.length) {
+        var tlOut = [];
+        for (var t = 0; t < tl.length; t++) tlOut.push(tl[t].valid_time);
+        return tlOut;
+    }
     var run = fmSelectedRun();
     if (run) {
         var v = fmSelectedRunVariable(run);
@@ -12117,6 +12157,13 @@ function fmDisplayValidTimes() {
     return fmMeta && Array.isArray(fmMeta.valid_times) ? fmMeta.valid_times : [];
 }
 function fmIsHistoricalRun() {
+    var tl = fmTimelineFramesActive();
+    if (tl.length) {
+        // Con la timeline il run e' quello della VOCE di frame (bucket > 0 = run vecchia).
+        var tlEntry = tl[fmIdx];
+        var tlCur = fmTimelineCurrentRunId();
+        return !!(tlEntry && tlCur && tlEntry.run_id !== tlCur);
+    }
     var dom = fmRunDomainEntry();
     var run = fmSelectedRun();
     return !!(dom && run && run.id !== dom.current_run);
@@ -12133,6 +12180,16 @@ function fmRunOptionLabel(run) {
 function fmPopulateRunSelector() {
     var sel = fmEl('fm-run-select');
     if (!sel) return;
+    if (fmTimelineFramesActive().length) {
+        // 1.2.4.22: con la timeline il run e' deciso dal frame (voce di timeline), quindi
+        // il selettore non ha piu' un significato e viene NASCOSTO. Con il fallback
+        // index.json torna visibile e identico a prima.
+        sel.style.display = 'none';
+        sel.disabled = true;
+        fmUpdateRunCompletion();
+        return;
+    }
+    sel.style.display = '';
     var dom = fmRunDomainEntry();
     var runs = dom && Array.isArray(dom.runs) ? dom.runs : [];
     var wanted = fmSelectedRunId || (dom && dom.current_run) || (runs[0] && runs[0].id) || '';
@@ -12161,6 +12218,8 @@ function fmPopulateRunSelector() {
 function fmUpdateRunCompletion() {
     var el = fmEl('fm-run-completion');
     if (!el) return;
+    if (fmTimelineFramesActive().length) { el.style.display = 'none'; return; }
+    el.style.display = '';
     var run = fmSelectedRun();
     var variable = fmSelectedRunVariable(run);
     var theme = variable && ((variable.themes && variable.themes[fmWebpTheme()]) || null);
@@ -12184,6 +12243,233 @@ function fmRunChanged() {
     fmUpdateRunCompletion();
     fmLayerKey = null;
     fmRebuild();
+}
+// ================= 1.2.4.22 - TIMELINE DEI FRAME E BARRA COLORATA PER RUN ============
+// Sorgente: data/fm2-rendered/<regione>/timeline.json (schema fm2-timeline-1), generato
+// da scripts/forecast_v2/build_timeline_index.py. La sequenza e' PER (dominio, variabile):
+//   domains.<dominio>.variables.<variabile>.group -> timeline_groups.<gid>.timeline
+// Ogni voce porta valid_time, run_id, bucket (0 = run piu' recente del dominio) e file.
+// L'URL del WebP si compone da file_base + file_template: MAI ricostruito dal valid_time.
+// Se timeline.json manca o non e' valido fmTimeline resta null e il pannello continua a
+// usare index.json esattamente come la 1.2.4.21 (fallback obbligatorio, nessuna regressione).
+function fmTimelineGroupId() {
+    if (!fmTimeline || !fmTimeline.domains) return null;
+    var dom = fmTimeline.domains[fmDomain];
+    if (!dom) return null;
+    var vars = dom.variables || null;
+    if (vars && vars[fmVariable] && vars[fmVariable].group) return vars[fmVariable].group;
+    var rootVars = fmTimeline.variables || null;
+    if (rootVars && rootVars[fmVariable] && rootVars[fmVariable].group) return rootVars[fmVariable].group;
+    return null;
+}
+function fmTimelineFramesActive() {
+    if (!fmTimeline || !fmTimelineRegion) return [];
+    if (fmTimelineRegion !== fmRenderRegionId()) return [];
+    var dom = fmTimeline.domains && fmTimeline.domains[fmDomain];
+    if (!dom) return [];
+    var gid = fmTimelineGroupId();
+    var group = gid && dom.timeline_groups ? dom.timeline_groups[gid] : null;
+    return group && Array.isArray(group.timeline) ? group.timeline : [];
+}
+function fmTimelineCurrentRunId() {
+    var dom = fmTimeline && fmTimeline.domains ? fmTimeline.domains[fmDomain] : null;
+    return dom && dom.current_run ? dom.current_run : null;
+}
+function fmTimelineRunRecord(entry) {
+    if (!entry) return null;
+    var dom = fmTimeline && fmTimeline.domains ? fmTimeline.domains[fmDomain] : null;
+    var list = dom && Array.isArray(dom.runs) ? dom.runs : null;
+    if (!list && fmTimeline && Array.isArray(fmTimeline.runs)) list = fmTimeline.runs;
+    if (!list) return null;
+    for (var i = 0; i < list.length; i++) {
+        if (list[i] && list[i].run_id === entry.run_id && (!list[i].domain || list[i].domain === fmDomain)) return list[i];
+    }
+    return null;
+}
+function fmTimelineRunReference(entry) {
+    var run = fmTimelineRunRecord(entry);
+    return (run && (run.reference_time || run.generated_at)) || (entry && entry.reference_time) || null;
+}
+function fmTimelineRunLabel(entry) {
+    // Etichetta accanto al cursore: "run 18Z · 24 ott" (+ " · 31h" se la run ha piu' di 24 h).
+    if (!entry) return '';
+    var ref = fmTimelineRunReference(entry);
+    var d = ref ? new Date(ref) : null;
+    if (!d || isNaN(d.getTime())) return 'run ' + String(entry.run_id || '?');
+    var txt = 'run ' + fmPad2(d.getUTCHours()) + 'Z · ' + d.getUTCDate() + ' ' + FM_MONTHS_IT[d.getUTCMonth()];
+    var ageH = Math.floor((Date.now() - d.getTime()) / 3600000);
+    if (isFinite(ageH) && ageH >= 24) txt += ' · ' + ageH + 'h';
+    return txt;
+}
+function fmTimelineSegments(frames) {
+    // Segmenti CONTIGUI per run: [{start, end, bucket, run_id}], end INCLUSIVO.
+    var segs = [];
+    for (var i = 0; i < frames.length; i++) {
+        var f = frames[i] || {};
+        var b = Number(f.bucket);
+        if (!isFinite(b) || b < 0) b = 0;
+        var last = segs.length ? segs[segs.length - 1] : null;
+        if (last && last.bucket === b && last.run_id === f.run_id) last.end = i;
+        else segs.push({ start: i, end: i, bucket: b, run_id: f.run_id });
+    }
+    return segs;
+}
+function fmTimelineBucketColor(bucket) {
+    var b = Number(bucket);
+    if (!isFinite(b) || b < 0) b = 0;
+    return FM_RUN_BUCKET_COLORS[b % FM_RUN_BUCKET_COLORS.length];
+}
+function fmTimelineTrackGradient(segs, total) {
+    // Fermate DOPPIE: il colore cambia di netto dove cambia il run (segmenti contigui).
+    if (!segs.length || !total) return '';
+    var stops = [];
+    for (var i = 0; i < segs.length; i++) {
+        var a = (100 * segs[i].start) / total;
+        var b = (100 * (segs[i].end + 1)) / total;
+        var c = fmTimelineBucketColor(segs[i].bucket);
+        stops.push(c + ' ' + a.toFixed(3) + '%', c + ' ' + b.toFixed(3) + '%');
+    }
+    return 'linear-gradient(90deg,' + stops.join(',') + ')';
+}
+function fmPaintTimelineTrack() {
+    var s = fmEl('fm-slider');
+    if (!s) return;
+    var frames = fmTimelineFramesActive();
+    if (!frames.length) {
+        s.classList.remove('fm-slider-run');
+        try { s.style.removeProperty('--fm-track'); } catch (e) { try { s.style.setProperty('--fm-track', ''); } catch (e2) { } }
+        s.removeAttribute('data-run-segments');
+        return;
+    }
+    var segs = fmTimelineSegments(frames);
+    s.classList.add('fm-slider-run');
+    s.style.setProperty('--fm-track', fmTimelineTrackGradient(segs, frames.length));
+    s.setAttribute('data-run-segments', segs.map(function (g) {
+        return g.start + ':' + g.end + ':b' + g.bucket + ':' + String(g.run_id || '');
+    }).join('|'));
+}
+function fmUpdateTimelineRunLabel() {
+    var el = fmEl('fm-timeline-run');
+    if (!el) return;
+    var frames = fmTimelineFramesActive();
+    if (!frames.length) { el.textContent = ''; el.style.display = 'none'; return; }
+    el.style.display = '';
+    var entry = frames[fmIdx] || frames[0];
+    el.textContent = fmTimelineRunLabel(entry);
+    el.title = entry ? ('Frame ' + (fmIdx + 1) + '/' + frames.length + ' · valid ' + entry.valid_time + ' · run ' + entry.run_id + ' · bucket ' + entry.bucket) : '';
+}
+function fmTimelineFileUrl(entry) {
+    // file_base + file_template con <dominio>, <run_id>, <variabile>, <file>.
+    // file_base puo' essere relativo all'albero ("data/fm2-rendered/italia/"): si toglie il
+    // prefisso noto e si usa FM_RENDERED_BASE, l'unica base servita al browser.
+    if (!fmTimeline || !entry || !entry.file) return null;
+    var base = String(fmTimeline.file_base || '');
+    var tpl = String(fmTimeline.file_template || '<dominio>/runs/<run_id>/<variabile>/<file>');
+    var rel = base + tpl;
+    var marker = 'data/fm2-rendered/';
+    var at = rel.indexOf(marker);
+    if (at >= 0) rel = rel.slice(at + marker.length);
+    if (/^https?:\/\//.test(rel)) return rel;
+    if (/^\/\//.test(rel)) return 'https:' + rel;
+    rel = rel.replace(/^\/+/, '');
+    return FM_RENDERED_BASE + rel
+        .replace(/<dominio>/g, fmDomain)
+        .replace(/<run_id>/g, entry.run_id)
+        .replace(/<variabile>/g, fmVariable)
+        .replace(/<file>/g, entry.file);
+}
+function fmMetaFileForValidTime(validIso) {
+    // Fallback .om: valid_time -> file del manifest del motore (mai indice posizionale).
+    if (!validIso) return null;
+    var frames = fm2MetaCache && Array.isArray(fm2MetaCache.frames) ? fm2MetaCache.frames : null;
+    if (frames) {
+        for (var i = 0; i < frames.length; i++) {
+            if (frames[i] && frames[i].valid_time === validIso && frames[i].file) return frames[i].file;
+        }
+    }
+    var times = fmMeta && Array.isArray(fmMeta.valid_times) ? fmMeta.valid_times : null;
+    if (times) {
+        for (var j = 0; j < times.length; j++) if (times[j] === validIso) return fmValidFile(validIso);
+    }
+    return null;
+}
+function fmTimelineBounds() {
+    // Bounds del layer: index.json se c'e', altrimenti il clip della regione corrente.
+    var dom = fmRunDomainEntry();
+    if (dom && dom.bounds) return dom.bounds;
+    if (fmClipBounds) return [[fmClipBounds[1], fmClipBounds[0]], [fmClipBounds[3], fmClipBounds[2]]];
+    return null;
+}
+function fmSetTimeline(doc, serverRegion) {
+    // Applica un documento timeline mantenendo il frame corrente se esiste ancora.
+    var prev = fmTimelineFramesActive();
+    var prevFrame = prev.length ? prev[Math.min(fmIdx, prev.length - 1)] : null;
+    fmTimeline = doc;
+    fmTimelineRegion = serverRegion;
+    fmTimelineMiss[serverRegion] = 0;
+    var frames = fmTimelineFramesActive();
+    var nextIdx = 0;
+    if (prevFrame && frames.length) {
+        for (var i = 0; i < frames.length; i++) {
+            if (frames[i].valid_time === prevFrame.valid_time && frames[i].file === prevFrame.file) { nextIdx = i; break; }
+        }
+        if (!nextIdx) {
+            for (var j = 0; j < frames.length; j++) {
+                if (frames[j].valid_time === prevFrame.valid_time) { nextIdx = j; break; }
+            }
+        }
+    }
+    if (frames.length) fmIdx = Math.max(0, Math.min(nextIdx, frames.length - 1));
+    fmPopulateRunSelector();
+    if (fmActive && fmRenderRegionId() === serverRegion) {
+        fmPopulateTimes(fmDisplayValidTimes());
+        fmSyncSlider();
+        fmUpdateTimelineRunLabel();
+        fmLayerKey = null;
+        fmRebuild();
+    } else {
+        fmPaintTimelineTrack();
+        fmUpdateTimelineRunLabel();
+    }
+}
+function fmFetchTimeline(serverRegion, force) {
+    if (!serverRegion) return;
+    if (!force) {
+        if (fmTimeline && fmTimelineRegion === serverRegion) return;
+        if (fmTimelineLoading === serverRegion) return;
+        var missAt = fmTimelineMiss[serverRegion] || 0;
+        if (missAt && (Date.now() - missAt) < FM_TIMELINE_RETRY_MS) return;
+    }
+    fmTimelineLoading = serverRegion;
+    var gen = ++fmTimelineGen;
+    var url = FM_RENDERED_BASE + serverRegion + '/timeline.json';
+    var finish = function (err, doc) {
+        if (fmTimelineLoading === serverRegion) fmTimelineLoading = null;
+        if (!force && gen !== fmTimelineGen) return;
+        var valid = !!(doc && doc.domains && typeof doc.domains === 'object');
+        if (err || !valid) {
+            fmTimelineMiss[serverRegion] = Date.now();
+            if (fmTimelineRegion === serverRegion) { fmTimeline = null; fmTimelineRegion = null; }
+            if (fmActive && fmRenderRegionId() === serverRegion) {
+                fmPopulateRunSelector();       // il selettore run torna visibile e funzionante
+                fmPopulateTimes(fmDisplayValidTimes());
+                fmSyncSlider();
+                fmLayerKey = null;
+                fmRebuild();
+            } else {
+                fmPaintTimelineTrack();
+                fmUpdateTimelineRunLabel();
+            }
+            return;
+        }
+        fmSetTimeline(doc, serverRegion);
+    };
+    try {
+        fetch(url, { cache: 'no-store' }).then(function (r) {
+            if (!r || !r.ok) throw new Error('HTTP ' + (r ? r.status : '?'));
+            return r.json();
+        }).then(function (j) { finish(null, j); })['catch'](function (e) { finish(e); });
+    } catch (e) { finish(e); }
 }
 function fmFmtNum(v) { if (v === '' || v === null || v === undefined) return ''; var n = Number(v); return isFinite(n) ? (Math.round(n * 100) / 100) : String(v); }
 function fmVarLabel(v) {
@@ -12320,7 +12606,7 @@ function fmApplyRegion(refit) {
     }
     fmClipBounds = clip;
     var rr0 = fmRenderRegionId();
-    if (rr0) fmFetchRenderedIndex(rr0);
+    if (rr0) { fmFetchRenderedIndex(rr0); fmFetchTimeline(rr0); }
     try {
         if (fmModule && fmModule.defaultOmProtocolSettings) {
             fmModule.defaultOmProtocolSettings.clippingOptions = clip ? { bounds: clip } : undefined;
@@ -12342,6 +12628,10 @@ function fmApplyRegion(refit) {
         } catch (e) { }
     }
     fmUpdateBounds();
+    // 1.2.4.22: la timeline e' PER REGIONE: cambiando area i frame (e i colori del
+    // binario) cambiano anche se il dominio resta lo stesso. Riallinea slider e barra.
+    fmPopulateTimes(fmDisplayValidTimes());
+    fmSyncSlider();
     fmRebuild();
 }
 function fmLoaderHasVisiblePlaybackFrame() {
@@ -12649,16 +12939,26 @@ function fmPopulateVariables(vars) {
     sel.innerHTML = html;
 }
 function fmPopulateTimes(times) {
+    var tl = fmTimelineFramesActive();
+    if (tl.length) {
+        times = [];
+        for (var t = 0; t < tl.length; t++) times.push(tl[t].valid_time);
+    }
     var s = fmEl('fm-slider');
     if (s) { s.min = 0; s.max = Math.max(0, times.length - 1); s.value = fmIdx; }
+    fmPaintTimelineTrack();
+    fmUpdateTimelineRunLabel();
 }
-function fmSyncSlider() { var s = fmEl('fm-slider'); if (s) s.value = fmIdx; }
+function fmSyncSlider() { var s = fmEl('fm-slider'); if (s) s.value = fmIdx; fmUpdateTimelineRunLabel(); }
 function fmUpdateTimeDisplay(validIso) {
     var el = fmEl('fm-time-display');
     if (!el || !fmMeta) return;
     var times = fmDisplayValidTimes();
     var val = validIso || times[fmIdx];
     el.textContent = (fmIdx + 1) + '/' + times.length + ' · ' + fmFmtTime(val);
+    var tl = fmTimelineFramesActive();
+    if (tl.length && tl[fmIdx]) fmUpdateRunDisplay(fmTimelineRunReference(tl[fmIdx]));
+    fmUpdateTimelineRunLabel();
 }
 function fmOmUrlForIndexVar(idx, variableName) {
     if (!fmMeta || fmIsHistoricalRun()) return null;
@@ -12666,7 +12966,10 @@ function fmOmUrlForIndexVar(idx, variableName) {
     if (!times.length) return null;
     var valid = times[idx];
     if (valid === undefined) return null;
-    var ffile = fm2FrameFile(idx);
+    var tlFrames = fmTimelineFramesActive();
+    // 1.2.4.22: con la timeline l'indice NON e' quello posizionale del manifest: il file
+    // .om si risolve per valid_time della voce (mai ricostruito a indovinare).
+    var ffile = tlFrames.length ? fmMetaFileForValidTime(valid) : fm2FrameFile(idx);
     if (!ffile) {
         fmSetStatus('Errore frame cache mappe previsionali mancante (data/fm2): ' + fmFmtTime(valid));
         return null;
@@ -12691,6 +12994,15 @@ function fmCurrentOmUrl() {
     if (!fmMeta) return null;
     var times = fmDisplayValidTimes();
     if (!times.length) return null;
+    var tlFrames = fmTimelineFramesActive();
+    if (tlFrames.length) {
+        var tlEntry = tlFrames[fmIdx];
+        if (!tlEntry) return null;
+        if (fmIsHistoricalRun()) return { url: 'fm-run:' + tlEntry.run_id, valid: tlEntry.valid_time };
+        var tlOm = fmOmUrlForIndex(fmIdx);
+        if (!tlOm) return null;
+        return { url: tlOm, valid: tlEntry.valid_time };
+    }
     if (fmIsHistoricalRun()) return { url: 'fm-run:' + fmSelectedRunId, valid: times[fmIdx] };
     var url = fmOmUrlForIndex(fmIdx);
     if (!url) return null;
@@ -12810,6 +13122,7 @@ function fmWebpTheme() { return 'light'; }
 function fmFetchRenderedIndex(serverRegion, cb) {
     // Carica <FM_RENDERED_BASE>/<serverRegion>/index.json in fmWebpIndex (una volta per regione).
     if (!serverRegion) return;
+    fmFetchTimeline(serverRegion);   // 1.2.4.22: la timeline non aspetta index.json
     if (fmWebpIndex && fmWebpIndexRegion === serverRegion) { if (cb) cb(null, fmWebpIndex); return; }
     if (fmWebpIndexLoading === serverRegion) return;
     fmWebpIndexLoading = serverRegion;
@@ -12841,6 +13154,19 @@ function fmFetchRenderedIndex(serverRegion, cb) {
 }
 function fmWebpFrameUrl(idx) {
     // { url, bounds } del frame WebP pre-renderizzato per l'indice richiesto, o null.
+    var tlFrames = fmTimelineFramesActive();
+    if (tlFrames.length) {
+        // 1.2.4.22: con la timeline il frame e' una voce precisa (run_id + file): l'URL
+        // viene da file_base + file_template, non dal valid_time.
+        var tlIdx = (idx === undefined || idx === null) ? fmIdx : idx;
+        var tlEntry = tlFrames[tlIdx];
+        if (!tlEntry) return null;
+        var tlBounds = fmTimelineBounds();
+        if (!tlBounds) return null;
+        var tlUrl = fmTimelineFileUrl(tlEntry);
+        if (!tlUrl) return null;
+        return { url: tlUrl, bounds: tlBounds, valid: tlEntry.valid_time };
+    }
     if (!fmWebpIndex || !fmWebpIndexRegion) return null;
     if (fmWebpIndexRegion !== fmRenderRegionId()) return null;
     var theme = fmWebpTheme();
@@ -12912,8 +13238,12 @@ function fmRebuild() {
         fmUpdateRunCompletion();
         return;
     }
+    // 1.2.4.22: con la timeline il frame WebP puo' esistere anche senza una voce .om
+    // corrispondente, quindi il path WebP non puo' dipendere da cur.
+    var tlFramesNow = fmTimelineFramesActive();
+    var tlWebpNow = tlFramesNow.length ? fmWebpFrameUrl() : null;
     var cur = fmCurrentOmUrl();
-    if (!cur) return;
+    if (!cur && !tlWebpNow) return;
     // 1.2.4.13: i WebP contengono GIA' isolinee (con i valori scritti sopra) e frecce del
     // vento, quindi non sono piu' disabilitati da un toggle: si usa il fast-path WebP
     // sempre, tranne quando e' attivo l'overlay isobare MSL sul raster Z500 (che vuole il
@@ -12928,6 +13258,14 @@ function fmRebuild() {
         fmRemoveLayers(); fmLayerKey = null;
         fmPlaybackSetFramePending(false);
         fmSetStatus('Frame WebP non disponibile in questa run.');
+        return;
+    }
+    if (!webp && !cur) {
+        // Nessun WebP e nessuna voce .om per questa scadenza: non si mostra il frame
+        // precedente (che sarebbe di un'altra ora) e lo si dichiara.
+        fmRemoveLayers(); fmLayerKey = null;
+        fmPlaybackSetFramePending(false);
+        fmSetStatus('Frame non disponibile: nessun WebP e nessuna cache .om per questa scadenza.');
         return;
     }
     // Rimuove lo stato polare rimasto a schermo quando si torna a una regione normale.
@@ -13306,7 +13644,13 @@ function fmLoadDomain(dom) {
         fmApplyRegion(true);
     });
 }
-function fmSliderChange(val) { fmIdx = parseInt(val, 10) || 0; fmRebuild(); }
+function fmSliderChange(val) {
+    fmIdx = parseInt(val, 10) || 0;
+    var s = fmEl('fm-slider');
+    if (s && String(s.value) !== String(fmIdx)) s.value = fmIdx;
+    fmUpdateTimelineRunLabel();
+    fmRebuild();
+}
 function fmPrevFrame() { var n = fmDisplayValidTimes().length; if (!fmMeta || !n) return; fmIdx = (fmIdx - 1 + n) % n; fmSyncSlider(); fmRebuild(); }
 function fmNextFrame() { var n = fmDisplayValidTimes().length; if (!fmMeta || !n) return; fmIdx = (fmIdx + 1) % n; fmSyncSlider(); fmRebuild(); }
 function fmSetSpeed(val) { fmSpeed = parseInt(val, 10) || 800; if (fmIsPlaying) { fmStopPlay(); fmStartPlay(); } }
@@ -22040,6 +22384,24 @@ syncSelect('lightning-source-select', [
                         }
                     }
                 } catch (e) { /* l'indice WebP verrà ricontrollato al ciclo successivo */ }
+
+                // 1.2.4.22: timeline.json puo' essere pubblicata dopo index.json. Se
+                // generated_at cambia si aggiornano frame e barra SENZA ricaricare la
+                // pagina, mantenendo il frame corrente quando esiste ancora.
+                try {
+                    var tlRegion = fmRenderRegionId();
+                    if (tlRegion) {
+                        var tlRes = await fetch(FM_RENDERED_BASE + tlRegion + '/timeline.json', { cache: 'no-store' });
+                        if (tlRes.ok) {
+                            var tlDoc = await tlRes.json();
+                            var tlGen = tlDoc && tlDoc.generated_at ? tlDoc.generated_at : null;
+                            var tlOld = (fmTimeline && fmTimelineRegion === tlRegion) ? fmTimeline.generated_at : null;
+                            if (tlDoc && tlDoc.domains && tlGen && tlGen !== tlOld) {
+                                fmSetTimeline(tlDoc, tlRegion);
+                            }
+                        }
+                    }
+                } catch (e) { /* timeline non ancora pubblicata: si riprova al ciclo successivo */ }
             }
         } finally {
             workflowDataPollBusy = false;
