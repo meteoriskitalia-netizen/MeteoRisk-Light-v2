@@ -582,7 +582,24 @@ jobs:
               GIT_INDEX_FILE="$IDX" git add -A -- $add_paths
             fi
             T_WT_0=$(date -u +%s)
-            TREE="$(GIT_INDEX_FILE="$IDX" git write-tree)"
+            # `--missing-ok` NON e' un cosmetico: SENZA, `git write-tree` verifica
+            # che OGNI oggetto citato dall'indice esista nel database locale. Su un
+            # partial clone (`filter: blob:none`) i 118.587 blob NON ci sono, quindi
+            # per ognuno parte un promisor fetch che il filtro non puo' soddisfare.
+            # MISURATO il 2026-10-25, tre prove indipendenti:
+            #   - run reale 40146235225: fetch del commit step 00:35:12, guardia di
+            #     scope alle 00:48:37 -> 13m25s spesi fra read-tree/write-tree/add;
+            #   - clone identico (blob:none, depth=1): read-tree 0,19s, poi write-tree
+            #     bloccato >9' con un `git fetch origin --stdin --filter=blob:none`
+            #     figlio (osservato con Get-CimInstance);
+            #   - stesso clone con `GIT_NO_LAZY_FETCH=1`: "fatal: could not fetch
+            #     9b349352... from promisor remote" (9b349352 e' un BLOB, verificato
+            #     con GET /git/blobs).
+            # Con il flag: 0,11s, e l'albero prodotto e' IDENTICO (39c46da5... = BASE
+            # a indice invariato). Il controllo saltato e' ridondante: le entry
+            # vengono da `git read-tree` dell'albero del branch (oggetti che il
+            # remote ha gia') piu' i path locali appena aggiunti da `git add`.
+            TREE="$(GIT_INDEX_FILE="$IDX" git write-tree --missing-ok)"
             echo "[commit] $(date -u +%H:%M:%S) write-tree completato in $(( $(date -u +%s) - T_WT_0 ))s (tree $TREE)."
             rm -f "$IDX"
             # NO-OP: nessun path cambiato => nessun churn, ZERO file nel commit.
