@@ -393,17 +393,32 @@ def main():
     _log("[satellite_engine] slot=%s time=%s out=%s backfill=%d slot x %d sorgenti"
          % (slot_name(slot), slot_time(slot), out_root, len(slots), len(SOURCES)))
 
+    # UN SOLO pool, con lo slot corrente accodato per primo. Prima le due fasi
+    # erano separate: il backfill partiva solo dopo che TUTTE le 6 sorgenti
+    # dello slot corrente avevano finito, quindi una sorgente che esauriva i 4
+    # tentativi (4 x HTTP_TIMEOUT_S 60 s + backoff = fino a 275 s) teneva 3
+    # worker su 4 FERMI. Misurato sulle run del 2026-10-25: run 704 = 1.194 s
+    # di step di download con 563 s di retry/timeout (9 retry, 4 timeout, 4
+    # IncompleteRead, 2 HTTP 500) e i download del backfill completati solo alla
+    # fine; run 709 (0 retry) = 414 s, cioe' ~122 kB/s di trasferimento puro.
+    # Accodando anche il backfill i worker liberi continuano a scaricare: stesso
+    # carico (MAX_WORKERS invariato), nessuna richiesta in piu', nessuna
+    # modifica alla finestra rolling (25 slot) ne' all'exit code.
+    tasks = [("current", source_id, slot, src) for source_id, src in SOURCES.items()]
+    tasks += [("backfill", source_id, s, src)
+              for s in slots[1:] for source_id, src in SOURCES.items()]
     results = {}
     backfill = {"ok": 0, "skip": 0, "errore": 0}
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-        pending = {pool.submit(process_source, source_id, src, slot, out_root): source_id
-                   for source_id, src in SOURCES.items()}
+        pending = {pool.submit(process_source, source_id, src, s, out_root): (kind, source_id)
+                   for kind, source_id, s, src in tasks}
         for future in as_completed(pending):
-            results[pending[future]] = future.result()
-        pending = {pool.submit(process_source, source_id, src, s, out_root): source_id
-                   for s in slots[1:] for source_id, src in SOURCES.items()}
-        for future in as_completed(pending):
-            backfill[future.result()["status"]] += 1
+            kind, source_id = pending[future]
+            res = future.result()
+            if kind == "current":
+                results[source_id] = res
+            else:
+                backfill[res["status"]] += 1
     for source_id in SOURCES:
         prune_source(source_id, out_root)
 
