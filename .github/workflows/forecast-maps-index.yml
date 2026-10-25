@@ -38,16 +38,27 @@ name: Forecast Maps Index (index.json aggregato su fm2-rendered)
 #   modifica (fuori scope dichiarato), quindi va deciso a parte.
 #
 # COME LEGGE I 5 BRANCH (checkout dei soli path necessari, non un merge):
-#   `--index-only` (rebuild_index, render_fm_webp.py righe 785-895) legge dal
-#   FILESYSTEM LOCALE, non dagli artifact: per OGNI dominio include una voce se e solo
-#   se (a) il dominio e' nella lista `--domains` e (b) esiste
-#   `data/fm2/<dominio>/latest.json` in `--in`. Basta quindi MATERIALIZZARE nel
-#   working tree i `data/fm2/<dominio>/` di TUTTI e 5 i branch: qui si fa un
-#   `git fetch --depth=1 origin <branch>` + `git checkout FETCH_HEAD -- data/fm2` per
-#   ciascuno dei 5 branch, in sequenza. I path `data/fm2/<dominio>/` sono DISGIUNTI
-#   per branch (l'allowlist di ogni engine lo garantisce), quindi i 5 checkout
-#   COESISTONO senza sovrascriversi: dopo i 5 fetch il working tree ha i manifest di
-#   tutti e 7 i domini. Da `fm2-rendered` NON si prendono i WebP: si materializzano
+#   `--index-only` (rebuild_index) legge dal FILESYSTEM LOCALE, non dagli artifact:
+#   per OGNI dominio include una voce se e solo se (a) il dominio e' nella lista
+#   `--domains` e (b) esiste `data/fm2/<dominio>/latest.json` in `--in`. E' l'UNICO
+#   file che apre sotto `--in`: nessun frame `.om`, nessun altro JSON.
+#   Si materializzano quindi i SOLI manifest JSON: `git fetch --depth=1 origin
+#   <branch>` + `git ls-tree -r ... | grep '\.json$'` + UN `git checkout` in batch
+#   per branch (7 path in tutto), MAI `git checkout FETCH_HEAD -- data/fm2`.
+#   MISURATO il 2026-10-25 sui 5 branch (GitHub tree API, somma dei blob): 687
+#   frame `.om` = 3.437,83 MB contro 7 `latest.json` = 3,21 MB. Il checkout
+#   integrale costava 401 s di step (run 40154040666) per scaricare 3,4 GB che il
+#   renderer non apre.
+#   I path `data/fm2/<dominio>/` sono DISGIUNTI per branch (l'allowlist di ogni
+#   engine lo garantisce), quindi i 5 checkout COESISTONO senza sovrascriversi:
+#   dopo i 5 fetch il working tree ha i manifest di tutti e 7 i domini.
+#   VERIFICA OBBLIGATORIA (in-band, dopo i 5 fetch): ogni manifest atteso deve
+#   esistere e avere il blob IDENTICO a quello dell'albero (`git hash-object
+#   --no-filters --stdin-paths`) e sotto `data/fm2` non deve restare NESSUN `.om`
+#   (`find ... -name '*.om' | wc -l` = 0). Se una delle due condizioni salta lo
+#   step esce 1: meglio nessuna pubblicazione che un indice costruito su manifest
+#   scaricati a meta'.
+#   Da `fm2-rendered` NON si prendono i WebP: si materializzano
 #   i SOLI manifest JSON (1.339 path `.json` con `mapfile` + UN solo `git checkout`),
 #   perche' `rebuild_index --index-only` legge solo quelli; i `.webp` restano nel
 #   branch. `fm2-rendered` e' anche il branch di SCRITTURA dell'indice. I metodi di
@@ -162,19 +173,124 @@ jobs:
           # `data/fm2/<dominio>/` (path disgiunti: i checkout coesistono).
           BRANCHES="fm2-dwdicon fm2-dwd fm2-ecmwf fm2-ncep fm2-meteofrance"
           git sparse-checkout disable >/dev/null 2>&1 || true
+          # ── PERCHE' SOLO I JSON E MAI I FRAME `.om` ──────────────────────────
+          # `rebuild_index --index-only` apre UN SOLO file per dominio sotto
+          # `--in`: `data/fm2/<dominio>/latest.json`. Nient'altro.
+          # Il vecchio `git checkout FETCH_HEAD -- "data/fm2"` materializzava
+          # l'INTERA directory del branch, frame `.om` inclusi: MISURATO il
+          # 2026-10-25 sui 5 branch (GitHub tree API, somma dei blob):
+          #   fm2-dwdicon   113 .om  2.050,59 MB | 1 latest.json    562 KB
+          #   fm2-dwd        40 .om    195,43 MB | 2 latest.json    208 KB
+          #   fm2-ecmwf      49 .om    229,45 MB | 1 latest.json    247 KB
+          #   fm2-ncep      418 .om    647,97 MB | 2 latest.json  1.907 KB
+          #   fm2-meteofrance 67 .om   314,39 MB | 1 latest.json    364 KB
+          #   TOTALE        687 .om  3.437,83 MB | 7 latest.json  3.289 KB
+          # Cioe' ~3,44 GB scaricati per leggere 3,2 MB di manifest: era la voce
+          # piu' cara del job (401 s di step nel run 40154040666).
+          # Metodo (lo stesso di `fm2-rendered`): `git ls-tree -r` legge solo i
+          # METADATI dell'albero, poi UN `git checkout` in batch con i soli path
+          # `.json` del branch. 1-2 path per branch, nessun `.om` scaricato.
+          VERIFY_WORK="$(mktemp -d)"
+          : > "$VERIFY_WORK/expected.txt"
           for b in $BRANCHES; do
             if ! git fetch --no-tags --depth=1 origin "$b" 2>/dev/null; then
               echo "[fetch] $b: branch assente (mai popolato): salto."
               continue
             fi
             # Guardia `git ls-tree`: il path puo' non esistere nell'albero.
-            if git ls-tree --name-only FETCH_HEAD -- "data/fm2" 2>/dev/null | grep -q .; then
-              echo "[fetch] $b: data/fm2 presente: checkout dei manifest."
-              git checkout FETCH_HEAD -- "data/fm2" 2>/dev/null || echo "[fetch] $b: checkout non riuscito (tollerato)."
-            else
+            if ! git ls-tree --name-only FETCH_HEAD -- "data/fm2" 2>/dev/null | grep -q .; then
               echo "[fetch] $b: nessun data/fm2 (branch vuoto): salto."
+              continue
+            fi
+            # ATTESO per la verifica: `<mode> <type> <sha>\t<path>` dei soli JSON.
+            BRANCH_TREE="$VERIFY_WORK/tree_$b.txt"
+            git ls-tree -r FETCH_HEAD -- "data/fm2" | grep -E '\.json$' > "$BRANCH_TREE" || true
+            mapfile -t MJSON < <(cut -f2- "$BRANCH_TREE")
+            if [ "${#MJSON[@]}" -eq 0 ]; then
+              echo "[fetch] $b: data/fm2 senza manifest JSON: salto."
+              continue
+            fi
+            cat "$BRANCH_TREE" >> "$VERIFY_WORK/expected.txt"
+            echo "[fetch] $b: ${#MJSON[@]} manifest JSON, 0 frame .om (UN checkout in batch)."
+            if git checkout FETCH_HEAD -- "${MJSON[@]}" 2>/dev/null; then
+              echo "[fetch] $b: checkout in batch completato."
+            else
+              # FALLBACK tollerante (un path alla volta): NON maschera nulla, il
+              # gate vero e' la verifica qui sotto, che esce 1 se un manifest
+              # manca o se il suo blob non e' quello dell'albero.
+              echo "[fetch] $b: checkout in batch fallito: fallback per-file (tollerato)."
+              for p in "${MJSON[@]}"; do
+                git checkout FETCH_HEAD -- "$p" 2>/dev/null \
+                  || echo "[fetch]   $p: checkout non riuscito (tollerato)."
+              done
             fi
           done
+          # ── VERIFICA (obbligatoria, in-band) ─────────────────────────────────
+          # Tre condizioni, altrimenti exit 1 (come lo step di `fm2-rendered`):
+          #  1) ogni manifest atteso dall'albero esiste nel working tree;
+          #  2) il blob su disco e' IDENTICO a quello dell'albero
+          #     (`git hash-object --no-filters` ricalcola l'OID dai byte, quindi
+          #     e' indipendente da `.gitattributes` e `core.autocrlf`);
+          #  3) sotto `data/fm2` non c'e' NESSUN frame `.om`.
+          # La (3) e' il difetto che questa modifica elimina: se qualcosa lo
+          # reintroduce (un `git checkout -- data/fm2` copiato da un altro step,
+          # un path allargato), il job lo DICE invece di scaricare 3,4 GB in
+          # silenzio. Costo: 1 `git hash-object --stdin-paths` (UN processo) +
+          # 1 `find`, non un processo git per file.
+          VERIFY_N="$(wc -l < "$VERIFY_WORK/expected.txt")"
+          : > "$VERIFY_WORK/paths.txt"
+          : > "$VERIFY_WORK/expected_sha.txt"
+          : > "$VERIFY_WORK/bad.txt"
+          VERIFY_BAD=0
+          while IFS=$'\t' read -r meta path; do
+            if [ -n "$path" ]; then
+              if [ -f "$path" ]; then
+                printf '%s\n' "$path" >> "$VERIFY_WORK/paths.txt"
+                printf '%s\t%s\n' "${meta##* }" "$path" >> "$VERIFY_WORK/expected_sha.txt"
+              else
+                echo "::error::[verify] manifest MANCANTE: $path"
+                VERIFY_BAD=$((VERIFY_BAD + 1))
+              fi
+            fi
+          done < "$VERIFY_WORK/expected.txt"
+          VERIFY_DIFF=0
+          if [ -s "$VERIFY_WORK/paths.txt" ]; then
+            git hash-object --no-filters --stdin-paths < "$VERIFY_WORK/paths.txt" > "$VERIFY_WORK/actual.txt"
+            # `expected_sha.txt` = `<sha atteso>\t<path>`, `actual.txt` = uno sha
+            # per riga nello STESSO ordine dell'input. Un solo `awk` con due file:
+            # `NR == FNR` identifica il primo. Esce 2 se i conteggi non combaciano.
+            if ! awk -F'\t' '
+              NR == FNR { exp_sha[FNR] = $1; exp_path[FNR] = $2; n = FNR; next }
+              { act_sha[FNR] = $1; m = FNR }
+              END {
+                if (m != n) {
+                  printf "[verify] hash-object: %d righe contro %d path\n", m, n
+                  exit 2
+                }
+                for (i = 1; i <= n; i++) {
+                  if (exp_sha[i] != act_sha[i]) print exp_path[i]
+                }
+              }' "$VERIFY_WORK/expected_sha.txt" "$VERIFY_WORK/actual.txt" > "$VERIFY_WORK/bad.txt"; then
+              echo "::error::[verify] git hash-object --stdin-paths: numero di righe diverso dal numero di path (estrazione parziale)."
+              rm -rf "$VERIFY_WORK"
+              exit 1
+            fi
+            VERIFY_DIFF="$(wc -l < "$VERIFY_WORK/bad.txt")"
+          fi
+          OM_MAT="$(find data/fm2 -name '*.om' 2>/dev/null | wc -l)"
+          if [ "$VERIFY_BAD" -ne 0 ] || [ "$VERIFY_DIFF" -ne 0 ] || [ "$OM_MAT" -ne 0 ]; then
+            while read -r bad_path; do
+              echo "::error::[verify] manifest DIVERSO dal blob dell'albero: $bad_path"
+            done < "$VERIFY_WORK/bad.txt"
+            if [ "$OM_MAT" -ne 0 ]; then
+              echo "::error::[verify] frame .om materializzati sotto data/fm2: $OM_MAT (atteso 0)."
+            fi
+            echo "::error::[verify] manifest engine: $((VERIFY_BAD + VERIFY_DIFF)) non verificati su $VERIFY_N (mancanti: $VERIFY_BAD, diversi: $VERIFY_DIFF), .om: $OM_MAT."
+            rm -rf "$VERIFY_WORK"
+            exit 1
+          fi
+          rm -rf "$VERIFY_WORK"
+          echo "[verify] manifest engine: $VERIFY_N/$VERIFY_N identici all'albero; frame .om materializzati: $OM_MAT."
           echo "[fetch] manifest engine presenti:"
           find data/fm2 -maxdepth 2 -name latest.json 2>/dev/null | sort || true
 
