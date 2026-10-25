@@ -58,6 +58,8 @@ SCHEMA (``fm2-timeline-1``)
         "dwd_icon": {
           "current_run": "20261023T180000Z",     # bucket 0
           "runs": [ ... stesso record senza "domain" ... ],
+          "head_trim": {"applied": true, "cutoff": "2026-10-23T15:00Z",
+                        "dropped_frames": 12, "reason": "keep_past_hours"},
           "variables": {
             "cape": {"group": "g0", "frames": 123,
                      "by_run": {"20261023T180000Z": 93, "20261023T120000Z": 24,
@@ -78,7 +80,7 @@ SCHEMA (``fm2-timeline-1``)
       "summary": {"domains": 7, "runs": 20, "variables": 153, "groups": 14,
                   "timeline_frames": 1649, "variable_frames": 17372,
                   "files_checked": 17372, "files_missing": 0,
-                  "files_verified": true}
+                  "files_verified": true, "head_trim_dropped": 37}
     }
 
 Note di schema:
@@ -110,6 +112,48 @@ Note di schema:
   (quante voci vedrebbe un client che itera una variabile alla volta). Il
   secondo e' il costo evitato dal raggruppamento.
 
+POTATURA DELLA TESTA (``--keep-past-hours``, default 3)
+-------------------------------------------------------
+La regola di merge "per ogni ``valid_time`` vince la run piu' recente che ce
+l'ha" NON PUO' rimpiazzare i ``valid_time`` anteriori all'inizio della run piu'
+nuova: una run copre solo da ``reference_time`` in avanti. Quindi la testa
+della timeline appartiene per costruzione alla run piu' vecchia in retention e
+resta ferma finche' quella run non viene potata. MISURATO il 2026-10-25 su
+``fm2-rendered``: ``ncep_gfs025`` cominciava a ``2026-10-23T00:00Z``, cioe' 55
+ore nel passato rispetto a ``generated_at``.
+
+Per questo, per ogni ``(dominio, variabile)``, i frame con::
+
+    valid_time < reference_time(run corrente) - keep_past_hours
+
+vengono SCARTATI. La CODA (frame dopo la fine della run nuova, che vengono
+dalle run precedenti) resta INTATTA: e' la parte utile. Un ``valid_time`` non
+parsabile non viene potato (non c'e' prova che sia vecchio).
+
+La run di riferimento e' ``current_run`` (la piu' recente del dominio); se il
+suo ``reference_time`` non e' determinabile si usa la prima run della lista che
+ne ha uno; se nessuna ne ha uno non si pota nulla (comportamento storico) e
+``reason`` lo dichiara.
+
+Ogni ``domains.<dominio>.head_trim`` dichiara l'esito::
+
+    {"applied": true, "cutoff": "2026-10-23T21:00Z",
+     "dropped_frames": 51, "reason": "keep_past_hours"}
+
+``dropped_frames`` conta i ``valid_time`` DISTINTI rimossi nel dominio (non le
+occorrenze per variabile: le variabili di un dominio condividono quasi sempre
+la stessa testa). ``reason`` vale ``"keep_past_hours"`` quando il taglio e'
+stato applicato (anche con 0 frame rimossi) e ``"no_current_run"`` quando non
+c'era alcuna run con ``reference_time`` utilizzabile (``applied: false``,
+``cutoff: null``).
+
+Una variabile la cui timeline resta VUOTA dopo la potatura non entra in alcun
+gruppo: la sua voce in ``variables`` porta ``"group": null``, ``"frames": 0``,
+``"head_trimmed_frames": N`` e ``"fallback": "index.json"``. Il client
+(``fmTimelineGroupId``) tratta un ``group`` assente/falsy come "nessuna
+timeline" e ricade su ``index.json`` per quella variabile: nessuna modifica
+all'HTML. Un gruppo senza frame non viene mai creato.
+
 Il file e' ADDITIVO: ``index.json`` non viene letto ne' scritto, il renderer non
 viene toccato, nessun workflow viene toccato.
 
@@ -122,6 +166,8 @@ CLI
         --regions italia --check-files
     python scripts/forecast_v2/build_timeline_index.py --root data/fm2-rendered \\
         --path-list paths.txt --now 2026-10-24T00:00:00Z --dry-run
+    python scripts/forecast_v2/build_timeline_index.py --root data/fm2-rendered \\
+        --keep-past-hours 0        # taglio esatto a reference_time
 
 Exit code: 0 = almeno una regione scritta; 1 = nessuna regione valida;
 2 = argomenti/root non validi; 3 = frame mancanti con ``--fail-on-missing``.
@@ -148,6 +194,10 @@ FILE_TEMPLATE = "<dominio>/runs/<run_id>/<variabile>/<file>"
 MERGE_RULE = ("per ogni valid_time vince la run con reference_time piu' recente "
               "che ha un frame RESO per quella variabile; a parita' di "
               "reference_time vince il run_id maggiore")
+# Ore di passato ammesse nella testa della timeline (vedi docstring). 3 ore
+# coprono l'anticipo con cui una run puo' essere resa rispetto al suo
+# reference_time senza lasciare scoperto l'istante della run stessa.
+DEFAULT_KEEP_PAST_HOURS = 3.0
 
 
 # --------------------------------------------------------------------------- #
@@ -364,6 +414,31 @@ def _run_sort_key(record: dict) -> tuple:
     return (0, _dt.datetime.min.replace(tzinfo=_dt.timezone.utc), record["run_id"])
 
 
+def head_trim_cutoff(runs: list, keep_past_hours) -> tuple:
+    """``(cutoff, reason, run_id)`` per la potatura della testa.
+
+    ``runs`` e' la lista GIA' ordinata dalla piu' recente (``merge_domain`` la
+    ordina prima di chiamare qui). La run di riferimento e' la piu' recente che
+    ha un ``reference_time`` parsabile: normalmente ``runs[0]``, cioe'
+    ``current_run``. Se NESSUNA run lo ha, il taglio non e' determinabile:
+    ``cutoff`` e ``run_id`` sono ``None`` e ``reason`` vale ``"no_current_run"``
+    (comportamento storico: nessuna potatura), mai un taglio indovinato.
+    """
+    try:
+        hours = float(keep_past_hours)
+    except (TypeError, ValueError):
+        hours = 0.0
+    if hours < 0:
+        hours = 0.0
+    for record in runs:
+        parsed = parse_dt(record.get("reference_time"))
+        if parsed is None:
+            continue
+        return (parsed - _dt.timedelta(hours=hours), "keep_past_hours",
+                record["run_id"])
+    return None, "no_current_run", None
+
+
 # --------------------------------------------------------------------------- #
 # merge
 # --------------------------------------------------------------------------- #
@@ -375,7 +450,8 @@ def _valid_time_sort_key(valid_time: str) -> tuple:
 
 
 def merge_domain(domain: str, runs: list, max_runs: int, exists=None,
-                 dropped=None, stats=None) -> dict | None:
+                 dropped=None, stats=None,
+                 keep_past_hours=DEFAULT_KEEP_PAST_HOURS) -> dict | None:
     """Costruisce ``domains.<dominio>``: run ordinate, gruppi, timeline.
 
     ``exists(domain, run_id, var, file)`` (opzionale) e' il predicato di
@@ -383,6 +459,11 @@ def merge_domain(domain: str, runs: list, max_runs: int, exists=None,
     citato, e per quel ``valid_time`` si scende alla run successiva (se ce
     l'ha). Ogni scarto finisce in ``dropped`` con il motivo: nessun buco
     silenzioso.
+
+    ``keep_past_hours`` pota la TESTA della timeline: per ogni variabile i
+    frame con ``valid_time < reference_time(run corrente) - keep_past_hours``
+    vengono rimossi e contati in ``head_trim``. La coda (frame dopo la fine
+    della run nuova, che arrivano dalle run precedenti) non viene toccata.
     """
     runs.sort(key=_run_sort_key, reverse=True)
     if max_runs and max_runs > 0:
@@ -409,6 +490,9 @@ def merge_domain(domain: str, runs: list, max_runs: int, exists=None,
 
     # Variabili: unione di tutti i run (ordine alfabetico = deterministico).
     all_vars = sorted({var for record in runs for var in record["frames_by_var"]})
+    cutoff, trim_reason, _trim_run = head_trim_cutoff(runs, keep_past_hours)
+    trimmed_times = set()
+    emptied = {}
     per_var_timeline = {}
     per_var_by_run = {}
     for var in all_vars:
@@ -442,13 +526,31 @@ def merge_domain(domain: str, runs: list, max_runs: int, exists=None,
         if not winners:
             continue
         timeline = [winners[vt] for vt in sorted(winners, key=_valid_time_sort_key)]
+        if cutoff is not None:
+            # Potatura della TESTA. Un valid_time non parsabile resta: non c'e'
+            # prova che sia anteriore al cutoff (e l'ordinamento lo mette in
+            # coda, non in testa).
+            kept = []
+            for entry in timeline:
+                parsed = parse_dt(entry["valid_time"])
+                if parsed is not None and parsed < cutoff:
+                    trimmed_times.add(entry["valid_time"])
+                    continue
+                kept.append(entry)
+            if not kept:
+                # La variabile esiste ma dopo il taglio non ha piu' frame: non
+                # entra in alcun gruppo e la sua voce lo dichiara (il client
+                # ricade su index.json).
+                emptied[var] = len(timeline)
+                continue
+            timeline = kept
         per_var_timeline[var] = timeline
         counts = {}
         for entry in timeline:
             counts[entry["run_id"]] = counts.get(entry["run_id"], 0) + 1
         per_var_by_run[var] = counts
 
-    if not per_var_timeline:
+    if not per_var_timeline and not emptied:
         return None
 
     # Raggruppa le variabili con timeline IDENTICA (stessi valid_time, run_id e
@@ -485,7 +587,18 @@ def merge_domain(domain: str, runs: list, max_runs: int, exists=None,
                 timeline_frames_by_run.get(entry["run_id"], 0) + 1)
 
     variables = {}
-    for var in sorted(per_var_timeline):
+    for var in sorted(set(per_var_timeline) | set(emptied)):
+        if var in emptied:
+            # Gruppo svuotato dalla potatura: il gruppo non esiste, la variabile
+            # resta citata e il client ricade su index.json (group falsy).
+            variables[var] = {
+                "group": None,
+                "frames": 0,
+                "by_run": {},
+                "head_trimmed_frames": emptied[var],
+                "fallback": "index.json",
+            }
+            continue
         variables[var] = {
             "group": group_id[var_group[var]],
             "frames": len(per_var_timeline[var]),
@@ -498,6 +611,12 @@ def merge_domain(domain: str, runs: list, max_runs: int, exists=None,
     return {
         "current_run": run_records[0]["run_id"] if run_records else None,
         "runs": run_records,
+        "head_trim": {
+            "applied": cutoff is not None,
+            "cutoff": format_dt(cutoff) if cutoff is not None else None,
+            "dropped_frames": len(trimmed_times),
+            "reason": trim_reason,
+        },
         "variables": variables,
         "timeline_groups": timeline_groups,
     }
@@ -506,7 +625,8 @@ def merge_domain(domain: str, runs: list, max_runs: int, exists=None,
 # --------------------------------------------------------------------------- #
 # region
 # --------------------------------------------------------------------------- #
-def build_region(root: str, region: str, max_runs: int = 0, exists=None) -> dict | None:
+def build_region(root: str, region: str, max_runs: int = 0, exists=None,
+                 keep_past_hours=DEFAULT_KEEP_PAST_HOURS) -> dict | None:
     """Costruisce il documento ``timeline.json`` di una regione."""
     region_dir = os.path.join(root, region)
     domains = discover_domains(region_dir)
@@ -535,7 +655,8 @@ def build_region(root: str, region: str, max_runs: int = 0, exists=None) -> dict
                 continue
             runs.append(record)
         doc = merge_domain(domain, runs, max_runs, exists=exists,
-                           dropped=dropped, stats=stats)
+                           dropped=dropped, stats=stats,
+                           keep_past_hours=keep_past_hours)
         if doc is None:
             skipped.append("%s/%s" % (domain, "nessuna run valida"))
             continue
@@ -561,6 +682,8 @@ def build_region(root: str, region: str, max_runs: int = 0, exists=None) -> dict
         "files_checked": stats["checked"],
         "files_missing": len(dropped),
         "files_verified": exists is not None,
+        "head_trim_dropped": sum(doc["head_trim"]["dropped_frames"]
+                                 for doc in domain_docs.values()),
     }
     document = {
         "version": TIMELINE_VERSION,
@@ -617,6 +740,14 @@ def parse_args(argv=None):
     parser.add_argument("--max-runs", type=int, default=0,
                         help="tieni solo le N run piu' recenti per dominio "
                              "(default 0 = tutte quelle presenti)")
+    parser.add_argument("--keep-past-hours", type=float,
+                        default=DEFAULT_KEEP_PAST_HOURS,
+                        help="pota la testa della timeline: per ogni variabile "
+                             "si scartano i frame con valid_time < "
+                             "reference_time(run corrente) - N ore. La coda "
+                             "(frame dopo la fine della run nuova) resta. "
+                             "Default %s; 0 = taglio esatto a reference_time"
+                             % DEFAULT_KEEP_PAST_HOURS)
     parser.add_argument("--check-files", action="store_true",
                         help="verifica su disco ogni frame citato: quelli assenti "
                              "vengono scartati e dichiarati in 'dropped'")
@@ -648,6 +779,10 @@ def main(argv=None) -> int:
     out_root = os.path.abspath(args.out_root) if args.out_root else root
     if not os.path.isdir(root):
         print("FATAL: --root non e' una directory: %s" % root, file=sys.stderr)
+        return 2
+    if args.keep_past_hours is None or args.keep_past_hours < 0:
+        print("FATAL: --keep-past-hours deve essere >= 0 (ricevuto %r)"
+              % (args.keep_past_hours,), file=sys.stderr)
         return 2
 
     requested = _split_csv(args.regions)
@@ -684,7 +819,8 @@ def main(argv=None) -> int:
         exists = None
         if args.check_files or path_list is not None:
             exists = make_exists(root, region, path_list)
-        document = build_region(root, region, max_runs=args.max_runs, exists=exists)
+        document = build_region(root, region, max_runs=args.max_runs, exists=exists,
+                                keep_past_hours=args.keep_past_hours)
         if document is None:
             print("[timeline] %s: nessun dominio con run valide -> nessun file"
                   % region, file=sys.stderr)
@@ -713,13 +849,23 @@ def main(argv=None) -> int:
             os.makedirs(target_dir, exist_ok=True)
             changed = write_json(target, document)
         print("[timeline] %s: %d domini, %d run, %d variabili, %d gruppi, "
-              "%d frame (%d nelle variabili), %d file verificati/%d mancanti, %s %s"
+              "%d frame (%d nelle variabili), %d testa potata, "
+              "%d file verificati/%d mancanti, %s %s"
               % (region, summary["domains"], summary["runs"],
                  summary["variables"], summary["groups"],
                  summary["timeline_frames"], summary["variable_frames"],
+                 summary["head_trim_dropped"],
                  summary["files_checked"], summary["files_missing"],
                  "dry-run" if args.dry_run else
                  ("scritto" if changed else "invariato"), target))
+        for name, doc in sorted(document["domains"].items()):
+            trim = doc["head_trim"]
+            if not trim["dropped_frames"]:
+                continue
+            print("[timeline] %s/%s: testa potata, %d frame con valid_time < %s "
+                  "(run %s)"
+                  % (region, name, trim["dropped_frames"], trim["cutoff"],
+                     doc["current_run"]))
         written += 1
 
     if missing_total and args.fail_on_missing:

@@ -151,9 +151,18 @@ def tree(tmp_path):
     return root
 
 
-def _run_main(root, out, *extra):
+def _run_main(root, out, *extra, keep_past="100000"):
+    """Esegue ``main`` sulla fixture.
+
+    Il default ``keep_past="100000"`` (K enorme) DISATTIVA la potatura della
+    testa: i test storici misurano il merge (bucket, coda, fallback), non il
+    taglio. I test della potatura passano ``keep_past`` esplicito; il default
+    VERO del CLI (3 ore) e' verificato da
+    ``test_default_keep_past_hours_is_three``.
+    """
     return mod.main(["--root", root, "--out-root", out,
-                     "--now", "2026-10-24T00:00:00Z"] + list(extra))
+                     "--now", "2026-10-24T00:00:00Z",
+                     "--keep-past-hours", keep_past] + list(extra))
 
 
 def _load_timeline(out, region=REGION):
@@ -526,3 +535,190 @@ def test_regions_filter_selects_one_region(tree, tmp_path, capsys):
     capsys.readouterr()
     assert os.path.isfile(os.path.join(out, REGION, "timeline.json"))
     assert not os.path.exists(os.path.join(out, "europa", "timeline.json"))
+
+
+# --------------------------------------------------------------------------- #
+# potatura della testa (--keep-past-hours, default 3)
+#
+# Il difetto misurato in produzione il 2026-10-25: la timeline cominciava nel
+# passato (fino a 55 h) perche' il merge non puo' rimpiazzare i valid_time
+# anteriori al reference_time della run piu' nuova. Questi test coprono (a)-(f)
+# della richiesta + il default VERO del CLI + il rifiuto di K negativo.
+# --------------------------------------------------------------------------- #
+TRIM_CURRENT = "20261024T000000Z"   # run corrente, reference_time 2026-10-24T00Z
+TRIM_OLD = "20261022T000000Z"       # run precedente, reference_time 2026-10-22T00Z
+TRIM_REF = "2026-10-24T00:00:00Z"
+TRIM_OLD_REF = "2026-10-22T00:00:00Z"
+CUTOFF_3 = "2026-10-23T21:00Z"      # TRIM_REF - 3 h
+CUTOFF_0 = "2026-10-24T00:00Z"      # TRIM_REF - 0 h
+
+
+def _trim_fixture(tmp_path, current_frames, old_frames, var="varX"):
+    """Run corrente + run precedente, con la testa vecchia nella run precedente."""
+    root = str(tmp_path / "fm2-rendered")
+    _write_run(root, TRIM_CURRENT, TRIM_REF, {var: current_frames})
+    _write_run(root, TRIM_OLD, TRIM_OLD_REF, {var: old_frames})
+    return root
+
+
+def test_head_trim_cuts_a_55_hour_old_head(tmp_path, capsys):
+    """(a) testa vecchia di 55 h -> potata a K=3."""
+    # 21/17 .. 24/03 (59 frame): il primo valid_time e' 55 h prima della run.
+    old = _hours("2026-10-21T17:00Z", 59)
+    current = _hours("2026-10-24T00:00Z", 6)   # 24/00 .. 24/05
+    root = _trim_fixture(tmp_path, current, old)
+    out = str(tmp_path / "out")
+    assert _run_main(root, out, keep_past="3") == 0
+    capsys.readouterr()
+    document = _load_timeline(out)
+    doc = document["domains"][DOMAIN]
+
+    assert doc["head_trim"] == {"applied": True, "cutoff": CUTOFF_3,
+                                "dropped_frames": 52,
+                                "reason": "keep_past_hours"}
+    timeline = _entries(document)
+    assert timeline[0]["valid_time"] == CUTOFF_3
+    assert timeline[0]["run_id"] == TRIM_OLD and timeline[0]["bucket"] == 1
+    assert [entry["valid_time"] for entry in timeline][-1] == "2026-10-24T05:00Z"
+    assert len(timeline) == 9            # 23/21..23/23 (3) + 24/00..24/05 (6)
+    assert doc["variables"]["varX"]["frames"] == 9
+    assert doc["variables"]["varX"]["by_run"] == {TRIM_OLD: 3, TRIM_CURRENT: 6}
+    assert document["summary"]["head_trim_dropped"] == 52
+
+
+def test_keep_past_zero_cuts_exactly_at_reference_time(tmp_path, capsys):
+    """(b) K=0 -> taglio esatto a reference_time (nessuna tolleranza)."""
+    old = _hours("2026-10-21T17:00Z", 59)
+    current = _hours("2026-10-24T00:00Z", 6)
+    root = _trim_fixture(tmp_path, current, old)
+    out = str(tmp_path / "out")
+    assert _run_main(root, out, keep_past="0") == 0
+    capsys.readouterr()
+    document = _load_timeline(out)
+    doc = document["domains"][DOMAIN]
+    assert doc["head_trim"]["cutoff"] == CUTOFF_0
+    assert doc["head_trim"]["dropped_frames"] == 55
+    timeline = _entries(document)
+    assert timeline[0]["valid_time"] == CUTOFF_0
+    assert len(timeline) == 6
+    assert doc["variables"]["varX"]["by_run"] == {TRIM_CURRENT: 6}
+
+
+def test_tail_from_the_previous_run_is_untouched(tmp_path, capsys):
+    """(c) la CODA (frame dopo la fine della run nuova) resta intatta."""
+    # La run nuova copre solo 24/00..24/02; la coda 24/03..24/08 viene dalla
+    # run precedente, che copre anche una testa vecchia (21/17..).
+    old = _hours("2026-10-21T17:00Z", 64)       # 21/17 .. 24/08
+    current = _hours("2026-10-24T00:00Z", 3)    # 24/00 .. 24/02
+    root = _trim_fixture(tmp_path, current, old)
+    out = str(tmp_path / "out")
+    assert _run_main(root, out, keep_past="3") == 0
+    capsys.readouterr()
+    document = _load_timeline(out)
+    doc = document["domains"][DOMAIN]
+    timeline = _entries(document)
+
+    assert doc["head_trim"]["dropped_frames"] == 52
+    assert timeline[0]["valid_time"] == CUTOFF_3
+    assert timeline[-1]["valid_time"] == "2026-10-24T08:00Z"
+    assert timeline[-1]["run_id"] == TRIM_OLD and timeline[-1]["bucket"] == 1
+    tail = [entry for entry in timeline
+            if mod.parse_dt(entry["valid_time"]) >= mod.parse_dt("2026-10-24T03:00Z")]
+    assert [entry["valid_time"] for entry in tail] == \
+        _hours("2026-10-24T03:00Z", 6)
+    # La coda e' della run PRECEDENTE: la potatura non l'ha toccata.
+    assert {entry["run_id"] for entry in tail} == {TRIM_OLD}
+    assert len(timeline) == 12       # 23/21..23/23 + 24/00..24/08
+
+
+def test_no_current_run_disables_the_trim(tmp_path, capsys):
+    """(d) nessuna run con reference_time -> nessuna potatura, dichiarata."""
+    root = str(tmp_path / "fm2-rendered")
+    frames = _hours("2026-10-21T17:00Z", 4)
+    # run_id non parsabile + nessun reference_time/generated_at nel manifest.
+    _write_run(root, "run-alpha", None, {"varX": frames}, generated_at=None)
+    out = str(tmp_path / "out")
+    assert _run_main(root, out, keep_past="3") == 0
+    capsys.readouterr()
+    document = _load_timeline(out)
+    doc = document["domains"][DOMAIN]
+    assert doc["head_trim"] == {"applied": False, "cutoff": None,
+                                "dropped_frames": 0,
+                                "reason": "no_current_run"}
+    assert [entry["valid_time"] for entry in _entries(document)] == frames
+    assert document["summary"]["head_trim_dropped"] == 0
+
+
+def test_variable_emptied_by_the_trim_loses_its_group(tmp_path, capsys):
+    """(e) gruppo svuotato -> rimosso; la variabile ricade su index.json."""
+    root = str(tmp_path / "fm2-rendered")
+    _write_run(root, TRIM_CURRENT, TRIM_REF,
+               {"varX": _hours("2026-10-20T00:00Z", 4),     # tutta nel passato
+                "varY": _hours("2026-10-24T00:00Z", 3)})    # tutta valida
+    out = str(tmp_path / "out")
+    assert _run_main(root, out, keep_past="3") == 0
+    capsys.readouterr()
+    document = _load_timeline(out)
+    doc = document["domains"][DOMAIN]
+
+    assert doc["variables"]["varX"] == {"group": None, "frames": 0,
+                                        "by_run": {},
+                                        "head_trimmed_frames": 4,
+                                        "fallback": "index.json"}
+    groups = doc["timeline_groups"]
+    assert len(groups) == 1
+    group = list(groups.values())[0]
+    assert group["variables"] == ["varY"]
+    assert group["frames"] == 3
+    assert all(group["frames"] > 0 for group in groups.values())
+    assert all("varX" not in group["variables"] for group in groups.values())
+    assert doc["head_trim"]["dropped_frames"] == 4
+    # La variabile resta citata (non sparisce) e il dominio resta nel file.
+    assert document["summary"]["variables"] == 2
+    assert document["summary"]["head_trim_dropped"] == 4
+    assert _entries(document, var="varY")[0]["valid_time"] == "2026-10-24T00:00Z"
+
+
+def test_large_keep_past_hours_does_not_trim(tmp_path, capsys):
+    """(f) K grande -> nessun taglio (la testa resta quella di prima)."""
+    old = _hours("2026-10-21T17:00Z", 3)
+    current = _hours("2026-10-24T00:00Z", 2)
+    root = _trim_fixture(tmp_path, current, old)
+    out = str(tmp_path / "out")
+    assert _run_main(root, out, keep_past="100000") == 0
+    capsys.readouterr()
+    document = _load_timeline(out)
+    doc = document["domains"][DOMAIN]
+    trim = doc["head_trim"]
+    assert trim["applied"] is True and trim["reason"] == "keep_past_hours"
+    assert trim["dropped_frames"] == 0
+    assert mod.parse_dt(trim["cutoff"]) == (
+        mod.parse_dt(TRIM_REF) - mod._dt.timedelta(hours=100000))
+    timeline = _entries(document)
+    assert timeline[0]["valid_time"] == "2026-10-21T17:00Z"
+    assert len(timeline) == 5
+
+
+def test_default_keep_past_hours_is_three(tmp_path, capsys):
+    """Senza il flag vale K=3: e' il comportamento che va in produzione."""
+    assert mod.parse_args([]).keep_past_hours == 3.0
+    old = _hours("2026-10-21T17:00Z", 59)
+    current = _hours("2026-10-24T00:00Z", 6)
+    root = _trim_fixture(tmp_path, current, old)
+    out = str(tmp_path / "out")
+    assert mod.main(["--root", root, "--out-root", out,
+                     "--now", "2026-10-24T00:00:00Z"]) == 0
+    capsys.readouterr()
+    doc = _load_timeline(out)["domains"][DOMAIN]
+    assert doc["head_trim"]["cutoff"] == CUTOFF_3
+    assert doc["head_trim"]["dropped_frames"] == 52
+
+
+def test_negative_keep_past_hours_is_rejected(tmp_path, capsys):
+    old = _hours("2026-10-21T17:00Z", 3)
+    current = _hours("2026-10-24T00:00Z", 2)
+    root = _trim_fixture(tmp_path, current, old)
+    out = str(tmp_path / "out")
+    assert _run_main(root, out, keep_past="-1") == 2
+    capsys.readouterr()
+    assert not os.path.exists(os.path.join(out, REGION, "timeline.json"))
