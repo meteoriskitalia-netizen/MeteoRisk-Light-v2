@@ -442,16 +442,13 @@ def test_phase2_summary_best_candidate_and_status():
     assert best["lightning"] == 70.0
 
 
-def test_lightning_backoff_stops_after_consecutive_failures(monkeypatch):
-    """E (1.2.4.17): niente 37 richieste 403.
+def test_lightning_backoff_stops_after_three_failed_attempts(monkeypatch):
+    """1.2.4.26: tetto di 3 TENTATIVI FALLITI, non piu' 12.
 
-    Con config max_backoff_steps=36 e modulo LTG_MAX_BACKOFF_STEPS=12, il
-    vecchio codice faceva 1+36 richieste. Ora il backoff effettivo e' il
-    minimo fra config e modulo (12) e il ciclo si interrompe dopo
-    `max_consecutive_failures` (3) errori di fila, ma SOLO dopo il grace
-    period dei 9 passi di ritardo di pubblicazione misurato: 9 + 3 = 12
-    richieste, non 3. Fermarsi prima azzererebbe il layer fulmini in ogni run
-    perche' il primo slot utile e' tipicamente a k=9 (misurato 2026-10-07)."""
+    Misura del 2026-10-25: ogni run con candidati faceva 12 richieste, tutte
+    403 (936/giorno) per un layer che resta assente. Il grace di 9 passi della
+    1.2.4.17 e' dichiaratamente NON piu' applicato (config.py): il costo
+    accettato e' non vedere uno slot pubblicato a k>=3."""
     ltg_calls = []
 
     def fake_fetch_frames(config, product=None, max_frames=None):
@@ -466,21 +463,17 @@ def test_lightning_backoff_stops_after_consecutive_failures(monkeypatch):
 
     bundle, cfg = _bundle()
     cfg["phase2"]["lightning"]["max_backoff_steps"] = 36
-    cfg["phase2"]["lightning"]["max_consecutive_failures"] = 3
+    cfg["phase2"]["lightning"]["max_failed_attempts"] = 3
     eng._phase2_evaluate(bundle, cfg)
 
-    assert len(ltg_calls) == 12                    # 37 -> 12 richieste
-    assert len(ltg_calls) <= ltg_mod.LTG_MAX_BACKOFF_STEPS + 1
-    assert any("errori consecutivi" in w for w in bundle.warnings)
+    assert len(ltg_calls) == 3                     # 12 -> 3 richieste
+    assert any("tentativi falliti" in w and "max_failed_attempts=3" in w
+               for w in bundle.warnings)
     assert all(c["lightning"] is None for c in bundle.convective_structures)
 
 
-def test_lightning_backoff_finds_slot_published_after_delay(monkeypatch):
-    """E (1.2.4.17): il grace period NON deve nascondere lo slot reale.
-
-    Il ritardo di pubblicazione misurato e' 9 passi: con i primi 9 slot in 403
-    e gli ultimi pubblicati, il layer deve comunque raccogliere i fulmini.
-    (Una soglia "stop dopo 3 errori" senza grace restituirebbe zero slot.)"""
+def test_lightning_backoff_cap_is_configurable(monkeypatch):
+    """Il tetto e' un parametro (leva di rollback), non una costante sparsa."""
     ltg_calls = []
 
     def fake_fetch_frames(config, product=None, max_frames=None):
@@ -488,8 +481,30 @@ def test_lightning_backoff_finds_slot_published_after_delay(monkeypatch):
 
     def fake_fetch_ltg(epoch_ms=None, **kw):
         ltg_calls.append(epoch_ms)
-        # i primi 9 passi (dal piu' recente) non sono ancora pubblicati
-        if len(ltg_calls) <= ltg_mod.LTG_PUBLICATION_DELAY_STEPS:
+        raise ltg_mod.LightningFetchError("http_403")
+
+    monkeypatch.setattr("radar_engine.fetch.fetch_frames", fake_fetch_frames)
+    monkeypatch.setattr("radar_engine.phase2.lightning.fetch_ltg", fake_fetch_ltg)
+
+    bundle, cfg = _bundle()
+    cfg["phase2"]["lightning"]["max_failed_attempts"] = 1
+    eng._phase2_evaluate(bundle, cfg)
+    assert len(ltg_calls) == 1
+
+
+def test_lightning_backoff_finds_slot_within_the_cap(monkeypatch):
+    """Il tetto NON taglia il percorso che funziona: slot a k=2 trovato e
+    finestra di trend (4 slot) riempita; il conteggio errori si azzera a ogni
+    successo. Uno slot a k=9 NON viene piu' cercato (conseguenza dichiarata)."""
+    ltg_calls = []
+
+    def fake_fetch_frames(config, product=None, max_frames=None):
+        return [], [], None
+
+    def fake_fetch_ltg(epoch_ms=None, **kw):
+        ltg_calls.append(epoch_ms)
+        # i primi 2 passi non sono ancora pubblicati, dal terzo si
+        if len(ltg_calls) <= 2:
             raise ltg_mod.LightningFetchError("http_403")
         return {"strikes": [(13.0, 41.0)] * 10}
 
@@ -498,10 +513,10 @@ def test_lightning_backoff_finds_slot_published_after_delay(monkeypatch):
 
     bundle, cfg = _bundle()
     cfg["phase2"]["lightning"]["max_backoff_steps"] = 12
+    cfg["phase2"]["lightning"]["max_failed_attempts"] = 3
     eng._phase2_evaluate(bundle, cfg)
 
-    assert len(ltg_calls) >= ltg_mod.LTG_PUBLICATION_DELAY_STEPS + 1
-    assert len(ltg_calls) <= ltg_mod.LTG_MAX_BACKOFF_STEPS + 1
+    assert len(ltg_calls) == 6       # 2 falliti + 4 slot per la finestra
     assert any(c["lightning"] is not None
                for c in bundle.convective_structures)
 

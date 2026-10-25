@@ -20,6 +20,11 @@ name: Radar Engine (Fase 1 — Storm Detection & Tracking)
 
 on:
   workflow_dispatch:
+    inputs:
+      run_unit_tests:
+        description: "Esegui gli unit test (dispatch manuale). Il cron-job.org non passa input: le run schedate li saltano."
+        type: boolean
+        default: false
   repository_dispatch:
     types: [ci-run]
 
@@ -69,12 +74,31 @@ jobs:
         with:
           python-version: "3.13"
 
+      # 1.2.4.26 — uv al posto di pip. MISURA della baseline: step 12,7 s, di
+      # cui 8,45 s di install e 1,5 s di download -> una cache pip da sola non
+      # basta (risparmia il download, non l'install). La cache di setup-uv
+      # copre i wheel e `uv pip install` e' ~1 ordine di grandezza piu' veloce
+      # di pip. Misura sul runner: 2 run reali dopo il push; se lo step non
+      # scende, si torna a `python -m pip install` (rollback di 3 righe).
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "scripts/radar_engine/requirements*.txt"
+
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r scripts/radar_engine/requirements-dev.txt
+          uv pip install --system -r scripts/radar_engine/requirements-dev.txt
 
       - name: Unit tests (raster sintetici, nessun dato DPC reale nel repo)
+        # 1.2.4.26 — i test girano su push / repository_dispatch e sui dispatch
+        # MANUALI (input run_unit_tests). Il trigger di produzione e' la
+        # workflow_dispatch di cron-job.org, che manda SOLO {"ref":"main"} senza
+        # input: assenza dell'input = run schedulata = test saltati. Non e' un
+        # test "spento a caso": la casella in "Run workflow" li riaccende e il
+        # push li esegue sempre. Se un domani il job cron passasse input, il
+        # discriminante va rivisto (GitHub non espone l'User-Agent del dispatch).
+        if: github.event_name != 'workflow_dispatch' || inputs.run_unit_tests
         run: |
           python -m pytest scripts/tests/radar_engine -q
 

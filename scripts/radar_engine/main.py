@@ -242,15 +242,77 @@ def _fetch_structure_products(config, scfg, ref_shape, warnings,
     return out
 
 
-def _fetch_cappi_levels(config, scfg, ref_rd, warnings):
+def _hail_plausibility_gate(products, scfg):
+    """Gate di plausibilita' grandine PRIMA del set completo di CAPPI (1.2.4.26).
+
+    Criterio (NON inventato qui): VIL density = VIL[kg/m2] / ETM[m] * 1000
+    >= 3.5 g/m3, la soglia CITATA di Amburn & Wolf 1997 gia' usata da
+    severe_stack (VIL_DENSITY_THRESHOLD_G_M3). Il massimo e' calcolato sulla
+    griglia intera con `severe_stack._max_vil_density`: una sola
+    implementazione del calcolo, nessuna copia della formula.
+
+    MISURA (2026-10-25, `data/state/severe_predictions.jsonl`, 177 run con
+    candidati dal 2026-10-23 al 2026-10-25): 26 run (14,7%) avevano almeno una
+    cella con vil_density >= 3.5; 151 (85,3%) nessuna. Il criterio qui e'
+    GLOBALE, quindi piu' permissivo di quello per cella: 14,7% e' un limite
+    INFERIORE di selettivita' e il gate non scarta mai un run che il criterio
+    per cella terrebbe.
+
+    Conservativo per costruzione: VIL o ETM assenti -> gate NON valutabile ->
+    set completo (l'assenza del dato non e' evidenza di assenza di grandine).
+    """
+    from radar_engine import severe_stack as ss
+
+    cfg = (scfg or {}).get("hail_gate") or {}
+    try:
+        threshold = float(cfg.get("vil_density_threshold_g_m3",
+                                  ss.VIL_DENSITY_THRESHOLD_G_M3))
+    except (TypeError, ValueError):
+        threshold = float(ss.VIL_DENSITY_THRESHOLD_G_M3)
+    out = {
+        "enabled": bool(cfg.get("enabled", True)),
+        "threshold_g_m3": threshold,
+        "threshold_ref": ss.VIL_DENSITY_THRESHOLD_REF,
+        "max_vil_density_g_m3": None,
+        "evaluated": False,
+        "fetch_full_set": True,
+        "reason": None,
+    }
+    if not out["enabled"]:
+        out["reason"] = "gate_disabled"
+        return out
+    vil = (products or {}).get("vil")
+    etm = (products or {}).get("etm")
+    if vil is None or etm is None:
+        out["reason"] = "vil_or_etm_missing"
+        return out
+    vd = ss._max_vil_density(vil.data, etm.data)
+    if vd is None:
+        out["reason"] = "no_valid_vil_or_echo_top"
+        return out
+    out["max_vil_density_g_m3"] = round(float(vd), 3)
+    out["evaluated"] = True
+    out["fetch_full_set"] = bool(vd >= threshold)
+    out["reason"] = ("hail_plausible" if out["fetch_full_set"]
+                     else "hail_implausible")
+    return out
+
+
+def _fetch_cappi_levels(config, scfg, ref_rd, warnings, full_set=True):
     """Scarica il SET dei CAPPI allo STESSO productDate della VMI (1.2.4.18).
+
+    `full_set=False` (1.2.4.26, gate grandine): si scaricano SOLO
+    product_low/product_high, cioe' gli stessi 2 livelli di
+    `mesh_levels_enabled=False`. Overhang e struttura verticale restano
+    (usano 2 e 6 km); MESH esce null con "cappi_levels<4".
 
     Ritorna (results {quota_km: RasterData|None}, names {nome_prodotto: rd},
     summary). Un livello mancante NON ferma il run: il campo che lo usa
     (MESH/overhang) degrada a null con motivo. La griglia di ogni livello deve
     combaciare con quella della VMI: altrimenti il livello viene scartato
     (mai un resampling silenzioso su una colonna verticale)."""
-    cmap = _cappi_product_map(scfg)
+    cmap = _cappi_product_map(scfg if full_set
+                              else dict(scfg, mesh_levels_enabled=False))
     names = list(dict.fromkeys(cmap.values()))
     results = {h: None for h in cmap}
     by_name = {}
@@ -827,18 +889,41 @@ def _phase2_evaluate(bundle, config):
     cappi_summary = {}
     cappi_by_name = {}
     if frames:
-        # 1.2.4.18: prima i CAPPI, ALLINEATI al timestamp della VMI (10 livelli
-        # per MESH + overhang). Un livello mancante -> quel campo degrada a
-        # null con motivo, il run prosegue.
-        cappi, cappi_by_name, cappi_summary = _fetch_cappi_levels(
-            config, scfg, frames[-1], warnings)
-        low_high = {"low": cappi_by_name.get(str(scfg.get("product_low"))),
-                    "high": cappi_by_name.get(str(scfg.get("product_high")))}
+        # 1.2.4.26 — ORDINE: prima i prodotti di struttura (VIL/ETM/POH, 3 file),
+        # poi il GATE di plausibilita' grandine, poi i CAPPI. Il set completo da
+        # 10 livelli (MESH) si scarica solo se il gate lo giustifica; low/high
+        # (overhang + struttura verticale) si scaricano SEMPRE. Vantaggio
+        # misurato sul registro predizioni: 26/177 run (14,7%) sopra soglia,
+        # quindi ~85% dei run evitano l'8 livelli extra (287 MB/giorno).
         products = _fetch_structure_products(config, scfg,
                                              frames[-1].data.shape, warnings,
-                                             cappi_rd=low_high,
+                                             cappi_rd=None,
                                              ref_time_ms=frames[-1].time_ms,
                                              replay=replay)
+        gate = _hail_plausibility_gate(products, scfg)
+        if gate["evaluated"] and not gate["fetch_full_set"]:
+            warnings.append(
+                "phase2 cappi: set completo (10 livelli) NON scaricato — gate "
+                "grandine: VIL density max {:.3f} g/m3 < {:.1f} g/m3 "
+                "({}). MESH -> null; overhang resta su CAPPI_2/CAPPI_6.".format(
+                    gate["max_vil_density_g_m3"], gate["threshold_g_m3"],
+                    gate["reason"]))
+        cappi, cappi_by_name, cappi_summary = _fetch_cappi_levels(
+            config, scfg, frames[-1], warnings,
+            full_set=gate["fetch_full_set"])
+        cappi_summary["hail_gate"] = gate
+        # low/high per la struttura verticale: stessi controlli di shape che
+        # _fetch_structure_products applicava quando riceveva `cappi_rd`.
+        for _name, _key in (("low", "product_low"), ("high", "product_high")):
+            _product = scfg.get(_key)
+            _rd = cappi_by_name.get(str(_product)) if _product else None
+            if _rd is None:
+                products[_name] = None
+            elif tuple(_rd.data.shape) != tuple(frames[-1].data.shape):
+                warnings.append(f"phase2 structure {_name}: shape mismatch")
+                products[_name] = None
+            else:
+                products[_name] = _rd
         if not any(rd is not None for rd in products.values()):
             warnings.append("phase2 structure: no products available")
         # OVERSHOOTING TOP: frame IR_108 (stessa griglia TM della VMI).
@@ -866,27 +951,17 @@ def _phase2_evaluate(bundle, config):
     # E (1.2.4.17): il backoff effettivo e' il MINIMO fra config e costante
     # del modulo (LTG_MAX_BACKOFF_STEPS = 12). Prima la config diceva 36 e il
     # modulo 12: un run senza slot pubblicati produceva 37 richieste HTTP 403
-    # (STUDIO_SUPERCELLE_RADAR sez. 6.4). Ora: un solo tentativo per slot e
-    # stop dopo `max_consecutive_failures` errori CONSECUTIVI, ma SOLO dopo il
-    # grace period dei 9 passi di ritardo di pubblicazione MISURATO: fermarsi
-    # prima azzererebbe il layer fulmini in ogni run (il primo slot utile e'
-    # tipicamente a k=9) invece di risparmiare richieste.
+    # (STUDIO_SUPERCELLE_RADAR sez. 6.4).
+    # 1.2.4.26: il tetto dei tentativi FALLITI e' `max_failed_attempts` (3).
+    # `publication_grace_steps` / `max_consecutive_failures` restano nel config
+    # solo come documentazione storica: il grace di 9 passi non e' piu'
+    # applicato (misura 2026-10-25: 12/12 slot in 403 a ogni run con candidati).
     try:
         max_backoff = max(0, min(int(lcfg.get("max_backoff_steps",
                                               lightning.LTG_MAX_BACKOFF_STEPS)),
                                  int(lightning.LTG_MAX_BACKOFF_STEPS)))
     except (TypeError, ValueError):
         max_backoff = int(lightning.LTG_MAX_BACKOFF_STEPS)
-    try:
-        max_failures = max(1, int(lcfg.get("max_consecutive_failures", 3)))
-    except (TypeError, ValueError):
-        max_failures = 3
-    try:
-        grace = max(0, min(int(lcfg.get("publication_grace_steps",
-                                        lightning.LTG_PUBLICATION_DELAY_STEPS)),
-                          max_backoff))
-    except (TypeError, ValueError):
-        grace = min(lightning.LTG_PUBLICATION_DELAY_STEPS, max_backoff)
     slot_cache = {}
     ltg_slots_recent = []
     if replay:
@@ -897,7 +972,20 @@ def _phase2_evaluate(bundle, config):
         warnings.append("phase2 lightning: modalita' --as-of senza archivio "
                         "storico (lightning_history_unavailable)")
     else:
-        failures_after_grace = 0  # errori di fila DOPO il grace (criterio stop)
+        # 1.2.4.26 — TETTO DEI TENTATIVI FALLITI (default 3, config
+        # lightning.max_failed_attempts). Prima: grace di 9 passi + 3 errori =
+        # 12 richieste 403 a OGNI run con candidati (936/giorno, misurato il
+        # 2026-10-25) per un layer che resta assente. Il conteggio si azzera a
+        # ogni slot trovato, quindi la finestra di trend (4 slot) non viene
+        # ridotta quando i fulmini ci sono: il tetto morde solo sul percorso
+        # interamente fallito. Costo dichiarato: uno slot pubblicato a k>=3
+        # non viene piu' cercato (vedi config.py).
+        try:
+            max_failed = int(lcfg.get("max_failed_attempts", 3))
+        except (TypeError, ValueError):
+            max_failed = 3
+        max_failed = max(1, min(max_failed, max_backoff + 1))
+        failures = 0
         for k in range(0, max_backoff + 1):   # dal piu' recente all'indietro
             if len(ltg_slots_recent) >= window:
                 break
@@ -916,17 +1004,17 @@ def _phase2_evaluate(bundle, config):
                     slot = None
                 slot_cache[epoch] = slot
             if slot is not None:
-                failures_after_grace = 0
+                failures = 0
                 ltg_slots_recent.append(slot)
             else:
-                if k >= grace:
-                    failures_after_grace += 1
-                    if failures_after_grace >= max_failures:
-                        warnings.append(
-                            f"phase2 lightning: stop dopo {failures_after_grace} "
-                            f"errori consecutivi oltre il grace di {grace} passi "
-                            f"(backoff max {max_backoff})")
-                        break
+                failures += 1
+                if failures >= max_failed:
+                    warnings.append(
+                        f"phase2 lightning: stop dopo {failures} tentativi "
+                        f"falliti (max_failed_attempts={max_failed}; il grace "
+                        f"di 9 passi della 1.2.4.17 non e' piu' applicato: "
+                        f"misura 2026-10-25, 12/12 slot in 403)")
+                    break
     # dal piu' vecchio al piu' recente (ordine atteso da lightning_spatial_score)
     ltg_slots = list(reversed(ltg_slots_recent))
     if not ltg_slots and not replay:

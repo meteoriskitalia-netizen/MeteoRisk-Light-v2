@@ -19,6 +19,7 @@ Regole:
 """
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from . import clock as _clock
@@ -26,10 +27,43 @@ from . import models
 from . import preprocess
 from . import source_dpc
 
+# 1.2.4.26 — download PARALLELI (misurato il 2026-10-25 sul motore reale:
+# 6 VMI 50,15 s -> 14,12 s = 3,55x; 10 CAPPI 69,97 s -> 9,75 s = 7,17x; zero
+# HTTP 429 a 6 connessioni). Il valore e' un tetto: il pool non supera mai il
+# numero di elementi da scaricare. `fetch_workers: 1` riporta al percorso
+# seriale storico senza toccare il codice (leva di rollback).
+FETCH_WORKERS_DEFAULT = 6
+FETCH_WORKERS_MAX = 8
+
+
+def _parallel_workers(config, items):
+    """Worker effettivi per un set di download (>=1, <= items, <= tetto)."""
+    src = (config or {}).get("source") or {}
+    try:
+        n = int(src.get("fetch_workers", FETCH_WORKERS_DEFAULT))
+    except (TypeError, ValueError):
+        n = FETCH_WORKERS_DEFAULT
+    n = max(1, min(n, FETCH_WORKERS_MAX))
+    return max(1, min(n, int(items)))
+
 
 def _cache_path(cache_dir, s3_key):
+    """Percorso locale UNICO per chiave S3 (1.2.4.26).
+
+    Il solo `basename` NON basta piu' da quando i download sono paralleli:
+    i 10 CAPPI dello stesso slot hanno lo STESSO nome file
+    (`CAPPI/CAPPI_<n>/25-10-2026-05-10.tif`), quindi dieci thread
+    scrivevano/leggevano/cancellavano lo stesso percorso. Misurato sul run
+    reale 2026-10-25T05:10Z: `CAPPI_4` falliva con
+    `PermissionError [WinError 32]` (file in uso) e il livello andava perso.
+    Qui si conservano le ultime due parti della chiave (prodotto + file),
+    separate da `__`: percorso distinto per prodotto e per slot."""
     os.makedirs(cache_dir, exist_ok=True)
-    return os.path.join(cache_dir, os.path.basename(s3_key))
+    parts = [p for p in str(s3_key).replace("\\", "/").split("/")
+             if p not in ("", ".", "..")]
+    if not parts:
+        return os.path.join(cache_dir, "product.tif")
+    return os.path.join(cache_dir, "__".join(parts[-2:]))
 
 
 def _save_bytes(path, content):
@@ -38,6 +72,66 @@ def _save_bytes(path, content):
         fh.write(content)
     os.replace(tmp, path)
     return path
+
+
+def _fetch_one_frame(config, product, ts, period_s):
+    """Download + validazione di UN candidato. Non solleva MAI: un frame
+    illeggibile e' un warning, non la fine del run (stessa policy del loop
+    seriale storico). Thread-safe: file distinti, nessuno stato condiviso."""
+    src = config["source"]
+    cache_dir = src["cache_dir"]
+    keep = bool(src.get("keep_raw_frames", False))
+    warnings = []
+    probe = models.ProductInfo(product, ts, period_s)
+    try:
+        s3_key, content = source_dpc.download_product(
+            probe,
+            api_base=src.get("api_base"),
+            origin=src.get("origin_header"),
+            timeout_s=src.get("http_timeout_s", 30),
+            download_timeout_s=src.get("download_timeout_s", 60),
+            retries=src.get("max_download_retries", 2),
+        )
+    except models.SourceError as exc:
+        return None, [f"frame@{ts} skipped: {exc}"]
+    except Exception as exc:                      # rete/parsing imprevisto
+        return None, [f"frame@{ts} fetch_failed: "
+                      f"{exc.__class__.__name__}: {exc}"]
+
+    try:
+        real_ts = source_dpc.parse_key_timestamp(s3_key)
+    except ValueError as exc:
+        real_ts = ts
+        warnings.append(f"frame@{ts}: {exc} (fallback al candidato)")
+    path = _save_bytes(_cache_path(cache_dir, s3_key), content)
+    try:
+        source_dpc.validate_download(path)
+        raster = preprocess.read_raster(
+            path,
+            nodata_values=src_preprocess_nodata(config),
+            declared_nodata_from_tiff=True,
+            geo_plausible_bbox=config["preprocess"].get("geo_plausible_bbox"),
+        )
+    except (models.ValidationError, models.CrsError) as exc:
+        warnings.append(f"frame@{real_ts} invalid: {exc}")
+        if not keep:
+            _cleanup(path)
+        return None, warnings
+    except Exception as exc:
+        # read_raster può propagare guasti non tipizzati (es. pyproj sul
+        # centroide): il frame viene scartato con warning, mai crash del run.
+        warnings.append(
+            f"frame@{real_ts} preprocess_failed: "
+            f"{exc.__class__.__name__}: {exc}")
+        if not keep:
+            _cleanup(path)
+        return None, warnings
+    raster.time_ms = real_ts
+    raster.time_iso = _iso(real_ts)
+    raster.source_path = path
+    if not keep:
+        _cleanup(path)
+    return raster, warnings
 
 
 def fetch_frames(config, product=None, max_frames=None, anchor_ms=None):
@@ -89,59 +183,24 @@ def fetch_frames(config, product=None, max_frames=None, anchor_ms=None):
         candidates.append(ts)
     candidates.reverse()  # dal più vecchio al più recente
 
-    cache_dir = src["cache_dir"]
-    keep = bool(src.get("keep_raw_frames", False))
     frames = []
     warnings = []
-    for ts in candidates:
-        probe = models.ProductInfo(product, ts, period_s)
-        try:
-            s3_key, content = source_dpc.download_product(
-                probe,
-                api_base=src.get("api_base"),
-                origin=src.get("origin_header"),
-                timeout_s=src.get("http_timeout_s", 30),
-                download_timeout_s=src.get("download_timeout_s", 60),
-                retries=src.get("max_download_retries", 2),
-            )
-        except models.SourceError as exc:
-            warnings.append(f"frame@{ts} skipped: {exc}")
-            continue
-
-        try:
-            real_ts = source_dpc.parse_key_timestamp(s3_key)
-        except ValueError as exc:
-            real_ts = ts
-            warnings.append(f"frame@{ts}: {exc} (fallback al candidato)")
-        path = _save_bytes(_cache_path(cache_dir, s3_key), content)
-        try:
-            source_dpc.validate_download(path)
-            raster = preprocess.read_raster(
-                path,
-                nodata_values=src_preprocess_nodata(config),
-                declared_nodata_from_tiff=True,
-                geo_plausible_bbox=config["preprocess"].get("geo_plausible_bbox"),
-            )
-        except (models.ValidationError, models.CrsError) as exc:
-            warnings.append(f"frame@{real_ts} invalid: {exc}")
-            if not keep:
-                _cleanup(path)
-            continue
-        except Exception as exc:
-            # read_raster può propagare guasti non tipizzati (es. pyproj sul
-            # centroide): il frame viene scartato con warning, mai crash del run.
-            warnings.append(
-                f"frame@{real_ts} preprocess_failed: "
-                f"{exc.__class__.__name__}: {exc}")
-            if not keep:
-                _cleanup(path)
-            continue
-        raster.time_ms = real_ts
-        raster.time_iso = _iso(real_ts)
-        raster.source_path = path
-        frames.append(raster)
-        if not keep:
-            _cleanup(path)
+    workers = _parallel_workers(config, len(candidates))
+    if workers > 1:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            fetched = list(pool.map(
+                lambda ts: _fetch_one_frame(config, product, ts, period_s),
+                candidates))
+    else:
+        fetched = [_fetch_one_frame(config, product, ts, period_s)
+                   for ts in candidates]
+    # ORDINE: `pool.map` restituisce i risultati nell'ordine dei candidati
+    # (dal piu' vecchio al piu' recente), quindi i warning e la finestra
+    # restano identici al percorso seriale.
+    for raster, fwarn in fetched:
+        warnings.extend(fwarn)
+        if raster is not None:
+            frames.append(raster)
 
     frames.sort(key=lambda r: r.time_ms)
     # monotonicità STRETTA: drop di eventuali duplicati/correzioni non ordinabili
@@ -316,6 +375,7 @@ def fetch_cappi_set(config, products, ref_time_ms, period_s=None, warnings=None,
     results = {}
     metas = {}
     pending = []
+    workers = _parallel_workers(config, len(products))
 
     def _attempt(name, ts, attempt_no):
         try:
@@ -334,8 +394,20 @@ def fetch_cappi_set(config, products, ref_time_ms, period_s=None, warnings=None,
         meta["attempts"] = attempt_no
         return raster, meta
 
-    for name in products:
-        raster, meta = _attempt(name, ref_time_ms, 1)
+    def _attempt_many(names, ts, attempt_no):
+        """Tentativo su piu' prodotti, in parallelo se configurato.
+
+        1.2.4.26: 10 CAPPI in parallelo (7,17x misurato: 69,97 s -> 9,75 s,
+        zero 429 a 6 connessioni). `pool.map` conserva l'ordine di `names`,
+        quindi `results`/`metas` restano deterministici; `_attempt` non
+        solleva mai, quindi un prodotto fallito non annulla gli altri."""
+        if workers <= 1 or len(names) <= 1:
+            return [(n,) + _attempt(n, ts, attempt_no) for n in names]
+        with ThreadPoolExecutor(max_workers=min(workers, len(names))) as pool:
+            return list(pool.map(
+                lambda n: (n,) + _attempt(n, ts, attempt_no), names))
+
+    for name, raster, meta in _attempt_many(products, ref_time_ms, 1):
         metas[name] = meta
         results[name] = raster
         if raster is None and meta.get("not_published"):
@@ -349,8 +421,8 @@ def fetch_cappi_set(config, products, ref_time_ms, period_s=None, warnings=None,
         if retry_wait_s > 0:
             sleeper(retry_wait_s)
         still = []
-        for name in pending:
-            raster, meta = _attempt(name, ref_time_ms, 1 + retry_attempts)
+        for name, raster, meta in _attempt_many(
+                pending, ref_time_ms, 1 + retry_attempts):
             if raster is None:
                 still.append(name)
                 metas[name].update(meta)
@@ -369,8 +441,8 @@ def fetch_cappi_set(config, products, ref_time_ms, period_s=None, warnings=None,
         # colonna dBZ(H) composta da livelli di due volumi diversi non e' un
         # profilo verticale (il probe ha misurato 31-39% di violazioni
         # CAPPI(t) > VMI(t-5min) contro 0% con lo stesso volume).
-        for name in products:
-            raster, meta = _attempt(name, prev_ts, 2 + retry_attempts)
+        for name, raster, meta in _attempt_many(
+                products, prev_ts, 2 + retry_attempts):
             if raster is not None:
                 meta["fallback"] = True
                 results[name] = raster

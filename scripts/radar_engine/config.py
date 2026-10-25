@@ -38,6 +38,12 @@ CONFIG = {
         "http_timeout_s": 30,
         "download_timeout_s": 60,
         "max_download_retries": 2,
+        # 1.2.4.26 — download PARALLELI. Misurato il 2026-10-25 sul motore
+        # reale: 6 VMI 50,15 s -> 14,12 s (3,55x), 10 CAPPI 69,97 s -> 9,75 s
+        # (7,17x), zero HTTP 429 a 6 connessioni. 1 = percorso seriale storico
+        # (leva di rollback senza toccare il codice). Tetto duro nel modulo:
+        # fetch.FETCH_WORKERS_MAX = 8.
+        "fetch_workers": 6,
         "cache_dir": None,          # None -> scripts/radar_engine/temp
         "keep_raw_frames": False,   # esclude sempre il raw dal repo (gitignore)
     },
@@ -251,8 +257,10 @@ CONFIG = {
             "mesh_min_levels": 4,      # gate piu' restrittivo di Witt (>=2)
             "mesh_dh_m": 1000.0,       # passo verticale REALE dei CAPPI DPC
             # Costo dichiarato: 10 file = 5,00-6,31 MB per run (misurato),
-            # cioe' ~4-5x il volume VMI+VIL+ETM. Il download e' sequenziale:
-            # ~0,4-1,1 s per file.
+            # cioe' ~4-5x il volume VMI+VIL+ETM. 1.2.4.26: download in
+            # parallelo (source.fetch_workers, misurato 69,97 s -> 9,75 s);
+            # con il gate hail_gate il set completo si scarica solo nei run
+            # plausibili.
             "cappi_fetch": {
                 "period_s": 300,           # cadenza misurata PT5M
                 "retry_attempts": 1,       # UN retry sullo slot corrente
@@ -270,6 +278,28 @@ CONFIG = {
                 "high_km": 6.0,
                 "core_dbz": 45.0,
                 "strong_core_dbz": 50.0,
+            },
+            # 1.2.4.26 — GATE DI PLAUSIBILITA' GRANDINE prima dei 10 CAPPI.
+            # Il criterio ESISTEVA gia' nel prodotto: VIL density >= 3.5 g/m3
+            # (Amburn & Wolf 1997, severe_stack.VIL_DENSITY_THRESHOLD_G_M3).
+            # MISURA sul registro data/state/severe_predictions.jsonl del
+            # 2026-10-25 (177 run con candidati, 23-25/10): 26 run (14,7%)
+            # avevano almeno una cella sopra soglia; 151 (85,3%) no. Quindi il
+            # set completo da 10 livelli serve in ~1 run su 7: negli altri si
+            # scaricano solo CAPPI_2/CAPPI_6 (2 livelli: overhang e struttura
+            # restano, MESH esce null con "cappi_levels<4").
+            # CONSERVATIVO: se VIL o ETM mancano il gate NON e' valutabile e si
+            # scarica il set completo (l'assenza del dato non e' evidenza di
+            # assenza di grandine). Il criterio e' GLOBALE sulla griglia, non
+            # per cella: il massimo globale e' >= quello per candidato, quindi
+            # il gate non scarta mai un run che il criterio per cella terrebbe
+            # (la misura 14,7% e' un LIMITE INFERIORE di selettivita').
+            "hail_gate": {
+                "enabled": True,
+                "vil_density_threshold_g_m3": 3.5,
+                # Livelli scaricati quando il gate dice "non plausibile":
+                # "low_high" = product_low + product_high (2 CAPPI).
+                "levels_when_implausible": "low_high",
             },
         },
         "environment": {
@@ -294,12 +324,22 @@ CONFIG = {
             # valore e' ALLINEATO al modulo (12) e main.py applica comunque il
             # minimo fra config e costante del modulo: un tentativo per slot.
             "max_backoff_steps": 12,       # = lightning.LTG_MAX_BACKOFF_STEPS
-            # Stop dopo N errori CONSECUTIVI, applicato solo DOPO i 9 passi di
-            # ritardo di pubblicazione misurato (LTG_PUBLICATION_DELAY_STEPS):
-            # fermarsi prima svuoterebbe il layer in ogni run. Costo massimo
-            # per run: 9 + 3 = 12 richieste (prima: 37).
+            # 1.2.4.26 — TETTO DEI TENTATIVI FALLITI PER RUN (3). Misura del
+            # 2026-10-25: in OGNI run con candidati i 12 slot provati
+            # rispondevano 403 = 936 richieste/giorno per un layer che resta
+            # assente. Il grace di 9 passi (sotto) copriva l'ipotesi "slot
+            # pubblicato a k=9": nei dati misurati non si verifica MAI, quindi
+            # 9 richieste su 12 erano sprecate. CONSEGUENZA DICHIARATA: se il
+            # layer tornera' a pubblicare con 45 min di ritardo, con 3
+            # tentativi NON verra' trovato. La finestra di trend (4 slot)
+            # resta intatta: il conteggio si azzera a ogni slot trovato.
+            # Per ripristinare il comportamento 1.2.4.17: valore 12.
+            "max_failed_attempts": 3,
+            # Stop dopo N errori CONSECUTIVI (applicato dal primo errore, non
+            # piu' solo dopo il grace: il tetto di 3 tentativi rende il grace
+            # irraggiungibile e lo lascia come documentazione storica).
             "publication_grace_steps": 9,  # = lightning.LTG_PUBLICATION_DELAY_STEPS
-            "max_consecutive_failures": 3, # stop dopo 3 errori consecutivi oltre il grace
+            "max_consecutive_failures": 3, # stop dopo 3 errori consecutivi
         },
         "severe_stack": {
             # 1.2.4.17 — S1 (ambiente) + S2 (grandine) + S3 (overshooting top)

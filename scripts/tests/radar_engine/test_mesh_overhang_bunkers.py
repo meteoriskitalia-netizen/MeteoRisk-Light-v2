@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Test 1.2.4.18 — MESH (Witt 1998), overhang da CAPPI, Bunkers RM/LM.
+"""Test 1.2.4.18 â€” MESH (Witt 1998), overhang da CAPPI, Bunkers RM/LM.
 
 Copertura per contratto:
   - MESH con 10 livelli REALI (1000..10000 m), formule TRASCRITTE dal paper
@@ -26,7 +26,7 @@ from radar_engine import severe_stack as ss
 
 
 # ---------------------------------------------------------------------------
-# MESH — formule del paper
+# MESH â€” formule del paper
 # ---------------------------------------------------------------------------
 def test_witt_reference_cites_paper_pages_and_constants():
     assert "13(2):286-303" in ss.REF_WITT
@@ -512,3 +512,169 @@ def test_severe_stack_wiring_survives_missing_cappi_levels():
         "cappi_low_or_high_missing"
     assert parts["bunkers"]["rm_ms"]["null_reason"] == \
         "open-meteo_wind_profile_missing"
+
+
+# ---------------------------------------------------------------------------
+# 1.2.4.26 â€” download PARALLELI (semaforo) e GATE grandine prima dei CAPPI
+# ---------------------------------------------------------------------------
+def test_parallel_workers_caps_and_rollback():
+    """Il semaforo e' configurabile; 1 = percorso seriale (rollback)."""
+    assert fetch_mod.FETCH_WORKERS_DEFAULT == 6
+    assert fetch_mod._parallel_workers({"source": {"fetch_workers": 6}}, 10) == 6
+    assert fetch_mod._parallel_workers({"source": {"fetch_workers": 6}}, 2) == 2
+    assert fetch_mod._parallel_workers({"source": {"fetch_workers": 1}}, 10) == 1
+    assert fetch_mod._parallel_workers(
+        {"source": {"fetch_workers": 99}}, 10) == fetch_mod.FETCH_WORKERS_MAX
+    assert fetch_mod._parallel_workers({}, 10) == fetch_mod.FETCH_WORKERS_DEFAULT
+
+
+def test_fetch_cappi_set_parallel_keeps_order_and_isolates_failures(monkeypatch):
+    """10 CAPPI in parallelo: ordine dei risultati invariato, un 500 su un
+    livello non annulla gli altri (stessa policy del percorso seriale)."""
+    import threading
+    import time
+
+    calls = []
+    lock = threading.Lock()
+    live = {"now": 0, "max": 0}
+
+    def fake_read(config, product, ts, period, downloader):
+        with lock:
+            live["now"] += 1
+            live["max"] = max(live["max"], live["now"])
+            calls.append(product)
+        time.sleep(0.03)
+        with lock:
+            live["now"] -= 1
+        if product == "CAPPI_9":
+            raise models.SourceError("http_500")
+        return _raster(), {"bytes": 1, "elapsed_s": 0.0,
+                           "fallback": False, "used_time_ms": ts}
+
+    monkeypatch.setattr(fetch_mod, "_read_product_bytes", fake_read)
+    cfg = _cfg(retry_attempts=0, retry_wait_s=0.0, allow_previous_slot=False)
+    cfg["source"]["fetch_workers"] = 6
+    products = ["CAPPI_%d" % i for i in range(1, 11)]
+    results, summary = fetch_mod.fetch_cappi_set(
+        cfg, products, 1792790100000, warnings=[], sleeper=lambda s: None)
+
+    assert list(results) == products              # ordine preservato
+    assert live["max"] > 1                        # ha davvero parallelizzato
+    assert live["max"] <= 6                       # semaforo rispettato
+    assert summary["fetched"] == 9
+    assert summary["failed"] == ["CAPPI_9"]
+
+
+def test_fetch_frames_parallel_keeps_candidate_order(monkeypatch, tmp_path):
+    """6 VMI in parallelo: la finestra resta ordinata e un buco (404) non
+    sposta gli altri frame."""
+    import datetime as _dt
+    import time
+
+    cfg = {
+        "source": {"cache_dir": str(tmp_path), "api_base": "x", "product_type": "VMI",
+                   "origin_header": "y", "http_timeout_s": 1,
+                   "download_timeout_s": 1, "max_download_retries": 0,
+                   "keep_raw_frames": False, "fetch_workers": 6},
+        "preprocess": {"nodata_values": [-9999.0], "geo_plausible_bbox": None},
+    }
+    anchor = 1792790400000
+
+    def _key(ts):
+        d = _dt.datetime.fromtimestamp(ts / 1000, _dt.timezone.utc)
+        return "VMI_%s.tif" % d.strftime("%d-%m-%Y-%H-%M")
+
+    def fake_download(probe, **kw):
+        time.sleep(0.01)
+        if probe.time_ms == anchor - 2 * 300000:
+            raise models.SourceError("not_found")
+        return _key(probe.time_ms), b"x"
+
+    monkeypatch.setattr(fetch_mod.source_dpc, "download_product", fake_download)
+    monkeypatch.setattr(fetch_mod.source_dpc, "get_latest_product",
+                        lambda *a, **k: models.ProductInfo("VMI", anchor, 300))
+    monkeypatch.setattr(fetch_mod.source_dpc, "validate_download",
+                        lambda p: (1, 1, "float32", 1))
+    monkeypatch.setattr(fetch_mod.preprocess, "read_raster",
+                        lambda p, **k: types.SimpleNamespace(data=np.zeros((2, 2))))
+
+    frames, warnings, latest = fetch_mod.fetch_frames(cfg, max_frames=4)
+    got = [f.time_ms for f in frames]
+    assert got == sorted(got)                     # ordine crescente
+    assert len(frames) == 3                       # uno su 4 e' un 404
+    assert latest == anchor
+    assert any("skipped" in w for w in warnings)
+
+
+def test_hail_gate_uses_the_cited_threshold_and_is_conservative():
+    """Gate: VIL density >= 3.5 g/m3 (Amburn&Wolf, gia' citato in
+    severe_stack). Dato mancante -> set completo (nessuna deduzione)."""
+    import radar_engine.main as eng
+
+    scfg = {"hail_gate": {"enabled": True,
+                          "vil_density_threshold_g_m3": 3.5}}
+    vil_hi = types.SimpleNamespace(data=np.full((3, 3), 40.0))    # kg/m2
+    etm = types.SimpleNamespace(data=np.full((3, 3), 9000.0))     # metri
+    hi = eng._hail_plausibility_gate({"vil": vil_hi, "etm": etm}, scfg)
+    assert hi["evaluated"] is True and hi["fetch_full_set"] is True
+    assert hi["max_vil_density_g_m3"] == pytest.approx(4.444, abs=1e-3)  # arrotondato a 3 decimali nell'output
+    assert hi["threshold_ref"].startswith("Amburn&Wolf")
+
+    vil_lo = types.SimpleNamespace(data=np.full((3, 3), 20.0))    # 2,22 g/m3
+    lo = eng._hail_plausibility_gate({"vil": vil_lo, "etm": etm}, scfg)
+    assert lo["evaluated"] is True and lo["fetch_full_set"] is False
+    assert lo["reason"] == "hail_implausible"
+
+    missing = eng._hail_plausibility_gate({"vil": None, "etm": etm}, scfg)
+    assert missing["evaluated"] is False and missing["fetch_full_set"] is True
+    assert missing["reason"] == "vil_or_etm_missing"
+
+    disabled = eng._hail_plausibility_gate(
+        {"vil": vil_lo, "etm": etm}, {"hail_gate": {"enabled": False}})
+    assert disabled["fetch_full_set"] is True and disabled["reason"] == "gate_disabled"
+
+
+def test_fetch_cappi_levels_gated_requests_only_low_and_high(monkeypatch):
+    """full_set=False -> si chiedono SOLO CAPPI_2/CAPPI_6 (2 livelli): MESH
+    null, overhang e struttura verticale restano."""
+    import radar_engine.main as eng
+
+    asked = []
+
+    def fake_set(config, products, ref_time_ms, **kw):
+        asked.append(list(products))
+        return ({p: None for p in products},
+                {"requested": len(products), "fetched": 0, "fallback": 0,
+                 "failed": list(products), "bytes": 0, "seconds": 0.0,
+                 "ref_time_iso": None, "products": {}})
+
+    monkeypatch.setattr("radar_engine.fetch.fetch_cappi_set", fake_set)
+    scfg = {"product_low": "CAPPI_2", "product_high": "CAPPI_6",
+            "mesh_levels_enabled": True,
+            "cappi_products": {"1.0": "CAPPI_1", "2.0": "CAPPI_2",
+                               "3.0": "CAPPI_3", "4.0": "CAPPI_4",
+                               "5.0": "CAPPI_5", "6.0": "CAPPI_6",
+                               "7.0": "CAPPI_7", "8.0": "CAPPI_8",
+                               "9.0": "CAPPI_9", "10.0": "CAPPI_10"}}
+    ref = types.SimpleNamespace(time_ms=1792790100000,
+                                time_iso="2026-10-23T21:15:00Z",
+                                data=np.zeros((2, 2)))
+    results, by_name, summary = eng._fetch_cappi_levels(
+        {"source": {}}, scfg, ref, [], full_set=False)
+    assert asked == [["CAPPI_2", "CAPPI_6"]]
+    assert set(results) == {2.0, 6.0}
+
+
+
+def test_cache_path_is_unique_for_cappi_levels_same_slot(tmp_path):
+    """REGRESSIONE (trovata sul run reale 2026-10-25T05:10Z): i 10 CAPPI
+    dello stesso slot hanno lo stesso basename. In parallelo il solo basename
+    faceva sovrascrivere i file (PermissionError WinError 32, CAPPI_4 perso).
+    Il percorso di cache deve dipendere dal PRODOTTO, non solo dal file."""
+    p2 = fetch_mod._cache_path(str(tmp_path), "CAPPI/CAPPI_2/25-10-2026-05-10.tif")
+    p3 = fetch_mod._cache_path(str(tmp_path), "CAPPI/CAPPI_3/25-10-2026-05-10.tif")
+    vmi = fetch_mod._cache_path(str(tmp_path), "VMI/25-10-2026-05-10.tif")
+    assert p2 != p3
+    assert p2 != vmi and p3 != vmi
+    assert p2.endswith("CAPPI_2__25-10-2026-05-10.tif")
+    assert vmi.endswith("VMI__25-10-2026-05-10.tif")
