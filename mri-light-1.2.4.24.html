@@ -1182,6 +1182,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 
 <div class="toolbar">
     <div class="toolbar-row" style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button class="tool-btn" id="btn-forecast-maps" onclick="toggleForecastMaps()" style="border-color:#38bdf8;">🗺️ Mappe previsionali (OFF)</button>
         <button class="tool-btn" id="btn-radar-player" onclick="toggleRadarPlayer()" style="border-color:#0284c7;">▶️ Radar Player</button>
         <button class="tool-btn" id="btn-radar" onclick="toggleRadar()" style="display:none;">📡 Radar Timeline (OFF)</button>
         <button class="tool-btn" id="btn-satellite" onclick="toggleSatellite()" style="display:none;">🛰️ SATELLITE (OFF)</button>
@@ -1541,7 +1542,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                 <option value="paced" selected>Punto per punto (cadenza 400ms entro i limiti)</option>
             </select>
         </span>
-        <button class="tool-btn" id="btn-forecast-maps" onclick="toggleForecastMaps()" style="border-color:#38bdf8;">🗺️ Mappe previsionali (OFF)</button>
     </div>
 
     <!-- Legenda previsioni — visibile solo quando Previsioni è attivo -->
@@ -1888,9 +1888,16 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.23';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.24';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-25';
     const APP_CHANGELOG = [
+        { version: '1.2.4.24', date: '2026-10-25', changes: [
+  'MAPPE= Il pulsante "Mappe previsionali" torna nella TOOLBAR PRINCIPALE, primo posto della riga (.toolbar > .toolbar-row) prima di Radar Player: era confinato dentro #weather-model-wrapper, quindi visibile solo con Sviluppo ON. Invariati id btn-forecast-maps, onclick toggleForecastMaps(), emoji e style.',
+  'MAPPE= Rimosso il gate di Sviluppo sul pannello: in toggleSviluppo la guardia che chiudeva le Mappe previsionali quando Sviluppo passava a OFF e\' stata eliminata (commento compreso). #forecast-maps-panel e\' un div autonomo dentro .map-card, non un figlio del wrapper, e toggleForecastMaps() non legge mai isSviluppoActive: il pannello resta aperto e utilizzabile con Sviluppo OFF.',
+  'MAPPE= Polling invariato e verificato: index.json e timeline.json vengono interrogati solo dentro il ramo if (fmActive) di checkWorkflowDataUpdates(), che gira ogni WORKFLOW_DATA_POLL_MS = 5 minuti; a pannello chiuso nessuna richiesta a quei due file.',
+  'VERIFICA= Misurato in browser reale (Edge headless via CDP) con Sviluppo OFF: pulsante visibile nella toolbar (rect maggiore di 0x0), apertura con .active e fmActive true e canvas Leaflet alto piu\' di zero, toggleSviluppo(true) e toggleSviluppo(false) non chiudono il pannello, zero richieste a index.json e timeline.json a pannello chiuso.',
+  'DOC= Bump versione 1.2.4.24'
+  ] },
         { version: '1.2.4.23', date: '2026-10-25', changes: [
   'MAPPE= Frame iniziale utile: all\'apertura il pannello parte dal PRIMO frame del run piu\' recente (bucket 0), non dal frame 0 che nella timeline reale e\' il piu\' vecchio; se il bucket 0 non esiste usa il bucket piu\' recente disponibile. Il cambio modello/variabile/run usa la stessa scelta.',
   'MAPPE= Salto dei frame morti: se il WebP di un frame fallisce (404 o errore) il client passa automaticamente al frame successivo (sull\'ultimo, al precedente) senza lasciare la mappa vuota; il salto automatico si ferma dopo 8 tentativi consecutivi con un messaggio esplicito e ferma anche l\'animazione.',
@@ -14239,11 +14246,6 @@ function toggleForecastMaps() {
                 ni.classList.remove('active');
             }
             updateUI();
-        }
-        // Se Sviluppo viene spento con le Mappe previsionali aperte, chiude il pannello:
-        // la voce e' dentro #weather-model-wrapper, che con Sviluppo OFF non e' raggiungibile.
-        if (!isSviluppoActive && typeof fmActive !== 'undefined' && fmActive) {
-            toggleForecastMaps();
         }
         // Aggiorna l'etichetta accanto allo switch nel footer
         var lab = document.getElementById('sviluppo-label');

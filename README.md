@@ -6,13 +6,43 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.23
+## Versione attiva: 1.2.4.24
 
-- File applicativo: `mri-light-1.2.4.23.html` (`APP_VERSION = '1.2.4.23'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.23', date: '2026-10-25' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.23'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+- File applicativo: `mri-light-1.2.4.24.html` (`APP_VERSION = '1.2.4.24'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.24', date: '2026-10-25' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.24'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
-- Contenuto della 1.2.4.23 (release sopra la 1.2.4.22) - **pannello Mappe previsionali
+- Contenuto della 1.2.4.24 (release sopra la 1.2.4.23) - **pulsante «Mappe previsionali»
+  nella toolbar principale, pannello utilizzabile senza attivare Sviluppo**:
+  - **Pulsante spostato**: `<button id="btn-forecast-maps">` era dentro
+    `#weather-model-wrapper`, che `toggleSviluppo` mostra solo con Sviluppo ON (`display:none`
+    altrimenti): con Sviluppo OFF non era cliccabile (misurato sulla 1.2.4.23: rect **0x0**,
+    `offsetParent` **null**, `btnInWrapper` **true**). Ora e' il **primo elemento** di
+    `.toolbar > .toolbar-row`, prima di `btn-radar-player`. Invariati `id`,
+    `onclick="toggleForecastMaps()"`, emoji e `style`.
+  - **Gate di Sviluppo rimosso**: in `toggleSviluppo` e' stata eliminata la guardia (2 righe di
+    commento + `if` + chiamata) che chiudeva il pannello quando Sviluppo passava a OFF.
+    `#forecast-maps-panel` e' un `div` autonomo dentro `.map-card`, **non** un figlio del
+    wrapper, e `toggleForecastMaps()` non legge mai `isSviluppoActive`.
+  - **Misurato** (Edge headless via CDP, cartella di release servita da `python -m http.server`,
+    Sviluppo OFF): pulsante **176x29 px**, `display:flex`, `offsetParent:BODY`, primo figlio;
+    click -> `#forecast-maps-panel.active`, `fmActive===true`, pannello **754x380 px**,
+    `map.getSize()` **754x560 prima e dopo** (mappa non schiacciata), `fmInvalidateSize`
+    **1** chiamata, tile canvas Leaflet **4 x 512x512**; `toggleSviluppo(true)` e
+    `toggleSviluppo(false)` **non** chiudono il pannello (`fmActive` resta `true`) mentre sulla
+    1.2.4.23 il solo `toggleSviluppo(false)` lo chiudeva (`fmActive` -> `false`, altezza -> 0).
+  - **Pannello realmente funzionante** con Sviluppo OFF: dati **reali** dalla branch
+    `fm2-rendered` (`domain/timeline.json` + `domain/index.json`) e `fm2-dwd`
+    (`dwd_icon_eu/latest.json` + frame `.om`); status
+    `Frame 4/96 · dom 25/10, 02:00 · run 00Z · 25 ott`, slider 0..95, selettore run nascosto
+    (timeline attiva).
+  - **Polling invariato**: `checkWorkflowDataUpdates()` gira ogni `WORKFLOW_DATA_POLL_MS` =
+    **300000 ms** e le richieste a `latest.json`/`index.json`/`timeline.json` stanno tutte
+    dentro il ramo `if (fmActive)`: a pannello chiuso **0** richieste a `index.json` e
+    `timeline.json` (2 cicli forzati a mano -> solo `data/latest/metadata.json`; 60 s di
+    attesa reale -> 0). I 404 locali (`data/latest/metadata.json`, `satellite/manifest.json`,
+    `data/radar/latest.json`) sono l'assenza di `data/` nella cartella locale, non un difetto.
+- Contenuto della 1.2.4.23 (storico, release sopra la 1.2.4.22) - **pannello Mappe previsionali
   robusto quando la timeline cita frame che non esistono piu'**:
   - **Frame iniziale utile**: all'apertura (e al cambio modello/variabile/run) il pannello
     parte dal primo frame del run piu' recente (`bucket 0`; se assente, dal bucket minimo
@@ -498,7 +528,7 @@ Comandi e conteggi aggiornati sono quelli documentati in `C:\Users\aless\Desktop
 
 ## File chiave
 
-- `mri-light-1.2.4.23.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
+- `mri-light-1.2.4.24.html` — applicazione (html/css/js unico, nessuna dipendenza runtime)
 - `sw.js` — Service Worker (cache applicativa: WebP, indici; mai le richieste Range `.om`)
 - `VERSION` — bump di versione e storico note di rilascio
 - `.github/workflows/{radar-engine,satellite-engine,update-weather-data,phenomena-verify,deploy-pages,forecast-maps-v2}.yml` — i 6 workflow
