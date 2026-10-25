@@ -134,23 +134,14 @@ def _fetch_one_frame(config, product, ts, period_s):
     return raster, warnings
 
 
-def fetch_frames(config, product=None, max_frames=None, anchor_ms=None):
-    """Recupera i frames VMI recenti e li valida, ordinati dal più vecchio.
+def plan_window(config, product=None, max_frames=None, anchor_ms=None):
+    """(slot_ms crescenti, period_s) della finestra di tracking.
 
-    Ritorna (frames, warnings, latest_time_ms):
-      frames:  list[RasterData] ordinata crescente (timestamp reali)
-      latest_time_ms: timestamp EPOCH ms del frame più recente (None se vuoto)
-    Solleva SourceError se l'API non risponde affatto (bootstrap fallito).
-
-    `anchor_ms` (1.2.4.20): ancora ESPLICITA degli slot (modalita' --as-of).
-      None  -> comportamento storico: `findLastProductByType` decide l'ultimo
-               slot disponibile (run operativo).
-      valore-> l'ultimo candidato e' `anchor_ms` arrotondato per difetto al
-               passo del prodotto, letto da `source.period_s` (default 300 s,
-               cadenza PT5M misurata). `findLastProductByType` NON viene
-               chiamato: e' proprio la lettura che rendeva il re-run dipendente
-               dall'orologio. Uno slot assente resta un buco (404 -> warning),
-               mai un timestamp inventato."""
+    Stessa logica di sempre (anchor = ultimo prodotto pubblicato, oppure
+    `anchor_ms` in replay; candidati arrotondati per difetto al passo del
+    prodotto, senza duplicati). Estratta da fetch_frames perche' il percorso
+    incrementale (fetch_window) deve pianificare gli STESSI slot senza
+    scaricarli."""
     src = config["source"]
     product = product or src["product_type"]
     max_frames = int(max_frames or src.get("history_frames", 6))
@@ -182,18 +173,22 @@ def fetch_frames(config, product=None, max_frames=None, anchor_ms=None):
         seen.add(ts)
         candidates.append(ts)
     candidates.reverse()  # dal più vecchio al più recente
+    return candidates, period_s
 
+
+def _download_slots(config, product, slots, period_s):
+    """Download+validazione dei soli `slots` indicati, in ordine crescente."""
     frames = []
     warnings = []
-    workers = _parallel_workers(config, len(candidates))
+    workers = _parallel_workers(config, len(slots))
     if workers > 1:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             fetched = list(pool.map(
                 lambda ts: _fetch_one_frame(config, product, ts, period_s),
-                candidates))
+                slots))
     else:
         fetched = [_fetch_one_frame(config, product, ts, period_s)
-                   for ts in candidates]
+                   for ts in slots]
     # ORDINE: `pool.map` restituisce i risultati nell'ordine dei candidati
     # (dal piu' vecchio al piu' recente), quindi i warning e la finestra
     # restano identici al percorso seriale.
@@ -201,7 +196,6 @@ def fetch_frames(config, product=None, max_frames=None, anchor_ms=None):
         warnings.extend(fwarn)
         if raster is not None:
             frames.append(raster)
-
     frames.sort(key=lambda r: r.time_ms)
     # monotonicità STRETTA: drop di eventuali duplicati/correzioni non ordinabili
     deduped = []
@@ -210,10 +204,90 @@ def fetch_frames(config, product=None, max_frames=None, anchor_ms=None):
             warnings.append(f"frame@{r.time_ms} dropped (monotonicity)")
             continue
         deduped.append(r)
-    frames = deduped
+    return deduped, warnings
 
+
+def _resolve_product(config, product):
+    """Nome prodotto effettivo (il default e' `source.product_type`).
+
+    Il refactor 1.2.4.26 ha spostato la risoluzione dentro `plan_window`: senza
+    questo helper `fetch_frames(product=None)` passava `None` a
+    `ProductInfo` e il POST rispondeva HTTP 400 (productType nullo)."""
+    return product or ((config.get("source") or {}).get("product_type") or "VMI")
+
+
+def fetch_frames(config, product=None, max_frames=None, anchor_ms=None):
+    """Recupera i frames VMI recenti e li valida, ordinati dal più vecchio.
+
+    Ritorna (frames, warnings, latest_time_ms):
+      frames:  list[RasterData] ordinata crescente (timestamp reali)
+      latest_time_ms: timestamp EPOCH ms del frame più recente (None se vuoto)
+    Solleva SourceError se l'API non risponde affatto (bootstrap fallito).
+
+    `anchor_ms` (1.2.4.20): ancora ESPLICITA degli slot (modalita' --as-of).
+      None  -> comportamento storico: `findLastProductByType` decide l'ultimo
+               slot disponibile (run operativo).
+      valore-> l'ultimo candidato e' `anchor_ms` arrotondato per difetto al
+               passo del prodotto, letto da `source.period_s` (default 300 s,
+               cadenza PT5M misurata). `findLastProductByType` NON viene
+               chiamato: e' proprio la lettura che rendeva il re-run dipendente
+               dall'orologio. Uno slot assente resta un buco (404 -> warning),
+               mai un timestamp inventato."""
+    slots, period_s = plan_window(config, product, max_frames, anchor_ms)
+    frames, warnings = _download_slots(config, _resolve_product(config, product),
+                                       slots, period_s)
     latest_ts = frames[-1].time_ms if frames else None
     return frames, warnings, latest_ts
+
+
+def fetch_window(config, product=None, max_frames=None, anchor_ms=None,
+                 history_dir=None):
+    """Finestra di tracking con RIUSO delle celle archiviate (1.2.4.26).
+
+    Ritorna (frames, warnings, latest_time_ms, reused_by_slot, slots):
+      frames   list[RasterData] dei SOLI slot scaricati (crescente)
+      reused_by_slot  {slot_ms: list[DetectedCell]} ricostruite dall'archivio
+      slots    list[int] epoch ms di TUTTI gli slot della finestra (crescente)
+
+    Regole (nessuna scorciatoia):
+      - lo slot dell'ancora si scarica SEMPRE (e' il frame pubblicato: senza,
+        `frames[-1]` sarebbe un istante vecchio e radar_timestamp mentirebbe);
+      - gli ultimi `phase2_lookback_frames` slot (default 3) restano raster
+        reali perche' `_hook_for_candidate` legge le ultime 3 griglie continue:
+        riusare le celle produrrebbe un hook diverso (2 finestre invece di 3);
+      - ogni altro slot con celle archiviate valide viene riusato;
+      - archivio assente/corrotto o `incremental_fetch.enabled=false` ->
+        `reused` vuoto = comportamento di fetch_frames (worst case identico).
+    Con `history_dir=None` (replay --as-of: nessuno stato scritto) non si
+    riusa nulla: un replay non deve dipendere da un archivio live."""
+    src = config.get("source") or {}
+    inc = src.get("incremental_fetch") or {}
+    slots, period_s = plan_window(config, product, max_frames, anchor_ms)
+    reused = {}
+    enabled = bool(inc.get("enabled", False)) and history_dir is not None
+    if enabled and slots:
+        try:
+            lookback = int(inc.get("phase2_lookback_frames", 3))
+        except (TypeError, ValueError):
+            lookback = 3
+        lookback = max(1, min(lookback, len(slots)))
+        keep_rasters = set(slots[-lookback:])
+        # import locale: history non importa fetch, nessun ciclo
+        from . import history as _history
+        signature = _history.cells_signature(config)
+        for slot in slots:
+            if slot in keep_rasters:
+                continue
+            cells = _history.read_cells(history_dir, _iso(slot),
+                                       signature=signature)
+            if cells is not None:
+                reused[slot] = cells
+    download = [s for s in slots if s not in reused]
+    frames, warnings = _download_slots(config, _resolve_product(config, product),
+                                       download, period_s)
+    latest_ts = frames[-1].time_ms if frames else None
+    return frames, warnings, latest_ts, reused, slots
+
 
 
 def src_preprocess_nodata(config):

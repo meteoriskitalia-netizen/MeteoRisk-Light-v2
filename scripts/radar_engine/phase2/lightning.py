@@ -84,7 +84,19 @@ _PNG_SIG = b"\x89PNG\r\n\x1a\n"
 class LightningFetchError(Exception):
     """S3 LTG / GetMap WMS non riuscito, o payload non interpretabile.
 
-    Allineabile a radar_engine.models.SourceError a integrazione."""
+    Allineabile a radar_engine.models.SourceError a integrazione.
+
+    1.2.4.26 — `not_published`: True quando il fallimento significa "slot non
+    ancora pubblicato" (HTTP 403 sul bucket senza ListBucket). Il chiamante
+    (main._phase2_evaluate) usa questo attributo per distinguere un ritardo di
+    pubblicazione — che va ritentato fino al tetto misurato — da un guasto
+    diverso (rete, 5xx, payload), che non ha senso ritentare con la stessa
+    insistenza. Il testo del messaggio resta invariato per i chiamanti
+    storici (phenomena/lightning.py) che fanno parsing o log."""
+
+    def __init__(self, message="", not_published=False):
+        super().__init__(message)
+        self.not_published = bool(not_published)
 
 
 # ---------------------------------------------------------------------------
@@ -538,4 +550,6 @@ def fetch_ltg(epoch_ms=None, url_template=None, timeout_s=None,
         return {"epoch_ms": slot, "url": url, "count": parsed["count"],
                 "strikes": parsed["strikes"], "version": parsed["version"],
                 "attempts": i + 1}
-    raise LightningFetchError(f"ltg_unavailable:{last_reason}")
+    raise LightningFetchError(
+        f"ltg_unavailable:{last_reason}",
+        not_published=(last_reason == "not_published_403"))

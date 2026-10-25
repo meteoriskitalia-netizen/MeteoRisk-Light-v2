@@ -80,7 +80,7 @@ def _as_of_summary(bundle):
 
 def build_latest(bundle, engine_meta=None):
     """latest.json (stato del run, mai dati raw)."""
-    return {
+    payload = {
         "status": bundle.status,                 # ok | degraded | error
         "generated_at": bundle.generated_at_iso,
         "engine": engine_meta or {},
@@ -88,7 +88,8 @@ def build_latest(bundle, engine_meta=None):
         "radar_timestamp": bundle.radar_timestamp_iso,
         "radar_timestamp_ms": bundle.radar_timestamp_ms,
         "data_latency_minutes": bundle.data_latency_minutes,
-        "frames_count": len(bundle.frames),
+        "frames_count": len(getattr(bundle, "frame_slots_iso", None)
+                            or bundle.frames),
         "cells_count": sum(len(c) for c in bundle.cells_by_frame),
         "tracks_count": len([t for t in bundle.tracks if len(t.points) >= 2]),
         "storm_objects_count": sum(len(o) for o in
@@ -104,6 +105,67 @@ def build_latest(bundle, engine_meta=None):
         **_as_of_summary(bundle),
         "warnings": bundle.warnings[-50:],
     }
+    # 1.2.4.26 — blocco ADDITIVO `cappi_fetch` (verdetto del gate grandine +
+    # livelli CAPPI effettivi). Presente solo quando c'e' un riepilogo da
+    # pubblicare: nessuna chiave esistente cambia forma o valore.
+    cappi = _cappi_fetch_summary(bundle)
+    if cappi is not None:
+        payload["cappi_fetch"] = cappi
+    # 1.2.4.26 — modalita' di fetch (additiva): dice quanti frame sono stati
+    # scaricati e quanti ricostruiti dall'archivio delle celle. Presente solo
+    # quando il percorso incrementale ha davvero riusato qualcosa.
+    fetch_mode = getattr(bundle, "fetch_mode", None)
+    if isinstance(fetch_mode, dict) and fetch_mode:
+        payload["fetch_mode"] = fetch_mode
+    return payload
+
+
+def _cappi_fetch_summary(bundle):
+    """Riepilogo verificabile dei CAPPI per latest.json (1.2.4.26).
+
+    Perche' esiste: il verdetto del gate vive in bundle.phase2["cappi_fetch"],
+    ma build_latest non lo serializzava, quindi dal pubblicato non si poteva
+    controllare se il set completo era stato scaricato ne' quanti livelli
+    fossero realmente disponibili. Si espone SOLO il riepilogo: il dettaglio
+    per prodotto (`products`, ~4 kB con 10 CAPPI) resta in memoria, perche'
+    latest.json e' committato a ogni run e non aggiunge nulla alla verifica
+    del verdetto.
+
+    `cappi_levels` = livelli effettivi dopo gate e scarti (severe_stack usa
+    `cappi_levels<4` per dichiarare MESH non calcolabile).
+    `hail_gate.value_g_m3` = massimo di VIL density sulla griglia
+    (= `max_vil_density_g_m3` di main._hail_plausibility_gate)."""
+    p2 = getattr(bundle, "phase2", None)
+    if not isinstance(p2, dict):
+        return None
+    cf = p2.get("cappi_fetch")
+    if not isinstance(cf, dict) or not cf:
+        return None
+    out = {
+        "requested": cf.get("requested"),
+        "fetched": cf.get("fetched"),
+        "fallback": cf.get("fallback"),
+        "failed": cf.get("failed") or [],
+        "used_slots": cf.get("used_slots") or [],
+        "homogeneous": cf.get("homogeneous"),
+        "bytes": cf.get("bytes"),
+        "seconds": cf.get("seconds"),
+        "ref_time_iso": cf.get("ref_time_iso"),
+        "kept_slot_iso": cf.get("kept_slot_iso"),
+        "slot_offset_s": cf.get("slot_offset_s"),
+        "cappi_levels": cf.get("cappi_levels"),
+    }
+    gate = cf.get("hail_gate")
+    if isinstance(gate, dict):
+        out["hail_gate"] = {
+            "evaluated": gate.get("evaluated"),
+            "value_g_m3": gate.get("max_vil_density_g_m3"),
+            "threshold_g_m3": gate.get("threshold_g_m3"),
+            "threshold_ref": gate.get("threshold_ref"),
+            "passed": gate.get("fetch_full_set"),
+            "reason": gate.get("reason"),
+        }
+    return out
 
 
 def _tracking_confidence(tracks):

@@ -384,8 +384,24 @@ def _cell_footprint(bundle, candidate, config, target_window=None):
     chiamante ricade sulla finestra ±radius_km e lo DICHIARA (`footprint_source`
     = "candidate_window")."""
     frames = list(getattr(bundle, "frames", []) or [])
-    if not frames:
+    rasters = getattr(bundle, "raster_by_frame_index", None)
+    if not frames and not rasters:
         return None, None, "no_frames"
+
+    def _raster_for(frame_index):
+        """Raster del frame `frame_index`.
+
+        1.2.4.26: con il fetch incrementale `bundle.frames` contiene SOLO i
+        frame scaricati, quindi il suo indice NON coincide piu' con
+        `cell.frame_index`. La mappa `raster_by_frame_index` (timeline ->
+        raster) e' l'unica fonte affidabile quando esiste; senza mappa si usa
+        la lista (comportamento storico)."""
+        if isinstance(rasters, dict):
+            return rasters.get(int(frame_index))
+        idx = int(frame_index)
+        if 0 <= idx < len(frames):
+            return frames[idx]
+        return None
     thr = float((config.get("detect") or {}).get("dbz_threshold", 20.0))
     cells = []
     cell_id = candidate.get("cell_id")
@@ -415,12 +431,14 @@ def _cell_footprint(bundle, candidate, config, target_window=None):
     r1 = c1 = -1
     for cell in cells:
         idx = int(getattr(cell, "frame_index", -1))
-        if not (0 <= idx < len(frames)):
+        if idx < 0:
             continue
         bmin_r, bmin_c, bmax_r, bmax_c = cell.bbox
         r0, c0 = min(r0, bmin_r), min(c0, bmin_c)
         r1, c1 = max(r1, bmax_r), max(c1, bmax_c)
-        raster = frames[idx]
+        got = _raster_for(idx)
+        if got is not None:
+            raster = got
     if raster is None:
         return None, None, "cell_frame_missing"
     r0 = max(0, r0 - 1)
@@ -442,9 +460,15 @@ def _cell_footprint(bundle, candidate, config, target_window=None):
     used = 0
     for cell in cells:
         idx = int(getattr(cell, "frame_index", -1))
-        if not (0 <= idx < len(frames)):
+        if idx < 0:
             continue
-        src = frames[idx]
+        src = _raster_for(idx)
+        if src is None:
+            # Frame ricostruito dall'archivio delle celle: il raster NON c'e'.
+            # La cella non e' risolvibile e il chiamante lo dichiara
+            # (`footprint.source` = "candidate_window"); nessun valore
+            # inventato e nessun raster di un altro istante usato per errore.
+            continue
         bmin_r, bmin_c, bmax_r, bmax_c = cell.bbox
         rr0, cc0 = max(0, bmin_r - 1), max(0, bmin_c - 1)
         rr1, cc1 = min(int(src.rows) - 1, bmax_r + 1), min(int(src.cols) - 1,
@@ -641,7 +665,9 @@ def _hook_for_candidate(frames, lon, lat, radius_km, hcfg, hook_mod):
     except (TypeError, ValueError):
         n_hist = 3
     windows = []
-    for fr in frames[-n_hist:]:
+    for fr in (frames or [])[-n_hist:]:
+        if fr is None:
+            return None
         win = _candidate_window(fr, lon, lat, radius_km)
         if win is None:
             return None
@@ -650,6 +676,31 @@ def _hook_for_candidate(frames, lon, lat, radius_km, hcfg, hook_mod):
         return None
     return hook_mod.hook_score_footprint(
         windows, dbz_threshold=hcfg.get("dbz_threshold"))
+
+
+def _hook_frames(bundle, hcfg):
+    """Raster per l'hook morfologico: gli ultimi n_hist frame della TIMELINE.
+
+    1.2.4.26 — con il fetch incrementale `bundle.frames` contiene solo i raster
+    scaricati (indici non allineati alla timeline). Se uno dei frame della
+    finestra di persistenza e' stato ricostruito dall'archivio delle celle
+    (nessun raster), ritorna None: meglio la componente ASSENTE che una
+    persistenza su 2 osservazioni spacciata per 3. Senza la mappa
+    `raster_by_frame_index` (percorso storico/interi) ritorna `bundle.frames`
+    e il comportamento e' quello di sempre."""
+    frames = list(getattr(bundle, "frames", []) or [])
+    rmap = getattr(bundle, "raster_by_frame_index", None)
+    if not isinstance(rmap, dict):
+        return frames
+    try:
+        n_hist = max(1, int(hcfg.get("history_frames", 3)))
+    except (TypeError, ValueError):
+        n_hist = 3
+    total = len(getattr(bundle, "cells_by_frame", []) or [])
+    idxs = list(range(max(0, total - n_hist), total))
+    if not idxs or any(i not in rmap for i in idxs):
+        return None
+    return [rmap[i] for i in idxs]
 
 
 def _structure_summary(cand):
@@ -785,6 +836,23 @@ def _record_predictions(bundle, config, out_dir):
     return bundle.severe_predictions
 
 
+def _ltg_not_published(exc):
+    """True se il fallimento LTG significa "slot non ancora pubblicato" (403).
+
+    1.2.4.26 — `lightning.fetch_ltg(epoch_ms=...)` alza
+    `LightningFetchError('ltg_unavailable:not_published_403')` quando lo slot
+    richiesto risponde 403 (bucket S3 senza ListBucket = oggetto assente), e
+    un messaggio DIVERSO per rete/5xx/payload. La distinzione serve al tetto
+    adattivo: un 403 e' un ritardo di pubblicazione (misurato: primo slot a
+    k=5-7 nelle 72h, k=9 il 2026-10-07) e va ritentato; un guasto di rete no.
+    L'attributo strutturato e' la via primaria; il match sul testo copre gli
+    opener iniettati dai test e i chiamanti storici."""
+    if getattr(exc, "not_published", False):
+        return True
+    text = str(exc)
+    return "not_published_403" in text or "http_403" in text
+
+
 def _phase2_evaluate(bundle, config):
     """Fase 2 (additivo): sub-layer A1 -> indice v2 + stack severo PER CANDIDATO.
 
@@ -876,6 +944,9 @@ def _phase2_evaluate(bundle, config):
     except (TypeError, ValueError):
         ltg_min_strikes = 1
     env_enabled = bool(ecfg.get("enabled", True))
+    # 1.2.4.26: raster per l'hook calcolati UNA volta (stessa finestra per
+    # tutti i candidati); None = finestra di persistenza incompleta.
+    hook_frames = _hook_frames(bundle, hcfg)
 
     def _warn(msg):
         """Warning deduplicato (i layer per-candidato girano N volte)."""
@@ -912,6 +983,13 @@ def _phase2_evaluate(bundle, config):
             config, scfg, frames[-1], warnings,
             full_set=gate["fetch_full_set"])
         cappi_summary["hail_gate"] = gate
+        # 1.2.4.26 — livelli CAPPI EFFETTIVAMENTE disponibili dopo il gate
+        # (full set o solo low/high) e dopo gli scarti per slot/shape: e' il
+        # numero che severe_stack legge per decidere se MESH e' calcolabile
+        # (`cappi_levels<4`). Senza questo campo il verdetto del gate non e'
+        # controllabile dal pubblicato (vedi output._cappi_fetch_summary).
+        cappi_summary["cappi_levels"] = sum(
+            1 for rd in cappi.values() if rd is not None)
         # low/high per la struttura verticale: stessi controlli di shape che
         # _fetch_structure_products applicava quando riceveva `cappi_rd`.
         for _name, _key in (("low", "product_low"), ("high", "product_high")):
@@ -951,11 +1029,7 @@ def _phase2_evaluate(bundle, config):
     # E (1.2.4.17): il backoff effettivo e' il MINIMO fra config e costante
     # del modulo (LTG_MAX_BACKOFF_STEPS = 12). Prima la config diceva 36 e il
     # modulo 12: un run senza slot pubblicati produceva 37 richieste HTTP 403
-    # (STUDIO_SUPERCELLE_RADAR sez. 6.4).
-    # 1.2.4.26: il tetto dei tentativi FALLITI e' `max_failed_attempts` (3).
-    # `publication_grace_steps` / `max_consecutive_failures` restano nel config
-    # solo come documentazione storica: il grace di 9 passi non e' piu'
-    # applicato (misura 2026-10-25: 12/12 slot in 403 a ogni run con candidati).
+    # (STUDIO_SUPERCELLE_RADAR sez. 6.4). Il clamp resta.
     try:
         max_backoff = max(0, min(int(lcfg.get("max_backoff_steps",
                                               lightning.LTG_MAX_BACKOFF_STEPS)),
@@ -972,25 +1046,40 @@ def _phase2_evaluate(bundle, config):
         warnings.append("phase2 lightning: modalita' --as-of senza archivio "
                         "storico (lightning_history_unavailable)")
     else:
-        # 1.2.4.26 — TETTO DEI TENTATIVI FALLITI (default 3, config
-        # lightning.max_failed_attempts). Prima: grace di 9 passi + 3 errori =
-        # 12 richieste 403 a OGNI run con candidati (936/giorno, misurato il
-        # 2026-10-25) per un layer che resta assente. Il conteggio si azzera a
-        # ogni slot trovato, quindi la finestra di trend (4 slot) non viene
-        # ridotta quando i fulmini ci sono: il tetto morde solo sul percorso
-        # interamente fallito. Costo dichiarato: uno slot pubblicato a k>=3
-        # non viene piu' cercato (vedi config.py).
+        # 1.2.4.26 — TETTO DEI TENTATIVI FALLITI (default 12, config
+        # lightning.max_failed_attempts) + TETTO SEPARATO SUI GUASTI NON-403
+        # (config lightning.max_unexpected_failures, default 3).
+        # MISURA (72h 2026-10-22T21:31Z -> 2026-10-25T21:46Z, 435 run, 267 con
+        # candidati; fonte data/radar/latest.json a ogni commit):
+        #   - 58 run con almeno un dato fulmini (21,7% di quelle con candidati);
+        #   - 43 di quelle 58 avevano >=3 fallimenti INIZIALI: con un tetto a 3
+        #     avrebbero perso il layer (74%); mediana 10 richieste per run con
+        #     dato = ~6 slot in 403 prima del primo pubblicato;
+        #   - nessuna run con dato ha avuto bisogno di k>=9, ma il valore 12
+        #     resta quello misurato il 2026-10-07 (primo slot a k=9): costo
+        #     massimo 12 richieste/run, nessuno slot perso.
+        # Il conteggio si azzera a ogni slot trovato, quindi la finestra di
+        # trend (4 slot) non viene ridotta quando i fulmini ci sono. Il tetto
+        # separato sui guasti NON-403 evita di spendere 12 richieste quando la
+        # sorgente e' rotta (rete/5xx/payload): li' ritentare non serve.
         try:
-            max_failed = int(lcfg.get("max_failed_attempts", 3))
+            max_failed = int(lcfg.get("max_failed_attempts", 12))
         except (TypeError, ValueError):
-            max_failed = 3
+            max_failed = 12
         max_failed = max(1, min(max_failed, max_backoff + 1))
+        try:
+            max_unexpected = int(lcfg.get("max_unexpected_failures", 3))
+        except (TypeError, ValueError):
+            max_unexpected = 3
+        max_unexpected = max(1, min(max_unexpected, max_failed))
         failures = 0
+        unexpected = 0
         for k in range(0, max_backoff + 1):   # dal piu' recente all'indietro
             if len(ltg_slots_recent) >= window:
                 break
             epoch = lightning.ltg_epoch_floor(backoff_steps=k,
                                               now_ms=p2_clock.now_ms())
+            not_published = False
             if epoch in slot_cache:
                 slot = slot_cache[epoch]
             else:
@@ -998,6 +1087,7 @@ def _phase2_evaluate(bundle, config):
                     slot = lightning.fetch_ltg(epoch_ms=epoch)["strikes"]
                 except lightning.LightningFetchError as exc:
                     warnings.append(f"phase2 lightning slot-{k}: {exc}")
+                    not_published = _ltg_not_published(exc)
                     slot = None
                 except Exception as exc:  # guasto imprevisto -> slot assente
                     warnings.append(f"phase2 lightning failed: {exc}")
@@ -1005,15 +1095,18 @@ def _phase2_evaluate(bundle, config):
                 slot_cache[epoch] = slot
             if slot is not None:
                 failures = 0
+                unexpected = 0
                 ltg_slots_recent.append(slot)
             else:
                 failures += 1
-                if failures >= max_failed:
+                if not not_published:
+                    unexpected += 1
+                if failures >= max_failed or unexpected >= max_unexpected:
                     warnings.append(
                         f"phase2 lightning: stop dopo {failures} tentativi "
-                        f"falliti (max_failed_attempts={max_failed}; il grace "
-                        f"di 9 passi della 1.2.4.17 non e' piu' applicato: "
-                        f"misura 2026-10-25, 12/12 slot in 403)")
+                        f"falliti (max_failed_attempts={max_failed}, "
+                        f"max_unexpected_failures={max_unexpected}, "
+                        f"guasti_non_403={unexpected})")
                     break
     # dal piu' vecchio al piu' recente (ordine atteso da lightning_spatial_score)
     ltg_slots = list(reversed(ltg_slots_recent))
@@ -1045,8 +1138,8 @@ def _phase2_evaluate(bundle, config):
         hook_score = None
         if lon is not None:
             try:
-                hook_score = _hook_for_candidate(frames, lon, lat, hook_radius,
-                                                 hcfg, hook)
+                hook_score = _hook_for_candidate(hook_frames, lon, lat,
+                                                 hook_radius, hcfg, hook)
             except Exception as exc:
                 _warn(f"phase2 hook failed: {exc}")
 
@@ -1274,6 +1367,18 @@ def _phase2_evaluate(bundle, config):
         result["as_of_mode"] = as_of_mode
 
 
+def _incremental_allow_replay(config):
+    """True solo se il collaudo lo chiede esplicitamente.
+
+    In `--as-of` il motore non riusa l'archivio: un replay deterministico non
+    deve dipendere da uno stato live (1.2.4.20). L'interruttore esiste per il
+    collaudo A/B (stesso slot con e senza riuso) ed e' OFF per default:
+    accenderlo rompe la garanzia di replay, quindi non va usato in produzione.
+    """
+    return bool(((config.get("source") or {}).get("incremental_fetch") or {})
+                .get("allow_replay", False))
+
+
 def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
          clock=None):
     clock = clock if isinstance(clock, clock_mod.Clock) else \
@@ -1290,10 +1395,20 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
     bundle.as_of_mode = as_of_mode
 
     # ---- FECTH + VALIDAZIONE ------------------------------------------------
+    # 1.2.4.26 — percorso INCREMENTALE: `fetch_window` riusa le celle archiviate
+    # in `data/radar/history/cells/` per i frame che la run precedente ha gia'
+    # processato e scarica solo i nuovi (piu' gli ultimi
+    # `phase2_lookback_frames` slot, che servono come raster continui a
+    # `_hook_for_candidate`). Archivio assente -> scarica tutto (comportamento
+    # storico). In replay (--as-of) non si riusa nulla: un replay non deve
+    # dipendere da uno stato live.
     try:
-        frames, warnings, latest_ts = fetch.fetch_frames(
+        frames, warnings, latest_ts, reused, _planned = fetch.fetch_window(
             config, product=product, max_frames=max_frames,
             anchor_ms=clock.anchor_ms(period_s),
+            history_dir=(None if (clock.replay
+                                  and not _incremental_allow_replay(config))
+                         else history_dir),
         )
     except models.SourceError as exc:
         bundle.warnings = [f"fetch failed: {exc}"]
@@ -1317,16 +1432,43 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
         bundle.data_latency_minutes = None
 
     # ---- DETECTION ----------------------------------------------------------
+    # La TIMELINE e' l'unione dei timestamp reali dei frame scaricati e degli
+    # slot ricostruiti dall'archivio. I frame scaricati usano il timestamp
+    # REALE della chiave S3 (come sempre); gli slot riusati il loro slot
+    # pianificato. Un download che riporta un timestamp diverso resta al suo
+    # posto reale (stessa semantica di prima), un frame assente NON viene
+    # inventato.
     cfg_detect = config["detect"]
-    for idx, raster in enumerate(frames):
+    entries = {}
+    for raster in frames:
         try:
             cells = detect_mod.detect_cells(raster, cfg_detect)
         except Exception as exc:
             bundle.warnings.append(f"detect@{raster.time_iso} failed: {exc}")
             cells = []
+        entries[raster.time_ms] = [raster, cells]
+    for slot_ms, archived in (reused or {}).items():
+        entries.setdefault(slot_ms, [None, archived])
+    bundle.cells_by_frame = []
+    bundle.frame_slots_iso = []
+    bundle.raster_by_frame_index = {}
+    for idx, slot_ms in enumerate(sorted(entries)):
+        raster, cells = entries[slot_ms]
         for c in cells:
             c.frame_index = idx
         bundle.cells_by_frame.append(cells)
+        bundle.frame_slots_iso.append(fetch._iso(slot_ms))
+        if raster is not None:
+            bundle.raster_by_frame_index[idx] = raster
+    # 1.2.4.26: il riuso dei frame NON e' un'anomalia (non deve degradare lo
+    # status): e' una modalita' di fetch, pubblicata come campo additivo.
+    if reused:
+        bundle.fetch_mode = {
+            "incremental": True,
+            "downloaded_frames": len(frames),
+            "reconstructed_frames": len(reused),
+            "timeline_slots": len(bundle.cells_by_frame),
+        }
 
     # ---- TRACKING (>=2 frame validi; altrimenti solo detection) -------------
     tracker = track_mod.Tracker(config["tracking"],
@@ -1383,7 +1525,7 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
         bundle.phase2 = {"status": "unavailable", "warnings": bundle.warnings}
 
     # ---- SCORING incluso in finalize (per track) ----------------------------
-    if len(frames) < 2:
+    if len(bundle.cells_by_frame) < 2:
         bundle.warnings.append("tracking skipped (<2 valid frames); "
                                "detection output only, tracking_confidence=insufficient")
 
@@ -1409,16 +1551,26 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
                                      "reason": "as_of_replay"}
     else:
         if history_dir:
-            _archive_history(bundle, history_dir)
+            _archive_history(bundle, history_dir, config)
         _record_predictions(bundle, config, out_dir)
     return bundle, _OK if bundle.status == "ok" else _DEGRADED
 
 
-def _archive_history(bundle, history_dir):
+def _archive_history(bundle, history_dir, config=None):
     """Archivio rolling 2h (history.build_history): BEST-EFFORT.
 
     L'output derivato e' gia' scritto: un errore dell'archivio viene loggato
     come warning (in bundle.warnings -> summary) e NON cambia l'rc del run."""
+    # 1.2.4.26 — CELLE PER FRAME: alimentano il fetch incrementale del run
+    # successivo. Best-effort come il resto dell'archivio.
+    try:
+        n_cells = history.build_cells_archive(
+            bundle, history_dir,
+            signature=history.cells_signature(config or {}))
+        print(f"[history] celle archiviate: {n_cells} slot")
+    except Exception as exc:
+        bundle.warnings.append(f"cells archive failed: {exc}")
+        print(f"[history] WARNING: archivio celle non aggiornato: {exc}")
     try:
         index = history.build_history(bundle, history_dir)
     except Exception as exc:
@@ -1494,7 +1646,11 @@ def main(argv=None):
 
     summary = {
         "status": bundle.status,
-        "frames": len(bundle.frames),
+        # 1.2.4.26: `frames` = lunghezza della TIMELINE (frame scaricati +
+        # ricostruiti dall'archivio), non i soli download: e' il numero di
+        # frame che il tracking ha davvero usato (prima erano lo stesso numero).
+        "frames": len(getattr(bundle, "frame_slots_iso", None)
+                      or bundle.frames),
         "cells": sum(len(c) for c in bundle.cells_by_frame),
         "tracks": len([t for t in bundle.tracks if len(t.points) >= 2]),
         "structures": len(getattr(bundle, "convective_structures", []) or []),
@@ -1515,7 +1671,7 @@ def main(argv=None):
     if gh_out:
         with open(gh_out, "a", encoding="utf-8") as fh:
             fh.write(f"status={bundle.status}\n")
-            fh.write(f"frames={len(bundle.frames)}\n")
+            fh.write(f"frames={summary['frames']}\n")
             fh.write(f"cells={summary['cells']}\n")
             fh.write(f"tracks={summary['tracks']}\n")
             fh.write("structure_candidates={}\n".format(

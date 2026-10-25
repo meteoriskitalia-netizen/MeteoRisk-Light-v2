@@ -443,12 +443,11 @@ def test_phase2_summary_best_candidate_and_status():
 
 
 def test_lightning_backoff_stops_after_three_failed_attempts(monkeypatch):
-    """1.2.4.26: tetto di 3 TENTATIVI FALLITI, non piu' 12.
+    """Il tetto e' configurabile: con `max_failed_attempts=3` si ferma a 3.
 
-    Misura del 2026-10-25: ogni run con candidati faceva 12 richieste, tutte
-    403 (936/giorno) per un layer che resta assente. Il grace di 9 passi della
-    1.2.4.17 e' dichiaratamente NON piu' applicato (config.py): il costo
-    accettato e' non vedere uno slot pubblicato a k>=3."""
+    Il DEFAULT non e' 3 (dal 1.2.4.26 e' 12: la misura sulle 72h mostra che
+    43 delle 58 run con dato avevano >=3 fallimenti iniziali e con un tetto a
+    3 avrebbero perso il layer). Questo test copre la leva, non il default."""
     ltg_calls = []
 
     def fake_fetch_frames(config, product=None, max_frames=None):
@@ -495,7 +494,8 @@ def test_lightning_backoff_cap_is_configurable(monkeypatch):
 def test_lightning_backoff_finds_slot_within_the_cap(monkeypatch):
     """Il tetto NON taglia il percorso che funziona: slot a k=2 trovato e
     finestra di trend (4 slot) riempita; il conteggio errori si azzera a ogni
-    successo. Uno slot a k=9 NON viene piu' cercato (conseguenza dichiarata)."""
+    successo. Con il tetto a 3 uno slot a k>=3 non verrebbe cercato: e' il
+    caso coperto da test_lightning_backoff_finds_slot_at_k9."""
     ltg_calls = []
 
     def fake_fetch_frames(config, product=None, max_frames=None):
@@ -519,6 +519,100 @@ def test_lightning_backoff_finds_slot_within_the_cap(monkeypatch):
     assert len(ltg_calls) == 6       # 2 falliti + 4 slot per la finestra
     assert any(c["lightning"] is not None
                for c in bundle.convective_structures)
+
+
+def test_lightning_backoff_finds_slot_at_k9(monkeypatch):
+    """1.2.4.26 — lo slot pubblicato a k=9 DEVE essere trovato.
+
+    Il valore 12 di `max_failed_attempts` esiste per questo caso: la misura
+    del 2026-10-07 diede il primo slot disponibile a 9 passi (45 min di
+    ritardo di pubblicazione). Con un tetto a 3 il layer sarebbe azzerato.
+    8 risposte 403 + successo al 9o tentativo (k=8) + i 3 slot successivi per
+    completare la finestra di trend (4) = 12 richieste."""
+    ltg_calls = []
+
+    def fake_fetch_frames(config, product=None, max_frames=None):
+        return [], [], None
+
+    def fake_fetch_ltg(epoch_ms=None, **kw):
+        ltg_calls.append(epoch_ms)
+        if len(ltg_calls) <= 8:
+            exc = ltg_mod.LightningFetchError(
+                "ltg_unavailable:not_published_403", not_published=True)
+            raise exc
+        return {"strikes": [(13.0, 41.0)] * 10}
+
+    monkeypatch.setattr("radar_engine.fetch.fetch_frames", fake_fetch_frames)
+    monkeypatch.setattr("radar_engine.phase2.lightning.fetch_ltg", fake_fetch_ltg)
+
+    bundle, cfg = _bundle()
+    cfg["phase2"]["lightning"]["max_backoff_steps"] = 12
+    cfg["phase2"]["lightning"]["max_failed_attempts"] = 12
+    eng._phase2_evaluate(bundle, cfg)
+
+    assert len(ltg_calls) == 12      # 8 in 403 + 1 trovato + 3 per la finestra
+    assert not any("stop dopo" in w for w in bundle.warnings)
+    scored = [c for c in bundle.convective_structures
+              if c["lightning"] is not None]
+    assert scored, "lo slot a k=9 deve dare un punteggio ai candidati"
+
+
+def test_lightning_backoff_stops_early_on_non_403(monkeypatch):
+    """1.2.4.26 — tetto ADATTIVO: un guasto diverso da 403 ferma prima.
+
+    Un 403 significa "non ancora pubblicato" e va ritentato (fino a 12); una
+    rete rotta o un 5xx non migliora ritentando 12 volte, quindi si ferma a
+    `max_unexpected_failures` (3)."""
+    ltg_calls = []
+
+    def fake_fetch_frames(config, product=None, max_frames=None):
+        return [], [], None
+
+    def fake_fetch_ltg(epoch_ms=None, **kw):
+        ltg_calls.append(epoch_ms)
+        raise ltg_mod.LightningFetchError(
+            "ltg_unavailable:network:URLError", not_published=False)
+
+    monkeypatch.setattr("radar_engine.fetch.fetch_frames", fake_fetch_frames)
+    monkeypatch.setattr("radar_engine.phase2.lightning.fetch_ltg", fake_fetch_ltg)
+
+    bundle, cfg = _bundle()
+    cfg["phase2"]["lightning"]["max_backoff_steps"] = 12
+    cfg["phase2"]["lightning"]["max_failed_attempts"] = 12
+    cfg["phase2"]["lightning"]["max_unexpected_failures"] = 3
+    eng._phase2_evaluate(bundle, cfg)
+
+    assert len(ltg_calls) == 3
+    assert any("guasti_non_403=3" in w for w in bundle.warnings)
+    assert all(c["lightning"] is None for c in bundle.convective_structures)
+
+
+def test_lightning_all_403_costs_max_failed_requests(monkeypatch):
+    """Costo DICHIARATO della scelta: sorgente muta -> 12 richieste 403/run.
+
+    Con la sorgente viva lo scan si ferma prima (4 slot trovati). Il caso
+    tutto-403 e' il tetto, non la norma: 12 richieste piccole per non perdere
+    uno slot pubblicato in ritardo."""
+    ltg_calls = []
+
+    def fake_fetch_frames(config, product=None, max_frames=None):
+        return [], [], None
+
+    def fake_fetch_ltg(epoch_ms=None, **kw):
+        ltg_calls.append(epoch_ms)
+        raise ltg_mod.LightningFetchError(
+            "ltg_unavailable:not_published_403", not_published=True)
+
+    monkeypatch.setattr("radar_engine.fetch.fetch_frames", fake_fetch_frames)
+    monkeypatch.setattr("radar_engine.phase2.lightning.fetch_ltg", fake_fetch_ltg)
+
+    bundle, cfg = _bundle()
+    cfg["phase2"]["lightning"]["max_backoff_steps"] = 36   # clamp -> 12
+    cfg["phase2"]["lightning"]["max_failed_attempts"] = 12
+    eng._phase2_evaluate(bundle, cfg)
+
+    assert len(ltg_calls) == 12
+    assert any("max_failed_attempts=12" in w for w in bundle.warnings)
 
 
 def test_severe_stack_wiring_two_cappi_levels():

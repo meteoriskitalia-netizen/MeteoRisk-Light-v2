@@ -128,8 +128,21 @@ def test_fetch_ltg_backoff_one_403():
 
 def test_fetch_ltg_all_403_raises():
     with pytest.raises(ltg.LightningFetchError,
-                       match="ltg_unavailable:not_published_403"):
+                       match="ltg_unavailable:not_published_403") as excinfo:
         ltg.fetch_ltg(epoch_ms=1777027200000, opener=lambda u, t: None)
+    # 1.2.4.26: il motivo e' STRUTTURATO, non solo nel testo. main.py lo usa
+    # per il tetto adattivo (403 = ritardo di pubblicazione -> ritenta).
+    assert excinfo.value.not_published is True
+
+
+def test_fetch_ltg_other_errors_are_not_not_published():
+    """Un 5xx non e' "non ancora pubblicato": il chiamante deve distinguerlo."""
+    def opener_500(url, timeout_s):
+        raise ltg.LightningFetchError("http_500")
+
+    with pytest.raises(ltg.LightningFetchError) as excinfo:
+        ltg.fetch_ltg(epoch_ms=1777027200000, opener=opener_500)
+    assert excinfo.value.not_published is False
 
 
 def test_fetch_ltg_invalid_payload_raises():

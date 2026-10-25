@@ -177,3 +177,62 @@ def test_empty_frame_bundle_ok(tmp_path):
     with open(os.path.join(out, "storms.geojson"), encoding="utf-8") as fh:
         gj = json.load(fh)
     assert gj["features"] == []
+
+
+def test_latest_has_no_cappi_block_without_phase2(tmp_path):
+    """1.2.4.26: nessun blocco `cappi_fetch` se il layer non ha prodotto dati.
+
+    Il blocco e' ADDITIVO: la forma di latest.json senza phase2 resta quella
+    di prima (nessuna chiave nuova), cosi' il client non vede campi vuoti."""
+    b = _bundle(tmp_path)
+    latest = output.build_latest(b)
+    assert "cappi_fetch" not in latest
+    assert set(latest) == set(output.build_latest(_bundle(tmp_path)))
+
+
+def test_latest_serializes_cappi_gate_verdict(tmp_path):
+    """1.2.4.26 — il verdetto del gate CAPPI e' controllabile dal pubblicato.
+
+    Prima viveva solo in bundle.phase2["cappi_fetch"]: un dato non
+    serializzato non e' verificabile. Devono esserci il valore misurato, la
+    soglia, l'esito e i livelli effettivi; il dettaglio per prodotto NO (e'
+    ~4 kB/run su un file committato a ogni run)."""
+    b = _bundle(tmp_path)
+    b.phase2 = {
+        "status": "partial",
+        "cappi_fetch": {
+            "requested": 10, "fetched": 10, "fallback": 0, "failed": [],
+            "used_slots": ["2026-10-25T05:10:00Z"], "homogeneous": True,
+            "bytes": 4887958, "seconds": 12.25,
+            "ref_time_iso": "2026-10-25T05:10:00Z",
+            "kept_slot_iso": "2026-10-25T05:10:00Z", "slot_offset_s": 0,
+            "cappi_levels": 10,
+            "hail_gate": {
+                "enabled": True, "threshold_g_m3": 3.5,
+                "threshold_ref": "Amburn & Wolf 1997 (WAF 12:473)",
+                "max_vil_density_g_m3": 3.702, "evaluated": True,
+                "fetch_full_set": True, "reason": "hail_plausible",
+            },
+            "products": {"CAPPI_1": {"bytes": 488795}},
+        },
+    }
+    latest = output.build_latest(b)
+    cf = latest["cappi_fetch"]
+    assert cf["cappi_levels"] == 10
+    assert cf["homogeneous"] is True
+    assert "products" not in cf
+    gate = cf["hail_gate"]
+    assert gate["value_g_m3"] == 3.702
+    assert gate["threshold_g_m3"] == 3.5
+    assert gate["passed"] is True
+    assert gate["evaluated"] is True
+    assert gate["reason"] == "hail_plausible"
+    # `passed` falso = set completo NON scaricato (MESH null con motivo)
+    b.phase2["cappi_fetch"]["hail_gate"].update(
+        {"max_vil_density_g_m3": 0.889, "fetch_full_set": False,
+         "reason": "hail_implausible"})
+    b.phase2["cappi_fetch"]["cappi_levels"] = 2
+    cf2 = output.build_latest(b)["cappi_fetch"]
+    assert cf2["hail_gate"]["passed"] is False
+    assert cf2["hail_gate"]["value_g_m3"] == 0.889
+    assert cf2["cappi_levels"] == 2

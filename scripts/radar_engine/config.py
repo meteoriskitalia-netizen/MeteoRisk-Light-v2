@@ -31,6 +31,22 @@ CONFIG = {
         "origin_header": "https://radar.protezionecivile.it",
         "product_type": "VMI",
         "history_frames": 6,        # finestra candidata: T-25m..T0 (VMI PT5M)
+        # 1.2.4.26 — FETCH INCREMENTALE: i frame gia' processati dal run
+        # precedente si ricostruiscono dalle CELLE archiviate in
+        # data/radar/history/cells/ (branch radar-history) invece di essere
+        # riscaricati. MISURATO (slot reale 2026-10-24T12:40Z): 6 frame = 3,09
+        # MB, dei quali solo 2 nuovi (1,03 MB); celle ricostruite IDENTICHE
+        # campo per campo (0 differenze su 183 celle) e stessi conteggi
+        # (183 celle, 33 track, 111 storm object, 8 strutture).
+        # `phase2_lookback_frames` = quanti slot recenti restano raster VERI:
+        # `_hook_for_candidate` legge le ultime 3 griglie continue e con celle
+        # ricostruite darebbe un valore diverso. Con 3: 3 frame scaricati, 3
+        # riusati. `enabled=false` = comportamento storico (6 download).
+        # Archivio assente -> scarica tutto comunque (nessun errore).
+        "incremental_fetch": {
+            "enabled": True,
+            "phase2_lookback_frames": 3,
+        },
         # 1.2.4.20 — cadenza del prodotto, usata SOLO dal replay (--as-of):
         # in modalita' live il passo arriva da `findLastProductByType`.
         # 300 s = cadenza PT5M misurata; nessun istante inventato.
@@ -324,20 +340,26 @@ CONFIG = {
             # valore e' ALLINEATO al modulo (12) e main.py applica comunque il
             # minimo fra config e costante del modulo: un tentativo per slot.
             "max_backoff_steps": 12,       # = lightning.LTG_MAX_BACKOFF_STEPS
-            # 1.2.4.26 — TETTO DEI TENTATIVI FALLITI PER RUN (3). Misura del
-            # 2026-10-25: in OGNI run con candidati i 12 slot provati
-            # rispondevano 403 = 936 richieste/giorno per un layer che resta
-            # assente. Il grace di 9 passi (sotto) copriva l'ipotesi "slot
-            # pubblicato a k=9": nei dati misurati non si verifica MAI, quindi
-            # 9 richieste su 12 erano sprecate. CONSEGUENZA DICHIARATA: se il
-            # layer tornera' a pubblicare con 45 min di ritardo, con 3
-            # tentativi NON verra' trovato. La finestra di trend (4 slot)
-            # resta intatta: il conteggio si azzera a ogni slot trovato.
-            # Per ripristinare il comportamento 1.2.4.17: valore 12.
-            "max_failed_attempts": 3,
-            # Stop dopo N errori CONSECUTIVI (applicato dal primo errore, non
-            # piu' solo dopo il grace: il tetto di 3 tentativi rende il grace
-            # irraggiungibile e lo lascia come documentazione storica).
+            # 1.2.4.26 — TETTO DEI TENTATIVI FALLITI PER RUN (12), il valore
+            # della 1.2.4.17. MISURA del 2026-10-25 sulle 72h precedenti
+            # (435 run, 267 con candidati, fonte data/radar/latest.json a ogni
+            # commit): 58 run con almeno un dato fulmini; 43 di quelle 58
+            # avevano >=3 fallimenti INIZIALI (con un tetto a 3 avrebbero perso
+            # il layer, 74%); mediana 10 richieste per run con dato (~6 slot
+            # in 403 prima del primo pubblicato); nessuna run con dato ha avuto
+            # bisogno di k>=9, ma il k=9 e' il caso MISURATO il 2026-10-07 e
+            # con 12 richieste non si perde. Il conteggio si azzera a ogni slot
+            # trovato: la finestra di trend (4 slot) non viene ridotta.
+            # Costo: 12 richieste/run solo quando NESSUNO slot e' pubblicato
+            # (403, risposta piccola); con la sorgente viva si ferma prima.
+            "max_failed_attempts": 12,
+            # Tetto SEPARATO sui fallimenti che NON sono "non ancora
+            # pubblicato" (rete, 5xx, payload non decodificabile): 3, perche'
+            # ritentare 12 volte una sorgente rotta non produce dati. Un 403
+            # non incrementa questo contatore.
+            "max_unexpected_failures": 3,
+            # Stop dopo N errori CONSECUTIVI: superseded da max_failed_attempts
+            # (resta come documentazione storica, non piu' letto da main.py).
             "publication_grace_steps": 9,  # = lightning.LTG_PUBLICATION_DELAY_STEPS
             "max_consecutive_failures": 3, # stop dopo 3 errori consecutivi
         },

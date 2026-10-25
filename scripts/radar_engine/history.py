@@ -24,6 +24,7 @@ L'archivio e' BEST-EFFORT: un suo errore non cambia mai l'rc del run
 """
 
 import datetime as _dt
+import hashlib
 import json
 import math
 import os
@@ -35,6 +36,28 @@ WINDOW_SLOTS = 25       # 25 slot * 5 min = 2 h (stessa finestra satellite)
 SLOT_STEP_S = 300       # passo slot: 5 min
 INDEX_NAME = "index.json"
 SLOTS_DIR = "slots"
+# 1.2.4.26 — CELLE PER FRAME (fetch incrementale). Sotto-directory separata da
+# `slots/` (che contiene tracce+strutture dello scan): qui vive una voce per
+# OGNI frame della finestra di tracking, non solo per l'ultimo.
+# Perche' serve: il motore riscarica 6 frame VMI a ogni run ma solo 2 sono
+# nuovi (l'ancora avanza di 10 minuti); le celle dei 4 frame gia' processati
+# sono deterministiche e si possono riusare. MISURATO il 2026-10-24 sullo slot
+# 12:40Z: celle ricostruite dall'archivio IDENTICHE campo per campo (0
+# differenze su 183 celle) e stessi conteggi (183 celle, 33 track, 111 storm
+# object, 8 strutture). Costo dell'archivio: 72,8 kB per 6 slot (73 kB/MB non
+# compresso), ~300 kB per 25 slot (2 h).
+CELLS_DIR = "cells"
+# Campi della DetectedCell che l'archivio deve conservare: sono quelli letti da
+# tracking.py (area_km2, max_dbz, mean_dbz, centroid_lonlat, cell_id,
+# timestamp_ms), aggregation.py (area_km2, centroid_lonlat, solidity,
+# compactness, max_dbz) e dai punti di TrackPoint (tutti). I float sono scritti
+# a piena precisione: json usa repr(), che per i float Python fa round-trip
+# esatto, quindi la cella ricostruita e' identica bit per bit (nessun
+# arrotondamento che possa spostare una soglia).
+CELL_FIELDS = ("cell_id", "timestamp_ms", "timestamp_iso", "area_km2",
+               "centroid_raster", "centroid_lonlat", "bbox", "max_dbz",
+               "mean_dbz", "p90_dbz", "eccentricity", "solidity",
+               "compactness", "pixel_count")
 
 
 def _parse_iso(value):
@@ -445,3 +468,169 @@ def build_history(bundle_like, out_root, window_slots=WINDOW_SLOTS):
         merge_slot(root, payload, next_uid)
     prune_slots(root, keep=window_slots)
     return read_index(root)
+
+
+# ---------------------------------------------------------------------------
+# 1.2.4.26 — CELLE PER FRAME (fetch incrementale)
+# ---------------------------------------------------------------------------
+def cells_signature(config):
+    """Firma della configurazione che determina le CELLE (1.2.4.26).
+
+    Se `detect` (soglia dBZ, aree, morfologia, connettivita'), i nodata del
+    preprocess o il prodotto cambiano, le celle archiviate NON valgono piu':
+    riusarle produrrebbe una sequenza che il codice attuale non genererebbe.
+    La firma viaggia nel file e `read_cells` la confronta: mismatch -> None ->
+    il frame viene riscaricato e ridetectato."""
+    payload = {
+        "product": (config.get("source") or {}).get("product_type"),
+        "detect": (config.get("detect") or {}),
+        "nodata": sorted((config.get("preprocess") or {})
+                         .get("nodata_values") or []),
+    }
+    text = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def _cells_path(root, slot):
+    return os.path.join(root, CELLS_DIR, "{}.json".format(slot))
+
+
+def _cell_to_payload(cell):
+    """Dict JSON-safe di una DetectedCell (float a piena precisione)."""
+    out = {}
+    for name in CELL_FIELDS:
+        value = getattr(cell, name, None)
+        if isinstance(value, tuple):
+            value = list(value)
+        out[name] = value
+    return out
+
+
+def _cell_from_payload(payload):
+    """DetectedCell da payload; None se il record e' incompleto.
+
+    Nessun valore inventato: un campo mancante rende la cella NON
+    ricostruibile e il chiamante ricade sul download del frame."""
+    if not isinstance(payload, dict):
+        return None
+    for name in ("cell_id", "timestamp_ms", "timestamp_iso", "area_km2",
+                 "centroid_raster", "centroid_lonlat", "bbox", "max_dbz"):
+        if payload.get(name) is None:
+            return None
+    try:
+        return models.DetectedCell(
+            cell_id=str(payload["cell_id"]),
+            timestamp_ms=int(payload["timestamp_ms"]),
+            timestamp_iso=str(payload["timestamp_iso"]),
+            area_km2=float(payload["area_km2"]),
+            centroid_raster=tuple(float(v) for v in payload["centroid_raster"]),
+            centroid_lonlat=tuple(float(v) for v in payload["centroid_lonlat"]),
+            bbox_raster=tuple(int(v) for v in payload["bbox"]),
+            max_dbz=float(payload["max_dbz"]),
+            mean_dbz=float(payload.get("mean_dbz") or 0.0),
+            p90_dbz=float(payload.get("p90_dbz") or 0.0),
+            eccentricity=float(payload.get("eccentricity") or 0.0),
+            solidity=float(payload.get("solidity") or 0.0),
+            compactness=float(payload.get("compactness") or 0.0),
+            pixel_count=int(payload.get("pixel_count") or 0),
+            frame_index=None,
+        )
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
+def read_cells(root, slot_iso, signature=None):
+    """Celle archiviate per lo slot; None se assenti/corrotte/non coerenti.
+
+    `signature`: se presente, il file deve dichiarare la STESSA firma di
+    configurazione (`cells_signature`), altrimenti le celle sono state prodotte
+    con soglie/nodata diversi e non sono riusabili."""
+    try:
+        slot = slot_name(slot_iso)
+    except ValueError:
+        return None
+    try:
+        with open(_cells_path(root, slot), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get("slot") != slot:
+        return None
+    if signature is not None and data.get("signature") != signature:
+        return None
+    rows = data.get("cells")
+    if not isinstance(rows, list):
+        return None
+    cells = [_cell_from_payload(row) for row in rows]
+    if any(c is None for c in cells):
+        return None
+    return cells
+
+
+def write_cells(root, slot_iso, cells, signature=None):
+    """Scrive (atomico, idempotente) le celle di UN frame dell'archivio.
+
+    Ritorna il path scritto, o None se lo slot non e' valido. Il contenuto
+    identico NON viene riscritto: `cells` sono deterministiche per slot, quindi
+    il confronto testuale e' sufficiente e rende l'operazione idempotente."""
+    slot = slot_name(slot_iso)
+    payload = {"slot": slot, "radar_timestamp": slot,
+               "signature": signature,
+               "cells": [_cell_to_payload(c) for c in (cells or [])]}
+    text = json.dumps(_safe(payload), ensure_ascii=False, separators=(",", ":"))
+    path = _cells_path(root, slot)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            if fh.read() == text:
+                return path
+    except OSError:
+        pass
+    _atomic_write_text(path, text)
+    return path
+
+
+def prune_cells(root, keep):
+    """Tiene solo gli ultimi `keep` slot dell'archivio celle (per nome slot).
+
+    Nessun indice separato: il nome del file E' lo slot (ordinabile
+    lessicograficamente), quindi l'archivio non puo' divergere da un indice."""
+    keep = max(int(keep), 0)
+    cdir = os.path.join(root, CELLS_DIR)
+    try:
+        names = sorted(n[:-len(".json")] for n in os.listdir(cdir)
+                       if n.endswith(".json"))
+    except OSError:
+        return []
+    kept = names[-keep:] if keep else []
+    for name in names:
+        if name not in set(kept):
+            try:
+                os.unlink(os.path.join(cdir, name + ".json"))
+            except OSError:
+                pass  # file gia' sparito: la pulizia prosegue
+    return kept
+
+
+def build_cells_archive(bundle_like, out_root, window_slots=WINDOW_SLOTS,
+                        signature=None):
+    """Archivia le celle di OGNI frame della finestra (best-effort).
+
+    Serve a `fetch.fetch_window`: al run successivo i frame gia' processati si
+    ricostruiscono da qui invece di essere riscaricati. `frame_slots_iso` e
+    `cells_by_frame` devono essere allineati (li costruisce main._run sulla
+    stessa timeline). Ritorna il numero di slot scritti."""
+    cells_by_frame = getattr(bundle_like, "cells_by_frame", None) or []
+    slots = getattr(bundle_like, "frame_slots_iso", None) or []
+    if not cells_by_frame or len(slots) != len(cells_by_frame):
+        return 0
+    root = os.path.abspath(out_root)
+    written = 0
+    for slot_iso, cells in zip(slots, cells_by_frame):
+        try:
+            write_cells(root, slot_iso, cells, signature=signature)
+            written += 1
+        except (OSError, ValueError, models.OutputError):
+            continue
+    prune_cells(root, keep=window_slots)
+    return written
+
