@@ -10,14 +10,14 @@
   },
   "schedule_source_of_truth": "Tempi MISURATI del 2026-10-24 (ore dopo il run nominale): primo step (prima pubblicazione utile, con cui parte il run parziale P1) e run completo. NON i tempi nominali dei modelli e NON i ritardi dichiarati da Open-Meteo. La misura precedente (2026-10-21, solo run completo) e' conservata in ogni job sotto measured_utc_availability.previous_measurement_2026_10_21.",
   "trigger_policy": {
-    "rule": "2 slot per run: il primo subito dopo il PRIMO STEP (pubblicazione parziale, ~24-30 frame su ~209), il secondo dopo la disponibilita COMPLETA.",
-    "why": "il primo slot rende la mappa visibile ore prima; il secondo completa la coda.",
-    "cost": "un render in piu per run; ai primi step esistono solo ~24-30 frame, quindi il lavoro extra e' modesto.",
+    "rule": "DWD: 2 slot per run (parziale +1h10, completo +3h50, dalla curva per-frame del 2026-10-26). NCEP: 3 slot per run (parziale +3h55 al 17-36%, intermedio +4h50 al 71-85%, completo +5h52 a ~100%). Gli altri 3 provider: 2 slot per run, invariati.",
+    "why": "il primo slot rende la mappa visibile ore prima, lo slot che chiude la coda la completa. NCEP ha un terzo slot perche' i suoi due lasciavano ~2 ore di run monco.",
+    "cost": "un render in piu per run (due in piu per NCEP); ai primi step esistono solo ~24-30 frame, quindi il lavoro extra e' modesto.",
     "margin_min": 10,
     "margin_max": 30,
     "merge_window_min": 20,
     "merge_rule": "due slot a meno di 20 minuti si accorpano; nessun accorpamento e' stato necessario tranne quello dichiarato per DWD (4 ruoli per-dominio ridotti a 2 trigger).",
-    "native_safety_net": "il cron nativo dei 5 workflow e' spostato di +57' rispetto allo slot che chiude la coda del run: non coincide mai con gli slot cron-job.org."
+    "native_safety_net": "NESSUNO dal 2026-10-25 (1.2.4.23): il blocco `schedule:` e' stato RIMOSSO dai 5 workflow per-fornitore (verificato il 2026-10-26 su main, commento esplicito in `on:`), quindi il trigger delle mappe e' solo cron-job.org. Resta nativo solo `50 */6 * * *` su forecast-maps-index.yml."
   },
   "retired_job_titles": [
     "MeteoRisk - DWD ICON EU + D2",
@@ -48,7 +48,14 @@
         "margin_min": 24,
         "margin_ref": "primo step ICON-D2 +0h46 (slot 01:10 = +24')",
         "margin_rule": "margine 10-15 min su un campione di 1 giorno; nessuno slot oltre 30 min dal tempo misurato",
-        "note": "Il trigger lancia ENTRAMBI i domini: in questo slot ICON-EU non ha ancora pubblicato (primo step +2h47) e il suo NO-OP guard chiude il dominio in pochi minuti; in compenso lo stesso slot chiude ICON-EU del run precedente (completo +3h57, margine +13').",
+        "note": "Il trigger lancia ENTRAMBI i domini: in questo slot ICON-EU non ha ancora pubblicato (primo step +2h47) e il suo NO-OP guard chiude il dominio in pochi minuti; in compenso lo stesso slot chiude ICON-EU del run precedente (completo +3h38 sui cicli principali, +2h55 sui secondari, margine +12').",
+        "frame_curve_2026_10_26": {
+          "measured_on": "2026-10-26",
+          "method": "curva di riempimento per-frame ricostruita dai LastModified dei singoli frame su S3",
+          "sample": "21 run complete",
+          "coverage_at_this_slot": "ICON-D2 completo al 58% a +1h10; ICON-EU non ancora pubblicato (primo step +2h47). Slot invariato: il suo ruolo e' rendere visibile ICON-D2 presto, non chiudere ICON-EU.",
+          "coverage_at_complete_slot": "lo slot completo e' stato spostato a +3h50: a +3h00 (il vecchio slot) ICON-EU era al 25%, a +3h50 e' al 100%"
+        },
         "previous_measurement_2026_10_21": {
           "median_h": 3.2,
           "max_h": 4.38,
@@ -74,21 +81,28 @@
       "workflow_file": "forecast-maps-dwd.yml",
       "slot_role": "complete",
       "slot_label": "completo",
-      "schedule_utc": "0 0,3,6,9,12,15,18,21 * * *",
+      "schedule_utc": "50 0,3,6,9,12,15,18,21 * * *",
       "cronjob_hours": [0, 3, 6, 9, 12, 15, 18, 21],
-      "cronjob_minutes": [0],
-      "schedule_description": "8 slot/giorno (00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00 UTC) = slot completo di ciascuno dei 8 run nominali: completo dopo la disponibilita completa del run.",
-      "slot_utc_daily": ["00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00"],
+      "cronjob_minutes": [50],
+      "schedule_description": "8 slot/giorno (00:50, 03:50, 06:50, 09:50, 12:50, 15:50, 18:50, 21:50 UTC) = slot completo di ciascuno degli 8 run nominali. Spostato da :00 a :50 il 2026-10-26: allo slot :00 ICON-EU era completo solo nel 25% dei casi (curva di riempimento per-frame su 21 run complete), a +3h50 e' al 100% sia sui cicli principali sia sui secondari.",
+      "slot_utc_daily": ["00:50", "03:50", "06:50", "09:50", "12:50", "15:50", "18:50", "21:50"],
       "model_nominal_runs_utc": ["00Z", "03Z", "06Z", "09Z", "12Z", "15Z", "18Z", "21Z"],
       "measured_utc_availability": {
         "source": "misura del 2026-10-24: ore dopo il run nominale (primo step = prima pubblicazione utile del run; run completo = ultimo frame utile). Sostituisce la misura del 2026-10-21, conservata sotto previous_measurement_2026_10_21.",
         "measured_on": "2026-10-24",
-        "first_step_h": "ICON-D2 +0h46, ICON-EU +2h47",
-        "full_run_h": "ICON-D2 +1h23, ICON-EU +3h57",
-        "margin_min": 13,
-        "margin_ref": "primo step ICON-EU +2h47 (slot 03:00 = +13')",
-        "margin_rule": "margine 10-15 min su un campione di 1 giorno; nessuno slot oltre 30 min dal tempo misurato",
-        "note": "In questo slot ICON-D2 e' completo da 1h37 (run completo +1h23): e' il ruolo secondario dichiarato, non un obbligo dei 30'. Il completo di ICON-EU arriva invece allo slot parziale del run successivo (04:10, +13' su +3h57).",
+        "first_step_h": "ICON-D2 +0h46, ICON-EU +2h47 (misura 2026-10-24)",
+        "full_run_h": "ICON-D2 +1h23; ICON-EU +3h38 sui cicli principali 00/06/12/18 e +2h55 sui secondari 03/09/15/21 (curva per-frame 2026-10-26)",
+        "margin_min": 12,
+        "margin_ref": "ICON-EU cicli principali 100% a +218 min (slot 03:50 = +12')",
+        "margin_rule": "margine 10-15 min sul tempo in cui la curva per-frame arriva al 100%",
+        "note": "Slot spostato da :00 a :50 il 2026-10-26. Lo slot :00 era tarato su un +3h57 misurato come ultimo frame di un solo giorno: la curva su 21 run mostra che a +3h00 ICON-EU era completo solo nel 25% dei casi (dwd_icon_eu pubblicava 28 frame su 93 e la run non arrivava mai completa prima del ciclo successivo). A +3h50 la copertura e' 100% per ICON-EU (entrambi i tipi di ciclo) e per ICON-D2 (+83 min).",
+        "frame_curve_2026_10_26": {
+          "measured_on": "2026-10-26",
+          "method": "curva di riempimento per-frame ricostruita dai LastModified dei singoli frame su S3",
+          "sample": "21 run complete",
+          "coverage": "ICON-D2 100% a +83 min; ICON-EU 100% a +218 min (cicli 00/06/12/18) e +175 min (cicli 03/09/15/21, 31 frame); a +3h00 ICON-EU era al 25%",
+          "why_the_slot_moved": "nessuno slot cadeva a +3h38: il completo ICON-EU finiva fuori da ogni trigger e la run veniva sostituita dal ciclo successivo"
+        },
         "previous_measurement_2026_10_21": {
           "median_h": 3.2,
           "max_h": 4.38,
@@ -297,6 +311,39 @@
         }
       },
       "native_safety_net_cron": "49 0,6,12,18 * * *",
+      "open_meteo_delay": "misurato 2026-10-21: 5.48-6.59h",
+      "target_endpoint": "https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-ncep.yml/dispatches",
+      "method": "POST",
+      "payload": {
+        "ref": "main",
+        "inputs": {
+          "force_update": false
+        }
+      }
+    },
+    {
+      "id": "forecast_ncep_gfs_intermediate",
+      "name": "NCEP GFS (0.25 + 0.117) Forecast Maps (slot intermedio)",
+      "cronjob_title": "MeteoRisk - NCEP GFS (intermedio)",
+      "workflow_file": "forecast-maps-ncep.yml",
+      "slot_role": "intermediate",
+      "slot_label": "intermedio",
+      "schedule_utc": "50 4,10,16,22 * * *",
+      "cronjob_hours": [4, 10, 16, 22],
+      "cronjob_minutes": [50],
+      "schedule_description": "4 slot/giorno (04:50, 10:50, 16:50, 22:50 UTC) = slot intermedio fra il parziale (03:55, +3h55) e il completo (05:52, +5h52). Alla curva per-frame del 2026-10-26 e' al 71-85% di copertura, mentre il parziale sta al 17-36%.",
+      "slot_utc_daily": ["04:50", "10:50", "16:50", "22:50"],
+      "model_nominal_runs_utc": ["00Z", "06Z", "12Z", "18Z"],
+      "measured_utc_availability": {
+        "source": "curva di riempimento per-frame ricostruita dai LastModified dei singoli frame su S3 (21 run complete), misura del 2026-10-26",
+        "measured_on": "2026-10-26",
+        "frame_curve_coverage": "slot parziale 03:55 (+3h55) = 17-36%; slot intermedio 04:50 (+4h50) = 71-85%; slot completo 05:52 (+5h52) = ~100%",
+        "note": "il job esiste perche' i due slot del 2026-10-24 lasciavano ~2 ore al 17-36% (ncep_gfs013: 64 frame su 196). I due slot esistenti (03:55 e 05:52) non sono stati toccati: questo si aggiunge.",
+        "previous_measurement_2026_10_24": {
+          "first_step_h": "+3h40 (ncep_gfs025)",
+          "full_run_h": "+5h39 (ncep_gfs025)"
+        }
+      },
       "open_meteo_delay": "misurato 2026-10-21: 5.48-6.59h",
       "target_endpoint": "https://api.github.com/repos/meteoriskitalia-netizen/MeteoRisk-Light-v2/actions/workflows/forecast-maps-ncep.yml/dispatches",
       "method": "POST",
