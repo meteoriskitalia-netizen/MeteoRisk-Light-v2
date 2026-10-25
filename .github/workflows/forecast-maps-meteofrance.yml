@@ -469,7 +469,7 @@ jobs:
             fi
             # (3) aggiorna SOLO il dominio corrente dal working tree
             GIT_INDEX_FILE="$IDX" git add -A -- "data/fm2/${{ matrix.domain }}"
-            TREE="$(GIT_INDEX_FILE="$IDX" git write-tree)"
+            TREE="$(GIT_INDEX_FILE="$IDX" git write-tree --missing-ok)"
             rm -f "$IDX"
             # (3-bis) GUARDIA DI SCOPE: il commit engine deve toccare SOLO
             #     data/fm2/${{ matrix.domain }}/**. Un path fuori allowlist => ABORTISCI.
@@ -674,62 +674,183 @@ jobs:
             echo "[INFO] Nessun output renderizzato: niente da committare."
             exit 0
           fi
-          # PUSH INCREMENTALE A SOGLIA (replicato dal monolite): i WebP del
-          # fornitore possono superare da soli il limite di pack di GitHub
-          # (2,00 GiB), quindi si partizionano i path CAMBIATI con i byte reali
-          # sotto THRESHOLD=1,4 GiB. Ogni gruppo e' un push separato.
+          # !!! PREPARAZIONE UNA VOLTA + PUSH INCREMENTALE (1.2.4.24).
+          # MISURA CHE HA PORTATO QUI (run 40156639694, step 109,4 min): il
+          # trasferimento reale dei 2 GiB dura 81 s; il resto era lavoro LOCALE
+          # RIPETUTO per ogni tentativo perso (4 tentativi x 6 directory):
+          #   - blocco add+prune: 4.261 s (64,9%)
+          #   - `git write-tree` senza --missing-ok: 1.899 s (28,9%)
+          #     (su un partial clone `blob:none` write-tree verifica che OGNI
+          #      oggetto dell'indice esista in locale e innesca un promisor fetch
+          #      che il filtro non puo' soddisfare; `--missing-ok` salta il check)
+          #   - trasferimento: 81,1 s (1,2%)
+          # Quindi: (a) add+prune+write-tree dello shard girano UNA volta sola,
+          # fuori dal ciclo; (b) a ogni tentativo si ricostruisce l'albero dal
+          # solo OWN_TREE (sottoalbero dei path del fornitore) innestato sul BASE
+          # fresco: nessun add, nessun prune; (c) guardia temporale PRIMA della
+          # preparazione; (d) una riga `[diag]` per tentativo con i tempi.
+          # INVARIANTI INVARIATI: commit ORPHAN, lease
+          # --force-with-lease=refs/heads/fm2-rendered:<parent> (mai --force nudo),
+          # guardia di scope sui soli WebP del fornitore, partizione a 1,4 GiB,
+          # self-healing P6 (i gruppi gia' pubblicati restano validi).
           MSG="chore(fm2): aggiornamento WebP meteofrance (regioni italia/europa/north/domain, light+dark)"
           THRESHOLD=$((1400 * 1024 * 1024))
           GQ="-c core.quotePath=false"
           # ALLOWLIST di scope del merge: SOLO i path WebP dei PROPRI domini.
           ALLOW_RE='^data/fm2-rendered/[^/]+/(meteofrance_arpege_world025)/'
-          # fix P5: questo ciclo RITENTA DAVVERO. Prima ogni percorso di errore
-          # faceva `exit 1` al primo colpo (il ciclo non arrivava mai a i=2); ora
-          # solo i rifiuti di push (concorrenza sul branch) tornano al `git fetch`,
-          # mentre guardia di scope e tree inconsistente escono 1 subito.
+          REGIONS="italia europa north domain"
+          OWNDOMS="meteofrance_arpege_world025"
+          RENDERED_REF="refs/remotes/origin/fm2-rendered"
+          now_ms() { date +%s%3N; }
+          ms_s() { printf '%d.%03d' "$(( $1 / 1000 ))" "$(( $1 % 1000 ))"; }
+          ls_remote_tip() { git ls-remote origin refs/heads/fm2-rendered 2>/dev/null | awk 'NR==1 { print $1 }'; }
+          local_tip() { git rev-parse --verify --quiet "$RENDERED_REF" 2>/dev/null || true; }
+          # `+` OBBLIGATORIO: fm2-rendered e' riscritto (commit orphan + force),
+          # quindi l'aggiornamento di refs/remotes/origin/fm2-rendered e'
+          # NON-fast-forward. Senza `+` git rifiuta il fetch e il ref locale resta
+          # FERMO al primo tip: ogni tentativo rifarebbe la stessa lease e
+          # fallirebbe per sempre (bug trovato dal test funzionale, non in teoria).
+          fetch_rendered() {
+            if ! git fetch --no-tags --depth=1 origin "+refs/heads/fm2-rendered:$RENDERED_REF" >/dev/null 2>/tmp/fm2_fetch.err; then
+              if grep -q "couldn't find remote ref" /tmp/fm2_fetch.err 2>/dev/null; then
+                : # branch non ancora esistente: prima pubblicazione
+              else
+                echo "[WARN] fetch fm2-rendered fallito: $(tr '\n' ' ' < /tmp/fm2_fetch.err | cut -c1-240)"
+              fi
+            fi
+            return 0
+          }
+
+          # ================================================================
+          # (0) GUARDIA TEMPORALE (costo < 1 s): se il tip remoto e' gia'
+          #     cambiato rispetto a quello con cui e' iniziato il job, si
+          #     rifetcha ADESSO, prima di spendere la preparazione.
+          # ================================================================
+          T_STEP0="$(now_ms)"
+          # Tip con cui il JOB e' partito (fetch dello step "Recupera lo stato").
+          START_TIP="$(git rev-parse --verify --quiet FETCH_HEAD 2>/dev/null || true)"
+          fetch_rendered
+          guard_round=0
+          while [ "$guard_round" -lt 5 ]; do
+            guard_round=$(( guard_round + 1 ))
+            REMOTE_TIP="$(ls_remote_tip)"
+            LOCAL_TIP="$(local_tip)"
+            if [ -z "$REMOTE_TIP" ]; then
+              echo "[guardia-t] fm2-rendered assente sul remoto: prima pubblicazione (giro $guard_round)"
+              break
+            fi
+            if [ "$REMOTE_TIP" = "$LOCAL_TIP" ]; then
+              if [ -n "$START_TIP" ] && [ "$START_TIP" != "$LOCAL_TIP" ]; then
+                echo "[guardia-t] il ref e' avanzato DOPO l'inizio del job: ${START_TIP:0:12} -> ${LOCAL_TIP:0:12}"
+                echo "[guardia-t] la preparazione parte dal tip FRESCO (non da una base gia' persa)"
+              else
+                echo "[guardia-t] tip allineato PRIMA della preparazione: ${REMOTE_TIP:0:12} (giro $guard_round)"
+              fi
+              break
+            fi
+            echo "[guardia-t] tip remoto ${REMOTE_TIP:0:12} != base locale ${LOCAL_TIP:0:12}: rifetch PRIMA di preparare (giro $guard_round)"
+            fetch_rendered
+            if [ "$guard_round" -lt 5 ]; then
+              sleep "$guard_round"
+            fi
+          done
+          BASE0="$(local_tip)"
+          if [ -n "$BASE0" ]; then
+            BASE0_TREE="$(git rev-parse "$BASE0^{tree}")"
+          else
+            BASE0_TREE="$(git hash-object -t tree /dev/null)"
+          fi
+
+          # ================================================================
+          # (1) PREPARAZIONE (UNA SOLA VOLTA, FUORI DAL RETRY)
+          #     Indice "shadow" con i SOLI path dei propri domini: il prune
+          #     (un processo per path rimosso) lavora su ~1/5 delle entry e il
+          #     risultato per questi path e' IDENTICO a quello sull'indice
+          #     completo. `write-tree --missing-ok` non va a cercare i blob
+          #     delle run conservate (non presenti in un partial clone).
+          # ================================================================
+          T_PREP0="$(now_ms)"
+          PREP_IDX="$(mktemp -u)"
+          rm -f "$PREP_IDX"
+          GIT_INDEX_FILE="$PREP_IDX" git read-tree --empty
+          OWN_DIRS=""
+          for region in $REGIONS; do
+            for dom in $OWNDOMS; do
+              d="data/fm2-rendered/$region/$dom"
+              # Regione NON riprodotta da questo run: la directory resta quella
+              # di BASE (nessun add, nessuna cancellazione registrata).
+              if [ ! -d "$d/runs" ]; then
+                continue
+              fi
+              sub="$(git rev-parse --verify --quiet "$BASE0_TREE:$d" 2>/dev/null || true)"
+              if [ -n "$sub" ]; then
+                GIT_INDEX_FILE="$PREP_IDX" git read-tree --prefix="$d/" "$sub"
+              fi
+              for rd in "$d"/runs/*; do
+                if [ -d "$rd" ]; then
+                  GIT_INDEX_FILE="$PREP_IDX" git add -A -- "$rd"
+                fi
+              done
+              GIT_INDEX_FILE="$PREP_IDX" python scripts/forecast_v2/prune_fm2_run_index.py --index "$PREP_IDX" --path "$d" --keep 3
+              OWN_DIRS="$OWN_DIRS $d"
+            done
+          done
+          if [ -z "$OWN_DIRS" ]; then
+            echo "[INFO] Shard meteofrance: nessuna directory <regione>/<dominio>/runs nello shard, niente da committare."
+            rm -f "$PREP_IDX"
+            exit 0
+          fi
+          OWN_TREE="$(GIT_INDEX_FILE="$PREP_IDX" git write-tree --missing-ok)"
+          rm -f "$PREP_IDX"
+          T_PREP_MS=$(( $(now_ms) - T_PREP0 ))
+          echo "[prep] preparazione unica (fuori dal retry): OWN_TREE=${OWN_TREE:0:12} durata=$(ms_s "$T_PREP_MS")s"
+          echo "[prep] directory di proprieta:$OWN_DIRS"
+          echo "[prep] path nello shard: $(git ls-tree -r --name-only "$OWN_TREE" | wc -l)"
+
+          # ================================================================
+          # (2) CICLO DEI TENTATIVI: qui NON si rifa' nulla di locale pesante.
+          #     Per tentativo: fetch del tip fresco -> read-tree BASE ->
+          #     sostituzione dei SOLI path di proprieta' con OWN_TREE ->
+          #     write-tree --missing-ok -> guardia -> partizione -> push.
+          # ================================================================
           for i in 1 2 3 4 5 6 7 8; do
+            T_ATT0="$(now_ms)"
             PUSH_FAILED=0
             PUSH_FAILED_GROUP=""
-            git fetch --no-tags --depth=1 origin fm2-rendered || true
-            if git rev-parse --verify --quiet FETCH_HEAD >/dev/null 2>&1; then
-              BASE="$(git rev-parse FETCH_HEAD^{tree})"
-              PARENT="$(git rev-parse FETCH_HEAD)"
+            RIFIUTO_MS=0
+            # ---- (2a) fetch del tip fresco (costo: 1 rete, nessun blob) ----
+            T_FETCH0="$(now_ms)"
+            fetch_rendered
+            NEW_TIP="$(local_tip)"
+            T_FETCH_MS=$(( $(now_ms) - T_FETCH0 ))
+            if [ -n "$NEW_TIP" ]; then
+              PARENT="$NEW_TIP"
+              BASE="$(git rev-parse "$PARENT^{tree}")"
             else
               echo "[INFO] fm2-rendered non esiste ancora: questo e' il primo commit del branch."
               BASE="$(git hash-object -t tree /dev/null)"
               PARENT=""
             fi
-            # ---- (1) costruisci il TREE TARGET su un indice isolato ----
-            # !!! METODO MINIMALE (verificato su git reale): si rimuovono dall'indice
-            # SOLO i path delle directory <regione>/<dominio> che il working tree
-            # FORNISCE DAVVERO (autorevoli), poi le si ri-aggiunge con `git add -A`.
-            # NON si usa il complemento `:(exclude)` (distruggerebbe gli altri
-            # domini, gli index.json aggregati e il codice) e NON si rimuove in blocco
-            # un'intera <regione>/<dominio> che il working tree non ha: quella resta
-            # INTATTA (evita di registrare come cancellazione un WebP legittimo che
-            # questo run non ha riprodotto, es. regione saltata).
-            IDXT="$(mktemp -u)"; rm -f "$IDXT"
+            T_LOCAL0="$(now_ms)"
+            IDXT="$(mktemp -u)"
+            rm -f "$IDXT"
             GIT_INDEX_FILE="$IDXT" git read-tree "$BASE"
-            for region in italia europa north domain; do
-              d="data/fm2-rendered/$region/meteofrance_arpege_world025"
-              [ -d "$d/runs" ] || continue
-              for rd in "$d"/runs/*; do
-                [ -d "$rd" ] || continue
-                GIT_INDEX_FILE="$IDXT" git add -A -- "$rd"
-              done
-              GIT_INDEX_FILE="$IDXT" python scripts/forecast_v2/prune_fm2_run_index.py --index "$IDXT" --path "$d" --keep 3
-            done
-            TREE="$(GIT_INDEX_FILE="$IDXT" git write-tree)"
+            # ---- (2b) innesto di OWN_TREE: rimozione in UN processo, innesto in
+            #      UN processo (index-info). Nessun `git add`, nessun prune.
+            #      Le cancellazioni da retention sono implicite: i path di
+            #      proprieta' sono INTERAMENTE rimpiazzati da OWN_TREE.
+            GIT_INDEX_FILE="$IDXT" git ls-files -z -- $OWN_DIRS | GIT_INDEX_FILE="$IDXT" git update-index -z --force-remove --stdin
+            git ls-tree -r "$OWN_TREE" -- $OWN_DIRS \
+              | awk -F'\t' '{ split($1, a, " "); printf "%s %s 0\t%s\n", a[1], a[3], $2 }' \
+              | GIT_INDEX_FILE="$IDXT" git update-index --index-info
+            TREE="$(GIT_INDEX_FILE="$IDXT" git write-tree --missing-ok)"
             rm -f "$IDXT"
             # NO-OP: albero identico al tip => nessun churn.
             if [ "$TREE" = "$BASE" ]; then
               echo "[INFO] Nessuna modifica ai WebP meteofrance (NO-OP)."
               exit 0
             fi
-            # ---- (1-bis) GUARDIA DI SCOPE (fail-fast, PRIMA di ogni push) ----
-            # Il commit del merge deve toccare ESCLUSIVAMENTE i WebP dei propri
-            # domini. Un solo path fuori allowlist => ABORTISCI (meglio un job rosso
-            # che un branch distrutto).
+            # ---- (2c) GUARDIA DI SCOPE (fail-fast, PRIMA di ogni push) ----
             git diff-tree -r --no-commit-id --name-only "$BASE" "$TREE" > /tmp/fm2_scope.txt
             BAD_SCOPE="$(grep -E -v "$ALLOW_RE" /tmp/fm2_scope.txt || true)"
             if [ -n "$BAD_SCOPE" ]; then
@@ -738,33 +859,32 @@ jobs:
               exit 1
             fi
             echo "[guardia] scope OK: $(wc -l < /tmp/fm2_scope.txt) path toccati (solo WebP meteofrance_arpege_world025)"
-            # ---- (2) lista dei path CAMBIATI con dimensione (per la soglia) ----
+            # ---- (2d) lista dei path CAMBIATI con dimensione (per la soglia) ----
+            # Le dimensioni si leggono UNA volta dall'albero di lavoro con un solo
+            # `find` e si accoppiano ai path con UN solo `awk`. Prima c'era uno
+            # `stat` per path: su 21.648 path sono 21.648 processi (~60 s per
+            # tentativo su runner Linux, misurato 74 ms/path in locale su MSYS).
             git $GQ diff-tree -r --no-commit-id --name-status "$BASE" "$TREE" > /tmp/fm2_changed.txt
+            find . -path ./.git -prune -o -type f -printf '%s\t%P\n' > /tmp/fm2_wsizes.txt
             : > /tmp/fm2_sizes.txt
             : > /tmp/fm2_dels.txt
-            while IFS="$(printf '\t')" read -r st path; do
-              [ -z "$path" ] && continue
-              case "$st" in
-                D) printf '%s\n' "$path" >> /tmp/fm2_dels.txt ;;
-                *)
-                  if [ -f "$path" ]; then
-                    sz="$(stat -c %s -- "$path" 2>/dev/null || echo 0)"
-                  else
-                    sz=0
-                  fi
-                  printf '%s\t%s\n' "$sz" "$path" >> /tmp/fm2_sizes.txt
-                  ;;
-              esac
-            done < /tmp/fm2_changed.txt
-            # ---- (3) partizione a soglia (first-fit-decreasing) ----
+            awk -F"$(printf '\t')" '
+              NR == FNR { sz[$2] = $1; next }
+              $1 == "D" { print $2 > "/tmp/fm2_dels.txt"; next }
+              { printf "%s\t%s\n", (($2 in sz) ? sz[$2] : 0), $2 > "/tmp/fm2_sizes.txt" }
+            ' /tmp/fm2_wsizes.txt /tmp/fm2_changed.txt
+            # ---- (2e) partizione a soglia (first-fit-decreasing) ----
             sort -t"$(printf '\t')" -k1,1nr /tmp/fm2_sizes.txt > /tmp/fm2_sizes_sorted.txt
-            rm -rf /tmp/fm2_groups; mkdir -p /tmp/fm2_groups
-            gidx=1; gbytes=0
+            rm -rf /tmp/fm2_groups
+            mkdir -p /tmp/fm2_groups
+            gidx=1
+            gbytes=0
             : > "/tmp/fm2_groups/g_${gidx}.txt"
             while IFS="$(printf '\t')" read -r sz path; do
               [ -z "$path" ] && continue
               if [ "$gbytes" -gt 0 ] && [ $((gbytes + sz)) -gt "$THRESHOLD" ]; then
-                gidx=$((gidx + 1)); gbytes=0
+                gidx=$((gidx + 1))
+                gbytes=0
                 : > "/tmp/fm2_groups/g_${gidx}.txt"
               fi
               printf '%s\n' "$path" >> "/tmp/fm2_groups/g_${gidx}.txt"
@@ -778,66 +898,58 @@ jobs:
             fi
             NGROUPS="$gidx"
             echo "[push] path cambiati: $(wc -l < /tmp/fm2_sizes.txt) A/M + $(wc -l < /tmp/fm2_dels.txt) D = $NGROUPS gruppi (soglia $THRESHOLD B)"
-            # ---- (4) indice evolutivo: parte da BASE INTEGRO ----
-            # NON si applica il complemento. L'indice evolutivo parte dall'INTERO
-            # albero del tip e ogni gruppo vi applica `git add -A --pathspec-from-file`
-            # con path ESCLUSIVAMENTE dei propri domini (derivano dal diff
-            # BASE->TARGET): dopo l'ultimo gruppo il tree coincide con TARGET.
-            IDX="$(mktemp -u)"; rm -f "$IDX"
-            GIT_INDEX_FILE="$IDX" git read-tree "$BASE"
-            # ---- (5) push gruppo per gruppo (N push, ognuno < THRESHOLD) ----
+            T_PREP_ATT_MS=$(( $(now_ms) - T_LOCAL0 ))
+            # ---- (2f) push gruppo per gruppo ----
+            IDXG="$(mktemp -u)"
+            rm -f "$IDXG"
+            GIT_INDEX_FILE="$IDXG" git read-tree "$BASE"
             RUN_PARENT="$PARENT"
             pushed_groups=0
             gi=1
+            T_PUSH0="$(now_ms)"
             while [ "$gi" -le "$NGROUPS" ]; do
               GFILE="/tmp/fm2_groups/g_${gi}.txt"
-              if [ ! -s "$GFILE" ]; then gi=$((gi + 1)); continue; fi
-              GIT_INDEX_FILE="$IDX" git add -A --pathspec-from-file="$GFILE"
-              GTREE="$(GIT_INDEX_FILE="$IDX" git write-tree)"
+              if [ ! -s "$GFILE" ]; then
+                gi=$((gi + 1))
+                continue
+              fi
+              GIT_INDEX_FILE="$IDXG" git add -A --pathspec-from-file="$GFILE"
+              GTREE="$(GIT_INDEX_FILE="$IDXG" git write-tree --missing-ok)"
               echo "[push] gruppo $gi/$NGROUPS: $(wc -l < "$GFILE") path -> tree $GTREE"
-              # COMMIT ORPHAN + LEASE (stessa regola dell'engine): storia = 1
-              # commit; il lease pretende che il tip remoto sia ancora
-              # RUN_PARENT (vuoto alla prima pubblicazione: ref inesistente).
+              # COMMIT ORPHAN + LEASE: storia = 1 commit; il lease pretende che il
+              # tip remoto sia ancora RUN_PARENT (vuoto alla prima pubblicazione).
               GNEW="$(git commit-tree "$GTREE" -m "$MSG [$gi/$NGROUPS]")"
+              T_GROUP0="$(now_ms)"
               if git push --force-with-lease="refs/heads/fm2-rendered:$RUN_PARENT" origin "$GNEW:refs/heads/fm2-rendered"; then
-                echo "[push] gruppo $gi/$NGROUPS pubblicato: $GNEW"
+                echo "[push] gruppo $gi/$NGROUPS pubblicato: $GNEW ($(ms_s $(( $(now_ms) - T_GROUP0 )))s)"
                 RUN_PARENT="$GNEW"
                 pushed_groups=$((pushed_groups + 1))
               else
                 # RIFIUTO = CONCORRENZA, non errore fatale: si esce dal ciclo dei
-                # GRUPPI, non da quello dei TENTATIVI. Il push fallito non ha
-                # avanzato il branch (lease scaduto), quindi il tip remoto e'
-                # cambiato sotto di noi: serve un fetch nuovo prima di riprovare.
+                # GRUPPI, non da quello dei TENTATIVI. Il tip remoto e' cambiato
+                # sotto di noi: serve un fetch nuovo prima di riprovare.
                 PUSH_FAILED=1
                 PUSH_FAILED_GROUP="$gi"
+                RIFIUTO_MS=$(( $(now_ms) - T_GROUP0 ))
                 echo "[WARN] Push del gruppo $gi/$NGROUPS RIFIUTATO (tentativo $i/8):"
                 echo "       scrittura concorrente su fm2-rendered (lease scaduto)."
                 echo "       Serie parziale: i gruppi 1..$((gi-1)) sono pubblicati, dal"
-                echo "       gruppo $gi in poi NO. Si ritenta dal fetch del tip fresco."
-                rm -f "$IDX"
+                echo "       gruppo $gi in poi NO. Si ritenta dal fetch del tip fresco"
+                echo "       (la preparazione NON si rifa': OWN_TREE e' gia' pronto)."
+                rm -f "$IDXG"
                 break
               fi
               gi=$((gi + 1))
             done
-            rm -f "$IDX"
-            # ---- (5-bis) RITENTATIVO REALE (fix P5) ----
-            # Il push di un gruppo e' stato rifiutato: si torna in cima al ciclo dei
-            # tentativi. Li' si rifa' `git fetch`, si ricalcolano BASE/PARENT dal tip
-            # NUOVO, si ricostruisce TREE e si ripartizionano i gruppi sul diff col
-            # tip nuovo: i gruppi gia' pubblicati non compaiono piu' nel diff (il loro
-            # contenuto e' nel tip), quindi si ripubblica dalla parte mancante in poi.
-            # `sleep` crescente CON JITTER: vedi SLEEP_S qui sotto.
+            rm -f "$IDXG"
+            T_PUSH_MS=$(( $(now_ms) - T_PUSH0 ))
+            PUSH_OK_MS=$(( T_PUSH_MS - RIFIUTO_MS ))
+            # ---- (3) DIAGNOSI: una riga per tentativo ----
             if [ "$PUSH_FAILED" -ne 0 ]; then
-              echo "[WARN] Serie parziale al tentativo $i/8 (rifiuto al gruppo $PUSH_FAILED_GROUP/$NGROUPS)."
-              echo "       Rifetch del tip, BASE/PARENT ricalcolati, gruppi ripartizionati."
-              # `sleep` crescente CON JITTER (1.2.4.23). Da quando il lock
-              # `fm2-rendered-writer` non c'e' piu', due merge possono perdere il
-              # lease nello stesso istante e ritentare IN SINCRONO: con un backoff
-              # deterministico ricolliderebbero a ogni giro (livelock), quindi il
-              # jitter `RANDOM % 5` (0..4 s, bash) li disallinea.
-              # Costo: i*4 s di base (4,8,12,...,28) + 0..4 s; 7 sleep = max
-              # 112 + 28 = 140 s sull'intera serie, dentro il timeout 120' del job.
-              # Nessuno sleep all'ultimo tentativo (i=8): non servirebbe a nulla.
+              echo "[diag] tentativo $i/8: prep=$(ms_s "$T_PREP_ATT_MS")s push=$(ms_s "$PUSH_OK_MS")s rifiuto=$(ms_s "$RIFIUTO_MS")s tip=${RUN_PARENT:0:12} fetch=$(ms_s "$T_FETCH_MS")s gruppo=$PUSH_FAILED_GROUP/$NGROUPS"
+              # `sleep` crescente CON JITTER: due merge possono perdere il lease
+              # nello stesso istante e ritentare IN SINCRONO; il jitter
+              # `RANDOM % 5` (0..4 s) li disallinea. Nessuno sleep a i=8.
               if [ "$i" -lt 8 ]; then
                 SLEEP_S=$(( i * 4 + RANDOM % 5 ))
                 echo "       Backoff ${SLEEP_S}s prima del tentativo $((i + 1))/8."
@@ -845,12 +957,14 @@ jobs:
               fi
               continue
             fi
-            # ---- (6) VERIFICA: i gruppi DEVONO ricostruire esattamente TARGET ----
+            # ---- (4) VERIFICA: i gruppi DEVONO ricostruire esattamente TARGET ----
             if [ "$GTREE" != "$TREE" ]; then
               echo "[ERROR] Incoerenza: il tree finale dei gruppi ($GTREE) != TARGET ($TREE)."
               echo "        Nessun ulteriore push; il branch ha l'ultimo gruppo pubblicato."
               exit 1
             fi
+            echo "[diag] tentativo $i/8: prep=$(ms_s "$T_PREP_ATT_MS")s push=$(ms_s "$PUSH_OK_MS")s rifiuto=$(ms_s "$RIFIUTO_MS")s tip=${RUN_PARENT:0:12} fetch=$(ms_s "$T_FETCH_MS")s"
+            echo "[diag] totale: prep_unica=$(ms_s "$T_PREP_MS")s tentativi=$i step=$(ms_s $(( $(now_ms) - T_STEP0 )))s"
             echo "[INFO] Push incrementale completato: $pushed_groups/$NGROUPS gruppi, tree finale == TARGET ($TREE), tentativo $i/8."
             echo "published=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -864,6 +978,7 @@ jobs:
           echo "        IL RUN SUCCESSIVO COMPLETA: al prossimo giro il diff"
           echo "        BASE->TARGET contiene solo i path ancora assenti e li"
           echo "        ripubblica con lo stesso meccanismo. Nessun intervento manuale."
+          echo "[diag] totale: prep_unica=$(ms_s "$T_PREP_MS")s tentativi=8 step=$(ms_s $(( $(now_ms) - T_STEP0 )))s"
           exit 1
 
       - name: Aggiorna subito l'indice aggregato
