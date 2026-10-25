@@ -17,8 +17,9 @@ name: Satellite Engine — download rolling (6 sorgenti, niente deploy Pages)
 #   - Finestra rolling: 25 slot per sorgente (2 ore a passo 5 min). Pruning e
 #     satellite/manifest.json (slot disponibili per sourceId) gestiti dallo
 #     script, idempotente: gli slot gia' presenti e validi sono saltati senza
-#     richieste (0 se la finestra e' piena, 3 se manca solo lo slot corrente,
-#     fino a 75 al primo run).
+#     richieste (0 se la finestra e' piena, 6 se manca solo lo slot corrente,
+#     fino a 150 al primo run: 25 slot x 6 sorgenti, come il docstring di
+#     scripts/satellite_engine.py).
 #   - Persistenza SENZA crescita di history: branch ORPHAN satellite-cache
 #     (albero = solo satellite/), commit singola senza parent e force-push ad
 #     OGNI run -> history resettata, crescita zero. main NON viene toccato.

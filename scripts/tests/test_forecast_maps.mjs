@@ -106,7 +106,10 @@ failFast('blocco modulo MAPPE PREVISIONALI vuoto', moduleSrc.length > 0);
 
 const ctx = {
   document: { getElementById() { return null; } },
-  window: {},
+  // Il blocco FM registra un listener 'resize' a livello di modulo:
+  // senza stub su window l'eval muore con "window.addEventListener is not a function"
+  // e il test non arriva a eseguire nessuna asserzione.
+  window: { addEventListener() {}, removeEventListener() {} },
   L: undefined,
   isFeatureEnabled() { return true; },
   fetch() { throw new Error('fetch non consentito nei test'); },

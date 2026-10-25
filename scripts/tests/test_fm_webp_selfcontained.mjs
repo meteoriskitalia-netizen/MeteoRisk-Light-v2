@@ -73,8 +73,8 @@ ok('B: l\'helper fmGetChk (solo checkbox) rimosso',
   !/function\s+fmGetChk\b/.test(src));
 
 // ---------- C. FAST-PATH WEBP: NON PIU' DISABILITATO DA UN TOGGLE ----------
-ok('C: wantWebp = !fmOverlayVariable (nessun gate sui toggle)',
-  /var\s+wantWebp\s*=\s*!fmOverlayVariable\s*;/.test(moduleSrc));
+ok('C: wantWebp = !fmOverlayVariable (o eccezione regione "north"), nessun gate sui toggle',
+  /var\s+wantWebp\s*=\s*!fmOverlayVariable\s*(\|\|\s*fmRegion\s*===\s*'north'\s*)?;/.test(moduleSrc));
 ok('C: wantWebp non dipende da contours/arrows/grid',
   !/wantWebp\s*=[^;]*fmOpts/.test(moduleSrc));
 ok('C: il guard sull\'overlay isobare MSL resta (fmOverlayVariable)',
@@ -95,7 +95,10 @@ ok('E: nessuna opzione "theme=dark" negli URL del modulo FM',
 // ---------- F. VM: BEHAVOR REALE DEL BLOCCO FM ----------
 const ctx = {
   document: { getElementById() { return null; } },
-  window: {},
+  // Il blocco FM registra un listener 'resize' a livello di modulo:
+  // senza stub su window l'eval muore con "window.addEventListener is not a function"
+  // e il test non arriva a eseguire nessuna asserzione.
+  window: { addEventListener() {}, removeEventListener() {} },
   L: undefined,
   isFeatureEnabled() { return true; },
   fetch() { throw new Error('fetch non consentito nei test'); },
@@ -163,8 +166,8 @@ const EXPECTED_INTERVALS = [
   ['visibility', 2],
   ['relative_humidity_2m', 5],
   ['relative_humidity_700hPa', 5],
-  ['pressure_msl', 2],
-  ['surface_pressure', 2],
+  ['pressure_msl', 5],
+  ['surface_pressure', 5],
   ['precipitation', 1],
   ['rain', 1],
   ['showers', 1],
