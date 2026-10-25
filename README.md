@@ -6,7 +6,49 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.25
+## Versione attiva: 1.2.4.26
+
+- File applicativo: `mri-light-1.2.4.26.html` (`APP_VERSION = '1.2.4.26'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.26', date: '2026-10-26' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.26'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+  `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
+- Contenuto della 1.2.4.26 (release sopra la 1.2.4.25) - **la run nuova si vede**:
+  - **Il pannello non resta piu' sulla run vecchia.** Causa misurata: `fmDomainChanged()`
+    chiama `fmResetPlayerForModelChange()` **prima** che la variabile sia risolta, e
+    `fmStartFrameIndex()` restituisce **0** quando la variabile corrente non appartiene al
+    dominio nuovo (`fmTimelineGroupId()` null -> nessun frame attivo); poi `fmLoadDomain()`
+    confrontava `fmIdx` con `meta.valid_times.length` (manifest `.om`: 26/64 frame) e **non**
+    con la timeline (~206), quindi l'indice restava 0 = frame piu' vecchio della run
+    precedente. Fix: dopo la risoluzione della variabile si riancora su
+    `fmStartFrameIndex()` e il limite usa il numero di frame **della timeline** quando e'
+    attiva.
+  - **Timeline aggiornata dal polling (5 minuti).** Nuovo flag `fmUserMovedFrame`, azzerato a
+    ogni cambio dominio/regione/variabile: se l'utente **non** ha mai toccato
+    slider/prev/next/play il player si **riancora** al primo frame del run corrente; se si e'
+    mosso il frame **non** viene spostato e compare l'avviso **non bloccante**
+    `Nuova run disponibile · vai` nella riga di stato (`#fm-newrun`), che porta al frame
+    preferito. Non e' un alert ne' un modal: chi sta guardando +240 h di proposito non deve
+    essere strappato via.
+  - **`Nord Atlantico` (`natl`) rimosso dal menu regioni**: `fmRenderRegionId()` restituiva
+    `null` per `natl` (non e' in `FM_RENDER_REGION_MAP`) e `/natl/` risponde **404**, quindi
+    selezionarlo non avviava **nessuna** richiesta. L'Atlantico e' gia' nel riquadro Europa
+    (bbox 34..62N / -15..40E, rapporto 1,60:1). Le altre regioni restano identiche e
+    `FM_RENDER_REGION_MAP` non e' toccato (non conteneva `natl`).
+  - **Didascalia delle sigle** nel pannello radar: toggle `Cosa significano i valori?`
+    (`<button>` con `aria-expanded`, accessibile da tastiera) + blocco collassabile
+    `#sc-caption` con una riga per sigla e la nota esplicita su cosa **non** e' calcolabile
+    (rotazione, probabilita' calibrata). Riusa `.live-legend`/`.legend-title`/`.legend-row`/
+    `.live-hint`: nessun CSS nuovo.
+  - **`precipitation_cum` tolto dal menu per `ncep_gfs025`**: misurato **0 su 404.640 celle**
+    in 3 frame distinti, perche' la sorgente Open-Meteo di quel dominio non pubblica alcuna
+    variabile di superficie. Filtro **per dominio** (`FM_DOMAIN_HIDDEN_VARS`), non una lista
+    globale: se un giorno il campo arriva basta togliere la voce.
+  - **Changelog del satellite riallineato** senza riscrivere le voci storiche: una voce nuova
+    dichiara che le voci 1.1.0.4/1.1.0.6 descrivono i frame statici come PNG mentre dal
+    1.1.0.8 il client usa `SAT_STATIC_EXT = 'webp'` (i `.png` restano solo per Limaps e i
+    tile Blitzortung).
+
+## Versione precedente: 1.2.4.25
 
 - File applicativo: `mri-light-1.2.4.25.html` (`APP_VERSION = '1.2.4.25'`; ultimo blocco
   changelog in-app `{ version: '1.2.4.25', date: '2026-10-25' }`) + `sw.js` (Service Worker,
@@ -98,7 +140,7 @@ Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
       (HTTP 200); `geopotential_height_10hPa` 31 bande 29500..33700 m e
       `wind_speed_10hPa` 21 bande 0..120 m/s, entrambi con WebP 200; **0 eccezioni JS**.
 
-## Versione precedente: 1.2.4.24
+## Versione 1.2.4.24 (storico)
 
 - File applicativo: `mri-light-1.2.4.24.html` (`APP_VERSION = '1.2.4.24'`; ultimo blocco
   changelog in-app `{ version: '1.2.4.24', date: '2026-10-25' }`) + `sw.js` (Service Worker,

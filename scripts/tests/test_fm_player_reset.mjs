@@ -20,8 +20,8 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const htmls = fs.readdirSync(ROOT).filter((f) => /^mri-light-1\.2\.4\.25\.html$/.test(f));
-if (!htmls.length) { console.error('FATAL: mri-light-1.2.4.25.html non trovato in ' + ROOT); process.exit(1); }
+const htmls = fs.readdirSync(ROOT).filter((f) => /^mri-light-1\.2\.4\.26\.html$/.test(f));
+if (!htmls.length) { console.error('FATAL: mri-light-1.2.4.26.html non trovato in ' + ROOT); process.exit(1); }
 const src = fs.readFileSync(path.join(ROOT, htmls[0]), 'utf8');
 
 let failures = 0;
@@ -101,6 +101,31 @@ ok('W12: in fmDomainChanged l\'ordine e\' reset -> run display neutro -> fmLoadD
   domainBody.indexOf('fmResetPlayerForModelChange') >= 0 &&
   domainBody.indexOf('fmResetPlayerForModelChange') < domainBody.indexOf('fmUpdateRunDisplay(null)') &&
   domainBody.indexOf('fmUpdateRunDisplay(null)') < domainBody.indexOf('fmLoadDomain()'));
+
+// ---------- 1.2.4.26: IL PANNELLO NON RESTA SULLA RUN VECCHIA ----------
+// Il clamp sul manifest .om (26/64 frame) riportava fmIdx a 0 mentre la timeline ne ha
+// ~206: qui si verifica il WIRING del riancoraggio DOPO la risoluzione della variabile e
+// il flag che decide se una timeline nuova puo' spostare il frame.
+const loadFn = extractFn(src, 'fmLoadDomain');
+const loadBody = strip(loadFn);
+ok('W13: fmLoadDomain risolve la variabile e POI riancora su fmStartFrameIndex',
+  loadBody.indexOf('fmPopulateVariables(vars)') >= 0 &&
+  loadBody.indexOf('fmPopulateVariables(vars)') < loadBody.indexOf('fmStartFrameIndex()'));
+ok('W14: il vecchio clamp a 0 sul manifest .om e\' sparito dal CODICE (i commenti non contano)',
+  !/if \(fmIdx >= meta\.valid_times\.length\) fmIdx = 0;/.test(loadBody));
+ok('W15: il limite usa la timeline quando e\' attiva (fmTimelineFramesActive().length)',
+  /fmTimelineFramesActive\(\)\.length \|\| meta\.valid_times\.length/.test(loadBody));
+ok('W16: fmUserMovedFrame dichiarato e azzerato nei 3 cambi (dominio/variabile/regione)',
+  /var fmUserMovedFrame = false;/.test(src) &&
+  (src.match(/fmUserMovedFrame = false;/g) || []).length >= 4);
+ok('W17: slider/prev/next/play marcano il frame scelto e nascondono l\'avviso',
+  (src.match(/fmMarkUserMovedFrame\(\);/g) || []).length >= 5);
+ok('W18: avviso non bloccante "Nuova run disponibile" con link al frame preferito',
+  /id="fm-newrun"/.test(src) && /function fmGoToPreferredFrame\(\)/.test(src) &&
+  /Nuova run disponibile · vai/.test(src));
+ok('W19: fmSetTimeline ha i due rami (non mosso -> preferred; mosso -> conserva + avviso)',
+  /if \(!fmUserMovedFrame\) \{\s*\n\s*fmIdx = fmTimelinePreferredIndex\(frames\);/.test(src) &&
+  /if \(runChanged\) fmShowNewRunNotice\(newPreferred\.run_id\);/.test(src));
 
 console.log(failures === 0 ? '\nRESULT: PASS' : `\nRESULT: FAIL (${failures})`);
 process.exit(failures === 0 ? 0 : 1);

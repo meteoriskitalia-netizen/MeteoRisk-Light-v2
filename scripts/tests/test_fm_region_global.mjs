@@ -10,7 +10,9 @@
 //
 // CONTRATTO 1.2.4.25: i 4 domini globali si aprono su 'europe' (prima: 'north') e la
 // regione scelta dall'utente vale anche per loro; i 3 regionali partono da 'domain'.
-// L'elenco delle regioni ammesse NON cambia.
+// CONTRATTO 1.2.4.26: la regione 'natl' (Nord Atlantico) e' stata RIMOSSA da FM_REGIONS
+// e da tutti gli elenchi per dominio (fmRenderRegionId restituiva null e /natl/ e' 404:
+// selezionarla non avviava nessuna richiesta). Le altre regioni restano identiche.
 //
 // LIMITI DICHIARATI: non fa rete (nessuna richiesta HTTP a fm2-rendered) ne' DOM
 // (il <select> non viene renderizzato): verifica la decisione di regione, non il
@@ -26,8 +28,8 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.25.html');
-if (!fs.existsSync(HTML)) { console.error('FATAL: mri-light-1.2.4.25.html non trovato'); process.exit(1); }
+const HTML = path.join(ROOT, 'mri-light-1.2.4.26.html');
+if (!fs.existsSync(HTML)) { console.error('FATAL: mri-light-1.2.4.26.html non trovato'); process.exit(1); }
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -98,14 +100,14 @@ ok('A3: per i globali \'domain\' (e i valori non validi) ricadono su \'europe\''
   ['domain', '', null, undefined, 'arctic'].every((r) => fmRegionForDomain('ncep_gfs025', r) === 'europe'),
   JSON.stringify(['domain', '', null, undefined, 'arctic'].map((r) => fmRegionForDomain('ncep_gfs025', r))));
 for (const d of GLOBALI) {
-  const got = ['europe', 'italy', 'north', 'natl'].map((r) => fmRegionForDomain(d, r));
-  ok(`A4: ${d} rispetta la regione scelta (europe/italy/north/natl)`,
-    JSON.stringify(got) === JSON.stringify(['europe', 'italy', 'north', 'natl']), JSON.stringify(got));
+  const got = ['europe', 'italy', 'north'].map((r) => fmRegionForDomain(d, r));
+  ok(`A4: ${d} rispetta la regione scelta (europe/italy/north)`,
+    JSON.stringify(got) === JSON.stringify(['europe', 'italy', 'north']), JSON.stringify(got));
 }
 ok('A5: per i globali la regione \'domain\' non e\' ammessa dal selettore',
   GLOBALI.every((d) => fmDomainRegionIds(d).indexOf('domain') < 0));
-ok('A6: l\'elenco delle regioni ammesse per i globali NON e\' cambiato',
-  GLOBALI.every((d) => JSON.stringify(fmDomainRegionIds(d)) === JSON.stringify(['north', 'europe', 'italy', 'natl'])),
+ok('A6: 1.2.4.26 - i globali espongono north/europe/italy e NON piu\' natl',
+  GLOBALI.every((d) => JSON.stringify(fmDomainRegionIds(d)) === JSON.stringify(['north', 'europe', 'italy'])),
   JSON.stringify(fmDomainRegionIds('ncep_gfs025')));
 
 // ---------- B. DOMINI REGIONALI: default 'domain', invariati ----------
@@ -164,11 +166,13 @@ ok('D6: il default si applica SOLO se l\'utente non ha scelto (fmLoadDomain)',
 ok('D7: il polling periodico usa la regione risolta (fmRenderRegionId)',
   /var renderRegion = fmRenderRegionId\(\);/.test(src));
 
-// ---------- E. FM_REGIONS NON TOCCATO ----------
+// ---------- E. FM_REGIONS: 'natl' RIMOSSO (1.2.4.26) ----------
 const regionIds = sandbox.FM_REGIONS.map((r) => r.id);
-ok('E2: FM_REGIONS conserva tutte e 12 le regioni con gli stessi id',
-  JSON.stringify(regionIds) === JSON.stringify(['domain', 'north', 'europe', 'med', 'italy', 'natl', 'namerica', 'samerica', 'africa', 'asia', 'oceania', 'arctic']),
+ok('E2: FM_REGIONS conserva 11 regioni e NON ha piu\' natl',
+  JSON.stringify(regionIds) === JSON.stringify(['domain', 'north', 'europe', 'med', 'italy', 'namerica', 'samerica', 'africa', 'asia', 'oceania', 'arctic']),
   JSON.stringify(regionIds));
+ok('E3: 1.2.4.26 - nessun dominio ammette natl (voce morta: fmRenderRegionId era null)',
+  [...GLOBALI, ...REGIONALI].every((d) => fmDomainRegionIds(d).indexOf('natl') < 0));
 
 console.log(failures === 0 ? '\nRESULT: PASS' : `\nRESULT: FAIL (${failures})`);
 process.exit(failures === 0 ? 0 : 1);

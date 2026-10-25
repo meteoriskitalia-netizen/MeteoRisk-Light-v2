@@ -11,7 +11,7 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.25.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.26.html');
 const src = fs.readFileSync(HTML, 'utf8');
 const INDEX_WORKFLOW = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'forecast-maps-index.yml'), 'utf8');
 
@@ -74,7 +74,7 @@ ok('A15: FM_RENDER_REGION_MAP mappa domain->domain',
 ok('A15b: Emisfero nord disponibile ai modelli globali e collegato al renderer',
   /'north'\s*:\s*'north'/.test(moduleSrc) &&
   /id:\s*'north',\s*label:\s*'Emisfero nord'/.test(moduleSrc) &&
-  /return\s*\['north',\s*'domain',\s*'europe',\s*'italy',\s*'natl'\]/.test(moduleSrc));
+  /return\s*\['north',\s*'domain',\s*'europe',\s*'italy'\]/.test(moduleSrc));
 ok('A15c: index-builder autorizza e pubblica north/index.json',
   /\(italia\|europa\|north\|domain\)\/index\\\.json/.test(INDEX_WORKFLOW) &&
   (INDEX_WORKFLOW.match(/data\/fm2-rendered\/north\/index\.json/g) || []).length >= 2);
