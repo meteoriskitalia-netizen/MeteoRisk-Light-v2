@@ -9,8 +9,11 @@
 //
 // LIMITI DICHIARATI: non tocca Leaflet (niente mappa/DOM): verifica la DECISIONE e il
 // wiring statico, non il rendering. Il comportamento sul canvas reale e' stato misurato a
-// parte sul sito live (mappe aperte: i 107 poligoni provincia risultavano ancora sulla
-// mappa prima della 1.2.4.16).
+// parte sul sito live. MISURA 1.2.4.25 (Edge headless via CDP): il riempimento colorato
+// (provinceGeoJsonLayer) era GIA' nascosto; il layer ancora visibile sopra le mappe era
+// borderOverlayLayer (107 path bianchi, pane borderOverlayPane z 410), che la 1.2.4.16
+// lasciava fuori di proposito. Dalla 1.2.4.25 anche borderOverlayLayer e' nella lista,
+// mentre fmCountryBordersLayer e fmCoastlinesLayer restano la geografia di riferimento.
 'use strict';
 import fs from 'fs';
 import path from 'path';
@@ -18,8 +21,8 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const htmls = fs.readdirSync(ROOT).filter((f) => /^mri-light-1\.2\.4\.24\.html$/.test(f));
-if (!htmls.length) { console.error('FATAL: mri-light-1.2.4.24.html non trovato in ' + ROOT); process.exit(1); }
+const htmls = fs.readdirSync(ROOT).filter((f) => /^mri-light-1\.2\.4\.25\.html$/.test(f));
+if (!htmls.length) { console.error('FATAL: mri-light-1.2.4.25.html non trovato in ' + ROOT); process.exit(1); }
 const src = fs.readFileSync(path.join(ROOT, htmls[0]), 'utf8');
 
 let failures = 0;
@@ -99,8 +102,10 @@ ok('W5: fmRiskOverlayCandidates include la sfumatura della vista continua (conti
   /continuousOverlay, 'continuous'/.test(src));
 ok('W6: fmRiskOverlayCandidates include le voci di provinceLayerMap',
   /provinceLayerMap\[k\], 'province:' \+ k/.test(src));
-ok('W7: i bordi provinciali NON vengono nascosti (restano i confini italiani)',
-  !/borderOverlayLayer, 'borders'/.test(src));
+ok('W7: i bordi provinciali (rete bianca ISTAT) vengono nascosti con le mappe',
+  /borderOverlayLayer, 'borders'/.test(src));
+ok('W7b: i confini geografici di base (Natural Earth + coste) NON sono nella lista da nascondere',
+  !/fmCountryBordersLayer|fmCoastlinesLayer/.test(extractFn(src, 'fmRiskOverlayCandidates')));
 ok('W8: il ripristino salta i layer che erano spenti (if (!saved[i].visible) continue)',
   /if \(!saved\[i\]\.visible\) continue;/.test(src));
 ok('W9: nessuna doppia registrazione se hide viene chiamata due volte',

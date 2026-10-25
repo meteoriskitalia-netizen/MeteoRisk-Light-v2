@@ -1888,9 +1888,20 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.24';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.25';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-25';
     const APP_CHANGELOG = [
+        { version: '1.2.4.25', date: '2026-10-25', changes: [
+  'MAPPE= Nascosti anche i POLIGONI DELLE PROVINCE all\'apertura delle mappe previsionali. Il layer che li disegna e\' borderOverlayLayer (L.geoJSON ISTAT, pane borderOverlayPane z 410, 107 path con stroke #ffffff 1.2 e opacita\' 0.85): la logica 1.2.4.16 nascondeva solo il riempimento colorato (provinceGeoJsonLayer) e lasciava intenzionalmente i bordi, quindi sulla mappa previsionale restava la rete bianca delle province. Ora borderOverlayLayer e\' nella lista fmRiskOverlayCandidates con nome borders, nascosto con map.removeLayer e ripristinato dallo stato PER LAYER (se era gia\' nascosto, non viene riacceso).',
+  'MAPPE= I confini geografici di riferimento restano: fmCountryBordersLayer e fmCoastlinesLayer (pane forecastGeographyPane, Natural Earth, gia\' visibili con le mappe) non sono toccati. MISURATO: il dataset Natural Earth usato per i confini non contiene le proprieta\' ADM0_A3_L/ADM0_A3_R, quindi fmIsItalyBoundaryFeature non esclude l\'Italia e il contorno nazionale resta disegnato anche con il layer ISTAT nascosto.',
+  'VERIFICA= Edge headless via CDP, Sviluppo OFF, cartella di release servita in locale piu\' sito di produzione: (a) prima dell\'apertura 107 path nel pane borderOverlay con stroke #ffffff 1.2; (b) mappe aperte 0 path nel pane borderOverlay e 0 nel tilePane, ripristino dei 107 alla chiusura; (c) con Sfuma ON prima dell\'apertura i bordi erano gia\' a weight 0 e restano a weight 0 dopo la chiusura; (d) i path del pane forecastGeography (Natural Earth) restano presenti con le mappe aperte; (e) zero eccezioni JS.',
+  'MAPPE= I modelli GLOBALI (dwd_icon, ecmwf_ifs025, ncep_gfs025, meteofrance_arpege_world025) si aprono sulla regione EUROPA, non piu\' sull\'emisfero nord. La regione iniziale e\' decisa da fmRegionDefaultForDomain (europe per i globali, domain per dwd_icon_eu, dwd_icon_d2 e ncep_gfs013): non tocca FM_REGIONS ne\' l\'elenco delle regioni disponibili, cambia solo quale e\' selezionata all\'inizio. Vale SOLO al primo caricamento del dominio: alla prima scelta manuale fmRegionUserChosen diventa true e la scelta (es. Italia) resta valida cambiando modello e tornando indietro nella stessa sessione. fmRegionForDomain ora rispetta la regione scelta anche per i globali, quindi timeline.json, index.json e i WebP usano /europa/, /italia/ o /north/ invece del fisso /north/.',
+  'VERIFICA= Edge headless via CDP sulla 1.2.4.25 servita in locale: ecmwf_ifs025, ncep_gfs025 e dwd_icon si aprono con il selettore su Europa e chiedono /europa/timeline.json e /europa/<dominio>/runs/...; dwd_icon_eu resta su Intero dominio (/domain/timeline.json); scegliendo Italia le richieste passano a /italia/ e restano /italia/ tornando su un dominio globale. Test aggiornato scripts/tests/test_fm_region_global.mjs.',
+  'LIVELLI= Menu e palette per il livello 10 hPa: temperature_10hPa e geopotential_height_10hPa e wind_speed_10hPa sono ora offerte SOLO dai domini che le pubblicano davvero. Il gate di visibilita\' (FM_CURATED_VARS oppure FM_VAR_LABELS, lo stesso usato da fmLoadDomain) e\' alimentato dalle etichette nuove, quindi la voce compare se e solo se il manifest .om del dominio la contiene: MISURATO sui dati pubblicati, ecmwf_ifs025 ha 27 variabili e ncep_gfs025 17 con le tre 10 hPa, mentre dwd_icon_eu, dwd_icon_d2, dwd_icon e meteofrance_arpege_world025 non le hanno e non le mostrano. FM_CURATED_VARS resta a 28 voci: aggiungerle li\' avrebbe cambiato il conteggio bloccato dal test test_fm_webp_palette_sync (H6) senza aggiungere nulla, perche\' il filtro e\' in OR con FM_VAR_LABELS.',
+  'LIVELLI= Scale del 10 hPa copiate IDENTICHE da scripts/forecast_v2/color_scales.json (fonte unica del renderer): temperatura 16 bande da -95 a -20 C, geopotenziale 31 bande da 29500 a 33700 m (stessa rampa del geopotenziale 500/850/1000 hPa), vento 21 bande da 0 a 120 m/s (stessa rampa `wind` del getto 300 hPa, ri-spaziata). Unita\' del vento in m/s come tutte le altre scale di velocita\' dell\'app e come il dato .om (VARIABLE_STEP 0.1 m/s nel motore): dichiararla in km/h avrebbe sbagliato la legenda di un fattore 3,6. wind_direction_10hPa NON ha voce di menu ne\' scala, esattamente come wind_direction_10m/850/300hPa: la direzione e\' pubblicata per il reader, non per il disegno (nessun WebP per lei: verificato che nessun index.json contiene una variabile wind_direction_*).',
+  'VERIFICA= Livello 10 hPa misurato in browser (Edge headless via CDP, Sviluppo OFF, cartella di release servita in locale): con ecmwf_ifs025 e ncep_gfs025 il selettore variabili contiene le tre voci 10 hPa con l\'etichetta italiana, con dwd_icon_eu e dwd_icon nessuna delle tre; nessuna eccezione JS.',
+  'DOC= Bump versione 1.2.4.25'
+  ] },
         { version: '1.2.4.24', date: '2026-10-25', changes: [
   'MAPPE= Il pulsante "Mappe previsionali" torna nella TOOLBAR PRINCIPALE, primo posto della riga (.toolbar > .toolbar-row) prima di Radar Player: era confinato dentro #weather-model-wrapper, quindi visibile solo con Sviluppo ON. Invariati id btn-forecast-maps, onclick toggleForecastMaps(), emoji e style.',
   'MAPPE= Rimosso il gate di Sviluppo sul pannello: in toggleSviluppo la guardia che chiudeva le Mappe previsionali quando Sviluppo passava a OFF e\' stata eliminata (commento compreso). #forecast-maps-panel e\' un div autonomo dentro .map-card, non un figlio del wrapper, e toggleForecastMaps() non legge mai isSviluppoActive: il pannello resta aperto e utilizzabile con Sviluppo OFF.',
@@ -5308,6 +5319,10 @@ const DAILY_PARAMS = "weathercode,temperature_2m_max,temperature_2m_min,precipit
         // sopra satellite e radar per orientarsi. Non ha options.zIndex, quindi NON
         // viene rimosso da cleanupAllSatLayers (che elimina solo i layer con zIndex 350).
         // Lo stile e' state-aware: lo applica restyleBorderOverlay().
+        // 1.2.4.25: questo layer (rete bianca delle province) viene nascosto
+        // all'apertura delle mappe previsionali da fmRiskOverlayCandidates e
+        // ripristinato alla chiusura dallo stato per-layer; la geografia di
+        // riferimento resta fmCountryBordersLayer + fmCoastlinesLayer.
         borderOverlayLayer = L.geoJSON(LOCAL_PROVINCES_GEOJSON, {
             pane: 'borderOverlayPane',
             interactive: false,
@@ -11925,6 +11940,28 @@ var FM_WIND_COLOR_SCALE = { type: 'breakpoint', unit: 'm/s', min: null, max: nul
 var FM_JET_BREAKPOINTS = [0, 2, 4, 6, 8, 11, 14, 17, 20, 24, 28, 32, 36, 41, 46, 52, 58, 65, 73, 84, 100];
 var FM_JET_COLORS = [[70, 130, 180, 0], [64, 137, 179, 0.1], [58, 144, 177, 0.143], [51, 155, 175, 0.2], [42, 169, 172, 0.267], [34, 167, 150, 0.333], [20, 157, 100, 0.467], [9, 144, 48, 0.6], [0, 128, 0, 0.733], [28, 146, 0, 0.867], [64, 164, 0, 1], [106, 182, 0, 1], [211, 219, 0, 1], [255, 165, 0, 1], [255, 110, 0, 1], [255, 55, 0, 1], [255, 0, 0, 1], [201, 0, 86, 1], [128, 0, 128, 1], [124, 2, 83, 1], [116, 5, 5, 1]];
 var FM_JET_COLOR_SCALE = { type: 'breakpoint', unit: 'm/s', min: null, max: null, breakpoints: FM_JET_BREAKPOINTS, colors: { light: FM_JET_COLORS, dark: FM_JET_COLORS } };
+// 1.2.4.25 - LIVELLO 10 hPa (SOLO ecmwf_ifs025 e ncep_gfs025).
+// Il motore (VAR_10HPA_DOMAINS = {ecmwf_ifs025, ncep_gfs025}) pubblica
+// temperature_10hPa, geopotential_height_10hPa e wind_speed_10hPa, piu' wind_direction_10hPa
+// e le componenti wind_u/wind_v_component_10hPa: queste ultime restano INPUT del reader
+// (stesso schema del blocco 1.2.4.11 qui sopra: la direzione si legge, non si disegna; le
+// componenti non hanno scala, etichetta ne' voce di menu).
+// La fonte unica delle scale e' scripts/forecast_v2/color_scales.json PUBLICATO dal renderer
+// (main), che le definisce gia': temperature_10hPa 16 bande -95..-20 C, geopotential_height_10hPa
+// 31 bande 29500..33700 m (stessa rampa del geopotenziale 500/850/1000), wind_speed_10hPa
+// 21 bande 0..120 m/s (stessa rampa `wind` del getto, ri-spaziata). I valori sono copiati
+// IDENTICI a quel file: se divergono, la mappa (renderer) e la legenda (client) si
+// contraddicono. Unita' m/s per il vento, come tutte le altre scale di velocita' dell'app
+// (il dato .om e' in m/s: VARIABLE_STEP 0.1 m/s nel motore).
+// Il livello 10 hPa e' a ~30.580 m di media: T media ~-60 C, Z ~30.580 m, vento 20-40 m/s.
+var FM_T10_BREAKPOINTS = [-95, -90, -85, -80, -75, -70, -65, -60, -55, -50, -45, -40, -35, -30, -25, -20];
+var FM_T10_COLORS = [[74, 13, 0, 1], [221, 6, 193, 1], [163, 5, 243, 1], [41, 2, 250, 1], [0, 52, 255, 1], [102, 171, 245, 1], [114, 232, 165, 1], [17, 220, 61, 1], [0, 128, 0, 1], [167, 223, 0, 1], [255, 237, 0, 1], [255, 183, 0, 1], [255, 110, 0, 1], [255, 27, 0, 1], [228, 0, 10, 1], [147, 0, 26, 1]];
+var FM_T10_COLOR_SCALE = { type: 'breakpoint', unit: '°C', min: null, max: null, breakpoints: FM_T10_BREAKPOINTS, colors: { light: FM_T10_COLORS, dark: FM_T10_COLORS } };
+var FM_GEOP_BREAKPOINTS_10 = [29500, 29640, 29780, 29920, 30060, 30200, 30340, 30480, 30620, 30760, 30900, 31040, 31180, 31320, 31460, 31600, 31740, 31880, 32020, 32160, 32300, 32440, 32580, 32720, 32860, 33000, 33140, 33280, 33420, 33560, 33700];
+var FM_GEOP_COLORS_10 = FM_GEOP_COLORS;   // stessa rampa: alias esplicito, un solo array di 31 colori
+var FM_GEOP_10_COLOR_SCALE = { type: 'breakpoint', unit: 'm', min: null, max: null, breakpoints: FM_GEOP_BREAKPOINTS_10, colors: { light: FM_GEOP_COLORS_10, dark: FM_GEOP_COLORS_10 } };
+var FM_JET10_BREAKPOINTS = [0, 1, 2, 3, 5, 7, 10, 13, 16, 20, 25, 30, 35, 40, 50, 60, 70, 80, 90, 100, 120];
+var FM_JET10_COLOR_SCALE = { type: 'breakpoint', unit: 'm/s', min: null, max: null, breakpoints: FM_JET10_BREAKPOINTS, colors: { light: FM_JET_COLORS, dark: FM_JET_COLORS } };
 // 1.2.4.11 - SCALA CUMULATA DI PRECIPITAZIONE (precipitation_cum).
 // La cumulata dal riferimento della run ("Cumul depuis 0h") NON esisteva nella libreria:
 // il client la risolveva per PREFISSO su `precipitation` (scala 0-50 mm -> saturava a
@@ -11941,7 +11978,7 @@ var FM_JET_COLOR_SCALE = { type: 'breakpoint', unit: 'm/s', min: null, max: null
 var FM_PRECUM_BREAKPOINTS = [0, 1, 2.5, 5, 7.5, 10, 15, 20, 25, 30, 40, 50, 60, 75, 100, 125, 150, 175, 200, 250, 300];
 var FM_PRECUM_COLORS = [[0, 0, 0, 0], [30, 150, 255, 1], [0, 100, 255, 1], [0, 205, 120, 1], [0, 205, 50, 1], [185, 230, 0, 1], [255, 195, 0, 1], [255, 145, 0, 1], [255, 90, 0, 1], [240, 30, 0, 1], [190, 0, 0, 1], [140, 0, 70, 1], [133, 0, 77, 1], [126, 0, 83, 1], [118, 0, 90, 1], [111, 0, 97, 1], [104, 0, 103, 1], [97, 0, 110, 1], [89, 0, 117, 1], [82, 0, 123, 1], [75, 0, 130, 1]];
 var FM_PRECUM_COLOR_SCALE = { type: 'breakpoint', unit: 'mm', min: null, max: null, breakpoints: FM_PRECUM_BREAKPOINTS, colors: { light: FM_PRECUM_COLORS, dark: FM_PRECUM_COLORS } };
-var FM_COLOR_SCALE_OVERRIDES = { precipitation_cum: FM_PRECUM_COLOR_SCALE, precipitation: FM_PRECIP_COLOR_SCALE, rain: FM_PRECIP_COLOR_SCALE, showers: FM_PRECIP_COLOR_SCALE, geopotential_height_500hPa: FM_GEOP_500_COLOR_SCALE, geopotential_height_850hPa: FM_GEOP_850_COLOR_SCALE, geopotential_height_1000hPa: FM_GEOP_1000_COLOR_SCALE, pressure_msl: FM_MSL_COLOR_SCALE, wind_speed_10m: FM_WIND_COLOR_SCALE, wind_speed_850hPa: FM_WIND_COLOR_SCALE, wind_speed_300hPa: FM_JET_COLOR_SCALE };
+var FM_COLOR_SCALE_OVERRIDES = { precipitation_cum: FM_PRECUM_COLOR_SCALE, precipitation: FM_PRECIP_COLOR_SCALE, rain: FM_PRECIP_COLOR_SCALE, showers: FM_PRECIP_COLOR_SCALE, geopotential_height_500hPa: FM_GEOP_500_COLOR_SCALE, geopotential_height_850hPa: FM_GEOP_850_COLOR_SCALE, geopotential_height_1000hPa: FM_GEOP_1000_COLOR_SCALE, pressure_msl: FM_MSL_COLOR_SCALE, wind_speed_10m: FM_WIND_COLOR_SCALE, wind_speed_850hPa: FM_WIND_COLOR_SCALE, wind_speed_300hPa: FM_JET_COLOR_SCALE, temperature_10hPa: FM_T10_COLOR_SCALE, geopotential_height_10hPa: FM_GEOP_10_COLOR_SCALE, wind_speed_10hPa: FM_JET10_COLOR_SCALE };
 var FM_VAR_LABELS = {
     temperature_2m: 'Temperatura 2 m',
     dew_point_2m: 'Punto di rugiada 2 m',
@@ -11964,6 +12001,9 @@ var FM_VAR_LABELS = {
     wind_speed_10m: 'Vento 10 m',
     wind_speed_850hPa: 'Vento 850 hPa',
     wind_speed_300hPa: 'Jet Stream 300 hPa',
+    temperature_10hPa: 'Temperatura 10 hPa',
+    geopotential_height_10hPa: 'Geopotenziale 10 hPa',
+    wind_speed_10hPa: 'Vento 10 hPa',
     cape: 'CAPE',
     cin: 'CIN',
     lifted_index: 'Lifted Index',
@@ -12046,6 +12086,9 @@ var fmContourVar = null; // MODIFICA B: variabile usata per il colore delle isol
 // densita' sempre `fitta`.
 var FM_OPTS = { contours: true, arrows: true, arrowStyle: 'arrow', grid: false, dark: false, density: 'fitta' };
 var fmRegion = 'domain';
+// 1.2.4.25: true alla prima scelta manuale nel selettore regioni. Serve a NON
+// sovrascrivere la scelta dell'utente quando cambia modello nella stessa sessione.
+var fmRegionUserChosen = false;
 var fmClipBounds = null;
 var fmTilePending = 0;
 var fmLoaderTimer = null;
@@ -12662,46 +12705,56 @@ function fmIsGlobalDomain() {
     return FM_GLOBAL_DOMAINS.indexOf(fmDomain) >= 0;
 }
 // Regioni mostrate per dominio. I modelli GLOBALI (ritagliati sull'emisfero nord dal
-// motore: bbox 20..90N / lon intera via NORTH_HEMISPHERE_BBOX) espongono 'north' come
-// PRIMA regione (default), piu' i ritagli di vista Europa / Italia / Nord Atlantico:
-// la regione `domain` NON e' offerta (non esiste in `fm2-rendered` per loro, vedi
-// fmDomainRegionIds). Le regioni extra-globo (namerica/samerica/asia/oceania/arctic)
-// NON sono offerte: mostrerebbero mappe vuote. I modelli a copertura europea/italiana
-// restano su domain/europe/italy.
+// motore: bbox 20..90N / lon intera via NORTH_HEMISPHERE_BBOX) espongono north, Europa,
+// Italia e Nord Atlantico: la regione `domain` NON e' offerta (non esiste in
+// `fm2-rendered` per loro, vedi fmDomainRegionIds). Le regioni extra-globo
+// (namerica/samerica/asia/oceania/arctic) NON sono offerte: mostrerebbero mappe vuote.
+// I modelli a copertura europea/italiana restano su domain/europe/italy.
+// 1.2.4.25: questo elenco NON cambia; cambia solo la regione preselezionata all'apertura
+// (i globali partono da 'europe', vedi fmRegionDefaultForDomain).
 function fmDomainRegionIds(d) {
     if (d === 'dwd_icon_eu' || d === 'dwd_icon_d2') return ['domain', 'europe', 'italy'];
     if (d === 'ncep_gfs013') return ['domain', 'europe', 'italy'];
     // Domini globali ritagliati sull'emisfero nord (1.2.4.13): niente regioni
     // fuori dal crop. 1.2.4.15: la regione 'domain' NON e' piu' offerta ne' generata
     // per i globali (il renderer non produce `fm2-rendered/domain` per loro: chiederla
-    // dava 404 sull'indice e fallback ai soli frame `.om`).
+    // dava 404 sull'indice e fallback ai soli frame `.om`). 1.2.4.25: l'elenco resta
+    // lo stesso; l'unica differenza e' la regione preselezionata (Europa, non north).
     if (FM_GLOBAL_DOMAINS.indexOf(d) >= 0) {
         return ['north', 'europe', 'italy', 'natl'];
     }
     return ['north', 'domain', 'europe', 'italy', 'natl'];
 }
-// 1.2.4.15 - DOMINI GLOBALI: solo emisfero nord.
-// Scelta di prodotto: per i 4 domini globali (FM_GLOBAL_DOMAINS) si scarica SOLO la
-// regione `north` (l'intero dominio globale costava troppo in dati e non viene
-// pre-renderizzato). Regola UNICA e centralizzata: fmRegionForDomain() e' l'unico punto
-// in cui la regione UI viene tradotta nella regione effettivamente richiesta;
-// fmRenderRegionId() (index.json + URL dei WebP) la usa, nessun altro posto duplica la
-// logica. Per i 3 domini regionali la regione scelta resta quella dell'utente.
+// 1.2.4.15 / 1.2.4.25 - REGIONE EFFETTIVA PER DOMINIO.
+// Regola UNICA e centralizzata: fmRegionForDomain() e' l'unico punto in cui la regione
+// UI viene tradotta nella regione effettivamente richiesta; fmRenderRegionId()
+// (index.json + URL dei WebP + timeline.json) la usa, nessun altro posto duplica la
+// logica. Per i domini globali la regione scelta dall'utente vale come per i regionali
+// (north/europe/italy/natl sono pre-renderizzate anche per loro): l'unica differenza e'
+// il default, che per i globali e' 'europe' e non 'domain' (fmRegionDefaultForDomain).
 function fmRegionForDomain(domain, region) {
-    if (FM_GLOBAL_DOMAINS.indexOf(domain) >= 0) return 'north';
     var ids = fmDomainRegionIds(domain);
     if (region && ids.indexOf(region) >= 0) return region;
+    return fmRegionDefaultForDomain(domain);
+}
+// 1.2.4.25 - REGIONE SELEZIONATA ALL'APERTURA.
+// I 4 modelli globali si aprono sull'Europa (prima: emisfero nord); i 3 regionali
+// restano su 'Intero dominio'. Non tocca FM_REGIONS ne' l'elenco delle regioni ammesse:
+// decide solo quale e' selezionata quando l'utente non ha ancora scelto nulla.
+function fmRegionDefaultForDomain(domain) {
+    if (FM_GLOBAL_DOMAINS.indexOf(domain) >= 0) return 'europe';
+    var ids = fmDomainRegionIds(domain);
     return ids[0] || 'domain';
 }
 function fmPopulateRegions() {
     var sel = fmEl('fm-region-select');
     if (!sel) return;
     var allowed = fmDomainRegionIds(fmDomain);
-    // 1.2.4.15: per un dominio globale la prima regione ammessa e' 'north' e la
-    // 'domain' non esiste piu': il selettore mostra "Emisfero nord" invece di
-    // "Intero dominio". I WebP/index.json restano comunque SEMPRE 'north' per i
-    // globali (vedi fmRegionForDomain), qualunque sia la regione scelta in UI.
-    if (allowed.indexOf(fmRegion) < 0) fmRegion = allowed[0] || 'domain';
+    // 1.2.4.15: per un dominio globale la 'domain' non esiste piu': il selettore mostra
+    // "Emisfero nord" invece di "Intero dominio". 1.2.4.25: se la regione corrente non
+    // e' ammessa si ricade sul default del dominio (globali -> Europa, regionali ->
+    // Intero dominio), non sulla prima voce dell'elenco.
+    if (allowed.indexOf(fmRegion) < 0) fmRegion = fmRegionDefaultForDomain(fmDomain);
     var html = '';
     for (var i = 0; i < FM_REGIONS.length; i++) {
         var r = FM_REGIONS[i];
@@ -12715,6 +12768,7 @@ function fmPopulateRegions() {
 function fmRegionChanged() {
     var s = fmEl('fm-region-select');
     if (s) fmRegion = s.value;
+    fmRegionUserChosen = true; // 1.2.4.25: scelta manuale -> non viene piu' sovrascritta
     fmWebpFailedUrl = null; // cambio regione: azzera il blacklist WebP
     fmFrameSkipAttempts = 0; // 1.2.4.23: la sequenza di frame cambia con la regione
     fmApplyRegion(true);
@@ -13808,9 +13862,14 @@ function fmLoadDomain(dom) {
         fmPopulateTimes(meta.valid_times);
         fmSyncSlider();
         fmPopulateRegions();
-        // 1.2.4.15: i domini globali non hanno piu' la regione 'domain': il default e'
-        // l'emisfero nord (stessa regione da cui arrivano index.json e WebP).
-        if (fmIsGlobalDomain() && fmRegion === 'domain') { fmRegion = 'north'; fmPopulateRegions(); }
+        // 1.2.4.15: i domini globali non hanno la regione 'domain'.
+        // 1.2.4.25: si aprono sull'Europa, ma SOLO se l'utente non ha ancora scelto una
+        // regione in questa sessione (fmRegionUserChosen): la scelta manuale (es. Italia)
+        // resta valida cambiando modello e tornando indietro finche' il pannello e' aperto.
+        if (!fmRegionUserChosen) {
+            var defaultRegion = fmRegionDefaultForDomain(fmDomain);
+            if (fmRegion !== defaultRegion) { fmRegion = defaultRegion; fmPopulateRegions(); }
+        }
         fmSetStatus(meta.valid_times.length + ' ore – run ' + fmFmtTime(meta.reference_time));
         fmUpdateRunDisplay(meta.reference_time);
         if (!fmRunManual) { fmSelectedRunId = null; } // 1.2.4.14: preserva run se scelta manualmente
@@ -14072,11 +14131,12 @@ function fmInvalidateSize() {
         if (map && typeof map.invalidateSize === 'function') map.invalidateSize();
     }, 0);
 }
-// ================= 1.2.4.16 - ZONE A RISCHIO E MAPPE PREVISIONALI =================
+// ================= 1.2.4.16 / 1.2.4.25 - ZONE A RISCHIO E MAPPE PREVISIONALI =================
 // Requisito: all'APERTURA delle mappe previsionali non si deve vedere NIENTE delle zone
 // a rischio (province colorate per metrica/rischio, poligoni con la colorazione DPC,
-// sfumatura "vista continua"); alla CHIUSURA lo stato precedente deve tornare com'era.
-// I layer coinvolti (trovati nel DOM/Leaflet della 1.2.4.15, non ipotizzati):
+// sfumatura "vista continua", rete dei bordi provinciali); alla CHIUSURA lo stato
+// precedente deve tornare com'era.
+// I layer coinvolti (trovati nel DOM/Leaflet della 1.2.4.15 e rimisurati sulla 1.2.4.24):
 //   - provinceGeoJsonLayer: L.geoJSON dei 107 poligoni provinciali, pane 'tilePane'
 //     (z 200), riempiti con colorForMetric(currentMetric, agg); la modalita' DPC
 //     (toggleDpcAlert) RICOLORA LO STESSO LAYER con DPC_ALERT_COLORS -> coperti entrambi.
@@ -14084,9 +14144,14 @@ function fmInvalidateSize() {
 //     a bringToFront) -> se il gruppo e' gia' nascosto risultano gia' assenti.
 //   - continuousOverlay: L.imageOverlay della vista continua (overlayPane, z 400) ->
 //     sta SOPRA al pane delle mappe (forecastMapsPane, z 360) e sarebbe visibile.
-//   - borderOverlayLayer (bordi provinciali ISTAT, z 410) NON viene nascosto: non porta
-//     colore di rischio ed e' l'unico disegnatore dei confini italiani (la geografia
-//     Natural Earth delle mappe esclude i confini con l'Italia, vedi fmIsItalyBoundaryFeature).
+//   - borderOverlayLayer (1.2.4.25): L.geoJSON ISTAT stroke-only, pane 'borderOverlayPane'
+//     (z 410), 107 path bianchi. E' il layer che disegna la rete delle province visibile
+//     sopra le mappe: la 1.2.4.16 lo lasciava fuori considerandolo "l'unico disegnatore
+//     dei confini italiani". MISURATO il 2026-10-25 sul dataset Natural Earth usato da
+//     fmCountryBordersLayer (ne_50m_admin_0_boundary_lines_land): le proprieta'
+//     ADM0_A3_L/ADM0_A3_R non esistono, quindi fmIsItalyBoundaryFeature non esclude
+//     l'Italia; il contorno nazionale resta disegnato da fmCountryBordersLayer +
+//     fmCoastlinesLayer (pane 'forecastGeographyPane', z 411), che NON vengono toccati.
 // Lo stato e' PER LAYER (visibile/nascosto), non un booleano globale: se l'utente aveva
 // le zone a rischio spente prima di aprire le mappe, alla chiusura restano spente.
 var fmRiskOverlaySaved = null;
@@ -14121,6 +14186,9 @@ function fmRiskOverlayCandidates() {
             if (Object.prototype.hasOwnProperty.call(provinceLayerMap, k)) add(provinceLayerMap[k], 'province:' + k);
         }
     }
+    // 1.2.4.25: la rete bianca dei bordi provinciali ISTAT e' il layer che si vede
+    // sopra le mappe previsionali dopo che il riempimento e' stato nascosto.
+    if (typeof borderOverlayLayer !== 'undefined' && borderOverlayLayer) add(borderOverlayLayer, 'borders');
     return out;
 }
 function fmHideRiskOverlays() {

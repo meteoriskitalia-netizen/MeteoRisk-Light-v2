@@ -6,7 +6,99 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.24
+## Versione attiva: 1.2.4.25
+
+- File applicativo: `mri-light-1.2.4.25.html` (`APP_VERSION = '1.2.4.25'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.25', date: '2026-10-25' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.25'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+  `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
+- Contenuto della 1.2.4.25 (release sopra la 1.2.4.24) - **poligoni delle province nascosti
+  all'apertura delle Mappe previsionali**, **modelli globali che si aprono sulla regione
+  Europa** (non piu' sull'emisfero nord) e **livello 10 hPa nell'interfaccia** (solo per i
+  domini che lo pubblicano):
+  - **Causa misurata** (sito di produzione 1.2.4.24, Edge headless via CDP, Sviluppo OFF):
+    il riempimento colorato (`provinceGeoJsonLayer`, pane `tilePane` z 200) era **gia'**
+    nascosto dalla 1.2.4.16 (107 path -> 0). Il layer ancora visibile era
+    `borderOverlayLayer`, la rete bianca dei confini provinciali ISTAT (pane
+    `borderOverlayPane`, z 410, **107 path**, `stroke:#ffffff`, `stroke-width:1.2`,
+    `stroke-opacity:0.85`): e' quello che l'utente vede come "poligoni delle province".
+  - **Fix**: `borderOverlayLayer` aggiunto a `fmRiskOverlayCandidates()` con nome `borders`:
+    stessa lista e stesso stato per-layer della 1.2.4.16 (rimozione con `map.removeLayer`,
+    ripristino **solo** dei layer che erano visibili). Nessun `if` separato.
+  - **Geografia di riferimento intatta**: `fmCountryBordersLayer` e `fmCoastlinesLayer`
+    (Natural Earth, pane `forecastGeographyPane` z 411) **non** sono toccati. Misurato: il
+    dataset `ne_50m_admin_0_boundary_lines_land` (390 feature) non contiene le proprieta'
+    `ADM0_A3_L`/`ADM0_A3_R`, quindi `fmIsItalyBoundaryFeature` non esclude l'Italia e il
+    contorno nazionale resta disegnato (con il pane borderOverlay nascosto via CSS il
+    confine alpino e la costa restano visibili).
+  - **Verificato in browser** (cartella di release servita in locale + produzione): baseline
+    **107** path nel pane borderOverlay; mappe aperte **0** borderOverlay + **0** tilePane,
+    **109** voci salvate; chiusura **107 + 107**; con Sfuma ON prima dell'apertura i bordi
+    restano `stroke-width:0` anche dopo la chiusura; **0** eccezioni JS.
+  - **Test**: `scripts/tests/test_fm_risk_overlay_state.mjs` (W7 riscritta + nuova W7b che
+    protegge `fmCountryBordersLayer`/`fmCoastlinesLayer`) e `scripts/tests/test_html_js_syntax.py`
+    (`node --check` su ogni blocco `<script>` inline).
+  - **Regione iniziale dei modelli globali = Europa** (seconda modifica della 1.2.4.25):
+    - `fmRegionDefaultForDomain(domain)` e' la regola unica: `europe` per `dwd_icon`,
+      `ecmwf_ifs025`, `ncep_gfs025`, `meteofrance_arpege_world025`; `domain` per
+      `dwd_icon_eu`, `dwd_icon_d2`, `ncep_gfs013`. `FM_REGIONS` e l'elenco delle regioni
+      ammesse per dominio **non cambiano** (i globali restano `north`/`europe`/`italy`/`natl`):
+      cambia solo quale e' **selezionata all'inizio**.
+    - La regola vale **solo al primo caricamento del dominio**: `fmRegionUserChosen` diventa
+      `true` alla prima `fmRegionChanged()` (scelta manuale) e da quel momento la scelta
+      dell'utente non viene sovrascritta cambiando modello.
+    - `fmRegionForDomain()` **non forza piu' `north`** per i globali: `timeline.json`,
+      `index.json` e i WebP usano la regione scelta (`/europa/`, `/italia/`, `/north/`).
+      Prima un modello globale chiedeva sempre `/north/` qualunque fosse il selettore.
+    - **Misurato in browser** (Edge headless via CDP, cartella di release servita in locale,
+      rete reale `fm2-rendered`, 0 eccezioni JS): apertura con `dwd_icon_eu` -> selettore
+      **Intero dominio** e richieste a `/domain/timeline.json` + `/domain/dwd_icon_eu/...`;
+      `ecmwf_ifs025`, `ncep_gfs025` e `dwd_icon` -> selettore **Europa** e richieste a
+      `/europa/timeline.json` + `/europa/<dominio>/runs/...`; catena `ecmwf` -> `ncep` ->
+      `dwd_icon` -> `meteofrance` sempre `/europa/`; ritorno a `dwd_icon_eu` -> **Intero
+      dominio**; scelta manuale **Italia** su `ecmwf_ifs025` -> `/italia/timeline.json` +
+      `/italia/ecmwf_ifs025/...`, e restando nella stessa sessione `dwd_icon_eu` e
+      `ncep_gfs025` restano su `/italia/`.
+    - **Test**: `scripts/tests/test_fm_region_global.mjs` riscritto sul nuovo contratto
+      (default `europe` per i globali, `domain` per i regionali, regione esplicita rispettata,
+      `FM_REGIONS` invariato, flag `fmRegionUserChosen`) -> PASS; `test_html_js_syntax.py`
+      -> 1 passed.
+
+  - **Livello 10 hPa nel menu e nella legenda** (terza modifica della 1.2.4.25, solo client):
+    il motore pubblica `temperature_10hPa`, `geopotential_height_10hPa` e `wind_speed_10hPa`
+    per `ecmwf_ifs025` (27 variabili, era 24) e `ncep_gfs025` (17, era 14), con
+    `VAR_10HPA_DOMAINS = {ecmwf_ifs025, ncep_gfs025}`. Il client non aveva ne' etichette ne'
+    palette, quindi le tre variabili venivano **scartate** dal filtro di visibilita' di
+    `fmLoadDomain` (che ammette `FM_CURATED_VARS` **oppure** una chiave di `FM_VAR_LABELS`).
+    - **Etichette**: `Temperatura 10 hPa`, `Geopotenziale 10 hPa`, `Vento 10 hPa`. Il gate e'
+      lo stesso `fmLoadDomain`: la voce compare se e solo se il manifest `.om` del dominio
+      contiene la variabile, quindi **nessun meccanismo per dominio da inventare** e nessuna
+      variabile 10 hPa per i DWD. `FM_CURATED_VARS` resta a **28** voci (aggiungerle li'
+      avrebbe cambiato il conteggio bloccato da `test_fm_webp_palette_sync` H6 senza aggiungere
+      nulla, perche' il filtro e' in OR con `FM_VAR_LABELS`).
+    - **Palette**: copiate **identiche** da `scripts/forecast_v2/color_scales.json` (fonte unica
+      del renderer): temperatura 16 bande da **-95 a -20 °C**, geopotenziale 31 bande da
+      **29500 a 33700 m** (stessa rampa del geopotenziale 500/850/1000, `FM_GEOP_COLORS_10` =
+      alias esplicito dello stesso array), vento 21 bande da **0 a 120 m/s** (stessa rampa
+      `wind` del getto 300 hPa, ri-spaziata). Se client e renderer divergono la mappa e la
+      legenda si contraddicono: per questo i valori sono quelli pubblicati, non una rampa nuova.
+    - **Unita' del vento in m/s**, come tutte le altre scale di velocita' dell'app e come il
+      dato `.om` (`VARIABLE_STEP` 0.1 m/s nel motore): dichiararla in km/h avrebbe etichettato
+      la legenda con un'unita' sbagliata di un fattore 3,6.
+    - **`wind_direction_10hPa` non ha voce ne' scala**, esattamente come
+      `wind_direction_10m/850/300hPa`: la direzione e' pubblicata per il reader, non per il
+      disegno. Verificato che **nessun** `index.json` pubblicato contiene una variabile
+      `wind_direction_*` (0 occorrenze su north/europa/italia), quindi non esiste WebP per lei.
+    - **Misurato in browser** (Edge headless via CDP, Sviluppo OFF, release servita in locale,
+      rete reale `fm2-rendered`): `ecmwf_ifs025` 27 variabili con le tre voci 10 hPa,
+      `ncep_gfs025` 18 voci di menu con le tre voci 10 hPa, `dwd_icon_eu` e `dwd_icon`
+      **zero** voci 10 hPa; selezionando `temperature_10hPa` la legenda mostra **16 bande**
+      (`[-95 – -90) °C` ... `[-20 – ∞) °C`) e viene richiesto
+      `italia/ecmwf_ifs025/runs/20261025T060000Z/temperature_10hPa/2026-10-25T0600.webp`
+      (HTTP 200); `geopotential_height_10hPa` 31 bande 29500..33700 m e
+      `wind_speed_10hPa` 21 bande 0..120 m/s, entrambi con WebP 200; **0 eccezioni JS**.
+
+## Versione precedente: 1.2.4.24
 
 - File applicativo: `mri-light-1.2.4.24.html` (`APP_VERSION = '1.2.4.24'`; ultimo blocco
   changelog in-app `{ version: '1.2.4.24', date: '2026-10-25' }`) + `sw.js` (Service Worker,
