@@ -528,11 +528,13 @@ jobs:
           echo "[commit] $(date -u +%H:%M:%S) step di commit avviato (job a 45', push con tetto 600s)."
           for i in 1 2 3 4 5; do
             # ── FETCH CONDIZIONALE ───────────────────────────────────────────────
-            # PERCHE': `fm2-rendered` e' un albero da 118.587 file / ~8,4 GB e il suo
-            # `git fetch --depth=1` e' la voce piu' cara di questo step. Ma lo step
-            # "Recupera i manifest JSON da fm2-rendered", piu' sopra nello stesso job,
-            # ha GIA' fatto lo stesso fetch: se il tip remoto non si e' mosso,
-            # `FETCH_HEAD` e' gia' il commit giusto e il fetch e' RIDONDANTE.
+            # PERCHE': `fm2-rendered` e' un albero da 132.433 file (MISURATO il
+            # 2026-10-25T02:08Z con `git ls-tree -r | wc -l` su un clone del branch;
+            # la stima di 118.587 usata prima era superata, l'albero cresce a ogni
+            # run) e il suo `git fetch --depth=1` e' la voce piu' cara di questo step.
+            # Ma lo step "Recupera i manifest JSON da fm2-rendered", piu' sopra nello
+            # stesso job, ha GIA' fatto lo stesso fetch: se il tip remoto non si e'
+            # mosso, `FETCH_HEAD` e' gia' il commit giusto e il fetch e' RIDONDANTE.
             # `git ls-remote` costa pochi KB (nessun oggetto scaricato: il server
             # annuncia solo i ref) e dice subito se il branch si e' mosso; il fetch
             # si paga SOLO quando serve davvero.
@@ -584,17 +586,21 @@ jobs:
             T_WT_0=$(date -u +%s)
             # `--missing-ok` NON e' un cosmetico: SENZA, `git write-tree` verifica
             # che OGNI oggetto citato dall'indice esista nel database locale. Su un
-            # partial clone (`filter: blob:none`) i 118.587 blob NON ci sono, quindi
+            # partial clone (`filter: blob:none`) i 132.433 blob NON ci sono, quindi
             # per ognuno parte un promisor fetch che il filtro non puo' soddisfare.
-            # MISURATO il 2026-10-25, tre prove indipendenti:
+            # MISURATO il 2026-10-25, quattro prove indipendenti:
             #   - run reale 40146235225: fetch del commit step 00:35:12, guardia di
             #     scope alle 00:48:37 -> 13m25s spesi fra read-tree/write-tree/add;
             #   - clone identico (blob:none, depth=1): read-tree 0,19s, poi write-tree
-            #     bloccato >9' con un `git fetch origin --stdin --filter=blob:none`
-            #     figlio (osservato con Get-CimInstance);
+            #     che NON termina: lasciato correre ha consumato 4457s (74 min) e poi
+            #     e' morto con "error: RPC failed; curl 56 Recv failure: Connection was
+            #     reset / fatal: early EOF / fatal: fetch-pack: invalid index-pack
+            #     output" (lascia anche un pack parziale: garbage 1, 3.345.639 byte);
             #   - stesso clone con `GIT_NO_LAZY_FETCH=1`: "fatal: could not fetch
             #     9b349352... from promisor remote" (9b349352 e' un BLOB, verificato
-            #     con GET /git/blobs).
+            #     con GET /git/blobs);
+            #   - `git count-objects -v` prima/dopo: in-pack invariato (1490), nessun
+            #     oggetto utile arrivato.
             # Con il flag: 0,11s, e l'albero prodotto e' IDENTICO (39c46da5... = BASE
             # a indice invariato). Il controllo saltato e' ridondante: le entry
             # vengono da `git read-tree` dell'albero del branch (oggetti che il
