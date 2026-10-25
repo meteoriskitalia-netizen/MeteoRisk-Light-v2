@@ -45,7 +45,7 @@ permissions:
 # queue: max RIMOSSO il 2026-10-25. Motivo MISURATO: con queue: max la coda
 # cresceva senza limite - 6 run pending insieme, la piu' vecchia in attesa da
 # 50 minuti - perche' la capacita' e' 1 run alla volta (durata misurata
-# 5,5-33,4 min) contro un dispatch ogni 10 minuti: ogni dispatch aggiungeva
+# 5,5-35,1 min) contro un dispatch ogni 10 minuti: ogni dispatch aggiungeva
 # un'attesa invece di sostituire quella vecchia, e le run partivano su dati
 # gia' vecchi di 30-50 minuti. Senza queue: max GitHub tiene AL MASSIMO UNA
 # run in attesa per gruppo e, quando ne arriva una nuova, scarta la piu'
