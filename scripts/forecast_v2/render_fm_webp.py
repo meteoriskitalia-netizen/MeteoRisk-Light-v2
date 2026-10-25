@@ -375,6 +375,13 @@ CONTOUR_INTERVALS = {
     "wind_speed_850hPa": 2.0,
     "wind_speed_300hPa": 2.0,
     "wind_gusts_10m": 2.0,
+    # --- livello 10 hPa (~30-32 km; scale in color_scales.json) -------------
+    # Scelte INGEGNERISTICHE dichiarate, non tarature: 4 degC separano le
+    # isoterme della bassa stratosfera (T fra -95 e -20 degC), 80 m il
+    # geopotenziale (Z10 fra ~29500 e ~33700 m), 5 m/s il getto (0..120 m/s).
+    "temperature_10hPa": 4.0,
+    "geopotential_height_10hPa": 80.0,
+    "wind_speed_10hPa": 5.0,
 }
 CONTOUR_VARS = frozenset(CONTOUR_INTERVALS.keys())
 
@@ -385,6 +392,7 @@ ARROW_VARS = {
     "wind_speed_10m": "wind_direction_10m",
     "wind_speed_850hPa": "wind_direction_850hPa",
     "wind_speed_300hPa": "wind_direction_300hPa",
+    "wind_speed_10hPa": "wind_direction_10hPa",
 }
 
 MAX_CONTOUR_LEVELS = 64           # cap sui livelli per variabile

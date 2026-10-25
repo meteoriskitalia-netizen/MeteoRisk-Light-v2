@@ -44,17 +44,22 @@ Disegno (V2 del motore, scelte DICHIARATE):
   - ORIZZONTE INTERO: si pubblicano TUTTI i valid_times del manifest del dominio
     (nessuna troncatura a un numero fisso di frame). --valid-frames 0/negativo
     (default) = intero orizzonte; N > 0 = primi N.
-  - VARIABILI: lista UNICA `V2_RISK_VARS` (31: 23 dirette + 8 derivate) per
-    tutti i domini. Nessun set per-dominio: la presenza reale e' decisa
-    FILE-PER-FILE dai child del `.om`. Le variabili assenti nella sorgente sono
-    OMESSE con warning (es. `surface_pressure`, spesso non disponibile). Le
-    DERIVATE (dew_point_2m, wind_speed_10m/850hPa/300hPa,
-    wind_direction_10m/850hPa/300hPa, precipitation_cum) sono CALCOLATE dal
-    motore (registro `DERIVED_VARS`); `V2_INPUT_VARS` elenca le variabili di
-    INPUT (componenti u/v a 10 m, 850 e 300 hPa) lette ma NON pubblicate.
+  - VARIABILI: lista `V2_RISK_VARS` (37: 27 dirette + 10 derivate). Il gruppo
+    `10 hPa` (6 voci, vedi `VARS_10HPA`) e' l'UNICA eccezione al "tutti i
+    domini": e' ammesso SOLO per i domini di `VAR_10HPA_DOMAINS`
+    (ecmwf_ifs025, ncep_gfs025) e per tutti gli altri viene FILTRATO VIA prima
+    della lettura (scelta di prodotto, motivo nel commento della costante).
+    Per il resto la presenza reale e' decisa FILE-PER-FILE dai child del `.om`:
+    le variabili assenti nella sorgente sono OMESSE con warning (es.
+    `surface_pressure`, spesso non disponibile). Le DERIVATE (dew_point_2m,
+    wind_speed_10m/850hPa/300hPa, wind_speed_10hPa,
+    wind_direction_10m/850hPa/300hPa/10hPa, precipitation_cum) sono CALCOLATE
+    dal motore (registro `DERIVED_VARS`); `V2_INPUT_VARS` elenca le variabili
+    di INPUT (componenti u/v a 10 m, 850 e 300 hPa) lette ma NON pubblicate.
     Il vento si pubblica come COPPIA velocita'+direzione: `wind_direction_*`
     e' la secondaria pretesa dalla libreria client per ogni `wind_speed_*`
-    (le u/v non sono piu' pubblicate).
+    (le u/v non sono piu' pubblicate; al livello 10 hPa le componenti u/v sono
+    IN PIU' pubblicate come variabili a se', vedi `VARS_10HPA`).
   - NO-OP GUARD PER-DOMINIO: se `data/fm2/<dominio>/latest.json` esiste con lo
     stesso `reference_time` e gli stessi `valid_times` (e non --force) il dominio
     viene saltato SENZA scaricare/riscrivere (evita commit inutili).
@@ -261,6 +266,17 @@ V2_RISK_VARS = [
     {"name": "showers",              "sources": ["showers"]},
     {"name": "weather_code",         "sources": ["weather_code"]},
     {"name": "freezing_level_height", "sources": ["freezing_level_height"]},  # FM_CACHE core
+    # --- LIVELLO 10 hPa (SOLO domini di `VAR_10HPA_DOMAINS`) ---------------
+    # Aggiunte in CODA alla lista: il filtro per dominio toglie queste voci e
+    # lascia la lista identica (stesso contenuto e STESSO ORDINE) a quella
+    # storica, quindi `var_order` nel manifest dei domini non ammessi resta
+    # byte-identico a prima (test: test_non_allowed_domains_keep_historical_var_set).
+    {"name": "temperature_10hPa",    "sources": ["temperature_10hPa"]},
+    {"name": "geopotential_height_10hPa", "sources": ["geopotential_height_10hPa"]},
+    {"name": "wind_u_component_10hPa", "sources": ["wind_u_component_10hPa"]},
+    {"name": "wind_v_component_10hPa", "sources": ["wind_v_component_10hPa"]},
+    {"name": "wind_speed_10hPa",     "sources": []},                          # DERIVATA (u/v 10hPa)
+    {"name": "wind_direction_10hPa", "sources": []},                          # DERIVATA (u/v 10hPa)
 ]
 
 # Variabili di INPUT: lette dal frame sorgente ma NON pubblicate. Sono gli input
@@ -284,6 +300,83 @@ V2_INPUT_VAR_NAMES = frozenset(v["name"] for v in V2_INPUT_VARS)
 # non legge le componenti u/v a 850/300 hPa e la derivazione fallisce solo su
 # quel percorso.
 V2_READ_VARS = V2_RISK_VARS + V2_INPUT_VARS
+
+# ---------------------------------------------------------------------------
+# LIVELLO 10 hPa — ALLOWLIST PER DOMINIO (scelta di PRODOTTO, non tecnica)
+# ---------------------------------------------------------------------------
+# Il livello 10 hPa (~30-32 km, bassa stratosfera) e' disponibile nella
+# sorgente Open-Meteo per 3 domini. MISURATO il 2026-10-25 leggendo i child dei
+# frame reali su S3 (primo `valid_time` di ogni `latest.json`):
+#
+#   ecmwf_ifs025                  temperature/geopotential_height/wind_u/wind_v_10hPa
+#   ncep_gfs025                   idem
+#   meteofrance_arpege_world025   idem  <-- il `.om` le CONTIENE
+#   dwd_icon, dwd_icon_eu, dwd_icon_d2, ncep_gfs013   NESSUNA variabile 10 hPa
+#
+# Il criterio NON e' "se la variabile esiste nel file": e' questa allowlist.
+# Motivo (decisione dell'utente, 2026-10-25): per il livello 10 hPa DUE modelli
+# bastano come secondo/terzo parere sulla stratosfera, e pubblicare il terzo
+# (ARPEGE) costerebbe ~+68 MB per run di frame `.om` (stima dichiarata, non
+# rimisurata qui) senza aggiungere informazione indipendente: ARPEGE e IFS
+# condividono le stesse analisi di base a quella quota. Il filtro e' quindi
+# ESPLICITO e vive qui, non nella presenza dei child del file.
+#
+# Conseguenza voluta: per i domini NON elencati la lista delle variabili resta
+# ESATTAMENTE quella storica (stesso contenuto, stesso ordine), quindi
+# `var_order` nei loro manifest e i byte dei loro `.om` non cambiano a parita'
+# di input. Le 6 voci sono in CODA a `V2_RISK_VARS`, cosi' il filtro e' una
+# semplice sottrazione che preserva l'ordine.
+VAR_10HPA_DOMAINS = frozenset({"ecmwf_ifs025", "ncep_gfs025"})
+
+# Le 6 variabili del livello 10 hPa: 4 DIRETTE (lette dal frame) + 2 DERIVATE
+# (velocita' e direzione dalla coppia u/v dello stesso livello).
+VARS_10HPA = (
+    "temperature_10hPa",
+    "geopotential_height_10hPa",
+    "wind_u_component_10hPa",
+    "wind_v_component_10hPa",
+    "wind_speed_10hPa",
+    "wind_direction_10hPa",
+)
+VARS_10HPA_SET = frozenset(VARS_10HPA)
+
+
+def domain_supports_10hpa(domain):
+    """True se `domain` e' nell'allowlist del livello 10 hPa."""
+    return domain in VAR_10HPA_DOMAINS
+
+
+def _filter_10hpa(var_defs, domain):
+    """Toglie le voci 10 hPa se il dominio non e' in `VAR_10HPA_DOMAINS`.
+
+    L'ordine delle voci rimanenti e' INVARIATO (le 6 voci stanno in coda), cosi'
+    il risultato per i domini non ammessi e' identico alla lista storica.
+    """
+    if domain_supports_10hpa(domain):
+        return list(var_defs)
+    return [v for v in var_defs if v["name"] not in VARS_10HPA_SET]
+
+
+def risk_vars_for(domain):
+    """Variabili PUBBLICATE ammesse per `domain` (allowlist 10 hPa applicata)."""
+    return _filter_10hpa(V2_RISK_VARS, domain)
+
+
+def input_vars_for(domain):
+    """Variabili di INPUT ammesse per `domain` (allowlist 10 hPa applicata)."""
+    return _filter_10hpa(V2_INPUT_VARS, domain)
+
+
+def read_vars_for(domain):
+    """Unione pubblicate + input ammesse per `domain` (da passare ai reader).
+
+    Sostituisce `V2_READ_VARS` in OGNI punto per-dominio: passare l'unione
+    globale a un dominio non ammesso farebbe leggere (e pubblicare) le
+    variabili 10 hPa presenti nel file, cioe' esattamente cio' che l'allowlist
+    deve impedire.
+    """
+    return risk_vars_for(domain) + input_vars_for(domain)
+
 
 # Cap OPZIONALE di sicurezza del pruning (numero massimo di frame `.om`
 # mantenuti in una dir di dominio). 0 = NESSUN CAP: si mantiene l'orizzonte
@@ -346,6 +439,15 @@ VARIABLE_STEP = {
     "showers": 0.1,                     # 0.1 mm
     "weather_code": 1.0,                # 1 (codice WMO)
     "freezing_level_height": 10.0,      # 10 m
+    # --- livello 10 hPa (solo domini in VAR_10HPA_DOMAINS) ---
+    "temperature_10hPa": 0.1,           # 0.1 degC
+    "geopotential_height_10hPa": 1.0,   # 1 m
+    # Le componenti u/v a 10 hPa sono PUBBLICATE (a differenza di 10 m/850/300,
+    # dove sono solo INPUT): servono al client come campo vettoriale a se'.
+    "wind_u_component_10hPa": 0.1,      # 0.1 m/s
+    "wind_v_component_10hPa": 0.1,      # 0.1 m/s
+    "wind_speed_10hPa": 0.1,            # 0.1 m/s (DERIVATA da u/v 10hPa)
+    "wind_direction_10hPa": WIND_DIRECTION_STEP,  # 1 grado (DERIVATA da u/v 10hPa)
 }
 DEFAULT_STEP = 1.0
 DEFAULT_CHUNKS = [32, 32]
@@ -959,6 +1061,17 @@ def _derive_wind_direction_300hPa(arrays):
                                arrays["wind_v_component_300hPa"]))
 
 
+def _derive_wind_speed_10hPa(arrays):
+    return wind_speed_from_uv(arrays["wind_u_component_10hPa"],
+                              arrays["wind_v_component_10hPa"])
+
+
+def _derive_wind_direction_10hPa(arrays):
+    return wrap_wind_direction_for_step(
+        wind_direction_from_uv(arrays["wind_u_component_10hPa"],
+                               arrays["wind_v_component_10hPa"]))
+
+
 # Registro delle derivazioni: nome PUBBLICATO -> {sources, func, stateful}.
 # `sources` = nomi (pubblicati o di INPUT) che devono essere presenti; `func`
 # (arrays) = derivata per-frame; `stateful: True` = NON per-frame ma accumulata
@@ -999,6 +1112,18 @@ DERIVED_VARS = {
         "sources": ["wind_u_component_300hPa", "wind_v_component_300hPa"],
         "func": _derive_wind_direction_300hPa,
     },
+    # --- livello 10 hPa (calcolate SOLO per i domini di VAR_10HPA_DOMAINS:
+    # il gate e' applicato DUE volte, in `risk_vars_for`/`read_vars_for`
+    # (nessuna lettura) e in `derive_per_frame` (nessuna derivazione anche se
+    # le componenti fossero presenti negli `arrays` per un altro motivo).
+    "wind_speed_10hPa": {
+        "sources": ["wind_u_component_10hPa", "wind_v_component_10hPa"],
+        "func": _derive_wind_speed_10hPa,
+    },
+    "wind_direction_10hPa": {
+        "sources": ["wind_u_component_10hPa", "wind_v_component_10hPa"],
+        "func": _derive_wind_direction_10hPa,
+    },
     "precipitation_cum": {
         "sources": ["precipitation"],
         "func": None,
@@ -1018,6 +1143,14 @@ def derive_per_frame(arrays, meta, domain):
     warnings = []
     for name, spec in DERIVED_VARS.items():
         if spec.get("stateful"):
+            continue
+        if name in VARS_10HPA_SET and not domain_supports_10hpa(domain):
+            # ALLOWLIST 10 hPa: per un dominio non ammesso la derivata non deve
+            # esistere. Non e' un errore e NON produce un warning (la variabile
+            # non e' richiesta per quel dominio): stesso motivo di
+            # `risk_vars_for`/`read_vars_for`, applicato qui come seconda
+            # barriera nel caso gli `arrays` contengano le componenti u/v a
+            # 10 hPa per un percorso diverso.
             continue
         srcs = spec["sources"]
         missing = [s for s in srcs if s not in arrays]
@@ -1738,6 +1871,16 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
         if grid:
             idx = bbox_to_indices(grid, bbox_for(domain))
             res["crop"] = idx["out_grid"]
+        # PIANO DELLE VARIABILI (solo DICHIARATE: in dry-run nessun frame viene
+        # aperto, quindi la presenza reale nel `.om` non e' verificabile qui).
+        # Serve a rendere VISIBILE l'allowlist 10 hPa: i domini non ammessi non
+        # devono mostrare nessuna delle 6 voci.
+        dry_risk = [rv["name"] for rv in risk_vars_for(domain)]
+        dry_read = [rv["name"] for rv in read_vars_for(domain)]
+        res["vars_published"] = dry_risk
+        res["vars_read"] = dry_read
+        res["vars_10hpa"] = [n for n in dry_risk if n in VARS_10HPA_SET]
+        res["vars_10hpa_domain_allowed"] = domain_supports_10hpa(domain)
         res["status"] = "ok"
         nx = grid["nx"] if grid else "?"
         ny = grid["ny"] if grid else "?"
@@ -1749,6 +1892,12 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
                  grid["dx"] if grid else float("nan"),
                  grid["dy"] if grid else float("nan"), crop_s, len(anchors),
                  os.path.join(out_dir, "<VALID>.om")))
+        print("%s [PLAN] dominio '%s': var pubblicate=%d lette=%d | 10hPa "
+              "ammesso=%s (%d: %s)"
+              % (LOG, domain, len(dry_risk), len(dry_read),
+                 "si" if domain_supports_10hpa(domain) else "no",
+                 len(res["vars_10hpa"]),
+                 ", ".join(res["vars_10hpa"]) or "-"))
         return res
 
     # --- NO-OP GUARD per-dominio (prima di scaricare i frame) ---
@@ -1828,7 +1977,17 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
 
     os.makedirs(out_dir, exist_ok=True)
 
-    ordered_names = [rv["name"] for rv in V2_RISK_VARS]
+    # Variabili AMMESSE per questo dominio: `risk_vars` (pubblicate) e
+    # `read_vars` (pubblicate + input) sono filtrate dall'allowlist 10 hPa.
+    # `ordered_names` determina l'ORDINE di scrittura nel `.om` e il `var_order`
+    # del manifest: per i domini non ammessi coincide esattamente con la lista
+    # storica.
+    risk_vars = risk_vars_for(domain)
+    read_vars = read_vars_for(domain)
+    ordered_names = [rv["name"] for rv in risk_vars]
+    print("%s dominio '%s': variabili pubblicate=%d lette=%d (10hPa=%s)"
+          % (LOG, domain, len(risk_vars), len(read_vars),
+             "si" if domain_supports_10hpa(domain) else "no"))
 
     # Cumulata di precipitazione (STATE) sulla griglia di OUTPUT (dopo
     # crop/resample): accumulata lungo la serie ORDINATA dei valid_times.
@@ -1883,11 +2042,13 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
     for vi, anchor in enumerate(anchors):
         print("%s   frame %d/%d valid_time=%s" % (LOG, vi + 1, len(anchors), anchor))
         vname = valid_time_to_filename(anchor)
-        # `V2_READ_VARS` = pubblicate + INPUT: la lettura a intervalli deve
-        # leggere ANCHE le componenti u/v a 850/300 hPa, altrimenti le derivate
-        # wind_speed_850hPa/300hPa falliscono solo su quel percorso.
+        # `read_vars` = pubblicate + INPUT ammesse per QUESTO dominio (allowlist
+        # 10 hPa applicata): la lettura a intervalli deve leggere ANCHE le
+        # componenti u/v a 850/300 hPa (altrimenti le derivate
+        # wind_speed_850hPa/300hPa falliscono solo su quel percorso) ma NON le
+        # variabili 10 hPa per i domini che non le ammettono.
         frame = load_frame(s3_url(domain, ref_time, anchor), domain, vname,
-                           cache_dir, frames_cache, V2_READ_VARS, grid,
+                           cache_dir, frames_cache, read_vars, grid,
                            tgt_lats, tgt_lons, idx, dl,
                            allow_range=not args.no_range)
         if frame is None and allow_partial:
@@ -1898,7 +2059,7 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
             st = http_status(s3_url(domain, ref_time, anchor))
             if st == 200:
                 frame = load_frame(s3_url(domain, ref_time, anchor), domain,
-                                   vname, cache_dir, frames_cache, V2_READ_VARS,
+                                   vname, cache_dir, frames_cache, read_vars,
                                    grid, tgt_lats, tgt_lons, idx, dl,
                                    allow_range=not args.no_range)
                 if frame is None:
@@ -2219,6 +2380,7 @@ def main(argv=None):
             "all_horizon": args.valid_frames <= 0,
             "max_frames_cap": V2_MAX_FRAMES,
             "prune": not args.no_prune,
+            "var_10hpa_domains": sorted(VAR_10HPA_DOMAINS),
             "domains": [
                 {
                     "domain": r["domain"],
@@ -2232,6 +2394,14 @@ def main(argv=None):
                     "grid_source": r.get("grid_source"),
                     "source_grid": r.get("grid"),
                     "crop": r.get("crop"),
+                    # Variabili DICHIARATE per il dominio (allowlist 10 hPa
+                    # applicata). In dry-run nessun frame e' aperto: qui non si
+                    # afferma che la variabile esista nel `.om`.
+                    "vars_published": r.get("vars_published"),
+                    "n_vars_published": len(r.get("vars_published") or []),
+                    "vars_read": r.get("vars_read"),
+                    "vars_10hpa": r.get("vars_10hpa"),
+                    "vars_10hpa_domain_allowed": r.get("vars_10hpa_domain_allowed"),
                     "out_dir": r.get("out_dir"),
                     "frames_glob": (os.path.join(r["out_dir"], "<VALID>.om")
                                     if r.get("out_dir") else None),
