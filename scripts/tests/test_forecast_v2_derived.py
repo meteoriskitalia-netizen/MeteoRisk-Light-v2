@@ -13,6 +13,10 @@ Il motore pubblica 6 nuove variabili, 4 delle quali DERIVATE:
   - ``wind_direction_300hPa``     DERIVATA per-frame (direzione meteo, u/v 300);
   - ``precipitation_cum``         DERIVATA STATEFUL (somma di ``precipitation``
                                   lungo la serie ORDINATA dei valid_times).
+  - ``snow_fraction``             DERIVATA per-frame (2026-10-25:
+                                  ``snowfall_water_equivalent / precipitation``,
+                                  continua in [0,1]); vedi
+                                  ``test_forecast_v2_snow_fraction.py``.
 
 Livello 10 hPa (2026-10-25). Sei variabili in piu' (``VARS_10HPA``): 4 DIRETTE
 (``temperature_10hPa``, ``geopotential_height_10hPa``, ``wind_u_component_10hPa``,
@@ -68,7 +72,8 @@ DERIVED_PER_FRAME = ("dew_point_2m",
                      "wind_speed_10m", "wind_direction_10m",
                      "wind_speed_850hPa", "wind_direction_850hPa",
                      "wind_speed_300hPa", "wind_direction_300hPa",
-                     "wind_speed_10hPa", "wind_direction_10hPa")
+                     "wind_speed_10hPa", "wind_direction_10hPa",
+                     "snow_fraction")
 
 # I 4 livelli con la coppia velocita'+direzione (atomicita': vedi registro).
 WIND_LEVELS = ("10m", "850hPa", "300hPa", "10hPa")
@@ -242,7 +247,7 @@ def test_derive_per_frame_adds_derived_with_meta():
 # ---------------------------------------------------------------------------
 # Registro / wiring delle variabili
 # ---------------------------------------------------------------------------
-def test_registry_declares_9_stateless_and_1_stateful():
+def test_registry_declares_10_stateless_and_1_stateful():
     assert set(ENGINE.DERIVED_VARS) == set(DERIVED_PER_FRAME) | {"precipitation_cum"}
     for n in DERIVED_PER_FRAME:
         spec = ENGINE.DERIVED_VARS[n]
@@ -385,24 +390,47 @@ def test_10hpa_vars_present_only_for_allowed_domains():
 
 
 def test_non_allowed_domains_keep_historical_var_set():
-    """INVARIANTE: i domini non ammessi hanno ESATTAMENTE la lista storica.
+    """INVARIANTE: lista storica + i blocchi allowlist, IN CODA.
 
     Contenuto E ordine: `var_order` finisce nel manifest e determina l'ordine
     dei child nel `.om`, quindi un ordine diverso cambierebbe i byte del file a
     parita' di input. Il confronto e' contro una baseline CONGELATA
-    (`HISTORICAL_RISK_VARS`, catturata da main prima di questa modifica).
+    (`HISTORICAL_RISK_VARS`, catturata da main prima del livello 10 hPa).
+
+    Dal 2026-10-25 le allowlist sono DUE (10 hPa e fase neve): il blocco 10 hPa
+    sta in coda alla lista storica, il blocco neve in coda al blocco 10 hPa.
+    Quindi `ncep_gfs025` (10 hPa si', neve no) ha ESATTAMENTE la lista che
+    pubblicava prima di questa modifica; gli altri 5 hanno la storica + le 2
+    voci neve; `ecmwf_ifs025` la storica + 6 + 2.
     """
     historical = list(HISTORICAL_RISK_VARS)
-    historical_read = historical + list(HISTORICAL_INPUT_VARS)
+
+    def _expected(d, base, inputs=()):
+        out = list(base)
+        if ENGINE.domain_supports_10hpa(d):
+            out += list(ENGINE.VARS_10HPA)
+        if ENGINE.domain_supports_swe(d):
+            out += list(ENGINE.VARS_SWE)
+        # `read_vars_for` = pubblicate + INPUT, quindi gli INPUT in CODA
+        out += list(inputs)
+        return out
+
     for d in NOT_ALLOWED_10HPA:
         got = [rv["name"] for rv in ENGINE.risk_vars_for(d)]
-        assert got == historical, d
+        assert got == _expected(d, historical), d
         got_read = [rv["name"] for rv in ENGINE.read_vars_for(d)]
-        assert got_read == historical_read, d
-    # e i 2 domini ammessi sono la lista storica + le 6 voci, IN CODA
+        assert got_read == _expected(d, historical, HISTORICAL_INPUT_VARS), d
     for d in ALLOWED_10HPA:
         got = [rv["name"] for rv in ENGINE.risk_vars_for(d)]
-        assert got == historical + list(ENGINE.VARS_10HPA), d
+        assert got == _expected(d, historical), d
+        got_read = [rv["name"] for rv in ENGINE.read_vars_for(d)]
+        assert got_read == _expected(d, historical, HISTORICAL_INPUT_VARS), d
+    # INVARIANTE FORTE: `ncep_gfs025` e' l'unico dominio che non guadagna nulla
+    # da questa modifica -> lista ESATTAMENTE quella storica + le 6 voci 10 hPa.
+    assert [rv["name"] for rv in ENGINE.risk_vars_for("ncep_gfs025")] == (
+        historical + list(ENGINE.VARS_10HPA))
+    assert [rv["name"] for rv in ENGINE.read_vars_for("ncep_gfs025")] == (
+        historical + list(ENGINE.VARS_10HPA) + list(HISTORICAL_INPUT_VARS))
 
 
 def test_derive_per_frame_computes_10hpa_for_allowed_domain():

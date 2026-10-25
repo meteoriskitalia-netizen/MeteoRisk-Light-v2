@@ -44,18 +44,22 @@ Disegno (V2 del motore, scelte DICHIARATE):
   - ORIZZONTE INTERO: si pubblicano TUTTI i valid_times del manifest del dominio
     (nessuna troncatura a un numero fisso di frame). --valid-frames 0/negativo
     (default) = intero orizzonte; N > 0 = primi N.
-  - VARIABILI: lista `V2_RISK_VARS` (37: 27 dirette + 10 derivate). Il gruppo
-    `10 hPa` (6 voci, vedi `VARS_10HPA`) e' l'UNICA eccezione al "tutti i
-    domini": e' ammesso SOLO per i domini di `VAR_10HPA_DOMAINS`
-    (ecmwf_ifs025, ncep_gfs025) e per tutti gli altri viene FILTRATO VIA prima
-    della lettura (scelta di prodotto, motivo nel commento della costante).
+  - VARIABILI: lista `V2_RISK_VARS` (39: 28 dirette + 11 derivate). DUE gruppi
+    hanno un'ALLOWLIST PER DOMINIO esplicita nel codice (mai "se il file ce
+    l'ha"): il livello `10 hPa` (6 voci, `VARS_10HPA`/`VAR_10HPA_DOMAINS`:
+    ecmwf_ifs025, ncep_gfs025) e la FASE NEVE (2 voci, `VARS_SWE`/
+    `VAR_SWE_DOMAINS`: 6 domini su 7, tutti tranne `ncep_gfs025`, che non ha
+    alcuna variabile di superficie). Per i domini fuori allowlist le voci sono
+    FILTRATE VIA prima della lettura (non si leggono e non compaiono nel
+    manifest).
     Per il resto la presenza reale e' decisa FILE-PER-FILE dai child del `.om`:
     le variabili assenti nella sorgente sono OMESSE con warning (es.
     `surface_pressure`, spesso non disponibile). Le DERIVATE (dew_point_2m,
     wind_speed_10m/850hPa/300hPa, wind_speed_10hPa,
-    wind_direction_10m/850hPa/300hPa/10hPa, precipitation_cum) sono CALCOLATE
-    dal motore (registro `DERIVED_VARS`); `V2_INPUT_VARS` elenca le variabili
-    di INPUT (componenti u/v a 10 m, 850 e 300 hPa) lette ma NON pubblicate.
+    wind_direction_10m/850hPa/300hPa/10hPa, precipitation_cum, snow_fraction)
+    sono CALCOLATE dal motore (registro `DERIVED_VARS`); `V2_INPUT_VARS` elenca
+    le variabili di INPUT (componenti u/v a 10 m, 850 e 300 hPa) lette ma NON
+    pubblicate.
     Il vento si pubblica come COPPIA velocita'+direzione: `wind_direction_*`
     e' la secondaria pretesa dalla libreria client per ogni `wind_speed_*`
     (le u/v non sono piu' pubblicate; al livello 10 hPa le componenti u/v sono
@@ -277,6 +281,12 @@ V2_RISK_VARS = [
     {"name": "wind_v_component_10hPa", "sources": ["wind_v_component_10hPa"]},
     {"name": "wind_speed_10hPa",     "sources": []},                          # DERIVATA (u/v 10hPa)
     {"name": "wind_direction_10hPa", "sources": []},                          # DERIVATA (u/v 10hPa)
+    # --- FASE NEVE / PIOGGIA (SOLO domini di `VAR_SWE_DOMAINS`) -------------
+    # `snowfall_water_equivalent` e' un DATO DEL MODELLO (mm di acqua
+    # equivalente caduta come neve); `snow_fraction` e' una NOSTRA derivata
+    # (rapporto fra due campi del modello), NON una classificazione del modello.
+    {"name": "snowfall_water_equivalent", "sources": ["snowfall_water_equivalent"]},
+    {"name": "snow_fraction",         "sources": []},                          # DERIVATA (swe / precipitation)
 ]
 
 # Variabili di INPUT: lette dal frame sorgente ma NON pubblicate. Sono gli input
@@ -346,6 +356,72 @@ def domain_supports_10hpa(domain):
     return domain in VAR_10HPA_DOMAINS
 
 
+# ---------------------------------------------------------------------------
+# FASE NEVE / PIOGGIA — ALLOWLIST PER DOMINIO
+# ---------------------------------------------------------------------------
+# `snowfall_water_equivalent` (mm di acqua equivalente caduta come NEVE) e' il
+# campo che permette di distinguere pioggia da neve. MISURATO sui child dei
+# frame reali S3 (primo `valid_time` di ogni `latest.json`):
+#
+#   dwd_icon, dwd_icon_eu, dwd_icon_d2, ecmwf_ifs025,
+#   ncep_gfs013, meteofrance_arpege_world025      -> PRESENTE
+#   ncep_gfs025                                   -> ASSENTE
+#
+# `ncep_gfs025` non ha NESSUNA variabile di superficie (ne' precipitazione ne'
+# T2m, umidita', nuvole): non e' un caso "se il file ce l'ha", e' un dominio
+# che non puo' avere il campo, quindi l'allowlist e' ESPLICITA come per il
+# 10 hPa e non un criterio implicito di presenza.
+#
+# ATTENZIONE (misurato): a T+0 i campi ACCUMULATI non esistono. Il frame al
+# `reference_time` ha 111 array, il T+1h ne ha 121; `snowfall_water_equivalent`
+# compare quindi SOLO dal secondo frame in poi, esattamente come
+# `precipitation`. Il motore NON fallisce: la variabile e' OMESSA su quel frame
+# con il warning di `missing_published_warnings` (`snow_fraction` non
+# calcolabile perche' mancano le sorgenti) e, se mancasse su TUTTI i frame del
+# dominio, un warning di sintesi lo dichiara (vedi `swe_seen` in
+# `process_domain`).
+#
+# ECMWF (ATTENZIONE): il campo e' una STIMA DEL FORNITORE (derivata da
+# precipitazione + temperature), non un accumulo fisico coerente con
+# `precipitation`: su 661 celle reali `precipitation - showers - swe` e'
+# NEGATIVO in 40 celle (fino a -3.5 mm). Per questo il motore NON deriva mai
+# `pioggia = precip - swe`: pubblica `swe` e la frazione, e la frazione e'
+# limitata a [0,1].
+VAR_SWE_DOMAINS = frozenset({
+    "dwd_icon",
+    "dwd_icon_eu",
+    "dwd_icon_d2",
+    "ecmwf_ifs025",
+    "ncep_gfs013",
+    "meteofrance_arpege_world025",
+})
+
+# Le 2 variabili della fase neve: `snowfall_water_equivalent` e' DIRETTA (dato
+# del modello), `snow_fraction` e' DERIVATA (swe/precipitation, NOSTRA).
+VARS_SWE = (
+    "snowfall_water_equivalent",
+    "snow_fraction",
+)
+VARS_SWE_SET = frozenset(VARS_SWE)
+
+
+def domain_supports_swe(domain):
+    """True se `domain` e' nell'allowlist della fase neve."""
+    return domain in VAR_SWE_DOMAINS
+
+
+def _filter_swe(var_defs, domain):
+    """Toglie le voci neve se il dominio non e' in `VAR_SWE_DOMAINS`.
+
+    Stesso contratto di `_filter_10hpa`: le voci stanno in CODA alla lista,
+    quindi per `ncep_gfs025` la lista resta identica (contenuto E ORDINE) a
+    quella storica e `var_order` nel suo manifest non cambia.
+    """
+    if domain_supports_swe(domain):
+        return list(var_defs)
+    return [v for v in var_defs if v["name"] not in VARS_SWE_SET]
+
+
 def _filter_10hpa(var_defs, domain):
     """Toglie le voci 10 hPa se il dominio non e' in `VAR_10HPA_DOMAINS`.
 
@@ -358,13 +434,13 @@ def _filter_10hpa(var_defs, domain):
 
 
 def risk_vars_for(domain):
-    """Variabili PUBBLICATE ammesse per `domain` (allowlist 10 hPa applicata)."""
-    return _filter_10hpa(V2_RISK_VARS, domain)
+    """Variabili PUBBLICATE ammesse per `domain` (allowlist 10 hPa e neve)."""
+    return _filter_swe(_filter_10hpa(V2_RISK_VARS, domain), domain)
 
 
 def input_vars_for(domain):
-    """Variabili di INPUT ammesse per `domain` (allowlist 10 hPa applicata)."""
-    return _filter_10hpa(V2_INPUT_VARS, domain)
+    """Variabili di INPUT ammesse per `domain` (allowlist 10 hPa e neve)."""
+    return _filter_swe(_filter_10hpa(V2_INPUT_VARS, domain), domain)
 
 
 def read_vars_for(domain):
@@ -400,6 +476,13 @@ V2_OUT = "data/fm2"
 # mai 360 il writer pubblico passa da `wrap_wind_direction_for_step`, che mappa
 # le direzioni >= 360 - passo/2 a 0 (360 equivale a 0).
 WIND_DIRECTION_STEP = 1.0
+# Passo della frazione nevosa: 0.01 = 1 punto percentuale, la STESSA
+# risoluzione dei campi percentuali gia' pubblicati (relative_humidity_*,
+# cloud_cover_*, passo 1.0 su una scala 0-100). Il valore pubblicato resta un
+# numero CONTINUO in [0,1]: il motore non applica alcuna soglia neve/pioggia
+# (la decisione visiva e' del renderer/client). int16 con scale_factor = 100
+# rappresenta 0.00..1.00 con 101 livelli: nessun rischio di saturazione.
+SNOW_FRACTION_STEP = 0.01
 VARIABLE_STEP = {
     "temperature_2m": 0.1,              # 0.1 degC
     "temperature_850hPa": 0.1,          # 0.1 degC
@@ -448,6 +531,9 @@ VARIABLE_STEP = {
     "wind_v_component_10hPa": 0.1,      # 0.1 m/s
     "wind_speed_10hPa": 0.1,            # 0.1 m/s (DERIVATA da u/v 10hPa)
     "wind_direction_10hPa": WIND_DIRECTION_STEP,  # 1 grado (DERIVATA da u/v 10hPa)
+    # --- fase neve (solo domini in VAR_SWE_DOMAINS) ---
+    "snowfall_water_equivalent": 0.1,   # 0.1 mm (DATO DEL MODELLO, non derivato)
+    "snow_fraction": SNOW_FRACTION_STEP,  # 0.01 (DERIVATA NOSTRA: swe/precipitation)
 }
 DEFAULT_STEP = 1.0
 DEFAULT_CHUNKS = [32, 32]
@@ -1072,6 +1158,43 @@ def _derive_wind_direction_10hPa(arrays):
                                arrays["wind_v_component_10hPa"]))
 
 
+def snow_fraction(swe, precipitation):
+    """Frazione di precipitazione caduta come NEVE: `swe / precipitation`.
+
+    DERIVATA NOSTRA, non una classificazione del modello: e' il RAPPORTO fra
+    due campi del modello (`snowfall_water_equivalent` in mm di acqua
+    equivalente e `precipitation` in mm), pubblicato come numero CONTINUO in
+    [0,1]. Qui NON c'e' alcuna soglia neve/pioggia: la soglia ("neve se
+    frazione >= 0.5") e' una decisione di resa e vive nel renderer/client.
+
+    Regole dichiarate (e verificate sui frame reali, vedi report):
+      - `precipitation <= 0` o NaN -> NaN ("null"): senza precipitazione la
+        fase NON e' definibile; 0.0 sarebbe l'affermazione "piove", che e' una
+        cosa diversa.
+      - `precipitation > 0` e `swe == 0` -> 0.0 (tutta pioggia).
+      - `swe == precipitation` -> 1.0 (tutta neve).
+      - `swe` NaN con `precipitation > 0` -> NaN: dato assente, non "0 neve".
+      - risultato LIMITATO a [0,1]: su ECMWF il campo neve e' una STIMA DEL
+        FORNITORE e puo' superare la precipitazione (misurato: 40 celle su 661
+        con `precipitation - showers - swe` negativo, fino a -3.5 mm). Il
+        limite dichiara "tutta neve" senza inventare frazioni > 1; e non si
+        deriva MAI `pioggia = precipitation - swe` (su ECMWF i campi non sono
+        coerenti fra loro).
+    """
+    pr = np.asarray(precipitation, dtype=np.float32)
+    sw = np.asarray(swe, dtype=np.float32)
+    out = np.full(pr.shape, np.nan, dtype=np.float32)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        np.divide(sw, pr, out=out, where=(pr > 0))
+        out = np.clip(out, np.float32(0.0), np.float32(1.0))
+    return out.astype(np.float32)
+
+
+def _derive_snow_fraction(arrays):
+    return snow_fraction(arrays["snowfall_water_equivalent"],
+                         arrays["precipitation"])
+
+
 # Registro delle derivazioni: nome PUBBLICATO -> {sources, func, stateful}.
 # `sources` = nomi (pubblicati o di INPUT) che devono essere presenti; `func`
 # (arrays) = derivata per-frame; `stateful: True` = NON per-frame ma accumulata
@@ -1129,6 +1252,18 @@ DERIVED_VARS = {
         "func": None,
         "stateful": True,
     },
+    # --- FASE NEVE (2026-10-25) — DERIVATA NOSTRA, non dato del modello.
+    # `snow_fraction = snow_fraction(swe, precipitation)`: rapporto fra due
+    # campi del modello, continuo in [0,1], nessuna soglia (vedi docstring di
+    # `snow_fraction`). Calcolata SOLO per i domini di `VAR_SWE_DOMAINS`: il
+    # gate e' applicato DUE volte, in `risk_vars_for`/`read_vars_for`
+    # (nessuna lettura, nessuna voce nel manifest) e qui sotto (nessuna
+    # derivazione anche se le sorgenti fossero presenti negli `arrays` per un
+    # altro motivo).
+    "snow_fraction": {
+        "sources": ["snowfall_water_equivalent", "precipitation"],
+        "func": _derive_snow_fraction,
+    },
 }
 
 
@@ -1151,6 +1286,13 @@ def derive_per_frame(arrays, meta, domain):
             # `risk_vars_for`/`read_vars_for`, applicato qui come seconda
             # barriera nel caso gli `arrays` contengano le componenti u/v a
             # 10 hPa per un percorso diverso.
+            continue
+        if name in VARS_SWE_SET and not domain_supports_swe(domain):
+            # ALLOWLIST fase neve: `ncep_gfs025` non ha alcuna variabile di
+            # superficie. Se per un percorso diverso gli `arrays` contenessero
+            # `precipitation` + `snowfall_water_equivalent`, la frazione NON
+            # deve essere pubblicata e non deve produrre warning (stessa
+            # seconda barriera del 10 hPa).
             continue
         srcs = spec["sources"]
         missing = [s for s in srcs if s not in arrays]
@@ -1881,6 +2023,10 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
         res["vars_read"] = dry_read
         res["vars_10hpa"] = [n for n in dry_risk if n in VARS_10HPA_SET]
         res["vars_10hpa_domain_allowed"] = domain_supports_10hpa(domain)
+        # Stessa visibilita' per l'allowlist della fase neve: `ncep_gfs025` non
+        # deve mostrare ne' `snowfall_water_equivalent` ne' `snow_fraction`.
+        res["vars_snow"] = [n for n in dry_risk if n in VARS_SWE_SET]
+        res["vars_snow_domain_allowed"] = domain_supports_swe(domain)
         res["status"] = "ok"
         nx = grid["nx"] if grid else "?"
         ny = grid["ny"] if grid else "?"
@@ -1898,6 +2044,9 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
                  "si" if domain_supports_10hpa(domain) else "no",
                  len(res["vars_10hpa"]),
                  ", ".join(res["vars_10hpa"]) or "-"))
+        print("%s [PLAN] dominio '%s': neve ammessa=%s (%d: %s)"
+              % (LOG, domain, "si" if domain_supports_swe(domain) else "no",
+                 len(res["vars_snow"]), ", ".join(res["vars_snow"]) or "-"))
         return res
 
     # --- NO-OP GUARD per-dominio (prima di scaricare i frame) ---
@@ -1995,6 +2144,11 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
     out_shape = (out_grid["ny"], out_grid["nx"])
     precip_cum = None
     precip_seen = False
+    # Fase neve: `snowfall_water_equivalent` e' un accumulato e NON esiste a
+    # T+0 (come `precipitation`). Se mancasse su TUTTI i frame lo si dichiara
+    # con un warning di sintesi (i warning per-frame sono gia' emessi da
+    # `missing_published_warnings`).
+    swe_seen = False
 
     frames = []
     variables_map = {}
@@ -2101,6 +2255,8 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
         precip = arrays.get("precipitation")
         if precip is not None:
             precip_seen = True
+        if "snowfall_water_equivalent" in arrays:
+            swe_seen = True
         precip_cum = accumulate_precip_cum(precip_cum, precip, out_shape)
         arrays["precipitation_cum"] = precip_cum.astype(np.float32)
         vmeta["precipitation_cum"] = {
@@ -2171,6 +2327,11 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
         all_warnings.append(
             "precipitation_cum: variabile 'precipitation' assente in TUTTI i "
             "frame del dominio '%s': la cumulata resta a 0" % domain)
+    if domain_supports_swe(domain) and not swe_seen:
+        all_warnings.append(
+            "snowfall_water_equivalent: assente in TUTTI i frame del dominio "
+            "'%s': nessuna informazione di fase neve/pioggia in questo run "
+            "(a T+0 e' ATTESO: i campi accumulati non esistono)" % domain)
 
     removed = []
     if not args.no_prune:
@@ -2381,6 +2542,7 @@ def main(argv=None):
             "max_frames_cap": V2_MAX_FRAMES,
             "prune": not args.no_prune,
             "var_10hpa_domains": sorted(VAR_10HPA_DOMAINS),
+            "var_swe_domains": sorted(VAR_SWE_DOMAINS),
             "domains": [
                 {
                     "domain": r["domain"],
@@ -2402,6 +2564,8 @@ def main(argv=None):
                     "vars_read": r.get("vars_read"),
                     "vars_10hpa": r.get("vars_10hpa"),
                     "vars_10hpa_domain_allowed": r.get("vars_10hpa_domain_allowed"),
+                    "vars_snow": r.get("vars_snow"),
+                    "vars_snow_domain_allowed": r.get("vars_snow_domain_allowed"),
                     "out_dir": r.get("out_dir"),
                     "frames_glob": (os.path.join(r["out_dir"], "<VALID>.om")
                                     if r.get("out_dir") else None),
