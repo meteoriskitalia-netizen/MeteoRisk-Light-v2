@@ -25,9 +25,11 @@ name: Forecast Maps V2 - NOAA GFS 0.25 + GFS 0.117 (mappe .om + WebP, branch fm2
 #     directory dei PROPRI domini: path DISGIUNTI per dominio, quindi nessuna
 #     collisione di contenuto. L'unico punto di contatto e' il REF del branch
 #     (push rifiutato perche' un altro merge ha avanzato il tip): gestito dal retry
-#     5x per-rifetch GIA' presente (il commit riparte dal tip fresco). Le concurrency
-#     dei merge sono su gruppi diversi per fornitore, quindi merge di fornitori
-#     diversi possono girare in parallelo senza serializzarsi a vicenda.
+#     8x per-rifetch CON JITTER nel passo `Commit WebP` (il commit riparte dal tip
+#     fresco e ripubblica solo i gruppi mancanti). Dalla 1.2.4.23 NON esiste piu'
+#     un lock globale sui merge: i 5 merge girano davvero in parallelo e la
+#     contesa sul ref e' assorbita da lease + retry (prima erano tutti sullo
+#     stesso gruppo `fm2-rendered-writer`, che saturava all'83%).
 #
 # !!! IL MERGE PER-FORNITORE NON SCRIVE GLI `index.json` - vedi il blocco nel job
 #   `render-merge`. Lo scrittore UNICO dell'indice aggregato e'
@@ -48,25 +50,37 @@ on:
         description: "Ignora il NO-OP guard e riscrive i frame anche se il manifest e' invariato"
         type: boolean
         default: false
-  schedule:
-    # TRIGGER NATIVO (cron GitHub, orario UTC) - RETE DI SICUREZZA.
-    # Il trigger PRIMARIO sono i 2 job cron-job.org per provider (2 slot
-    # per run, vedi scripts/cronjobs/cronjobs_config.json).
-    # DUE SLOT PER RUN (regola P2) su cron-job.org, NON qui:
-    #   03:55, 09:55, 15:55, 21:55 = parziale (+15' su primo step +3h40)
-    #   05:52, 11:52, 17:52, 23:52 = completo (+13' su run completo +5h39)
-    # GFS 0.25 + GFS 0.117: run nominali 00/06/12/18Z. Tempi MISURATI il
-    # 2026-10-24 su gfs025 (gfs013 trattato uguale: nessuna misura separata).
-    # Questo cron e' SOLO la rete di sicurezza: +5h52 (chiusura coda) + 57',
-    # sfasato di 57' dagli slot cron-job.org.
-    - cron: "49 0,6,12,18 * * *"
+  # 1.2.4.23 - `schedule:` NATIVO RIMOSSO (2026-10-25). Il trigger di questo
+  # fornitore e' SOLO cron-job.org, con gli orari MISURATI in
+  # `scripts/cronjobs/cronjobs_config.json` (2 slot per run: parziale + completo).
+  #
+  # PERCHE' (misura, non opinione): un run `dwdicon` con event `schedule` e'
+  # partito alle 00:29:59Z, cioe' 151 minuti PRIMA dello slot configurato
+  # (03:01), e ha occupato il gruppo `fm2-dwdicon` per 115+ minuti facendo
+  # accodare gli slot veri delle 03:01 e 03:41. Il cron nativo di GitHub e'
+  # documentato come in ritardo imprevedibile: quando parte in ANTICIPO rispetto
+  # agli orari misurati produce un run fuori orario che blocca quelli buoni.
+  # La misura e' su `dwdicon`, ma il meccanismo (scheduler nativo di GitHub,
+  # orari non garantiti) e' identico per tutti e 5 i provider: qui il cron e'
+  # rimosso per la stessa ragione.
+  #
+  # La "rete di sicurezza" che questo cron rappresentava e' stata SPOSTATA
+  # sull'index-builder: `forecast-maps-index.yml` CONSERVA il proprio
+  # `schedule:` ed e' lui il recupero periodico dell'indice aggregato. Qui la
+  # rete non serviva: un colpo a vuoto costava comunque un run intero.
+  #
+  # REVERSIBILE in una riga: rimettere
+  #   schedule:
+  #     - cron: "49 0,6,12,18 * * *"
+  # (la storia git di questo file ha il blocco commentato per esteso).
   repository_dispatch:
     types: [ci-run]
 
 # CONCURRENCY A LIVELLO WORKFLOW - GRUPPO PROPRIO del fornitore (prefisso
 # `forecast-maps-ncep-`): non si mette in coda dietro gli altri 4 per-fornitore
-# ne' dietro l'index-builder. I lock PER-JOB (pipeline engine+render per-dominio,
-# per-dominio, merge per-fornitore) restano e serializzano il lavoro fine.
+# ne' dietro l'index-builder. Restano i lock PER-JOB del solo `engine` (per
+# dominio); il `render-merge` NON ha piu' lock dalla 1.2.4.23 (vedi il commento
+# sul job): lease + retry 8x con jitter al posto della serializzazione.
 # `cancel-in-progress: false`: cancellare a meta' lascerebbe la serie di push
 # incrementale parziale (il run successivo la ricompleta, ma nessuna fretta).
 concurrency:
@@ -511,17 +525,38 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    concurrency:
-      queue: max
-      # 1.2.4.15 - SERIALIZZAZIONE DEI MERGE SU `fm2-rendered`.
-      # Causa provata (run ncep 39881544372): i 5 workflow per-fornitore
-      # spingevano sullo STESSO branch `fm2-rendered` senza un lock condiviso
-      # -> `! [rejected] ... (fetch first)` e WebP del run orfani
-      # nell'artifact. Il gruppo e' UNICO per tutti e cinque (i nomi di
-      # group sono globali al repo, non al workflow): i merge si mettono in
-      # fila uno alla volta invece di collidere sul push.
-      group: fm2-rendered-writer
-      cancel-in-progress: false
+    # 1.2.4.23 - NIENTE `concurrency` SU QUESTO JOB: era il lock GLOBALE
+    # `fm2-rendered-writer`, condiviso da tutti e 5 i merge, ed era il COLLO DI
+    # BOTTIGLIA MISURATO della pipeline (non il trigger).
+    #
+    # MISURA (3 ore di produzione, 2026-10-24 23:25Z -> 2026-10-25 02:29Z):
+    #   - occupazione del lock: 183 min su 220 = 83%;
+    #   - attesa in coda fino a 42 minuti (run DWD 22:10: engine finito
+    #     23:06:45, merge PARTITO 23:48:34);
+    #   - costo di `Commit WebP`: 12-46 min per fornitore.
+    #   - NON era scarsita' di runner: la run DWD delle 22:10 era `pending`
+    #     alle 23:33 ma i suoi job `engine` erano gia' partiti alle 22:10:37;
+    #     in coda c'era SOLO il `render-merge`.
+    # Effetto: il raddoppio degli slot (2 per run) ha raddoppiato la domanda su
+    # una risorsa gia' satura, e il tempo totale DWD e' rimasto 108-129 min
+    # contro una baseline di 61-132: il guadagno del run parziale era assorbito
+    # dall'attesa.
+    #
+    # PERCHE' IL LOCK ORA E' SUPERFLUO: dal 2026-10-24 i push usano
+    # `git commit-tree` ORPHAN + `--force-with-lease="refs/heads/fm2-rendered:$PARENT"`
+    # e il merge RITENTA DAVVERO (fix P5, verificato in produzione: "! [rejected]
+    # ... (stale info)" -> rifiuto gruppo 1/2 -> rifetch -> riuscito al
+    # tentativo 2/5, 2/2 gruppi, albero finale == target). Due scrittori
+    # concorrenti NON si sovrascrivono: il secondo perde il lease, rifetcha e
+    # ripubblica solo i gruppi mancanti. Il lock non proteggeva piu' nulla che il
+    # lease non protegga gia': aggiungeva solo attesa.
+    #
+    # La contesa che il lock assorbiva e' ora assorbita dal retry 8x CON JITTER
+    # del passo `Commit WebP` (vedi li'). Toglierlo e' REVERSIBILE: basta
+    # rimettere qui
+    #   concurrency:
+    #     group: fm2-rendered-writer
+    #     cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -673,7 +708,7 @@ jobs:
           # faceva `exit 1` al primo colpo (il ciclo non arrivava mai a i=2); ora
           # solo i rifiuti di push (concorrenza sul branch) tornano al `git fetch`,
           # mentre guardia di scope e tree inconsistente escono 1 subito.
-          for i in 1 2 3 4 5; do
+          for i in 1 2 3 4 5 6 7 8; do
             PUSH_FAILED=0
             PUSH_FAILED_GROUP=""
             git fetch --no-tags --depth=1 origin fm2-rendered || true
@@ -805,7 +840,7 @@ jobs:
                 # cambiato sotto di noi: serve un fetch nuovo prima di riprovare.
                 PUSH_FAILED=1
                 PUSH_FAILED_GROUP="$gi"
-                echo "[WARN] Push del gruppo $gi/$NGROUPS RIFIUTATO (tentativo $i/5):"
+                echo "[WARN] Push del gruppo $gi/$NGROUPS RIFIUTATO (tentativo $i/8):"
                 echo "       scrittura concorrente su fm2-rendered (lease scaduto)."
                 echo "       Serie parziale: i gruppi 1..$((gi-1)) sono pubblicati, dal"
                 echo "       gruppo $gi in poi NO. Si ritenta dal fetch del tip fresco."
@@ -821,11 +856,23 @@ jobs:
             # NUOVO, si ricostruisce TREE e si ripartizionano i gruppi sul diff col
             # tip nuovo: i gruppi gia' pubblicati non compaiono piu' nel diff (il loro
             # contenuto e' nel tip), quindi si ripubblica dalla parte mancante in poi.
-            # `sleep` crescente per lasciar sfogare la contesa.
+            # `sleep` crescente CON JITTER: vedi SLEEP_S qui sotto.
             if [ "$PUSH_FAILED" -ne 0 ]; then
-              echo "[WARN] Serie parziale al tentativo $i/5 (rifiuto al gruppo $PUSH_FAILED_GROUP/$NGROUPS)."
+              echo "[WARN] Serie parziale al tentativo $i/8 (rifiuto al gruppo $PUSH_FAILED_GROUP/$NGROUPS)."
               echo "       Rifetch del tip, BASE/PARENT ricalcolati, gruppi ripartizionati."
-              sleep $((i * 5))
+              # `sleep` crescente CON JITTER (1.2.4.23). Da quando il lock
+              # `fm2-rendered-writer` non c'e' piu', due merge possono perdere il
+              # lease nello stesso istante e ritentare IN SINCRONO: con un backoff
+              # deterministico ricolliderebbero a ogni giro (livelock), quindi il
+              # jitter `RANDOM % 5` (0..4 s, bash) li disallinea.
+              # Costo: i*4 s di base (4,8,12,...,28) + 0..4 s; 7 sleep = max
+              # 112 + 28 = 140 s sull'intera serie, dentro il timeout 120' del job.
+              # Nessuno sleep all'ultimo tentativo (i=8): non servirebbe a nulla.
+              if [ "$i" -lt 8 ]; then
+                SLEEP_S=$(( i * 4 + RANDOM % 5 ))
+                echo "       Backoff ${SLEEP_S}s prima del tentativo $((i + 1))/8."
+                sleep "$SLEEP_S"
+              fi
               continue
             fi
             # ---- (6) VERIFICA: i gruppi DEVONO ricostruire esattamente TARGET ----
@@ -834,11 +881,19 @@ jobs:
               echo "        Nessun ulteriore push; il branch ha l'ultimo gruppo pubblicato."
               exit 1
             fi
-            echo "[INFO] Push incrementale completato: $pushed_groups/$NGROUPS gruppi, tree finale == TARGET ($TREE), tentativo $i/5."
+            echo "[INFO] Push incrementale completato: $pushed_groups/$NGROUPS gruppi, tree finale == TARGET ($TREE), tentativo $i/8."
             echo "published=true" >> "$GITHUB_OUTPUT"
             exit 0
           done
-          echo "[ERROR] Push su fm2-rendered non riuscito dopo 5 tentativi (ultimo rifiuto al gruppo ${PUSH_FAILED_GROUP:-?}/${NGROUPS:-?})."
+          echo "[ERROR] Push su fm2-rendered non riuscito dopo 8 tentativi (ultimo rifiuto al gruppo ${PUSH_FAILED_GROUP:-?}/${NGROUPS:-?})."
+          echo "        I GRUPPI GIA' PUBBLICATI RESTANO VALIDI: ogni gruppo e' un"
+          echo "        commit orphan gia' pushato con lease verificato, quindi il"
+          echo "        branch non e' rotto ne' corrotto. Mancano solo i gruppi dal"
+          echo "        ${PUSH_FAILED_GROUP:-1} in poi: i path dei cinque fornitori"
+          echo "        sono DISGIUNTI, quindi il parziale non sovrascrive nulla."
+          echo "        IL RUN SUCCESSIVO COMPLETA: al prossimo giro il diff"
+          echo "        BASE->TARGET contiene solo i path ancora assenti e li"
+          echo "        ripubblica con lo stesso meccanismo. Nessun intervento manuale."
           exit 1
 
       - name: Aggiorna subito l'indice aggregato
