@@ -114,9 +114,21 @@ jobs:
     # Leggero: 5 checkout di manifest JSON (piccoli), un checkout di `data/fm2-rendered`
     # (i WebP sono CACHED LATO GIT, non ri-renderizzati: `--index-only` non usa
     # Pillow/numpy), la scrittura di 4 index.json + color_scales.json e UN push.
-    # 30' e' margine abbondante per il checkout di `data/fm2-rendered` su un albero
-    # WebP grande; da riverificare alla prima run reale.
-    timeout-minutes: 30
+    #
+    # 45' (era 30') — MISURATO il 2026-10-25 sui run REALI di questa pipeline, non
+    # stimato (run 40148038238, composizione del tempo per step):
+    #   manifest dai 5 branch fornitore ...  5m44s
+    #   manifest JSON da fm2-rendered .....  7m23s
+    #   rebuild --index-only ..............    <1s
+    #   timeline ..........................    <1s
+    #   commit (+ push) ................... 16m58s (ucciso dal tetto di 30')
+    # Con il tetto a 30' il job veniva cancellato nel SOLO step di commit: 3 run su
+    # 4 cancellate e `index.json` fermo a generated_at 2026-10-25T00:35:10Z (oltre
+    # 1h30 senza pubblicazione). 45' coprono la somma misurata (~30') con ~15' di
+    # margine e restano molto sotto il limite di 6h del job. Il push NON e' lasciato
+    # libero di consumare il budget: nello step di commit ha un `timeout 600`
+    # esplicito e un `::error::` parlante (vedi li').
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -507,8 +519,36 @@ jobs:
             MSG="chore(fm2): rebuild index.json aggregato (7 domini) + color_scales (timeline invariata)"
             echo "[INFO] timeline_ok=${TIMELINE_OK:-vuoto}: nessun timeline.json entra in questo commit."
           fi
+          # ── STRUMENTAZIONE (2026-10-25) ────────────────────────────────────────
+          # Ogni fase di questo step stampa ora UTC di inizio/fine e durata, cosi' il
+          # prossimo run dice DOVE si blocca invece di lasciarlo dedurre. Contesto: il
+          # commit step e' l'unica fase che sfonda il budget (16m58s nel run
+          # 40148038238, ucciso dal tetto di 30') e nel run 40150515799 il fetch e'
+          # risultato COMPLETATO alle 01:42:58, seguito da 12' di silenzio totale.
+          echo "[commit] $(date -u +%H:%M:%S) step di commit avviato (job a 45', push con tetto 600s)."
           for i in 1 2 3 4 5; do
-            git fetch --no-tags --depth=1 origin fm2-rendered || true
+            # ── FETCH CONDIZIONALE ───────────────────────────────────────────────
+            # PERCHE': `fm2-rendered` e' un albero da 118.587 file / ~8,4 GB e il suo
+            # `git fetch --depth=1` e' la voce piu' cara di questo step. Ma lo step
+            # "Recupera i manifest JSON da fm2-rendered", piu' sopra nello stesso job,
+            # ha GIA' fatto lo stesso fetch: se il tip remoto non si e' mosso,
+            # `FETCH_HEAD` e' gia' il commit giusto e il fetch e' RIDONDANTE.
+            # `git ls-remote` costa pochi KB (nessun oggetto scaricato: il server
+            # annuncia solo i ref) e dice subito se il branch si e' mosso; il fetch
+            # si paga SOLO quando serve davvero.
+            # NB: dal tentativo 2 in poi, dopo una race sul lease, il tip remoto e'
+            # diverso per costruzione -> il fetch viene rifatto: la semantica del
+            # retry non cambia.
+            T_F_0=$(date -u +%s)
+            REMOTE="$(git ls-remote origin refs/heads/fm2-rendered 2>/dev/null | cut -f1 || true)"
+            LOCAL_TIP="$(git rev-parse --verify --quiet FETCH_HEAD 2>/dev/null || true)"
+            if [ -n "$REMOTE" ] && [ "$REMOTE" = "$LOCAL_TIP" ]; then
+              echo "[commit] $(date -u +%H:%M:%S) fetch SALTATO: tip remoto == FETCH_HEAD ($REMOTE); ls-remote in $(( $(date -u +%s) - T_F_0 ))s."
+            else
+              echo "[commit] $(date -u +%H:%M:%S) fetch necessario: remoto=${REMOTE:-<assente>} locale=${LOCAL_TIP:-<assente>} (ls-remote in $(( $(date -u +%s) - T_F_0 ))s)."
+              git fetch --no-tags --depth=1 origin fm2-rendered || true
+              echo "[commit] $(date -u +%H:%M:%S) fetch terminato, durata totale $(( $(date -u +%s) - T_F_0 ))s."
+            fi
             if git rev-parse --verify --quiet FETCH_HEAD >/dev/null 2>&1; then
               BASE="$(git rev-parse FETCH_HEAD^{tree})"
               PARENT="$(git rev-parse FETCH_HEAD)"
@@ -518,7 +558,9 @@ jobs:
               PARENT=""
             fi
             IDX="$(mktemp -u)"; rm -f "$IDX"
+            T_RT_0=$(date -u +%s)
             GIT_INDEX_FILE="$IDX" git read-tree "$BASE"
+            echo "[commit] $(date -u +%H:%M:%S) read-tree completato in $(( $(date -u +%s) - T_RT_0 ))s (tree $BASE)."
             # (1) stage-out dei SOLI path di proprieta' dell'index-builder che
             #     esistono nell'indice del branch (index.json/timeline.json delle 4
             #     regioni + color_scales.json): verranno ri-aggiunti dal working
@@ -539,7 +581,9 @@ jobs:
               # shellcheck disable=SC2086
               GIT_INDEX_FILE="$IDX" git add -A -- $add_paths
             fi
+            T_WT_0=$(date -u +%s)
             TREE="$(GIT_INDEX_FILE="$IDX" git write-tree)"
+            echo "[commit] $(date -u +%H:%M:%S) write-tree completato in $(( $(date -u +%s) - T_WT_0 ))s (tree $TREE)."
             rm -f "$IDX"
             # NO-OP: nessun path cambiato => nessun churn, ZERO file nel commit.
             # ⚠️ Con la timeline `generated_at` viene dall'ora reale (nessun
@@ -572,12 +616,48 @@ jobs:
             # pretende che il ref NON esista (forma "refs/heads/<branch>:" senza
             # valore). Mai `--force` nudo: una sovrascrittura concorrente DEVE
             # fallire invece di cancellare in silenzio.
+            T_CT_0=$(date -u +%s)
             NEW="$(git commit-tree "$TREE" -m "$MSG")"
-            if git push --force-with-lease="refs/heads/fm2-rendered:$PARENT" origin "$NEW:refs/heads/fm2-rendered"; then
-              echo "[INFO] Push dell'indice su fm2-rendered riuscito (tentativo $i/5)."
+            echo "[commit] $(date -u +%H:%M:%S) commit-tree completato in $(( $(date -u +%s) - T_CT_0 ))s: $NEW (parent ${PARENT:-<nessuno: commit orphan>})."
+            # ── PUSH: trace SEMPRE su file + tetto ESPLICITO di 600s ─────────────
+            # Trace su FILE, mai riversato nel log dello step: `GIT_CURL_VERBOSE`
+            # stamperebbe l'header `Authorization` (base64 delle credenziali), quindi
+            # si usano `GIT_TRACE` (comandi git eseguiti: pack-objects, send-pack,
+            # eventuale fetch promisor) e `GIT_TRACE_PACKET` (pkt-line del protocollo:
+            # want/have/acck), che non contengono credenziali. Del file si stampano
+            # solo le ultime righe, che per un push appeso sono esattamente il punto
+            # in cui si e' fermato.
+            # `timeout 600` (10') e' il tetto: se scade, il push viene ucciso
+            # (`--kill-after=30s` per non lasciare processi zombie) e lo step FALLISCE
+            # SUBITO con un `::error::` parlante, invece di restare appeso e bruciare
+            # i 45' del job (misurato: 16m58s in un solo tentativo, run 40148038238;
+            # run 40150515799 con 12' di silenzio dopo il fetch). Un timeout NON viene
+            # ritentato: non e' una race sul lease, e 5 tentativi da 600s
+            # sfonderebbero comunque il budget del job.
+            TRACE_LOG="${RUNNER_TEMP:-/tmp}/git-push-fm2-rendered-$i.log"
+            T_P_0=$(date -u +%s)
+            echo "[commit] $(date -u +%H:%M:%S) push inizio (tentativo $i/5), trace -> $TRACE_LOG"
+            set +e
+            GIT_TRACE=1 GIT_TRACE_PACKET=1 timeout --kill-after=30s 600 \
+              git push --force-with-lease="refs/heads/fm2-rendered:$PARENT" origin "$NEW:refs/heads/fm2-rendered" \
+              > "$TRACE_LOG" 2>&1
+            PUSH_RC=$?
+            set -e
+            PUSH_S=$(( $(date -u +%s) - T_P_0 ))
+            echo "[commit] $(date -u +%H:%M:%S) push terminato rc=$PUSH_RC in ${PUSH_S}s; trace: $(wc -l < "$TRACE_LOG" 2>/dev/null || echo 0) righe."
+            echo "[commit] trace (ultime 60 righe):"
+            tail -n 60 "$TRACE_LOG" 2>/dev/null || true
+            echo "[commit] git count-objects -v (dimensione locale dopo il push):"
+            git count-objects -v 2>/dev/null || true
+            if [ "$PUSH_RC" -eq 0 ]; then
+              echo "[INFO] Push dell'indice su fm2-rendered riuscito (tentativo $i/5, ${PUSH_S}s)."
               exit 0
             fi
-            echo "[WARN] Push su fm2-rendered rifiutato (race sul branch) - tentativo $i/5"
+            if [ "$PUSH_RC" -eq 124 ] || [ "$PUSH_RC" -eq 137 ]; then
+              echo "::error::push oltre 600s: processo ucciso da timeout (tentativo $i/5, ${PUSH_S}s). Le ultime righe del trace sopra dicono dove si e' fermato; file completo: $TRACE_LOG"
+              exit 1
+            fi
+            echo "[WARN] Push su fm2-rendered rifiutato (rc=$PUSH_RC, race sul branch) - tentativo $i/5"
             sleep $((i*3))
           done
           echo "[ERROR] Push dell'indice su fm2-rendered non riuscito dopo 5 tentativi."
