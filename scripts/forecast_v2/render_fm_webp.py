@@ -396,6 +396,64 @@ def make_lookup(scales: dict, var: str, theme: str):
 
 
 # --------------------------------------------------------------------------- #
+# VARIABILI COMPOSITE (helper)
+# --------------------------------------------------------------------------- #
+def composite_def(var):
+    """Definition of a composite variable (``COMPOSITE_VARS`` entry) or None."""
+    try:
+        return COMPOSITE_VARS.get(var)
+    except NameError:            # pragma: no cover - modulo incompleto
+        return None
+
+
+def palette_var(var: str) -> str:
+    """Variable whose COLOR SCALE paints ``var``.
+
+    A composite borrows the palette of its raster field (``__pressure_geopot``
+    is coloured like ``geopotential_height_500hPa``), so every place that asks
+    ``color_scales.json`` about a variable must go through this: the manifest
+    keeps carrying the palette sha of the WHOLE file, but the lookup, the unit
+    and the incremental reuse test are the raster's.
+    """
+    comp = composite_def(var)
+    return comp["raster"] if comp else var
+
+
+def composite_ready(var: str, present) -> bool:
+    """True when a composite can be drawn: BOTH its fields are in the frame.
+
+    ``present`` is the set/list of the frame's child names. A composite is
+    never a child of the frame, so the plain ``name in present`` test would
+    drop it; a frame missing one of the two fields must NOT be drawn (a Z500
+    raster with no isobars is not this product).
+    """
+    comp = composite_def(var)
+    if not comp:
+        return False
+    try:
+        names = set(present)
+    except TypeError:
+        return False
+    return comp["raster"] in names and comp["isobars"] in names
+
+
+def contour_interval_for(var: str, region: str | None = None):
+    """Isobar/isoline interval (data units) of ``var`` on ``region``.
+
+    Composites declare an interval per region (``isobar_interval``); every
+    other variable keeps the single value of ``CONTOUR_INTERVALS``, so the
+    call is region-independent for them and their output is unchanged.
+    """
+    comp = composite_def(var)
+    if not comp:
+        return CONTOUR_INTERVALS.get(var)
+    table = comp.get("isobar_interval") or {}
+    if region is not None and region in table:
+        return table[region]
+    return table.get("default")
+
+
+# --------------------------------------------------------------------------- #
 # Reprojection (latitude -> Web Mercator vertical spacing)
 # --------------------------------------------------------------------------- #
 def _merc_y(lat_deg: float) -> float:
@@ -1026,6 +1084,76 @@ OVERLAY_SUPERSAMPLE_MEDIUM = 1.5
 OVERLAY_SUPERSAMPLE_LARGE = 1.0
 POLAR_OVERLAY_SUPERSAMPLE = 1.5   # disco 1000^2: 1.5x basta e costa 2,25 MP
 
+# --------------------------------------------------------------------------- #
+# VARIABILI COMPOSITE: una sola immagine da DUE campi dello stesso frame
+#
+# Il client chiedeva `__pressure_geopot` (FM_SYNTH_PRESSURE_GEOPOT) come raster
+# Z500 con le isobare di MSL disegnate NEL BROWSER: per farlo scaricava il
+# `.om` del frame. Qui la stessa carta si disegna una volta lato server e si
+# pubblica come variabile a se', nella stessa cartella per-variabile del resto
+# (`<regione>/<dominio>/runs/<run>/<var>/<VALID>.webp`), quindi passa dal
+# percorso incrementale esistente con la chiave (regione, variabile, frame).
+#
+# Cosa disegna `__pressure_geopot`:
+#   * raster  = `geopotential_height_500hPa` a colori (palette della variabile,
+#     NESSUN valore scritto sopra: i colori bastano, richiesta di prodotto);
+#   * sopra   = isobare di `pressure_msl` BIANCHE con il valore (995, 1000,
+#     1005...) — bianche perche' il raster e' gia' colorato e l'inchiostro
+#     notturno ci si perde dentro;
+#   * intervallo 5 hPa su `italia` e `europa`, 10 hPa sul disco `north`.
+#
+# Perche' 10 hPa sul disco e non 5 (MISURATO il 2026-10-26 sul frame reale
+# ecmwf_ifs025 2026-10-26T06Z, disco 1000 px, contando gli anelli con
+# `contour_segments` + `_chain_segments`, cioe' le funzioni che disegnano):
+#   5 hPa -> 16 livelli, 1489 anelli; 8 hPa -> 9 livelli, 999 anelli;
+#   10 hPa -> 8 livelli, 711 anelli.
+# Un emisfero intero in 1000 px non regge 1489 anelli (il doppio dei 711 di 10
+# hPa) senza che le etichette si accavallino: 10 hPa tiene 8 valori leggibili.
+COMPOSITE_VARS = {
+    "__pressure_geopot": {
+        "raster": "geopotential_height_500hPa",
+        "isobars": "pressure_msl",
+        # Colori d'immagine (RGBA): bianco pieno con l'alpha storico delle isolinee.
+        "isobar_color": (255, 255, 255, int(round(CONTOUR_ALPHA * 255.0))),
+        # Contorno scuro sotto la linea bianca: senza, le isobare spariscono
+        # sulle bande chiare della palette Z500 (255,255,134 -> luminanza 246
+        # contro 255 del bianco). Il nucleo resta BIANCO.
+        "isobar_casing": (15, 23, 42, 150),
+        # Intervallo per regione (chiave `default` = tutte le altre).
+        "isobar_interval": {"default": 5.0, "north": 10.0},
+        # Le etichette del composito NON si accavallano: se un livello non ha
+        # spazio, quel valore resta scritto dove c'e' posto invece di essere
+        # incollato addosso a un altro numero (vedi `strict_labels`).
+        "strict_labels": True,
+    },
+}
+
+# Font delle etichette del composito (px di output). Il composito e' UNA sola
+# carta: le isobare non le ridisegna piu' il client sopra il raster, quindi non
+# c'e' piu' il doppio strato di numeri che imponeva i 12 px storici. Il minimo
+# richiesto e' 7 px a schermo. MISURATO su questo host (`_font_digit_height`,
+# Pillow del host): l'inchiostro delle cifre e' 0,667 x la dimensione nominale
+# (12 -> 8 px, 15 -> 10 px, 16 -> 11 px, 18 -> 13 px).
+#   * `europa` nel pannello vero (754 px CSS su 1121 px di immagine, fattore
+#     0,673): 16 px nominali danno 11 px di inchiostro = 7,2 px a schermo ->
+#     il minimo e' rispettato con 16 (con 12 storici erano 5,4 px, sotto).
+#   * Il disco `north` resta al valore automatico (18), che a 538 px di
+#     visualizzazione da' 12,7 px di inchiostro x 0,538 = 6,8 px: e' il valore
+#     che il modello di `label_font_px` sceglie per stare sopra i 7 px, e 16 lo
+#     abbasserebbe a 6,0 px.
+COMPOSITE_LABEL_FONT_PX = 16
+# Inversione dell'inchiostro delle etichette del composito: sotto
+# `COMPOSITE_LABEL_DARK_BG_LUM` (luminanza media del raster sotto l'etichetta,
+# scala 0-255) il testo diventa chiaro con alone scuro. Senza, i valori scritti
+# sulle bande blu scure della palette Z500 restavano illeggibili (misurato il
+# 2026-10-26 sull'immagine `europa` ridotta a 560 px: 970/980/985 non si
+# leggevano, gli altri 8 valori si).
+COMPOSITE_LABEL_DARK_BG_LUM = 110.0
+COMPOSITE_LABEL_INK_ON_DARK = (250, 250, 250, 240)
+COMPOSITE_LABEL_HALO_ON_DARK = (12, 18, 32, 220)
+# Unita' delle isolinee del composito, scritta nel manifest della variabile.
+COMPOSITE_ISOBAR_UNIT = "hPa"
+
 # Tabella dei 16 casi di marching squares: coppie di LATI da collegare.
 # Lati: 0 = ovest (fra z00 e z10), 1 = nord (fra z10 e z11), 2 = est (fra z01 e
 # z11), 3 = sud (fra z00 e z01). Bit degli angoli: b00 (SO) = 1, b10 (NO) = 2,
@@ -1347,14 +1475,21 @@ def label_font_px(out_w: int, out_h: int, forced: int = 0, region: str | None = 
     return LABEL_FONT_MAX_PX
 
 
-def _draw_label(draw, x, y, text, font, halo_r=1):
-    """Text with a white halo and dark ink on top (orizzontale: no rotation)."""
+def _draw_label(draw, x, y, text, font, halo_r=1, ink=None, halo=None):
+    """Text with a halo and ink on top (orizzontale: no rotation).
+
+    ``ink``/``halo`` override the defaults (dark ink, white halo). The composite
+    uses them to INVERT the pair over the dark bands of the Z500 palette, where
+    dark ink on dark blue is barely legible even with the white halo.
+    """
+    ink = INK_COLOR if ink is None else ink
+    halo = HALO_COLOR if halo is None else halo
     for dx in (-halo_r, 0, halo_r):
         for dy in (-halo_r, 0, halo_r):
             if dx == 0 and dy == 0:
                 continue
-            draw.text((x + dx, y + dy), text, font=font, fill=HALO_COLOR)
-    draw.text((x, y), text, font=font, fill=INK_COLOR)
+            draw.text((x + dx, y + dy), text, font=font, fill=halo)
+    draw.text((x, y), text, font=font, fill=ink)
 
 
 def _format_level(level, interval):
@@ -1478,8 +1613,18 @@ def _label_fits(x, y, bb, W, H, clip_circle=None):
     return True
 
 
+def _boxes_hit(boxes, x0, y0, x1, y1):
+    """True when ``(x0,y0,x1,y1)`` overlaps any box of ``boxes`` (rectangles)."""
+    for bx0, by0, bx1, by1 in boxes:
+        if x0 < bx1 and bx0 < x1 and y0 < by1 and by0 < y1:
+            return True
+    return False
+
+
 def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=None,
-                   force_labels=False, font_px=None, clip_circle=None):
+                   force_labels=False, font_px=None, clip_circle=None,
+                   color=None, strict_labels=False, casing_color=None,
+                   bg_rgba=None):
     """Draw the isolines of ``sub`` (and their VALUE labels) on ``draw``.
 
     ``draw`` is an ImageDraw on the SUPERSAMPLED overlay: every coordinate is
@@ -1492,6 +1637,23 @@ def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=No
     When the font is enlarged the anchor is constrained so the text stays
     inside the image; at 12 px (and without a disc) the historical placement is
     left untouched (byte-identical output).
+
+    ``color`` overrides the isoline RGBA (the composites draw WHITE isobars on a
+    coloured raster); ``None`` keeps the historical per-band colour of the scale.
+    ``casing_color`` draws the same lines FIRST, 2 overlay px wider, under the
+    isoline: a white line over the bright yellow bands of the Z500 palette
+    (255,255,134 -> luminance 246 vs 255) would otherwise disappear. MISURATO il
+    2026-10-26: le bande con luminanza > 210 coprono il 38,2% di `europa`, il
+    58,5% di `italia` e il 17,7% di `north` (conta dei pixel del raster Z500).
+    ``strict_labels`` makes the label placement non-overlapping: a candidate
+    must clear ``LABEL_MIN_SPACING_PX`` AND its ink box must not touch an
+    already placed label, and the two "at any cost" fallbacks below are
+    DISABLED (a level can end up with no label instead of a number printed on
+    top of another one). ``bg_rgba`` is the composed raster UNDER the overlay:
+    when given, the label inverts its ink (white text, dark halo) on a dark
+    background, so the value stays readable on both ends of the palette instead
+    of only on the bright bands. All of them default to the historical
+    behaviour, so every variable that does not ask for them is byte-identical.
     """
     empty = {"levels": [], "labels": []}
     if sub is None:
@@ -1510,10 +1672,20 @@ def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=No
     row_of, col_of, H, W = _grid_to_pixel(cgrid, scale)
     if placed is None:
         placed = []
+    placed_boxes = []
     font_out = max(1, int(font_px or LABEL_FONT_PX))
     font = _font(max(1, int(round(font_out * ss))))
     enforce_bounds = clip_circle is not None or font_out > LABEL_FONT_PX
     width = max(1, int(round(CONTOUR_LINE_WIDTH * ss)))
+    bg_lum = None
+    if bg_rgba is not None:
+        try:
+            _bg = np.asarray(bg_rgba)
+            bg_lum = (0.2126 * _bg[:, :, 0].astype(np.float32)
+                      + 0.7152 * _bg[:, :, 1].astype(np.float32)
+                      + 0.0722 * _bg[:, :, 2].astype(np.float32))
+        except (IndexError, TypeError, ValueError):
+            bg_lum = None
     drawn_levels = []
     drawn_labels = []
     for level in levels:
@@ -1530,10 +1702,15 @@ def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=No
         lines = _chain_segments(seg_px)
         if not lines:
             continue
-        color = _level_color(variant, level)
+        band_color = _level_color(variant, level) if color is None else color
+        if casing_color is not None:
+            cwidth = width + max(2, int(round(2.0 * ss)))
+            for (x0, y0, x1, y1) in seg_px:
+                draw.line([(x0 * ss, y0 * ss), (x1 * ss, y1 * ss)],
+                          fill=casing_color, width=cwidth)
         for (x0, y0, x1, y1) in seg_px:
             draw.line([(x0 * ss, y0 * ss), (x1 * ss, y1 * ss)],
-                      fill=color, width=width)
+                      fill=band_color, width=width)
         drawn_levels.append(level)
         total = 0.0
         for line in lines:
@@ -1542,7 +1719,7 @@ def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=No
             continue
         text = _format_level(level, interval)
         candidates = _label_candidates(lines, LABEL_MIN_SPACING_PX)
-        if force_labels and not candidates and lines:
+        if force_labels and not candidates and lines and not strict_labels:
             # Pressione e geopotenziale devono mantenere il valore anche sui
             # nuclei chiusi (minimi/massimi), spesso piu' corti della spaziatura
             # standard. Ancora l'etichetta al centro della linea piu' lunga.
@@ -1560,29 +1737,61 @@ def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=No
                 walked += seg
         chosen = [c for c in candidates
                   if _min_distance(placed, c) >= LABEL_MIN_SPACING_PX]
-        if not chosen and candidates:
-            # Ogni livello DEVE avere il valore scritto sull'immagine: se la
-            # spaziatura lo impedisce, si tiene il candidato piu' lontano.
-            chosen = [max(candidates, key=lambda c: _min_distance(placed, c))]
-        if enforce_bounds and chosen:
-            bb = _label_bbox_px(font, text, ss)
-            inside = [c for c in chosen
-                      if _label_fits(c[0], c[1], bb, W, H, clip_circle)]
-            if not inside:
-                # No anchor of the "spacing" subset fits: fall back to ANY
-                # anchor of the level that fits (still ON its own isoline) and
-                # drop the label only when the whole line runs outside the
-                # raster/disc.
-                fit_any = [c for c in candidates
-                           if _label_fits(c[0], c[1], bb, W, H, clip_circle)]
-                if fit_any:
-                    inside = [max(fit_any,
-                                  key=lambda c: _min_distance(placed, c))]
-            chosen = inside
+        if strict_labels:
+            # Nessun ripiego "a ogni costo": l'etichetta si scrive solo dove il
+            # suo rettangolo d'inchiostro non tocca un'altra etichetta gia'
+            # messa. Il valore mancante e' visibile sulla linea, un numero
+            # stampato sopra un altro numero non e' leggibile.
+            bb_s = _label_bbox_px(font, text, ss)
+            free = []
+            for c in chosen:
+                if enforce_bounds and not _label_fits(c[0], c[1], bb_s, W, H,
+                                                     clip_circle):
+                    continue
+                x0 = c[0] + bb_s[0]
+                y0 = c[1] + bb_s[1]
+                x1 = c[0] + bb_s[2]
+                y1 = c[1] + bb_s[3]
+                if _boxes_hit(placed_boxes, x0, y0, x1, y1):
+                    continue
+                placed_boxes.append((x0, y0, x1, y1))
+                free.append(c)
+            chosen = free
+        else:
+            if not chosen and candidates:
+                # Ogni livello DEVE avere il valore scritto sull'immagine: se la
+                # spaziatura lo impedisce, si tiene il candidato piu' lontano.
+                chosen = [max(candidates, key=lambda c: _min_distance(placed, c))]
+            if enforce_bounds and chosen:
+                bb = _label_bbox_px(font, text, ss)
+                inside = [c for c in chosen
+                          if _label_fits(c[0], c[1], bb, W, H, clip_circle)]
+                if not inside:
+                    # No anchor of the "spacing" subset fits: fall back to ANY
+                    # anchor of the level that fits (still ON its own isoline) and
+                    # drop the label only when the whole line runs outside the
+                    # raster/disc.
+                    fit_any = [c for c in candidates
+                               if _label_fits(c[0], c[1], bb, W, H, clip_circle)]
+                    if fit_any:
+                        inside = [max(fit_any,
+                                      key=lambda c: _min_distance(placed, c))]
+                chosen = inside
         for c in chosen:
             placed.append(c)
             drawn_labels.append((level, c[0], c[1]))
-            _draw_label(draw, c[0] * ss, c[1] * ss, text, font)
+            ink = halo = None
+            if bg_lum is not None:
+                bb = _label_bbox_px(font, text, ss)
+                x0 = max(0, int(round(c[0] + bb[0])) - 1)
+                x1 = min(bg_lum.shape[1], int(round(c[0] + bb[2])) + 1)
+                y0 = max(0, int(round(c[1] + bb[1])) - 1)
+                y1 = min(bg_lum.shape[0], int(round(c[1] + bb[3])) + 1)
+                if x1 > x0 and y1 > y0:
+                    if float(bg_lum[y0:y1, x0:x1].mean()) < COMPOSITE_LABEL_DARK_BG_LUM:
+                        ink, halo = COMPOSITE_LABEL_INK_ON_DARK, COMPOSITE_LABEL_HALO_ON_DARK
+            _draw_label(draw, c[0] * ss, c[1] * ss, text, font,
+                        ink=ink, halo=halo)
     return {"levels": drawn_levels, "labels": drawn_labels}
 
 
@@ -2007,7 +2216,9 @@ def _overlay_drawer(sub, cgrid, scale, variant, interval, placed,
                     force_labels=False,
                     speed_out=None, dir_out=None, speed_ref=0.0,
                     font_px=None, clip_circle=None, polar=False,
-                    arrow_grid=None, arrow_scale=None):
+                    arrow_grid=None, arrow_scale=None,
+                    contour_color=None, strict_labels=False,
+                    contour_casing=None, contour_bg=None):
     """Build the draw callback of the overlay (isolines + wind arrows).
 
     ``sub`` is the data-grid field (for the isolines), ``speed_out``/
@@ -2017,13 +2228,17 @@ def _overlay_drawer(sub, cgrid, scale, variant, interval, placed,
     ``polar`` switches the arrow rotation to the polar-stereographic frame.
     ``arrow_grid``/``arrow_scale`` decouple the arrow sampling grid from the
     isoline grid (the disc contours use the SOURCE grid, the arrows use the
-    1000x1000 sampled raster).
+    1000x1000 sampled raster). ``contour_color``/``strict_labels``/``
+    contour_casing`` are the composite options of ``_draw_contours`` and default
+    to the historical behaviour.
     """
     def _draw(draw, ss):
         if interval is not None:
             _draw_contours(draw, sub, cgrid, scale, variant, interval,
                            ss=ss, placed=placed, force_labels=force_labels,
-                           font_px=font_px, clip_circle=clip_circle)
+                           font_px=font_px, clip_circle=clip_circle,
+                           color=contour_color, strict_labels=strict_labels,
+                           casing_color=contour_casing, bg_rgba=contour_bg)
         if speed_out is not None and dir_out is not None:
             _draw_wind_arrows(draw, speed_out, dir_out,
                               arrow_grid if arrow_grid is not None else cgrid,
@@ -2558,23 +2773,31 @@ def _render_var_task(payload) -> dict:
     them, the historical full render). The array is read ONCE and cropped per
     requested region: skipping a published region saves the encode + the write,
     never the read.
+
+    A COMPOSITE variable (``COMPOSITE_VARS``) reads TWO arrays of the frame: its
+    raster paints the image and its second field draws the isolines. Everything
+    else — crop, resampler, font, output path — is the same code, so a composite
+    lands in the same per-variable directory and the incremental path sees it as
+    one more (region, variable, frame) cell.
     """
     frame_path, var, valid_time, base_name, regions = payload
     st = _WORKER_STATE
     scales = st["scales"]
+    comp = composite_def(var)
+    palette = palette_var(var)
 
     if var not in st["lookups"]:
-        st["lookups"][var] = make_lookup(scales, var, "light")
+        st["lookups"][var] = make_lookup(scales, palette, "light")
     lk = st["lookups"][var]
     if lk is None:
         return {"var": var, "valid_time": valid_time, "skip": "no_scale"}
 
     if var not in st["variants"]:
-        st["variants"][var] = _scale_variant(scales, var, "light")
+        st["variants"][var] = _scale_variant(scales, palette, "light")
     variant = st["variants"][var]
     unit = variant.get("unit") if variant else None
 
-    interval = CONTOUR_INTERVALS.get(var)
+    interval = contour_interval_for(var)     # region-independent fallback
     dir_name = ARROW_VARS.get(var)
     speed_ref = _speed_reference(variant) if dir_name else 0.0
     # A CODE (weather_code) is resampled NEAREST-NEIGHBOUR on every axis: the
@@ -2584,6 +2807,11 @@ def _render_var_task(payload) -> dict:
                            "geopotential_height_500hPa",
                            "geopotential_height_850hPa",
                            "geopotential_height_1000hPa"}
+    if comp:
+        # Il raster del composito non porta valori scritti (i colori bastano) e
+        # le sue isolinee SONO il secondo campo: sempre etichettate e senza
+        # frecce.
+        force_labels = True
 
     try:
         reader = OmFileReader(frame_path)
@@ -2592,10 +2820,20 @@ def _render_var_task(payload) -> dict:
                 "error": "cannot open %s: %s" % (frame_path, exc)}
     try:
         try:
-            arr = read_frame_array(reader, var)
+            arr = read_frame_array(reader, palette if comp else var)
         except Exception as exc:
             return {"var": var, "valid_time": valid_time,
                     "error": "%s/%s read failed: %s" % (valid_time, var, exc)}
+
+        # Composito: il secondo campo dello stesso frame disegna le isolinee.
+        iso_arr = None
+        if comp:
+            try:
+                iso_arr = read_frame_array(reader, comp["isobars"])
+            except Exception as exc:
+                return {"var": var, "valid_time": valid_time,
+                        "error": "%s/%s read failed: %s"
+                                 % (valid_time, comp["isobars"], exc)}
 
         # Wind arrows: the direction array has no color scale of its own; it
         # is read explicitly from the SAME frame (one read per direction var,
@@ -2658,7 +2896,11 @@ def _render_var_task(payload) -> dict:
 
         # Isolines (with values) and wind arrows are drawn on a separate RGBA
         # layer and alpha-composited: the base raster is NEVER resampled.
-        if interval is not None or dir_arr is not None:
+        if interval is not None or dir_arr is not None or iso_arr is not None:
+            iso_sub = sub
+            if iso_arr is not None:
+                iso_sub = iso_arr[crop["row0"]:crop["row1"],
+                                  crop["col0"]:crop["col1"]]
             dir_out = None
             if dir_arr is not None:
                 dsub = dir_arr[crop["row0"]:crop["row1"],
@@ -2668,14 +2910,23 @@ def _render_var_task(payload) -> dict:
                     dir_out = crop["resample"](dsub)[0]
                 else:
                     dir_out = crop["resample"](dsub)
+            interval_r = (contour_interval_for(var, rname)
+                          if comp else interval)
+            font_r = crop.get("font_px")
+            if comp:
+                font_r = max(int(font_r or LABEL_FONT_PX), COMPOSITE_LABEL_FONT_PX)
             rgba = _apply_overlay(rgba, _overlay_drawer(
-                sub, overlay_grid, overlay_scale,
-                variant, interval, [], force_labels=force_labels,
+                iso_sub, overlay_grid, overlay_scale,
+                variant, interval_r, [], force_labels=force_labels,
                 speed_out=arr_out if dir_out is not None else None,
                 dir_out=dir_out, speed_ref=speed_ref,
-                font_px=crop.get("font_px"), clip_circle=clip_circle,
+                font_px=font_r, clip_circle=clip_circle,
                 polar=polar, arrow_grid=crop.get("arrow_grid"),
-                arrow_scale=1 if polar else None),
+                arrow_scale=1 if polar else None,
+                contour_color=comp["isobar_color"] if comp else None,
+                strict_labels=bool(comp and comp.get("strict_labels")),
+                contour_casing=comp.get("isobar_casing") if comp else None,
+                contour_bg=rgba if comp else None),
                 ss=POLAR_OVERLAY_SUPERSAMPLE if polar else None)
             if mask is not None:
                 # The overlay (isolines/labels/arrows) is composited on the full
@@ -2961,12 +3212,19 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
         for rname in crops:
             if requested:
                 vars_here = requested
+                if not args.vars:
+                    # `requested` viene dal `var_order` del manifest, che non
+                    # conosce i compositi (non sono campi del frame): senza
+                    # questa aggiunta il composito resterebbe fuori dallo stato
+                    # incrementale e verrebbe riscritto a ogni run.
+                    vars_here = list(requested) + [c for c in COMPOSITE_VARS
+                                                   if c not in requested]
             else:
                 vars_here = sorted({k[3] for k in existing_map
                                     if k[0] == rname and k[1] == domain
                                     and k[2] == run_id})
             for var in vars_here:
-                if _scale_variant(scales, var, "light") is None:
+                if _scale_variant(scales, palette_var(var), "light") is None:
                     continue  # nessuna scala: la variabile non e' mai resa
                 stt = var_publish_state(
                     _theme_var_dir(out_root, rname, domain, var, "light", run_id),
@@ -2978,7 +3236,7 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                 if stt["reuse"]:
                     reuse_dirs += 1
                     if var not in var_meta:
-                        variant = _scale_variant(scales, var, "light")
+                        variant = _scale_variant(scales, palette_var(var), "light")
                         if variant is not None:
                             var_meta[var] = variant.get("unit")
                     # Il manifest per-variabile e' l'UNIONE: qui si semina con i
@@ -3003,7 +3261,8 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
     def _has_scale(var):
         """True when the palette can color this variable at all (else no file)."""
         if var not in _scale_cache:
-            _scale_cache[var] = _scale_variant(scales, var, "light") is not None
+            _scale_cache[var] = _scale_variant(scales, palette_var(var),
+                                               "light") is not None
         return _scale_cache[var]
 
     def _published_regions(var, base_name):
@@ -3097,7 +3356,19 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                 except Exception:
                     pass
 
-            names = [v for v in requested if v in present] if requested else present
+            names = [v for v in requested
+                     if v in present or composite_ready(v, present)] if requested else present
+            # I compositi NON esistono nel frame: sono il prodotto di due campi
+            # dello stesso frame. Quando `--vars` non e' passato (la pipeline
+            # reale non lo passa: i nomi vengono da `present` o da `var_order`)
+            # senza questa riga `__pressure_geopot` non sarebbe MAI pubblicato.
+            # Con `--vars` esplicito resta opt-in, come una variabile normale:
+            # un re-render mirato non deve produrre altri 3 file per frame.
+            names = list(names)
+            if not args.vars:
+                for _cid in COMPOSITE_VARS:
+                    if _cid not in names and composite_ready(_cid, present):
+                        names.append(_cid)
             # Tratteggio neve: se la sorgente (frazione neve) non e' in QUESTO
             # dominio, la variabile si rende SENZA tratteggio. Una riga per
             # (dominio, variabile) - non una per frame (100 volte).
@@ -3108,7 +3379,8 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                     print("  ~ %s: %s senza %s nel frame -> nessun tratteggio"
                           % (domain, _hv, _hsrc), file=sys.stderr)
             if args.vars:
-                missing = [v for v in requested if v not in present]
+                missing = [v for v in requested
+                           if v not in present and not composite_ready(v, present)]
                 if missing:
                     print("  ~ %s: vars absent in frame: %s"
                           % (valid_time, ",".join(missing)), file=sys.stderr)
@@ -3239,6 +3511,23 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                     "frames": merged_recs,
                     "valid_times": [r["valid_time"] for r in merged_recs],
                 }
+                _comp = composite_def(var)
+                if _comp:
+                    # Il manifest dichiara cosa e' composto: il raster e'
+                    # `unit`, le isolinee sono un'altra grandezza con la sua
+                    # unita' e il suo passo. Senza questi campi chi legge il
+                    # manifest vedrebbe solo "m" e non saprebbe che le linee
+                    # bianche sono hPa.
+                    vmanifest["composite"] = {
+                        "raster": _comp["raster"],
+                        "isobars": _comp["isobars"],
+                        "isobar_unit": COMPOSITE_ISOBAR_UNIT,
+                        "isobar_interval": contour_interval_for(var, rname),
+                        "raster_labels": False,
+                        "label_font_px": max(
+                            int(crops[rname].get("font_px") or LABEL_FONT_PX),
+                            COMPOSITE_LABEL_FONT_PX),
+                    }
                 if projection:
                     vmanifest["projection"] = projection
                 if projection_meta:
