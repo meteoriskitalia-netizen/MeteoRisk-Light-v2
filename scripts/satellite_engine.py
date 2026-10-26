@@ -6,20 +6,20 @@ Satellite Engine (satellite_engine.py): scarica i frame satellitari EUMETSAT
 (2 ore a passo di 5 minuti) in satellite/<sourceId>/<slotISO>.webp.
 
 I frame GetMap (PNG) vengono ri-codificati in WebP (quality 80, method 6) con
-risoluzione INVARIATA (Europa 2048px, Italia 1024px): stessa identita' del
+risoluzione INVARIATA rispetto alla GetMap (Europa 1024px, Italia 1024px): stessa identita' del
 frame, dimensioni su disco/Pages molto piu' piccole. I vecchi frame PNG gia'
 presenti su disco vengono migrati localmente senza nuove richieste al WMS.
 
 Faithful port della logica dell'app (mri-light-1.2.3.1.html):
   - buildEumetsatLiveGetMap: GetMap EPSG:3857 su SATELLITE_EUROPE_BOUNDS
-    [[22,-28],[72,55]] (width 2048, height proporzionale, stessa sequenza di
+    [[22,-28],[72,55]] (width FRAME_WIDTH, height proporzionale, stessa sequenza di
     parametri layers/styles/format/transparent/version/time/width/height/srs/bbox);
   - frame Italia: stessa formula su SATELLITE_ITALY_BOUNDS [[36.5,6.6],[47.2,18.8]]
     con ITALY_FRAME_WIDTH = 1024;
   - buildSyncTimeline + EUMETSAT_DATA_LAG_MS: time = ora corrente - 15 minuti,
     floor a 5 minuti (setUTCMinutes(floor(m/5)*5, 0, 0)), formato .000Z.
 
-6 sorgenti: 3 Europa (2048px, ~4,2 MP per frame) + 3 Italia (1024px, ~1,3 MP
+6 sorgenti: 3 Europa (1024px, ~1,05 MP per frame) + 3 Italia (1024px, ~1,3 MP
 per frame, pixel -70% rispetto all'Europa).
 
 Backfill: ogni run scarica tutti gli slot mancanti della finestra di 2 ore
@@ -73,7 +73,16 @@ EU_SOUTH, EU_NORTH = 22.0, 72.0
 IT_WEST, IT_EAST = 6.6, 18.8
 IT_SOUTH, IT_NORTH = 36.5, 47.2
 WORLD_M = 40075016.685578488
-FRAME_WIDTH = 2048
+# Risoluzione Europa. MISURATA il 2026-10-26 sulla WMS reale (stessa GetMap,
+# solo width variabile): rgb_geocolour 2048 px = 166,0 s / 7,61 MB contro
+# 1024 px = 42,9 s / 2,08 MB (3,87x); ir105_hrfi 2048 px = 33,2 s / 1,29 MB
+# contro 1024 px = 5,1 s / 6,51x. Con 2048 l'intera finestra (25 slot x 6
+# sorgenti) richiedeva 6031 s = 100 minuti contro una cadenza di 10: il ciclo
+# non entrava MAI nella cadenza, quindi ogni run trovava la finestra vecchia e
+# ricominciava il backfill completo (9 dispatch su 10 scartati da GitHub).
+# Il pannello dell'app e' largo 754 px: 1024 e' 1,36x di sovracampionamento,
+# 2048 era 2,7x e si pagava 4x in tempo.
+FRAME_WIDTH = 1024
 ITALY_FRAME_WIDTH = 1024
 SOURCES = {
     "eumetsat_italy":           {"layer": "mtg_fd:ir105_hrfi",   "bounds": (IT_WEST, IT_EAST, IT_SOUTH, IT_NORTH), "width": ITALY_FRAME_WIDTH},
@@ -91,7 +100,9 @@ HTTP_TIMEOUT_S = 60
 RETRY_ATTEMPTS = 4
 RETRY_BACKOFF_BASE_S = 5.0
 RETRY_JITTER_MAX_S = 1.5
-MAX_WORKERS = 4
+# 8 thread: la WMS regge (4 gia' usati senza throttling osservato) e con 4
+# il backfill completo a 1024 px resta sopra i 10 minuti.
+MAX_WORKERS = 8
 USER_AGENT = common.APP_NAME + "/satellite-engine (non-commercial)"
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 EXT = ".webp"

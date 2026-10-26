@@ -60,6 +60,10 @@ concurrency:
 jobs:
   satellite-engine:
     runs-on: ubuntu-latest
+    # 20 min: il backfill completo a 1024 px misurato ~8 min con 8 thread.
+    # Senza timeout una run appesa tiene il lock del gruppo e affama la coda
+    # (misurato il 2026-10-26: 101,4 min per run contro dispatch ogni 10).
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -118,8 +122,12 @@ jobs:
       # Branch orphan a commit singola (niente parent -> history resettata ad
       # ogni push, crescita zero). Il push va a satellite-cache, mai a main.
       # Il push avviene SOLO se il download e' riuscito (if: success()).
+      # if: always() e NON success(): un backfill interrotto (timeout, 500 della
+      # WMS, run sostituita) deve comunque pubblicare i frame gia' scaricati.
+      # Prima si perdeva tutto e la run successiva ripartiva dal vuoto: era
+      # esattamente il meccanismo che teneva la finestra perennemente incompleta.
       - name: Aggiorna branch satellite-cache (force-push rolling window)
-        if: success()
+        if: always()
         run: |
           set -euo pipefail
           if [ ! -d satellite ]; then
