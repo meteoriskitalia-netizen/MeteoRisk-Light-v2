@@ -174,13 +174,112 @@ jobs:
             --partial-min-frames 3 \
             $FORCE &
           ENGINE_PID=$!
+          # ------------------------------------------------------------------
+          # RENDER INCREMENTALE - 1: elenco dei WebP GIA' PUBBLICATI (1.2.4.29)
+          #
+          # Il renderer accetta `--existing-list`: i (frame, variabile) gia' sul
+          # branch per QUESTO run_id vengono SALTATI. E' la differenza fra il
+          # primo slot (run parziale, ~24-30 frame) e il secondo (run completo):
+          # senza elenco il secondo slot rifa' anche i frame gia' pubblicati.
+          #
+          # Il run_id non e' un input: e' `_run_id(reference_time)` e il
+          # reference_time lo annuncia il motore nel `--progress-manifest`,
+          # scritto PRIMA del primo frame. Si attende quel file (max 10 min,
+          # 5 s per giro) invece di indovinarlo: se non compare si parte SENZA
+          # elenco, cioe' col comportamento storico (render completo).
+          #
+          # `--filter=blob:none`: si scaricano SOLO gli alberi di fm2-rendered
+          # (2,55 MiB e ~3,6 s misurati sul branch reale), nessun blob WebP.
+          # Il glob in MEZZO al pathspec NON viene espanso da `git ls-tree`
+          # (verificato: 0 righe contro 1 col path esplicito), quindi si passano
+          # le regioni di `render_fm_webp.REGIONS` esplicite, tutte in UNA sola
+          # invocazione.
+          #
+          # PALETTE: sullo shard non c'e' il `latest.json` per-variabile (non e'
+          # nel checkout: servono scripts/forecast_v2 + data/fm2/<dominio>),
+          # quindi la prova che i pixel pubblicati sono di QUESTA palette e'
+          # `--existing-palette-sha` = sha256 di
+          # `data/fm2-rendered/color_scales.json` SUL BRANCH (dove
+          # `copy_color_scales` pubblica la copia esatta del file locale). Se il
+          # file non e' sul branch si usa lo sha256 del file locale, che e' la
+          # palette con cui si renderizza qui. Palette diversa => il renderer
+          # NON riusa e rifa' tutto: e' il comportamento voluto.
+          #
+          # `--force` (force_update) NON usa l'elenco: e' la via per rigenerare
+          # tutto e deve restare tale.
+          # ------------------------------------------------------------------
+          EXIST_FILE="$RUNNER_TEMP/fm2-existing-${{ matrix.domain }}.txt"
+          INCR_ARGS=""
+          if [ -n "$FORCE" ]; then
+            echo "[incr] force_update: render completo, nessun elenco esistente."
+          else
+            : > "$EXIST_FILE"
+            INCR_WAIT=0
+            while [ ! -f "$PROGRESS" ] && [ "$INCR_WAIT" -lt 120 ]; do
+              if ! kill -0 "$ENGINE_PID" 2>/dev/null; then
+                echo "[incr] motore terminato prima di pubblicare il manifest."
+                break
+              fi
+              sleep 5
+              INCR_WAIT=$((INCR_WAIT + 1))
+            done
+            RUN_ID=""
+            REF_TIME=""
+            NOOP_FLAG=""
+            if [ -f "$PROGRESS" ]; then
+              NOOP_FLAG="$(python -c 'import json,sys; print("1" if (json.load(open(sys.argv[1], encoding="utf-8-sig")) or {}).get("noop") else "0")' "$PROGRESS" 2>/dev/null || true)"
+              REF_TIME="$(python -c 'import json,sys; print((json.load(open(sys.argv[1], encoding="utf-8-sig")) or {}).get("reference_time") or "")' "$PROGRESS" 2>/dev/null || true)"
+              if [ -n "$REF_TIME" ]; then
+                RUN_ID="$(python -c 'import sys; sys.path.insert(0, "scripts/forecast_v2"); import render_fm_webp as R; print(R._run_id(sys.argv[1]))' "$REF_TIME" 2>/dev/null || true)"
+              fi
+            fi
+            echo "[incr] manifest: attesa=${INCR_WAIT}x5s noop=${NOOP_FLAG:-?} reference_time=${REF_TIME:-?} run_id=${RUN_ID:-?}"
+            if [ "$NOOP_FLAG" = "1" ]; then
+              echo "[incr] motore in NO-OP: il renderer esce subito, nessun elenco da costruire."
+            elif [ -n "$RUN_ID" ]; then
+              INCR_FETCH="ok"
+              if ! git fetch --no-tags --depth=1 --filter=blob:none origin fm2-rendered 2> "$RUNNER_TEMP/fm2-incr-fetch-${{ matrix.domain }}.log"; then
+                if git ls-remote --heads origin fm2-rendered 2>/dev/null | grep -q "refs/heads/fm2-rendered"; then
+                  INCR_FETCH="error"
+                else
+                  INCR_FETCH="missing-branch"
+                fi
+                sed 's/^/[incr][fetch] /' "$RUNNER_TEMP/fm2-incr-fetch-${{ matrix.domain }}.log" 2>/dev/null | tail -n 5 || true
+              fi
+              echo "[incr] fm2-rendered: fetch=$INCR_FETCH tip=$(git rev-parse --short FETCH_HEAD 2>/dev/null || echo -)"
+              if [ "$INCR_FETCH" = "ok" ]; then
+                SPECS=""
+                for region in $(python -c 'import sys; sys.path.insert(0, "scripts/forecast_v2"); import render_fm_webp as R; print(" ".join(sorted(R.REGIONS)))'); do
+                  SPECS="$SPECS data/fm2-rendered/$region/${{ matrix.domain }}/runs/$RUN_ID"
+                done
+                # Guardia: senza pathspec `git ls-tree` elencherebbe TUTTO il
+                # branch (altre run, altri domini): qui si vuole solo questo run.
+                if [ -n "$SPECS" ]; then
+                  git ls-tree -r --name-only FETCH_HEAD -- $SPECS > "$EXIST_FILE" 2>/dev/null || : > "$EXIST_FILE"
+                fi
+                echo "[incr] path gia' pubblicati per il run $RUN_ID: $(wc -l < "$EXIST_FILE")"
+                if [ -s "$EXIST_FILE" ]; then
+                  if git cat-file -e "FETCH_HEAD:data/fm2-rendered/color_scales.json" 2>/dev/null; then
+                    PALETTE_SHA="$(git show FETCH_HEAD:data/fm2-rendered/color_scales.json | sha256sum | cut -d' ' -f1)"
+                    echo "[incr] palette dal branch: $PALETTE_SHA"
+                  else
+                    PALETTE_SHA="$(sha256sum scripts/forecast_v2/color_scales.json | cut -d' ' -f1)"
+                    echo "[incr] color_scales.json NON e' sul branch: palette = sha256 del file locale."
+                  fi
+                  INCR_ARGS="--existing-list $EXIST_FILE --existing-palette-sha $PALETTE_SHA"
+                fi
+              fi
+            fi
+          fi
+          echo "[incr] argomenti incrementali: ${INCR_ARGS:-(nessuno: render completo)}"
           python scripts/forecast_v2/render_fm_webp.py \
             --in data/fm2 \
             --out data/fm2-rendered \
             --domains ${{ matrix.domain }} \
             --watch-manifest "$PROGRESS" \
             --limit-frames 0 \
-            --method 4 &
+            --method 4 \
+            $INCR_ARGS &
           RENDER_PID=$!
           if wait "$ENGINE_PID"; then ENGINE_STATUS=0; else ENGINE_STATUS=$?; fi
           if [ "$ENGINE_STATUS" -ne 0 ]; then
@@ -194,6 +293,22 @@ jobs:
             echo "[ERROR] Render streaming terminato con codice $RENDER_STATUS."
             exit "$RENDER_STATUS"
           fi
+          # ------------------------------------------------------------------
+          # GATE DEL RENDER INCREMENTALE (up-to-date)
+          #
+          # Con `--existing-list` il renderer esce 0 ANCHE quando non ha scritto
+          # nessun WebP: lo chiama "up-to-date" e significa che i pixel di
+          # questo run_id sono gia' tutti sul branch. L'exit code quindi NON dice
+          # se c'e' qualcosa da pubblicare.
+          # La verita' e' il FILESYSTEM dello shard: `data/fm2-rendered` nasce
+          # vuoto in questo job (non e' nel checkout) e contiene SOLO l'output di
+          # questo run. `changed=false` evita di caricare uno shard senza
+          # immagini, che il merge pubblicherebbe come "solo manifest" (e i
+          # manifest riscritti in unione porterebbero bytes=null al posto dei
+          # byte misurati).
+          # ------------------------------------------------------------------
+          WEBP_SHARD="$(find data/fm2-rendered -type f -name '*.webp' 2>/dev/null | wc -l)"
+          echo "[incr] WebP nello shard: $WEBP_SHARD"
           if python -c "import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get('noop') else 1)" "$PROGRESS" 2>/dev/null; then
             echo "[INFO] Dominio ${{ matrix.domain }} in NO-OP: verifico che i WebP del run siano su fm2-rendered."
             # ------------------------------------------------------------------
@@ -401,7 +516,12 @@ jobs:
               echo "::warning::[HEAL] Stato dei WebP del run non verificabile (fetch=$HEAL_FETCH): NO-OP mantenuto, nessun riprocessamento."
             fi
           else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
+            if [ "$WEBP_SHARD" -gt 0 ]; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::Render up-to-date (${{ matrix.domain }}): 0 WebP nuovi, artefatto non caricato e merge saltato."
+            fi
           fi
       - name: Summary
         if: always()
@@ -610,11 +730,18 @@ jobs:
           pattern: 'fm2r-*'
           path: /tmp/fm2r
 
-      - name: Assemble shard ECMWF IFS 0.25 (sostituisci le directory dominio)
+      - name: Assemble shard ECMWF IFS 0.25 (overlay delle directory dominio)
         id: shards
         run: |
-          # Sostituisci data/fm2-rendered/<regione>/<dominio> con la versione
-          # autorevole dello shard (rm PRIMA: le variabili droppate vanno pulite).
+          # OVERLAY, non sostituzione: lo shard di un render incrementale contiene
+          # SOLO il delta del run e i WebP gia' pubblicati NON sono su questo
+          # runner. `rm -rf` + `cp -a` lascerebbe il solo delta, cioe' i frame
+          # gia' pubblicati sparirebbero. Si sovrascrivono i file presenti e non
+          # si cancella nulla: la potatura delle run vecchie resta al prune
+          # (`prune_fm2_run_index.py --keep 3`) nel passo `Commit WebP`.
+          # Costo dichiarato: una variabile DROPPATA dall'elenco del motore non
+          # viene piu' rimossa da qui; sparisce quando la run esce dalla
+          # retention (3 run).
           # !!! SOLO i domini ecmwf_ifs025: nessun'altra directory dominio viene toccata,
           # e NESSUN index.json viene scritto ne' rimosso (sono fuori dalle path
           # <regione>/<dominio> e restano di proprieta' dell'index-builder).
@@ -634,9 +761,8 @@ jobs:
               [ -n "$found" ] && src="$found"
             fi
             if [ -n "$src" ] && [ -d "$src" ]; then
-              rm -rf "data/fm2-rendered/$region/ecmwf_ifs025"
-              mkdir -p "data/fm2-rendered/$region"
-              cp -a "$src" "data/fm2-rendered/$region/ecmwf_ifs025"
+              mkdir -p "data/fm2-rendered/$region/ecmwf_ifs025"
+              cp -a "$src/." "data/fm2-rendered/$region/ecmwf_ifs025/"
               got=1
             fi
           done
@@ -788,7 +914,13 @@ jobs:
               fi
               for rd in "$d"/runs/*; do
                 if [ -d "$rd" ]; then
-                  GIT_INDEX_FILE="$PREP_IDX" git add -A -- "$rd"
+                  # OVERLAY, NON SOSTITUZIONE: l'indice qui contiene GIA' tutti i
+                  # path pubblicati del branch (`read-tree --prefix` sopra) e lo
+                  # shard ne contiene solo il delta. `git add -A` registrerebbe
+                  # come CANCELLAZIONI i WebP presenti nell'indice e assenti
+                  # dallo shard: i frame gia' pubblicati sparirebbero.
+                  # `--ignore-removal` aggiunge e aggiorna soltanto.
+                  GIT_INDEX_FILE="$PREP_IDX" git add --ignore-removal -- "$rd"
                 fi
               done
               GIT_INDEX_FILE="$PREP_IDX" python scripts/forecast_v2/prune_fm2_run_index.py --index "$PREP_IDX" --path "$d" --keep 3
