@@ -360,7 +360,7 @@ def resolve_upsample(args, nx: int, ny: int) -> int:
 
 
 def build_row_resampler(grid: dict, scale: int = 1):
-    """Return f(arr)->arr remapping rows to uniform Mercator spacing (row0=north).
+    """Return f(arr, categorical=False)->arr remapping rows to Mercator spacing.
 
     ``scale == 1`` is the historical row-only resampler: width stays ``nx``,
     height stays ``ny`` and the result is byte-identical. ``scale > 1``
@@ -370,10 +370,17 @@ def build_row_resampler(grid: dict, scale: int = 1):
     while every pixel still wears an EXACT palette color (never a blend). Fully
     vectorized with numpy.
 
+    ``categorical=True`` switches BOTH axes (the row remap AND the ``scale``
+    upsample) to NEAREST-NEIGHBOUR. Averaging is meaningless on a CODE: 3 and
+    45 average to 24, a WMO code nobody issued, which the discrete breakpoint
+    lookup then paints with the "undefined" gray -- the measured gray seams
+    between two coloured zones. See ``CATEGORICAL_VARS``.
+
     NaN policy: a non-finite sample never gains a color. At ``scale > 1`` a
     pixel is emitted only when ALL of its bilinear source corners are finite;
     otherwise it is NaN (transparent). At ``scale == 1`` the historical two-tap
-    rule is kept verbatim.
+    rule is kept verbatim. On the categorical path a pixel is emitted only when
+    its NEAREST source sample is finite.
     """
     ny = int(grid["ny"])
     nx = int(grid["nx"])
@@ -384,7 +391,9 @@ def build_row_resampler(grid: dict, scale: int = 1):
 
     if scale <= 1:
         if ny <= 1:
-            return lambda arr: np.asarray(arr, dtype=np.float32).copy()
+            def resample_1_flat(arr: np.ndarray, categorical: bool = False) -> np.ndarray:
+                return np.asarray(arr, dtype=np.float32).copy()
+            return resample_1_flat
         my_south = _merc_y(lat_min)
         my_north = _merc_y(lat_north)
         span = my_north - my_south
@@ -395,12 +404,17 @@ def build_row_resampler(grid: dict, scale: int = 1):
             positions[r] = (lat - lat_min) / dy
         r0 = np.clip(np.floor(positions).astype(np.int64), 0, ny - 1)
         r1 = np.clip(r0 + 1, 0, ny - 1)
+        # Nearest source row: round-half-up, then clamp. Same pixel grid as the
+        # two-tap remap (the output row centres do not move).
+        nr = np.clip(np.floor(positions + 0.5).astype(np.int64), 0, ny - 1)
         w = (positions - r0)[:, None]
 
-        def resample_1(arr: np.ndarray) -> np.ndarray:
+        def resample_1(arr: np.ndarray, categorical: bool = False) -> np.ndarray:
             a = np.asarray(arr, dtype=np.float32)
             if a.shape[0] != ny:
                 raise ValueError("row count %d != grid ny %d" % (a.shape[0], ny))
+            if categorical:
+                return a[nr, :].astype(np.float32)
             top = a[r0, :]
             bot = a[r1, :]
             out = top * (1.0 - w) + bot * w
@@ -418,6 +432,8 @@ def build_row_resampler(grid: dict, scale: int = 1):
     col_pos = np.arange(out_nx, dtype=np.float64) / scale
     c0 = np.clip(col_pos.astype(np.int64), 0, nx - 1)
     c1 = np.clip(c0 + 1, 0, nx - 1)
+    # Nearest source column/row for the categorical path (both axes).
+    nc = np.clip(np.floor(col_pos + 0.5).astype(np.int64), 0, nx - 1)
     wc = (col_pos - c0).astype(np.float32)
     my_south = _merc_y(lat_min)
     my_north = _merc_y(lat_north)
@@ -429,6 +445,7 @@ def build_row_resampler(grid: dict, scale: int = 1):
         row_pos[r] = (lat - lat_min) / dy
     r0 = np.clip(np.floor(row_pos).astype(np.int64), 0, ny - 1)
     r1 = np.clip(r0 + 1, 0, ny - 1)
+    nr = np.clip(np.floor(row_pos + 0.5).astype(np.int64), 0, ny - 1)
     wr = (row_pos - r0).astype(np.float32)
     wR0 = (1.0 - wr)[:, None]
     wR1 = wr[:, None]
@@ -437,11 +454,15 @@ def build_row_resampler(grid: dict, scale: int = 1):
     one = np.float32(1.0)
     cover_eps = np.float32(1e-6)
 
-    def resample_up(arr: np.ndarray) -> np.ndarray:
+    def resample_up(arr: np.ndarray, categorical: bool = False) -> np.ndarray:
         a = np.asarray(arr, dtype=np.float32)
         if a.shape[0] != ny or a.shape[1] != nx:
             raise ValueError("shape %r != grid (ny=%d, nx=%d)"
                              % (tuple(a.shape), ny, nx))
+        if categorical:
+            # NEAREST-NEIGHBOUR on both axes: a code is copied, never averaged.
+            # The pixel is emitted only when that exact source sample is finite.
+            return a[nr][:, nc].astype(np.float32)
         finite = np.isfinite(a)
         af = np.where(finite, a, np.float32(0.0))
         v00 = af[r0][:, c0]; v01 = af[r0][:, c1]
@@ -583,8 +604,10 @@ def build_polar_resampler(grid: dict, size: int,
     domain grid; the output is ``(size, size)`` float32 with NaN outside the
     data coverage. Bilinear weights are precomputed once (the disc does not
     move); a pixel is emitted only when its four source corners are finite,
-    the same NaN policy as the Mercator upsampler. Longitudes are wrapped on
-    global grids so the 180 deg seam is sampled from the opposite edge.
+    the same NaN policy as the Mercator upsampler. ``categorical=True`` samples
+    the NEAREST source pixel instead (a code must not be averaged). Longitudes
+    are wrapped on global grids so the 180 deg seam is sampled from the
+    opposite edge.
     """
     ny = int(grid["ny"])
     nx = int(grid["nx"])
@@ -628,6 +651,14 @@ def build_polar_resampler(grid: dict, size: int,
         c1 = np.clip(c0 + 1, 0, nx - 1)
     wr = (row - r0).astype(np.float32)
     wc = (col - c0).astype(np.float32)
+    # Nearest sample for the CATEGORICAL path: a code is copied, never mixed.
+    nr = np.clip(np.floor(row + 0.5).astype(np.int64), 0, ny - 1)
+    if period is not None:
+        nc = np.mod(np.floor(col + 0.5).astype(np.int64),
+                    int(period)).astype(np.int64)
+    else:
+        nc = np.clip(np.floor(col + 0.5).astype(np.int64), 0, nx - 1)
+    idx_nn = (nr * nx + nc).ravel()
     idx00 = (r0 * nx + c0).ravel()
     idx01 = (r0 * nx + c1).ravel()
     idx10 = (r1 * nx + c0).ravel()
@@ -639,12 +670,19 @@ def build_polar_resampler(grid: dict, size: int,
     inside = valid.ravel()
     out_shape = (int(geo["size"]), int(geo["size"]))
 
-    def resample_polar(arr):
+    def resample_polar(arr, categorical: bool = False):
         a = np.asarray(arr)
         if a.shape[0] != ny or a.shape[1] != nx:
             raise ValueError("shape %r != grid (ny=%d, nx=%d)"
                              % (tuple(a.shape), ny, nx))
         flat = np.ascontiguousarray(a, dtype=np.float32).ravel()
+        if categorical:
+            # NEAREST-NEIGHBOUR (see build_row_resampler): the disc has the same
+            # "code averaged into a nonexistent value" failure as the strip.
+            vnn = flat[idx_nn]
+            ok = inside & np.isfinite(vnn)
+            out = np.where(ok, vnn, np.float32(np.nan))
+            return out.astype(np.float32).reshape(out_shape), mask
         v00 = flat[idx00]
         v01 = flat[idx01]
         v10 = flat[idx10]
@@ -702,6 +740,34 @@ CONTOUR_INTERVALS = {
     "wind_speed_10hPa": 5.0,
 }
 CONTOUR_VARS = frozenset(CONTOUR_INTERVALS.keys())
+
+# --------------------------------------------------------------------------- #
+# CAMPI CATEGORICI (nessuna interpolazione: NEAREST-NEIGHBOUR)
+#
+# Un CODICE non e' una grandezza: la media di 3 e 45 e' 24, un codice WMO che
+# nessun modello ha emesso. Il lookup a breakpoint dipinto con quella media
+# finisce nella banda "non definito" (148,148,148) e produce le righe GRIGIE fra
+# due zone di colore. MISURATO il 2026-10-26 sul frame reale dwd_icon_d2
+# 2026-10-26T06Z: weather_code con la sola interpolazione dei valori aveva il
+# 9,98 % di pixel non interi in `europa` (x1) e il 19,80 % in `italia` (x3), e
+# 63.395 pixel grigi generati da un valore interpolato in Italia.
+#
+# PERCHE' UN ELENCO QUI E NON IN color_scales.json: il JSON NON dichiara la
+# categoricita'. Tutte e 35 le scale hanno ``type: "breakpoint"``, compresa
+# weather_code (45 bande discrete 0..99): il tipo descrive il LOOKUP, non la
+# natura del campo. Quindi la lista e' esplicita qui, dichiarata, e una nuova
+# variabile categorica si aggiunge con UNA riga. Chi aggiunge un nome deve
+# verificare che la sua scala sia fatta di codici discreti: interpolarlo
+# inventerebbe valori.
+# --------------------------------------------------------------------------- #
+CATEGORICAL_VARS = frozenset({
+    "weather_code",   # codice WMO 0..99 (weather_code.light: 45 bande)
+})
+
+
+def is_categorical(var: str) -> bool:
+    """True when ``var`` holds CODES: its resampling must be nearest-neighbour."""
+    return var in CATEGORICAL_VARS
 
 # Variabili di VELOCITA' del vento -> variabile di DIREZIONE (gradi, "da cui
 # soffia") letta dallo STESSO frame .om. Le direzioni NON hanno color scale
@@ -2032,6 +2098,9 @@ def _render_var_task(payload) -> dict:
     interval = CONTOUR_INTERVALS.get(var)
     dir_name = ARROW_VARS.get(var)
     speed_ref = _speed_reference(variant) if dir_name else 0.0
+    # A CODE (weather_code) is resampled NEAREST-NEIGHBOUR on every axis: the
+    # bilinear/2-tap paths are for magnitudes. See CATEGORICAL_VARS.
+    categorical = is_categorical(var)
     force_labels = var in {"pressure_msl", "surface_pressure",
                            "geopotential_height_500hPa",
                            "geopotential_height_850hPa",
@@ -2071,12 +2140,12 @@ def _render_var_task(payload) -> dict:
         polar = crop.get("kind") == "polar"
         mask = None
         if polar:
-            arr_out, mask = crop["resample"](sub)
+            arr_out, mask = crop["resample"](sub, categorical=categorical)
             overlay_grid = crop["overlay_grid"]
             overlay_scale = 1
             clip_circle = (crop["center"], crop["center"], crop["radius"])
         else:
-            arr_out = crop["resample"](sub)
+            arr_out = crop["resample"](sub, categorical=categorical)
             overlay_grid = crop["grid"]
             overlay_scale = crop["scale"]
             clip_circle = None
@@ -2092,6 +2161,7 @@ def _render_var_task(payload) -> dict:
             if dir_arr is not None:
                 dsub = dir_arr[crop["row0"]:crop["row1"],
                                crop["col0"]:crop["col1"]]
+                # The direction is DEGREES (a magnitude): always continuous.
                 if polar:
                     dir_out = crop["resample"](dsub)[0]
                 else:
