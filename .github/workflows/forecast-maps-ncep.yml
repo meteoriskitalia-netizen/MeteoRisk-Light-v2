@@ -166,7 +166,7 @@ jobs:
             FORCE="--force"
           fi
           PROGRESS="$RUNNER_TEMP/fm2-progress-${{ matrix.domain }}.json"
-          python scripts/forecast_v2/forecast_v2_engine.py \
+          python -u scripts/forecast_v2/forecast_v2_engine.py \
             --domains ${{ matrix.domain }} \
             --valid-frames 0 \
             --out data/fm2 \
@@ -274,7 +274,7 @@ jobs:
             fi
           fi
           echo "[incr] argomenti incrementali: ${INCR_ARGS:-(nessuno: render completo)}"
-          python scripts/forecast_v2/render_fm_webp.py \
+          python -u scripts/forecast_v2/render_fm_webp.py \
             --in data/fm2 \
             --out data/fm2-rendered \
             --domains ${{ matrix.domain }} \
@@ -496,7 +496,7 @@ jobs:
               # Ri-render dallo shard .om GIA' presente (restaurato da fm2-dwd):
               # senza `--watch-manifest`, che in NO-OP esce subito senza scrivere
               # nulla e lascerebbe l'artifact vuoto.
-              python scripts/forecast_v2/render_fm_webp.py \
+              python -u scripts/forecast_v2/render_fm_webp.py \
                 --in data/fm2 \
                 --out data/fm2-rendered \
                 --domains ${{ matrix.domain }} \
