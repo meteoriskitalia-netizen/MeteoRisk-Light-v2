@@ -1923,9 +1923,16 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.26';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.27';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-26';
     const APP_CHANGELOG = [
+        { version: '1.2.4.27', date: '2026-10-26', changes: [
+  'MAPPE= Vista polare (nord): nuovo percorso "immagine gia\' proiettata" per il disco stereografico. Il client NON decide piu\' la proiezione con una costante: legge il campo `projection` dai DATI, con la precedenza dominio (`index.json` -> `domains.<dominio>.projection`) -> timeline (`timeline.json` -> `projection`) -> regione (`index.json` -> `projection`). Valori riconosciuti: `mercator` (default) e `stereographic`; campo assente o valore sconosciuto vale `mercator`, cioe\' il percorso della 1.2.4.26.',
+  'MAPPE= Il disco non e\' ancora pubblicato: il campo `projection` arrivera\' dal renderer (`scripts/forecast_v2/*`, NON toccato in questa release) e finche\' manca il comportamento e\' IDENTICO alla 1.2.4.26 (riproiezione per pixel del frame WebP + capolo sintetico). Quando il disco arriva, `fmPolarPaintProjectedDisc` disegna l\'immagine quadrata gia\' proiettata nel quadrato circoscritto al cerchio di raggio `min(w,h)*0.48`, con clip circolare: nessun campionamento per pixel, nessun colore di polo inventato (il polo e\' nei dati), angoli = fondo `#0b1830`. Sul percorso disco `fmPolarFrame.pixels` e\' `null` e il frame vive in `fmPolarFrame.source` (niente `getImageData`).',
+  'MAPPE= La proiezione fa parte dell\'identita\' del frame: `fmPolarLoadFrame(url, bounds, projection)` ricarica quando cambia anche a parita\' di URL, e `fmPolarFrameProjection` viene azzerato dal reset del player insieme a `fmPolarFrame`.',
+  'VERIFICA= A/B in Edge headless via CDP (blocco polare reale estratto dai due file, stesso frame WebP, stesso harness) contro la 1.2.4.26: canvas PIXEL-IDENTICO con l\'index.json reale delle 4 regioni (nessuna dichiara `projection`) a 800x600 (hash 520f4e06), a 1024x700 (53154e17) e a devicePixelRatio 2 (5dd9114), 0 eccezioni JS. Con `projection: \'stereographic\'` e un disco finto: angoli = fondo, centro e anelli dipinti, `fmPolarFrame.pixels === null`; togliendo il campo si torna al percorso Mercator della 1.2.4.26.',
+  'DOC= Bump versione 1.2.4.27',
+  ] },
         { version: '1.2.4.26', date: '2026-10-26', changes: [
   'MAPPE= Il pannello non resta piu\' sulla run vecchia. CAUSA: fmDomainChanged chiama fmResetPlayerForModelChange PRIMA che la variabile sia risolta, e fmStartFrameIndex restituisce 0 quando la variabile corrente non appartiene al dominio nuovo (fmTimelineGroupId null -> nessun frame attivo); poi fmLoadDomain confrontava fmIdx con meta.valid_times.length (manifest .om: 26/64 frame) e non con la timeline (~206), quindi l\'indice restava 0, cioe\' il frame piu\' vecchio della run precedente. FIX: dopo la risoluzione della variabile si riancora su fmStartFrameIndex (primo frame del run corrente) e il limite usa il numero di frame della timeline quando e\' attiva.',
   'MAPPE= Timeline aggiornata dal polling (5 minuti): se l\'utente non ha mai toccato slider/prev/next/play (nuovo flag fmUserMovedFrame, azzerato a ogni cambio dominio/regione/variabile) il player si RIANCORA al primo frame del run corrente; se l\'utente si e\' mosso il frame NON viene spostato e compare l\'avviso non bloccante "Nuova run disponibile · vai" nella riga di stato, che porta al frame preferito. Non e\' un alert ne\' un modal. Prima il frame si conservava solo per valid_time, quindi chi lasciava la pagina aperta non vedeva mai la run nuova.',
@@ -11558,6 +11565,9 @@ var fmPolarCtx = null;
 var fmPolarActive = false;
 var fmPolarFrame = null;
 var fmPolarFrameUrl = null;
+// 1.2.4.27: proiezione del frame dichiarata dai DATI ('mercator' | 'stereographic'),
+// non una costante del client. null = campo assente -> percorso della 1.2.4.26.
+var fmPolarFrameProjection = null;
 var fmPolarGeneration = 0;
 var fmPolarLand = null;
 var fmPolarLandLoading = false;
@@ -11658,7 +11668,7 @@ function fmPolarSetActive(active) {
     var frame = (typeof fmWebpFrameUrl === 'function') ? fmWebpFrameUrl() : null;
     if (frame) {
         if (fmPolarFrame) fmPolarPaintBase();
-        fmPolarLoadFrame(frame.url, frame.bounds);
+        fmPolarLoadFrame(frame.url, frame.bounds, frame.projection);
     }
     else fmPolarPaintBase();
 }
@@ -11849,6 +11859,48 @@ function fmPolarCapColor(capMean, rowColor, lat, north) {
         Math.round(capMean[3] + (rowColor[3] - capMean[3]) * w0)
     ];
 }
+// 1.2.4.27 - PERCORSO "IMMAGINE GIA' PROIETTATA" (disco polare stereografico).
+// Il flag NON e' una costante del client: arriva dai dati, cioe' `domains.<dominio>.projection`
+// nell'index.json di regione (fallback: `projection` al livello regione, poi `timeline.json`).
+// Valori riconosciuti: 'mercator' (default) e 'stereographic'. Se il campo MANCA si usa
+// 'mercator', cioe' ESATTAMENTE il percorso della 1.2.4.26 (riproiezione per pixel + capolo
+// sintetico): nessun cambiamento visivo finche' il disco non viene pubblicato.
+function fmPolarNormalizeProjection(value) {
+    return String(value || '').toLowerCase() === 'stereographic' ? 'stereographic' : 'mercator';
+}
+function fmRegionProjection(dom) {
+    var entry = dom || ((typeof fmRunDomainEntry === 'function') ? fmRunDomainEntry() : null);
+    var raw = entry && typeof entry.projection === 'string' ? entry.projection : null;
+    if (!raw && typeof fmTimeline !== 'undefined' && fmTimeline && typeof fmTimeline.projection === 'string') raw = fmTimeline.projection;
+    if (!raw && typeof fmWebpIndex !== 'undefined' && fmWebpIndex && typeof fmWebpIndex.projection === 'string') raw = fmWebpIndex.projection;
+    return fmPolarNormalizeProjection(raw);
+}
+// Disegno DIRETTO del disco: nessun campionamento per pixel e nessun capolo inventato.
+// Geometria: polo al centro, parallelo 20 N sul bordo del cerchio, Greenwich in basso -
+// la stessa di fmPolarDrawOverlays per coste, confini e reticolo. Il raggio e' quindi
+// identico (min(w,h)*0.48) e l'immagine quadrata si disegna nel quadrato circoscritto.
+//  (a) il clip al cerchio impedisce che gli angoli del quadrato finiscano a schermo anche
+//      se l'alpha fuori dal disco non fosse esattamente 0;
+//  (b) drawImage compone in source-over: i pixel con alpha 0 lasciano vedere il fondo
+//      #0b1830 gia' dipinto da fmPolarPaintBase (niente quadrato nero), mentre
+//      putImageData avrebbe copiato l'alpha 0 sopra una tela opaca;
+//  (c) la geometria deriva da w/h come il reticolo, quindi al resize disco, coste e
+//      graticola restano allineati (la vista polare non segue lo zoom Leaflet, come prima).
+function fmPolarPaintProjectedDisc() {
+    var frame = fmPolarFrame;
+    if (!frame || !frame.source) return false;
+    var ctx = fmPolarCtx, w = fmPolarCanvas.width, h = fmPolarCanvas.height;
+    var radius = Math.max(1, Math.min(w, h) * 0.48);
+    var cx = w * 0.5, cy = h * 0.5;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(frame.source, cx - radius, cy - radius, radius * 2, radius * 2);
+    ctx.restore();
+    return true;
+}
 function fmPolarPaintBase() {
     if (!fmPolarActive || !fmPolarEnsureCanvas()) return;
     var rect = fmPolarCanvas.getBoundingClientRect();
@@ -11857,7 +11909,10 @@ function fmPolarPaintBase() {
     var h = Math.max(1, Math.round(rect.height * pixelScale));
     if (fmPolarCanvas.width !== w || fmPolarCanvas.height !== h) { fmPolarCanvas.width = w; fmPolarCanvas.height = h; }
     fmPolarCtx.fillStyle = '#0b1830'; fmPolarCtx.fillRect(0, 0, w, h);
-    if (fmPolarFrame && fmPolarFrame.pixels) {
+    if (fmPolarFrame && fmPolarFrame.projection === 'stereographic' && fmPolarFrame.source) {
+        // 1.2.4.27: disco gia' proiettato -> disegno diretto, nessun campionamento per pixel.
+        fmPolarPaintProjectedDisc();
+    } else if (fmPolarFrame && fmPolarFrame.pixels) {
         var src = fmPolarFrame.pixels, sw = src.width, sh = src.height;
         var bounds = fmPolarFrame.bounds;
         var south = Number(bounds[0][0]), west = Number(bounds[0][1]);
@@ -11903,8 +11958,13 @@ function fmPolarPaintBase() {
     }
     fmPolarDrawOverlays();
 }
-function fmPolarLoadFrame(url, bounds) {
-    if (!fmPolarActive || !url || !bounds || url === fmPolarFrameUrl || url === fmPolarLoadingUrl) return;
+function fmPolarLoadFrame(url, bounds, projection) {
+    var proj = fmPolarNormalizeProjection(projection);
+    if (!fmPolarActive || !url || !bounds) return;
+    // 1.2.4.27: la proiezione fa parte dell'identita' del frame. Se il campo manca il valore
+    // e' 'mercator' e il confronto si comporta come il vecchio `url === fmPolarFrameUrl`.
+    if (url === fmPolarFrameUrl && proj === fmPolarFrameProjection) return;
+    if (url === fmPolarLoadingUrl) return;
     fmPolarLoadingUrl = url;
     var gen = ++fmPolarGeneration;
     var img = new Image(); img.crossOrigin = 'anonymous';
@@ -11913,8 +11973,12 @@ function fmPolarLoadFrame(url, bounds) {
         try {
             var source = document.createElement('canvas'); source.width = img.naturalWidth; source.height = img.naturalHeight;
             var sctx = source.getContext('2d', { willReadFrequently: true }); sctx.drawImage(img, 0, 0);
-            fmPolarFrame = { pixels: sctx.getImageData(0, 0, source.width, source.height), bounds: bounds };
-            fmPolarFrameUrl = url; fmPolarLoadingUrl = null; fmPolarPaintBase();
+            // 1.2.4.27: il disco non si riproietta, quindi non serve getImageData (nessun pixel
+            // da campionare): si tiene il buffer da disegnare. Sul percorso Mercator la lettura
+            // dei pixel resta identica alla 1.2.4.26 (stesso getImageData, stesso frame).
+            var pixels = proj === 'stereographic' ? null : sctx.getImageData(0, 0, source.width, source.height);
+            fmPolarFrame = { pixels: pixels, bounds: bounds, projection: proj, source: pixels ? null : source };
+            fmPolarFrameUrl = url; fmPolarFrameProjection = proj; fmPolarLoadingUrl = null; fmPolarPaintBase();
         } catch (e) {
             fmPolarLoadingUrl = null;
             fmPolarSetActive(false);
@@ -13517,7 +13581,7 @@ function fmWebpFrameUrl(idx) {
         if (!tlBounds) return null;
         var tlUrl = fmTimelineFileUrl(tlEntry);
         if (!tlUrl) return null;
-        return { url: tlUrl, bounds: tlBounds, valid: tlEntry.valid_time };
+        return { url: tlUrl, bounds: tlBounds, valid: tlEntry.valid_time, projection: fmRegionProjection() };
     }
     if (!fmWebpIndex || !fmWebpIndexRegion) return null;
     if (fmWebpIndexRegion !== fmRenderRegionId()) return null;
@@ -13546,7 +13610,7 @@ function fmWebpFrameUrl(idx) {
     var url = FM_RENDERED_BASE + fmWebpIndexRegion + '/' + dir + '/' + token + '.webp';
     var runToken = (selectedRun && (selectedRun.reference_time || selectedRun.id)) || (fmMeta && fmMeta.reference_time);
     if (runToken) url += '?run=' + encodeURIComponent(runToken);
-    return { url: url, bounds: dom.bounds, valid: valid };
+    return { url: url, bounds: dom.bounds, valid: valid, projection: fmRegionProjection(dom) };
 }
 function fmWarmWebpNext() {
     // Preload del frame WebP successivo (solo se presente nella index).
@@ -13653,7 +13717,7 @@ function fmRebuild() {
         if (fmRegion === 'north' && fmOverlayVariable === 'pressure_msl') {
             fmSetStatus('Vista polare Z500 attiva; isobare MSL non incluse in questa proiezione');
         }
-        if (fmPolarActive) fmPolarLoadFrame(webp.url, webp.bounds);
+        if (fmPolarActive) fmPolarLoadFrame(webp.url, webp.bounds, webp.projection);
         var wb = null;
         try { wb = L.latLngBounds([[webp.bounds[0][0], webp.bounds[0][1]], [webp.bounds[1][0], webp.bounds[1][1]]]); } catch (e) { wb = null; }
         if (wb) {
@@ -14127,7 +14191,7 @@ function fmResetPlayerForModelChange(reason) {
     fmLayerKey = null;
     // 4) via anche il frame della vista polare (altrimenti il polo mostra il modello vecchio)
     if (typeof fmPolarSetActive === 'function') fmPolarSetActive(false);
-    if (typeof fmPolarFrame !== 'undefined') { fmPolarFrame = null; fmPolarFrameUrl = null; fmPolarLoadingUrl = null; }
+    if (typeof fmPolarFrame !== 'undefined') { fmPolarFrame = null; fmPolarFrameUrl = null; fmPolarFrameProjection = null; fmPolarLoadingUrl = null; }
     // 5) player al primo frame UTILE: con la timeline e' il primo frame del run piu'
     // recente (1.2.4.23), senza timeline resta 0 come nella 1.2.4.22.
     fmIdx = fmStartFrameIndex();

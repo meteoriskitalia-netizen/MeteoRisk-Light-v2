@@ -6,7 +6,42 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.26
+## Versione attiva: 1.2.4.27
+
+- File applicativo: `mri-light-1.2.4.27.html` (`APP_VERSION = '1.2.4.27'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.27', date: '2026-10-26' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.27'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+  `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
+- Contenuto della 1.2.4.27 (release sopra la 1.2.4.26) - **percorso client "immagine gia'
+  proiettata"** per la vista polare (disco stereografico), con il comportamento della 1.2.4.26
+  finche' il renderer non pubblica il campo `projection`:
+  - **La proiezione arriva dai DATI, non da una costante del client.** `projection` si legge con
+    la precedenza dominio (`index.json` -> `domains.<dominio>.projection`) -> timeline
+    (`timeline.json` -> `projection`) -> regione (`index.json` -> `projection`). Valori
+    riconosciuti: `mercator` (default) e `stereographic`; campo assente o valore sconosciuto =
+    `mercator`, cioe' **esattamente** il percorso della 1.2.4.26 (riproiezione per pixel +
+    capolo sintetico).
+  - **Il disco non e' ancora pubblicato**: il renderer (`scripts/forecast_v2/*`, **non** toccato)
+    non scrive il campo, quindi in produzione non cambia nulla. Quando arrivera',
+    `fmPolarPaintProjectedDisc()` disegna l'immagine quadrata **gia' proiettata** nel quadrato
+    circoscritto al cerchio di raggio `min(w,h)*0.48` con `clip()` circolare: nessun
+    campionamento per pixel, nessun capolo inventato (il polo e' nei dati), angoli = fondo
+    `#0b1830`. Su questo percorso `fmPolarFrame.pixels` e' `null` e il frame vive in
+    `fmPolarFrame.source` (niente `getImageData`).
+  - **La proiezione fa parte dell'identita' del frame**: `fmPolarLoadFrame(url, bounds,
+    projection)` ricarica se la proiezione cambia anche a parita' di URL;
+    `fmPolarFrameProjection` viene azzerato dal reset del player insieme a `fmPolarFrame`.
+  - **Verificato A/B contro la 1.2.4.26** (Edge headless via CDP, blocco polare reale estratto
+    dai due file, stesso frame WebP, stesso harness): canvas **pixel-identico** con l'`index.json`
+    reale delle 4 regioni (nessuna dichiara `projection`) a **800x600** (`520f4e06`), a
+    **1024x700** (`53154e17`) e a **devicePixelRatio 2** (`5dd9114`); **0 eccezioni JS**. Con
+    `projection: 'stereographic'` e un disco finto: angoli = fondo, centro e anelli dipinti,
+    `fmPolarFrame.pixels === null`; togliendo il campo si torna al percorso Mercator (hash
+    `88f0d2e8`).
+  - **Test**: `scripts/tests/test_html_js_syntax.py` -> 1 passed; suite `.mjs` 26 file ->
+    **19 PASS / 7 exit 1**, gli stessi 7 nomi della baseline 1.2.4.26.
+
+## Versione precedente: 1.2.4.26
 
 - File applicativo: `mri-light-1.2.4.26.html` (`APP_VERSION = '1.2.4.26'`; ultimo blocco
   changelog in-app `{ version: '1.2.4.26', date: '2026-10-26' }`) + `sw.js` (Service Worker,
