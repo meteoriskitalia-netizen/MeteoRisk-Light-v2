@@ -1963,9 +1963,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.37';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.38';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-26';
     const APP_CHANGELOG = [
+        { version: '1.2.4.38', date: '2026-10-27', changes: [
+  'MAPPE= IL RIQUADRO VIENE INQUADRATO ANCHE QUANDO IL FIT PRECEDENTE E\' ANDATO PERSO. Sulla 1.2.4.37 il clip era corretto ([-25,34,45,72]) ma la vista restava a zoom 5 con bounds 33,4..50,6 / -3,6..28,6: il nord ancora fuori. Il rifit scattava solo se il clip CAMBIAVA, e la prima volta che cambio\' la mappa non era ancora pronta, quindi il `fitBounds` ando\' perso e nessuna chiamata successiva lo riprovava.',
+  'MAPPE= FIX: oltre al cambio di riquadro, si ri-inquadra quando la vista corrente NON CONTIENE il riquadro (`map.getBounds().contains(...)`). Cosi\' il caso "il fit e\' andato perso prima che la mappa fosse pronta" si autocorregge alla prima chiamata utile, senza dipendere dall\'ordine degli eventi.',
+  'DOC= Bump versione 1.2.4.38 (solo client). Catena completa: 1.2.4.35 ritaglio, 1.2.4.36 rifit al cambio, 1.2.4.37 invalidateSize, 1.2.4.38 rifit quando la vista e\' piu\' stretta del dato.',
+        ] },
         { version: '1.2.4.37', date: '2026-10-27', changes: [
   'MAPPE= L\'INQUADRATURA ORA SI APPLICA DAVVERO ANCHE AL PRIMO APERTURA. `fitBounds` veniva ignorato: misurato sulla 1.2.4.36, con lo stesso clip [-25,34,45,72] la mappa restava a zoom 5 e bounds 33,98..51,04 / -3,56..28,56 identici prima e dopo la chiamata, anche azzerando `maxBounds`. Dopo un `invalidateSize()` lo stesso `fitBounds` portava a zoom 3 e bounds 23,56..75,41. Leaflet tiene una dimensione interna del contenitore che, con il pannello appena aperto, non e\' ancora coerente e fa scartare il fit.',
   'MAPPE= FIX: prima del fit si chiama `map.invalidateSize()`, e il fit viene ripetuto al frame successivo (`requestAnimationFrame`) perche\' la transizione CSS del pannello puo\' cambiare la dimensione DOPO il primo tentativo. Effetto: Europa su `dwd_icon` si apre inquadrando davvero 34..72N / -25..45E, con Islanda, Scandinavia intera e Atlantico.',
@@ -13355,7 +13360,21 @@ function fmApplyRegion(refit) {
                 map.setMaxBounds(null);
             } else if (clip) {
                 map.setMaxBounds([[clip[1], clip[0]], [clip[3], clip[2]]]);
-                if (refit) {
+                // 1.2.4.38 - MISURATO sulla 1.2.4.37 appena pubblicata: clip corretto
+                // ([-25,34,45,72]) ma vista ancora a zoom 5 e bounds 33,4..50,6 / -3,6..28,6,
+                // cioe' il nord ancora fuori. Causa: il rifit scattava solo quando il clip
+                // CAMBIAVA, e la prima volta che cambio' la mappa non era ancora pronta,
+                // quindi il fit ando' perso e nessuna chiamata successiva lo riprovava.
+                // Ora si ri-inquadra anche quando la vista NON CONTIENE il riquadro.
+                var fmNeedFit = refit;
+                if (!fmNeedFit && clip) {
+                    try {
+                        var fmView = map.getBounds();
+                        var fmWant = L.latLngBounds([[clip[1], clip[0]], [clip[3], clip[2]]]);
+                        fmNeedFit = !fmView.contains(fmWant);
+                    } catch (e) { fmNeedFit = true; }
+                }
+                if (fmNeedFit) {
                     // 1.2.4.37 - MISURATO: con il pannello appena aperto `fitBounds` non
                     // cambiava NULLA (zoom 5, bounds identici prima e dopo, anche con
                     // maxBounds azzerato); dopo un `invalidateSize()` lo stesso fitBounds

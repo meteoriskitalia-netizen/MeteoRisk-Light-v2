@@ -1,3 +1,12 @@
+MeteoRisk Light - 1.2.4.38 - IL RIQUADRO VIENE INQUADRATO ANCHE SE IL FIT PRECEDENTE E' ANDATO PERSO (ORA LA CONDIZIONE E' "LA VISTA CONTIENE IL RIQUADRO", NON "IL RIQUADRO E' CAMBIATO") (bump da 1.2.4.37)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=38
+RELEASE_TYPE=release
+DATE=2026-10-27
+NOTE=Release 1.2.4.38 (bump da 1.2.4.37) - SOLO CLIENT. Chiude la catena dell'inquadratura: 1.2.4.35 ritaglio (era il riquadro di ICON-EU), 1.2.4.36 rifit al cambio di riquadro, 1.2.4.37 invalidateSize prima del fit, 1.2.4.38 rifit anche quando la VISTA e' piu' stretta del riquadro. MISURATO sulla 1.2.4.37: clip corretto [-25,34,45,72] ma vista a zoom 5 e bounds 33,4..50,6 / -3,6..28,6, perche' il primo fit era stato chiamato quando la mappa non era pronta e nessun percorso lo riprovava. Ora la condizione e' `map.getBounds().contains(riquadro)` e non dipende piu' dall'ordine degli eventi. VERIFICA: test_html_js_syntax 1 passed. BUMP: html mri-light-1.2.4.38.html, VERSION (BUILD=38), sw.js, README, .mjs, 3 righe cp. La 1.2.4.37 va RIMOSSA dal repo.
+APP_FILE=mri-light-1.2.4.38.html
 MeteoRisk Light - 1.2.4.37 - L'INQUADRATURA SI APPLICA DAVVERO: fitBounds ERA IGNORATO FINCHE' NON SI CHIAMA invalidateSize (MISURATO: STESSO CLIP, ZOOM 5 PRIMA E 3 DOPO) (bump da 1.2.4.36)
 MAJOR=1
 MINOR=2
