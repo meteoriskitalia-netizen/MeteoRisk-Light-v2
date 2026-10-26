@@ -42,6 +42,14 @@ skipped. The raw frame array is cropped to that intersection on the domain grid
 and only THEN resampled to Mercator, so each WebP spans exactly its own
 ``imageOverlay`` bounds.
 
+Output shape: one integer upsampling factor ``ceil(512 / shorter side)`` on BOTH
+axes, i.e. ``(nx-1)*scale+1`` by ``(ny-1)*scale+1``. ``europa`` overrides the
+height through ``REGION_ASPECT`` (1.6:1, width from the data) because the plain
+integer factor made the SAME region come out at 1.8407 (ecmwf_ifs025) or 1.9632
+(dwd_icon_eu) depending on the domain -- the shape has to be a choice, not a
+side effect. ``italia``, ``north`` and ``domain`` have no aspect and keep the
+historical bytes.
+
 Design notes (empirically confirmed against the live engine output):
   * ``OmFileReader.read_array`` returns values already in real units
     (precip mm, temperaure degC, cloud %) -- no manual scale/offset.
@@ -248,6 +256,41 @@ DOMAIN_REGION_SKIP_GLOBAL = True
 NORTH_REGION = "north"
 NORTH_REGION_SKIP_NON_GLOBAL = True
 
+# Aspect ratio (width / height) FORCED on a region's published raster. Regions
+# missing here keep the historical rule -- one integer factor on BOTH axes,
+# ``out_w = (nx-1)*scale+1`` and ``out_h = (ny-1)*scale+1`` -- and therefore
+# stay byte-identical.
+#
+# ``europa`` only, MISURATO il 2026-10-26 sui frame reali del branch:
+#   * ecmwf_ifs025 2026-10-26T00Z, crop 281x153 a 0,25 gradi, x4 -> 1121x609
+#     (rapporto 1,8407);
+#   * dwd_icon_eu 2026-10-26T09Z, crop 881x449 a 0,0625 gradi, x2 -> 1761x897
+#     (rapporto 1,9632).
+# La STESSA regione usciva quindi con due forme diverse a seconda del dominio,
+# perche' il rapporto era un effetto collaterale del fattore di upsampling
+# (``ceil(512 / lato corto)``) e non una scelta. Con 1,6 la forma e' una sola.
+#
+# Perche' 1,6 e perche' si allunga in ALTEZZA (larghezza = quella del dato):
+# i pixel non sono isotropi. Su europa/ecmwf un pixel copre 1,1862/608 = 0,001951
+# di Mercator-y e 1,2217/1120 = 0,001091 rad di longitudine, cioe' 1,826x di
+# mondo in verticale: l'immagine, disegnata da Leaflet sulle sue ``bounds``,
+# viene allungata in verticale di 1,826x e ogni riga sorgente e' ripetuta ~4,6
+# volte. A 1121x701 quel fattore scende a 1,586 (misurato); a 1000x625 resta
+# 1,587 ma si perdono 280 colonne sorgente -> 1000 px (3,571 px/cella invece di
+# 4) cioe' l'11% della risoluzione orizzontale, a parita' di anisotropia. Quindi
+# si tiene la larghezza prodotta dal dato (upsampling intero, nessuna
+# interpolazione orizzontale aggiunta) e si ricava l'altezza:
+# h = round(w / 1,6) -> ecmwf_ifs025 1121x701 (1,5991), dwd_icon_eu 1761x1101
+# (1,5995).
+#
+# Riferimento metrico (NON la scelta di prodotto): il rapporto che renderebbe i
+# pixel isotropi in Mercatore e' 1,0088 per europa/ecmwf (34..72N, 25W..45E) e
+# 1,2675 per il crop dwd_icon_eu (34..62N, 15W..40E). 1,6 non e' quindi
+# "Mercatore": e' una scelta di prodotto che si avvicina all'isotropia
+# (1,8407 -> 1,6 riduce lo stiramento da 1,83x a 1,59x) restando una forma
+# dichiarata, non dedotta.
+REGION_ASPECT = {"europa": 1.6}
+
 
 # --------------------------------------------------------------------------- #
 # Color scales
@@ -372,6 +415,29 @@ def resolve_upsample(args, nx: int, ny: int) -> int:
         return 1
 
 
+def region_out_height(region: str | None, out_w: int, out_h: int) -> int:
+    """Final output height for ``region``, honouring ``REGION_ASPECT``.
+
+    Returns ``out_h`` unchanged for every region without a forced aspect (so
+    the historical bytes are preserved), otherwise the row count that makes
+    ``out_w / height == aspect``. The height is never reduced below ``out_h``:
+    the rows are ADDED, never removed -- the columns are the ones the data grid
+    produced, so shortening the image would mean discarding vertical detail the
+    regions without an aspect already show.
+    """
+    aspect = REGION_ASPECT.get(region) if region else None
+    if not aspect:
+        return int(out_h)
+    try:
+        aspect = float(aspect)
+        out_w = int(out_w)
+    except (TypeError, ValueError):
+        return int(out_h)
+    if aspect <= 0.0 or out_w <= 0:
+        return int(out_h)
+    return max(int(out_h), max(2, int(round(out_w / aspect))))
+
+
 def build_row_resampler(grid: dict, scale: int = 1):
     """Return f(arr, categorical=False)->arr remapping rows to Mercator spacing.
 
@@ -401,18 +467,26 @@ def build_row_resampler(grid: dict, scale: int = 1):
     lat_min = float(grid["latMin"])
     lat_north = lat_min + (ny - 1) * dy
     scale = max(1, int(scale))
+    # Output row count. The historical value is ``(ny-1)*scale+1`` (one integer
+    # factor on both axes). A region with a forced ASPECT (``REGION_ASPECT``)
+    # carries its own ``out_ny`` in the crop grid: the COLUMNS keep the exact
+    # ``i*scale`` mapping (no horizontal interpolation is added) and only the
+    # rows are redistributed on the Mercator axis, which is already a per-row
+    # position lookup and therefore supports ANY row count.
+    out_ny = max(1, int(grid.get("out_ny") or ((ny - 1) * scale + 1)))
+    out_nx = (nx - 1) * scale + 1
 
     if scale <= 1:
-        if ny <= 1:
+        if ny <= 1 or out_ny <= 1:
             def resample_1_flat(arr: np.ndarray, categorical: bool = False) -> np.ndarray:
                 return np.asarray(arr, dtype=np.float32).copy()
             return resample_1_flat
         my_south = _merc_y(lat_min)
         my_north = _merc_y(lat_north)
         span = my_north - my_south
-        positions = np.empty(ny, dtype=np.float64)
-        for r in range(ny):
-            t = r / (ny - 1)
+        positions = np.empty(out_ny, dtype=np.float64)
+        for r in range(out_ny):
+            t = r / (out_ny - 1)
             lat = _inv_merc_y(my_north - t * span)
             positions[r] = (lat - lat_min) / dy
         r0 = np.clip(np.floor(positions).astype(np.int64), 0, ny - 1)
@@ -441,7 +515,6 @@ def build_row_resampler(grid: dict, scale: int = 1):
         return resample_1
 
     out_nx = (nx - 1) * scale + 1
-    out_ny = (ny - 1) * scale + 1
     col_pos = np.arange(out_nx, dtype=np.float64) / scale
     c0 = np.clip(col_pos.astype(np.int64), 0, nx - 1)
     c1 = np.clip(c0 + 1, 0, nx - 1)
@@ -1104,7 +1177,12 @@ def _grid_to_pixel(cgrid: dict, scale: int):
 
     The vertical mapping is the SAME Mercator remap used by
     ``build_row_resampler``: the output raster has ``(ny-1)*scale+1`` rows,
-    row 0 = north.
+    row 0 = north, UNLESS the crop grid carries an explicit ``out_ny`` (a
+    region with a forced ``REGION_ASPECT``): in that case the row count is that
+    one and the Mercator positions are redistributed over it, exactly like the
+    resampler does. Both read the SAME key, so isolines, labels and wind arrows
+    cannot drift from the raster: they are computed from ``row_of``/``col_of``,
+    never from a size of their own.
     """
     ny = int(cgrid["ny"])
     nx = int(cgrid["nx"])
@@ -1122,7 +1200,7 @@ def _grid_to_pixel(cgrid: dict, scale: int):
         size = int(cgrid["size"])
         return (np.arange(ny, dtype=np.float64),
                 np.arange(nx, dtype=np.float64), size, size)
-    H = (ny - 1) * scale + 1
+    H = int(cgrid.get("out_ny") or ((ny - 1) * scale + 1))
     W = (nx - 1) * scale + 1
     my_s = _merc_y(lat_min)
     my_n = _merc_y(lat_min + (ny - 1) * dy)
@@ -1201,8 +1279,10 @@ def label_font_px(out_w: int, out_h: int, forced: int = 0, region: str | None = 
     reproduces the historical output when it is 12.
 
     Only the ``north`` region is auto-scaled: the measured factors of
-    ``europa`` (0.90) and ``italia`` (1.10) already keep 12 px above the target,
-    and the ``domain`` region is explicitly kept at the historical 12 px (it
+    ``europa`` (0.80 after the 1.6:1 aspect, was 0.90 at 1121x609; the 9-px
+    digits of the 12-px font land at 7.2 px on screen, above the 7 px target)
+    and ``italia`` (1.10) already keep 12 px above the target, and the
+    ``domain`` region is explicitly kept at the historical 12 px (it
     must stay byte-identical; its factor varies with the model grid).  When
     ``region`` is None the formula is applied to any size (used by tests).
 
@@ -2734,11 +2814,20 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
         scale = resolve_upsample(args, cgrid["nx"], cgrid["ny"])
         out_w = (int(cgrid["nx"]) - 1) * scale + 1
         out_h = (int(cgrid["ny"]) - 1) * scale + 1
+        # Forced aspect (``REGION_ASPECT``): the width stays the one the data
+        # grid produced and the ROW COUNT is recomputed. Only a region with an
+        # aspect gets the extra ``out_ny`` key, so every other region keeps the
+        # exact historical grid dict -> byte-identical output.
+        out_h_asp = region_out_height(rname, out_w, out_h)
+        crop_grid = cgrid
+        if out_h_asp != out_h:
+            crop_grid = dict(cgrid)
+            crop_grid["out_ny"] = out_h_asp
         crops[rname] = _finalise_crop({
             "row0": row0, "row1": row1, "col0": col0, "col1": col1,
-            "grid": cgrid,
+            "grid": crop_grid,
             "scale": scale,
-            "font_px": label_font_px(out_w, out_h, forced_font, region=rname),
+            "font_px": label_font_px(out_w, out_h_asp, forced_font, region=rname),
         })
     if not crops:
         return 0, 0, "no region intersection", {}, 0, 0
@@ -2747,7 +2836,16 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
         crop = crops[name]
         if crop.get("kind") == "polar":
             return "%s disc %d" % (name, crop["disc_size"])
-        return "%s x%d" % (name, crop["scale"])
+        cg = crop["grid"]
+        grid_nx = int(cg["nx"])
+        grid_ny = int(cg["ny"])
+        out_w = (grid_nx - 1) * int(crop["scale"]) + 1
+        out_h = int(cg.get("out_ny") or ((grid_ny - 1) * int(crop["scale"]) + 1))
+        label = "%s x%d %dx%d" % (name, crop["scale"], out_w, out_h)
+        aspect = REGION_ASPECT.get(name)
+        if aspect:
+            label += " (aspect %.2f)" % aspect
+        return label
 
     print("  [upsample] %s"
           % ", ".join(_crop_label(r) for r in crops))

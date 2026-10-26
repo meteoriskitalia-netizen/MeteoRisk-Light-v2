@@ -43,7 +43,9 @@ mod = _load_renderer()
 def test_geometry_keeps_the_screen_spacing_on_every_region():
     # Le tre taglie reali misurate sul branch (1.2.4.31, ecmwf_ifs025,
     # 2026-10-26T00Z): italia 385x337, europa 1121x609, north 2879x521.
-    for (w, h) in ((385, 337), (1121, 609), (2879, 521)):
+    # Dall'aspetto forzato (REGION_ASPECT) europa esce 1121x701: si controllano
+    # ENTRAMBE le taglie, perche' il geo deve reggere la nuova e la vecchia.
+    for (w, h) in ((385, 337), (1121, 609), (1121, 701), (2879, 521)):
         geo = mod.snow_hatch_geometry(h, w)
         assert geo["spacing_low"] * geo["r"] == pytest.approx(
             mod.SNOW_HATCH_SCREEN_SPACING_LOW)
