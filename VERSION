@@ -1,3 +1,12 @@
+MeteoRisk Light - 1.2.4.42 - LA NEBBIA ENTRA NELLA LEGENDA DEI BADGE (MANCAVA PERCHE' LA LEGENDA USA UNA LISTA SCRITTA A MANO, NON RISK_DEFS) (bump da 1.2.4.41)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=42
+RELEASE_TYPE=release
+DATE=2026-10-27
+NOTE=Release 1.2.4.42 (bump da 1.2.4.41) - SOLO CLIENT. La nebbia mancava nella LEGENDA dei badge: la legenda si costruisce da `badgeOrder` (lista scritta a mano), non da RISK_DEFS, e la voce non era stata aggiunta - il badge funzionava sulla mappa ma era invisibile in legenda. Aggiunta dopo 'snow'. Inoltre `BADGE_LEVEL_RANGE.fog = [1,2,3]`: la formula arriva al massimo al livello 3 (>=70/100), quindi il livello 4 (Estremo) NON viene mostrato - una riga di legenda che promette un livello impossibile sarebbe un falso. Nessuna modifica alla formula. VERIFICA: test_html_js_syntax 1 passed; in produzione la legenda deve contenere la riga 'Nebbia' con 3 dischi. BUMP: html mri-light-1.2.4.42.html, VERSION (BUILD=42), sw.js, README.md, test .mjs, 3 righe cp. La 1.2.4.41 va RIMOSSA dal repo.
+APP_FILE=mri-light-1.2.4.42.html
 MeteoRisk Light - 1.2.4.41 - LA NEBBIA PUO' ARRIVARE A QUALSIASI ORA: IL BADGE DICE LA FINESTRA (ES. 20:00-09:00) E IN VISTA ORARIA USA L'ORA SELEZIONATA (bump da 1.2.4.40)
 MAJOR=1
 MINOR=2

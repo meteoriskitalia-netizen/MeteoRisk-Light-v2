@@ -1963,9 +1963,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.41';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.42';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-26';
     const APP_CHANGELOG = [
+        { version: '1.2.4.42', date: '2026-10-27', changes: [
+  'RISCHIO= LA NEBBIA COMPARE ANCHE NELLA LEGENDA DEI BADGE. La legenda non si costruiva da `RISK_DEFS` ma da una lista scritta a mano (`badgeOrder`), e la nebbia non c\'era: il badge funzionava sulla mappa ma restava invisibile nella legenda, quindi nessuno poteva sapere che esiste. Ora c\'e\', fra Neve e Avviso meteo.',
+  'RISCHIO= E MOSTRA SOLO I LIVELLI CHE PUO\' RAGGIUNGERE. La formula arriva al massimo al livello 3 (potenziale >= 70/100): il livello 4 "Estremo" non e\' raggiungibile, quindi non viene mostrato. Una riga di legenda che promette un livello impossibile e\' un falso, non una svista grafica.',
+  'DOC= Bump versione 1.2.4.42 (solo client). Nessuna modifica alla formula del rischio.',
+        ] },
         { version: '1.2.4.41', date: '2026-10-27', changes: [
   'RISCHIO= LA NEBBIA NON E\' SOLO NOTTURNA: IL BADGE DICE QUANDO. Si forma dopo il tramonto, resta al mattino e in caso di avvezione o ristagno si presenta in pieno giorno. Il punteggio era gia\' calcolato su tutte le 24 ore, ma il badge mostrava solo l\'icona: ora il tooltip dice la FINESTRA (es. "tra le 20:00 e le 09:00") e il punteggio, e se l\'ora selezionata non e\' il picco aggiunge quando il picco cade.',
   'RISCHIO= E LA FINESTRA PUO\' ATTRAVERSARE LA MEZZANOTTE. La sequenza di ore sopra soglia e\' cercata in modo CONTIGUO e circolare: 20:00 -> 09:00 e\' un caso normale, non un errore di ordinamento. Se il potenziale resta alto per tutto il giorno la finestra non viene gonfiata (controllo esplicito sul giro completo).',
@@ -20253,6 +20258,10 @@ function renderContinuousOverlay() {
     var BADGE_LEVEL_RANGE = {
         rain: [1,2,3,4], wind: [1,2,3,4], thunderstorm: [1,2,3,4], hail: [1,2,3,4],
         heat: [1,2,3,4], cold: [1,2,3,4], snow: [1,2,3], generic: [2,3],
+        // 1.2.4.42: la nebbia arriva al massimo al livello 3 (potenziale >= 70/100);
+        // il livello 4 (Estremo) non e' raggiungibile dalla formula, quindi non va
+        // mostrato in legenda: una riga che promette un livello impossibile e' un falso.
+        fog: [1,2,3],
         supercell: [3,4], vorticosi: [1,2,3,4], downburst: [1,2,3,4]
     };
     function toggleBadgeLegend() {
@@ -20298,7 +20307,7 @@ function renderContinuousOverlay() {
     function buildBadgeLegendBar() {
         var bar = document.getElementById('badge-legend-bar');
         if (!bar) return;
-        var badgeOrder = ['rain','wind','thunderstorm','hail','heat','cold','snow','generic','supercell','vorticosi','downburst'];
+        var badgeOrder = ['rain','wind','thunderstorm','hail','heat','cold','snow','fog','generic','supercell','vorticosi','downburst'];
         bar.innerHTML = '<div class="bl-tip" id="badge-legend-tip"></div>' +
             '<div class="bl-note">Badge di <b>RISCHIO = potenziale ambientale (modello NWP)</b>: condizioni favorevoli previste, <b>non</b> un evento osservato. Gli eventi rilevati dal radar (grandine / struttura asimmetrica / candidati cella organizzata) sono nel pannello <b>Struttura convettiva</b> — etichettati <i>osservato (radar)</i>.</div>';
         badgeOrder.forEach(function(id) {
