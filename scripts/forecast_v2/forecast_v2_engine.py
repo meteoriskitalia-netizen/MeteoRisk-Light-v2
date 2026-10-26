@@ -44,11 +44,12 @@ Disegno (V2 del motore, scelte DICHIARATE):
   - ORIZZONTE INTERO: si pubblicano TUTTI i valid_times del manifest del dominio
     (nessuna troncatura a un numero fisso di frame). --valid-frames 0/negativo
     (default) = intero orizzonte; N > 0 = primi N.
-  - VARIABILI: lista `V2_RISK_VARS` (39: 28 dirette + 11 derivate). DUE gruppi
+  - VARIABILI: lista `V2_RISK_VARS` (41: 28 dirette + 13 derivate). TRE gruppi
     hanno un'ALLOWLIST PER DOMINIO esplicita nel codice (mai "se il file ce
     l'ha"): il livello `10 hPa` (6 voci, `VARS_10HPA`/`VAR_10HPA_DOMAINS`:
-    ecmwf_ifs025, ncep_gfs025) e la FASE NEVE (2 voci, `VARS_SWE`/
-    `VAR_SWE_DOMAINS`: 6 domini su 7, tutti tranne `ncep_gfs025`, che non ha
+    ecmwf_ifs025, ncep_gfs025), la FASE NEVE (2 voci, `VARS_SWE`/
+    `VAR_SWE_DOMAINS`) e la FINESTRA 6 ORE (2 voci, `VARS_WINDOW6H`, stessa
+    allowlist della neve: 6 domini su 7, tutti tranne `ncep_gfs025`, che non ha
     alcuna variabile di superficie). Per i domini fuori allowlist le voci sono
     FILTRATE VIA prima della lettura (non si leggono e non compaiono nel
     manifest).
@@ -56,7 +57,8 @@ Disegno (V2 del motore, scelte DICHIARATE):
     le variabili assenti nella sorgente sono OMESSE con warning (es.
     `surface_pressure`, spesso non disponibile). Le DERIVATE (dew_point_2m,
     wind_speed_10m/850hPa/300hPa, wind_speed_10hPa,
-    wind_direction_10m/850hPa/300hPa/10hPa, precipitation_cum, snow_fraction)
+    wind_direction_10m/850hPa/300hPa/10hPa, precipitation_cum, snow_fraction,
+    precipitation_6h, snow_fraction_6h)
     sono CALCOLATE dal motore (registro `DERIVED_VARS`); `V2_INPUT_VARS` elenca
     le variabili di INPUT (componenti u/v a 10 m, 850 e 300 hPa) lette ma NON
     pubblicate.
@@ -64,6 +66,16 @@ Disegno (V2 del motore, scelte DICHIARATE):
     e' la secondaria pretesa dalla libreria client per ogni `wind_speed_*`
     (le u/v non sono piu' pubblicate; al livello 10 hPa le componenti u/v sono
     IN PIU' pubblicate come variabili a se', vedi `VARS_10HPA`).
+    `precipitation_6h` / `snow_fraction_6h` sono le uniche derivate STATEFUL su
+    una FINESTRA (`precipitation_cum` e' stateful su tutta la serie): la
+    finestra e' di 6 ORE di valid_time, tassellata dai passi REALI della serie
+    (1 h -> 6 frame, 3 h -> 2, 6 h -> 1), NON "gli ultimi 6 frame" - vedi
+    `window6h_plan` e il commento di `WINDOW6H_HOURS` per le misure che lo
+    motivano. Guardia obbligatoria: `forecast_reference_time` di ogni frame
+    della finestra deve essere quello della run corrente, altrimenti null con
+    `mixed_reference_time` (la cache dei frame e' piatta e chiavata sul nome).
+    Memoria: fino a 6 frame x 2 array in piu' nel processo (dwd_icon a 0,125°:
+    ~78 MB; ICON-EU: ~19 MB).
   - NO-OP GUARD PER-DOMINIO: se `data/fm2/<dominio>/latest.json` esiste con lo
     stesso `reference_time` e gli stessi `valid_times` (e non --force) il dominio
     viene saltato SENZA scaricare/riscrivere (evita commit inutili).
@@ -287,6 +299,13 @@ V2_RISK_VARS = [
     # (rapporto fra due campi del modello), NON una classificazione del modello.
     {"name": "snowfall_water_equivalent", "sources": ["snowfall_water_equivalent"]},
     {"name": "snow_fraction",         "sources": []},                          # DERIVATA (swe / precipitation)
+    # --- FINESTRA 6 ORE (SOLO domini di `VAR_SWE_DOMAINS`, vedi VARS_WINDOW6H)
+    # Somma della precipitazione sulle ULTIME 6 ORE di valid_time (non "6 frame":
+    # la finestra e' tassellata dai passi REALI della serie) e frazione nevosa
+    # PESATA sulla stessa finestra. Entrambe DERIVATE STATEFUL NOSTRE: le
+    # accumula `process_domain` (finestra scorrevole), non `derive_per_frame`.
+    {"name": "precipitation_6h",      "sources": []},                          # DERIVATA STATEFUL (finestra 6 h)
+    {"name": "snow_fraction_6h",      "sources": []},                          # DERIVATA STATEFUL (finestra 6 h)
 ]
 
 # Variabili di INPUT: lette dal frame sorgente ma NON pubblicate. Sono gli input
@@ -405,13 +424,80 @@ VARS_SWE = (
 VARS_SWE_SET = frozenset(VARS_SWE)
 
 
+# ---------------------------------------------------------------------------
+# FINESTRA 6 ORE — `precipitation_6h` e `snow_fraction_6h`
+# ---------------------------------------------------------------------------
+# DUE DERIVATE STATEFUL NOSTRE (registro `DERIVED_VARS`, accumulate da
+# `process_domain` sulla serie ORDINATA dei valid_times): non esistono nella
+# sorgente, non sono calcolabili frame-per-frame e non sono una classificazione
+# del modello (nessuna soglia neve/pioggia qui dentro).
+#
+# PERCHE' UNA FINESTRA E NON "6 FRAME" — MISURATO il 2026-10-26 sui frame reali:
+# il campo `precipitation` di Open-Meteo NON e' "l'ora precedente": e' l'accumulo
+# dell'intervallo fra il valid_time PRECEDENTE e quello corrente, e la serie ha
+# passo che CAMBIA dentro la stessa run (1 h -> 3 h, oppure 3 h -> 6 h).
+#   - ECMWF, run 2026-10-25T12Z, frame `2026-10-31T18:00Z` (passo 6 h): punto
+#     21,50N 142,00E = 216,6 mm = `hourly_6` dell'API, e la cornice copre 6 h;
+#   - ECMWF, PRIMO frame del tratto a 6 h `2026-10-31T12:00Z`: massimo di griglia
+#     108,6 mm = `hourly_3` (NON `hourly_6` = 165,7). Quella cornice ha passo
+#     nominale 6 h ma copre 3 h, perche' il valid_time precedente era 09Z.
+#     Sommandola al frame 09Z si ottiene 165,70 mm = ESATTAMENTE `hourly_6`;
+#     prendendo la sola cornice "6 h" si perde il 34% della pioggia;
+#   - ARPEGE alla transizione 1 h -> 3 h: media 0,0857 mm (18Z, 1 h) ->
+#     0,2579 mm (21Z, 3 h) = 3,01x; ICON-EU 0,0548 -> 0,1678 = 3,06x;
+#     GFS 0.13 0,0517 -> 0,1825 = 3,4x.
+# Quindi la regola e' TEMPORALE e non "N frame": si somma all'indietro finche'
+# `Σ(t_i − t_{i−1})` e' ESATTAMENTE 6 h (±1 s). Poiche' 1, 3 e 6 dividono 6:
+# 1 h -> 6 frame, 3 h -> 2 frame, 6 h -> 1 frame, e una transizione 3 h -> 6 h
+# produce la finestra mista corretta (es. 3 h + 1 h + 1 h + 1 h = 6 h).
+# La somma "dei 6 frame" a passo 3 h coprirebbe 18 h: misurato su ECMWF
+# 2026-10-30T21Z..2026-10-31T12Z, media 1,6136 mm contro 0,5708 mm della
+# finestra esatta = 2,83x (18 h / 6 h = 3, il resto e' la variabilita' del tempo).
+#
+# MEMORIA DICHIARATA: la finestra tiene al massimo `WINDOW6H_MAX_FRAMES` frame
+# con DUE array ciascuno (`precipitation` e `snowfall_water_equivalent`, gia'
+# letti per le altre variabili: nessuna lettura aggiuntiva). Sul crop di
+# produzione: dwd_icon (0,125°, 561x2880 celle) = 6,5 MB per array ->
+# 2 x 6 x 6,5 MB = ~78 MB nel caso peggiore; dwd_icon_eu (881x449) ~ 1,6 MB per
+# array -> ~19 MB. Accettabile per il runner, ma e' un costo REALE e va tenuto
+# presente se si allarga la finestra.
+#
+# RUN PARZIALI / PRIMI FRAME: i primi frame di una run NON hanno la finestra
+# completa (T+0 non ha nemmeno i campi accumulati) -> null con motivo. E' il
+# comportamento corretto: NON si riempie con zeri e NON si usano frame di run
+# precedenti (vedi la guardia `mixed_reference_time`).
+WINDOW6H_HOURS = 6.0
+# Tolleranza sul totale: i passi sono secondi interi, 1 s assorbe l'aritmetica
+# in virgola mobile senza accettare una finestra sbagliata di un passo.
+WINDOW6H_TOLERANCE_S = 1
+# Numero massimo di frame che possono tassellare 6 h (tutti a passo 1 h).
+WINDOW6H_MAX_FRAMES = 6
+VARS_WINDOW6H = (
+    "precipitation_6h",
+    "snow_fraction_6h",
+)
+VARS_WINDOW6H_SET = frozenset(VARS_WINDOW6H)
+
+
 def domain_supports_swe(domain):
     """True se `domain` e' nell'allowlist della fase neve."""
     return domain in VAR_SWE_DOMAINS
 
 
+def domain_supports_window6h(domain):
+    """True se `domain` riceve la finestra 6 h.
+
+    L'allowlist e' la STESSA della fase neve (`VAR_SWE_DOMAINS`) e non una
+    presenza implicita: `precipitation_6h` dipende solo da `precipitation`, e
+    l'unico dominio escluso (`ncep_gfs025`) non ha NESSUNA variabile di
+    superficie - quindi ne' `precipitation` ne' `snowfall_water_equivalent`.
+    `snow_fraction_6h` richiede `swe`: senza, la voce non deve comparire.
+    """
+    return domain_supports_swe(domain)
+
+
 def _filter_swe(var_defs, domain):
-    """Toglie le voci neve se il dominio non e' in `VAR_SWE_DOMAINS`.
+    """Toglie le voci neve e finestra 6 h se il dominio non e' in `VAR_SWE_DOMAINS`.
 
     Stesso contratto di `_filter_10hpa`: le voci stanno in CODA alla lista,
     quindi per `ncep_gfs025` la lista resta identica (contenuto E ORDINE) a
@@ -419,7 +505,8 @@ def _filter_swe(var_defs, domain):
     """
     if domain_supports_swe(domain):
         return list(var_defs)
-    return [v for v in var_defs if v["name"] not in VARS_SWE_SET]
+    drop = VARS_SWE_SET | VARS_WINDOW6H_SET
+    return [v for v in var_defs if v["name"] not in drop]
 
 
 def _filter_10hpa(var_defs, domain):
@@ -534,6 +621,12 @@ VARIABLE_STEP = {
     # --- fase neve (solo domini in VAR_SWE_DOMAINS) ---
     "snowfall_water_equivalent": 0.1,   # 0.1 mm (DATO DEL MODELLO, non derivato)
     "snow_fraction": SNOW_FRACTION_STEP,  # 0.01 (DERIVATA NOSTRA: swe/precipitation)
+    # --- finestra 6 ore (solo domini in VAR_SWE_DOMAINS) ---
+    # Stesso passo di `precipitation` (0.1 mm): con scale_factor = 10 il massimo
+    # int16 (32767) copre 3276.7 mm in 6 ore, molto sopra qualunque accumulo
+    # osservato (il massimo di griglia misurato su ECMWF e' 216.6 mm).
+    "precipitation_6h": 0.1,            # 0.1 mm (DERIVATA STATEFUL, finestra 6 h)
+    "snow_fraction_6h": SNOW_FRACTION_STEP,  # 0.01 (DERIVATA STATEFUL, pesata su 6 h)
 }
 DEFAULT_STEP = 1.0
 DEFAULT_CHUNKS = [32, 32]
@@ -1195,6 +1288,203 @@ def _derive_snow_fraction(arrays):
                          arrays["precipitation"])
 
 
+# ---------------------------------------------------------------------------
+# FINESTRA 6 ORE (2026-10-26): funzioni PURE, testabili senza rete ne' frame.
+# ---------------------------------------------------------------------------
+def window6h_plan(valid_times, index, hours=WINDOW6H_HOURS,
+                  tol_s=WINDOW6H_TOLERANCE_S):
+    """Indici dei frame che tassellano ESATTAMENTE `[t_index - hours, t_index]`.
+
+    Regola (dichiarata e verificata, vedi commento di `VAR_SWE_DOMAINS`/
+    `WINDOW6H_HOURS`): si somma all'indietro il passo `t_i - t_{i-1}` finche' il
+    totale non e' ESATTAMENTE `hours` (±`tol_s`). Non e' "gli ultimi N frame":
+    con una serie a passo variabile (1 h, 3 h, 6 h) il numero di frame cambia e
+    la somma dei passi e' l'unica cosa che dice quante ore copre la finestra.
+
+    `valid_times`: lista ORDINATA di datetime (aware) del dominio.
+    `index`: posizione del frame di riferimento (il piu' recente della finestra).
+
+    Ritorna `(indici, None)` con gli indici dal PIU' VECCHIO al piu' recente,
+    oppure `(None, "window_not_tileable")`. "Non tassellabile" copre i tre casi
+    reali: (a) la run inizia a meno di 6 h dal frame e non ci sono abbastanza
+    frame precedenti; (b) il passo successivo andrebbe OLTRE 6 h (es. passo 4 h:
+    4 + 4 = 8 > 6, nessun sottoinsieme da 6 h); (c) passi non positivi.
+    """
+    if index <= 0 or index >= len(valid_times):
+        return None, "window_not_tileable"
+    target = float(hours) * 3600.0
+    total = 0.0
+    i = index
+    while i > 0:
+        step = (valid_times[i] - valid_times[i - 1]).total_seconds()
+        if step <= 0:
+            return None, "window_not_tileable"
+        if total + step > target + tol_s:
+            return None, "window_not_tileable"
+        total += step
+        i -= 1
+        if abs(total - target) <= tol_s:
+            # `step` appena sommato e' quello del frame `i+1` (copre
+            # `(t_i, t_i+1]`): la finestra e' quindi `i+1 .. index`, NON
+            # `i .. index` (includerebbe un frame di troppo, cioe' ore in piu').
+            return list(range(i + 1, index + 1)), None
+    return None, "window_not_tileable"
+
+
+def window6h_entries(valid_times, index, buffer, hours=WINDOW6H_HOURS,
+                     tol_s=WINDOW6H_TOLERANCE_S):
+    """Entry (dict) della finestra 6 h, oppure `(None, motivo)`.
+
+    `buffer` = frame gia' processati, ciascuno un dict con almeno `index`
+    (posizione in `valid_times`), `valid_time`, `step_s`, `ref_unix`,
+    `precipitation`, `snowfall_water_equivalent`. Un frame della finestra che
+    NON e' nel buffer (letto male, saltato) rende la finestra non calcolabile:
+    meglio un null dichiarato che una somma su 5 frame spacciata per 6 h.
+    """
+    plan, reason = window6h_plan(valid_times, index, hours, tol_s)
+    if plan is None:
+        return None, reason
+    by_index = {e["index"]: e for e in buffer}
+    if any(i not in by_index for i in plan):
+        return None, "frame_missing_in_window"
+    return [by_index[i] for i in plan], None
+
+
+def window6h_reason(entries, run_ref_unix):
+    """Motivo per cui la finestra NON e' utilizzabile (None = utilizzabile).
+
+    Controlli in QUEST'ORDINE (il primo che scatta decide il motivo):
+      1. `reference_time_unreadable`: in un frame manca lo scalare
+         `forecast_reference_time` (non e' verificabile la provenienza);
+      2. `mixed_reference_time`: quel frame viene da un'ALTRA run. GUARDIA
+         OBBLIGATORIA: la cache dei frame e' piatta e chiavata sul solo nome
+         (`<cache_dir>/<dominio>__<VALID>.om`), quindi un file vecchio con lo
+         stesso valid_time potrebbe essere riusato in silenzio: senza questo
+         confronto la finestra mescolerebbe due run;
+      3. `frame_missing_in_window`: un frame della finestra non ha
+         `precipitation` (a T+0 i campi accumulati non esistono);
+      4. `window_shape_mismatch`: griglie di uscita diverse fra i frame (non
+         deve accadere; se accade, la somma sarebbe fra celle diverse).
+    """
+    if not entries:
+        return "window_not_tileable"
+    for e in entries:
+        ref = e.get("ref_unix")
+        if ref is None:
+            return "reference_time_unreadable"
+        if int(ref) != int(run_ref_unix):
+            return "mixed_reference_time"
+    for e in entries:
+        if e.get("precipitation") is None:
+            return "frame_missing_in_window"
+    shape = None
+    for e in entries:
+        p_shape = tuple(np.shape(e["precipitation"]))
+        if shape is None:
+            shape = p_shape
+        elif p_shape != shape:
+            return "window_shape_mismatch"
+    return None
+
+
+def precipitation_6h(entries):
+    """Somma per cella di `precipitation` sui frame della finestra (mm).
+
+    Nessun riempimento: i frame a monte non devono arrivare qui (li esclude
+    `window6h_reason`). Accumulo in float64 e uscita float32, come il resto del
+    motore: 6 valori da 0.1 mm in float32 accumulerebbero errore visibile.
+    """
+    acc = None
+    for e in entries:
+        p = np.asarray(e["precipitation"], dtype=np.float64)
+        acc = p if acc is None else acc + p
+    return np.asarray(acc, dtype=np.float32)
+
+
+def snow_fraction_6h(entries):
+    """Frazione nevosa PESATA sulla finestra: `Σ swe / Σ precipitation`.
+
+    NON e' la media delle frazioni dei singoli frame (quella darebbe lo stesso
+    peso a un'ora con 0,1 mm e a una con 30 mm). MISURATO su ARPEGE
+    2026-10-26T12..17Z (6 frame a 1 h, 113.362 celle bagnate): differenza
+    pesata-media mediana 0,0000 ma p99 0,1250 e massimo 1,0000; 1.443 celle
+    oltre 0,10; 254 celle con pesata >= 0,5 e media < 0,5 (tratteggio neve
+    acceso con la pesata, spento con la media) e 44 nel verso opposto. Caso
+    reale 42,75N 31,75W: precip 0,1/0,2/0,2/0,5/1,6/2,7 mm, swe 0/0/0/0,2/1,6/2,7
+    -> pesata 0,849, media 0,400.
+
+    Regole dichiarate:
+      - `swe` assente in un frame: il numeratore e' ignoto SOLO dove QUEL frame
+        ha `precipitation > 0` (dove non piove ne' nevica quel frame contribuisce
+        0 a entrambi i termini) -> NaN in quelle celle;
+      - `Σ precipitation == 0` -> NaN: 0/0 non e' "0% neve", e' "non definito";
+      - risultato LIMITATO a [0,1]: il campo neve del fornitore puo' superare la
+        precipitazione (misurato su ARPEGE: cella 32,75N 16,50E con swe 0,1 mm e
+        precip 0 nei primi 4 frame -> rapporto 2,5 prima del limite).
+    """
+    num = None
+    den = None
+    unknown = None
+    for e in entries:
+        p = np.asarray(e["precipitation"], dtype=np.float64)
+        if den is None:
+            den = np.zeros(p.shape, dtype=np.float64)
+            num = np.zeros(p.shape, dtype=np.float64)
+            unknown = np.zeros(p.shape, dtype=bool)
+        den = den + p
+        swe = e.get("snowfall_water_equivalent")
+        if swe is None:
+            unknown |= (p > 0)
+            continue
+        num = num + np.asarray(swe, dtype=np.float64)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = num / np.where(den != 0.0, den, 1.0)
+    out = np.where((den > 0) & ~unknown, ratio, np.nan)
+    return np.clip(out, 0.0, 1.0).astype(np.float32)
+
+
+def compute_window6h(entries, run_ref_unix, reason=None):
+    """Calcola le DUE variabili della finestra 6 h, con motivo del null.
+
+    Ritorna `{nome: {"array": np.ndarray|None, "null_reason": str|None},
+    "window": {...}|None}`. `reason` = motivo GIA' accertato dal chiamante
+    (finestra non tassellabile / frame mancante nel buffer): se c'e', le due
+    variabili sono null con quel motivo e non si calcola nulla.
+    """
+    info = {
+        "precipitation_6h": {"array": None, "null_reason": None},
+        "snow_fraction_6h": {"array": None, "null_reason": None},
+        "window": None,
+    }
+    if reason is None:
+        reason = window6h_reason(entries, run_ref_unix)
+    if reason is not None:
+        for name in VARS_WINDOW6H:
+            info[name]["null_reason"] = reason
+        return info
+    total_s = 0.0
+    for e in entries:
+        step = e.get("step_s")
+        total_s += float(step) if step is not None else 0.0
+    info["window"] = {
+        "start": entries[0]["valid_time"],
+        "end": entries[-1]["valid_time"],
+        "n_frames": len(entries),
+        "hours": round(total_s / 3600.0, 6),
+    }
+    info["precipitation_6h"]["array"] = precipitation_6h(entries)
+    frac = snow_fraction_6h(entries)
+    info["snow_fraction_6h"]["array"] = frac
+    if np.all(np.isnan(frac)):
+        # null su TUTTE le celle: si dichiara il perche' (se invece e' null solo
+        # in parte, il chiamante registra `null_cells` e non un motivo globale).
+        info["snow_fraction_6h"]["null_reason"] = (
+            "swe_missing_in_window"
+            if any(e.get("snowfall_water_equivalent") is None for e in entries)
+            else "zero_precipitation_in_window")
+    return info
+
+
 # Registro delle derivazioni: nome PUBBLICATO -> {sources, func, stateful}.
 # `sources` = nomi (pubblicati o di INPUT) che devono essere presenti; `func`
 # (arrays) = derivata per-frame; `stateful: True` = NON per-frame ma accumulata
@@ -1263,6 +1553,23 @@ DERIVED_VARS = {
     "snow_fraction": {
         "sources": ["snowfall_water_equivalent", "precipitation"],
         "func": _derive_snow_fraction,
+    },
+    # --- FINESTRA 6 ORE (2026-10-26) — DERIVATE STATEFUL NOSTRE ------------
+    # Non sono calcolabili frame-per-frame: servono i frame PRECEDENTI, quindi
+    # `func` e' None e l'accumulo lo fa `process_domain` (finestra scorrevole,
+    # vedi `window6h_plan`/`compute_window6h`). Registrate qui perche' cosi'
+    # `missing_published_warnings` non le segnala come "assenti nella sorgente".
+    # Gate per dominio: `domain_supports_window6h` (stessa allowlist della neve,
+    # applicata anche da `_filter_swe` sulla lista delle variabili).
+    "precipitation_6h": {
+        "sources": ["precipitation"],
+        "func": None,
+        "stateful": True,
+    },
+    "snow_fraction_6h": {
+        "sources": ["snowfall_water_equivalent", "precipitation"],
+        "func": None,
+        "stateful": True,
     },
 }
 
@@ -1396,6 +1703,12 @@ def range_supported():
 _HTTP_LOOP = None
 _ACTIVE_STATS = None
 _DOMAIN_CHILD_MAP_CACHE = {}
+# Scalari obbligatori letti da OGNI frame (oltre agli array delle variabili):
+# `crs_wkt` (crop) e `forecast_reference_time` (guardia `mixed_reference_time`
+# della finestra 6 h). Costo misurato sul percorso a cache calda: +1 richiesta
+# Range da ~39 B per frame; gli array della finestra NON costano richieste
+# aggiuntive (`precipitation` e `swe` sono gia' letti per le altre variabili).
+_FRAME_SCALARS = ("crs_wkt", "forecast_reference_time")
 
 
 def _http_loop():
@@ -1508,9 +1821,10 @@ async def _selective_arrays_async(url, domain, risk_vars, grid, tgt_lats,
                 if src is not None and src in idx_map and src not in seen_needed:
                     seen_needed.add(src)
                     needed_names.append(src)
-            if "crs_wkt" in idx_map and "crs_wkt" not in seen_needed:
-                seen_needed.add("crs_wkt")
-                needed_names.append("crs_wkt")
+            for nm in _FRAME_SCALARS:
+                if nm in idx_map and nm not in seen_needed:
+                    seen_needed.add(nm)
+                    needed_names.append(nm)
 
             async def _get_cached_child(nm):
                 async with sem:
@@ -1574,6 +1888,20 @@ async def _selective_arrays_async(url, domain, risk_vars, grid, tgt_lats,
                 crs_frame = crs.read_scalar()
         except Exception:  # noqa: BLE001
             crs_frame = ""
+        # Provenienza del frame (guardia `mixed_reference_time` della finestra
+        # 6 h): in cache calda il child e' in `needed_names`, quindi qui non
+        # serve nessuna richiesta in piu'; in cache fredda arriva col resto.
+        ref_child = children_by_name.get("forecast_reference_time")
+        if ref_child is None:
+            try:
+                async with sem:
+                    ref_child = await root.get_child_by_name(
+                        "forecast_reference_time")
+                if ref_child is not None:
+                    children_by_name["forecast_reference_time"] = ref_child
+            except Exception:  # noqa: BLE001
+                ref_child = None
+        ref_unix = _ref_unix_from_scalar(ref_child)
 
         arrays = {}
         meta = {}
@@ -1616,7 +1944,7 @@ async def _selective_arrays_async(url, domain, risk_vars, grid, tgt_lats,
         warnings.extend(derive_per_frame(arrays, meta, domain))
         warnings.extend(missing_published_warnings(risk_vars, arrays, domain))
         return {"shape": shape, "crs_frame": crs_frame, "arrays": arrays,
-                "meta": meta, "warnings": warnings}
+                "meta": meta, "warnings": warnings, "ref_unix": ref_unix}
     finally:
         root.close()
         await _close_http_fs(fs)
@@ -1659,22 +1987,45 @@ def read_frame_selective(url, domain, risk_vars, grid, tgt_lats, tgt_lons,
     return None, stats, last
 
 
+def _ref_unix_from_scalar(child):
+    """`forecast_reference_time` di un frame (unix int) o None se illeggibile.
+
+    Serve alla guardia `mixed_reference_time` della finestra 6 h: la cache dei
+    frame e' piatta e chiavata sul solo nome, quindi la PROVENIENZA va letta dal
+    contenuto del file, non dedotta dal percorso. Misurato il 2026-10-26: lo
+    scalare esiste nei frame SORGENTE di TUTTI e 7 i domini e coincide col
+    `reference_time` del manifest.
+    """
+    try:
+        if child is None:
+            return None
+        return int(child.read_scalar())
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _read_local_frame(path, domain, risk_vars, grid, tgt_lats, tgt_lons, idx):
     """Legge il frame da un file LOCALE (percorso sync invariato). Ritorna dict."""
     reader = OmFileReader.from_path(path)
     try:
         shape = _reader_shape(reader)
         crs_frame = ""
+        ref_unix = None
         try:
             crs = reader.get_child_by_name("crs_wkt")
             if crs is not None:
                 crs_frame = crs.read_scalar()
         except Exception:  # noqa: BLE001
             crs_frame = ""
+        try:
+            ref_unix = _ref_unix_from_scalar(
+                reader.get_child_by_name("forecast_reference_time"))
+        except Exception:  # noqa: BLE001
+            ref_unix = None
         arrays, meta, warnings = resolve_domain_frame(
             reader, grid, risk_vars, tgt_lats, tgt_lons, idx, domain)
         return {"shape": shape, "crs_frame": crs_frame, "arrays": arrays,
-                "meta": meta, "warnings": warnings}
+                "meta": meta, "warnings": warnings, "ref_unix": ref_unix}
     finally:
         reader.close()
 
@@ -2027,6 +2378,10 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
         # deve mostrare ne' `snowfall_water_equivalent` ne' `snow_fraction`.
         res["vars_snow"] = [n for n in dry_risk if n in VARS_SWE_SET]
         res["vars_snow_domain_allowed"] = domain_supports_swe(domain)
+        # E per la finestra 6 ore: `precipitation_6h` e `snow_fraction_6h`
+        # compaiono SOLO dove esiste `swe` (stessa allowlist).
+        res["vars_window6h"] = [n for n in dry_risk if n in VARS_WINDOW6H_SET]
+        res["vars_window6h_domain_allowed"] = domain_supports_window6h(domain)
         res["status"] = "ok"
         nx = grid["nx"] if grid else "?"
         ny = grid["ny"] if grid else "?"
@@ -2047,6 +2402,11 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
         print("%s [PLAN] dominio '%s': neve ammessa=%s (%d: %s)"
               % (LOG, domain, "si" if domain_supports_swe(domain) else "no",
                  len(res["vars_snow"]), ", ".join(res["vars_snow"]) or "-"))
+        print("%s [PLAN] dominio '%s': finestra 6h ammessa=%s (%d: %s)"
+              % (LOG, domain,
+                 "si" if domain_supports_window6h(domain) else "no",
+                 len(res["vars_window6h"]),
+                 ", ".join(res["vars_window6h"]) or "-"))
         return res
 
     # --- NO-OP GUARD per-dominio (prima di scaricare i frame) ---
@@ -2149,6 +2509,17 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
     # con un warning di sintesi (i warning per-frame sono gia' emessi da
     # `missing_published_warnings`).
     swe_seen = False
+
+    # FINESTRA 6 ORE (`precipitation_6h`, `snow_fraction_6h`): buffer
+    # SCORREVOLE degli ultimi frame processati con le DUE sorgenti gia' lette.
+    # MEMORIA: fino a WINDOW6H_MAX_FRAMES x 2 array (dwd_icon 0,125°: ~78 MB;
+    # ICON-EU: ~19 MB). Nessuna lettura aggiuntiva: `precipitation` e
+    # `snowfall_water_equivalent` sono gia' in `arrays` per le altre variabili.
+    window6h = []
+    window6h_null = {name: 0 for name in VARS_WINDOW6H}
+    window6h_reasons = {name: {} for name in VARS_WINDOW6H}
+    run_ref_unix = int(parse_iso(ref_time).timestamp())
+    anchor_dts = [parse_iso(a) for a in anchors]
 
     frames = []
     variables_map = {}
@@ -2263,6 +2634,49 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
             "source_domain": domain, "derived": True,
             "derived_from": ["precipitation"]}
 
+        # --- FINESTRA 6 ORE: `precipitation_6h` / `snow_fraction_6h` ---------
+        # Il frame CORRENTE entra nella finestra con le due sorgenti GIA' lette.
+        # Le due variabili si pubblicano SEMPRE (array di NaN quando la finestra
+        # non e' calcolabile) cosi' l'insieme delle variabili del `.om` resta
+        # omogeneo fra i frame; il motivo del null sta in `variables[<vt>]`.
+        if domain_supports_window6h(domain):
+            window6h.append({
+                "index": vi,
+                "valid_time": anchor,
+                "vt": anchor_dts[vi],
+                "step_s": ((anchor_dts[vi] - anchor_dts[vi - 1]).total_seconds()
+                           if vi > 0 else None),
+                "ref_unix": frame.get("ref_unix"),
+                "precipitation": arrays.get("precipitation"),
+                "snowfall_water_equivalent":
+                    arrays.get("snowfall_water_equivalent"),
+            })
+            if len(window6h) > WINDOW6H_MAX_FRAMES:
+                del window6h[0]
+            entries6h, reason6h = window6h_entries(anchor_dts, vi, window6h)
+            w6 = compute_window6h(entries6h, run_ref_unix, reason6h)
+            for name6 in VARS_WINDOW6H:
+                item6 = w6[name6]
+                arr6 = item6["array"]
+                if arr6 is None:
+                    arr6 = np.full(out_shape, np.nan, dtype=np.float32)
+                arrays[name6] = arr6
+                meta6 = {"source_domain": domain, "derived": True,
+                         "derived_from": list(DERIVED_VARS[name6]["sources"])}
+                if w6["window"]:
+                    meta6["window"] = dict(w6["window"])
+                n_null = int(np.isnan(arr6).sum())
+                if n_null:
+                    meta6["null_cells"] = n_null
+                if n_null == int(arr6.size):
+                    meta6["null_reason"] = (item6["null_reason"]
+                                            or "all_cells_null")
+                    window6h_null[name6] += 1
+                    r = meta6["null_reason"]
+                    window6h_reasons[name6][r] = (
+                        window6h_reasons[name6].get(r, 0) + 1)
+                vmeta[name6] = meta6
+
         vt_dt = parse_iso(anchor)
         ref_dt = parse_iso(ref_time)
         fname = vname + ".om"
@@ -2332,6 +2746,20 @@ def process_domain(domain, args, cache_dir, frames_cache, grid_cache, dry_run):
             "snowfall_water_equivalent: assente in TUTTI i frame del dominio "
             "'%s': nessuna informazione di fase neve/pioggia in questo run "
             "(a T+0 e' ATTESO: i campi accumulati non esistono)" % domain)
+    if domain_supports_window6h(domain) and frames:
+        # Sintesi dei null della finestra 6 h: i primi frame di una run NON
+        # hanno 6 h di storia (a T+0 manca anche `precipitation`), quindi un
+        # certo numero di null e' ATTESO e non e' un guasto.
+        for name6 in VARS_WINDOW6H:
+            if not window6h_null[name6]:
+                continue
+            det = ", ".join("%s=%d" % kv
+                            for kv in sorted(window6h_reasons[name6].items()))
+            all_warnings.append(
+                "'%s': null (tutte le celle) su %d frame su %d (motivi: %s). "
+                "I primi frame della run non hanno 6 h di storia: nessun "
+                "riempimento con zeri, nessun frame da run precedenti"
+                % (name6, window6h_null[name6], len(frames), det))
 
     removed = []
     if not args.no_prune:

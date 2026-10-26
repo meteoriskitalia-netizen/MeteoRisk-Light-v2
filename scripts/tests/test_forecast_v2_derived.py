@@ -247,8 +247,9 @@ def test_derive_per_frame_adds_derived_with_meta():
 # ---------------------------------------------------------------------------
 # Registro / wiring delle variabili
 # ---------------------------------------------------------------------------
-def test_registry_declares_10_stateless_and_1_stateful():
-    assert set(ENGINE.DERIVED_VARS) == set(DERIVED_PER_FRAME) | {"precipitation_cum"}
+def test_registry_declares_10_stateless_and_3_stateful():
+    stateful = {"precipitation_cum", "precipitation_6h", "snow_fraction_6h"}
+    assert set(ENGINE.DERIVED_VARS) == set(DERIVED_PER_FRAME) | stateful
     for n in DERIVED_PER_FRAME:
         spec = ENGINE.DERIVED_VARS[n]
         assert callable(spec["func"]), n
@@ -257,6 +258,16 @@ def test_registry_declares_10_stateless_and_1_stateful():
     assert pc.get("stateful") is True
     assert pc["sources"] == ["precipitation"]
     assert pc["func"] is None
+    # FINESTRA 6 ORE (2026-10-26): anche queste due sono STATEFUL (servono i
+    # frame precedenti) e il loro accumulo vive in `process_domain`.
+    for n in ("precipitation_6h", "snow_fraction_6h"):
+        spec = ENGINE.DERIVED_VARS[n]
+        assert spec.get("stateful") is True, n
+        assert spec["func"] is None, n
+    assert ENGINE.DERIVED_VARS["precipitation_6h"]["sources"] == [
+        "precipitation"]
+    assert ENGINE.DERIVED_VARS["snow_fraction_6h"]["sources"] == [
+        "snowfall_water_equivalent", "precipitation"]
     # ATOMICITA': speed e direction dello stesso livello hanno le STESSE sorgenti
     # (quindi `derive_per_frame` le omette/aggiunge insieme).
     for level in WIND_LEVELS:
@@ -411,6 +422,8 @@ def test_non_allowed_domains_keep_historical_var_set():
             out += list(ENGINE.VARS_10HPA)
         if ENGINE.domain_supports_swe(d):
             out += list(ENGINE.VARS_SWE)
+        if ENGINE.domain_supports_window6h(d):
+            out += list(ENGINE.VARS_WINDOW6H)
         # `read_vars_for` = pubblicate + INPUT, quindi gli INPUT in CODA
         out += list(inputs)
         return out
