@@ -6,37 +6,55 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.32
+## Versione attiva: 1.2.4.33
+
+- File applicativo: `mri-light-1.2.4.33.html` (`APP_VERSION = '1.2.4.33'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.33', date: '2026-10-26' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.33'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+  `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
+- Contenuto della 1.2.4.33 (release sopra la 1.2.4.32) - **il composito Pressione/Geopotenziale
+  e' selezionabile nell'app** e **il Service Worker avvisa quando c'e' una versione nuova**.
+  Solo client: nessuna modifica a `scripts/forecast_v2/*` e nessuna ai workflow.
+  - **Il composito arriva dal server, con id proprio.** `__pressure_geopot` era pubblicata in
+    `index.json` e nella timeline ma non era selezionabile: la pseudo-voce diventava raster Z500
+    + overlay vettoriale MSL e su `north` il WebP vinceva comunque (`wantWebp`), quindi a schermo
+    nessuna isobara e i valori del geopotenziale scritti. Ora `fmVariable` resta
+    `__pressure_geopot` e `fmOverlayVariable` e' sempre null: si usa il WebP composto dal renderer
+    (Z500 colorato **senza** valori + isobare MSL **bianche con il valore**).
+  - **Fallback dichiarato.** Se la run non ha il WebP composito (run precedenti al renderer
+    nuovo) si ricade sul percorso storico `.om` Z500 + overlay MSL, con status e legenda
+    "disegnate dal client": senza fallback la mappa sarebbe vuota.
+  - **Legenda.** Scala del raster (`geopotential_height_500hPa`) e nota
+    "Isobares MSL (hPa) - 5 hPa" su ogni regione (5 hPa, non 10).
+  - **Banner "Nuova versione disponibile - ricarica".** Su `updatefound` +
+    `statechange === 'activated'` (piu' `controllerchange` e update gia' in attesa) compare
+    `#app-update` (stile `#fm-newrun`, fixed, hidden di default) con bottone `location.reload()`.
+    La prima installazione non mostra nulla: prima non c'era una versione da aggiornare.
+  - **Numeri misurati dal renderer** (non stimati in questa release): rapporto Mercatore dedotto
+    dal crop `dwd_icon_eu` **1,2675** (1761x1390) e `ecmwf_ifs025` **1,0090** (1121x1111); il
+    rapporto 1,6 chiesto avrebbe stirato il contenuto del **26%** e del **59%**. Etichette Europa
+    da 12 px forfettari (3,63/4,54 px a schermo) a font dedotto **7,55/7,56 px**. Composito sul
+    disco da 1000 px: **16 livelli, 1.489 anelli**, etichette `strict` con **0** sovrapposte.
+    Z500 senza valori; isobare bianche con casing scuro (**38,2%** dell'Europa ha luminanza >210
+    nella palette Z500).
+  - **Stato reale (dichiarato).** L'`index.json` di `fm2-rendered` letto il 2026-10-26T16:36Z
+    espone `__pressure_geopot` solo per `ncep_gfs025` (39 frame); gli altri domini usano il
+    fallback finche' il loro run non rigenera i WebP. Composito non verificato pixel per pixel.
+  - Verifica: `test_html_js_syntax.py` 1 passed; suite `.mjs` 28 file -> **26 PASS / 2 non-zero**
+    (`contract_dataset_loader` dataset-bound, `test_fm_webp_fastpath` A15c), contro la baseline
+    di `main` 21 PASS / 7 non-zero: nessun nome nuovo, 5 asserzioni stale (4 `APP_VERSION`
+    ferme alla 1.2.4.12 e il passo `fmContourInterval` atteso a 2 invece di 5) riallineate.
+- Storico immediato: **1.2.4.32** (legenda del tratteggio neve, release di propagazione).
+
+## Versione 1.2.4.32 (storica)
 
 - File applicativo: `mri-light-1.2.4.32.html` (`APP_VERSION = '1.2.4.32'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.32', date: '2026-10-26' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.32'`, servito come `/sw.js` e copiato in `_site/sw.js` da
-  `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
-- Contenuto della 1.2.4.32 (release sopra la 1.2.4.31) - **propagazione della legenda del
-  tratteggio neve**. Release di sola propagazione: nessuna variabile nuova, nessun cambio di
-  palette, nessuna modifica a `scripts/forecast_v2/*`.
-  - **La neve e' dentro le precipitazioni.** La legenda di `precipitation` e `precipitation_6h`
-    mostra due campioni di trama, con la geometria che il renderer cuoce nel WebP: barra inclinata
-    dove la frazione neve e' **0,5-0,8**, incrocio a X dove e' **oltre 0,8**.
-  - **Le soglie sono una scelta di prodotto**, non un dato del modello: la neve del modello arriva
-    fino a **+1,5 C**, quindi una linea netta neve/pioggia nei dati non esiste.
-  - **L'inchiostro cambia colore sul fondo** (scuro -> chiaro -> scuro piu' denso) per restare
-    leggibile su tutta la rampa: contrasto minimo misurato **3,06:1** su tutte le bande (misura del
-    renderer, non ripetuta in questa release).
-  - **Ordine del gruppo**: `precipitation_6h` e' la voce principale e `precipitation` la seconda,
-    perche' oltre il primo tratto del modello la variabile oraria non e' oraria (lo stesso numero
-    vale 1, 3 o 6 ore). `precipitation` si chiama ora **"Precipitazioni (passo del modello)"**.
-  - **Limite dichiarato**: il tratteggio non compare quando il client usa il raster `.om` invece
-    del WebP (primi minuti di una run nuova). Il renderer ha bumpato `WEBP_VERSION` a
-    `fm2-webp-2`: il tratteggio visivo arriva con la prossima rigenerazione dei WebP, senza
-    un'altra release.
-  - Verifica: `test_html_js_syntax.py` 1 passed; suite `.mjs` 28 file -> 21 PASS / 7 non-zero (gli
-    stessi 7 nomi della baseline); browser Edge headless via CDP sulla pagina servita (dominio
-    `dwd_icon_d2`, variabile "Precipitazioni 6 ore") con le due righe di trama visibili,
-    `precipitation_6h` prima voce del gruppo e controllo negativo a zero righe con
-    `temperature_2m`.
-- NON toccati: `scripts/forecast_v2/*`, `scripts/radar_engine/*`, `scripts/cronjobs/*`, i
-  workflow `forecast-maps-*.yml`, `satellite-engine.yml`, `color_scales.json`.
+  changelog in-app `{ version: '1.2.4.32', date: '2026-10-26' }`) + `sw.js`
+  (`CACHE_NAME = 'mri-1.2.4.32'`).
+- Contenuto: legenda del tratteggio neve in `precipitation` e `precipitation_6h` (due campioni:
+  barra 50-80%, incrocio oltre 80%), `precipitation_6h` prima voce del gruppo, `precipitation`
+  rinominata "Precipitazioni (passo del modello)". Soglie 0,5/0,8 scelte di prodotto; il
+  tratteggio arriva nelle immagini con la rigenerazione `fm2-webp-2` del renderer.
 
 ## Versione 1.2.4.31 (storica)
 

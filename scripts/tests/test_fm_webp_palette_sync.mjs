@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // TEST 1.2.4.12 — SINCRONIA PALETTE CLIENT <-> RENDERER (precipitazione, geopotenziale, pressure_msl, vento).
-// Guardia contro la divergenza: le scale definite nel CLIENT (mri-light-1.2.4.32.html) devono
+// Guardia contro la divergenza: le scale definite nel CLIENT (mri-light-1.2.4.33.html) devono
 // essere IDENTICHE a quelle pubblicate dal renderer in scripts/forecast_v2/color_scales.json:
 //   - precipitation / rain / showers (breakpoints + colori light/dark);
 //   - precipitation_cum (cumulata dal riferimento: 21 bande 0..300 mm tarate sulla
@@ -32,7 +32,7 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.32.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.33.html');
 const JSON_PATH = path.join(ROOT, 'scripts', 'forecast_v2', 'color_scales.json');
 const src = fs.readFileSync(HTML, 'utf8');
 const scales = JSON.parse(fs.readFileSync(JSON_PATH, 'utf8')).scales;
@@ -242,12 +242,12 @@ ok('G: fmVectorUrl dell\'overlay MSL forzato con passo 5',
   /fmVectorUrl\(\s*overlayBase\s*,\s*fmOverlayVariable\s*,\s*true\s*,\s*5\s*\)/.test(src));
 ok('G: nessun residuo del passo 4 nell\'overlay MSL',
   !/fmVectorUrl\(\s*overlayBase\s*,\s*fmOverlayVariable\s*,\s*true\s*,\s*4\s*\)/.test(src));
-ok('G: label di legenda "Isobare MSL (hPa) · passo 5 hPa"',
-  /Isobare MSL \(hPa\)[\s\S]{0,4}passo 5 hPa/.test(src) && !/passo 4 hPa/.test(src));
+ok('G: label di legenda "Isobares MSL (hPa) · 5 hPa"',
+  /Isobares MSL \(hPa\)[\s\S]{0,12}5 hPa/.test(src) && !/passo 10 hPa/.test(src));
 ok('G: commento aggiornato a "intervallo sinottico 5 hPa"',
   /intervallo sinottico 5 hPa/.test(src) && !/intervallo sinottico 4 hPa/.test(src));
-ok('G: fmContourInterval NON toccato (passo isolinee generiche resta base 2 per pressure_msl)',
-  /else if \(\/pressure_msl\|surface_pressure\/\.test\(v\)\) base = 2;/.test(src));
+ok('G: fmContourInterval del client invariato (base 5 per pressure_msl, come in main)',
+  /else if \(\/pressure_msl\|surface_pressure\/\.test\(v\)\) base = 5;/.test(src));
 
 // ---------- H. VENTO: TRE VELOCITA' PUBBLICATE, NESSUNA COMPONENTE, NESSUNA DIREZIONE ----------
 // 1.2.4.12: il motore NON pubblica piu' wind_u_component_10m / wind_v_component_10m (restano
