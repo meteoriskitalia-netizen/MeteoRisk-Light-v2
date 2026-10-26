@@ -57,10 +57,12 @@ SCHEMA (``fm2-timeline-1``)
       "domains": {
         "dwd_icon": {
           "current_run": "20261023T180000Z",     # bucket 0
-          "projection": "stereographic",         # solo se il dominio la dichiara
+          "projection": "stereographic",         # SOLO se TUTTE le run concordano
           "projection_meta": {"type": "polar_stereographic", "size": 1000,
                               "edge_lat": 20.0, ...},   # geometria, se c'e'
-          "runs": [ ... stesso record senza "domain" ... ],
+          "runs": [{"run_id": "20261023T180000Z", ...,
+                    "projection": "stereographic",   # proiezione DELLA run
+                    "projection_meta": {...}}],
           "head_trim": {"applied": true, "cutoff": "2026-10-23T15:00Z",
                         "dropped_frames": 12, "reason": "keep_past_hours"},
           "variables": {
@@ -74,7 +76,8 @@ SCHEMA (``fm2-timeline-1``)
               "frames": 123,
               "timeline": [
                 {"valid_time": "2026-10-23T06:00Z", "run_id": "20261023T060000Z",
-                 "bucket": 2, "file": "2026-10-23T0600.webp"}
+                 "bucket": 2, "file": "2026-10-23T0600.webp",
+                 "projection": "mercator"}     # proiezione DEL FRAME
               ]
             }
           }
@@ -119,14 +122,28 @@ Note di schema:
 PROIEZIONE (``projection`` / ``projection_meta``)
 ------------------------------------------------
 Il client (``fmRegionProjection``) risolve la proiezione con la precedenza
-dominio -> timeline -> regione -> ``"mercator"``. Senza queste chiavi, se
+frame -> run -> dominio -> regione -> ``"mercator"``. Senza queste chiavi, se
 ``index.json`` non e' ancora arrivato non c'e' alcun fallback e un disco polare
 verrebbe disegnato come striscia Mercator per quella finestra. La timeline
 quindi PROPAGA quello che i manifest dichiarano, senza indovinare:
 
-* ``domains.<dominio>.projection``: sempre, se il dominio la dichiara (valore
-  della run piu' recente che ce l'ha). SEMPRE una STRINGA: la geometria sta
-  sotto ``domains.<dominio>.projection_meta``.
+* ``timeline_groups.<g>.timeline[].projection``: SEMPRE, su ogni frame, come
+  stringa corta (``mercator`` / ``stereographic``). E' la proiezione VERA di
+  quel frame, cioe' quella della run che lo ha prodotto: una run senza chiave
+  nei manifest e' una striscia Mercator e il frame lo dichiara. Senza questa
+  chiave il client applicherebbe la proiezione del dominio (della run piu'
+  recente) anche ai frame delle run precedenti -- misurato in produzione il
+  2026-10-26 su ``ecmwf_ifs025``/``north``: 36 frame su 85 della run
+  ``20261025T120000Z`` (striscia 2879x521) disegnati come disco perche' la run
+  ``20261025T180000Z`` era su disco 1000x1000.
+* ``domains.<dominio>.runs[].projection`` / ``projection_meta``: la proiezione
+  DELLA run, quando la dichiara. E' il livello che il client legge quando un
+  frame non ha la chiave (timeline scritta da una versione precedente).
+* ``domains.<dominio>.projection``: SOLO se TUTTE le run indicizzate dichiarano
+  la STESSA proiezione; altrimenti la chiave e' OMESSA. Il client la usa come
+  fallback per ogni frame senza proiezione propria, quindi una run ancora
+  Mercator mentre un'altra e' su disco rende la chiave ambigua. SEMPRE una
+  STRINGA: la geometria sta sotto ``domains.<dominio>.projection_meta``.
 * ``projection`` a livello regione: SOLO se TUTTI i domini indicizzati
   dichiarano la STESSA proiezione; altrimenti la chiave e' OMESSA e non c'e'
   fallback. Regola identica a ``write_region_index`` del renderer (fix
@@ -135,8 +152,9 @@ quindi PROPAGA quello che i manifest dichiarano, senza indovinare:
   disegnava la striscia come un disco. Uno stato misto = nessuna chiave.
 * Un ``projection`` che fosse un OGGETTO (forma dei primi build del disco) viene
   spezzato in stringa + ``projection_meta``: il client accetta solo stringhe.
-* Nessuna chiave dichiarata dai manifest -> nessuna chiave nella timeline
-  (``projection`` assente = ``mercator``, il percorso storico).
+* Nessuna chiave dichiarata dai manifest -> nessuna chiave a livello run/dominio
+  (``projection`` assente = ``mercator``, il percorso storico), ma i frame
+  dichiarano comunque ``"mercator"``: e' il loro valore effettivo.
 
 POTATURA DELLA TESTA (``--keep-past-hours``, default 3)
 -------------------------------------------------------
@@ -230,6 +248,12 @@ DEFAULT_KEEP_PAST_HOURS = 3.0
 # vale 'mercator' (il percorso storico). Deve restare una STRINGA: i metadati
 # geometrici vivono sotto `projection_meta` (vedi projection_parts).
 POLAR_PROJECTION = "stereographic"
+# Valore che il client usa quando una run NON dichiara `projection`: i manifest
+# scritti prima del disco polare (e qualunque manifest senza la chiave) sono
+# strisce Mercator. Lo si scrive ESPLICITAMENTE su ogni frame della timeline,
+# perche' il frame deve dichiarare la propria proiezione e non ereditare quella
+# del dominio (che puo' essere il disco della run piu' recente).
+MERCATOR_PROJECTION = "mercator"
 
 
 # --------------------------------------------------------------------------- #
@@ -362,6 +386,61 @@ def _run_projection(manifests: list) -> tuple:
         meta = manifest.get("projection_meta") or legacy_meta
         return projection, (dict(meta) if isinstance(meta, dict) else None)
     return None, None
+
+
+def consensus_projection(entries) -> tuple:
+    """``(projection, projection_meta)`` se TUTTE le voci dichiarano lo stesso valore.
+
+    E' la regola del fix ``09f8158b`` (la stessa di ``write_region_index`` nel
+    renderer), applicata alle DUE liste che il client copre in blocco:
+
+    * i DOMINI di una regione -- la chiave di regione viene usata dal client per
+      ogni dominio;
+    * le RUN di un dominio -- ``domains.<dominio>.projection`` viene usata per
+      ogni frame che non ne dichiara una propria.
+
+    Una voce che NON dichiara nulla non concorda: il valore assente significa
+    ``mercator`` (default del client) e applicarlo alle altre sarebbe
+    un'invenzione. Per questo un elenco tutto-Mercator non produce la chiave.
+    Solo STRINGHE: un oggetto (forma dei primi build del disco) non e' un valore
+    che il client accetta.
+
+    Copia DELIBERATA di ``render_fm_webp.consensus_projection`` per lo stesso
+    motivo di ``projection_parts``: questo modulo resta SOLO stdlib.
+    """
+    values = set()
+    metas = {}
+    for entry in entries or ():
+        if not isinstance(entry, dict):
+            return None, None
+        value = entry.get("projection")
+        if not isinstance(value, str) or not value:
+            return None, None
+        values.add(value)
+        meta = entry.get("projection_meta")
+        if value not in metas and isinstance(meta, dict):
+            metas[value] = meta
+    if len(values) != 1:
+        return None, None
+    value = next(iter(values))
+    return value, metas.get(value)
+
+
+def frame_projection(record: dict) -> str:
+    """Proiezione del SINGOLO frame, sempre una stringa.
+
+    La run che ha prodotto il frame la dichiara (``collect_run``); se non la
+    dichiara il frame e' una striscia Mercator, cioe' il default del client. Il
+    valore si scrive ESPLICITAMENTE su ogni voce della timeline: senza, il
+    client applicherebbe la proiezione del dominio (presa dalla run piu'
+    recente) anche ai frame della run precedente -- misurato in produzione il
+    2026-10-26: 36 frame della run ``20261025T120000Z`` (striscia 2879x521)
+    disegnati come disco perche' la run ``20261025T180000Z`` era su disco.
+    """
+    value = record.get("projection")
+    if isinstance(value, str) and value:
+        return value
+    return MERCATOR_PROJECTION
 
 
 # --------------------------------------------------------------------------- #
@@ -552,7 +631,7 @@ def merge_domain(domain: str, runs: list, max_runs: int, exists=None,
     run_records = []
     for bucket, record in enumerate(runs):
         record["bucket"] = bucket
-        run_records.append({
+        run_rec = {
             "run_id": record["run_id"],
             "reference_time": record["reference_time"],
             "reference_time_source": record["reference_time_source"],
@@ -564,7 +643,17 @@ def merge_domain(domain: str, runs: list, max_runs: int, exists=None,
             "first_valid_time": record["first_valid_time"],
             "last_valid_time": record["last_valid_time"],
             "timeline_frames": 0,  # riempito dopo il merge
-        })
+        }
+        # Proiezione della RUN (stringa + geometria): la stessa forma di
+        # `index.json` -> `domains.<dominio>.runs[]`. Non e' un doppione del
+        # frame: e' il livello che il client legge quando un frame non la
+        # dichiara (timeline.json generata da una versione precedente). Una run
+        # senza chiave resta Mercator e NON si scrive nulla.
+        if record.get("projection"):
+            run_rec["projection"] = record["projection"]
+        if record.get("projection_meta"):
+            run_rec["projection_meta"] = record["projection_meta"]
+        run_records.append(run_rec)
 
     # Variabili: unione di tutti i run (ordine alfabetico = deterministico).
     all_vars = sorted({var for record in runs for var in record["frames_by_var"]})
@@ -600,6 +689,11 @@ def merge_domain(domain: str, runs: list, max_runs: int, exists=None,
                     "run_id": record["run_id"],
                     "bucket": record["bucket"],
                     "file": file_name,
+                    # Il frame dichiara la PROPRIA proiezione (quella della run
+                    # che lo ha prodotto), sempre come stringa: 'mercator' se la
+                    # run non ne dichiara una. Senza questa chiave il client
+                    # userebbe quella del dominio, cioe' della run piu' recente.
+                    "projection": frame_projection(record),
                 }
         if not winners:
             continue
@@ -698,18 +792,21 @@ def merge_domain(domain: str, runs: list, max_runs: int, exists=None,
         "variables": variables,
         "timeline_groups": timeline_groups,
     }
-    # `projection` del DOMINIO: sempre, se il dominio la dichiara. La si prende
-    # dalla run piu' recente che la dichiara (la proiezione di una regione non
-    # cambia da una run all'altra: si sceglie il valore, non si media nulla).
-    # Resta una STRINGA; la geometria va sotto `projection_meta`.
-    for record in runs:
-        projection = record.get("projection")
-        if not projection:
-            continue
-        domain_doc["projection"] = projection
-        if record.get("projection_meta"):
-            domain_doc["projection_meta"] = record["projection_meta"]
-        break
+    # `projection` del DOMINIO: SOLO se TUTTE le run indicizzate dichiarano la
+    # STESSA proiezione (regola del fix `09f8158b`, condivisa con
+    # `write_region_index` del renderer). Il client la usa come fallback per i
+    # frame che non dichiarano una proiezione propria, quindi applicarla mentre
+    # una run e' ancora una striscia Mercator disegnerebbe quella striscia come
+    # un disco. MISURATO in produzione il 2026-10-26 su `ecmwf_ifs025`/`north`:
+    # run `20261025T180000Z` su disco 1000x1000 e run `20261025T120000Z` ancora
+    # striscia 2879x521 -> la chiave va OMESSA (le run discordano), mentre ogni
+    # frame porta la sua e ogni run la sua in `runs[]`. Resta una STRINGA; la
+    # geometria va sotto `projection_meta`.
+    domain_projection, domain_projection_meta = consensus_projection(run_records)
+    if domain_projection:
+        domain_doc["projection"] = domain_projection
+    if domain_projection_meta:
+        domain_doc["projection_meta"] = domain_projection_meta
     return domain_doc
 
 
@@ -795,18 +892,14 @@ def build_region(root: str, region: str, max_runs: int = 0, exists=None,
     # projection 'stereographic' e sorgente 2879x521). Regola IDENTICA a
     # `write_region_index` del renderer (fix 09f8158b): la chiave si scrive
     # SOLO se TUTTI i domini indicizzati dichiarano la STESSA proiezione;
-    # altrimenti si omette (stato misto = nessun fallback).
-    proj_set = {doc.get("projection") for doc in domain_docs.values()}
-    if len(proj_set) == 1 and None not in proj_set:
-        region_projection = next(iter(proj_set))
+    # altrimenti si omette (stato misto = nessun fallback). La stessa funzione
+    # decide la chiave del DOMINIO sulle sue RUN.
+    region_projection, region_projection_meta = consensus_projection(
+        list(domain_docs.values()))
+    if region_projection:
         document["projection"] = region_projection
-        region_meta = None
-        for doc in domain_docs.values():
-            if doc.get("projection") == region_projection:
-                region_meta = doc.get("projection_meta")
-                break
-        if region_meta:
-            document["projection_meta"] = region_meta
+        if region_projection_meta:
+            document["projection_meta"] = region_projection_meta
     if skipped:
         document["skipped"] = skipped
     if dropped:

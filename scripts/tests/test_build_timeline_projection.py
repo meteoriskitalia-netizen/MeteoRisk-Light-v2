@@ -151,21 +151,98 @@ def test_domain_projection_is_propagated_as_a_string(tmp_path, capsys):
     assert "projection_meta" not in doc
 
 
-def test_domain_projection_follows_the_most_recent_run(tmp_path, capsys):
-    """La proiezione e' quella della run piu' recente che la dichiara."""
+def test_domain_projection_omitted_when_the_runs_disagree(tmp_path, capsys):
+    """MISURATO in produzione il 2026-10-26 su `ecmwf_ifs025`/`north`.
+
+    La run nuova (`20261026T000000Z`) e' un disco stereografico 1000x1000, la
+    precedente (`20261025T000000Z`) e' ancora una striscia Mercator 2879x521.
+    `domains.<dominio>.projection` viene applicata dal client a OGNI frame che
+    non ne dichiara una: scriverla 'stereographic' faceva disegnare la striscia
+    come un disco. La chiave va OMESSA, mentre ogni RUN conserva la propria.
+    """
     root = str(tmp_path / "fm2-rendered")
     _write_run(root, DISC, "20261026T000000Z", "2026-10-26T00:00:00Z", HOURS,
                projection=mod.POLAR_PROJECTION, projection_meta=DISC_META)
-    _write_run(root, DISC, "20261025T000000Z", "2026-10-25T00:00:00Z", HOURS,
-               projection="mercator")
+    _write_run(root, DISC, "20261025T000000Z", "2026-10-25T00:00:00Z", HOURS)
     out = str(tmp_path / "out")
     assert _run_main(root, out) == 0
     capsys.readouterr()
     doc = _load(out)
     disc = doc["domains"][DISC]
     assert disc["current_run"] == "20261026T000000Z"
+    assert "projection" not in disc
+    assert "projection_meta" not in disc
+    # La regola di REGIONE e' il consenso dei domini: persa la chiave di dominio,
+    # con un solo dominio cade anche quella di regione (fix 09f8158b).
+    assert "projection" not in doc
+    # Le RUN non perdono nulla: ognuna dichiara la propria (o tace = Mercator).
+    by_id = {r["run_id"]: r for r in disc["runs"]}
+    assert by_id["20261026T000000Z"]["projection"] == "stereographic"
+    assert by_id["20261026T000000Z"]["projection_meta"] == DISC_META
+    assert "projection" not in by_id["20261025T000000Z"]
+
+
+def test_every_frame_declares_the_projection_of_its_own_run(tmp_path, capsys):
+    """La timeline e' mista: i frame della run vecchia sono Mercator, gli altri disco."""
+    root = str(tmp_path / "fm2-rendered")
+    old_hours = ["2026-10-25T00:00Z", "2026-10-25T01:00Z",
+                 "2026-10-25T02:00Z", "2026-10-25T03:00Z"]
+    new_hours = ["2026-10-26T02:00Z", "2026-10-26T03:00Z"]
+    _write_run(root, DISC, "20261025T000000Z", "2026-10-25T00:00:00Z", old_hours)
+    _write_run(root, DISC, "20261026T000000Z", "2026-10-26T00:00:00Z", new_hours,
+               projection=mod.POLAR_PROJECTION, projection_meta=DISC_META)
+    out = str(tmp_path / "out")
+    assert _run_main(root, out) == 0
+    capsys.readouterr()
+    doc = _load(out)
+    disc = doc["domains"][DISC]
+    timeline = disc["timeline_groups"][disc["variables"]["varX"]["group"]]["timeline"]
+    assert len(timeline) == 6
+    # OGNI frame porta la proiezione della run che lo ha prodotto, come STRINGA.
+    for entry in timeline:
+        assert isinstance(entry["projection"], str)
+        if entry["run_id"] == "20261026T000000Z":
+            assert entry["projection"] == "stereographic"
+        else:
+            assert entry["projection"] == "mercator"
+    # La testa e' della run vecchia, la coda della nuova (merge invariato).
+    assert [e["projection"] for e in timeline] == \
+        ["mercator", "mercator", "mercator", "mercator", "stereographic", "stereographic"]
+
+
+def test_uniform_disc_writes_the_domain_key_and_every_frame(tmp_path, capsys):
+    root = str(tmp_path / "fm2-rendered")
+    for run_id, ref in (("20261026T000000Z", "2026-10-26T00:00:00Z"),
+                        ("20261025T000000Z", "2026-10-25T00:00:00Z")):
+        _write_run(root, DISC, run_id, ref, HOURS,
+                   projection=mod.POLAR_PROJECTION, projection_meta=DISC_META)
+    out = str(tmp_path / "out")
+    assert _run_main(root, out) == 0
+    capsys.readouterr()
+    doc = _load(out)
+    disc = doc["domains"][DISC]
     assert disc["projection"] == "stereographic"
     assert disc["projection_meta"] == DISC_META
+    assert all(r["projection"] == "stereographic" for r in disc["runs"])
+    projections = {e["projection"] for g in disc["timeline_groups"].values()
+                   for e in g["timeline"]}
+    assert projections == {"stereographic"}
+
+
+def test_uniform_strip_writes_no_key_but_frames_say_mercator(tmp_path, capsys):
+    root = str(tmp_path / "fm2-rendered")
+    for run_id, ref in (("20261026T000000Z", "2026-10-26T00:00:00Z"),
+                        ("20261025T000000Z", "2026-10-25T00:00:00Z")):
+        _write_run(root, DISC, run_id, ref, HOURS)
+    out = str(tmp_path / "out")
+    assert _run_main(root, out) == 0
+    capsys.readouterr()
+    doc = _load(out)
+    disc = doc["domains"][DISC]
+    assert "projection" not in disc
+    projections = {e["projection"] for g in disc["timeline_groups"].values()
+                   for e in g["timeline"]}
+    assert projections == {"mercator"}
 
 
 def test_legacy_object_projection_is_split_into_string_and_meta(tmp_path, capsys):
