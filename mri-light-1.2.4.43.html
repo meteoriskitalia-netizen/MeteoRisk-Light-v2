@@ -1449,6 +1449,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     <button class="metric-tab" data-metric="pressure" onclick="selectMetric('pressure')">📊 Pressione</button>
     <button class="metric-tab" data-metric="wind" onclick="selectMetric('wind')">💨 Vento</button>
     <button class="metric-tab" data-metric="thermalrisk" id="metric-tab-thermalrisk" onclick="selectMetric('thermalrisk')">🌡️ Rischio Termico</button>
+    <button class="metric-tab" data-metric="fog" onclick="selectMetric('fog')">🌫️ Nebbia</button>
     <button class="metric-tab" data-metric="conv" id="metric-tab-conv" onclick="selectMetric('conv')" style="display:none;">🌩️ Conv.</button>
     <button class="metric-tab" data-metric="hail" id="metric-tab-hail" onclick="selectMetric('hail')" style="display:none;">🧊 Grandine</button>
 </div>
@@ -1963,9 +1964,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.42';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-10-26';
+    const APP_VERSION = '1.2.4.43';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-10-27';
     const APP_CHANGELOG = [
+        { version: '1.2.4.43', date: '2026-10-27', changes: [
+  'RISCHIO= LA NEBBIA DIVENTA UNA METRICA, NON SOLO UN BADGE. Nella barra delle metriche c\'e\' il tab "Nebbia" (sempre visibile, non dietro Sviluppo): colora le province con il potenziale di nebbia 0-100, come umidita\' e vento. Prima la nebbia esisteva solo come badge: per sapere DOVE il modello vede nebbia bisognava passare provincia per provincia.',
+  'RISCHIO= 4 CLASSI CON LE SOGLIE DEL BADGE, NON UNA SCALA NUOVA. Sotto 30 la provincia resta neutra (nessun colore), 30-49 livello 1 (#a3e635), 50-69 livello 2 (#eab308), 70 o piu\' livello 3 (#f97316): gli stessi colori di BADGE_LEVEL_COLOR[1..3] e le stesse soglie di computeActiveRisks. Cosi\' mappa, badge e legenda dicono la stessa cosa, non tre scale che si somigliano.',
+  'RISCHIO= LA LEGENDA DICE CHE E\' UN POTENZIALE. Con la metrica attiva la legenda mostra le 3 classi ("Lieve 30-50", "Moderato 50-70", "Forte 70+") e la nota in corsivo: potenziale del modello (T-Td, vento, umidita\'), NON visibilita\' misurata. In vista oraria il colore e\' il punteggio dell\'ORA selezionata, in vista giornaliera il massimo del giorno.',
+  'DOC= Bump versione 1.2.4.43 (solo client). Formula, soglie e pesi della nebbia INVARIATI. Fix incluso: il merge DUAL MODEL non copiava `fog`, quindi in modo duale ogni provincia restava grigia con la metrica Nebbia attiva.',
+        ] },
         { version: '1.2.4.42', date: '2026-10-27', changes: [
   'RISCHIO= LA NEBBIA COMPARE ANCHE NELLA LEGENDA DEI BADGE. La legenda non si costruiva da `RISK_DEFS` ma da una lista scritta a mano (`badgeOrder`), e la nebbia non c\'era: il badge funzionava sulla mappa ma restava invisibile nella legenda, quindi nessuno poteva sapere che esiste. Ora c\'e\', fra Neve e Avviso meteo.',
   'RISCHIO= E MOSTRA SOLO I LIVELLI CHE PUO\' RAGGIUNGERE. La formula arriva al massimo al livello 3 (potenziale >= 70/100): il livello 4 "Estremo" non e\' raggiungibile, quindi non viene mostrato. Una riga di legenda che promette un livello impossibile e\' un falso, non una svista grafica.',
@@ -16899,6 +16906,18 @@ function toggleForecastMaps() {
             hailMetrics: (aggB.hailMetrics && aggB.hailMetrics.wmaxshear > (aggA.hailMetrics?.wmaxshear || 0)) ? aggB.hailMetrics : aggA.hailMetrics,
             vorticosi: (aggB.vorticosi && aggB.vorticosi.level > (aggA.vorticosi?.level || 0)) ? aggB.vorticosi : aggA.vorticosi,
             downburst: (aggB.downburst && aggB.downburst.level > (aggA.downburst?.level || 0)) ? aggB.downburst : aggA.downburst,
+            // 1.2.4.43: la nebbia mancava nel merge DUAL MODEL. Senza questa riga, in modo
+            // duale ogni provincia restava grigia con la metrica Nebbia attiva (agg.fog
+            // undefined nel merged): il difetto era invisibile solo perche' la nebbia era
+            // un badge e il badge si legge dall'aggregato del modello primario.
+            // Criterio: vince il modello con il punteggio piu' alto (max conservativo,
+            // come vento e raffiche); a parita' resta il primario.
+            fog: (function () {
+                var fa = aggA.fog, fb = aggB.fog;
+                if (!fa) return fb || null;
+                if (!fb) return fa;
+                return ((fb.score || 0) > (fa.score || 0)) ? fb : fa;
+            })(),
             scLevel: Math.max(aggA.scLevel || 0, aggB.scLevel || 0),
             scHour: (aggB.scLevel || 0) > (aggA.scLevel || 0) ? aggB.scHour : aggA.scHour,
             scReal: aggA.scReal || aggB.scReal,
@@ -18976,6 +18995,12 @@ function toggleForecastMaps() {
         prob: ['#334155', '#22c55e', '#eab308', '#f97316', '#ef4444', '#7c1d6f'],
         size: ['#334155', '#22c55e', '#a3e635', '#eab308', '#f97316', '#ef4444']
     };
+    // Scala NEBBIA: 4 classi (0 = sotto il potenziale minimo, che resta neutro; poi i 3
+    // livelli del badge). I colori dei livelli 1-3 sono GLI STESSI di BADGE_LEVEL_COLOR[1..3]:
+    // la metrica e la legenda dei badge devono dire la stessa cosa, non due palette che si
+    // somigliano. La copia qui e' necessaria perche' questo blocco e' "pure": i test lo
+    // estraggono ed eseguono da solo, senza il resto dello script.
+    var FOG_BAND_COLORS = ['#334155', '#a3e635', '#eab308', '#f97316'];
     // La scala CONV è HAZARD_COLORS: tutte le categorie di convezione la condividono.
     function indexOfColorIn(arr, color) {
         for (var i = 0; i < arr.length; i++) { if (arr[i] === color) return i; }
@@ -19076,6 +19101,13 @@ function toggleForecastMaps() {
                 var hp = computeHailProb(agg);
                 return hp ? hp.level : 0;
             }
+            case 'fog': {
+                // agg.fog e' un OGGETTO ({score, hour, from, to, dayScore, dayHour}), non un
+                // numero: qui si usa il punteggio 0-100 dell'ora selezionata (vista oraria) o
+                // il massimo della giornata (vista giornaliera), deciso da computeAggregateForStore.
+                if (!agg.fog || !isFinite(agg.fog.score)) return null;
+                return agg.fog.score;
+            }
         }
         return null;
     }
@@ -19110,6 +19142,13 @@ function toggleForecastMaps() {
                 var scH = (typeof hailLevel !== 'undefined' && hailLevel === 'size') ? HAIL_SCALES.size : HAIL_SCALES.prob;
                 var hi = Math.max(0, Math.min(scH.length - 1, Math.round(value)));
                 return scH[hi];
+            }
+            case 'fog': {
+                // Soglie IDENTICHE a computeActiveRisks (30 / 50 / 70): un punteggio che da'
+                // il badge di livello N dipinge la provincia con il colore del livello N.
+                // Sotto 30 nessun colore (grigio neutro): come le altre metriche senza dato.
+                var fogLv = (value >= 70) ? 3 : (value >= 50) ? 2 : (value >= 30) ? 1 : 0;
+                return FOG_BAND_COLORS[fogLv];
             }
         }
         return '#334155';
@@ -20215,6 +20254,10 @@ function renderContinuousOverlay() {
             humidity: [['#22c55e','<40%'],['#eab308','40-65%'],['#f97316','65-85%'],['#ef4444','>85%']],
             pressure: [['#22c55e','>1020hPa'],['#eab308','1013-1020'],['#f97316','1000-1013'],['#ef4444','<1000hPa']],
             wind: [['#22c55e','<25km/h'],['#eab308','25-40'],['#f97316','40-60'],['#ef4444','>60km/h']],
+            // 1.2.4.43: i colori vengono da FOG_BAND_COLORS, cioe' la scala che colora i
+            // poligoni (identica a BADGE_LEVEL_COLOR[1..3]). Una sola tavolozza: se un giorno
+            // cambia, mappa, badge e legenda cambiano insieme.
+            fog: [[FOG_BAND_COLORS[1],'Lieve 30-50'],[FOG_BAND_COLORS[2],'Moderato 50-70'],[FOG_BAND_COLORS[3],'Forte ≥70']],
             thermalrisk: [['#22c55e','Sicuro'],['#eab308','Cauzione'],['#f97316','Cauzione estrema'],['#ef4444','Pericolo'],['#7c1d6f','Pericolo estremo']],
             conv: [['#22c55e','Molto basso'],['#eab308','Basso'],['#f97316','Moderato'],['#ef4444','Alto'],['#7c1d6f','Molto alto']],
             thunderprob: [['#22c55e','Molto basso'],['#eab308','Basso'],['#f97316','Moderato'],['#ef4444','Alto'],['#7c1d6f','Molto alto']],
@@ -20237,6 +20280,13 @@ function renderContinuousOverlay() {
         document.getElementById('legend-container').innerHTML = items.map(([color, label]) =>
             `<div class="legend-item"><div class="legend-color" style="background:${color}"></div> ${label}</div>`
         ).join('');
+        // 1.2.4.43: la nebbia NON e' visibilita' misurata. Senza questa riga la scala sembra
+        // una misura e chi la confronta con la propria finestra pensa a un errore. Riusa la
+        // legenda che c'e' gia': nessun pannello nuovo.
+        if (currentMetric === 'fog') {
+            document.getElementById('legend-container').insertAdjacentHTML('beforeend',
+                '<div class="legend-item" style="font-style:italic;">Potenziale di nebbia del modello (T-Td, vento, umidit\u00e0) — <b>non</b> visibilit\u00e0 misurata</div>');
+        }
     }
 
     // Legenda BADGE sotto la mappa. Nascosta di default: si apre col pulsante.

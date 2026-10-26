@@ -6,7 +6,43 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.34
+## Versione attiva: 1.2.4.43
+
+- File applicativo: `mri-light-1.2.4.43.html` (`APP_VERSION = '1.2.4.43'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.43', date: '2026-10-27' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.43'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+  `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
+- Contenuto della 1.2.4.43 (release sopra la 1.2.4.42) - **la nebbia diventa una metrica
+  visualizzabile**, non solo un badge. Solo client: nessuna modifica a `scripts/` ne' ai workflow
+  oltre alle righe `cp`.
+  - **Tab "Nebbia" nella barra delle metriche.** Sempre visibile (non dietro Sviluppo), subito
+    dopo "Rischio Termico": `data-metric="fog"`, `selectMetric('fog')`. Colora le province con il
+    potenziale di nebbia 0-100. Come per `risk` lo slider orario resta visibile: in vista oraria
+    il colore e' il punteggio dell'**ora selezionata**, in vista giornaliera il **massimo** del
+    giorno (lo decide `computeAggregateForStore`).
+  - **4 classi con le soglie del badge, non una scala nuova.** `colorForMetricValue('fog', v)`:
+    sotto **30** neutro (`#334155`, nessun colore), **30-49** livello 1 `#a3e635`, **50-69**
+    livello 2 `#eab308`, **70+** livello 3 `#f97316`. I colori sono `FOG_BAND_COLORS[1..3]`,
+    cioe' gli stessi di `BADGE_LEVEL_COLOR[1..3]`, e le soglie sono le stesse di
+    `computeActiveRisks`: mappa, badge e legenda dicono la stessa cosa.
+  - **Legenda.** Con la metrica attiva `renderLegend()` aggiunge le 3 classi ("Lieve 30-50",
+    "Moderato 50-70", "Forte 70+") e una nota in corsivo: *potenziale del modello (T-Td, vento,
+    umidita), NON visibilita' misurata*. Riusa `#legend-container`: nessun pannello nuovo.
+  - **Fix dual model.** `mergeModelAnalyses` non copiava `fog`: in modo duale il merge perdeva
+    l'oggetto e ogni provincia restava grigia con la metrica attiva. Ora si tiene il punteggio
+    piu' alto (max conservativo, come vento e raffiche).
+  - **Allerta DPC.** Accendere l'allerta DPC forza ancora `currentMetric = 'risk'` (la mappa e'
+    colorata dai bollettini) e selezionare "Nebbia" spegne l'allerta DPC: interazione invariata
+    e voluta, dichiarata in `VERSION` e nel changelog in-app.
+  - **Formula invariata.** `fogScoreC`, soglie e pesi non sono stati toccati.
+  - **Verifica.** `test_html_js_syntax.py` 1 passed; in browser (fixture dichiarata, 72 ore per
+    array) il tab esiste, la provincia prende il colore della classe e la legenda mostra le 3
+    classi con la nota.
+- **Nota sullo storico di questo README.** Era fermo alla 1.2.4.34: le release 1.2.4.35 ... 1.2.4.42
+  sono documentate in `VERSION` (un blocco per release) e nel changelog in-app, non qui.
+- Storico immediato documentato qui sotto: **1.2.4.34**.
+
+## Versione 1.2.4.34 (storica; il README non e' stato aggiornato fino alla 1.2.4.42)
 
 - File applicativo: `mri-light-1.2.4.34.html` (`APP_VERSION = '1.2.4.34'`; ultimo blocco
   changelog in-app `{ version: '1.2.4.34', date: '2026-10-26' }`) + `sw.js` (Service Worker,
