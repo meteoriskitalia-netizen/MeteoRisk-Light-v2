@@ -11,7 +11,7 @@
   "schedule_source_of_truth": "Tempi MISURATI, non nominali: curva di riempimento per-frame del 2026-10-25T23:00Z ricostruita dai LastModified di OGNI frame .om nel listing S3 Open-Meteo (21 run complete, 7 domini). Ogni slot di chiusura e' tarato sul t100 misurato della SUA classe di ciclo: i cicli non hanno lo stesso orizzonte (ICON-EU 93 frame su 00/06/12/18 e 31 su 03/09/15/21, ICON 113 su 00/12 e 93 su 06/18, ECMWF 85 su 00/12 e 49 su 06/18, GFS 209 sempre, ARPEGE 67 sempre) ne' lo stesso t100.",
   "trigger_policy": {
     "table": "T17",
-    "rule": "17 job di mappe, 68 dispatch/giorno (prima 11 job, 48). Ogni classe di run ha uno slot di CHIUSURA che parte 30-40 minuti DOPO il t100 misurato: cosi' la sorgente ha finito di pubblicare e il render non lavora su un run monco. Gli slot parziali/intermedi servono solo a mostrare la mappa prima e non scendono mai sotto +14 minuti dal primo frame misurato.",
+    "rule": "17 job di mappe, 68 dispatch/giorno (prima 11 job, 52). Ogni classe di run ha uno slot di CHIUSURA che parte 30-40 minuti DOPO il t100 misurato: cosi' la sorgente ha finito di pubblicare e il render non lavora su un run monco. Gli slot parziali/intermedi servono solo a mostrare la mappa prima e non scendono mai sotto +14 minuti dal primo frame misurato.",
     "closing_margin_target_min": [
       30,
       40
@@ -19,7 +19,7 @@
     "first_frame_hard_floor_min": 14,
     "merge_window_min": 20,
     "why": "Difetto chiuso: con la tabella a 2 slot precedente ICON-EU aveva slot a +70' (0% di frame) e +180' (25%) con il 100% a +218' e nessuno slot li' -> pubblicava 28 frame su 93 e il dispatch successivo trovava 0 frame (NO-OP); NCEP aveva 117 minuti al 17-36%.",
-    "cost": "68 dispatch/giorno: 42,6 h/giorno di runner CON il render incrementale, 61,6 h/giorno SENZA (prima: 48 dispatch, 44,3 h). Il render incrementale fra dispatch diversi NON esiste ancora in render_fm_webp.py: finche' non viene implementato questa tabella costa ~61,6 h/giorno (+39%). Opzione a costo zero (non scelta): riposizionare gli 11 job esistenti -> 46 dispatch, 46,8 h, perdendo la progressione.",
+    "cost": "68 dispatch/giorno di mappe (56 -> 72 contando l'indice). Ricalcolo con lo STESSO modello (fill_study/day2.py): PRIMA 52 dispatch (non 48: i 2 job DWD hanno 8 slot ciascuno) = 49,0 h/giorno senza incrementale, 36,5 h con; DOPO = 63,1 h senza, 42,6 h con. Cioe' +14,1 h/giorno senza incrementale (+29%) e +6,1 h con (+17%). Il render incrementale fra dispatch diversi NON esiste ancora in render_fm_webp.py: finche' non viene implementato questa tabella costa ~63,1 h/giorno. Opzione a costo zero (non scelta): riposizionare gli 11 job esistenti -> 46 dispatch, perdendo la progressione.",
     "native_safety_net": "NESSUNO dal 2026-10-25 (1.2.4.23): il blocco `schedule:` e' stato rimosso dai 5 workflow per-fornitore, quindi il trigger delle mappe e' solo cron-job.org. Resta nativo il solo `50 */6 * * *` di forecast-maps-index.yml."
   },
   "job_count": 17,

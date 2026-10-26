@@ -13,12 +13,21 @@
 | | prima (T11) | ora (T17) |
 | :--- | ---: | ---: |
 | job di mappe su cron-job.org | 11 | **17** |
-| dispatch/giorno (mappe) | 48 | **68** |
-| dispatch/giorno (con il backup indice) | 52 | **72** |
-| costo runner/giorno, **senza** render incrementale | 44,3 h | 61,6 h |
-| costo runner/giorno, **con** render incrementale | 35,4 h | 42,6 h |
+| dispatch/giorno (mappe) | **52** | **68** |
+| dispatch/giorno (con il backup indice) | **56** | **72** |
+| costo runner/giorno, **senza** render incrementale | **49,0 h** | **63,1 h** |
+| costo runner/giorno, **con** render incrementale | **36,5 h** | **42,6 h** |
 
-⚠️ **Il render incrementale fra dispatch diversi non esiste ancora** in `scripts/forecast_v2/render_fm_webp.py` (c'è solo lo skip intra-processo `seen_frames`): finché non viene implementato, la T17 costa **~61,6 h/giorno di runner, cioè +39%** rispetto alle 44,3 h della T11. Il guadagno di 42,6 h dipende da quel lavoro, che **non** è in questo cambio. È dichiarato qui perché non sia scoperto dopo.
+⚠️ **Correzione del conto dei dispatch.** La proposta parlava di "48 dispatch/giorno oggi" e quindi di "42,6 h contro 44,3 h (−4%)". Il conteggio era sbagliato: i **due job DWD hanno 8 slot ciascuno**, non 4, quindi oggi i dispatch sono **52** (56 con l'indice). Ricalcolato con lo **stesso modello** (`fill_study/day2.py`: 60 s di enumerazione per leg, `delta × s/frame` misurato per dominio, 45 s per un NO-OP, 300 s di `render-merge` + 500 s di `index` per ogni dispatch che pubblica):
+
+| | T11 (52 dispatch) | T17 (68 dispatch) | Δ |
+| :--- | ---: | ---: | ---: |
+| frame renderizzati/giorno, senza incrementale | 5.545 | 7.093 | +28% |
+| frame renderizzati/giorno, con incrementale | 3.220 | 3.508 | +9% |
+| runner/giorno, senza incrementale | 49,0 h | 63,1 h | **+14,1 h (+29%)** |
+| runner/giorno, con incrementale | 36,5 h | 42,6 h | **+6,1 h (+17%)** |
+
+⚠️ **Il render incrementale fra dispatch diversi non esiste ancora** in `scripts/forecast_v2/render_fm_webp.py` (c'è solo lo skip intra-processo `seen_frames`): finché non viene implementato, la T17 costa **~63,1 h/giorno di runner, cioè +29%** rispetto alle 49,0 h della T11, e anche con l'incrementale costa **+17%**, non meno di oggi. Il lavoro sull'incrementale **non** è in questo cambio: è dichiarato qui perché non sia scoperto dopo.
 
 Regola della T17:
 - **ogni classe di run ha uno slot di CHIUSURA che parte 30-40 minuti DOPO il `t100` misurato**: la sorgente ha finito di pubblicare e il render non lavora su un run monco;
@@ -147,7 +156,7 @@ Righe **non** toccate: 1 (`01:15`), 7 (`03:55`), 8 (`04:50`), 9 (`05:30`), 12 (`
 - **NCEP completo** (`+375'`): `gfs025` ha `t100` **+314,4** (run 06Z) e **+342,6** (run 12Z), cioè **28 minuti di dispersione dentro lo stesso dominio**. Un orario solo non può stare a +30/+40 da entrambi: `+375` dà **+32,4'** sulla run peggiore e **+60..+62'** sulle altre. Nessuna run viene dispatchata prima del 100%; le altre sono solo più "vecchie" di 60'.
 - **ARPEGE completo** (`+370'`): le due classi distano **73 minuti** (`t100` +259,1 vs +332,0). La classe veloce chiude già a **+295'** (job 16, +35,9'), la lenta a **+370'** (+38,0'). La classificazione "veloce = 00/12" è un'**inferenza** su 3 run (12Z veloce, 06Z lento, 18Z incompleta ma con primo frame `+240,2` e 50% `+286,9`, cioè lenta): non è una climatologia.
 - **DWD job 3 e 4** dispatchano **entrambi i domini** (`ICON-EU` + `ICON-D2`): a +250' e +210' ICON-D2 è al 100% da oltre 2 ore. Non è una scelta, è la matrice del workflow.
-- **Costo**: vedi §0. Con l'incrementale 42,6 h/giorno, senza 61,6 h/giorno.
+- **Costo**: vedi §0. Con l'incrementale 42,6 h/giorno, senza 63,1 h/giorno (oggi: 36,5 h e 49,0 h).
 
 ### 3.6 Rete di sicurezza nativa (cron GitHub)
 
