@@ -6,7 +6,36 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.30
+## Versione attiva: 1.2.4.31
+
+- File applicativo: `mri-light-1.2.4.31.html` (`APP_VERSION = '1.2.4.31'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.31', date: '2026-10-26' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.31'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+  `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
+- Contenuto della 1.2.4.31 (release sopra la 1.2.4.30) - **proiezione e bounds del frame**.
+  Nessuna variabile nuova, nessun cambio di palette, nessuna modifica a `scripts/forecast_v2/*`.
+  - **La proiezione e' del frame.** `fmRegionProjection(dom, frameEntry)` risolve con la
+    precedenza: `projection` del frame della timeline -> `runs[].projection` della run del frame
+    nell'`index.json` -> dominio (index, poi timeline) -> regione (timeline, poi index) ->
+    `mercator`. Il difetto misurato il 2026-10-26 su `ecmwf_ifs025`/`north`: due run con
+    proiezioni diverse (20261025T120000Z striscia 2879x521, 20261025T180000Z disco 1000x1000),
+    il dominio dichiarava `stereographic` e i 36 frame della run vecchia venivano disegnati come
+    disco (accordo misurato **4,23%** invece di **99,96%**).
+  - **I bounds seguono la run.** `fmTimelineFrameBounds(entry)` usa `runs[].bounds` della run del
+    frame. Senza, una striscia veniva riproiettata con `north=90` (i bounds del disco): errore
+    medio di latitudine **18,895°**, massimo **54,466°** (a 84,95 N campionava 30,49 N).
+  - **Quando si vede (dichiarato).** Ogni volta che la proiezione di un dominio cambia
+    (attivazione del disco polare, cambio di `--north-disc-size`, rollback a una run precedente) e
+    per tutta la durata della retention delle run (3 run): i frame delle run vecchie convivono
+    con quelli della run nuova.
+  - Verifica: `test_fm_frame_projection.mjs` 24 controlli PASS e `test_fm_timeline_projection.mjs`
+    PASS; suite `.mjs` 28 file -> 21 PASS / 7 non-zero, gli stessi 7 nomi della baseline;
+    `test_html_js_syntax.py` 1 passed; sulla pagina pubblicata il parser estratto verbatim
+    risolve 36 frame mercator + 49 stereographic in 36 + 49.
+- NON toccati: `scripts/forecast_v2/*`, `scripts/radar_engine/*`, `scripts/cronjobs/*`, i
+  workflow `forecast-maps-*.yml`, `satellite-engine.yml`, `color_scales.json`.
+
+## Versione 1.2.4.30 (storica)
 
 - File applicativo: `mri-light-1.2.4.30.html` (`APP_VERSION = '1.2.4.30'`; ultimo blocco
   changelog in-app `{ version: '1.2.4.30', date: '2026-10-26' }`) + `sw.js` (Service Worker,
