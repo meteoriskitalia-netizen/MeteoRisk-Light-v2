@@ -1963,9 +1963,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.34';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.35';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-26';
     const APP_CHANGELOG = [
+        { version: '1.2.4.35', date: '2026-10-27', changes: [
+  'MAPPE= L\'INQUADRATURA DI UNA REGIONE NON TAGLIA PIU\' I DATI CHE ESISTONO. Difetto misurato in produzione il 2026-10-27 sulla pagina servita: con dominio `dwd_icon` e regione Europa, `fmClipBounds` valeva [-15, 34, 40, 62] - cioe\' il riquadro di ICON-EU - mentre il WebP pubblicato copre 34..72N / -25..45E. Risultato a schermo: la vista si fermava a 62N e sparivano la Scandinavia settentrionale, l\'Islanda e tutto l\'Atlantico a ovest di -15, pur essendo presenti nell\'immagine. Non era una cache e non era la geometria: era il ritaglio.',
+  'MAPPE= CAUSA E CORREZIONE. `FM_REGIONS` dichiarava `europe: [34,-15,62,40]` e `fmApplyRegion` usava quel bbox come RITAGLIO intersecandolo con i bounds del dominio. Su un dominio regionale (ICON-EU) coincideva; su un dominio piu\' ampio tagliava. Ora il bbox di Europa e\' un limite di MASSIMA ([30,-30,72,50]) e il ritaglio vero e\' l\'estensione REALE della run pubblicata letta da `index.json` (`runs[].bounds`, con fallback ai bounds del dominio): la regione puo\' solo stringere, mai togliere una parte di dato che esiste. Le regioni con bbox stretto (Italia, Mediterraneo) restano identiche perche\' il loro bbox e\' davvero piu\' piccolo del dato.',
+  'MAPPE= COSA VEDRAI. Su `dwd_icon`, `ecmwf_ifs025`, `ncep_gfs025` e `meteofrance_arpege` (Europa 34..72N / -25..45E) l\'inquadratura si allarga fino ai bordi del WebP: Islanda in alto a sinistra, Scandinavia intera, Atlantico a ovest. Su `dwd_icon_eu` (34..62N / -15..40E) resta il suo riquadro, perche\' quello e\' il dato. Su `meteofrance_arpege_world025` idem con il proprio.',
+  'DOC= Bump versione 1.2.4.35 (solo client: html, VERSION, sw.js, README, test .mjs e le 3 righe `cp` dei workflow). Renderer, motore e workflow di render NON toccati.',
+        ] },
         { version: '1.2.4.34', date: '2026-10-26', changes: [
   'APP= IL PANNELLO ECMWF VS GFS DICE LA CAUSA VERA DI UN 429, INVECE DI "ERRORE NEL CARICAMENTO DEI MODELLI". La causa non era un guasto: l\'API Open-Meteo rispondeva 429 con il corpo {"reason":"Hourly API request limit exceeded. Please try again in the next hour.","error":true}. Misurato in produzione il 2026-10-26 sulla pagina servita: 6 richieste su 6 a api.open-meteo.com/v1/forecast in 429, mentre ensemble-api rispondeva 200 e il geocoding 200; nella stessa tab la pagina aveva fatto 10 richieste Open-Meteo in tutto, 0 duplicate. Ora, se una delle quattro risposte e\' un errore DICHIARATO dall\'API, il pannello scrive il motivo ("Limite di richieste Open-Meteo raggiunto: <reason>") con un bottone RIPROVA; il messaggio generico resta solo per i fallimenti senza motivo.',
   'MAPPE= IN EMISFERO NORD, SENZA WEBP, NON SI DISEGNA PIU\' IL DOMINIO DEL MODELLO. Il disco polare si puo\' disegnare SOLO da un WebP gia\' proiettato dal server; il fallback `.om` copre il dominio del modello (ECMWF 34..72N / 25W..45E) e veniva mostrato dentro la scatola dell\'emisfero: a schermo sembrava una cartina dell\'Europa al posto dell\'emisfero. Ora, se la run non ha quel frame WebP, la vista emisferica resta un disco vuoto con il motivo scritto e l\'indicazione di usare Europa o Italia; il `.om` continua a valere per Europa, Italia e dominio. Caso concreto: la variabile composita `__pressure_geopot` era pubblicata solo per `ncep_gfs025` (39 frame), quindi su ECMWF la voce mostrava il dominio invece dell\'emisfero.',
@@ -11633,7 +11639,13 @@ var FM_DOMAINS = [
 var FM_REGIONS = [
     { id: 'domain', label: 'Intero dominio', bbox: null },
     { id: 'north', label: 'Emisfero nord', bbox: [20, -180, 85.05112878, 180] },
-    { id: 'europe', label: 'Europa', bbox: [34, -15, 62, 40] },
+    // 1.2.4.35: il bbox di 'Europa' era il riquadro di ICON-EU (34..62N / -15..40E)
+    // e veniva usato come RITAGLIO anche sui domini che coprono di piu'. Effetto
+    // misurato in produzione: con dwd_icon la vista si fermava a 62N e sparivano
+    // Scandinavia settentrionale, Islanda e Atlantico, pur essendo nel WebP.
+    // Ora e' un limite di MASSIMA: il ritaglio vero e' l'estensione della run
+    // pubblicata (vedi fmApplyRegion), quindi questo bbox non toglie mai dato.
+    { id: 'europe', label: 'Europa', bbox: [30, -30, 72, 50] },
     { id: 'med', label: 'Mediterraneo', bbox: [30, -6, 47, 40] },
     { id: 'italy', label: 'Italia', bbox: [35.5, 6.5, 47.5, 19] },
     { id: 'namerica', label: 'Nord America', bbox: [22, -130, 58, -60] },
@@ -13276,15 +13288,33 @@ function fmApplyRegion(refit) {
     var domB = fmDomainBounds();
     var region = fmRegionDef(fmRegion);
     var clip = null;
+    // 1.2.4.35 - L'INQUADRATURA NON E' UN RITAGLIO FISSO.
+    // Difetto misurato in produzione (27/10): `fmClipBounds` valeva [-15,34,40,62]
+    // con `dwd_icon` selezionato, cioe' il riquadro di ICON-EU, mentre il WebP
+    // pubblicato copre 34..72N / -25..45E: la vista si fermava a 62N e sparivano
+    // Scandinavia settentrionale, Islanda e Atlantico. La regione deve solo
+    // STRINGERE rispetto al dato, mai tagliarne una parte che esiste.
+    // Riferimento: i bounds REALI della run pubblicata (index.json runs[].bounds),
+    // con fallback ai bounds del dominio.
+    var runRef = null;
+    try {
+        var rd = (typeof fmRunDomainEntry === 'function') ? fmRunDomainEntry() : null;
+        var sel = (typeof fmSelectedRun === 'function') ? fmSelectedRun() : null;
+        var bb = (sel && sel.bounds) ? sel.bounds : (rd && rd.bounds ? rd.bounds : null);
+        if (bb && bb.length === 2) {
+            runRef = [bb[0][1], bb[0][0], bb[1][1], bb[1][0]];
+        }
+    } catch (e) { runRef = null; }
+    var refB = runRef || domB;
     if (region && region.bbox) {
         var rb = region.bbox;
         clip = [rb[1], rb[0], rb[3], rb[2]];
-        if (domB) {
-            clip = [Math.max(clip[0], domB[0]), Math.max(clip[1], domB[1]), Math.min(clip[2], domB[2]), Math.min(clip[3], domB[3])];
-            if (clip[0] >= clip[2] || clip[1] >= clip[3]) clip = domB;
+        if (refB) {
+            clip = [Math.max(clip[0], refB[0]), Math.max(clip[1], refB[1]), Math.min(clip[2], refB[2]), Math.min(clip[3], refB[3])];
+            if (clip[0] >= clip[2] || clip[1] >= clip[3]) clip = refB;
         }
-    } else if (domB) {
-        clip = domB;
+    } else if (refB) {
+        clip = refB;
     }
     fmClipBounds = clip;
     var rr0 = fmRenderRegionId();

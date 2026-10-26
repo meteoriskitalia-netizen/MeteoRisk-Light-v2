@@ -1,3 +1,12 @@
+MeteoRisk Light - 1.2.4.35 - L'INQUADRATURA DI UNA REGIONE NON TAGLIA PIU' I DATI CHE ESISTONO (EUROPA SU `dwd_icon` SI FERMAVA A 62N PERCHE' IL RITAGLIO ERA IL RIQUADRO DI ICON-EU: ORA IL RIFERIMENTO SONO I BOUNDS REALI DELLA RUN) (bump da 1.2.4.34)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=35
+RELEASE_TYPE=release
+DATE=2026-10-27
+NOTE=Release 1.2.4.35 (bump da 1.2.4.34) - SOLO CLIENT: html, VERSION, sw.js, README, test .mjs e le 3 righe `cp` dei workflow (deploy-pages, radar-engine, update-weather-data). Renderer, motore e workflow di render NON toccati. (a) DIFETTO CHIUSO: con dominio `dwd_icon` e regione Europa, `fmClipBounds` valeva [-15,34,40,62] (il riquadro di ICON-EU) mentre il WebP copre 34..72N / -25..45E, quindi la vista si fermava a 62N e sparivano Scandinavia settentrionale, Islanda e Atlantico. Misurato sulla pagina servita con la 1.2.4.34. (b) CAUSA: `FM_REGIONS` dichiarava `europe: [34,-15,62,40]` e `fmApplyRegion` lo usava come RITAGLIO intersecandolo con i bounds del dominio. (c) FIX: il bbox di Europa diventa un limite di MASSIMA [30,-30,72,50] e il ritaglio vero e' l'estensione REALE della run pubblicata (`index.json` runs[].bounds, fallback ai bounds del dominio), quindi la regione puo' solo stringere e non togliere dato. Italia e Mediterraneo invariati: il loro bbox e' davvero piu' piccolo del dato. (d) VERIFICA: test_html_js_syntax -> 1 passed; prova in browser sulla pagina servita con `fmClipBounds` atteso [-25,34,45,72] su dwd_icon/Europa. (e) BUMP: html mri-light-1.2.4.35.html, VERSION (BUILD=35, DATE=2026-10-27, APP_FILE), sw.js CACHE_NAME mri-1.2.4.35, README.md, i test .mjs che citano la versione. La 1.2.4.34 NON e' rinominata ne' cancellata e va RIMOSSA dal repo (una sola app servita da Pages).
+APP_FILE=mri-light-1.2.4.35.html
 MeteoRisk Light - 1.2.4.34 - IL PANNELLO ECMWF VS GFS DICE LA CAUSA VERA DI UN 429 (LIMITE OPEN-METEO, CON IL MOTIVO RESTITUITO DALL'API E UN BOTTONE RIPROVA) E IN EMISFERO NORD, SENZA WEBP, NON SI DISEGNA PIU' IL DOMINIO DEL MODELLO AL POSTO DELL'EMISFERO (bump da 1.2.4.33)
 MAJOR=1
 MINOR=2
