@@ -64,17 +64,17 @@ function buildJobs(config) {
     if (!job.target_endpoint || !/\/dispatches$/.test(job.target_endpoint)) {
       throw new Error(`${where}: target_endpoint deve finire con /dispatches`);
     }
-    if (!Array.isArray(job.cronjob_hours) || job.cronjob_hours.length === 0) {
-      throw new Error(`${where}: cronjob_hours mancante o vuoto`);
+    if (!Array.isArray(job.hours) || job.hours.length === 0) {
+      throw new Error(`${where}: hours mancante o vuoto`);
     }
-    if (!Array.isArray(job.cronjob_minutes) || job.cronjob_minutes.length === 0) {
-      throw new Error(`${where}: cronjob_minutes mancante o vuoto`);
+    if (!Array.isArray(job.minutes) || job.minutes.length === 0) {
+      throw new Error(`${where}: minutes mancante o vuoto`);
     }
-    if (job.cronjob_hours.some((h) => !Number.isInteger(h) || h < 0 || h > 23)) {
-      throw new Error(`${where}: cronjob_hours fuori range 0..23`);
+    if (job.hours.some((h) => !Number.isInteger(h) || h < 0 || h > 23)) {
+      throw new Error(`${where}: hours fuori range 0..23`);
     }
-    if (job.cronjob_minutes.some((m) => !Number.isInteger(m) || m < 0 || m > 59)) {
-      throw new Error(`${where}: cronjob_minutes fuori range 0..59`);
+    if (job.minutes.some((m) => !Number.isInteger(m) || m < 0 || m > 59)) {
+      throw new Error(`${where}: minutes fuori range 0..59`);
     }
     if (seen.has(job.cronjob_title)) {
       throw new Error(`${where}: cronjob_title duplicato ("${job.cronjob_title}")`);
@@ -86,8 +86,8 @@ function buildJobs(config) {
       title: job.cronjob_title,
       workflow: job.workflow_file,
       url: job.target_endpoint,
-      hours: job.cronjob_hours.slice().sort((a, b) => a - b),
-      minutes: job.cronjob_minutes.slice().sort((a, b) => a - b),
+      hours: job.hours.slice().sort((a, b) => a - b),
+      minutes: job.minutes.slice().sort((a, b) => a - b),
       timezone: job.timezone || 'UTC',
       enabled: job.enabled !== false,
       body: JSON.stringify(job.payload || { ref: 'main' }),
