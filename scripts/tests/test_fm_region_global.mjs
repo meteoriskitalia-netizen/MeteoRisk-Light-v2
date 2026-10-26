@@ -28,8 +28,8 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.27.html');
-if (!fs.existsSync(HTML)) { console.error('FATAL: mri-light-1.2.4.27.html non trovato'); process.exit(1); }
+const HTML = path.join(ROOT, 'mri-light-1.2.4.28.html');
+if (!fs.existsSync(HTML)) { console.error('FATAL: mri-light-1.2.4.28.html non trovato'); process.exit(1); }
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;

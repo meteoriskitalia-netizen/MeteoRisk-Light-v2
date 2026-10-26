@@ -160,6 +160,24 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .fm-legend-tick-edd { transform: translateX(-100%); }
         .fm-legend-labels { display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; margin-top: 2px; }
         .fm-legend-overlay { font-size: 11px; color: #cbd5e1; margin-top: 3px; }
+        /* 1.2.4.28 - la classe .fm-legend era usata dal markup (#fm-legend) ma non aveva
+           alcuna regola: senza questa dichiarazione il contenitore non impilava barra e
+           tick (entrambi position:relative) e con le scale lunghe si sovrapponevano. */
+        .fm-legend { display: flex; flex-direction: column; gap: 2px; }
+        /* 1.2.4.28 - LEGENDA CATEGORICA weather_code: 45 codici WMO raggruppati in 7
+           famiglie. Una banda da 45 voci su una barra unica non e' leggibile (45 tick su
+           9 etichette adattive mostrerebbero codici arbitrari), quindi la legenda mostra
+           le famiglie con una pastiglia per OGNI codice, col colore ESATTO della mappa
+           (stessa scala, nessuna approssimazione). */
+        .fm-legend-cat { display: flex; flex-direction: column; gap: 3px; }
+        .fm-legend-cat-row { display: flex; align-items: center; gap: 5px; font-size: 10px; color: #cbd5e1; }
+        .fm-legend-cat-name { flex: 0 0 66px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .fm-legend-cat-chips { display: flex; flex-wrap: wrap; gap: 1px; }
+        .fm-legend-cat-chip { width: 9px; height: 12px; border-radius: 2px; border: 1px solid rgba(15,23,42,.55); display: block; }
+        /* 1.2.4.28 - .export-btn era usata dal bottone "CSV" senza alcuna regola CSS
+           (restava un bottone di default del browser, fuori tema). */
+        .export-btn { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 12px; cursor: pointer; }
+        .export-btn:hover { background: #334155; }
         .fm-status { font-size: 11px; color: #94a3b8; }
         /* 1.2.4.26: avviso NON bloccante di run nuova quando l'utente ha scelto un frame. */
         .fm-newrun { display: inline-block; margin-top: 4px; background: #0369a1; color: #f8fafc; border: 0; border-radius: 4px; padding: 3px 8px; font-size: 11px; cursor: pointer; }
@@ -1165,7 +1183,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         'aggiornamento'. One short line per change is sufficient.
         Example: 'FX fcst icon: flag→inline w/ emoji+temp, centered, marker sz↓'
      5. Update the <title> tag version
-     6. Update the version badge in the HTML header (id="app-version-badge")
+     6. Update the version badge in the HTML header (attribute id app-version-badge)
      ================================================================ -->
 </head>
 <body>
@@ -1525,7 +1543,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <!-- Legenda BADGE rischio sotto la mappa: nascosta di default, si apre con il pulsante -->
         <button type="button" id="badge-legend-toggle" onclick="toggleBadgeLegend()" title="Mostra/nascondi la legenda dei badge di RISCHIO (potenziale ambientale da modello NWP, non eventi osservati)">🏷️ Legenda badge (potenziale NWP)</button>
         <div class="badge-legend-bar" id="badge-legend-bar" style="display:none;">
-            <div class="bl-tip" id="badge-legend-tip"></div>
+            <div class="bl-tip"></div>
         </div>
 
         <div style="display:flex; align-items:center; justify-content:center; gap:8px; flex-wrap:wrap;">
@@ -1904,7 +1922,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //      - Usa i prefissi: FX=fix, ADD=aggiunto, RM=rimosso, REPL=sostituito,
     //        MV=spostato, REFA=refactored, DOC=documentazione
     //   5. Aggiorna <title> con la nuova versione (MAJOR.MINOR)
-    //   6. Aggiorna il badge <span id="app-version-badge"> (solo MAJOR.MINOR)
+    //   6. Aggiorna il badge dell'header (attributo id app-version-badge, solo MAJOR.MINOR)
     //   7. Il footer usa APP_VERSION completa automaticamente
     //
     //   SEMANTICA INDICI:
@@ -1923,9 +1941,17 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.27';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.28';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-26';
     const APP_CHANGELOG = [
+        { version: '1.2.4.28', date: '2026-10-26', changes: [
+  'MAPPE= FASE NEVE nel menu delle variabili: due voci nuove, con il gate di visibilita\' invariato (comparire solo se il manifest .om del dominio porta la variabile). `snowfall_water_equivalent` = «Neve (acqua equivalente)», unita\' MILLIMETRI di acqua equivalente: e\' un DATO DEL MODELLO, non centimetri di neve fresca (1 mm ~ 1 cm e\' un ordine di grandezza indicativo, non una conversione, e il client non lo scrive da nessuna parte). `snow_fraction` = «Frazione neve» (0-1): e\' una NOSTRA DERIVATA (snowfall_water_equivalent / precipitation), non una classificazione del modello. La SOGLIA neve/pioggia NON e\' nel client: la decide il motore che pubblica il campo, e il client mostra il valore che riceve.',
+  'MAPPE= Due etichette in piu\' per il prefisso a 6 ore (`precipitation_6h` = «Precipitazioni 6 ore», `snow_fraction_6h` = «Rischio neve (6 ore)»): il motore NON le pubblica ancora, quindi aggiungere l\'etichetta non aggiunge voci di menu finche\' nessun dominio portera\' la variabile nel manifest. `FM_CURATED_VARS` resta a 28 voci: le quattro entrano solo in `FM_VAR_LABELS` (il filtro e\' in OR), come per il livello 10 hPa nella 1.2.4.25.',
+  'MAPPE= Scale colore della neve copiate IDENTICHE da `scripts/forecast_v2/color_scales.json` (stesso file che il renderer usa per il WebP, quindi mappa e legenda non possono divergere): `snowfall_water_equivalent` 16 bande 0..30 mm con la banda [0,0.1) trasparente e rampa #F0F8FF -> #8CC3FC -> #3C8EE8 -> #122070; `snow_fraction` 7 bande 0..1 con la banda [0,0.1) trasparente e rampa #CDE6FF -> #0A46B4. Le unita\' della legenda sono quelle del JSON (`mm (acqua equivalente)`, `frazione 0-1`), non una riscrittura del client: 0.25 nella legenda significa 25%. light == dark come nel JSON (il renderer pubblica una sola palette).',
+  'MAPPE= `weather_code` ora e\' CATEGORICO nel client: 45 bande, una per codice WMO, copiate da `scales.weather_code` del JSON. Prima il client non registrava alcuna scala `weather_code` e la libreria la risolveva per prefisso, quindi il raster .om usciva con la rampa della TEMPERATURA (un codice 95, temporale, colorato come una temperatura). La mappa usa la scala nuova; la legenda mostra le 7 famiglie (sereno, nebbia, pioviggine, pioggia, neve, rovesci, temporale) con una pastiglia per OGNI codice e il colore esatto della mappa: 45 segmenti da 2,2% su una barra unica con 9 tick adattivi avrebbero mostrato numeri arbitrari.',
+  'UI= Due difetti preesistenti chiusi: (1) l\'id del badge dell\'header compariva 3 volte perche\' due commenti (uno HTML, uno JS) citavano l\'attributo alla lettera: ora quei commenti lo nominano senza scrivere l\'attributo, e l\'id resta SOLO sul badge vero; (2) le classi `fm-legend` e `export-btn` erano usate senza alcuna regola CSS: aggiunta la regola minima (`#fm-legend` impila barra/tick con gap 2px; il bottone CSV prende il tema scuro del pannello). Rimosso anche l\'id duplicato `badge-legend-tip` dalla copia statica del tooltip, che `buildBadgeLegendBar()` sostituisce a ogni avvio: ora l\'id e\' solo su un elemento.',
+  'DOC= Bump versione 1.2.4.28 (client). `scripts/forecast_v2/*`, `scripts/radar_engine/*`, `scripts/cronjobs/*`, i 6 workflow delle mappe e `satellite-engine.yml` NON sono toccati da questa release.',
+        ] },
         { version: '1.2.4.27', date: '2026-10-26', changes: [
   'MAPPE= Vista polare (nord): nuovo percorso "immagine gia\' proiettata" per il disco stereografico. Il client NON decide piu\' la proiezione con una costante: legge il campo `projection` dai DATI, con la precedenza dominio (`index.json` -> `domains.<dominio>.projection`) -> timeline (`timeline.json` -> `projection`) -> regione (`index.json` -> `projection`). Valori riconosciuti: `mercator` (default) e `stereographic`; campo assente o valore sconosciuto vale `mercator`, cioe\' il percorso della 1.2.4.26.',
   'MAPPE= Il disco non e\' ancora pubblicato: il campo `projection` arrivera\' dal renderer (`scripts/forecast_v2/*`, NON toccato in questa release) e finche\' manca il comportamento e\' IDENTICO alla 1.2.4.26 (riproiezione per pixel del frame WebP + capolo sintetico). Quando il disco arriva, `fmPolarPaintProjectedDisc` disegna l\'immagine quadrata gia\' proiettata nel quadrato circoscritto al cerchio di raggio `min(w,h)*0.48`, con clip circolare: nessun campionamento per pixel, nessun colore di polo inventato (il polo e\' nei dati), angoli = fondo `#0b1830`. Sul percorso disco `fmPolarFrame.pixels` e\' `null` e il frame vive in `fmPolarFrame.source` (niente `getImageData`).',
@@ -12108,7 +12134,45 @@ var FM_JET10_COLOR_SCALE = { type: 'breakpoint', unit: 'm/s', min: null, max: nu
 var FM_PRECUM_BREAKPOINTS = [0, 1, 2.5, 5, 7.5, 10, 15, 20, 25, 30, 40, 50, 60, 75, 100, 125, 150, 175, 200, 250, 300];
 var FM_PRECUM_COLORS = [[0, 0, 0, 0], [30, 150, 255, 1], [0, 100, 255, 1], [0, 205, 120, 1], [0, 205, 50, 1], [185, 230, 0, 1], [255, 195, 0, 1], [255, 145, 0, 1], [255, 90, 0, 1], [240, 30, 0, 1], [190, 0, 0, 1], [140, 0, 70, 1], [133, 0, 77, 1], [126, 0, 83, 1], [118, 0, 90, 1], [111, 0, 97, 1], [104, 0, 103, 1], [97, 0, 110, 1], [89, 0, 117, 1], [82, 0, 123, 1], [75, 0, 130, 1]];
 var FM_PRECUM_COLOR_SCALE = { type: 'breakpoint', unit: 'mm', min: null, max: null, breakpoints: FM_PRECUM_BREAKPOINTS, colors: { light: FM_PRECUM_COLORS, dark: FM_PRECUM_COLORS } };
-var FM_COLOR_SCALE_OVERRIDES = { precipitation_cum: FM_PRECUM_COLOR_SCALE, precipitation: FM_PRECIP_COLOR_SCALE, rain: FM_PRECIP_COLOR_SCALE, showers: FM_PRECIP_COLOR_SCALE, geopotential_height_500hPa: FM_GEOP_500_COLOR_SCALE, geopotential_height_850hPa: FM_GEOP_850_COLOR_SCALE, geopotential_height_1000hPa: FM_GEOP_1000_COLOR_SCALE, pressure_msl: FM_MSL_COLOR_SCALE, wind_speed_10m: FM_WIND_COLOR_SCALE, wind_speed_850hPa: FM_WIND_COLOR_SCALE, wind_speed_300hPa: FM_JET_COLOR_SCALE, temperature_10hPa: FM_T10_COLOR_SCALE, geopotential_height_10hPa: FM_GEOP_10_COLOR_SCALE, wind_speed_10hPa: FM_JET10_COLOR_SCALE };
+// 1.2.4.28 - FASE NEVE nel client: snowfall_water_equivalent e snow_fraction.
+// `snowfall_water_equivalent` e' un DATO DEL MODELLO (mm di acqua equivalente caduta come
+// neve, passo 0.1 mm nel motore); `snow_fraction` e' una NOSTRA DERIVATA (swe/precipitation,
+// 0..1, passo 0.01). Valori COPIATI IDENTICI da scripts/forecast_v2/color_scales.json
+// (scales.snowfall_water_equivalent / scales.snow_fraction): 16 bande 0..30 mm con la banda
+// [0,0.1) trasparente e rampa #F0F8FF -> #8CC3FC -> #3C8EE8 -> #122070; 7 bande 0..1 con la
+// banda [0,0.1) trasparente e rampa #CDE6FF -> #0A46B4. light == dark, come nel JSON: il
+// renderer pubblica UNA sola palette, quindi il client non ne inventa una seconda.
+// Le unita' sono quelle del JSON e non una riscrittura del client: la legenda mostra la
+// stessa unita' della scala con cui il renderer ha colorato il WebP. In particolare NON si
+// converte in centimetri di neve fresca (1 mm ~ 1 cm e' solo un ordine di grandezza).
+var FM_SNOWWE_BREAKPOINTS = [0, 0.1, 0.2, 0.5, 1, 2, 3, 4.5, 6, 8, 10, 12.5, 15, 20, 25, 30];
+var FM_SNOWWE_COLORS = [[0, 0, 0, 0], [240, 248, 255, 1], [222, 240, 255, 1], [198, 228, 255, 1], [170, 212, 255, 1], [140, 195, 252, 1], [112, 178, 248, 1], [85, 160, 240, 1], [60, 142, 232, 1], [38, 124, 222, 1], [22, 105, 210, 1], [12, 88, 196, 1], [8, 72, 180, 1], [5, 55, 160, 1], [10, 42, 138, 1], [18, 32, 112, 1]];
+var FM_SNOWWE_COLOR_SCALE = { type: 'breakpoint', unit: 'mm (acqua equivalente)', min: null, max: null, breakpoints: FM_SNOWWE_BREAKPOINTS, colors: { light: FM_SNOWWE_COLORS, dark: FM_SNOWWE_COLORS } };
+var FM_SNOWFRAC_BREAKPOINTS = [0, 0.1, 0.25, 0.5, 0.75, 0.9, 1];
+var FM_SNOWFRAC_COLORS = [[0, 0, 0, 0], [205, 230, 255, 1], [170, 210, 250, 1], [120, 185, 245, 1], [70, 150, 235, 1], [35, 110, 215, 1], [10, 70, 180, 1]];
+var FM_SNOWFRAC_COLOR_SCALE = { type: 'breakpoint', unit: 'frazione 0-1', min: null, max: null, breakpoints: FM_SNOWFRAC_BREAKPOINTS, colors: { light: FM_SNOWFRAC_COLORS, dark: FM_SNOWFRAC_COLORS } };
+// 1.2.4.28 - weather_code CATEGORICO (45 codici WMO, una banda per codice).
+// Prima di questa release il client non registrava alcuna scala `weather_code`: la libreria
+// la risolveva per prefisso e il raster .om usciva con la rampa della TEMPERATURA, cioe' un
+// codice 95 (temporale) colorato come una temperatura. Qui la scala e' la copia ESATTA di
+// scales.weather_code del JSON del renderer (45 breakpoints = i codici, 45 colori).
+var FM_WCODE_BREAKPOINTS = [0, 1, 2, 3, 4, 45, 46, 48, 49, 51, 52, 53, 54, 55, 56, 57, 58, 61, 62, 63, 64, 65, 66, 67, 68, 71, 72, 73, 74, 75, 76, 77, 78, 80, 81, 82, 83, 85, 86, 87, 95, 96, 97, 98, 99];
+var FM_WCODE_COLORS = [[135, 206, 250, 1], [172, 206, 222, 1], [185, 190, 196, 1], [126, 134, 142, 1], [148, 148, 148, 1], [96, 102, 108, 1], [148, 148, 148, 1], [84, 94, 104, 1], [148, 148, 148, 1], [168, 220, 248, 1], [152, 210, 244, 1], [136, 200, 240, 1], [120, 190, 236, 1], [104, 180, 232, 1], [128, 212, 236, 1], [86, 196, 228, 1], [148, 148, 148, 1], [55, 115, 235, 1], [85, 90, 225, 1], [120, 55, 215, 1], [150, 35, 205, 1], [185, 20, 185, 1], [205, 35, 150, 1], [225, 20, 105, 1], [148, 148, 148, 1], [236, 246, 255, 1], [222, 240, 252, 1], [206, 232, 250, 1], [190, 224, 248, 1], [172, 216, 246, 1], [190, 230, 246, 1], [208, 242, 246, 1], [148, 148, 148, 1], [92, 198, 120, 1], [255, 172, 0, 1], [236, 92, 0, 1], [148, 148, 148, 1], [0, 202, 220, 1], [0, 152, 205, 1], [148, 148, 148, 1], [230, 30, 60, 1], [202, 0, 120, 1], [174, 18, 48, 1], [152, 0, 110, 1], [120, 0, 88, 1]];
+var FM_WCODE_COLOR_SCALE = { type: 'breakpoint', unit: 'codice WMO', min: null, max: null, breakpoints: FM_WCODE_BREAKPOINTS, colors: { light: FM_WCODE_COLORS, dark: FM_WCODE_COLORS } };
+// Famiglie per la LEGENDA (solo presentazione): i 45 codici in 7 gruppi, ognuno con i suoi
+// codici in ordine crescente. La mappa NON usa questa tabella (usa FM_WCODE_COLOR_SCALE):
+// qui si decide solo come impaginare la legenda, e i colori si prendono dalla scala, non
+// da questa tabella.
+var FM_WCODE_FAMILIES = [
+    { name: 'Sereno', codes: [0, 1, 2, 3, 4] },
+    { name: 'Nebbia', codes: [45, 46, 48, 49] },
+    { name: 'Pioviggine', codes: [51, 52, 53, 54, 55, 56, 57, 58] },
+    { name: 'Pioggia', codes: [61, 62, 63, 64, 65, 66, 67, 68] },
+    { name: 'Neve', codes: [71, 72, 73, 74, 75, 76, 77, 78] },
+    { name: 'Rovesci', codes: [80, 81, 82, 83, 85, 86, 87] },
+    { name: 'Temporale', codes: [95, 96, 97, 98, 99] }
+];
+var FM_COLOR_SCALE_OVERRIDES = { precipitation_cum: FM_PRECUM_COLOR_SCALE, precipitation: FM_PRECIP_COLOR_SCALE, rain: FM_PRECIP_COLOR_SCALE, showers: FM_PRECIP_COLOR_SCALE, geopotential_height_500hPa: FM_GEOP_500_COLOR_SCALE, geopotential_height_850hPa: FM_GEOP_850_COLOR_SCALE, geopotential_height_1000hPa: FM_GEOP_1000_COLOR_SCALE, pressure_msl: FM_MSL_COLOR_SCALE, wind_speed_10m: FM_WIND_COLOR_SCALE, wind_speed_850hPa: FM_WIND_COLOR_SCALE, wind_speed_300hPa: FM_JET_COLOR_SCALE, temperature_10hPa: FM_T10_COLOR_SCALE, geopotential_height_10hPa: FM_GEOP_10_COLOR_SCALE, wind_speed_10hPa: FM_JET10_COLOR_SCALE, snowfall_water_equivalent: FM_SNOWWE_COLOR_SCALE, snow_fraction: FM_SNOWFRAC_COLOR_SCALE, weather_code: FM_WCODE_COLOR_SCALE };
 var FM_VAR_LABELS = {
     temperature_2m: 'Temperatura 2 m',
     dew_point_2m: 'Punto di rugiada 2 m',
@@ -12121,6 +12185,22 @@ var FM_VAR_LABELS = {
     showers: 'Rovesci',
     snowfall: 'Neve',
     snow_depth: 'Spessore neve',
+    // 1.2.4.28 - FASE NEVE (client) + PREFISSO 6 ORE.
+    // `snowfall_water_equivalent` e' un DATO DEL MODELLO: mm di acqua equivalente caduta
+    // come neve. NON e' centimetri di neve fresca (1 mm ~ 1 cm e' un ordine di grandezza
+    // indicativo, non una conversione): l'unita' mostrata e' mm.
+    // `snow_fraction` e' una NOSTRA DERIVATA (snowfall_water_equivalent / precipitation,
+    // valore 0-1, 0.25 = 25%): la soglia neve/pioggia NON e' nel client, la classifica il
+    // motore che pubblica il campo.
+    // `precipitation_6h` e `snow_fraction_6h` NON sono ancora pubblicate dal motore: qui
+    // c'e' SOLO l'etichetta, quindi la voce di menu compare se e solo se un giorno il
+    // manifest .om del dominio portera' la variabile (stesso gate del 10 hPa).
+    // Nessuna delle quattro entra in FM_CURATED_VARS: il filtro di visibilita' e' in OR
+    // con queste etichette e il conteggio di FM_CURATED_VARS (28) e' bloccato dal test.
+    snowfall_water_equivalent: 'Neve (acqua equivalente)',
+    snow_fraction: 'Frazione neve',
+    precipitation_6h: 'Precipitazioni 6 ore',
+    snow_fraction_6h: 'Rischio neve (6 ore)',
     cloud_cover: 'Nuvolosita totale',
     cloud_cover_low: 'Nuvolosita bassa',
     cloud_cover_mid: 'Nuvolosita media',
@@ -12864,7 +12944,7 @@ function fmCategory(v) {
     if (/_(\d{2,4})hPa$/.test(v)) return 'Livelli di pressione';
     if (/^temperature/.test(v) || /dew_point/.test(v) || /apparent_temperature/.test(v) || /wet_bulb/.test(v) || /surface_temperature/.test(v) || /soil_temperature/.test(v)) return 'Temperatura';
     if (/relative_humidity|soil_moisture/.test(v)) return 'Umidita';
-    if (/precipitation|^rain$|^showers$|snowfall|snow_depth|freezing_rain|graupel|precipitable_water/.test(v)) return 'Precipitazione e neve';
+    if (/precipitation|^rain$|^showers$|snowfall|snow_depth|snow_fraction|freezing_rain|graupel|precipitable_water/.test(v)) return 'Precipitazione e neve';
     if (/cloud_cover/.test(v)) return 'Nuvolosita';
     if (/pressure_msl|surface_pressure/.test(v)) return 'Pressione';
     if (/wind/.test(v)) return 'Vento';
@@ -13902,6 +13982,40 @@ function fmLegendTickValues(bp, lo, hi, maxTicks) {
     }
     return vals;
 }
+// 1.2.4.28 - LEGENDA DEL CODICE METEO (categorica, 45 codici).
+// La scala FM_WCODE_COLOR_SCALE ha una banda per codice: disegnarla come le scale continue
+// (45 segmenti da 2,2% + 9 tick adattivi) mostrerebbe numeri arbitrari e non direbbe a cosa
+// corrisponde un colore. Qui le 7 famiglie (sereno, nebbia, pioviggine, pioggia, neve,
+// rovesci, temporale) con una pastiglia per OGNI codice e il colore preso dalla STESSA scala
+// che colora il raster (indice del codice nei breakpoints): la mappa non cambia, cambia solo
+// come si legge la legenda.
+function fmWeatherCodeLegend(el, cs) {
+    var colors = cs.colors || [];
+    var bp = (cs.type === 'breakpoint' && cs.breakpoints) ? cs.breakpoints : [];
+    var rgba = function (c) {
+        var a = (c[3] === null || c[3] === undefined) ? 1 : c[3];
+        return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')';
+    };
+    var rows = [];
+    var shown = 0;
+    for (var f = 0; f < FM_WCODE_FAMILIES.length; f++) {
+        var fam = FM_WCODE_FAMILIES[f];
+        var chips = [];
+        for (var k = 0; k < fam.codes.length; k++) {
+            var idx = bp.indexOf(fam.codes[k]);
+            // Codice non presente nella scala: nessuna pastiglia inventata.
+            if (idx < 0 || !colors[idx]) continue;
+            chips.push('<span class="fm-legend-cat-chip" title="' + fam.codes[k] + ' \u00b7 ' + fam.name + '" style="background:' + rgba(colors[idx]) + '"></span>');
+            shown++;
+        }
+        if (!chips.length) continue;
+        rows.push('<div class="fm-legend-cat-row"><span class="fm-legend-cat-name" title="' + fam.name + '">' + fam.name + '</span><span class="fm-legend-cat-chips">' + chips.join('') + '</span></div>');
+    }
+    if (!rows.length) { el.innerHTML = ''; return; }
+    el.innerHTML = '<div class="fm-legend-cat">' + rows.join('') + '</div>'
+        + '<div class="fm-legend-labels"><span>' + bp[0] + '</span><span>' + (cs.unit || 'codice WMO') + '</span><span>' + bp[bp.length - 1] + '</span></div>'
+        + '<div class="fm-legend-overlay">' + shown + ' codici WMO, un colore per codice</div>';
+}
 function fmUpdateLegend() {
     var el = fmEl('fm-legend');
     if (!el) return;
@@ -13913,6 +14027,9 @@ function fmUpdateLegend() {
             : fmModule.getColorScale(fmVariable, false);
     } catch (e) { el.innerHTML = ''; return; }
     if (!cs || !cs.colors || !cs.colors.length) { el.innerHTML = ''; return; }
+    // 1.2.4.28 - ramo categorico: la legenda di weather_code non e' una barra continua
+    // (vedi fmWeatherCodeLegend). Il raster continua a usare FM_WCODE_COLOR_SCALE.
+    if (fmVariable === 'weather_code') { fmWeatherCodeLegend(el, cs); return; }
     var colors = cs.colors;
     var n = colors.length;
     var rgba = function (c) {

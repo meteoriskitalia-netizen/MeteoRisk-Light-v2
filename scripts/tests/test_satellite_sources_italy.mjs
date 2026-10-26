@@ -24,7 +24,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.27.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.28.html');
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
