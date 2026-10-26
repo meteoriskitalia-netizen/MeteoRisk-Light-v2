@@ -1963,9 +1963,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.40';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.41';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-26';
     const APP_CHANGELOG = [
+        { version: '1.2.4.41', date: '2026-10-27', changes: [
+  'RISCHIO= LA NEBBIA NON E\' SOLO NOTTURNA: IL BADGE DICE QUANDO. Si forma dopo il tramonto, resta al mattino e in caso di avvezione o ristagno si presenta in pieno giorno. Il punteggio era gia\' calcolato su tutte le 24 ore, ma il badge mostrava solo l\'icona: ora il tooltip dice la FINESTRA (es. "tra le 20:00 e le 09:00") e il punteggio, e se l\'ora selezionata non e\' il picco aggiunge quando il picco cade.',
+  'RISCHIO= E LA FINESTRA PUO\' ATTRAVERSARE LA MEZZANOTTE. La sequenza di ore sopra soglia e\' cercata in modo CONTIGUO e circolare: 20:00 -> 09:00 e\' un caso normale, non un errore di ordinamento. Se il potenziale resta alto per tutto il giorno la finestra non viene gonfiata (controllo esplicito sul giro completo).',
+  'RISCHIO= IN VISTA ORARIA CONTA L\'ORA SELEZIONATA. Prima il badge usava sempre il massimo della giornata anche scorrendo le ore: alle 14:00 mostrava il picco dell\'alba. Ora, con un\'ora selezionata, il punteggio e\' quello di QUELL\'ora; in vista giornaliera resta il massimo, con il picco indicato nel tooltip.',
+  'DOC= Bump versione 1.2.4.41 (solo client). Soglie e pesi della formula invariati: questa release cambia COME il rischio viene mostrato, non quanto vale.',
+        ] },
         { version: '1.2.4.40', date: '2026-10-27', changes: [
   'RISCHIO= LA NEBBIA ENTRA NELLA MAPPA PRINCIPALE COME FATTORE DI RISCHIO. Badge dedicato (tre linee orizzontali, colore ardesia) accanto a pioggia, vento, temporali, neve. Il punteggio e\' 0-100 e si calcola sulle ore della giornata con tre ingredienti che il payload della mappa HA GIA\': saturazione dell\'aria (T - punto di rugiada), calma di vento, umidita\' relativa; il codice WMO 45/48 (nebbia dichiarata dal modello) porta il punteggio ad almeno 85.',
   'RISCHIO= PERCHE\' IL MASSIMO DELLA GIORNATA E NON L\'ORA SELEZIONATA. La nebbia da irraggiamento si forma all\'alba: usando l\'ora del picco convettivo (come fanno gli indici severi) il punteggio sarebbe massimo a meta\' pomeriggio, cioe\' nel momento sbagliato. Si prende quindi il massimo sulle 24 ore, con cache per provincia+giorno (24 ore x ~110 province a ogni render sarebbero sprecate).',
@@ -4344,9 +4350,11 @@ function enabledLightningSourceIds() {
         // cioe' quando saturazione, calma e umidita' sono tutte almeno a meta' strada.
         // Sotto quella soglia il modello non dice nulla di utile e un'icona sarebbe
         // rumore su ogni provincia d'Italia.
-        if (agg.fog && agg.fog.score >= 30) {
+        if (agg.fog && agg.fog.score >= FOG_BADGE_MIN) {
             risks.push({ id: 'fog', level: agg.fog.score >= 70 ? 3 : agg.fog.score >= 50 ? 2 : 1,
-                         hour: agg.fog.hour, score: Math.round(agg.fog.score) });
+                         hour: agg.fog.hour, from: agg.fog.from, to: agg.fog.to,
+                         dayScore: agg.fog.dayScore, dayHour: agg.fog.dayHour,
+                         score: Math.round(agg.fog.score) });
         }
         // Temporale: in sviluppo gli indici severi possono alzare il livello
         if (isThunder) {
@@ -15367,7 +15375,9 @@ function toggleForecastMaps() {
             // lv3 Forte, lv4 Estremo. L'informativa (pioggia sub-soglia) resta grigia.
             var levelColor = (BADGE_LEVEL_COLOR && r.level >= 1 && r.level <= 4) ? BADGE_LEVEL_COLOR[r.level] : null;
             var color = r.info ? '#94a3b8' : (levelColor || def.color);
-            return '<span class="map-risk-badge" style="background:' + color + '" title="' + (RISK_DEFS[r.id] ? RISK_DEFS[r.id].label : r.id) + '">' +
+            var badgeTitle = (RISK_DEFS[r.id] ? RISK_DEFS[r.id].label : r.id);
+            if (r.id === 'fog') badgeTitle = fogWindowLabelC(r);
+            return '<span class="map-risk-badge" style="background:' + color + '" title="' + badgeTitle + '">' +
                 '<svg width="13" height="13" viewBox="0 0 48 48" aria-hidden="true">' + riskIconSvg(r.id) + '</svg></span>';
         };
         var html;
@@ -19347,11 +19357,16 @@ function toggleForecastMaps() {
         if (code === 45 || code === 48) s = Math.max(s, 85);
         return s;
     }
-    // Massimo della GIORNATA (la nebbia si forma all'alba, non all'ora del picco CAPE).
-    // Cache per store+giorno: 24 ore x ~110 province a ogni render sarebbero sprecate.
-    function fogDayForStore(store) {
+    // SERIE ORARIA del giorno (24 punteggi) + FINESTRA in cui il potenziale supera la
+    // soglia del badge. 1.2.4.41: la nebbia NON e' solo notturna - si forma anche dopo il
+    // tramonto, resta al mattino e in casi di avvezione o di ristagno si presenta in pieno
+    // giorno - quindi il dato utile non e' un'ora sola ma "quali ore". La serie e' calcolata
+    // una volta per provincia+giorno (24 ore x ~110 province a ogni render sarebbero sprecate).
+    var FOG_BADGE_MIN = 30;
+    function fogViewForStore(store) {
         var day = currentDay;
         if (store.__fogCache && store.__fogCache.day === day) return store.__fogCache.v;
+        var scores = new Array(24);
         var best = 0, bestHour = -1;
         for (var fh = 0; fh < 24; fh++) {
             var fi = day * 24 + fh;
@@ -19360,13 +19375,41 @@ function toggleForecastMaps() {
             var fW = store.hourly.windspeed_10m ? store.hourly.windspeed_10m[fi] : null;
             var fH = store.hourly.relativehumidity_2m ? store.hourly.relativehumidity_2m[fi] : null;
             var fC = store.hourly.weathercode ? store.hourly.weathercode[fi] : null;
-            if (fT == null || fD == null) continue;
-            var s = fogScoreC(fT - fD, fW, fH, fC);
+            var s = (fT == null || fD == null) ? 0 : fogScoreC(fT - fD, fW, fH, fC);
+            scores[fh] = s;
             if (s > best) { best = s; bestHour = fh; }
         }
-        var v = { score: best, hour: bestHour };
+        // Finestra = sequenza CONTIGUA di ore sopra soglia che contiene il picco, anche a
+        // cavallo della mezzanotte (20:00 -> 09:00 e' un caso normale, non un errore).
+        var from = -1, to = -1;
+        if (bestHour >= 0 && best >= FOG_BADGE_MIN) {
+            from = bestHour; to = bestHour;
+            var g1 = 0;
+            while (g1++ < 24 && scores[(from + 23) % 24] >= FOG_BADGE_MIN) from = (from + 23) % 24;
+            var g2 = 0;
+            while (g2++ < 24 && scores[(to + 1) % 24] >= FOG_BADGE_MIN) to = (to + 1) % 24;
+            if (from === to && g1 > 1) { from = bestHour; to = bestHour; }
+        }
+        var v = { scores: scores, score: best, hour: bestHour, from: from, to: to,
+                  dayScore: best, dayHour: bestHour };
         store.__fogCache = { day: day, v: v };
         return v;
+    }
+    function fogHourLabelC(h) { return (h < 10 ? '0' : '') + h + ':00'; }
+    // Etichetta con QUANDO: e' quello che il badge da solo non puo' dire.
+    function fogWindowLabelC(r) {
+        var sc = Math.round(r && r.score != null ? r.score : 0);
+        var when = '';
+        if (r && r.from != null && r.from >= 0 && r.to != null && r.to >= 0) {
+            when = (r.from === r.to)
+                ? ' alle ' + fogHourLabelC(r.from)
+                : ' tra le ' + fogHourLabelC(r.from) + ' e le ' + fogHourLabelC((r.to + 1) % 24);
+        }
+        var extra = '';
+        if (r && r.dayScore != null && r.dayHour != null && r.hour !== r.dayHour) {
+            extra = ' — picco del giorno alle ' + fogHourLabelC(r.dayHour) + ' (' + Math.round(r.dayScore) + '/100)';
+        }
+        return 'Nebbia' + when + ' — ' + sc + '/100' + extra;
     }
 
     function computeAggregateForStore(store) {
@@ -19507,7 +19550,21 @@ function toggleForecastMaps() {
             scLevel: dm ? dm.scLevel : 0,
             scHour: dm ? dm.scHour : -1,
             scReal: dm ? dm.scReal : false,
-            fog: fogDayForStore(store)
+            fog: (function () {
+                // 1.2.4.41: in vista ORARIA il punteggio e' quello dell'ORA SELEZIONATA
+                // (la nebbia puo' esserci alle 14), in vista giornaliera il massimo del
+                // giorno. In entrambi i casi si porta anche il picco del giorno, perche'
+                // il badge possa dire quando.
+                var fv = fogViewForStore(store);
+                if (currentHour === 'all' || currentHour == null || currentHour === '') {
+                    return { view: 'day', score: fv.score, hour: fv.hour, from: fv.from, to: fv.to,
+                             dayScore: fv.dayScore, dayHour: fv.dayHour };
+                }
+                var hs = parseInt(currentHour, 10);
+                if (isNaN(hs) || hs < 0 || hs > 23) hs = 0;
+                return { view: 'hour', score: fv.scores[hs] || 0, hour: hs, from: hs, to: hs,
+                         dayScore: fv.dayScore, dayHour: fv.dayHour };
+            })()
         };
     }
 

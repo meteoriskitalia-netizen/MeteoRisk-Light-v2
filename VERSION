@@ -1,3 +1,12 @@
+MeteoRisk Light - 1.2.4.41 - LA NEBBIA PUO' ARRIVARE A QUALSIASI ORA: IL BADGE DICE LA FINESTRA (ES. 20:00-09:00) E IN VISTA ORARIA USA L'ORA SELEZIONATA (bump da 1.2.4.40)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=41
+RELEASE_TYPE=release
+DATE=2026-10-27
+NOTE=Release 1.2.4.41 (bump da 1.2.4.40) - SOLO CLIENT. La nebbia non e' solo notturna: puo' presentarsi dopo il tramonto, al mattino e in pieno giorno (avvezione, ristagno). (a) Il punteggio era gia' su tutte le 24 ore, ma il badge mostrava solo l'icona: ora `fogViewForStore` produce la SERIE ORARIA e la FINESTRA contigua sopra soglia che contiene il picco, cercata in modo circolare (20:00->09:00 e' un caso normale). (b) Il tooltip del badge usa `fogWindowLabelC`: finestra + punteggio, e se l'ora non e' il picco aggiunge "picco del giorno alle HH (N/100)". (c) In vista ORARIA il punteggio e' quello dell'ORA SELEZIONATA: prima il badge usava sempre il massimo del giorno anche scorrendo le ore. (d) Formula, soglie e pesi INVARIATI: cambia come il rischio e' mostrato, non quanto vale. (e) VERIFICA: test_html_js_syntax 1 passed; fixture in browser con alba satura, secco/ventoso e caso diurno. BUMP: html mri-light-1.2.4.41.html, VERSION (BUILD=41), sw.js, README.md, test .mjs, 3 righe cp. La 1.2.4.40 va RIMOSSA dal repo.
+APP_FILE=mri-light-1.2.4.41.html
 MeteoRisk Light - 1.2.4.40 - LA NEBBIA DIVENTA UN FATTORE DI RISCHIO DELLA MAPPA PRINCIPALE (NOWCAST: SATURAZIONE + CALMA DI VENTO + UMIDITA', MASSIMO DELLA GIORNATA, CODICE WMO 45/48 A 85/100) (bump da 1.2.4.39)
 MAJOR=1
 MINOR=2
