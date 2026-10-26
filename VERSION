@@ -1,3 +1,12 @@
+MeteoRisk Light - 1.2.4.34 - IL PANNELLO ECMWF VS GFS DICE LA CAUSA VERA DI UN 429 (LIMITE OPEN-METEO, CON IL MOTIVO RESTITUITO DALL'API E UN BOTTONE RIPROVA) E IN EMISFERO NORD, SENZA WEBP, NON SI DISEGNA PIU' IL DOMINIO DEL MODELLO AL POSTO DELL'EMISFERO (bump da 1.2.4.33)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=34
+RELEASE_TYPE=release
+DATE=2026-10-26
+NOTE=Release 1.2.4.34 (bump da 1.2.4.33) - SOLO CLIENT: html, VERSION, sw.js, README, test .mjs e le 3 righe `cp` dei workflow (deploy-pages, radar-engine, update-weather-data), come gia' fatto per la 1.2.4.33: senza, radar-engine fallirebbe ogni 10 minuti. Renderer, motore e workflow di render NON toccati. (a) IL PANNELLO ECMWF VS GFS DICE LA CAUSA: quando TUTTE le risposte daily falliscono, si leggono i motivi (value.error + value.reason) delle quattro risposte; se uno contiene limit/exceed il pannello scrive "Limite di richieste Open-Meteo raggiunto: <reason>" con un bottone RIPROVA. MISURATO sulla pagina servita il 2026-10-26: 6/6 richieste a api.open-meteo.com/v1/forecast in 429 con reason "Hourly API request limit exceeded", ensemble-api 200, geocoding 200, 10 richieste totali nella tab e 0 duplicate: il limite e' per IP, non un guasto dell'app ne' dei modelli. (b) IN EMISFERO NORD SENZA WEBP NON SI DISEGNA IL DOMINIO: il disco polare si disegna solo da un WebP gia' proiettato; il fallback `.om` copre il dominio del modello (ECMWF 34..72N / 25W..45E) e dentro la scatola dell'emisfero sembrava una cartina dell'Europa. Ora la vista emisferica resta un disco vuoto con il motivo e l'invito a usare Europa o Italia, e `fmFetchRenderedIndex` continua a richiamare `fmRebuild()` quando l'indice arriva (il WebP buono non viene bloccato). Il `.om` resta valido per europa, italia e domain. Caso reale: `__pressure_geopot` era pubblicata solo per ncep_gfs025 (39 frame). (c) VERIFICA: pytest scripts/tests/test_html_js_syntax.py -> 1 passed; il diff e' confinato a 2 blocchi JS, APP_VERSION e changelog. (d) BUMP: html mri-light-1.2.4.34.html, VERSION (BUILD=34, DATE=2026-10-26, APP_FILE), sw.js CACHE_NAME mri-1.2.4.34, README.md, i test .mjs che citano la versione. La 1.2.4.33 NON e' rinominata ne' cancellata e va RIMOSSA dal repo (una sola app servita da Pages).
+APP_FILE=mri-light-1.2.4.34.html
 MeteoRisk Light - 1.2.4.33 - IL COMPOSITO PRESSIONE/GEOPOTENZIALE E' SELEZIONABILE NELL'APP (VARIABILE CON ID PROPRIO `__pressure_geopot`, NIENTE PIU' OVERLAY CLIENT), FALLBACK DICHIARATO ALLE RUN SENZA WEBP COMPOSITO, BANNER "NUOVA VERSIONE DISPONIBILE - RICARICA" (bump da 1.2.4.32)
 MAJOR=1
 MINOR=2

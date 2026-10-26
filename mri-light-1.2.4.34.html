@@ -1963,9 +1963,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.33';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.34';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-26';
     const APP_CHANGELOG = [
+        { version: '1.2.4.34', date: '2026-10-26', changes: [
+  'APP= IL PANNELLO ECMWF VS GFS DICE LA CAUSA VERA DI UN 429, INVECE DI "ERRORE NEL CARICAMENTO DEI MODELLI". La causa non era un guasto: l\'API Open-Meteo rispondeva 429 con il corpo {"reason":"Hourly API request limit exceeded. Please try again in the next hour.","error":true}. Misurato in produzione il 2026-10-26 sulla pagina servita: 6 richieste su 6 a api.open-meteo.com/v1/forecast in 429, mentre ensemble-api rispondeva 200 e il geocoding 200; nella stessa tab la pagina aveva fatto 10 richieste Open-Meteo in tutto, 0 duplicate. Ora, se una delle quattro risposte e\' un errore DICHIARATO dall\'API, il pannello scrive il motivo ("Limite di richieste Open-Meteo raggiunto: <reason>") con un bottone RIPROVA; il messaggio generico resta solo per i fallimenti senza motivo.',
+  'MAPPE= IN EMISFERO NORD, SENZA WEBP, NON SI DISEGNA PIU\' IL DOMINIO DEL MODELLO. Il disco polare si puo\' disegnare SOLO da un WebP gia\' proiettato dal server; il fallback `.om` copre il dominio del modello (ECMWF 34..72N / 25W..45E) e veniva mostrato dentro la scatola dell\'emisfero: a schermo sembrava una cartina dell\'Europa al posto dell\'emisfero. Ora, se la run non ha quel frame WebP, la vista emisferica resta un disco vuoto con il motivo scritto e l\'indicazione di usare Europa o Italia; il `.om` continua a valere per Europa, Italia e dominio. Caso concreto: la variabile composita `__pressure_geopot` era pubblicata solo per `ncep_gfs025` (39 frame), quindi su ECMWF la voce mostrava il dominio invece dell\'emisfero.',
+  'DOC= Bump versione 1.2.4.34 (solo client: html, VERSION, sw.js, README, test .mjs e le 3 righe `cp` dei workflow come per la 1.2.4.33). Renderer, motore e logica di render NON toccati.',
+        ] },
         { version: '1.2.4.33', date: '2026-10-26', changes: [
   'MAPPE= LA VOCE "PRESSIONE / GEOPOTENZIALE" ORA E\' SELEZIONABILE E IL COMPOSITO ARRIVA DAL SERVER. Prima il client trasformava la pseudo-voce in raster Z500 + overlay vettoriale MSL, ma su `north` il WebP vinceva comunque (`wantWebp = !fmOverlayVariable || fmRegion === \'north\'`): a schermo nessuna isobara e i VALORI del geopotenziale scritti, esattamente il contrario di quello che serve (prova sui pixel del WebP reale: 1.131 px di inchiostro del geopotenziale prima, 0 dopo la rimozione). Ora `fmVariable` resta `__pressure_geopot` (id proprio, pubblicato in `index.json` e nella timeline) e `fmOverlayVariable` e\' SEMPRE null: si usa il WebP composito del renderer (raster Z500 colorato SENZA i valori scritti + isobare MSL bianche CON il valore) in ogni regione, disco polare compreso.',
   'MAPPE= FALLBACK OBBLIGATORIO, NON UN BUCO. Se la run non ha il WebP composito (run pubblicate prima del renderer nuovo) `fmRebuild()` ricade sul percorso storico: `.om` di `geopotential_height_500hPa` + overlay vettoriale MSL, e lo dichiara (status e legenda "disegnate dal client"). Senza fallback, in quelle ore la mappa sarebbe stata VUOTA.',
@@ -14015,6 +14020,25 @@ function fmRebuild() {
         var rr = fmRenderRegionId();
         if (rr) fmFetchRenderedIndex(rr);
     }
+    // DIAGNOSI (1.2.4.34): in `north` l'unico disegno possibile e' il disco
+    // pre-proiettato da un WebP. Il fallback `.om` copre il DOMINIO del modello
+    // (ECMWF: 34..72N / 25W..45E) e veniva disegnato dentro la scatola
+    // dell'emisfero: a schermo sembrava "una cartina dell'Europa" al posto
+    // dell'emisfero. Meglio un disco vuoto con il motivo scritto che una mappa
+    // che mostra un'altra area. `fmFetchRenderedIndex` richiama `fmRebuild()`
+    // quando l'indice arriva, quindi questo ritorno non blocca il WebP buono.
+    if (fmActive && fmRegion === 'north' && !webp) {
+        fmRemoveLayers();
+        fmLayerKey = null;
+        fmPlaybackSetFramePending(false);
+        fmPolarSetActive(true);
+        fmPolarPaintBase();
+        var fmIdxKnown = !!(fmWebpIndex && fmWebpIndexRegion === fmRenderRegionId());
+        fmSetStatus(fmIdxKnown
+            ? 'Vista emisferica: questa run non ha il frame WebP. Il composito Pressione/Geopotenziale arriva col prossimo ciclo del dominio; nel frattempo usa Europa o Italia.'
+            : 'Vista emisferica: caricamento indice e frame\u2026');
+        return;
+    }
     if (webp) {
         // 1.2.4.33: nessun avviso "isobare non incluse": il WebP del composito arriva dal
         // renderer GIA' con le isobare MSL disegnate sopra il raster Z500, anche a `north`.
@@ -17515,7 +17539,32 @@ function toggleForecastMaps() {
         modelCompareHourlyE = (resEh.status === 'fulfilled' && !resEh.value.error) ? resEh.value : null;
         modelCompareHourlyG = (resGh.status === 'fulfilled' && !resGh.value.error) ? resGh.value : null;
         if (!modelCompareDailyE && !modelCompareDailyG) {
-            tbody.innerHTML = `<tr><td colspan="5" style="color:#ef4444;">Errore nel caricamento dei modelli</td></tr>`;
+            // DIAGNOSI (1.2.4.34): "Errore nel caricamento dei modelli" nascondeva la
+            // causa vera. L'API Open-Meteo dichiara il motivo nel corpo JSON
+            // (`{error:true, reason:"Hourly API request limit exceeded..."}`) e il
+            // pannello lo scartava come qualunque altro fallimento. Misurato in
+            // produzione il 2026-10-26: 6 richieste su 6 a /v1/forecast in 429,
+            // mentre ensemble-api rispondeva 200.
+            var omReasons = [resE, resG, resEh, resGh].map(function (s) {
+                return (s.status === 'fulfilled' && s.value && s.value.error &&
+                        typeof s.value.reason === 'string') ? s.value.reason : '';
+            }).filter(Boolean);
+            var quotaReason = omReasons.filter(function (s) {
+                return /limit|exceed/i.test(s);
+            })[0] || '';
+            if (quotaReason) {
+                tbody.innerHTML = '<tr><td colspan="5" style="color:#f59e0b;">Limite di richieste Open-Meteo raggiunto: ' +
+                    escapeHtml(quotaReason) +
+                    ' <button type="button" id="mc-retry" style="margin-left:6px;cursor:pointer;background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:4px;padding:2px 8px;">Riprova</button></td></tr>';
+                var mcRetry = document.getElementById('mc-retry');
+                if (mcRetry) {
+                    mcRetry.addEventListener('click', function () {
+                        fetchModelComparison(modelCompareLat, modelCompareLon);
+                    });
+                }
+            } else {
+                tbody.innerHTML = `<tr><td colspan="5" style="color:#ef4444;">Errore nel caricamento dei modelli</td></tr>`;
+            }
             return;
         }
         renderModelComparison();

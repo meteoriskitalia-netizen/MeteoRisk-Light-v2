@@ -6,13 +6,13 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.33
+## Versione attiva: 1.2.4.34
 
-- File applicativo: `mri-light-1.2.4.33.html` (`APP_VERSION = '1.2.4.33'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.33', date: '2026-10-26' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.33'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+- File applicativo: `mri-light-1.2.4.34.html` (`APP_VERSION = '1.2.4.34'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.34', date: '2026-10-26' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.34'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
-- Contenuto della 1.2.4.33 (release sopra la 1.2.4.32) - **il composito Pressione/Geopotenziale
+- Contenuto della 1.2.4.34 (release sopra la 1.2.4.32) - **il composito Pressione/Geopotenziale
   e' selezionabile nell'app** e **il Service Worker avvisa quando c'e' una versione nuova**.
   Solo client: nessuna modifica a `scripts/forecast_v2/*` e nessuna ai workflow.
   - **Il composito arriva dal server, con id proprio.** `__pressure_geopot` era pubblicata in
