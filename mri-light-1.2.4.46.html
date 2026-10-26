@@ -1964,9 +1964,12 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.45';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.46';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-26';
     const APP_CHANGELOG = [
+        { version: '1.2.4.46', date: '2026-10-26', changes: [
+  'NEBBIA= SOGLIA DEL BADGE DA 30 A 70 E LIVELLI 70/85/95, PRESENTAZIONE ALLINEATA AGLI ALTRI BADGE. Il punteggio 0-100 e\' un INDICE di potenziale, non una probabilita\': l\'unico numero mostrato ("77/100" nel tooltip) si leggeva come "77%". (a) MISURA, non stima: 43 stazioni METAR italiane (aviationweather.gov, 1.649 bollettini, 2026-10-25T23:00Z -> 2026-10-26T22:20Z) contro il dataset derivato, 28 province abbinate 1:1 (<= 30 km, dislivello <= 250 m), 621 ore-provincia; nebbia = FG nel tempo presente oppure visibilita\' < 1000 m. (b) ESITO: su 50 ore con indice >= 90 la nebbia osservata e\' 1 (2,0%), su 21 ore con indice 70-79 e\' 1 (4,8%): sopra 60 l\'indice NON discrimina. A soglia 30 il badge copriva 205/618 ore senza nebbia (33,2%) e 21/28 province in vista giornaliera; a 70 scende a 94 (15,2%) e 14/28 tenendo TUTTI e 3 gli eventi osservati (POD 1,00 su questo campione). Un punteggio di 70 era livello 3 (Forte), ora e\' livello 1 (Lieve): lo stesso numero non si legge piu\' come un allarme. (c) FORMULA INVARIATA: con 3 eventi osservati ritoccare i pesi 0,55/0,25/0,20 sarebbe overfitting dichiarato; il vento non e\' piu\' basso nei casi di nebbia (mediana 9,7 km/h contro 6,6) ma il campione e\' troppo piccolo per cambiare il peso della calma. (d) PAVIMENTO 85 sul codice WMO 45/48 NON toccato e NON responsabile: su 46 ore-provincia con codice 45/48 cambia il punteggio in 1 solo caso (differenza media 0,22) e 19/22 erano senza nebbia nemmeno a 85. (e) PRESENTAZIONE: la nebbia non aveva i casi in riskLevelLine e riskLevelImpact, quindi il riepilogo provinciale stampava "Nebbia - ." - ora ha tre righe per livello e la nota di impatto; etichetta "Nebbia (potenziale NWP)" come grandine e convezione organizzata; tooltip "indice N/100 (potenziale del modello, non probabilita)" e non piu\' il solo "N/100"; legenda della metrica con i nuovi scaglioni 70-85 / 85-95 / >= 95 e la dicitura "indice 0-100, non una probabilita". (f) BUMP: html, VERSION (BUILD=46), sw.js (CACHE_NAME mri-1.2.4.46), README.md, i 26 test .mjs che citavano la 1.2.4.45, 3 righe cp dei workflow. La 1.2.4.45 va RIMOSSA dal repo.',
+        ] },
         { version: '1.2.4.45', date: '2026-10-26', changes: [
   'MAPPE= IL PRIMO FRAME NON PASSA PIU\' DAL RASTER .om. Aprendo le mappe previsionali il client disegnava il frame con la cache .om (1.403.766 byte misurati a un\'apertura a freddo, 2.575.429 byte a un cambio regione) mentre il WebP dello stesso frame esisteva: la resa della regione finiva con un rebuild immediato, quando indice e timeline erano ancora quelli della regione precedente, quindi fmWebpFrameUrl() tornava null e la mappa imboccava il raster. Ora il rebuild aspetta l\'esito dell\'indice (lo stesso ordine che la timeline usa gia\') e il .om resta solo come fallback REALE: indice arrivato e frame senza WebP (404), indice fallito, o nessuna risposta entro 60 s.',
   'MAPPE= UN SOLO URL PER FRAME: tolto `?run=` dall\'URL WebP costruito da index.json. Il path contiene gia\' la run (`/runs/<run_id>/<variabile>/<file>`), quindi il parametro rendeva soltanto DIVERSO l\'URL rispetto a quello costruito dalla timeline: lo stesso frame veniva chiesto due volte (306.777 + 306.485 byte misurati) e nessuna cache poteva accorgersene.',
@@ -4192,7 +4195,7 @@ function enabledLightningSourceIds() {
         supercell:    { label: 'Convezione organizzata (NWP)', color: '#a855f7', title: 'Condizioni ambientali favorevoli a convezione organizzata secondo il modello NWP (potenziale ambientale: NON un rilevamento radar e NON una misura di rotazione)' },
         vorticosi:    { label: 'Vortici / tornado (potenziale NWP)', color: '#d946ef', title: 'Possibili fenomeni vorticosi (tornado / tromba marina) secondo il modello (potenziale ambientale, non un evento osservato)' },
         downburst:    { label: 'Downburst / raffiche (potenziale NWP)', color: '#f43f5e', title: 'Possibile downburst con raffiche convettive intense secondo il modello (potenziale ambientale, non un evento osservato)' },
-        fog:          { label: 'Nebbia', color: '#94a3b8', title: 'Nebbia o foschia densa: aria prossima alla saturazione, vento debole e ora del giorno favorevoli. E\' il potenziale del modello sulle prossime ore, non un avviso di visibilita\' misurata' },
+        fog:          { label: 'Nebbia (potenziale NWP)', color: '#94a3b8', title: 'Indice 0-100 di potenziale della nebbia: aria prossima alla saturazione, vento debole, umidità alta. Non è visibilità misurata e non è una probabilità' },
     };
 
     function riskIconSvg(id) {
@@ -4368,12 +4371,14 @@ function enabledLightningSourceIds() {
         // getAggregateForZone) — la raffica come rischio specifico vive solo nel badge.
         var windGustActive = (agg.gusts != null ? agg.gusts : agg.wind) || 0;
         if (windGustActive > 25) risks.push({ id: 'wind', level: windGustActive > 80 ? 4 : windGustActive > 60 ? 3 : windGustActive > 40 ? 2 : 1 });
-        // NEBBIA (1.2.4.40): il badge compare dal livello 1 (potenziale >= 30/100),
-        // cioe' quando saturazione, calma e umidita' sono tutte almeno a meta' strada.
-        // Sotto quella soglia il modello non dice nulla di utile e un'icona sarebbe
-        // rumore su ogni provincia d'Italia.
+        // NEBBIA (1.2.4.40, soglie 1.2.4.46): l'indice 0-100 dice quanto l'aria e'
+        // FAVOREVOLE alla nebbia, non la probabilita' che ci sia. Misurato il 2026-10-26
+        // (621 ore-provincia, 43 stazioni METAR): a 30 il 33,2% delle ore senza nebbia
+        // aveva il badge, a 70 il 15,2% con gli stessi eventi osservati, e sopra 90 la
+        // nebbia osservata e' il 2%. Il badge si accende quindi solo nel decile alto (70+)
+        // e i livelli sono 70 (Lieve) / 85 (Moderato) / 95 (Forte), gli stessi della metrica.
         if (agg.fog && agg.fog.score >= FOG_BADGE_MIN) {
-            risks.push({ id: 'fog', level: agg.fog.score >= 70 ? 3 : agg.fog.score >= 50 ? 2 : 1,
+            risks.push({ id: 'fog', level: agg.fog.score >= 95 ? 3 : agg.fog.score >= 85 ? 2 : 1,
                          hour: agg.fog.hour, from: agg.fog.from, to: agg.fog.to,
                          dayScore: agg.fog.dayScore, dayHour: agg.fog.dayHour,
                          score: Math.round(agg.fog.score) });
@@ -4528,6 +4533,9 @@ function enabledLightningSourceIds() {
             case 'heat':         return ['Caldo moderato', 'Caldo intenso', 'Ondata di calore forte', 'Caldo estremo e pericoloso'][r.level - 1];
             case 'cold':         return ['Freddo con minime attorno allo zero', 'Gelate diffuse', 'Freddo intenso con gelate marcate', 'Freddo estremo con gelate severe'][r.level - 1];
             case 'snow':         return ['Neve debole possibile', 'Neve moderata con accumuli', 'Neve abbondante, accumuli significativi', 'Neve diffusa e persistente'][r.level - 1];
+            // 1.2.4.46: la nebbia non aveva il caso e cadeva nel default vuoto, quindi il
+            // riepilogo provinciale stampava "Nebbia - ." senza alcuna descrizione.
+            case 'fog':          return ['Nebbia o foschia possibile nelle ore più fredde', 'Nebbia in formazione con visibilità ridotta a tratti', 'Nebbia densa e persistente con visibilità molto ridotta'][r.level - 1];
             case 'generic':      return ['Avviso di condizioni meteo localmente avverse'][0];
             case 'supercell': {
                 // La cella organizzata nel riepilogo usa livelli 2/3/4 (da computeActiveRisks):
@@ -4627,6 +4635,12 @@ function enabledLightningSourceIds() {
                     'Neve moderata: possibili accumuli, attenzione alla viabilità' + (qNeve ? '. ' + qNeve : '.'),
                     'Neve abbondante: accumuli significativi, disagi a circolazione e trasporti' + (qNeve ? '. ' + qNeve : '.'),
                     'Neve diffusa e persistente: forti accumuli e possibili isolamenti' + (qNeve ? '. ' + qNeve : ', quota neve in calo.')
+                ][r.level - 1];
+            case 'fog':
+                return [
+                    'Aria prossima alla saturazione nelle ore fredde: banchi di nebbia o foschia localizzati, visibilità a tratti sotto 1-2 km nelle zone basse e vicino a fiumi e laghi.',
+                    'Nebbia in formazione: visibilità ridotta localmente anche sotto 500 m, disagi alla circolazione nella notte e al mattino presto.',
+                    'Nebbia densa e persistente: visibilità anche sotto 200 m, rallentamenti e rischio di incidenti; il fenomeno può durare più ore.'
                 ][r.level - 1];
             case 'generic':
                 return 'Condizioni meteo potenzialmente avverse nella zona: seguire gli aggiornamenti e prestare attenzione.';
@@ -19339,10 +19353,10 @@ function toggleForecastMaps() {
                 return scH[hi];
             }
             case 'fog': {
-                // Soglie IDENTICHE a computeActiveRisks (30 / 50 / 70): un punteggio che da'
-                // il badge di livello N dipinge la provincia con il colore del livello N.
-                // Sotto 30 nessun colore (grigio neutro): come le altre metriche senza dato.
-                var fogLv = (value >= 70) ? 3 : (value >= 50) ? 2 : (value >= 30) ? 1 : 0;
+                // Soglie IDENTICHE a computeActiveRisks (1.2.4.46: 70 / 85 / 95): un punteggio
+                // che da' il badge di livello N dipinge la provincia con il colore del livello N.
+                // Sotto 70 nessun colore (grigio neutro): come le altre metriche senza dato.
+                var fogLv = (value >= 95) ? 3 : (value >= 85) ? 2 : (value >= 70) ? 1 : 0;
                 return FOG_BAND_COLORS[fogLv];
             }
         }
@@ -19579,8 +19593,15 @@ function toggleForecastMaps() {
     //                 <= 4 km/h -> 1 ;  >= 22 km/h -> 0  (con vento forte la nebbia
     //                 non si forma e quella presente si dissolve)
     //   umidita'    : RH.  80% -> 0 ;  100% -> 1
-    // Pesi 0.55 / 0.25 / 0.20. SOGLIE E PESI SONO UNA SCELTA INGEGNERISTICA DICHIARATA:
-    // non c'e' nel repo un archivio di nebbie osservate con cui tararli.
+    // Pesi 0.55 / 0.25 / 0.20. SOGLIE E PESI SONO UNA SCELTA INGEGNERISTICA DICHIARATA.
+    // 1.2.4.46 - CAMPIONE MISURATO (non stimato): 43 stazioni METAR italiane
+    // (aviationweather.gov, 1.649 bollettini, 2026-10-25T23:00Z -> 2026-10-26T22:20Z) contro
+    // il dataset derivato, 28 province abbinate 1:1 (<= 30 km, dislivello <= 250 m), 621
+    // ore-provincia. Il punteggio NON e' una probabilita': su 50 ore con indice >= 90 la
+    // nebbia osservata e' 1 (2,0%), su 21 ore con indice 70-79 e' 1 (4,8%) - sopra 60
+    // l'indice non discrimina. Per questo la soglia del badge e' 70 (era 30: il 33,2% delle
+    // ore SENZA nebbia aveva il badge) e i livelli sono 70 / 85 / 95 (p90 dell'indice = 85,1).
+    // Con 3 eventi osservati nel campione i pesi NON si ritoccano: sarebbe overfitting.
     // Il codice WMO 45/48 (nebbia dichiarata dal modello) PORTA il punteggio ad almeno 85:
     // e' l'unico segnale esplicito di nebbia che il payload contiene.
     // Cloud cover NON e' nel payload della mappa principale: al suo posto l'umidita'
@@ -19601,7 +19622,10 @@ function toggleForecastMaps() {
     // tramonto, resta al mattino e in casi di avvezione o di ristagno si presenta in pieno
     // giorno - quindi il dato utile non e' un'ora sola ma "quali ore". La serie e' calcolata
     // una volta per provincia+giorno (24 ore x ~110 province a ogni render sarebbero sprecate).
-    var FOG_BADGE_MIN = 30;
+    // 1.2.4.46: 30 -> 70. A 30 il badge copriva 205/618 ore-provincia senza nebbia
+    // (33,2%) e 21/28 province in vista giornaliera; a 70 scende a 94 (15,2%) e 14/28
+    // tenendo TUTTI e 3 gli eventi osservati (POD 1,00 su questo campione).
+    var FOG_BADGE_MIN = 70;
     function fogViewForStore(store) {
         var day = currentDay;
         if (store.__fogCache && store.__fogCache.day === day) return store.__fogCache.v;
@@ -19646,9 +19670,12 @@ function toggleForecastMaps() {
         }
         var extra = '';
         if (r && r.dayScore != null && r.dayHour != null && r.hour !== r.dayHour) {
-            extra = ' — picco del giorno alle ' + fogHourLabelC(r.dayHour) + ' (' + Math.round(r.dayScore) + '/100)';
+            extra = ' — picco del giorno alle ' + fogHourLabelC(r.dayHour) + ' (indice ' + Math.round(r.dayScore) + '/100)';
         }
-        return 'Nebbia' + when + ' — ' + sc + '/100' + extra;
+        // 1.2.4.46: "77/100" da solo si legge "77%". Il numero e' un INDICE di potenziale,
+        // non una probabilita': va scritto, altrimenti l'unico numero mostrato diventa una
+        // probabilita' agli occhi di chi legge (segnalazione dell'utente del 2026-10-26).
+        return 'Nebbia' + when + ' — indice ' + sc + '/100' + extra + ' (potenziale del modello, non probabilità)';
     }
 
     function computeAggregateForStore(store) {
@@ -20452,7 +20479,7 @@ function renderContinuousOverlay() {
             // 1.2.4.43: i colori vengono da FOG_BAND_COLORS, cioe' la scala che colora i
             // poligoni (identica a BADGE_LEVEL_COLOR[1..3]). Una sola tavolozza: se un giorno
             // cambia, mappa, badge e legenda cambiano insieme.
-            fog: [[FOG_BAND_COLORS[1],'Lieve 30-50'],[FOG_BAND_COLORS[2],'Moderato 50-70'],[FOG_BAND_COLORS[3],'Forte ≥70']],
+            fog: [[FOG_BAND_COLORS[1],'Lieve 70-85'],[FOG_BAND_COLORS[2],'Moderato 85-95'],[FOG_BAND_COLORS[3],'Forte ≥95']],
             thermalrisk: [['#22c55e','Sicuro'],['#eab308','Cauzione'],['#f97316','Cauzione estrema'],['#ef4444','Pericolo'],['#7c1d6f','Pericolo estremo']],
             conv: [['#22c55e','Molto basso'],['#eab308','Basso'],['#f97316','Moderato'],['#ef4444','Alto'],['#7c1d6f','Molto alto']],
             thunderprob: [['#22c55e','Molto basso'],['#eab308','Basso'],['#f97316','Moderato'],['#ef4444','Alto'],['#7c1d6f','Molto alto']],
@@ -20480,7 +20507,7 @@ function renderContinuousOverlay() {
         // legenda che c'e' gia': nessun pannello nuovo.
         if (currentMetric === 'fog') {
             document.getElementById('legend-container').insertAdjacentHTML('beforeend',
-                '<div class="legend-item" style="font-style:italic;">Potenziale di nebbia del modello (T-Td, vento, umidit\u00e0) — <b>non</b> visibilit\u00e0 misurata</div>');
+                '<div class="legend-item" style="font-style:italic;">Potenziale di nebbia del modello (T-Td, vento, umidit\u00e0) — <b>non</b> visibilit\u00e0 misurata e <b>non</b> una probabilit\u00e0: \u00e8 un indice 0-100</div>');
         }
     }
 

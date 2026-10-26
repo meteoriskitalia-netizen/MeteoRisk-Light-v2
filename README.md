@@ -6,12 +6,54 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.45
+## Versione attiva: 1.2.4.46
 
-- File applicativo: `mri-light-1.2.4.45.html` (`APP_VERSION = '1.2.4.45'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.45', date: '2026-10-26' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.45'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+- File applicativo: `mri-light-1.2.4.46.html` (`APP_VERSION = '1.2.4.46'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.46', date: '2026-10-26' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.46'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
+- Contenuto della 1.2.4.46 (release sopra la 1.2.4.45) - **la nebbia non si legge piu' come una
+  probabilita'** e **il badge si accende solo nel decile alto dell'indice**. Solo client: nessuna
+  modifica a `scripts/`, al renderer, al player o ai workflow dei dati oltre alle righe `cp`.
+  - **Segnalazione**: per la notte del 2026-10-26 l'app mostrava un valore di nebbia che si
+    leggeva come **"70%"** in una provincia dove la nebbia non c'e' stata. Il punteggio 0-100
+    di `fogScoreC` e' un **indice di potenziale**, non una probabilita': l'unica cosa da
+    correggere e' come viene presentato, piu' la soglia con cui accende il badge.
+  - **Misura (43 stazioni METAR, 1.649 bollettini)**: `aviationweather.gov` per singola
+    stazione, finestra **2026-10-25T23:00Z -> 2026-10-26T22:20Z** (tutto il giorno 0 del
+    dataset), verita' = `FG` nel tempo presente **oppure** visibilita' **< 1000 m**; il nostro
+    dato = `data/latest/meteorisk-points.json` (modello `best_match` del punto selezionato di
+    ogni provincia) con la formula identica a quella servita. **28 province** abbinate 1:1 alla
+    stazione piu' vicina (**<= 30 km**, dislivello **<= 250 m**), **621 ore-provincia**, nessun
+    abbinamento oltre 40 km. Unita' del vento verificate prima di applicare la formula:
+    `scripts/common.py` non passa `wind_speed_unit`, quindi la serie e' in **km/h** (default
+    Open-Meteo) come la firma `fogScoreC(dpd, windKmh, rh, code)` richiede.
+  - **Esito**: 3 ore-provincia con nebbia (tutte a Milano Linate, 08-10 locali), 17 con
+    visibilita' < 5000 m. A **soglia 30**: TP 3, **FP 205**, FN 0, TN 413 -> il **33,2%** delle
+    ore senza nebbia aveva il badge. A **70**: TP 3, **FP 94** (15,2%). A 85: TP 2, FP 63.
+    Per classi di indice la nebbia osservata e' 0/197 (0-19), 0/216 (20-29), 0/25 (30-39),
+    0/25 (40-49), 0/29 (50-59), 0/32 (60-69), 1/21 (70-79), 1/26 (80-89), 1/50 (90-100):
+    **sopra 60 l'indice non discrimina**. In vista giornaliera (massimo delle 24 ore) il badge
+    copriva 21/28 province a soglia 30 e 14/28 a soglia 70.
+  - **Taratura scelta (una sola)**: `FOG_BADGE_MIN` **30 -> 70** e livelli **30/50/70 ->
+    70/85/95** (p90 dell'indice = **85,1**, p95 = 92,8). Sulla stessa finestra: FP **205 -> 94**
+    (-54%) con gli stessi 3 eventi (POD 1,00 su questo campione), province col badge **21/28 ->
+    14/28**, ore-provincia notturne col badge **179/319 -> 91/319**. Un punteggio di 70 che era
+    livello 3 (Forte) ora e' livello 1 (Lieve).
+  - **Formula invariata** e **pavimento 85 invariato**: con 3 eventi osservati rifare i pesi
+    sarebbe overfitting dichiarato; il pavimento sul codice WMO 45/48 non e' la causa (su 46
+    ore-provincia con codice 45/48 cambia il punteggio in **1** caso, differenza media **0,22**,
+    e 19/22 non avevano nebbia nemmeno a 85).
+  - **Presentazione allineata agli altri badge**: `riskLevelLine` e `riskLevelImpact` non
+    avevano il caso `fog` e il riepilogo provinciale stampava **"Nebbia - ."** senza
+    descrizione; ora ci sono tre righe per livello e la nota di impatto. Etichetta
+    **"Nebbia (potenziale NWP)"** come grandine e convezione organizzata; tooltip **"indice
+    N/100 (potenziale del modello, non probabilita)"** invece del solo "N/100"; legenda della
+    metrica con gli scaglioni **70-85 / 85-95 / >= 95** e la dicitura **"indice 0-100, non una
+    probabilita"**. `BADGE_LEVEL_RANGE.fog` resta `[1,2,3]`.
+
+## Versione 1.2.4.45 (storica)
+
 - Contenuto della 1.2.4.45 (release sopra la 1.2.4.44) - **il primo frame delle mappe
   previsionali non passa piu' dal raster `.om`** e **un solo URL per frame WebP**. Solo client:
   nessuna modifica a `scripts/`, al renderer, al player, ai workflow dei dati o al Service
