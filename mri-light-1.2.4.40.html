@@ -1963,9 +1963,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.39';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.40';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-26';
     const APP_CHANGELOG = [
+        { version: '1.2.4.40', date: '2026-10-27', changes: [
+  'RISCHIO= LA NEBBIA ENTRA NELLA MAPPA PRINCIPALE COME FATTORE DI RISCHIO. Badge dedicato (tre linee orizzontali, colore ardesia) accanto a pioggia, vento, temporali, neve. Il punteggio e\' 0-100 e si calcola sulle ore della giornata con tre ingredienti che il payload della mappa HA GIA\': saturazione dell\'aria (T - punto di rugiada), calma di vento, umidita\' relativa; il codice WMO 45/48 (nebbia dichiarata dal modello) porta il punteggio ad almeno 85.',
+  'RISCHIO= PERCHE\' IL MASSIMO DELLA GIORNATA E NON L\'ORA SELEZIONATA. La nebbia da irraggiamento si forma all\'alba: usando l\'ora del picco convettivo (come fanno gli indici severi) il punteggio sarebbe massimo a meta\' pomeriggio, cioe\' nel momento sbagliato. Si prende quindi il massimo sulle 24 ore, con cache per provincia+giorno (24 ore x ~110 province a ogni render sarebbero sprecate).',
+  'RISCHIO= SOGLIE DICHIARATE, NON VALIDATE. Saturazione piena a T-Td <= 1 C e nulla a >= 4 C; calma piena a <= 4 km/h e nulla a >= 22 km/h (il vento della mappa e\' in km/h: Open-Meteo senza wind_speed_unit); umidita\' da 80% a 100%. Pesi 0,55 / 0,25 / 0,20. Nel repo non esiste un archivio di nebbie osservate con cui tararli, quindi sono scritte nel codice perche\' chi legge la mappa possa contestarle. Il badge compare da 30/100: sotto, un\'icona su ogni provincia sarebbe rumore.',
+  'DOC= Bump versione 1.2.4.40 (solo client). La variabile `fog_risk` per le mappe previsionali NON e\' stata pubblicata: la nebbia richiesta e\' un fattore di rischio del nowcast.',
+        ] },
         { version: '1.2.4.39', date: '2026-10-27', changes: [
   'MAPPE= LA CAUSA ERA IL LIMITE DI PAN, NON IL RITAGLIO NE IL FIT. Misurato sulla 1.2.4.38: con `maxBounds` ESATTAMENTE uguale al riquadro, `fitBounds` non cambiava nulla (zoom 5, vista 34..51N); con `maxBounds` nullo lo stesso fit portava a zoom 3 (vista 23,4..75,4N); con `maxBounds` = riquadro allargato del 50% per lato, di nuovo zoom 3. Il pannello e\' 731x532 (rapporto 1,374) e il riquadro Europa 34..72N / -25..45E ha rapporto 1,009: per inquadrarlo la vista deve essere piu\' LARGA del riquadro, e `maxBounds` lo vietava.',
   'MAPPE= FIX: `maxBounds` non e\' piu\' il riquadro esatto ma il riquadro allargato di mezzo span per lato. Serve a non vagare nel vuoto, non a scegliere lo zoom. Con questo, Europa su `dwd_icon` si apre a zoom 3 con vista 23,4..75,4N: Islanda, Scandinavia intera e Atlantico dentro.',
@@ -4157,7 +4163,8 @@ function enabledLightningSourceIds() {
         generic:      { label: 'Avviso meteo',      color: '#f59e0b', title: 'Condizioni meteo potenzialmente avverse' },
         supercell:    { label: 'Convezione organizzata (NWP)', color: '#a855f7', title: 'Condizioni ambientali favorevoli a convezione organizzata secondo il modello NWP (potenziale ambientale: NON un rilevamento radar e NON una misura di rotazione)' },
         vorticosi:    { label: 'Vortici / tornado (potenziale NWP)', color: '#d946ef', title: 'Possibili fenomeni vorticosi (tornado / tromba marina) secondo il modello (potenziale ambientale, non un evento osservato)' },
-        downburst:    { label: 'Downburst / raffiche (potenziale NWP)', color: '#f43f5e', title: 'Possibile downburst con raffiche convettive intense secondo il modello (potenziale ambientale, non un evento osservato)' }
+        downburst:    { label: 'Downburst / raffiche (potenziale NWP)', color: '#f43f5e', title: 'Possibile downburst con raffiche convettive intense secondo il modello (potenziale ambientale, non un evento osservato)' },
+        fog:          { label: 'Nebbia', color: '#94a3b8', title: 'Nebbia o foschia densa: aria prossima alla saturazione, vento debole e ora del giorno favorevoli. E\' il potenziale del modello sulle prossime ore, non un avviso di visibilita\' misurata' },
     };
 
     function riskIconSvg(id) {
@@ -4186,6 +4193,9 @@ function enabledLightningSourceIds() {
                                         '</g>';
             case 'thunderstorm':return bolt;
             case 'hail':        return cloud + pellets;
+            case 'fog':         return '<g fill="none" stroke="' + g + '" stroke-width="2.6" stroke-linecap="round" opacity="0.95">' +
+                                        '<path d="M13 18h20"/><path d="M16 25h20"/><path d="M12 32h18"/>' +
+                                        '</g>';
             case 'heat':        return '<g fill="' + g + '">' +
                                         '<circle cx="24" cy="25" r="4.2"/>' +
                                         '<g stroke="' + g + '" stroke-width="2.2" stroke-linecap="round">' +
@@ -4330,6 +4340,14 @@ function enabledLightningSourceIds() {
         // getAggregateForZone) — la raffica come rischio specifico vive solo nel badge.
         var windGustActive = (agg.gusts != null ? agg.gusts : agg.wind) || 0;
         if (windGustActive > 25) risks.push({ id: 'wind', level: windGustActive > 80 ? 4 : windGustActive > 60 ? 3 : windGustActive > 40 ? 2 : 1 });
+        // NEBBIA (1.2.4.40): il badge compare dal livello 1 (potenziale >= 30/100),
+        // cioe' quando saturazione, calma e umidita' sono tutte almeno a meta' strada.
+        // Sotto quella soglia il modello non dice nulla di utile e un'icona sarebbe
+        // rumore su ogni provincia d'Italia.
+        if (agg.fog && agg.fog.score >= 30) {
+            risks.push({ id: 'fog', level: agg.fog.score >= 70 ? 3 : agg.fog.score >= 50 ? 2 : 1,
+                         hour: agg.fog.hour, score: Math.round(agg.fog.score) });
+        }
         // Temporale: in sviluppo gli indici severi possono alzare il livello
         if (isThunder) {
             var tlvl = (si.scp > 0.2) ? 3 : 2;
@@ -15323,7 +15341,7 @@ function toggleForecastMaps() {
 
     // Ordine di importanza dei rischi (a parità di livello vince il primo).
     // id 'supercell' (potenziale NWP) prima di tutto, poi grandine/temporali, poi gli altri.
-    var RISK_IMPORTANCE = ['supercell', 'vorticosi', 'hail', 'thunderstorm', 'downburst', 'rain', 'wind', 'snow', 'generic', 'cold', 'heat'];
+    var RISK_IMPORTANCE = ['supercell', 'vorticosi', 'hail', 'thunderstorm', 'downburst', 'rain', 'wind', 'snow', 'fog', 'generic', 'cold', 'heat'];
 
     // Costruisce il marker (divIcon) con i rischi attivi.
     // Se showAll=true mostra TUTTI i rischi affiancati; altrimenti solo il più importante.
@@ -19304,6 +19322,53 @@ function toggleForecastMaps() {
 
     // Aggregato della metrica corrente per un QUALSIASI store { daily, hourly, elevation }:
     // slot punto-per-punto (vista continua), vista incrementale o store collassato provincia.
+    // ================= 1.2.4.40 - NEBBIA (mappa principale, nowcast) =================
+    // Punteggio 0-100 per una singola ora, da tre ingredienti che il payload della
+    // mappa principale HA GIA': temperatura, punto di rugiada, vento, umidita'.
+    //   saturazione : DPD = T - Td.  DPD <= 1 C -> 1 ;  DPD >= 4 C -> 0
+    //   calma       : vento 10 m in KM/H (Open-Meteo senza wind_speed_unit = km/h).
+    //                 <= 4 km/h -> 1 ;  >= 22 km/h -> 0  (con vento forte la nebbia
+    //                 non si forma e quella presente si dissolve)
+    //   umidita'    : RH.  80% -> 0 ;  100% -> 1
+    // Pesi 0.55 / 0.25 / 0.20. SOGLIE E PESI SONO UNA SCELTA INGEGNERISTICA DICHIARATA:
+    // non c'e' nel repo un archivio di nebbie osservate con cui tararli.
+    // Il codice WMO 45/48 (nebbia dichiarata dal modello) PORTA il punteggio ad almeno 85:
+    // e' l'unico segnale esplicito di nebbia che il payload contiene.
+    // Cloud cover NON e' nel payload della mappa principale: al suo posto l'umidita'
+    // relativa, che della nebbia e' il correlato piu' diretto.
+    var FOG_DPD_SAT = 1.0, FOG_DPD_DRY = 4.0;
+    var FOG_WIND_CALM = 4.0, FOG_WIND_MIXED = 22.0;
+    var FOG_RH_LOW = 80.0, FOG_RH_HIGH = 100.0;
+    function fogScoreC(dpd, windKmh, rh, code) {
+        var sat = Math.max(0, Math.min(1, (FOG_DPD_DRY - dpd) / (FOG_DPD_DRY - FOG_DPD_SAT)));
+        var calm = (windKmh == null) ? 0.5 : Math.max(0, Math.min(1, (FOG_WIND_MIXED - windKmh) / (FOG_WIND_MIXED - FOG_WIND_CALM)));
+        var hum = (rh == null) ? 0.5 : Math.max(0, Math.min(1, (rh - FOG_RH_LOW) / (FOG_RH_HIGH - FOG_RH_LOW)));
+        var s = 100 * (0.55 * sat + 0.25 * calm + 0.20 * hum);
+        if (code === 45 || code === 48) s = Math.max(s, 85);
+        return s;
+    }
+    // Massimo della GIORNATA (la nebbia si forma all'alba, non all'ora del picco CAPE).
+    // Cache per store+giorno: 24 ore x ~110 province a ogni render sarebbero sprecate.
+    function fogDayForStore(store) {
+        var day = currentDay;
+        if (store.__fogCache && store.__fogCache.day === day) return store.__fogCache.v;
+        var best = 0, bestHour = -1;
+        for (var fh = 0; fh < 24; fh++) {
+            var fi = day * 24 + fh;
+            var fT = store.hourly.temperature_2m ? store.hourly.temperature_2m[fi] : null;
+            var fD = store.hourly.dew_point_2m ? store.hourly.dew_point_2m[fi] : null;
+            var fW = store.hourly.windspeed_10m ? store.hourly.windspeed_10m[fi] : null;
+            var fH = store.hourly.relativehumidity_2m ? store.hourly.relativehumidity_2m[fi] : null;
+            var fC = store.hourly.weathercode ? store.hourly.weathercode[fi] : null;
+            if (fT == null || fD == null) continue;
+            var s = fogScoreC(fT - fD, fW, fH, fC);
+            if (s > best) { best = s; bestHour = fh; }
+        }
+        var v = { score: best, hour: bestHour };
+        store.__fogCache = { day: day, v: v };
+        return v;
+    }
+
     function computeAggregateForStore(store) {
         const daily = store.daily;
         const hourData = getHourOrDailyData(store.hourly, currentDay, currentHour);
@@ -19441,7 +19506,8 @@ function toggleForecastMaps() {
             downburst: downburst,
             scLevel: dm ? dm.scLevel : 0,
             scHour: dm ? dm.scHour : -1,
-            scReal: dm ? dm.scReal : false
+            scReal: dm ? dm.scReal : false,
+            fog: fogDayForStore(store)
         };
     }
 

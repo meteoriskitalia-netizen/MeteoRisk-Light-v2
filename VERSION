@@ -1,3 +1,12 @@
+MeteoRisk Light - 1.2.4.40 - LA NEBBIA DIVENTA UN FATTORE DI RISCHIO DELLA MAPPA PRINCIPALE (NOWCAST: SATURAZIONE + CALMA DI VENTO + UMIDITA', MASSIMO DELLA GIORNATA, CODICE WMO 45/48 A 85/100) (bump da 1.2.4.39)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=40
+RELEASE_TYPE=release
+DATE=2026-10-27
+NOTE=Release 1.2.4.40 (bump da 1.2.4.39) - SOLO CLIENT. NUOVO FATTORE DI RISCHIO: NEBBIA nella mappa principale (nowcast), non nelle mappe previsionali. (a) RISK_DEFS.fog (badge ardesia, icona a tre linee) e computeActiveRisks: badge dal punteggio 30/100 (livelli 1/2/3 a 30/50/70). (b) Punteggio fogScoreC: saturazione (T-Td: piena <=1 C, nulla >=4 C), calma di vento (<=4 km/h piena, >=22 km/h nulla; la mappa usa km/h perche' Open-Meteo senza wind_speed_unit restituisce km/h), umidita' (80->100%); pesi 0,55/0,25/0,20; codice WMO 45/48 porta il punteggio ad almeno 85. (c) Il valore e' il MASSIMO sulle 24 ore del giorno selezionato, con cache per store+giorno: la nebbia si forma all'alba, non all'ora del picco convettivo usata dagli indici severi. (d) SOGLIE E PESI SONO SCELTE INGEGNERISTICHE DICHIARATE, non validate: nel repo non esiste un archivio di nebbie osservate. (e) VERIFICA: test_html_js_syntax 1 passed; prova in browser sulla pagina servita. BUMP: html mri-light-1.2.4.40.html, VERSION (BUILD=40), sw.js CACHE_NAME mri-1.2.4.40, README.md, test .mjs, 3 righe cp. La 1.2.4.39 va RIMOSSA dal repo.
+APP_FILE=mri-light-1.2.4.40.html
 MeteoRisk Light - 1.2.4.39 - LA CAUSA ERA IL LIMITE DI PAN: maxBounds UGUALE AL RIQUADRO IMPEDIVA LO ZOOM-OUT (MISURATO: null -> ZOOM 3, =clip -> ZOOM 5 INVARIATO) (bump da 1.2.4.38)
 MAJOR=1
 MINOR=2
