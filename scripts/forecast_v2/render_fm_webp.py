@@ -3097,12 +3097,28 @@ def rebuild_index(in_dir: str, out_dir: str, domain_list, region_names, themes,
                   % rname)
             continue
         theme_list = [t for t in themes if t in region_themes]
+        # The north bbox reaches the Pole when a domain's CURRENT run is the disc,
+        # even if the older runs of the same domain are still strips -- in which
+        # case the domain key is omitted by the consensus rule above. Deriving
+        # this from the current run keeps the bbox byte-identical to the one
+        # written before the per-run rule (there, the domain key WAS the latest
+        # run's projection).
         region_projection = None
         region_projection_meta = None
         for dom_entry in index_domains.values():
-            if dom_entry.get("projection"):
-                region_projection = dom_entry["projection"]
-                region_projection_meta = dom_entry.get("projection_meta")
+            proj = meta = None
+            current = dom_entry.get("current_run")
+            for run in dom_entry.get("runs") or []:
+                if run.get("id") == current:
+                    proj = run.get("projection")
+                    meta = run.get("projection_meta")
+                    break
+            if not proj:
+                proj = dom_entry.get("projection")
+                meta = dom_entry.get("projection_meta")
+            if proj:
+                region_projection = proj
+                region_projection_meta = meta
                 break
         if (rname == NORTH_REGION
                 and region_projection == POLAR_PROJECTION):

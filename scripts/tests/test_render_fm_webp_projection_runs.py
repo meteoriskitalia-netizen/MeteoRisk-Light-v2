@@ -165,6 +165,10 @@ def test_domain_key_omitted_when_runs_disagree_and_runs_keep_their_own(tmp_path)
     # La chiave di regione segue il consenso dei domini: qui c'e' un solo dominio
     # e ha perso la chiave, quindi cade anche quella di regione.
     assert "projection" not in idx
+    # La BBOX del nord resta al polo: la run CORRENTE e' un disco, anche se le run
+    # vecchie sono strisce (prima il disco arrivava a 90 perche' la chiave di
+    # dominio era quella della run piu' recente: stesso comportamento).
+    assert idx["bbox"]["lat_max"] == 90.0
 
 
 def test_domain_key_kept_when_every_run_is_the_disc(tmp_path):
