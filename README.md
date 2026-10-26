@@ -6,12 +6,69 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.46
+## Versione attiva: 1.2.4.47
 
-- File applicativo: `mri-light-1.2.4.46.html` (`APP_VERSION = '1.2.4.46'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.46', date: '2026-10-26' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.46'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+- File applicativo: `mri-light-1.2.4.47.html` (`APP_VERSION = '1.2.4.47'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.47', date: '2026-10-27' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.47'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
+- Contenuto della 1.2.4.47 (release sopra la 1.2.4.46) - **la vista polare si puo' zoomare fino a
+  3x e trascinare**, **la legenda del geopotenziale a 500 hPa si legge in decametri con una
+  tacca per banda** e **il pannello mappa desktop passa da 560 a 640 px**. Solo client: nessuna
+  modifica a `scripts/`, al renderer, al player o ai workflow dei dati oltre alle righe `cp`.
+  - **Zoom e trascinamento della vista polare (`north`)**: due pulsanti (`-` e `+`, passo
+    **1,25x**), **rotella** ancorata al cursore (passo **1,15x**) e **trascinamento** del disco,
+    con `FM_POLAR_ZOOM_MIN = 1` e `FM_POLAR_ZOOM_MAX = 3`. Il tetto a 3 si misura sul WebP
+    **1000x1000**: al pannello 754x560 un pixel di immagine vale **0,538 px** di schermo, a zoom 2
+    vale **1,075** (upscale 1,075x, testo ancora nitido), a zoom 3 vale **1,613**, a zoom 4
+    varrebbe **2,15** e le cifre cotte nel raster sarebbero sfocate, perche' il client non
+    conosce isolivelli e valori e non puo' ridisegnarle.
+  - **Un solo punto di trasformazione** (`fmPolarGeometry`): disco pre-proiettato, riproiezione
+    per pixel del frame Mercator, terra, coste, confini, reticolo e cerchio di bordo passano tutti
+    da `{R0, R, cx, cy, zoom}`; se il campo fosse trasformato e le coste no, i due si
+    separerebbero. A **zoom 1** la geometria e' **esattamente** quella della 1.2.4.46
+    (`cx = w/2`, `cy = h/2`, `R = 0,48*min(w,h)`): misurato sul canvas reale, a zoom 1 il canvas
+    e' **identico pixel per pixel** alla 1.2.4.46. Il centro e' memorizzato in unita' di `R0`
+    (`ox`, `oy`), quindi un ridimensionamento del pannello conserva l'inquadratura relativa.
+  - **Leaflet spento in vista polare, riacceso solo cio' che era acceso**: i gestori che
+    ascoltano sul contenitore (`scrollWheelZoom`, `dragging`, `doubleClickZoom`, `boxZoom`,
+    `touchZoom`) vengono disabilitati in `north` e riabilitati all'uscita **solo** se erano
+    attivi prima. Senza, la rotella faceva lo zoom di una mappa invisibile e il trascinamento
+    spostava i pane sotto il disco. La rotella non tocca `map.getZoom()`: verificato che resta
+    fermo.
+  - **Difetto della prima stesura, trovato in verifica e corretto**: `fmPolarSetActive(true)`
+    viene richiamata **a ogni frame** dal player, quindi il ramo che spegne i gestori girava piu'
+    volte e al secondo giro salvava `{}` (i gestori erano gia' spenti): uscendo da `north` non si
+    riaccendeva **nulla** (misurato: `scrollWheelZoom`, `dragging`, `doubleClickZoom`, `boxZoom`,
+    `touchZoom` tutti `false` dopo il ritorno a `italy`). Aggiunta una guardia di idempotenza in
+    `fmPolarSetLeafletHandlers`: lo stato salvato si scrive **una volta sola** e viene consumato
+    all'uscita; dopo il fix i 5 gestori tornano attivi (misurato).
+  - **Legenda Z500 in decametri, 31 tacche**: la carta composita `__pressure_geopot` mostrava
+    **9 tacche in metri** (4920...6120) mentre la carta emisferica di riferimento riporta **492,
+    496, 500 ... 612 dam** sulle stesse bande. Ora la legenda divide per 10 e mette **31 tacche**,
+    una per banda di `FM_GEOP_BREAKPOINTS_500` (4920..6120 m, passo 40), con unita' **`dam`**.
+    Il dato resta in metri e la scala colori e' la stessa: cambia solo l'etichetta. Le altre
+    variabili restano a 9 tacche.
+  - **Le 31 tacche solo su legenda larga (>= 680 px)**: le etichette a 5 caratteri stanno in
+    ~610 px; a **390 px di viewport** la legenda e' **348 px** e si misuravano **30 coppie di
+    etichette sovrapposte, fino a 12 px**. Sotto la soglia il conteggio torna a **9 tacche**
+    (misurato dopo il fix: 0 sovrapposizioni; a 1240 px restano 31).
+  - **Pannello mappa desktop 560 -> 640 px**: con 560 px il disco polare misurava
+    `0,96*560 = 537,6` px di diametro e le cifre **10,76 px** a schermo (fattore
+    `0,96*560/999 = 0,53814`, cifre da 20 px d'inchiostro nel WebP), sotto il riferimento di
+    prodotto (Meteociel 11-12 px). Con 640 px il disco e' **614,4 px** e le cifre **12,30 px**
+    (`0,96*640/999 = 0,61478`). Cambia **solo** la regola `#leaflet-map` desktop: i breakpoint
+    (`max-width: 950px` -> `60vh`; 768-1024 px -> `clamp(380px,60vh,640px)`; `<= 767px` ->
+    `56dvh`) hanno altezze proprie e non sono toccati; `#radar-embed-container` resta 560 px.
+  - **Follow-up dichiarato**: `PANEL_HEIGHT_PX = 560.0` in
+    `scripts/forecast_v2/render_fm_webp.py` e' la costante con cui il renderer sceglie la
+    dimensione delle cifre del disco **per un pannello da 560 px**. Il pannello ora e' 640,
+    quindi a schermo le cifre sono **12,30 px** invece dei 10,76 px per cui il font e' stato
+    scelto. Non e' un difetto visibile (le sovrapposizioni sono disegnate nell'immagine e non
+    cambiano), ma la costante va allineata in una release che tocca il renderer: in questa **non**
+    e' stata toccata.
+
+## Versione 1.2.4.46 (storica)
 - Contenuto della 1.2.4.46 (release sopra la 1.2.4.45) - **la nebbia non si legge piu' come una
   probabilita'** e **il badge si accende solo nel decile alto dell'indice**. Solo client: nessuna
   modifica a `scripts/`, al renderer, al player o ai workflow dei dati oltre alle righe `cp`.

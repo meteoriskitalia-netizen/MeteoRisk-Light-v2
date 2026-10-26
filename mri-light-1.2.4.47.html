@@ -274,13 +274,32 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         @media (max-width: 950px) { .container { grid-template-columns: 1fr; } }
 
         .map-card { background: #1e293b; border-radius: 12px; padding: 14px; border: 1px solid #334155; position: relative; }
-        #leaflet-map { width: 100%; height: 560px; border-radius: 8px; background: #080f21; }
+        #leaflet-map { width: 100%; height: 640px; border-radius: 8px; background: #080f21; }
         #leaflet-map.mri-polar-active { overflow: hidden; }
         #leaflet-map.mri-polar-active .leaflet-pane,
         #leaflet-map.mri-polar-active .leaflet-control-container,
         #leaflet-map.mri-polar-active .fm-map-loader { visibility: hidden !important; }
         .mri-polar-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 900; pointer-events: none; visibility: hidden; }
         #leaflet-map.mri-polar-active .mri-polar-canvas { visibility: visible; }
+        /* 1.2.4.47 - ZOOM DELLA VISTA POLARE. Il canvas del disco ha
+           pointer-events none perche' sotto c'e' Leaflet: i tre controlli devono
+           ricevere il puntatore, quindi stanno in un contenitore proprio sopra il
+           canvas (900) e in basso a sinistra: in alto a sinistra c'e' il badge
+           disegnato NEL canvas (10x10 -> 270x48 px scalati), in alto a destra gli
+           switch .map-corner-switches (z-index 900). */
+        #leaflet-map.mri-polar-active .mri-polar-canvas { pointer-events: auto; }
+        .mri-polar-zoom { position: absolute; left: 10px; bottom: 10px; z-index: 902; display: none;
+            gap: 4px; align-items: center; pointer-events: auto; }
+        #leaflet-map.mri-polar-active .mri-polar-zoom { display: flex; }
+        .mri-polar-zoom button { width: 26px; height: 26px; border-radius: 6px; border: 1px solid #334155;
+            background: rgba(15,23,42,0.88); color: #e2e8f0; font-size: 15px; line-height: 1;
+            cursor: pointer; padding: 0; }
+        .mri-polar-zoom button:hover { background: #334155; }
+        .mri-polar-zoom button:disabled { opacity: .45; cursor: default; }
+        .mri-polar-zoom-level { font: 600 10px system-ui, sans-serif; color: #cbd5e1; min-width: 42px;
+            text-align: center; background: rgba(15,23,42,0.88); border: 1px solid #334155;
+            border-radius: 6px; height: 26px; line-height: 24px; padding: 0 4px;
+            font-variant-numeric: tabular-nums; }
         @media (max-width: 950px) { #leaflet-map { height: 60vh; min-height: 300px; } }
         #radar-embed-container { width: 100%; height: 560px; border-radius: 8px; overflow: hidden; position: relative; background: #0f172a; }
         #radar-embed-container #radar-embed-iframe { width: 100%; height: 100%; border: 0; display: block; margin: 0; padding: 0; }
@@ -1964,9 +1983,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.46';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-10-26';
+    const APP_VERSION = '1.2.4.47';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-10-27';
     const APP_CHANGELOG = [
+        { version: '1.2.4.47', date: '2026-10-27', changes: [
+  'MAPPE= LA VISTA POLARE HA LO ZOOM (FINO A 3x) E IL TRASCINAMENTO. Nella regione `north` il disco emisferico era un raster fisso: un pixel del WebP 1000x1000 vale 0,538 px di schermo sul pannello 754x560, quindi i valori vicini al polo non si leggevano. Ora ci sono due pulsanti (- e +, passo 1,25x), la rotella ancorata al cursore (passo 1,15x) e il trascinamento del disco. Tetto a 3x: a 1,613 px di schermo per pixel di immagine il testo del WebP resta nitido, a 4x (2,15) no, e il client non puo\' ridisegnare le cifre perche\' non conosce ne\' gli isolivelli ne\' i valori. A zoom 1 la geometria e\' IDENTICA a quella della 1.2.4.46 (cx = w/2, cy = h/2, R = 0,48*min(w,h)), quindi il canvas a zoom 1 e\' identico pixel per pixel; il ridimensionamento del pannello conserva l\'inquadratura perche\' il centro e\' memorizzato in unita\' di R0. In vista polare i gestori Leaflet (scrollWheelZoom, dragging, doubleClickZoom, boxZoom, touchZoom) si spengono e all\'uscita si riaccendono SOLO quelli che erano accesi: senza, la rotella faceva lo zoom di una mappa invisibile e il trascinamento spostava i pane sotto il disco. La rotella non cambia map.getZoom(): il disco e\' un canvas sopra il pannello. In verifica (Edge headless) e\' emerso un DIFETTO della prima stesura: fmPolarSetActive(true) viene richiamata a ogni frame dal player, quindi il ramo che spegne i gestori girava piu\' volte e al secondo giro salvava {} (i gestori erano gia\' spenti); uscendo da north non si riaccendeva NULLA e il pannello restava senza rotella e senza trascinamento. Corretto con una guardia di idempotenza (lo stato salvato si scrive una volta sola): misurato dopo il fix, i 5 gestori tornano true all\'uscita.',
+  'LEGENDA= IL GEOPOTENZIALE A 500 hPa IN DECAMETRI, CON UNA TACCA PER BANDA. La carta composita `__pressure_geopot` mostrava 9 tacche in METRI (4920...6120) mentre la carta emisferica di riferimento riporta 492, 496, 500 ... 612 dam sulle STESSE bande. Ora la legenda divide per 10 e mette 31 tacche, una per banda di `FM_GEOP_BREAKPOINTS_500` (4920..6120 m, passo 40): valori 492...612 dam, unita\' "dam". Il DATO resta in metri e la scala colori e\' la stessa (stesse bande, stessi colori): cambia solo l\'ETICHETTA della legenda. Le altre variabili restano a 9 tacche e le unita\' non cambiano. Le 31 tacche valgono quando la legenda e\' larga almeno 680 px; sotto (MISURATO a 390 px di viewport: legenda 348 px, 30 coppie di etichette sovrapposte fino a 12 px) si torna a 9 tacche, altrimenti i numeri si accavallano.',
+  'MAPPA= IL PANNELLO DESKTOP PASSA DA 560 A 640 px DI ALTEZZA. Con 560 px il disco polare aveva un diametro di 537,6 px e le cifre 10,76 px a schermo, sotto il riferimento di prodotto (Meteociel 11-12 px). Con 640 px il disco e\' 614,4 px e le cifre 12,30 px (fattore immagine->schermo 0,96*640/999 = 0,61478 per cifre da 20 px d\'inchiostro nel WebP). Cambia SOLO la regola `#leaflet-map` desktop: i breakpoint (max-width 950 px -> 60vh, 768-1024 px -> clamp(380px,60vh,640px), <= 767 px -> 56dvh) hanno altezze proprie e non sono toccati, `#radar-embed-container` resta 560 px.',
+  'DOC= Bump versione 1.2.4.47 (solo client: nessuna modifica a engine, renderer, workflow dei dati o Service Worker oltre alle righe cp). FOLLOW-UP DICHIARATO: `PANEL_HEIGHT_PX = 560.0` in `scripts/forecast_v2/render_fm_webp.py` e\' la costante con cui il renderer dimensiona le cifre del disco per un pannello da 560 px; il pannello ora e\' 640, quindi a schermo le cifre sono 12,30 px invece dei 10,76 px per cui il font e\' stato scelto. Non e\' un difetto visibile (le cifre crescono in proporzione, le sovrapposizioni misurate restano 0 perche\' sono disegnate nell\'immagine) ma la costante va allineata in una release che tocca il renderer.'
+        ] },
         { version: '1.2.4.46', date: '2026-10-26', changes: [
   'NEBBIA= SOGLIA DEL BADGE DA 30 A 70 E LIVELLI 70/85/95, PRESENTAZIONE ALLINEATA AGLI ALTRI BADGE. Il punteggio 0-100 e\' un INDICE di potenziale, non una probabilita\': l\'unico numero mostrato ("77/100" nel tooltip) si leggeva come "77%". (a) MISURA, non stima: 43 stazioni METAR italiane (aviationweather.gov, 1.649 bollettini, 2026-10-25T23:00Z -> 2026-10-26T22:20Z) contro il dataset derivato, 28 province abbinate 1:1 (<= 30 km, dislivello <= 250 m), 621 ore-provincia; nebbia = FG nel tempo presente oppure visibilita\' < 1000 m. (b) ESITO: su 50 ore con indice >= 90 la nebbia osservata e\' 1 (2,0%), su 21 ore con indice 70-79 e\' 1 (4,8%): sopra 60 l\'indice NON discrimina. A soglia 30 il badge copriva 205/618 ore senza nebbia (33,2%) e 21/28 province in vista giornaliera; a 70 scende a 94 (15,2%) e 14/28 tenendo TUTTI e 3 gli eventi osservati (POD 1,00 su questo campione). Un punteggio di 70 era livello 3 (Forte), ora e\' livello 1 (Lieve): lo stesso numero non si legge piu\' come un allarme. (c) FORMULA INVARIATA: con 3 eventi osservati ritoccare i pesi 0,55/0,25/0,20 sarebbe overfitting dichiarato; il vento non e\' piu\' basso nei casi di nebbia (mediana 9,7 km/h contro 6,6) ma il campione e\' troppo piccolo per cambiare il peso della calma. (d) PAVIMENTO 85 sul codice WMO 45/48 NON toccato e NON responsabile: su 46 ore-provincia con codice 45/48 cambia il punteggio in 1 solo caso (differenza media 0,22) e 19/22 erano senza nebbia nemmeno a 85. (e) PRESENTAZIONE: la nebbia non aveva i casi in riskLevelLine e riskLevelImpact, quindi il riepilogo provinciale stampava "Nebbia - ." - ora ha tre righe per livello e la nota di impatto; etichetta "Nebbia (potenziale NWP)" come grandine e convezione organizzata; tooltip "indice N/100 (potenziale del modello, non probabilita)" e non piu\' il solo "N/100"; legenda della metrica con i nuovi scaglioni 70-85 / 85-95 / >= 95 e la dicitura "indice 0-100, non una probabilita". (f) BUMP: html, VERSION (BUILD=46), sw.js (CACHE_NAME mri-1.2.4.46), README.md, i 26 test .mjs che citavano la 1.2.4.45, 3 righe cp dei workflow. La 1.2.4.45 va RIMOSSA dal repo.',
         ] },
@@ -11930,6 +11955,183 @@ function fmSetForecastGeographyVisible(visible) {
     var pane = map.getPane('forecastGeographyPane');
     if (pane) pane.style.display = visible ? '' : 'none';
 }
+// 1.2.4.47 - ZOOM E TRASCINAMENTO DELLA VISTA POLARE.
+// UN SOLO punto di trasformazione: fmPolarGeometry(w, h) restituisce
+// {R0, R, cx, cy, zoom} e TUTTO cio' che disegna sul canvas polare passa da quei
+// numeri: disco pre-proiettato, riproiezione per pixel del frame Mercator, terra,
+// coste, confini, reticolo, cerchio di bordo. Se il campo venisse trasformato e le
+// coste no, i due si separerebbero: per questo non esiste una seconda formula da
+// tenere allineata. Con zoom = 1 e ox = oy = 0 la geometria e' ESATTAMENTE quella
+// delle versioni precedenti (cx = w/2, cy = h/2, R = 0.48*min(w,h)), quindi a
+// zoom 1 il canvas resta identico pixel per pixel.
+//   zoom : 1 .. FM_POLAR_ZOOM_MAX
+//   ox,oy: centro del disco in unita' di R0, cosi' un ridimensionamento del
+//          pannello conserva la stessa inquadratura relativa.
+//
+// MASSIMO 3. Il WebP del disco e' 1000x1000 e a zoom 1 il lato del disco e'
+// 0.96*min(w,h) = 537,6 px sul pannello 754x560: un pixel di immagine vale 0,538
+// px di schermo. A zoom 2 vale 1,075 (upscale 1,075x: etichette cotte nel WebP
+// ancora nitide), a zoom 3 vale 1,613 (1,6x), a zoom 4 varrebbe 2,15 (2,15x: le
+// cifre cotte nel raster sono sfocate e il client NON puo' ridisegnarle, perche'
+// non conosce gli isolivelli ne' i valori). Il tetto a 3 e' quindi il punto in cui
+// si guadagna ancora dettaglio prima che l'upscale distrugga il testo, e coincide
+// con la copertura completa del canvas da parte del disco (zoom >= 1,747 su 754x560):
+// sopra 1,75 non si vede piu' il fondo #0b1830 agli angoli.
+var FM_POLAR_ZOOM_MIN = 1;
+var FM_POLAR_ZOOM_MAX = 3;
+var FM_POLAR_ZOOM_STEP = 1.25;
+var fmPolarView = { zoom: 1, ox: 0, oy: 0 };
+var fmPolarZoomEl = null;
+var fmPolarPaintPending = false;
+var fmPolarLeafletDisabled = null;
+function fmPolarClamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+// Geometria UNICA della vista. maxOff e' lo spostamento massimo (in unita' di R0)
+// per cui un angolo del canvas resta dentro il disco: sotto zoom ~1,75 sul
+// pannello 754x560 il disco e' piu' piccolo della diagonale e maxOff vale 0,
+// cioe' il disco resta centrato come a zoom 1 e non c'e' nulla da trascinare.
+function fmPolarGeometry(w, h) {
+    var R0 = Math.max(1, Math.min(w, h) * 0.48);
+    var z = fmPolarClamp(Number(fmPolarView.zoom) || 1, FM_POLAR_ZOOM_MIN, FM_POLAR_ZOOM_MAX);
+    var R = R0 * z;
+    var maxOff = Math.max(0, R - Math.hypot(w, h) * 0.5) / R0;
+    var ox = fmPolarClamp(Number(fmPolarView.ox) || 0, -maxOff, maxOff);
+    var oy = fmPolarClamp(Number(fmPolarView.oy) || 0, -maxOff, maxOff);
+    return { R0: R0, R: R, cx: w * 0.5 + ox * R0, cy: h * 0.5 + oy * R0, zoom: z, maxOff: maxOff };
+}
+function fmPolarPaintSchedule() {
+    if (fmPolarPaintPending) return;
+    fmPolarPaintPending = true;
+    var run = function () { fmPolarPaintPending = false; fmPolarPaintBase(); };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run); else run();
+}
+// Zoom ancorato a un punto del canvas (ax, ay): il punto sotto il cursore resta
+// fermo. Senza ancora (pulsanti) si usa il centro del canvas.
+function fmPolarSetZoom(zoom, ax, ay) {
+    if (!fmPolarCanvas) return;
+    var w = fmPolarCanvas.width, h = fmPolarCanvas.height;
+    if (!(w > 0 && h > 0)) return;
+    var g = fmPolarGeometry(w, h);
+    var z1 = fmPolarClamp(Number(zoom) || 1, FM_POLAR_ZOOM_MIN, FM_POLAR_ZOOM_MAX);
+    if (Math.abs(z1 - g.zoom) < 1e-6) { fmPolarSyncZoomUi(); return; }
+    var px = (ax === undefined || ax === null) ? w * 0.5 : ax;
+    var py = (ay === undefined || ay === null) ? h * 0.5 : ay;
+    var ux = (px - w * 0.5) / g.R0, uy = (py - h * 0.5) / g.R0;
+    var ox = (g.cx - w * 0.5) / g.R0, oy = (g.cy - h * 0.5) / g.R0;
+    fmPolarView.ox = ux - (ux - ox) * g.zoom / z1;
+    fmPolarView.oy = uy - (uy - oy) * g.zoom / z1;
+    fmPolarView.zoom = z1;
+    fmPolarPaintBase();
+}
+function fmPolarZoomLevelText(z) {
+    var v = Math.round(z * 100) / 100;
+    return String(v).replace('.', ',') + String.fromCharCode(215);
+}
+function fmPolarSyncZoomUi() {
+    if (!fmPolarZoomEl || !fmPolarCanvas) return;
+    var g = fmPolarGeometry(fmPolarCanvas.width, fmPolarCanvas.height);
+    var lvl = fmPolarZoomEl.querySelector('.mri-polar-zoom-level');
+    if (lvl) lvl.textContent = fmPolarZoomLevelText(g.zoom);
+    var out = fmPolarZoomEl.querySelector('[data-fm-polar-zoom="out"]');
+    var inn = fmPolarZoomEl.querySelector('[data-fm-polar-zoom="in"]');
+    if (out) out.disabled = g.zoom <= FM_POLAR_ZOOM_MIN + 1e-6;
+    if (inn) inn.disabled = g.zoom >= FM_POLAR_ZOOM_MAX - 1e-6;
+}
+function fmPolarEnsureZoomUi(container) {
+    if (fmPolarZoomEl && fmPolarZoomEl.isConnected) return fmPolarZoomEl;
+    if (!container) return null;
+    fmPolarZoomEl = document.createElement('div');
+    fmPolarZoomEl.className = 'mri-polar-zoom';
+    fmPolarZoomEl.setAttribute('role', 'group');
+    fmPolarZoomEl.setAttribute('aria-label', 'Zoom della vista emisferica');
+    fmPolarZoomEl.innerHTML = '<button type="button" data-fm-polar-zoom="out" title="Riduci" aria-label="Riduci">&#8722;</button>'
+        + '<span class="mri-polar-zoom-level">1,0&#215;</span>'
+        + '<button type="button" data-fm-polar-zoom="in" title="Ingrandisci" aria-label="Ingrandisci">+</button>';
+    container.appendChild(fmPolarZoomEl);
+    fmPolarZoomEl.addEventListener('click', function (ev) {
+        var b = (ev.target && ev.target.closest) ? ev.target.closest('[data-fm-polar-zoom]') : null;
+        if (!b || !fmPolarCanvas) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        var g = fmPolarGeometry(fmPolarCanvas.width, fmPolarCanvas.height);
+        var f = b.getAttribute('data-fm-polar-zoom') === 'in' ? FM_POLAR_ZOOM_STEP : 1 / FM_POLAR_ZOOM_STEP;
+        fmPolarSetZoom(g.zoom * f);
+    });
+    return fmPolarZoomEl;
+}
+// Rotella, trascinamento (mouse o dito) e i due pulsanti usano lo STESSO
+// fmPolarSetZoom e lo STESSO fmPolarView: nessun terzo stato da sincronizzare.
+function fmPolarBindPointer() {
+    if (!fmPolarCanvas || fmPolarCanvas.__fmPolarPointer) return;
+    fmPolarCanvas.__fmPolarPointer = true;
+    var drag = null;
+    function scaleK() {
+        var rect = fmPolarCanvas.getBoundingClientRect();
+        return { rect: rect, k: fmPolarCanvas.width / Math.max(1, rect.width) };
+    }
+    fmPolarCanvas.addEventListener('wheel', function (ev) {
+        if (!fmPolarActive) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (!ev.deltaY) return;
+        var s = scaleK();
+        var g = fmPolarGeometry(fmPolarCanvas.width, fmPolarCanvas.height);
+        var f = ev.deltaY < 0 ? 1.15 : 1 / 1.15;
+        fmPolarSetZoom(g.zoom * f, (ev.clientX - s.rect.left) * s.k, (ev.clientY - s.rect.top) * s.k);
+    }, { passive: false });
+    fmPolarCanvas.addEventListener('pointerdown', function (ev) {
+        if (!fmPolarActive || ev.button !== 0) return;
+        var g = fmPolarGeometry(fmPolarCanvas.width, fmPolarCanvas.height);
+        if (g.maxOff <= 0) return;   // zoom 1: disco centrato, nulla da spostare
+        drag = { x: ev.clientX, y: ev.clientY };
+        try { fmPolarCanvas.setPointerCapture(ev.pointerId); } catch (e) { }
+        fmPolarCanvas.style.cursor = 'grabbing';
+        ev.preventDefault();
+    });
+    fmPolarCanvas.addEventListener('pointermove', function (ev) {
+        if (!drag) return;
+        var s = scaleK();
+        var g = fmPolarGeometry(fmPolarCanvas.width, fmPolarCanvas.height);
+        fmPolarView.ox += (ev.clientX - drag.x) * s.k / g.R0;
+        fmPolarView.oy += (ev.clientY - drag.y) * s.k / g.R0;
+        drag.x = ev.clientX; drag.y = ev.clientY;
+        fmPolarPaintSchedule();
+    });
+    function endDrag(ev) {
+        if (!drag) return;
+        drag = null;
+        fmPolarCanvas.style.cursor = '';
+        try { fmPolarCanvas.releasePointerCapture(ev.pointerId); } catch (e) { }
+        fmPolarPaintBase();
+    }
+    fmPolarCanvas.addEventListener('pointerup', endDrag);
+    fmPolarCanvas.addEventListener('pointercancel', endDrag);
+}
+// I gestori Leaflet ascoltano sul CONTENITORE, non sui pane nascosti: senza
+// disattivarli la rotella farebbe zoom (invisibile) della mappa e il trascinamento
+// sposterebbe i pane sotto il disco. Si spengono solo in vista polare e si
+// riaccendono SOLO quelli che erano accesi prima.
+function fmPolarSetLeafletHandlers(enabled) {
+    if (typeof map === 'undefined' || !map) return;
+    var names = ['scrollWheelZoom', 'dragging', 'doubleClickZoom', 'boxZoom', 'touchZoom'];
+    if (!enabled) {
+        // 1.2.4.47: idempotente. fmPolarSetActive(true) viene richiamata a ogni frame dal
+        // player: senza questa guardia il secondo giro salverebbe {} (i gestori sono gia'
+        // spenti) e all'uscita non si riaccenderebbe nulla.
+        if (fmPolarLeafletDisabled) return;
+        var saved = {};
+        for (var i = 0; i < names.length; i++) {
+            var h = map[names[i]];
+            if (h && h.enabled && h.enabled()) { h.disable(); saved[names[i]] = true; }
+        }
+        fmPolarLeafletDisabled = saved;
+        return;
+    }
+    if (!fmPolarLeafletDisabled) return;
+    for (var n in fmPolarLeafletDisabled) {
+        if (Object.prototype.hasOwnProperty.call(fmPolarLeafletDisabled, n) && map[n] && !map[n].enabled()) map[n].enable();
+    }
+    fmPolarLeafletDisabled = null;
+}
 function fmPolarEnsureCanvas() {
     if (fmPolarCanvas && fmPolarCanvas.isConnected) return true;
     var container = document.getElementById('leaflet-map');
@@ -11939,6 +12141,8 @@ function fmPolarEnsureCanvas() {
     fmPolarCanvas.setAttribute('aria-label', 'Emisfero nord in proiezione stereografica polare');
     container.appendChild(fmPolarCanvas);
     fmPolarCtx = fmPolarCanvas.getContext('2d', { alpha: false });
+    fmPolarEnsureZoomUi(container);
+    fmPolarBindPointer();
     return !!fmPolarCtx;
 }
 function fmPolarSetActive(active) {
@@ -11947,10 +12151,18 @@ function fmPolarSetActive(active) {
     if (!container) return;
     if (!fmPolarActive) {
         container.classList.remove('mri-polar-active');
+        // 1.2.4.47: uscendo dalla vista polare la vista torna 1,0x e al centro.
+        // Il reset sta QUI e non nell'ingresso perche' fmPolarSetActive(true) viene
+        // richiamata a ogni frame dal player (riga 14262): azzerare all'ingresso
+        // cancellerebbe lo zoom a ogni cambio di frame.
+        fmPolarView.zoom = 1; fmPolarView.ox = 0; fmPolarView.oy = 0;
+        fmPolarSetLeafletHandlers(true);
         return;
     }
     if (!fmPolarEnsureCanvas()) return;
     container.classList.add('mri-polar-active');
+    fmPolarEnsureZoomUi(container);
+    fmPolarSetLeafletHandlers(false);
     fmPolarLoadLand();
     fmEnsureCountryBorders();
     fmEnsureCoastlines();
@@ -11977,8 +12189,10 @@ function fmPolarDrawOverlays() {
     if (!fmPolarCtx || !fmPolarCanvas || !fmPolarActive) return;
     var ctx = fmPolarCtx, w = fmPolarCanvas.width, h = fmPolarCanvas.height;
     var scale = Math.min(w, h) / 560;
-    var radius = Math.max(1, Math.min(w, h) * 0.48);
-    var cx = w * 0.5, cy = h * 0.5;
+    // 1.2.4.47 - unico punto di trasformazione: lo stesso di disco e campo.
+    var g = fmPolarGeometry(w, h);
+    var radius = g.R;
+    var cx = g.cx, cy = g.cy;
     var cap = Math.tan(35 * Math.PI / 180);
     function point(lat, lon) {
         var rho = Math.tan((90 - Math.max(-89.9, Math.min(90, lat))) * Math.PI / 360) / cap;
@@ -12071,6 +12285,7 @@ function fmPolarDrawOverlays() {
         ? 'Z500 · coste/confini Natural Earth · isobare MSL escluse'
         : 'Open-Meteo · coste e confini Natural Earth';
     ctx.fillText(polarNote, 18 * scale, 45 * scale);
+    fmPolarSyncZoomUi();
 }
 // 1.2.4.15 - CAPOLO (lat > bordo nord del WebP).
 // Il WebP del renderer si ferma alla latitudine di taglio Mercator (85.05112878 N): sopra
@@ -12239,8 +12454,10 @@ function fmPolarPaintProjectedDisc() {
     var frame = fmPolarFrame;
     if (!frame || !frame.source) return false;
     var ctx = fmPolarCtx, w = fmPolarCanvas.width, h = fmPolarCanvas.height;
-    var radius = Math.max(1, Math.min(w, h) * 0.48);
-    var cx = w * 0.5, cy = h * 0.5;
+    // 1.2.4.47 - unico punto di trasformazione (vedi fmPolarGeometry).
+    var g = fmPolarGeometry(w, h);
+    var radius = g.R;
+    var cx = g.cx, cy = g.cy;
     // 1.2.4.30: geometria esatta del disco. Nella sorgente il centro e' a (N-1)/2 e il
     // raggio e' (N-1)/2 su un lato di N pixel, quindi il cerchio rho=1 arriva a (N-1)/2
     // dal centro, non a N/2. Disegnando il quadrato a 2R il disco finiva a 0,999*R
@@ -12277,7 +12494,8 @@ function fmPolarPaintBase() {
         if (!(south < north && west < east)) { fmPolarDrawOverlays(); return; }
         var data = src.data;
         var out = fmPolarCtx.createImageData(w, h), dst = out.data;
-        var cx = w * 0.5, cy = h * 0.5, radius = Math.max(1, Math.min(w, h) * 0.48);
+        var gp = fmPolarGeometry(w, h);
+        var cx = gp.cx, cy = gp.cy, radius = gp.R;
         var cap = Math.tan(35 * Math.PI / 180);
         var mySouth = Math.log(Math.tan(Math.PI / 4 + south * Math.PI / 360));
         var myNorth = Math.log(Math.tan(Math.PI / 4 + north * Math.PI / 360));
@@ -14637,6 +14855,14 @@ function fmUpdateLegend() {
             : fmModule.getColorScale(legendVar, false);
     } catch (e) { el.innerHTML = ''; return; }
     if (!cs || !cs.colors || !cs.colors.length) { el.innerHTML = ''; return; }
+    // 1.2.4.47 - Z500 IN DECAMETRI. La carta emisferica di riferimento riporta
+    // 492, 496, 500 ... 612 dam sulle STESSE 31 bande della scala
+    // geopotential_height_500hPa (4920..6120 m, FM_GEOP_BREAKPOINTS_500). Cambia
+    // solo l'ETICHETTA della legenda della carta composita: il dato resta in metri,
+    // la scala colori e il raster non si toccano (stesse bande, stessi colori).
+    // 31 tick invece di 9: una tacca per banda, come il riferimento.
+    var damDiv = (fmVariable === FM_SYNTH_PRESSURE_GEOPOT) ? 10 : 0;
+    var fmTick = damDiv ? function (v) { return fmFmtNum(v / damDiv); } : fmFmtNum;
     // 1.2.4.28 - ramo categorico: la legenda di weather_code non e' una barra continua
     // (vedi fmWeatherCodeLegend). Il raster continua a usare FM_WCODE_COLOR_SCALE.
     if (fmVariable === 'weather_code') { fmWeatherCodeLegend(el, cs); return; }
@@ -14685,7 +14911,12 @@ function fmUpdateLegend() {
         // Tick adattivi: su scala breakpoint la soglia bp[j] sta sul bordo sinistro della
         // banda j (j*100/n); su scala min/max (bande uniformi) la posizione resta proporzionale.
         var bpArr = (cs.type === 'breakpoint' && cs.breakpoints) ? cs.breakpoints : null;
-        var tvals = fmLegendTickValues(bpArr, lo, hi, 9);
+        // 1.2.4.47: 31 etichette (492..612) hanno bisogno di ~610 px di legenda. Su un
+        // pannello stretto (viewport 390 px -> legenda 348 px, MISURATO) le 31 tacche si
+        // sovrappongono (30 coppie, fino a 12 px): sotto 680 px si torna a 9 tacche.
+        var legendW = (el && el.clientWidth) || (window.innerWidth || 0);
+        var tickN = (damDiv && legendW >= 680) ? 31 : 9;
+        var tvals = fmLegendTickValues(bpArr, lo, hi, tickN);
         var ticks = [];
         for (var t = 0; t < tvals.length; t++) {
             var tv = Number(tvals[t]);
@@ -14698,7 +14929,7 @@ function fmUpdateLegend() {
             }
             tp = tp < 0 ? 0 : (tp > 100 ? 100 : tp);
             var edge = tp < 6 ? ' fm-legend-tick-edg' : (tp > 94 ? ' fm-legend-tick-edd' : '');
-            ticks.push('<span class="fm-legend-tick' + edge + '" style="left:' + tp + '%">' + fmFmtNum(tvals[t]) + '</span>');
+            ticks.push('<span class="fm-legend-tick' + edge + '" style="left:' + tp + '%">' + fmTick(tvals[t]) + '</span>');
         }
         ticksHtml = '<div class="fm-legend-ticks">' + ticks.join('') + '</div>';
     } else {
@@ -14720,13 +14951,14 @@ function fmUpdateLegend() {
     // TEMPORALE della serie del dominio corrente (dai valid_times): es. "mm \u00b7 1 h".
     // Se il passo non e' determinabile si scrive SOLO l'unita' (nessuna label inventata).
     var unitTxt = cs.unit || '';
+    if (damDiv) unitTxt = 'dam';
     if (fmVariable === 'precipitation' || fmVariable === 'rain' || fmVariable === 'showers') {
         var stepH = fmValidTimeStepHours();
         var stepTxt = stepH ? fmFmtStepHours(stepH) : '';
         if (stepTxt) unitTxt = unitTxt ? (unitTxt + ' \u00b7 ' + stepTxt) : stepTxt;
     }
     el.innerHTML = barHtml + ticksHtml
-        + '<div class="fm-legend-labels"><span>' + fmFmtNum(loTxt) + '</span><span>' + unitTxt + '</span><span>' + fmFmtNum(hiTxt) + '</span></div>';
+        + '<div class="fm-legend-labels"><span>' + fmTick(loTxt) + '</span><span>' + unitTxt + '</span><span>' + fmTick(hiTxt) + '</span></div>';
     // 1.2.4.32 - FASE SOLIDA DENTRO LE PRECIPITAZIONI: il tratteggio e' cotto nel
     // WebP dal renderer (SNOW_HATCH_SOURCE: snow_fraction / snow_fraction_6h dello
     // STESSO frame). La legenda deve dire cosa significano le due trame: senza queste
