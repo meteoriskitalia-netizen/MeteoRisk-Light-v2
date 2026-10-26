@@ -43,12 +43,17 @@ and only THEN resampled to Mercator, so each WebP spans exactly its own
 ``imageOverlay`` bounds.
 
 Output shape: one integer upsampling factor ``ceil(512 / shorter side)`` on BOTH
-axes, i.e. ``(nx-1)*scale+1`` by ``(ny-1)*scale+1``. ``europa`` overrides the
-height through ``REGION_ASPECT`` (1.6:1, width from the data) because the plain
-integer factor made the SAME region come out at 1.8407 (ecmwf_ifs025) or 1.9632
-(dwd_icon_eu) depending on the domain -- the shape has to be a choice, not a
-side effect. ``italia``, ``north`` and ``domain`` have no aspect and keep the
-historical bytes.
+axes, i.e. ``(nx-1)*scale+1`` by ``(ny-1)*scale+1`` -- except ``europa``, whose
+height is DERIVED from the Mercator span of its own crop (``REGION_PIXEL_ASPECT``
+with ``mercator_out_rows``). The plain integer factor made the SAME region come
+out at 1.8407 (ecmwf_ifs025) or 1.9632 (dwd_icon_eu); since ``imageOverlay``
+always fills the Mercator box (1.0088 and 1.2675) the CONTENT was stretched
+vertically by 1.83x and 1.55x. The 1.6:1 constant added on 2026-10-26 (commit
+87c6c075, not in a release yet) only brought that to 1.59x and 1.26x, because a
+single constant cannot fit two crops whose true aspect differs by 26%. The
+derived value makes it 1.000 on both by construction.
+``italia``, ``north`` and ``domain`` are not in the table and keep the historical
+bytes.
 
 Design notes (empirically confirmed against the live engine output):
   * ``OmFileReader.read_array`` returns values already in real units
@@ -256,10 +261,17 @@ DOMAIN_REGION_SKIP_GLOBAL = True
 NORTH_REGION = "north"
 NORTH_REGION_SKIP_NON_GLOBAL = True
 
-# Aspect ratio (width / height) FORCED on a region's published raster. Regions
-# missing here keep the historical rule -- one integer factor on BOTH axes,
-# ``out_w = (nx-1)*scale+1`` and ``out_h = (ny-1)*scale+1`` -- and therefore
-# stay byte-identical.
+# Pixel aspect of a region's published raster: ``"mercator"`` = square pixels in
+# EPSG:3857 with the columns the data grid produced. Regions missing here keep
+# the historical rule -- one integer factor on BOTH axes, ``out_w = (nx-1)*scale+1``
+# and ``out_h = (ny-1)*scale+1`` -- and therefore stay byte-identical.
+#
+# Perche' serve: il raster e' GIA' verticalmente in Mercatore (le righe sono
+# spaziate in ``log(tan(pi/4+lat/2))``), ma il NUMERO di righe restava quello
+# del dato: ``(ny-1)*scale+1`` righe su ``(nx-1)*scale+1`` colonne significa un
+# passo di ``dy/scale`` per riga contro ``dx/scale`` per colonna, cioe' un pixel
+# ANISOTROPO di ``dmerc/dlat``. Le righe extra non aggiungono dettaglio: sono lo
+# stesso dato ripetuto ~1,55 volte, e Leaflet lo stira comunque sulle ``bounds``.
 #
 # ``europa`` only, MISURATO il 2026-10-26 sui frame reali del branch:
 #   * ecmwf_ifs025 2026-10-26T00Z, crop 281x153 a 0,25 gradi, x4 -> 1121x609
@@ -268,28 +280,28 @@ NORTH_REGION_SKIP_NON_GLOBAL = True
 #     (rapporto 1,9632).
 # La STESSA regione usciva quindi con due forme diverse a seconda del dominio,
 # perche' il rapporto era un effetto collaterale del fattore di upsampling
-# (``ceil(512 / lato corto)``) e non una scelta. Con 1,6 la forma e' una sola.
+# (``ceil(512 / lato corto)``) e non una scelta.
 #
-# Perche' 1,6 e perche' si allunga in ALTEZZA (larghezza = quella del dato):
-# i pixel non sono isotropi. Su europa/ecmwf un pixel copre 1,1862/608 = 0,001951
-# di Mercator-y e 1,2217/1120 = 0,001091 rad di longitudine, cioe' 1,826x di
-# mondo in verticale: l'immagine, disegnata da Leaflet sulle sue ``bounds``,
-# viene allungata in verticale di 1,826x e ogni riga sorgente e' ripetuta ~4,6
-# volte. A 1121x701 quel fattore scende a 1,586 (misurato); a 1000x625 resta
-# 1,587 ma si perdono 280 colonne sorgente -> 1000 px (3,571 px/cella invece di
-# 4) cioe' l'11% della risoluzione orizzontale, a parita' di anisotropia. Quindi
-# si tiene la larghezza prodotta dal dato (upsampling intero, nessuna
-# interpolazione orizzontale aggiunta) e si ricava l'altezza:
-# h = round(w / 1,6) -> ecmwf_ifs025 1121x701 (1,5991), dwd_icon_eu 1761x1101
-# (1,5995).
+# Il rapporto giusto NON e' una costante di prodotto: e' quello della scatola
+# Mercatore che l'immagine deve riempire, e dipende dal CROP. ``mercator_out_rows``
+# lo ricava dal dato, quindi la forma e' dedotta e non scelta:
+#   * crop dwd_icon_eu 34..62N / 15W..40E -> 1,26752 -> 1761x1390 (1,26691);
+#   * crop ecmwf_ifs025 34..72N / 25W..45E -> 1,00880 -> 1121x1111 (1,00899).
+# Il costante 1,6 introdotto il 2026-10-26 (commit 87c6c075, non ancora in una
+# release) non poteva funzionare per entrambi i crop: il valore vero differisce
+# del 26% (1,0088 contro 1,2675) e la costante lasciava 1,59x di stiramento
+# verticale su ecmwf e 1,26x su dwd_icon_eu. Con il valore dedotto lo stiramento
+# e' 1,000 su entrambi (misurato: 1,00899/1,00880 = 1,0002 e 1,26691/1,26752 =
+# 0,9995, cioe' l'arrotondamento di 1 riga su 1390).
 #
-# Riferimento metrico (NON la scelta di prodotto): il rapporto che renderebbe i
-# pixel isotropi in Mercatore e' 1,0088 per europa/ecmwf (34..72N, 25W..45E) e
-# 1,2675 per il crop dwd_icon_eu (34..62N, 15W..40E). 1,6 non e' quindi
-# "Mercatore": e' una scelta di prodotto che si avvicina all'isotropia
-# (1,8407 -> 1,6 riduce lo stiramento da 1,83x a 1,59x) restando una forma
-# dichiarata, non dedotta.
-REGION_ASPECT = {"europa": 1.6}
+# Cosa resta fuori (misurato, NON toccato qui per non allargare il delta):
+#   * ``italia`` (36,5..47,1875N / 6,5..18,5625E) ha un rapporto Mercatore di
+#     0,8353 e viene pubblicata a 1,1284 -> 1,35x di stiramento verticale;
+#   * ``domain`` su dwd_icon_eu copre ESATTAMENTE la stessa scatola di
+#     ``europa`` (34..62N / 15W..40E) e resta a 1,9632 -> 1,55x.
+# Sono la stessa classe di difetto; si chiudono aggiungendo la regione a questa
+# tabella, che e' una riga sola.
+REGION_PIXEL_ASPECT = {"europa": "mercator"}
 
 
 # --------------------------------------------------------------------------- #
@@ -415,27 +427,39 @@ def resolve_upsample(args, nx: int, ny: int) -> int:
         return 1
 
 
-def region_out_height(region: str | None, out_w: int, out_h: int) -> int:
-    """Final output height for ``region``, honouring ``REGION_ASPECT``.
+def mercator_out_rows(cgrid: dict, scale: int) -> int:
+    """Rows of a SQUARE-PIXEL (Web Mercator) raster, columns unchanged.
 
-    Returns ``out_h`` unchanged for every region without a forced aspect (so
-    the historical bytes are preserved), otherwise the row count that makes
-    ``out_w / height == aspect``. The height is never reduced below ``out_h``:
-    the rows are ADDED, never removed -- the columns are the ones the data grid
-    produced, so shortening the image would mean discarding vertical detail the
-    regions without an aspect already show.
+    The columns are ``(nx-1)*scale+1`` and one column step spans
+    ``radians(dx)/scale`` of Mercator x (longitude). The rows are the count that
+    makes a row step span the SAME Mercator length, i.e. the output pixel is
+    square in EPSG:3857 -- the aspect ``imageOverlay`` asks for. See
+    ``REGION_PIXEL_ASPECT``.
+
+    Returns ``(ny-1)*scale+1`` (the historical count) when the Mercator span
+    cannot be computed, so a degenerate grid degrades to the old geometry
+    instead of raising inside a render worker.
     """
-    aspect = REGION_ASPECT.get(region) if region else None
-    if not aspect:
-        return int(out_h)
+    ny = int(cgrid["ny"])
+    nx = int(cgrid["nx"])
+    dx = float(cgrid["dx"])
+    dy = float(cgrid["dy"])
+    lat_min = float(cgrid["latMin"])
+    lat_max = lat_min + (ny - 1) * dy
+    scale = max(1, int(scale))
+    historical = (ny - 1) * scale + 1
+    if nx <= 1 or ny <= 1 or not (dx > 0.0) or not (dy > 0.0):
+        return historical
+    step_rad = math.radians(dx) / float(scale)
     try:
-        aspect = float(aspect)
-        out_w = int(out_w)
-    except (TypeError, ValueError):
-        return int(out_h)
-    if aspect <= 0.0 or out_w <= 0:
-        return int(out_h)
-    return max(int(out_h), max(2, int(round(out_w / aspect))))
+        span = _merc_y(lat_max) - _merc_y(lat_min)
+    except ValueError:      # lat >= 90: Mercatore non definito (grid degenere)
+        return historical
+    if not (step_rad > 0.0) or not (span > 0.0) or not math.isfinite(span):
+        return historical
+    # Stesso passo verticale per colonna, in unita' Mercatore: si arrotonda una
+    # volta sola (nessun accumulo di errore su migliaia di righe).
+    return int(round(span / step_rad)) + 1
 
 
 def build_row_resampler(grid: dict, scale: int = 1):
@@ -468,7 +492,7 @@ def build_row_resampler(grid: dict, scale: int = 1):
     lat_north = lat_min + (ny - 1) * dy
     scale = max(1, int(scale))
     # Output row count. The historical value is ``(ny-1)*scale+1`` (one integer
-    # factor on both axes). A region with a forced ASPECT (``REGION_ASPECT``)
+    # factor on both axes). A region with a SQUARE-PIXEL aspect (``REGION_PIXEL_ASPECT``)
     # carries its own ``out_ny`` in the crop grid: the COLUMNS keep the exact
     # ``i*scale`` mapping (no horizontal interpolation is added) and only the
     # rows are redistributed on the Mercator axis, which is already a per-row
@@ -1178,7 +1202,7 @@ def _grid_to_pixel(cgrid: dict, scale: int):
     The vertical mapping is the SAME Mercator remap used by
     ``build_row_resampler``: the output raster has ``(ny-1)*scale+1`` rows,
     row 0 = north, UNLESS the crop grid carries an explicit ``out_ny`` (a
-    region with a forced ``REGION_ASPECT``): in that case the row count is that
+    region in ``REGION_PIXEL_ASPECT``): in that case the row count is that
     one and the Mercator positions are redistributed over it, exactly like the
     resampler does. Both read the SAME key, so isolines, labels and wind arrows
     cannot drift from the raster: they are computed from ``row_of``/``col_of``,
@@ -1278,13 +1302,19 @@ def label_font_px(out_w: int, out_h: int, forced: int = 0, region: str | None = 
     A forced positive value (``--label-font-px``) bypasses the computation and
     reproduces the historical output when it is 12.
 
-    Only the ``north`` region is auto-scaled: the measured factors of
-    ``europa`` (0.80 after the 1.6:1 aspect, was 0.90 at 1121x609; the 9-px
-    digits of the 12-px font land at 7.2 px on screen, above the 7 px target)
-    and ``italia`` (1.10) already keep 12 px above the target, and the
-    ``domain`` region is explicitly kept at the historical 12 px (it
-    must stay byte-identical; its factor varies with the model grid).  When
-    ``region`` is None the formula is applied to any size (used by tests).
+    Only ``north`` and the regions of ``REGION_PIXEL_ASPECT`` (``europa``) are
+    auto-scaled. ``italia`` (factor 1.10) already keeps 12 px above the target
+    and the ``domain`` region is explicitly kept at the historical 12 px (it
+    must stay byte-identical; its factor varies with the model grid).
+
+    ``europa`` used to ride along at 12 px when its shape was 1121x609/1121x701
+    or 1761x897/1761x1101. Measured factors (``min(1008/W, 560/H)``): 0.7989 for
+    1121x701 (9-px digits at 7.19 px, just above the target) but 0.5086 for
+    1761x1101 (4.58 px, already below). With square Mercator pixels the image is
+    1121x1111 or 1761x1390, the HEIGHT binds and the factor drops to 0.5041 /
+    0.4029: 12 px would put the digits at 4.54 / 3.63 px. The value is therefore
+    computed from the real size like ``north``, not hard-coded. When ``region``
+    is None the formula is applied to any size (used by tests).
 
     This is the inverse of the formula quoted in the module docstring
     (7 px / 0.35 = 20 px of digits, i.e. ~26 px with the nominal 9/12 ratio);
@@ -1298,7 +1328,7 @@ def label_font_px(out_w: int, out_h: int, forced: int = 0, region: str | None = 
         forced = 0
     if forced > 0:
         return forced
-    if region is not None and region != NORTH_REGION:
+    if region is not None and region != NORTH_REGION and region not in REGION_PIXEL_ASPECT:
         return LABEL_FONT_PX
     out_w = int(out_w)
     out_h = int(out_h)
@@ -2814,15 +2844,19 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
         scale = resolve_upsample(args, cgrid["nx"], cgrid["ny"])
         out_w = (int(cgrid["nx"]) - 1) * scale + 1
         out_h = (int(cgrid["ny"]) - 1) * scale + 1
-        # Forced aspect (``REGION_ASPECT``): the width stays the one the data
-        # grid produced and the ROW COUNT is recomputed. Only a region with an
-        # aspect gets the extra ``out_ny`` key, so every other region keeps the
-        # exact historical grid dict -> byte-identical output.
-        out_h_asp = region_out_height(rname, out_w, out_h)
+        # Pixel quadrato in Mercatore (``REGION_PIXEL_ASPECT``): la larghezza
+        # resta quella prodotta dal dato, il NUMERO DI RIGHE viene dedotto
+        # dall'estensione in Mercatore del crop. Solo una regione in tabella
+        # riceve la chiave ``out_ny``, quindi tutte le altre tengono il grid
+        # dict storico -> byte identici.
+        out_h_asp = out_h
         crop_grid = cgrid
-        if out_h_asp != out_h:
-            crop_grid = dict(cgrid)
-            crop_grid["out_ny"] = out_h_asp
+        if REGION_PIXEL_ASPECT.get(rname) == "mercator":
+            rows = mercator_out_rows(cgrid, scale)
+            if rows > 0 and rows != out_h:
+                out_h_asp = rows
+                crop_grid = dict(cgrid)
+                crop_grid["out_ny"] = rows
         crops[rname] = _finalise_crop({
             "row0": row0, "row1": row1, "col0": col0, "col1": col1,
             "grid": crop_grid,
@@ -2842,9 +2876,8 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
         out_w = (grid_nx - 1) * int(crop["scale"]) + 1
         out_h = int(cg.get("out_ny") or ((grid_ny - 1) * int(crop["scale"]) + 1))
         label = "%s x%d %dx%d" % (name, crop["scale"], out_w, out_h)
-        aspect = REGION_ASPECT.get(name)
-        if aspect:
-            label += " (aspect %.2f)" % aspect
+        if crop.get("grid", {}).get("out_ny"):
+            label += " (Mercatore, pixel quadrato %.4f)" % (out_w / float(out_h))
         return label
 
     print("  [upsample] %s"
