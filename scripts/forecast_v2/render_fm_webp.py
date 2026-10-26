@@ -596,6 +596,42 @@ def projection_parts(value):
     return None, None
 
 
+def consensus_projection(entries):
+    """``(projection, projection_meta)`` if EVERY entry declares the same value.
+
+    This is the ``09f8158b`` rule, applied to the two lists the client covers as
+    a block:
+
+    * the DOMAINS of a region -- the region-level key is applied by
+      ``fmRegionProjection`` to every domain of that region;
+    * the RUNS of a domain -- ``domains.<dominio>.projection`` is used for EVERY
+      run when the frame itself does not carry one, so a disc published from the
+      newest run would paint the older Mercator strip as a disc.
+
+    An entry that declares NOTHING does not agree: a missing value means
+    ``"mercator"`` (the client default) and extending it to the other entries
+    would be an invention. That is why an all-Mercator list produces no key at
+    all -- the default is already ``mercator``. Only STRINGS count: an object
+    (shape of the first disc builds) is not a value the client accepts.
+    """
+    values = set()
+    metas = {}
+    for entry in entries or ():
+        if not isinstance(entry, dict):
+            return None, None
+        value = entry.get("projection")
+        if not isinstance(value, str) or not value:
+            return None, None
+        values.add(value)
+        meta = entry.get("projection_meta")
+        if value not in metas and isinstance(meta, dict):
+            metas[value] = meta
+    if len(values) != 1:
+        return None, None
+    value = next(iter(values))
+    return value, metas.get(value)
+
+
 def build_polar_resampler(grid: dict, size: int,
                           edge_lat: float = NORTH_DISC_EDGE_LAT):
     """Return ``f(arr) -> (disc_field, mask)`` for the polar stereo disc.
@@ -2701,15 +2737,22 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
             "runs": [run_rec],
             "variables": variables,
         }
-        if projection:
-            # Polar disc: the geographic bbox is NOT a Mercator image extent.
-            # The client must switch to the dedicated polar path when this key
-            # is present (the default strip path never writes it). The value is
-            # the STRING 'stereographic' (see POLAR_PROJECTION); the geometry is
-            # in `projection_meta`.
-            contrib[rname]["projection"] = projection
-        if projection_meta:
-            contrib[rname]["projection_meta"] = projection_meta
+        # Polar disc: the geographic bbox is NOT a Mercator image extent. The
+        # client must switch to the dedicated polar path when this key is
+        # present (the default strip path never writes it). The value is the
+        # STRING 'stereographic' (see POLAR_PROJECTION); the geometry is in
+        # `projection_meta`.
+        #
+        # This index lists ONE run (the one just rendered) and the multi-run
+        # index is rebuilt by --index-only, which applies the same rule to the
+        # runs it finds on the branch. The domain-level key goes through the
+        # same `consensus_projection` used there, so the two writers cannot
+        # diverge: a domain whose indexed runs disagree publishes no key.
+        dom_projection, dom_projection_meta = consensus_projection([run_rec])
+        if dom_projection:
+            contrib[rname]["projection"] = dom_projection
+        if dom_projection_meta:
+            contrib[rname]["projection_meta"] = dom_projection_meta
 
     if incremental:
         print("  [incremental] %s: %d frame gia' pubblicati (saltati), %d frame "
@@ -2744,11 +2787,14 @@ def write_region_index(out_root: str, region_name: str, region_bbox, domains: di
     # strips makes the client draw a 2879x521 strip as if it were a disc
     # (measured in production on 2026-10-26: dwd_icon -> projection
     # 'stereographic' with source 2879x521). So it is written ONLY when every
-    # indexed domain declares the SAME projection.
-    proj_set = {(d or {}).get("projection") for d in (domains or {}).values()}
-    if projection and (len(proj_set) != 1 or None in proj_set):
+    # indexed domain declares the SAME projection: `consensus_projection` is the
+    # `09f8158b` rule, the same one used for the runs of a domain below.
+    agreed, agreed_meta = consensus_projection((domains or {}).values())
+    if not projection or agreed != projection:
         projection = None
         projection_meta = None
+    elif projection_meta is None:
+        projection_meta = agreed_meta
     index = {
         "version": WEBP_VERSION,
         "generated_at": _utcnow_iso(),
@@ -3031,8 +3077,16 @@ def rebuild_index(in_dir: str, out_dir: str, domain_list, region_names, themes,
                 "current_run": latest_run["id"],
                 "runs": runs,
             }
-            dom_projection = latest_run.get("projection")
-            dom_projection_meta = latest_run.get("projection_meta")
+            # `projection` at DOMAIN level is a fallback the client applies to
+            # EVERY run of the domain (and to the frames of the timeline that do
+            # not carry their own). Runs of one domain can disagree -- measured
+            # in production on 2026-10-26 on ecmwf_ifs025/north: the newest run
+            # is the 1000x1000 stereographic disc while the previous one is the
+            # 2879x521 Mercator strip. So the key is written ONLY when ALL the
+            # indexed runs declare the SAME projection (`09f8158b` rule via
+            # `consensus_projection`); otherwise it is omitted and each run
+            # keeps its own `projection` in `runs[]`.
+            dom_projection, dom_projection_meta = consensus_projection(runs)
             if dom_projection:
                 index_domains[domain]["projection"] = dom_projection
             if dom_projection_meta:
