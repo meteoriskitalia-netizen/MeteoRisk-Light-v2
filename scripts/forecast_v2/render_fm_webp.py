@@ -1100,15 +1100,17 @@ POLAR_OVERLAY_SUPERSAMPLE = 1.5   # disco 1000^2: 1.5x basta e costa 2,25 MP
 #   * sopra   = isobare di `pressure_msl` BIANCHE con il valore (995, 1000,
 #     1005...) — bianche perche' il raster e' gia' colorato e l'inchiostro
 #     notturno ci si perde dentro;
-#   * intervallo 5 hPa su `italia` e `europa`, 10 hPa sul disco `north`.
+#   * intervallo 5 hPa su TUTTE le regioni, disco `north` compreso.
 #
-# Perche' 10 hPa sul disco e non 5 (MISURATO il 2026-10-26 sul frame reale
-# ecmwf_ifs025 2026-10-26T06Z, disco 1000 px, contando gli anelli con
-# `contour_segments` + `_chain_segments`, cioe' le funzioni che disegnano):
-#   5 hPa -> 16 livelli, 1489 anelli; 8 hPa -> 9 livelli, 999 anelli;
-#   10 hPa -> 8 livelli, 711 anelli.
-# Un emisfero intero in 1000 px non regge 1489 anelli (il doppio dei 711 di 10
-# hPa) senza che le etichette si accavallino: 10 hPa tiene 8 valori leggibili.
+# Perche' 5 hPa anche sul disco (decisione di prodotto del 2026-10-26): la
+# stessa carta deve leggersi allo stesso modo ovunque, e sul disco il colore
+# del raster resta leggibile perche' le etichette del composito sono `strict`
+# (nessun numero sopra un altro), non c'e' piu' il doppio strato disegnato dal
+# client. Costo MISURATO sullo stesso frame (ecmwf_ifs025 2026-10-26T06Z, disco
+# 1000 px, anelli contati con `contour_segments` + `_chain_segments`): 5 hPa ->
+# 16 livelli, 1489 anelli; 8 hPa -> 9 livelli, 999 anelli; 10 hPa -> 8 livelli,
+# 711 anelli. Il 10 hPa resta qui documentato perche' e' l'alternativa
+# scartata: meno inchiostro, ma la carta perde 8 valori (restano 970..1040).
 COMPOSITE_VARS = {
     "__pressure_geopot": {
         "raster": "geopotential_height_500hPa",
@@ -1120,7 +1122,7 @@ COMPOSITE_VARS = {
         # contro 255 del bianco). Il nucleo resta BIANCO.
         "isobar_casing": (15, 23, 42, 150),
         # Intervallo per regione (chiave `default` = tutte le altre).
-        "isobar_interval": {"default": 5.0, "north": 10.0},
+        "isobar_interval": {"default": 5.0},
         # Le etichette del composito NON si accavallano: se un livello non ha
         # spazio, quel valore resta scritto dove c'e' posto invece di essere
         # incollato addosso a un altro numero (vedi `strict_labels`).

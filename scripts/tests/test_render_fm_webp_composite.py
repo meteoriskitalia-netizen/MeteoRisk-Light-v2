@@ -3,8 +3,7 @@
 
 Il prodotto: raster ``geopotential_height_500hPa`` a colori SENZA etichette,
 isobare di ``pressure_msl`` bianche SOPRA con il valore scritto (995, 1000,
-1005...), intervallo 5 hPa su ``italia``/``europa`` e 10 hPa sul disco
-``north``.
+1005...), intervallo 5 hPa su TUTTE le regioni, disco ``north`` compreso.
 
 Numeri citati qui e MISURATI il 2026-10-26 sui frame reali del branch dati
 (``ecmwf_ifs025`` 2026-10-26T06Z; ``dwd_icon_eu`` e ``dwd_icon_d2`` stesso
@@ -15,7 +14,7 @@ giorno per i nomi dei campi):
   * disco ``north`` a 1000 px, anelli contati con ``contour_segments`` +
     ``_chain_segments`` (le stesse funzioni che disegnano): 5 hPa -> 16 livelli
     e 1489 anelli, 8 hPa -> 9 livelli e 999 anelli, 10 hPa -> 8 livelli e 711
-    anelli. Da qui il 10;
+    anelli. Il disco usa 5 hPa come le altre regioni (scelta di prodotto);
   * inchiostro delle cifre misurato con ``_font_digit_height``: 12 px -> 8,
     16 px -> 11, 18 px -> 13.
 
@@ -153,7 +152,7 @@ def test_the_isobars_are_white_over_a_dark_casing():
 @pytest.mark.parametrize("region,expected", [
     ("italia", 5.0),
     ("europa", 5.0),
-    ("north", 10.0),
+    ("north", 5.0),
     ("domain", 5.0),
 ])
 def test_isobar_interval_per_region(region, expected):
