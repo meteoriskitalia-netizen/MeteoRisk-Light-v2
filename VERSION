@@ -1,3 +1,12 @@
+MeteoRisk Light - 1.2.4.39 - LA CAUSA ERA IL LIMITE DI PAN: maxBounds UGUALE AL RIQUADRO IMPEDIVA LO ZOOM-OUT (MISURATO: null -> ZOOM 3, =clip -> ZOOM 5 INVARIATO) (bump da 1.2.4.38)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=39
+RELEASE_TYPE=release
+DATE=2026-10-27
+NOTE=Release 1.2.4.39 (bump da 1.2.4.38) - SOLO CLIENT. CAUSA REALE dell'inquadratura che non si allargava: `map.setMaxBounds(clip)`. MISURATO sulla 1.2.4.38, tre sequenze con lo stesso clip [-25,34,45,72]: maxBounds=null -> fitBounds da zoom 5 a ZOOM 3, vista 23,4..75,4N; maxBounds=clip -> fitBounds NON cambia nulla (zoom 5, vista 34..51N); maxBounds=clip allargato del 50% per lato -> ZOOM 3. Il pannello e' 731x532 (rapporto 1,374), il riquadro 34..72N/-25..45E ha rapporto 1,009: inquadrarlo richiede una vista piu' larga del riquadro e maxBounds lo vietava. FIX: maxBounds = riquadro allargato di mezzo span per lato (limite di pan, non scelta dello zoom). VERIFICA: test_html_js_syntax 1 passed; in produzione atteso zoom 3 e vista 23,4..75,4N su dwd_icon/Europa. BUMP: html mri-light-1.2.4.39.html, VERSION (BUILD=39), sw.js, README, .mjs, 3 righe cp. La 1.2.4.38 va RIMOSSA dal repo.
+APP_FILE=mri-light-1.2.4.39.html
 MeteoRisk Light - 1.2.4.38 - IL RIQUADRO VIENE INQUADRATO ANCHE SE IL FIT PRECEDENTE E' ANDATO PERSO (ORA LA CONDIZIONE E' "LA VISTA CONTIENE IL RIQUADRO", NON "IL RIQUADRO E' CAMBIATO") (bump da 1.2.4.37)
 MAJOR=1
 MINOR=2

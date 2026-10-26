@@ -1963,9 +1963,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.38';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.39';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-26';
     const APP_CHANGELOG = [
+        { version: '1.2.4.39', date: '2026-10-27', changes: [
+  'MAPPE= LA CAUSA ERA IL LIMITE DI PAN, NON IL RITAGLIO NE IL FIT. Misurato sulla 1.2.4.38: con `maxBounds` ESATTAMENTE uguale al riquadro, `fitBounds` non cambiava nulla (zoom 5, vista 34..51N); con `maxBounds` nullo lo stesso fit portava a zoom 3 (vista 23,4..75,4N); con `maxBounds` = riquadro allargato del 50% per lato, di nuovo zoom 3. Il pannello e\' 731x532 (rapporto 1,374) e il riquadro Europa 34..72N / -25..45E ha rapporto 1,009: per inquadrarlo la vista deve essere piu\' LARGA del riquadro, e `maxBounds` lo vietava.',
+  'MAPPE= FIX: `maxBounds` non e\' piu\' il riquadro esatto ma il riquadro allargato di mezzo span per lato. Serve a non vagare nel vuoto, non a scegliere lo zoom. Con questo, Europa su `dwd_icon` si apre a zoom 3 con vista 23,4..75,4N: Islanda, Scandinavia intera e Atlantico dentro.',
+  'DOC= Bump versione 1.2.4.39 (solo client). Catena chiusa: 1.2.4.35 ritaglio, 1.2.4.36 rifit al cambio, 1.2.4.37 invalidateSize, 1.2.4.38 rifit se la vista e\' piu\' stretta, 1.2.4.39 il limite di pan non blocca piu\' lo zoom-out.',
+        ] },
         { version: '1.2.4.38', date: '2026-10-27', changes: [
   'MAPPE= IL RIQUADRO VIENE INQUADRATO ANCHE QUANDO IL FIT PRECEDENTE E\' ANDATO PERSO. Sulla 1.2.4.37 il clip era corretto ([-25,34,45,72]) ma la vista restava a zoom 5 con bounds 33,4..50,6 / -3,6..28,6: il nord ancora fuori. Il rifit scattava solo se il clip CAMBIAVA, e la prima volta che cambio\' la mappa non era ancora pronta, quindi il `fitBounds` ando\' perso e nessuna chiamata successiva lo riprovava.',
   'MAPPE= FIX: oltre al cambio di riquadro, si ri-inquadra quando la vista corrente NON CONTIENE il riquadro (`map.getBounds().contains(...)`). Cosi\' il caso "il fit e\' andato perso prima che la mappa fosse pronta" si autocorregge alla prima chiamata utile, senza dipendere dall\'ordine degli eventi.',
@@ -13359,7 +13364,20 @@ function fmApplyRegion(refit) {
                 // forzare il Leaflet Mercator a inquadrare il bbox mondo.
                 map.setMaxBounds(null);
             } else if (clip) {
-                map.setMaxBounds([[clip[1], clip[0]], [clip[3], clip[2]]]);
+                // 1.2.4.39 - IL LIMITE DI PAN NON DEVE IMPEDIRE L'INQUADRATURA.
+                // MISURATO sulla 1.2.4.38: con maxBounds ESATTAMENTE uguale al riquadro,
+                // fitBounds non cambiava niente (zoom 5, vista 34..51N); con maxBounds
+                // nullo lo stesso fit portava a zoom 3 (vista 23,4..75,4N); con maxBounds
+                // = riquadro allargato del 50% per lato, di nuovo zoom 3. Motivo: il
+                // pannello e' 731x532 (rapporto 1,374) e il riquadro 34..72N/-25..45E ha
+                // rapporto 1,009, quindi per inquadrarlo la vista deve essere piu' larga
+                // del riquadro: maxBounds lo vieta e Leaflet limita lo zoom-out, lasciando
+                // il nord fuori. Il limite serve solo a non vagare nel vuoto, non a
+                // scegliere lo zoom: lo si tiene a meta' span oltre il riquadro.
+                var fmPadLat = (clip[3] - clip[1]) * 0.5;
+                var fmPadLon = (clip[2] - clip[0]) * 0.5;
+                map.setMaxBounds([[clip[1] - fmPadLat, clip[0] - fmPadLon],
+                                  [clip[3] + fmPadLat, clip[2] + fmPadLon]]);
                 // 1.2.4.38 - MISURATO sulla 1.2.4.37 appena pubblicata: clip corretto
                 // ([-25,34,45,72]) ma vista ancora a zoom 5 e bounds 33,4..50,6 / -3,6..28,6,
                 // cioe' il nord ancora fuori. Causa: il rifit scattava solo quando il clip
