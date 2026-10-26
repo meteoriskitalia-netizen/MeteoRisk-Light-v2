@@ -1941,9 +1941,18 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.28';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.29';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-26';
     const APP_CHANGELOG = [
+        { version: '1.2.4.29', date: '2026-10-26', changes: [
+  'MAPPE= SCALE COLORE DELLE DUE VARIABILI A 6 ORE. `precipitation_6h` e `snow_fraction_6h` erano gia\' pubblicate dal motore (commit e67e0607) ma NON avevano una scala in `scripts/forecast_v2/color_scales.json`: il renderer le saltava con `~ no color scale for ... (skip)` e non esisteva alcun WebP. Aggiunte `scales.precipitation_6h` (18 bande 0, 0.2, 0.5, 1, 2, 3, 5, 8, 12, 16, 20, 30, 40, 60, 80, 100, 125, 150; banda [150, +inf) di SATURAZIONE, unita\' \'mm in 6 h\') e `scales.snow_fraction_6h` (copia ESATTA di `snow_fraction`: 7 bande 0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0, unita\' \'frazione 0-1\').',
+  'MAPPE= STESSA GRAMMATICA VISIVA dell\'orario, intervallo riscalato sulle 6 ore: identica sequenza di 18 colori di `precipitation` (prima banda [0,0.2) trasparente, poi la rampa azzurro -> blu -> ciano -> verde -> giallo -> arancio -> rosso -> magenta), bande fitte sotto i 20 mm e rade sopra. Le bande sono DIMENSIONATE sulla distribuzione REALE misurata su 1.198.911 celle bagnate (p50 0.50, p90 2.90, p95 5.10, p99 14.80, p99.9 37.60, p99.99 90.59, max 216.60 mm): [0,0.2) 2.5%, [0.2,0.5) 46.3%, [0.5,1) 19.6%, [1,2) 15.9%, [2,3) 6.2%, [3,5) 4.4%, [5,8) 2.4%, [8,12) 1.3%, [12,16) 0.62%, [16,20) 0.32%, [20,30) 0.35%, [30,40) 0.11%, [40,60) 0.057%, [60,80) 0.014%, [80,100) 0.006%, >=100 mm 0.011%.',
+  'MAPPE= CLIENT: `FM_PRECIP6H_COLOR_SCALE` e `FM_SNOWFRAC6H_COLOR_SCALE` copiate dal JSON (breakpoints, colori e unita\', light == dark) e registrate in `FM_COLOR_SCALE_OVERRIDES`: la legenda mostra 18 bande con unita\' \'mm in 6 h\' (tick 0, 1, 5, 16, 40, 100, 150) e 7 bande con \'frazione 0-1\' (tick 0, 0.1, 0.25, 0.5, 0.75, 0.9, 1). Le due voci di menu (\'Precipitazioni 6 ore\', \'Rischio neve (6 ore)\') esistevano dalla 1.2.4.28: ora hanno la scala con cui la mappa e\' disegnata.',
+  'MOTORE= SEMANTICA DICHIARATA (nessuna modifica al codice di calcolo): `precipitation_6h` e\' la SOMMA dei frame che tassellano le 6 ore PRECEDENTI di valid_time, NON \'gli ultimi 6 frame\': a passo 1 h servono 6 cornici, a passo 3 h 2, a passo 6 h 1. `snow_fraction_6h` e\' PESATA sulla precipitazione (somma di snowfall_water_equivalent / somma di precipitation), NON la media delle frazioni orarie: su ARPEGE 2026-10-26T12..17Z (113.362 celle bagnate) la differenza pesata-media ha mediana 0.0000 ma p99 0.1250, e il caso reale 42.75N 31.75W da\' 0.849 pesata contro 0.400 di media. La soglia neve/pioggia NON e\' nel motore e NON e\' nel client: la scala e\' solo una legenda.',
+  'VERIFICA= Render reale con il renderer di main (135.596 B, sha256 5cb1def8...) su ARPEGE 0.25 ref 2026-10-25T18Z, 10 frame: regione italia 20 WebP / 48.284 B (precipitation_6h + snow_fraction_6h), regione north 10 WebP / 320.036 B (precipitation_6h), zero \'no color scale\' (prima le due variabili venivano saltate). Bande realmente usate sul north 2026-10-26T0000Z: 0.2-0.5 28.8%, 0.5-1 26.0%, 1-2 22.5%, 2-3 9.1%, 3-5 7.0%, 5-8 4.0%, 8-12 1.6%, 12-16 0.46%, 16-20 0.29%, 20-30 0.14%, 30-40 0.002%. Non regressione: i 6 WebP di temperature_2m, pressure_msl, weather_code e snowfall_water_equivalent resi con la palette di main e con quella nuova hanno sha256 IDENTICI (6/6).',
+  'VERIFICA= pytest scripts/tests/test_html_js_syntax.py -q --capture=sys -> 1 passed; suite .mjs 26 file -> 19 PASS / 7 non-zero, gli stessi 7 della baseline misurata su main con data/ vuota (contract_dataset_loader + i 6 storici), test_fm_webp_palette_sync 143/144 come la baseline; controllo dedicato: le costanti del client coincidono con il JSON su breakpoints, colori e unita\' (8/8). Browser (Edge headless via CDP, html servito in locale con le SOLE due basi URL ripuntate ai dati reali di motore e renderer): menu con le due voci, legenda 18 bande \'mm in 6 h\' e 7 bande \'frazione 0-1\', index.json e timeline.json della regione italia HTTP 200 e i WebP delle due variabili richiesti e serviti (4/4 HTTP 200).',
+  'DOC= README.md era rimasto alla 1.2.4.27 (la 1.2.4.28 non lo aggiorno\'): riallineato qui alla 1.2.4.29 con la sezione della versione attiva. Bump: html mri-light-1.2.4.29.html, VERSION (BUILD=29, DATE=2026-10-26), sw.js CACHE_NAME mri-1.2.4.29, i 26 test .mjs in ENTRAMBE le forme (4 pattern con i punti escapati + 37 letterali) e le righe cp/commento dei 3 workflow che citano l\'html. La 1.2.4.28 NON e\' rinominata ne\' cancellata e va RIMOSSA dal repo (una sola app servita da Pages). NON toccati: scripts/forecast_v2/* (motore e renderer), scripts/radar_engine/*, scripts/cronjobs/*, i 6 workflow delle mappe, satellite-engine.yml.',
+        ] },
         { version: '1.2.4.28', date: '2026-10-26', changes: [
   'MAPPE= FASE NEVE nel menu delle variabili: due voci nuove, con il gate di visibilita\' invariato (comparire solo se il manifest .om del dominio porta la variabile). `snowfall_water_equivalent` = «Neve (acqua equivalente)», unita\' MILLIMETRI di acqua equivalente: e\' un DATO DEL MODELLO, non centimetri di neve fresca (1 mm ~ 1 cm e\' un ordine di grandezza indicativo, non una conversione, e il client non lo scrive da nessuna parte). `snow_fraction` = «Frazione neve» (0-1): e\' una NOSTRA DERIVATA (snowfall_water_equivalent / precipitation), non una classificazione del modello. La SOGLIA neve/pioggia NON e\' nel client: la decide il motore che pubblica il campo, e il client mostra il valore che riceve.',
   'MAPPE= Due etichette in piu\' per il prefisso a 6 ore (`precipitation_6h` = «Precipitazioni 6 ore», `snow_fraction_6h` = «Rischio neve (6 ore)»): il motore NON le pubblica ancora, quindi aggiungere l\'etichetta non aggiunge voci di menu finche\' nessun dominio portera\' la variabile nel manifest. `FM_CURATED_VARS` resta a 28 voci: le quattro entrano solo in `FM_VAR_LABELS` (il filtro e\' in OR), come per il livello 10 hPa nella 1.2.4.25.',
@@ -12172,7 +12181,29 @@ var FM_WCODE_FAMILIES = [
     { name: 'Rovesci', codes: [80, 81, 82, 83, 85, 86, 87] },
     { name: 'Temporale', codes: [95, 96, 97, 98, 99] }
 ];
-var FM_COLOR_SCALE_OVERRIDES = { precipitation_cum: FM_PRECUM_COLOR_SCALE, precipitation: FM_PRECIP_COLOR_SCALE, rain: FM_PRECIP_COLOR_SCALE, showers: FM_PRECIP_COLOR_SCALE, geopotential_height_500hPa: FM_GEOP_500_COLOR_SCALE, geopotential_height_850hPa: FM_GEOP_850_COLOR_SCALE, geopotential_height_1000hPa: FM_GEOP_1000_COLOR_SCALE, pressure_msl: FM_MSL_COLOR_SCALE, wind_speed_10m: FM_WIND_COLOR_SCALE, wind_speed_850hPa: FM_WIND_COLOR_SCALE, wind_speed_300hPa: FM_JET_COLOR_SCALE, temperature_10hPa: FM_T10_COLOR_SCALE, geopotential_height_10hPa: FM_GEOP_10_COLOR_SCALE, wind_speed_10hPa: FM_JET10_COLOR_SCALE, snowfall_water_equivalent: FM_SNOWWE_COLOR_SCALE, snow_fraction: FM_SNOWFRAC_COLOR_SCALE, weather_code: FM_WCODE_COLOR_SCALE };
+// 1.2.4.29 - PREFISSO 6 ORE: precipitation_6h e snow_fraction_6h.
+// Prima di questa release il renderer SALTAVA le due variabili ("~ no color scale
+// for ... (skip)"): il motore le pubblicava, ma senza scala non esisteva il WebP.
+// `precipitation_6h` e' in MILLIMETRI su 6 ORE (somma dei frame che tassellano le 6
+// ore precedenti di valid_time: 6 cornici a passo 1 h, 2 a passo 3 h, 1 a passo 6 h).
+// 18 bande 0, 0.2, 0.5, 1, 2, 3, 5, 8, 12, 16, 20, 30, 40, 60, 80, 100, 125, 150 e
+// banda di SATURAZIONE [150, +inf): stessa sequenza di 18 colori di `precipitation`
+// (prima banda trasparente), intervallo riscalato sulle 6 ore. Bande dimensionate
+// sulla distribuzione REALE misurata (1.198.911 celle bagnate: p50 0.50, p90 2.90,
+// p99 14.80, p99.9 37.60, max 216.60 mm): sotto i 20 mm sta il 99% delle celle bagnate.
+// `snow_fraction_6h` e' la COPIA ESATTA di `snow_fraction` (7 bande discrete 0..1,
+// banda [0,0.1) trasparente): e' PESATA sulla precipitazione (somma swe / somma
+// precipitazioni), non la media delle frazioni orarie. NESSUNA soglia neve/pioggia:
+// ne' nel motore ne' qui, la scala e' solo una legenda.
+// Valori copiati da scripts/forecast_v2/color_scales.json (scales.precipitation_6h /
+// scales.snow_fraction_6h), unita' comprese: light == dark come nel JSON.
+var FM_PRECIP6H_BREAKPOINTS = [0, 0.2, 0.5, 1, 2, 3, 5, 8, 12, 16, 20, 30, 40, 60, 80, 100, 125, 150];
+var FM_PRECIP6H_COLORS = [[0, 0, 0, 0], [170, 220, 255, 1], [130, 200, 255, 1], [90, 180, 255, 1], [30, 150, 255, 1], [0, 100, 255, 1], [0, 190, 200, 1], [0, 205, 120, 1], [0, 205, 50, 1], [110, 215, 0, 1], [185, 230, 0, 1], [240, 225, 0, 1], [255, 195, 0, 1], [255, 145, 0, 1], [255, 90, 0, 1], [240, 30, 0, 1], [190, 0, 0, 1], [140, 0, 70, 1]];
+var FM_PRECIP6H_COLOR_SCALE = { type: 'breakpoint', unit: 'mm in 6 h', min: null, max: null, breakpoints: FM_PRECIP6H_BREAKPOINTS, colors: { light: FM_PRECIP6H_COLORS, dark: FM_PRECIP6H_COLORS } };
+var FM_SNOWFRAC6H_BREAKPOINTS = [0, 0.1, 0.25, 0.5, 0.75, 0.9, 1];
+var FM_SNOWFRAC6H_COLORS = [[0, 0, 0, 0], [205, 230, 255, 1], [170, 210, 250, 1], [120, 185, 245, 1], [70, 150, 235, 1], [35, 110, 215, 1], [10, 70, 180, 1]];
+var FM_SNOWFRAC6H_COLOR_SCALE = { type: 'breakpoint', unit: 'frazione 0-1', min: null, max: null, breakpoints: FM_SNOWFRAC6H_BREAKPOINTS, colors: { light: FM_SNOWFRAC6H_COLORS, dark: FM_SNOWFRAC6H_COLORS } };
+var FM_COLOR_SCALE_OVERRIDES = { precipitation_cum: FM_PRECUM_COLOR_SCALE, precipitation: FM_PRECIP_COLOR_SCALE, rain: FM_PRECIP_COLOR_SCALE, showers: FM_PRECIP_COLOR_SCALE, geopotential_height_500hPa: FM_GEOP_500_COLOR_SCALE, geopotential_height_850hPa: FM_GEOP_850_COLOR_SCALE, geopotential_height_1000hPa: FM_GEOP_1000_COLOR_SCALE, pressure_msl: FM_MSL_COLOR_SCALE, wind_speed_10m: FM_WIND_COLOR_SCALE, wind_speed_850hPa: FM_WIND_COLOR_SCALE, wind_speed_300hPa: FM_JET_COLOR_SCALE, temperature_10hPa: FM_T10_COLOR_SCALE, geopotential_height_10hPa: FM_GEOP_10_COLOR_SCALE, wind_speed_10hPa: FM_JET10_COLOR_SCALE, snowfall_water_equivalent: FM_SNOWWE_COLOR_SCALE, snow_fraction: FM_SNOWFRAC_COLOR_SCALE, weather_code: FM_WCODE_COLOR_SCALE, precipitation_6h: FM_PRECIP6H_COLOR_SCALE, snow_fraction_6h: FM_SNOWFRAC6H_COLOR_SCALE };
 var FM_VAR_LABELS = {
     temperature_2m: 'Temperatura 2 m',
     dew_point_2m: 'Punto di rugiada 2 m',
@@ -12192,9 +12223,10 @@ var FM_VAR_LABELS = {
     // `snow_fraction` e' una NOSTRA DERIVATA (snowfall_water_equivalent / precipitation,
     // valore 0-1, 0.25 = 25%): la soglia neve/pioggia NON e' nel client, la classifica il
     // motore che pubblica il campo.
-    // `precipitation_6h` e `snow_fraction_6h` NON sono ancora pubblicate dal motore: qui
-    // c'e' SOLO l'etichetta, quindi la voce di menu compare se e solo se un giorno il
-    // manifest .om del dominio portera' la variabile (stesso gate del 10 hPa).
+    // `precipitation_6h` e `snow_fraction_6h` sono pubblicate dal motore (commit
+    // e67e0607) e in questa release hanno la loro scala colore; la voce di menu compare
+    // se e solo se il manifest .om del dominio porta la variabile (stesso gate del
+    // 10 hPa: 6 domini su 7, `ncep_gfs025` non ha campi di superficie).
     // Nessuna delle quattro entra in FM_CURATED_VARS: il filtro di visibilita' e' in OR
     // con queste etichette e il conteggio di FM_CURATED_VARS (28) e' bloccato dal test.
     snowfall_water_equivalent: 'Neve (acqua equivalente)',

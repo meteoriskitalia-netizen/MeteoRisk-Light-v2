@@ -6,7 +6,50 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.27
+## Versione attiva: 1.2.4.29
+
+- File applicativo: `mri-light-1.2.4.29.html` (`APP_VERSION = '1.2.4.29'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.29', date: '2026-10-26' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.29'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+  `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
+- Contenuto della 1.2.4.29 (release sopra la 1.2.4.28) - **scale colore delle due variabili a 6
+  ore**, lato server e lato client. Nessuna modifica al codice di calcolo.
+  - Il motore pubblica `precipitation_6h` e `snow_fraction_6h` dal commit `e67e0607`, ma
+    `scripts/forecast_v2/color_scales.json` non aveva le due scale: il renderer le saltava con
+    `~ no color scale for ... (skip)` e non esisteva alcun WebP. Aggiunte `scales.precipitation_6h`
+    (18 bande 0, 0.2, 0.5, 1, 2, 3, 5, 8, 12, 16, 20, 30, 40, 60, 80, 100, 125, 150; banda
+    `[150, +inf)` di SATURAZIONE; unita' `mm in 6 h`) e `scales.snow_fraction_6h` (copia esatta di
+    `snow_fraction`: 7 bande 0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0; unita' `frazione 0-1`).
+  - Stessa grammatica visiva di `precipitation` (identica sequenza di 18 colori, prima banda
+    `[0,0.2)` trasparente), con le bande DIMENSIONATE sulla distribuzione reale: 1.198.911 celle
+    bagnate, p50 0.50, p90 2.90, p95 5.10, p99 14.80, p99.9 37.60, p99.99 90.59, max 216.60 mm;
+    sotto i 20 mm sta il 99% delle celle bagnate.
+  - Client: `FM_PRECIP6H_COLOR_SCALE` e `FM_SNOWFRAC6H_COLOR_SCALE` copiate dal JSON (breakpoints,
+    colori e unita', light == dark) e registrate in `FM_COLOR_SCALE_OVERRIDES`; legenda a 18 bande
+    con unita' `mm in 6 h` e 7 bande con `frazione 0-1`.
+  - Semantica dichiarata: `precipitation_6h` e' la SOMMA dei frame che tassellano le 6 ore
+    precedenti di valid_time (6 cornici a passo 1 h, 2 a passo 3 h, 1 a passo 6 h), non "gli ultimi
+    6 frame"; `snow_fraction_6h` e' PESATA sulla precipitazione, non la media delle frazioni
+    orarie; la soglia neve/pioggia non e' nel motore ne' nel client (la scala e' solo una legenda).
+  - Verifica: render reale (ARPEGE 0.25, 10 frame) 20 WebP in `italia` e 10 in `north`, zero skip;
+    non regressione 6/6 sha256 identici per `temperature_2m`, `pressure_msl`, `weather_code`,
+    `snowfall_water_equivalent`; `test_html_js_syntax.py` 1 passed; suite `.mjs` 19 PASS / 7
+    (stessa baseline di `main` con `data/` vuota), `test_fm_webp_palette_sync` 143/144.
+- NOTA: questo README era rimasto alla 1.2.4.27 perche' la 1.2.4.28 (fase neve, `weather_code`
+  categorico) aggiorno' solo il changelog in-app e `VERSION`. Viene riallineato qui.
+
+## Versione 1.2.4.28 (documentata solo in `VERSION` e nel changelog in-app)
+
+- File applicativo: `mri-light-1.2.4.28.html` (`APP_VERSION = '1.2.4.28'`), `VERSION` con
+  `BUILD=28`, `sw.js` con `CACHE_NAME = 'mri-1.2.4.28'`.
+- Contenuto: fase neve nel client con 4 etichette (`snowfall_water_equivalent`, `snow_fraction`,
+  `precipitation_6h`, `snow_fraction_6h`), scale della neve copiate dal JSON, `weather_code`
+  categorico a 45 bande con legenda a 7 famiglie, chiusura di due difetti preesistenti (id
+  duplicati, classi senza regola CSS). Il dettaglio completo e' nel changelog in-app e nel blocco
+  `VERSION` della 1.2.4.28: questa sezione e' ricostruita da quelle due fonti, non fu scritta
+  allora.
+
+## Versione 1.2.4.27 (storica)
 
 - File applicativo: `mri-light-1.2.4.27.html` (`APP_VERSION = '1.2.4.27'`; ultimo blocco
   changelog in-app `{ version: '1.2.4.27', date: '2026-10-26' }`) + `sw.js` (Service Worker,
