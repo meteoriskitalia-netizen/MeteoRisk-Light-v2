@@ -6,7 +6,39 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.31
+## Versione attiva: 1.2.4.32
+
+- File applicativo: `mri-light-1.2.4.32.html` (`APP_VERSION = '1.2.4.32'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.32', date: '2026-10-26' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.32'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+  `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
+- Contenuto della 1.2.4.32 (release sopra la 1.2.4.31) - **propagazione della legenda del
+  tratteggio neve**. Release di sola propagazione: nessuna variabile nuova, nessun cambio di
+  palette, nessuna modifica a `scripts/forecast_v2/*`.
+  - **La neve e' dentro le precipitazioni.** La legenda di `precipitation` e `precipitation_6h`
+    mostra due campioni di trama, con la geometria che il renderer cuoce nel WebP: barra inclinata
+    dove la frazione neve e' **0,5-0,8**, incrocio a X dove e' **oltre 0,8**.
+  - **Le soglie sono una scelta di prodotto**, non un dato del modello: la neve del modello arriva
+    fino a **+1,5 C**, quindi una linea netta neve/pioggia nei dati non esiste.
+  - **L'inchiostro cambia colore sul fondo** (scuro -> chiaro -> scuro piu' denso) per restare
+    leggibile su tutta la rampa: contrasto minimo misurato **3,06:1** su tutte le bande (misura del
+    renderer, non ripetuta in questa release).
+  - **Ordine del gruppo**: `precipitation_6h` e' la voce principale e `precipitation` la seconda,
+    perche' oltre il primo tratto del modello la variabile oraria non e' oraria (lo stesso numero
+    vale 1, 3 o 6 ore). `precipitation` si chiama ora **"Precipitazioni (passo del modello)"**.
+  - **Limite dichiarato**: il tratteggio non compare quando il client usa il raster `.om` invece
+    del WebP (primi minuti di una run nuova). Il renderer ha bumpato `WEBP_VERSION` a
+    `fm2-webp-2`: il tratteggio visivo arriva con la prossima rigenerazione dei WebP, senza
+    un'altra release.
+  - Verifica: `test_html_js_syntax.py` 1 passed; suite `.mjs` 28 file -> 21 PASS / 7 non-zero (gli
+    stessi 7 nomi della baseline); browser Edge headless via CDP sulla pagina servita (dominio
+    `dwd_icon_d2`, variabile "Precipitazioni 6 ore") con le due righe di trama visibili,
+    `precipitation_6h` prima voce del gruppo e controllo negativo a zero righe con
+    `temperature_2m`.
+- NON toccati: `scripts/forecast_v2/*`, `scripts/radar_engine/*`, `scripts/cronjobs/*`, i
+  workflow `forecast-maps-*.yml`, `satellite-engine.yml`, `color_scales.json`.
+
+## Versione 1.2.4.31 (storica)
 
 - File applicativo: `mri-light-1.2.4.31.html` (`APP_VERSION = '1.2.4.31'`; ultimo blocco
   changelog in-app `{ version: '1.2.4.31', date: '2026-10-26' }`) + `sw.js` (Service Worker,
