@@ -45,6 +45,43 @@ This script is standalone: the RENDER path only needs ``numpy``, ``omfiles`` and
 stored, not raised) so the ``--index-only`` mode (pure JSON/filesystem) works even
 in a bare Python env; the render path re-FATALS them on first use via
 ``_require_render_deps()`` with the same messages as before.
+
+Label font per region (1.2.4.26)
+--------------------------------
+``LABEL_FONT_PX`` (12 px) remains the historical size and the size still used
+by every region that is already legible at the client's scale. The NORTH strip
+is not: it is 2879x521 px (ncep_gfs025, 0.25 deg, upsampling x2), while the
+client map pane is 560 px tall (``#leaflet-map`` CSS). With Leaflet
+``fitBounds`` the displayed scale is ``min(panel_w / out_w, panel_h / out_h)``;
+for the strip the width binds (521 * (1008/2879) = 182 px < 560), so the scale
+is ``panel_w / out_w``. The measured desktop pane width is 1008-1382 px
+(fit factor 0.35-0.48 of the strip width); 0.35 is the WORST case and is the
+one used here. The Pillow default font has 9 px-high digits at 12 px
+(``getbbox("0123456789")`` -> height 9); the readability target is 7 px on
+screen, i.e. ``7 / 0.35 = 20`` px in the image, i.e.
+``12 * 20 / 9 = 26.7`` -> ~26 px (the value quoted by the study).  The size is
+NOT hard-coded: ``label_font_px`` inverts the metrics measured on THIS host
+(Pillow 12.3 gives 18 px digits at 26 px, ratio 0.69, not 0.75, and 20 px only
+at 29 px), so the empirical search lands on 29 px: with the same formula the
+result is the SMALLEST size that actually reaches 7.0 px on screen.  The
+hypothesis is a pane without padding that fits the image by its width (the
+vertical fit is not binding for the 2879x521 strip).  ``--label-font-px``
+forces one global size (0 = per-region auto); ``--label-font-px 12``
+reproduces the historical bytes.  Labels are kept inside the image (and inside
+the disc when enabled); the bound is enforced only when the font is enlarged,
+so the 12-px regions keep their historical output byte-for-byte.
+
+Polar disc for ``north`` (1.2.4.26)
+-----------------------------------
+``--north-projection disc`` renders the north region with a north-polar
+stereographic projection (edge at 20 N, circular alpha mask) instead of the
+Mercator strip. The DEFAULT is ``strip``: the client reprojects the strip
+pixel-by-pixel assuming a Mercator raster with lat/lon bounds, so a published
+disc would be distorted until the dedicated client path lands. The disc is
+sampled from the real domain data up to 90 N (the engine bbox reaches 90 N
+even though the Mercator strip stops at 85.0511 N), is ``--north-disc-size``
+px wide (default 1000), keeps Greenwich at the BOTTOM (same orientation as the
+client's polar canvas) and writes ``projection`` metadata in the manifests.
 """
 
 from __future__ import annotations
@@ -52,6 +89,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import datetime as _dt
+import functools
 import json
 import math
 import multiprocessing
@@ -341,6 +379,183 @@ def build_row_resampler(grid: dict, scale: int = 1):
 
 
 # --------------------------------------------------------------------------- #
+# North-polar stereographic disc (optional `north` projection, 1.2.4.26)
+#
+# Used ONLY with ``--north-projection disc`` (default: the Mercator strip).
+# The client's dedicated path does not exist yet, so the strip remains the
+# published default; the disc is an opt-in experiment whose manifests carry
+# explicit ``projection`` metadata.
+#
+# Convention: x = rho*sin(lon), y = rho*cos(lon) with row 0 at the TOP and
+# y growing downwards -> Greenwich (0 deg) at the BOTTOM, east to the RIGHT,
+# exactly like the client polar canvas (``fmPolarDrawOverlays`` uses
+# ``point(lat, lon) = [cx + R*rho*sin(lon), cy + R*rho*cos(lon)]``).
+# --------------------------------------------------------------------------- #
+NORTH_DISC_EDGE_LAT = 20.0        # bordo del disco (lat del raggio massimo)
+
+
+def polar_disc_geometry(size: int, edge_lat: float = NORTH_DISC_EDGE_LAT) -> dict:
+    """Pixel -> (lat, lon) for a north-polar stereographic disc of ``size`` px.
+
+    ``rho = tan((90-lat)/2) / tan((90-edge_lat)/2)`` is the stereographic radius
+    normalised at the ``edge_lat`` circle (rho=1 on the border, rho=0 at the
+    Pole). The mask is a HARD circle (alpha 0 outside; it is what the measured
+    encode cost refers to). Returns arrays of shape ``(size, size)``.
+    """
+    size = max(2, int(size))
+    c = (size - 1) * 0.5
+    jj, ii = np.mgrid[0:size, 0:size]
+    px = (ii - c) / c
+    py = (jj - c) / c
+    rho = np.hypot(px, py)
+    cap = math.tan(math.radians((90.0 - float(edge_lat)) * 0.5))
+    lat = 90.0 - 2.0 * np.degrees(np.arctan(rho * cap))
+    lon = np.degrees(np.arctan2(px, py))
+    return {
+        "size": size,
+        "center": c,
+        "radius": c,
+        "lat": lat,
+        "lon": lon,
+        "mask": rho <= 1.0 + 1e-9,
+        "cap": cap,
+    }
+
+
+def polar_overlay_grid(size: int) -> dict:
+    """``cgrid`` sentinel for the disc: sampled field and output are 1:1."""
+    size = int(size)
+    return {"nx": size, "ny": size, "dx": 1.0, "dy": 1.0,
+            "latMin": 0.0, "lonMin": 0.0, "map": "identity"}
+
+
+def polar_contour_grid(grid: dict, size: int, edge_lat: float) -> dict:
+    """``cgrid`` for the disc isolines: SOURCE grid + polar projection metadata.
+
+    Computing the contours on the source grid (e.g. 1440x281) instead of on the
+    1000x1000 disc raster keeps the marching-squares cost identical to the
+    strip (376k cells vs 1M) and projects every vertex with the exact
+    stereographic formula, so the isolines stay the real model isolines.
+    """
+    cg = dict(grid)
+    cg.update({"map": "polar", "size": int(size),
+               "edge_lat": float(edge_lat)})
+    return cg
+
+
+def _project_polar(cgrid: dict, x, y):
+    """Data-grid (col, row) -> disc pixel (px, py), stereographic projection."""
+    size = int(cgrid["size"])
+    c = (size - 1) * 0.5
+    cap = math.tan(math.radians((90.0 - float(cgrid["edge_lat"])) * 0.5))
+    lon = np.radians(float(cgrid["lonMin"]) + np.asarray(x) * float(cgrid["dx"]))
+    lat = float(cgrid["latMin"]) + np.asarray(y) * float(cgrid["dy"])
+    rho = np.tan(np.radians(np.clip(90.0 - lat, 0.0, 180.0)) * 0.5) / cap
+    return c + c * rho * np.sin(lon), c + c * rho * np.cos(lon)
+
+
+def polar_projection_meta(size: int, edge_lat: float, max_lat: float) -> dict:
+    """Serialisable description of the disc published in ``latest.json``."""
+    return {
+        "type": "polar_stereographic",
+        "center_lat": 90.0,
+        "central_lon": 0.0,
+        "lon_zero": "bottom",
+        "lon_positive": "east",
+        "edge_lat": float(edge_lat),
+        "max_lat": float(max_lat),
+        "size": int(size),
+        "radius_px": (int(size) - 1) * 0.5,
+        "formula": "rho = tan((90-lat)/2) / tan((90-edge_lat)/2)",
+        "client_orientation": "Greenwich at bottom, east to the right "
+                              "(fmPolarDrawOverlays canvas)",
+    }
+
+
+def build_polar_resampler(grid: dict, size: int,
+                          edge_lat: float = NORTH_DISC_EDGE_LAT):
+    """Return ``f(arr) -> (disc_field, mask)`` for the polar stereo disc.
+
+    ``arr`` is the cropped source frame ``(ny, nx)`` (row 0 = south) on the
+    domain grid; the output is ``(size, size)`` float32 with NaN outside the
+    data coverage. Bilinear weights are precomputed once (the disc does not
+    move); a pixel is emitted only when its four source corners are finite,
+    the same NaN policy as the Mercator upsampler. Longitudes are wrapped on
+    global grids so the 180 deg seam is sampled from the opposite edge.
+    """
+    ny = int(grid["ny"])
+    nx = int(grid["nx"])
+    dxg = float(grid["dx"])
+    dyg = float(grid["dy"])
+    lat0 = float(grid["latMin"])
+    lon0 = float(grid["lonMin"])
+    lat_n = lat0 + (ny - 1) * dyg
+    lon_e = lon0 + (nx - 1) * dxg
+
+    geo = polar_disc_geometry(size, edge_lat)
+    lat = geo["lat"]
+    lon = geo["lon"]
+    mask = geo["mask"]
+    row = (lat - lat0) / dyg
+    col = (lon - lon0) / dxg
+    if (lon_e - lon0) > 359.0:
+        # Global grid: 1440 columns (-180..179.75) need mod(nx); a 1441-column
+        # grid (-180..180, duplicated endpoint) needs mod(nx-1).
+        period = float(nx) if (nx - 1) * dxg < 360.0 - 1e-9 else float(nx - 1)
+        col = np.mod(col, period)
+    else:
+        period = None
+    row_ok = (row >= 0.0) & (row <= ny - 1 + 1e-9)
+    if period is not None:
+        # After mod() the column is ALWAYS inside [0, period): the historical
+        # ``col <= nx-1`` test would reject the last cell strip (lon 179.75..
+        # 180) and draw a transparent seam at the antimeridian.
+        col_ok = np.ones(col.shape, dtype=bool)
+    else:
+        col_ok = (col >= 0.0) & (col <= nx - 1 + 1e-9)
+    valid = mask & row_ok & col_ok
+    r0 = np.clip(np.floor(row).astype(np.int64), 0, ny - 1)
+    c0 = np.clip(np.floor(col).astype(np.int64), 0, nx - 1)
+    r1 = np.clip(r0 + 1, 0, ny - 1)
+    if period is not None:
+        # The 180 deg seam must interpolate between the last and the first
+        # column; clipping c1 to nx-1 would publish a visible 1-px seam.
+        c1 = np.mod(c0 + 1, int(period)).astype(np.int64)
+    else:
+        c1 = np.clip(c0 + 1, 0, nx - 1)
+    wr = (row - r0).astype(np.float32)
+    wc = (col - c0).astype(np.float32)
+    idx00 = (r0 * nx + c0).ravel()
+    idx01 = (r0 * nx + c1).ravel()
+    idx10 = (r1 * nx + c0).ravel()
+    idx11 = (r1 * nx + c1).ravel()
+    w00 = ((1.0 - wr) * (1.0 - wc)).ravel().astype(np.float32)
+    w01 = ((1.0 - wr) * wc).ravel().astype(np.float32)
+    w10 = (wr * (1.0 - wc)).ravel().astype(np.float32)
+    w11 = (wr * wc).ravel().astype(np.float32)
+    inside = valid.ravel()
+    out_shape = (int(geo["size"]), int(geo["size"]))
+
+    def resample_polar(arr):
+        a = np.asarray(arr)
+        if a.shape[0] != ny or a.shape[1] != nx:
+            raise ValueError("shape %r != grid (ny=%d, nx=%d)"
+                             % (tuple(a.shape), ny, nx))
+        flat = np.ascontiguousarray(a, dtype=np.float32).ravel()
+        v00 = flat[idx00]
+        v01 = flat[idx01]
+        v10 = flat[idx10]
+        v11 = flat[idx11]
+        ok = (inside & np.isfinite(v00) & np.isfinite(v01)
+              & np.isfinite(v10) & np.isfinite(v11))
+        out = v00 * w00 + v01 * w01 + v10 * w10 + v11 * w11
+        out = np.where(ok, out, np.float32(np.nan)).astype(np.float32)
+        return out.reshape(out_shape), mask
+
+    return resample_polar
+
+
+# --------------------------------------------------------------------------- #
 # Isolines (contours) and wind arrows baked into the WebP
 #
 # 1.2.4.13: il WebP pre-renderizzato non e' piu' "solo raster a bande": le
@@ -397,8 +612,18 @@ ARROW_VARS = {
 
 MAX_CONTOUR_LEVELS = 64           # cap sui livelli per variabile
 LABEL_MIN_SPACING_PX = 110.0      # spaziatura minima fra le etichette
-LABEL_FONT_PX = 12                # altezza del carattere (px di output)
+LABEL_FONT_PX = 12                # altezza del carattere (px di output), storico
 LABEL_MIN_POLYLINE_PX = 60.0      # sotto questa lunghezza il livello non e' etichettato
+
+# --- leggibilita' delle etichette a schermo (1.2.4.26) ---------------------
+# Pannello mappa del client: #leaflet-map { height: 560px } e larghezza desktop
+# misurata 1008-1382 px (fattore di visualizzazione 0.35-0.48 sulla striscia
+# north di 2879 px). Si usa il caso PEGGIORE (0.35) per dimensionare il font.
+PANEL_HEIGHT_PX = 560.0           # altezza CSS del pannello mappa
+PANEL_WIDTH_PX_MIN = 1008.0       # 0.35 * 2879 (fit factor misurato, caso peggiore)
+MIN_SCREEN_DIGIT_PX = 7.0         # altezza minima delle cifre a schermo
+DIGIT_PROBE = "0123456789"        # testo di calibrazione (stesse cifre delle etichette)
+LABEL_FONT_MAX_PX = 48            # tetto di sicurezza della ricerca del font
 CONTOUR_LINE_WIDTH = 1.2          # px (come lo strokeStyle del client)
 CONTOUR_ALPHA = 0.95              # opacita' delle isolinee (client: globalAlpha 0.95)
 CONTOUR_FALLBACK_COLOR = (15, 23, 42, 191)    # rgba(15,23,42,0.75) - inchiostro
@@ -417,6 +642,7 @@ OVERLAY_SIZE_LIMIT_LARGE = 3200
 OVERLAY_SUPERSAMPLE_SMALL = 2.0
 OVERLAY_SUPERSAMPLE_MEDIUM = 1.5
 OVERLAY_SUPERSAMPLE_LARGE = 1.0
+POLAR_OVERLAY_SUPERSAMPLE = 1.5   # disco 1000^2: 1.5x basta e costa 2,25 MP
 
 # Tabella dei 16 casi di marching squares: coppie di LATI da collegare.
 # Lati: 0 = ovest (fra z00 e z10), 1 = nord (fra z10 e z11), 2 = est (fra z01 e
@@ -600,6 +826,17 @@ def _grid_to_pixel(cgrid: dict, scale: int):
     dy = float(cgrid["dy"])
     lat_min = float(cgrid["latMin"])
     scale = max(1, int(scale))
+    if cgrid.get("map") == "identity":
+        # Polar disc: the sampled field is already in output pixels with a
+        # uniform (stereographic) spacing on BOTH axes -- no Mercator remap.
+        return (np.arange(ny, dtype=np.float64),
+                np.arange(nx, dtype=np.float64), ny, nx)
+    if cgrid.get("map") == "polar":
+        # Disc isolines: SOURCE grid, projected vertex by vertex; only the
+        # output size comes from the disc.
+        size = int(cgrid["size"])
+        return (np.arange(ny, dtype=np.float64),
+                np.arange(nx, dtype=np.float64), size, size)
     H = (ny - 1) * scale + 1
     W = (nx - 1) * scale + 1
     my_s = _merc_y(lat_min)
@@ -655,6 +892,64 @@ def _font(px):
         return ImageFont.load_default(size=px)
     except (TypeError, AttributeError, ValueError):
         return ImageFont.load_default()
+
+
+@functools.lru_cache(maxsize=128)
+def _font_digit_height(px: int) -> int:
+    """Ink height (px) of the digit probe at font size ``px`` (measured, cached)."""
+    px = max(1, int(px))
+    bb = _font(px).getbbox(DIGIT_PROBE)
+    if not bb:
+        return px
+    return max(1, int(bb[3] - bb[1]))
+
+
+def label_font_px(out_w: int, out_h: int, forced: int = 0, region: str | None = None) -> int:
+    """Font size (px) that keeps the digits >= ``MIN_SCREEN_DIGIT_PX`` on screen.
+
+    The client shows the WebP inside a 560-px-tall map pane with Leaflet
+    ``fitBounds``: the displayed scale is ``min(panel_w/out_w, panel_h/out_h)``.
+    For each rendered image the factor is computed from its OWN size, using the
+    worst-case pane width (``PANEL_WIDTH_PX_MIN``); then the smallest font whose
+    MEASURED digit height reaches ``MIN_SCREEN_DIGIT_PX / factor`` is chosen.
+    A forced positive value (``--label-font-px``) bypasses the computation and
+    reproduces the historical output when it is 12.
+
+    Only the ``north`` region is auto-scaled: the measured factors of
+    ``europa`` (0.90) and ``italia`` (1.10) already keep 12 px above the target,
+    and the ``domain`` region is explicitly kept at the historical 12 px (it
+    must stay byte-identical; its factor varies with the model grid).  When
+    ``region`` is None the formula is applied to any size (used by tests).
+
+    This is the inverse of the formula quoted in the module docstring
+    (7 px / 0.35 = 20 px of digits, i.e. ~26 px with the nominal 9/12 ratio);
+    the search uses the real font metrics of the host instead of an assumed
+    ratio, so it returns 29 px with Pillow 12.3 (18 px digits at 26 px, 20 px
+    only at 29 px).
+    """
+    try:
+        forced = int(forced or 0)
+    except (TypeError, ValueError):
+        forced = 0
+    if forced > 0:
+        return forced
+    if region is not None and region != NORTH_REGION:
+        return LABEL_FONT_PX
+    out_w = int(out_w)
+    out_h = int(out_h)
+    if out_w <= 0 or out_h <= 0:
+        return LABEL_FONT_PX
+    factor = min(float(PANEL_WIDTH_PX_MIN) / float(out_w),
+                 float(PANEL_HEIGHT_PX) / float(out_h))
+    if not (factor > 0.0):
+        return LABEL_FONT_PX
+    need = float(MIN_SCREEN_DIGIT_PX) / factor
+    if need <= float(_font_digit_height(LABEL_FONT_PX)):
+        return LABEL_FONT_PX
+    for px in range(LABEL_FONT_PX + 1, LABEL_FONT_MAX_PX + 1):
+        if float(_font_digit_height(px)) >= need - 1e-9:
+            return px
+    return LABEL_FONT_MAX_PX
 
 
 def _draw_label(draw, x, y, text, font, halo_r=1):
@@ -759,14 +1054,49 @@ def _min_distance(placed, c):
     return best
 
 
+def _label_bbox_px(font, text, ss):
+    """Text bbox in OUTPUT pixels (the font is built at ``font_px * ss``)."""
+    bb = font.getbbox(text)
+    if not bb:
+        return (0.0, 0.0, 0.0, 0.0)
+    return (bb[0] / ss, bb[1] / ss, bb[2] / ss, bb[3] / ss)
+
+
+def _label_fits(x, y, bb, W, H, clip_circle=None):
+    """True when the text bbox drawn at ``(x, y)`` stays inside the raster.
+
+    ``bb`` is in output pixels and already includes the glyph bearings; the
+    anchor is the Pillow default top-left anchor (``la``). ``clip_circle`` is
+    ``(cx, cy, radius)`` in output pixels for the polar disc.
+    """
+    x0 = x + bb[0]
+    x1 = x + bb[2]
+    y0 = y + bb[1]
+    y1 = y + bb[3]
+    if x0 < 0.0 or y0 < 0.0 or x1 > float(W) or y1 > float(H):
+        return False
+    if clip_circle is not None:
+        cx, cy, r = clip_circle
+        for px, py in ((x0, y0), (x1, y0), (x0, y1), (x1, y1)):
+            if math.hypot(px - cx, py - cy) > r:
+                return False
+    return True
+
+
 def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=None,
-                   force_labels=False):
+                   force_labels=False, font_px=None, clip_circle=None):
     """Draw the isolines of ``sub`` (and their VALUE labels) on ``draw``.
 
     ``draw`` is an ImageDraw on the SUPERSAMPLED overlay: every coordinate is
     multiplied by ``ss``. Returns ``{"levels": [...], "labels": [...]}`` with the
     levels actually drawn and the ``(level, x, y)`` anchors of the labels (in
     OUTPUT pixel coordinates).
+
+    ``font_px`` is the per-region label size (``None`` = historical 12 px);
+    ``clip_circle`` is ``(cx, cy, radius)`` in OUTPUT pixels for the polar disc.
+    When the font is enlarged the anchor is constrained so the text stays
+    inside the image; at 12 px (and without a disc) the historical placement is
+    left untouched (byte-identical output).
     """
     empty = {"levels": [], "labels": []}
     if sub is None:
@@ -785,7 +1115,9 @@ def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=No
     row_of, col_of, H, W = _grid_to_pixel(cgrid, scale)
     if placed is None:
         placed = []
-    font = _font(max(1, int(round(LABEL_FONT_PX * ss))))
+    font_out = max(1, int(font_px or LABEL_FONT_PX))
+    font = _font(max(1, int(round(font_out * ss))))
+    enforce_bounds = clip_circle is not None or font_out > LABEL_FONT_PX
     width = max(1, int(round(CONTOUR_LINE_WIDTH * ss)))
     drawn_levels = []
     drawn_labels = []
@@ -793,8 +1125,12 @@ def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=No
         segs = contour_segments(z, level)
         if len(segs) < 2:
             continue
-        px0, py0 = _data_to_pixel(row_of, col_of, scale, segs[:, 0], segs[:, 1])
-        px1, py1 = _data_to_pixel(row_of, col_of, scale, segs[:, 2], segs[:, 3])
+        if cgrid.get("map") == "polar":
+            px0, py0 = _project_polar(cgrid, segs[:, 0], segs[:, 1])
+            px1, py1 = _project_polar(cgrid, segs[:, 2], segs[:, 3])
+        else:
+            px0, py0 = _data_to_pixel(row_of, col_of, scale, segs[:, 0], segs[:, 1])
+            px1, py1 = _data_to_pixel(row_of, col_of, scale, segs[:, 2], segs[:, 3])
         seg_px = np.stack([px0, py0, px1, py1], axis=1)
         lines = _chain_segments(seg_px)
         if not lines:
@@ -833,6 +1169,21 @@ def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=No
             # Ogni livello DEVE avere il valore scritto sull'immagine: se la
             # spaziatura lo impedisce, si tiene il candidato piu' lontano.
             chosen = [max(candidates, key=lambda c: _min_distance(placed, c))]
+        if enforce_bounds and chosen:
+            bb = _label_bbox_px(font, text, ss)
+            inside = [c for c in chosen
+                      if _label_fits(c[0], c[1], bb, W, H, clip_circle)]
+            if not inside:
+                # No anchor of the "spacing" subset fits: fall back to ANY
+                # anchor of the level that fits (still ON its own isoline) and
+                # drop the label only when the whole line runs outside the
+                # raster/disc.
+                fit_any = [c for c in candidates
+                           if _label_fits(c[0], c[1], bb, W, H, clip_circle)]
+                if fit_any:
+                    inside = [max(fit_any,
+                                  key=lambda c: _min_distance(placed, c))]
+            chosen = inside
         for c in chosen:
             placed.append(c)
             drawn_labels.append((level, c[0], c[1]))
@@ -871,7 +1222,8 @@ def _unwrap_direction(deg):
     return np.degrees(rad)
 
 
-def _draw_wind_arrows(draw, speed_px, dir_px, cgrid, scale, speed_ref, ss=1.0):
+def _draw_wind_arrows(draw, speed_px, dir_px, cgrid, scale, speed_ref, ss=1.0,
+                      polar=False):
     """Draw the wind arrows on ``draw`` (supersampled overlay).
 
     ``speed_px``/``dir_px`` are the resampled fields in OUTPUT pixel space
@@ -879,6 +1231,11 @@ def _draw_wind_arrows(draw, speed_px, dir_px, cgrid, scale, speed_ref, ss=1.0):
     direction "from". The arrows are sampled on a coarse lattice (every
     ``ARROW_STEP_PX`` output pixels, at least 3 data cells). Returns the number
     of arrows drawn.
+
+    ``polar`` rotates the flow into the north-polar stereographic frame used by
+    the disc: north points towards the pole (radially inward) and east runs
+    counter-clockwise, so the pixel flow is ``(sin(lon - dir), cos(lon - dir))``
+    with Greenwich at the BOTTOM (same convention as the client polar canvas).
     """
     if speed_px is None or dir_px is None:
         return 0
@@ -904,7 +1261,14 @@ def _draw_wind_arrows(draw, speed_px, dir_px, cgrid, scale, speed_ref, ss=1.0):
     ref = float(speed_ref) if speed_ref else 40.0
     if not (ref > 0.0):
         ref = 40.0
-    ux, uy = _wind_flow_vector(dd)
+    if polar:
+        cx = (W - 1) * 0.5
+        cy = (H - 1) * 0.5
+        lam = np.degrees(np.arctan2(col_px[None, :] - cx, row_px[:, None] - cy))
+        ang = np.radians(lam - dd)
+        ux, uy = np.sin(ang), np.cos(ang)
+    else:
+        ux, uy = _wind_flow_vector(dd)
     ratio = np.clip(sp / ref, 0.0, 1.0)
     length = ARROW_LEN_MIN + (ARROW_LEN_MAX - ARROW_LEN_MIN) * ratio
     head_len = ARROW_HEAD_RATIO * length
@@ -964,17 +1328,23 @@ def _make_overlay(h, w, ss, draw_fn):
     return layer
 
 
-def _apply_overlay(base_rgba, draw_fn):
+def _apply_overlay(base_rgba, draw_fn, ss=None):
     """Composite the overlay on the base raster (the base is NEVER resampled).
 
     The overlay is drawn on a separate RGBA layer (supersampled), resized with
     LANCZOS to the base size and alpha-composited: the pixels where the layer
     is completely transparent stay byte-identical to the base raster.
+    ``ss`` overrides the automatic supersampling factor (the polar disc uses
+    1.5x: its 1000x1000 raster with a 2x layer would cost 4 MP per variable,
+    more than the 2879x521 strip at 1.5x).
     """
     arr = np.asarray(base_rgba)
     h = int(arr.shape[0])
     w = int(arr.shape[1])
-    ss = _overlay_scale(h, w)
+    if ss is None:
+        ss = _overlay_scale(h, w)
+    else:
+        ss = max(1.0, float(ss))
     layer = _make_overlay(h, w, ss, draw_fn)
     base = Image.fromarray(arr, "RGBA")
     return np.asarray(Image.alpha_composite(base, layer))
@@ -982,21 +1352,30 @@ def _apply_overlay(base_rgba, draw_fn):
 
 def _overlay_drawer(sub, cgrid, scale, variant, interval, placed,
                     force_labels=False,
-                    speed_out=None, dir_out=None, speed_ref=0.0):
+                    speed_out=None, dir_out=None, speed_ref=0.0,
+                    font_px=None, clip_circle=None, polar=False,
+                    arrow_grid=None, arrow_scale=None):
     """Build the draw callback of the overlay (isolines + wind arrows).
 
     ``sub`` is the data-grid field (for the isolines), ``speed_out``/
     ``dir_out`` are the OUTPUT-raster fields (for the arrows). The callback
     receives the ImageDraw of the supersampled layer and the supersampling
-    factor.
+    factor. ``font_px``/``clip_circle`` are forwarded to the label drawing;
+    ``polar`` switches the arrow rotation to the polar-stereographic frame.
+    ``arrow_grid``/``arrow_scale`` decouple the arrow sampling grid from the
+    isoline grid (the disc contours use the SOURCE grid, the arrows use the
+    1000x1000 sampled raster).
     """
     def _draw(draw, ss):
         if interval is not None:
             _draw_contours(draw, sub, cgrid, scale, variant, interval,
-                           ss=ss, placed=placed, force_labels=force_labels)
+                           ss=ss, placed=placed, force_labels=force_labels,
+                           font_px=font_px, clip_circle=clip_circle)
         if speed_out is not None and dir_out is not None:
-            _draw_wind_arrows(draw, speed_out, dir_out, cgrid, scale, speed_ref,
-                              ss=ss)
+            _draw_wind_arrows(draw, speed_out, dir_out,
+                              arrow_grid if arrow_grid is not None else cgrid,
+                              arrow_scale if arrow_scale is not None else scale,
+                              speed_ref, ss=ss, polar=polar)
     return _draw
 
 
@@ -1227,16 +1606,42 @@ def _crop_spec(crops: dict) -> dict:
             "col1": crop["col1"],
             "grid": crop["grid"],
             "scale": crop["scale"],
+            "font_px": int(crop.get("font_px") or 0),
         }
+        if crop.get("kind") == "polar":
+            spec[rname].update({
+                "kind": "polar",
+                "disc_size": int(crop["disc_size"]),
+                "edge_lat": float(crop["edge_lat"]),
+                "max_lat": float(crop["max_lat"]),
+            })
     return spec
+
+
+def _finalise_crop(item: dict) -> dict:
+    """Build the unpicklable parts of a crop (resampler + overlay geometry)."""
+    if item.get("kind") == "polar":
+        size = int(item["disc_size"])
+        item["resample"] = build_polar_resampler(item["grid"], size,
+                                                 item["edge_lat"])
+        # Isolines: SOURCE grid projected vertex by vertex (same cost as the
+        # strip). Arrows: 1000x1000 sampled raster with an identity grid.
+        item["overlay_grid"] = polar_contour_grid(item["grid"], size,
+                                                  item["edge_lat"])
+        item["arrow_grid"] = polar_overlay_grid(size)
+        item["center"] = (size - 1) * 0.5
+        item["radius"] = item["center"]
+        item["projection"] = polar_projection_meta(size, item["edge_lat"],
+                                                   item["max_lat"])
+    else:
+        item["resample"] = build_row_resampler(item["grid"], item["scale"])
+    return item
 
 
 def _crops_from_spec(spec: dict) -> dict:
     crops = {}
     for rname, crop in spec.items():
-        item = dict(crop)
-        item["resample"] = build_row_resampler(item["grid"], item["scale"])
-        crops[rname] = item
+        crops[rname] = _finalise_crop(dict(crop))
     return crops
 
 
@@ -1335,8 +1740,22 @@ def _render_var_task(payload) -> dict:
     files = []
     for rname, crop in st["crops"].items():
         sub = arr[crop["row0"]:crop["row1"], crop["col0"]:crop["col1"]]
-        arr_out = crop["resample"](sub)
+        polar = crop.get("kind") == "polar"
+        mask = None
+        if polar:
+            arr_out, mask = crop["resample"](sub)
+            overlay_grid = crop["overlay_grid"]
+            overlay_scale = 1
+            clip_circle = (crop["center"], crop["center"], crop["radius"])
+        else:
+            arr_out = crop["resample"](sub)
+            overlay_grid = crop["grid"]
+            overlay_scale = crop["scale"]
+            clip_circle = None
         rgba = lk(arr_out)
+        if mask is not None:
+            # Polar disc: HARD circular alpha mask (0 outside the 20N circle).
+            rgba[~mask] = 0
 
         # Isolines (with values) and wind arrows are drawn on a separate RGBA
         # layer and alpha-composited: the base raster is NEVER resampled.
@@ -1345,12 +1764,19 @@ def _render_var_task(payload) -> dict:
             if dir_arr is not None:
                 dsub = dir_arr[crop["row0"]:crop["row1"],
                                crop["col0"]:crop["col1"]]
-                dir_out = crop["resample"](dsub)
+                if polar:
+                    dir_out = crop["resample"](dsub)[0]
+                else:
+                    dir_out = crop["resample"](dsub)
             rgba = _apply_overlay(rgba, _overlay_drawer(
-                sub, crop["grid"], crop["scale"], variant, interval,
-                [], force_labels=force_labels,
+                sub, overlay_grid, overlay_scale,
+                variant, interval, [], force_labels=force_labels,
                 speed_out=arr_out if dir_out is not None else None,
-                dir_out=dir_out, speed_ref=speed_ref))
+                dir_out=dir_out, speed_ref=speed_ref,
+                font_px=crop.get("font_px"), clip_circle=clip_circle,
+                polar=polar, arrow_grid=crop.get("arrow_grid"),
+                arrow_scale=1 if polar else None),
+                ss=POLAR_OVERLAY_SUPERSAMPLE if polar else None)
 
         vdir = _theme_var_dir(st["out_root"], rname, st["domain"], var, "light",
                               st["run_id"])
@@ -1472,6 +1898,13 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
         return 0, 0, None, {}, 0, 0
 
     # Pre-compute the per-region crop + Mercator resampler for this domain.
+    forced_font = int(getattr(args, "label_font_px", 0) or 0)
+    north_projection = str(getattr(args, "north_projection", "strip") or "strip")
+    try:
+        disc_size = int(getattr(args, "north_disc_size", 1000) or 1000)
+    except (TypeError, ValueError):
+        disc_size = 1000
+    disc_size = max(64, min(disc_size, 4000))
     crops = {}
     for rname in regions:
         if (rname == DOMAIN_REGION and DOMAIN_REGION_SKIP_GLOBAL
@@ -1485,17 +1918,44 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
         if cr is None:
             continue
         row0, row1, col0, col1, cgrid = cr
+        if rname == NORTH_REGION and north_projection == "disc":
+            max_lat = (float(cgrid["latMin"])
+                       + (int(cgrid["ny"]) - 1) * float(cgrid["dy"]))
+            if max_lat < 89.9:
+                print("  ! north disc: il dominio arriva a %.3fN, il polo "
+                      "(90N) resta trasparente" % max_lat, file=sys.stderr)
+            crops[rname] = _finalise_crop({
+                "kind": "polar",
+                "row0": row0, "row1": row1, "col0": col0, "col1": col1,
+                "grid": cgrid,
+                "scale": 1,
+                "disc_size": disc_size,
+                "edge_lat": NORTH_DISC_EDGE_LAT,
+                "max_lat": min(90.0, max_lat),
+                "font_px": label_font_px(disc_size, disc_size, forced_font,
+                                         region=rname),
+            })
+            continue
         scale = resolve_upsample(args, cgrid["nx"], cgrid["ny"])
-        crops[rname] = {
+        out_w = (int(cgrid["nx"]) - 1) * scale + 1
+        out_h = (int(cgrid["ny"]) - 1) * scale + 1
+        crops[rname] = _finalise_crop({
             "row0": row0, "row1": row1, "col0": col0, "col1": col1,
             "grid": cgrid,
-            "resample": build_row_resampler(cgrid, scale),
             "scale": scale,
-        }
+            "font_px": label_font_px(out_w, out_h, forced_font, region=rname),
+        })
     if not crops:
         return 0, 0, "no region intersection", {}, 0, 0
+
+    def _crop_label(name):
+        crop = crops[name]
+        if crop.get("kind") == "polar":
+            return "%s disc %d" % (name, crop["disc_size"])
+        return "%s x%d" % (name, crop["scale"])
+
     print("  [upsample] %s"
-          % ", ".join("%s x%d" % (r, crops[r]["scale"]) for r in crops))
+          % ", ".join(_crop_label(r) for r in crops))
 
     # Worker pool (processes). The state is initialised in the parent too so
     # the serial path and the BrokenProcessPool fallback can run the EXACT
@@ -1656,6 +2116,7 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
             continue
         cgrid = crops[rname]["grid"]
         cbbox = cropped_bbox(cgrid)
+        projection = crops[rname].get("projection")
         grid_summary = {"nx": int(cgrid["nx"]), "ny": int(cgrid["ny"])}
         bounds = image_bounds(cbbox)
         variables = {}
@@ -1689,6 +2150,8 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                     "frames": recs,
                     "valid_times": [r["valid_time"] for r in recs],
                 }
+                if projection:
+                    vmanifest["projection"] = projection
                 write_json(os.path.join(vdir, "latest.json"), vmanifest)
                 sub = "%s/runs/%s/%s" % (domain, run_id, var)
                 entry["themes"][theme] = {
@@ -1713,12 +2176,17 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
             }],
             "variables": variables,
         }
+        if projection:
+            # Polar disc: the geographic bbox is NOT a Mercator image extent.
+            # The client must switch to the dedicated polar path when this key
+            # is present (the default strip path never writes it).
+            contrib[rname]["projection"] = projection
 
     return rendered, skipped, None, contrib, frames_done, bytes_written
 
 
 def write_region_index(out_root: str, region_name: str, region_bbox, domains: dict,
-                       themes) -> None:
+                       themes, projection=None) -> None:
     """Write ``<out>/<region>/index.json`` summarising the published domains."""
     if region_bbox is None:
         # 'domain' sentinel: there is no single fixed region bbox -> use the
@@ -1750,6 +2218,8 @@ def write_region_index(out_root: str, region_name: str, region_bbox, domains: di
         },
         "domains": domains,
     }
+    if projection:
+        index["projection"] = projection
     rdir = os.path.join(out_root, region_name)
     os.makedirs(rdir, exist_ok=True)
     write_json(os.path.join(rdir, "index.json"), index)
@@ -1794,7 +2264,7 @@ def _collect_index_run(run_root: str, out_dir: str, region: str, domain: str,
     variables = {}
     ref_time = generated_at = None
     expected = 0
-    bbox = bounds = grid = None
+    bbox = bounds = grid = projection = None
     for var in sorted(os.listdir(run_root)):
         var_dir = os.path.join(run_root, var)
         if not os.path.isdir(var_dir):
@@ -1833,6 +2303,7 @@ def _collect_index_run(run_root: str, out_dir: str, region: str, domain: str,
             bbox = bbox or vman.get("bbox")
             bounds = bounds or vman.get("bounds")
             grid = grid or vman.get("grid")
+            projection = projection or vman.get("projection")
             sub = ("%s/%s" % (domain, var) if legacy else
                    "%s/runs/%s/%s" % (domain, run_id, var))
             entry["dir"] = sub
@@ -1853,7 +2324,7 @@ def _collect_index_run(run_root: str, out_dir: str, region: str, domain: str,
               for v in variables.values()]
     actual = max(counts) if counts else 0
     pct = round(100.0 * min(actual, expected) / expected, 1) if expected else 100.0
-    return {
+    rec = {
         "id": run_id,
         "reference_time": ref_time,
         "generated_at": generated_at,
@@ -1865,9 +2336,13 @@ def _collect_index_run(run_root: str, out_dir: str, region: str, domain: str,
         "bounds": bounds,
         "grid": grid,
     }
+    if projection:
+        rec["projection"] = projection
+    return rec
 
 
-def rebuild_index(in_dir: str, out_dir: str, domain_list, region_names, themes) -> int:
+def rebuild_index(in_dir: str, out_dir: str, domain_list, region_names, themes,
+                  region_bboxes=None) -> int:
     """Rebuild ``<out>/<region>/index.json`` from the existing per-var manifests.
 
     ``--index-only`` mode (single-writer merge job): NO rendering, pure
@@ -1884,7 +2359,7 @@ def rebuild_index(in_dir: str, out_dir: str, domain_list, region_names, themes) 
     """
     written = 0
     for rname in region_names:
-        region_bbox = REGIONS[rname]
+        region_bbox = (region_bboxes or REGIONS)[rname]
         index_domains = {}
         region_themes = set()
         for domain in domain_list:
@@ -1918,6 +2393,7 @@ def rebuild_index(in_dir: str, out_dir: str, domain_list, region_names, themes) 
                 legacy_ref = legacy_generated = None
                 legacy_expected = 0
                 legacy_bbox = legacy_bounds = legacy_grid = None
+                legacy_projection = None
                 for var in legacy_dirs:
                     var_dir = os.path.join(region_var_root, var)
                     valid_manifests = []
@@ -1939,6 +2415,7 @@ def rebuild_index(in_dir: str, out_dir: str, domain_list, region_names, themes) 
                     legacy_bbox = legacy_bbox or vm.get("bbox")
                     legacy_bounds = legacy_bounds or vm.get("bounds")
                     legacy_grid = legacy_grid or vm.get("grid")
+                    legacy_projection = legacy_projection or vm.get("projection")
                     var_entry = {"unit": vm.get("unit"), "dir": "%s/%s" % (domain, var), "themes": {}}
                     for theme, tman in valid_manifests:
                         var_entry["themes"][theme] = {
@@ -1953,7 +2430,7 @@ def rebuild_index(in_dir: str, out_dir: str, domain_list, region_names, themes) 
                                      for v in legacy_vars.values()]
                     legacy_actual = max(legacy_counts) if legacy_counts else 0
                     legacy_ref = legacy_ref or legacy_generated
-                    runs.append({
+                    legacy_run = {
                         "id": "legacy-" + _run_id(legacy_ref),
                         "reference_time": legacy_ref,
                         "generated_at": legacy_generated,
@@ -1962,7 +2439,10 @@ def rebuild_index(in_dir: str, out_dir: str, domain_list, region_names, themes) 
                         "completion_pct": round(100.0 * min(legacy_actual, legacy_expected) / legacy_expected, 1) if legacy_expected else 100.0,
                         "variables": legacy_vars,
                         "bbox": legacy_bbox, "bounds": legacy_bounds, "grid": legacy_grid,
-                    })
+                    }
+                    if legacy_projection:
+                        legacy_run["projection"] = legacy_projection
+                    runs.append(legacy_run)
             runs.sort(key=lambda r: str(r.get("reference_time") or r.get("id") or ""), reverse=True)
             runs = runs[:3]
             if not runs:
@@ -1983,13 +2463,22 @@ def rebuild_index(in_dir: str, out_dir: str, domain_list, region_names, themes) 
                 "current_run": latest_run["id"],
                 "runs": runs,
             }
+            dom_projection = latest_run.get("projection")
+            if dom_projection:
+                index_domains[domain]["projection"] = dom_projection
 
         if not index_domains:
             print("[index] %s: NESSUN dominio valido -> index.json NON scritto"
                   % rname)
             continue
         theme_list = [t for t in themes if t in region_themes]
-        write_region_index(out_dir, rname, region_bbox, index_domains, theme_list)
+        region_projection = None
+        for dom_entry in index_domains.values():
+            if dom_entry.get("projection"):
+                region_projection = dom_entry["projection"]
+                break
+        write_region_index(out_dir, rname, region_bbox, index_domains, theme_list,
+                           projection=region_projection)
         print("[index] %s: index.json scritto (%d domini: %s)"
               % (rname, len(index_domains), ", ".join(sorted(index_domains))))
         written += 1
@@ -2047,6 +2536,20 @@ def parse_args(argv=None):
                          "manifests; no rendering (works without numpy/Pillow/omfiles)")
     ap.add_argument("--watch-manifest", default=None,
                     help="wait for atomically announced .om frames in an engine progress manifest")
+    ap.add_argument("--label-font-px", type=int, default=0,
+                    help="force ONE label font size in output pixels (0 = per-region "
+                         "auto: the north strip is enlarged so the digits stay >= "
+                         "%.0f px in the client pane; 12 = historical bytes)"
+                         % MIN_SCREEN_DIGIT_PX)
+    ap.add_argument("--north-projection", choices=("strip", "disc"), default="strip",
+                    help="projection of the 'north' region: 'strip' = historical Web "
+                         "Mercator strip (default, what the client knows how to "
+                         "reproject), 'disc' = north-polar stereographic disc with a "
+                         "20N circular mask (experimental, the client has no dedicated "
+                         "path for it yet)")
+    ap.add_argument("--north-disc-size", type=int, default=1000,
+                    help="side in px of the north polar disc (default 1000; clamped "
+                         "to 64..4000)")
     return ap.parse_args(argv)
 
 
@@ -2077,6 +2580,13 @@ def main(argv=None) -> int:
                   % (name, ",".join(REGIONS)), file=sys.stderr)
             return 2
         regions[name] = REGIONS[name]
+
+    # The polar disc spans the real data up to 90 N (the engine bbox reaches the
+    # Pole); the Mercator strip stops at 85.0511 N by definition. The same bbox
+    # is used by the renderer, the region index and --index-only.
+    region_bboxes = dict(regions)
+    if args.north_projection == "disc" and NORTH_REGION in region_bboxes:
+        region_bboxes[NORTH_REGION] = (NORTH_DISC_EDGE_LAT, -180.0, 90.0, 180.0)
 
     in_dir = os.path.abspath(args.in_dir)
     out_dir = os.path.abspath(args.out_dir)
@@ -2110,7 +2620,8 @@ def main(argv=None) -> int:
                   "(comma-separated rendered shard domains)", file=sys.stderr)
             return 2
         os.makedirs(out_dir, exist_ok=True)
-        written = rebuild_index(in_dir, out_dir, args.domains, region_names, themes)
+        written = rebuild_index(in_dir, out_dir, args.domains, region_names, themes,
+                                region_bboxes=region_bboxes)
         if not written:
             print("[index] nessuna regione ha un dominio valido: nulla pubblicato.",
                   file=sys.stderr)
@@ -2146,7 +2657,7 @@ def main(argv=None) -> int:
         t0 = time.perf_counter()
         try:
             ok, skipped, err, contrib, nframes, nbytes = render_domain(
-                ddir, out_dir, scales, args, regions)
+                ddir, out_dir, scales, args, region_bboxes)
         except Exception:
             print("  ! domain %s crashed:" % domain, file=sys.stderr)
             traceback.print_exc()
@@ -2169,7 +2680,14 @@ def main(argv=None) -> int:
 
     if total_ok > 0:
         for rname in regions:
-            write_region_index(out_dir, rname, regions[rname], index_domains[rname], args.themes)
+            region_projection = None
+            for dom_entry in index_domains[rname].values():
+                if dom_entry.get("projection"):
+                    region_projection = dom_entry["projection"]
+                    break
+            write_region_index(out_dir, rname, region_bboxes[rname],
+                               index_domains[rname], args.themes,
+                               projection=region_projection)
 
         # Publish the exact color scales the renderer used so the client legend and
         # the raster agree (single source of truth in the cache root).
