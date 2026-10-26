@@ -11909,22 +11909,72 @@ function fmPolarCapColor(capMean, rowColor, lat, north) {
 function fmPolarNormalizeProjection(value) {
     return String(value || '').toLowerCase() === 'stereographic' ? 'stereographic' : 'mercator';
 }
-function fmRegionProjection(dom) {
+// 1.2.4.31 - LA PROIEZIONE E' PROPRIETA' DEL FRAME.
+// Il disco polare si attiva da un campo dei DATI, non da una costante: la proiezione
+// della RUN che ha prodotto il frame che si sta per scaricare. Precedenza:
+//   frame della timeline -> run dell'index -> dominio (index, poi timeline) ->
+//   regione (timeline, poi index) -> 'mercator'.
+// Perche' non basta il dominio: `ecmwf_ifs025`/`north` aveva DUE run con proiezioni
+// diverse (20261025T120000Z striscia 2879x521, 20261025T180000Z disco 1000x1000) e
+// il dominio dichiarava 'stereographic': i 36 frame della run vecchia venivano
+// disegnati come disco (accordo misurato 4,23% invece di 99,96%).
+// Solo STRINGHE: un oggetto (forma dei primi build del disco) si ignora.
+function fmProjectionConflictOnce(key, frameProjection, indexProjection) {
+    var seen = fmProjectionConflictOnce._seen || (fmProjectionConflictOnce._seen = {});
+    if (seen[key]) return;
+    seen[key] = true;
+    try {
+        if (typeof console !== 'undefined' && console && console.warn) {
+            console.warn('[fm] projection discordante (' + key + '): vince il frame ' + frameProjection + ', index ' + indexProjection);
+        }
+    } catch (e) { }
+}
+function fmRegionProjection(dom, frameEntry) {
     var entry = dom || ((typeof fmRunDomainEntry === 'function') ? fmRunDomainEntry() : null);
-    var raw = entry && typeof entry.projection === 'string' ? entry.projection : null;
-    // 1.2.4.30: la timeline scrive `projection` anche A LIVELLO DOMINIO
-    // (domains.<dominio>.projection), quindi si legge PRIMA della chiave di regione.
-    // Quest'ultima la scrive il generatore SOLO se tutti i domini concordano: con uno
-    // stato misto e' assente apposta, e senza questa riga un disco polare restava
-    // 'mercator' finche' index.json non arrivava (la striscia veniva disegnata come
-    // disco). Solo STRINGHE: un oggetto (forma dei primi build del disco) si ignora.
-    if (!raw && typeof fmTimeline !== 'undefined' && fmTimeline && fmTimeline.domains && typeof fmDomain === 'string' && fmDomain) {
+    // 1. Il FRAME (timeline): e' il file che si sta per scaricare, quindi vince.
+    var raw = frameEntry && typeof frameEntry.projection === 'string' ? frameEntry.projection : null;
+    // 2. La RUN dell'index: quella del frame (run_id) o la run selezionata.
+    var run = null;
+    var frameRunId = (frameEntry && typeof frameEntry.run_id === 'string' && frameEntry.run_id)
+        ? frameEntry.run_id : null;
+    if (frameRunId && typeof fmRunRecordForId === 'function') run = fmRunRecordForId(frameRunId);
+    // Con un frame di timeline il run_id e' AUTOREVOLE: se quella run non e' piu'
+    // nell'index (potata) non si usa la run selezionata, che e' un'altra run.
+    if (!run && !frameRunId && typeof fmSelectedRun === 'function') run = fmSelectedRun();
+    // `runKnown`: la run e' nell'index. Se e' nota e NON dichiara `projection`, la sua
+    // proiezione e' 'mercator' (il default del renderer): NON si scende al dominio,
+    // che potrebbe essere il disco della run piu' recente. E' lo stesso difetto del
+    // frame un livello piu' su (misurato sulla run `20261025T120000Z` senza chiave).
+    var runKnown = !!run;
+    var runRaw = run && typeof run.projection === 'string' ? run.projection : null;
+    if (!raw && runRaw) raw = runRaw;
+    var runIsMercator = !raw && runKnown;
+    // 3. Il DOMINIO dell'index (fallback quando la run non e' indicizzata).
+    if (!raw && !runIsMercator && entry && typeof entry.projection === 'string') raw = entry.projection;
+    // 4. Il DOMINIO della timeline (fix 1.2.4.30), per index.json non ancora arrivato.
+    // La chiave c'e' SOLO se tutte le run del dominio concordano, quindi non puo'
+    // contraddire il frame di una run vecchia.
+    if (!raw && !runIsMercator && typeof fmTimeline !== 'undefined' && fmTimeline && fmTimeline.domains && typeof fmDomain === 'string' && fmDomain) {
         var tlDomainEntry = fmTimeline.domains[fmDomain];
         if (tlDomainEntry && typeof tlDomainEntry.projection === 'string') raw = tlDomainEntry.projection;
     }
-    if (!raw && typeof fmTimeline !== 'undefined' && fmTimeline && typeof fmTimeline.projection === 'string') raw = fmTimeline.projection;
-    if (!raw && typeof fmWebpIndex !== 'undefined' && fmWebpIndex && typeof fmWebpIndex.projection === 'string') raw = fmWebpIndex.projection;
-    return fmPolarNormalizeProjection(raw);
+    // 5. La REGIONE: la scrive il generatore SOLO se tutti i domini concordano.
+    if (!raw && !runIsMercator && typeof fmTimeline !== 'undefined' && fmTimeline && typeof fmTimeline.projection === 'string') raw = fmTimeline.projection;
+    if (!raw && !runIsMercator && typeof fmWebpIndex !== 'undefined' && fmWebpIndex && typeof fmWebpIndex.projection === 'string') raw = fmWebpIndex.projection;
+    var resolved = fmPolarNormalizeProjection(raw);
+    // Frame e index discordano -> vince il frame; se ne registra UNO per
+    // (dominio, run, frame, index), non uno per frame.
+    if (frameEntry && typeof frameEntry.projection === 'string') {
+        var indexRaw = runRaw || (runKnown ? fmPolarNormalizeProjection(null)
+            : (entry && typeof entry.projection === 'string' ? entry.projection : null));
+        if (indexRaw && fmPolarNormalizeProjection(indexRaw) !== resolved
+                && typeof fmProjectionConflictOnce === 'function') {
+            fmProjectionConflictOnce(
+                String(fmDomain) + '|' + String(frameEntry.run_id || '') + '|' + resolved + '|' + fmPolarNormalizeProjection(indexRaw),
+                resolved, fmPolarNormalizeProjection(indexRaw));
+        }
+    }
+    return resolved;
 }
 // Disegno DIRETTO del disco: nessun campionamento per pixel e nessun capolo inventato.
 // Geometria: polo al centro, parallelo 20 N sul bordo del cerchio, Greenwich in basso -
@@ -12469,11 +12519,24 @@ function fmUpdateRunDisplay(refIso) {
 function fmRunDomainEntry() {
     return fmWebpIndex && fmWebpIndex.domains ? fmWebpIndex.domains[fmDomain] || null : null;
 }
+function fmRunRecordForId(runId) {
+    // 1.2.4.31: record della RUN dentro index.json (bbox/bounds/projection DELLA run).
+    // Serve a due cose: la proiezione del frame che appartiene a una run vecchia
+    // (fmRegionProjection) e i suoi bounds (fmTimelineFrameBounds). Assente = null.
+    var dom = fmRunDomainEntry();
+    if (!dom || !Array.isArray(dom.runs) || !runId) return null;
+    for (var i = 0; i < dom.runs.length; i++) {
+        if (dom.runs[i] && dom.runs[i].id === runId) return dom.runs[i];
+    }
+    return null;
+}
 function fmSelectedRun() {
     var dom = fmRunDomainEntry();
     if (!dom || !Array.isArray(dom.runs) || !dom.runs.length) return null;
-    for (var i = 0; i < dom.runs.length; i++) if (dom.runs[i].id === fmSelectedRunId) return dom.runs[i];
-    for (var j = 0; j < dom.runs.length; j++) if (dom.runs[j].id === dom.current_run) return dom.runs[j];
+    var picked = fmRunRecordForId(fmSelectedRunId);
+    if (picked) return picked;
+    var current = fmRunRecordForId(dom.current_run);
+    if (current) return current;
     return dom.runs[0];
 }
 function fmSelectedRunVariable(run) {
@@ -12739,6 +12802,18 @@ function fmTimelineBounds() {
     if (dom && dom.bounds) return dom.bounds;
     if (fmClipBounds) return [[fmClipBounds[1], fmClipBounds[0]], [fmClipBounds[3], fmClipBounds[2]]];
     return null;
+}
+function fmTimelineFrameBounds(entry) {
+    // 1.2.4.31: i bounds sono del FRAME come la proiezione. Una run ancora a striscia
+    // Mercator copre 20..85 N, un disco copre 20..90: i bounds del dominio sono quelli
+    // della run CORRENTE, e applicarli a un frame vecchio deforma la striscia (la
+    // riproiezione usa il nord dei bounds per lo span Mercator). I bounds per run sono
+    // gia' in index.json (`runs[].bounds`): nessuna chiave nuova nella timeline.
+    if (entry && entry.run_id && typeof fmRunRecordForId === 'function') {
+        var run = fmRunRecordForId(entry.run_id);
+        if (run && run.bounds) return run.bounds;
+    }
+    return fmTimelineBounds();
 }
 // ================= 1.2.4.23 - FRAME MORTI E SCELTA DEL FRAME INIZIALE ================
 // Difetto misurato in produzione (1.2.4.22): il frame 0 della timeline e' il piu'
@@ -13713,11 +13788,12 @@ function fmWebpFrameUrl(idx) {
         var tlIdx = (idx === undefined || idx === null) ? fmIdx : idx;
         var tlEntry = tlFrames[tlIdx];
         if (!tlEntry) return null;
-        var tlBounds = fmTimelineBounds();
+        var tlBounds = (typeof fmTimelineFrameBounds === 'function') ? fmTimelineFrameBounds(tlEntry) : fmTimelineBounds();
         if (!tlBounds) return null;
         var tlUrl = fmTimelineFileUrl(tlEntry);
         if (!tlUrl) return null;
-        return { url: tlUrl, bounds: tlBounds, valid: tlEntry.valid_time, projection: fmRegionProjection() };
+        // 1.2.4.31: proiezione DEL FRAME (tlEntry.projection), non del dominio.
+        return { url: tlUrl, bounds: tlBounds, valid: tlEntry.valid_time, projection: fmRegionProjection(null, tlEntry) };
     }
     if (!fmWebpIndex || !fmWebpIndexRegion) return null;
     if (fmWebpIndexRegion !== fmRenderRegionId()) return null;
@@ -13746,7 +13822,11 @@ function fmWebpFrameUrl(idx) {
     var url = FM_RENDERED_BASE + fmWebpIndexRegion + '/' + dir + '/' + token + '.webp';
     var runToken = (selectedRun && (selectedRun.reference_time || selectedRun.id)) || (fmMeta && fmMeta.reference_time);
     if (runToken) url += '?run=' + encodeURIComponent(runToken);
-    return { url: url, bounds: dom.bounds, valid: valid, projection: fmRegionProjection(dom) };
+    // 1.2.4.31: bounds e proiezione della RUN selezionata (non del dominio, che e'
+    // la run corrente): con una run storica su un'altra proiezione la striscia non
+    // va disegnata col disco.
+    var runBounds = (selectedRun && selectedRun.bounds) || dom.bounds;
+    return { url: url, bounds: runBounds, valid: valid, projection: fmRegionProjection(dom, selectedRun) };
 }
 function fmWarmWebpNext() {
     // Preload del frame WebP successivo (solo se presente nella index).
