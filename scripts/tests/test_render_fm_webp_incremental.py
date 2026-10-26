@@ -247,6 +247,155 @@ def test_elenco_che_copre_tutto_conta_up_to_date(domain_tree, tmp_path, capsys):
 
 
 # --------------------------------------------------------------------------- #
+# GRANULARITA' (regione, variabile, frame): una variabile nuova su un frame
+# gia' pubblicato costa 1 file per regione, NON l'intero frame.
+# --------------------------------------------------------------------------- #
+REGION_B = "europa"
+
+
+def _run_regions(in_root, out_dir, extra=(), regions=(REGION, REGION_B)):
+    argv = ["--in", str(in_root), "--out", str(out_dir), "--domains", DOMAIN,
+            "--regions", ",".join(regions), "--vars", ",".join(VARS),
+            "--upsample", "1", "--workers", "1", "--method", "4",
+            "--quality", "80"] + list(extra)
+    return R.main(argv)
+
+
+def _shard_copy(src, dst, drop=()):
+    """Copia il pubblicato e toglie cio' che lo shard NON ha.
+
+    Lo shard di produzione non ha i ``latest.json`` per-variabile (il checkout
+    del job non contiene ``data/fm2-rendered``) e non ha i WebP che l'elenco
+    dichiara mancanti: ``drop`` sono i path relativi da togliere.
+    """
+    shutil.copytree(str(src), str(dst))
+    drop = set(drop)
+    for root, _dirs, files in os.walk(str(dst)):
+        for name in files:
+            path = os.path.join(root, name)
+            rel = os.path.relpath(path, str(dst)).replace("\\", "/")
+            if name == "latest.json" or rel in drop:
+                os.remove(path)
+
+
+def _var_paths(webps, var):
+    return sorted(k for k in webps if "/%s/" % var in k)
+
+
+@pytest.fixture()
+def write_counter(monkeypatch):
+    """Conta le SCRITTURE reali (``save_webp``), non i soli path nuovi.
+
+    Il percorso "per frame" riscrive anche i file gia' pubblicati: stessi byte,
+    stesso path, quindi un diff di alberi non lo vede. ``--workers 1`` tiene il
+    conteggio in-process.
+    """
+    calls = []
+    real = R.save_webp
+
+    def counting_save(rgba, path, *args, **kwargs):
+        calls.append(path)
+        return real(rgba, path, *args, **kwargs)
+
+    monkeypatch.setattr(R, "save_webp", counting_save)
+    return calls
+
+
+def test_variabile_nuova_su_frame_pubblicati_rende_solo_quella(domain_tree,
+                                                               tmp_path, capsys,
+                                                               write_counter):
+    """2 variabili, 4 frame, 2 regioni: pubblicata 1 variabile -> 8 celle da 16.
+
+    E' il caso che il 2026-10-26 ha fatto credere che lo skip fosse per frame:
+    qui si misura che il lavoro e' per VARIABILE (8 celle su 16, non 16).
+    """
+    out_full = tmp_path / "full"
+    assert _run_regions(domain_tree["in_root"], out_full) == 0
+    full = _webps(out_full)
+    assert len(full) == len(VALID_TIMES) * len(VARS) * 2 == 16, sorted(full)
+
+    out = tmp_path / "shard"
+    _shard_copy(out_full, out, drop=_var_paths(full, "pressure_msl"))
+    published = {k for k in full if "/pressure_msl/" not in k}
+    lst = _write_list(tmp_path / "pub.txt", published)
+
+    capsys.readouterr()
+    write_counter.clear()
+    rc = _run_regions(domain_tree["in_root"], out,
+                      ["--existing-list", lst,
+                       "--existing-palette-sha", R.palette_sha256()])
+    assert rc == 0
+    out_txt = capsys.readouterr().out
+    # 4 frame x 2 variabili x 2 regioni = 16 celle; 8 gia' pubblicate.
+    assert "gia' pubblicate 8 su 16" in out_txt, out_txt[-1500:]
+    assert "4 variabili x frame da rendere" in out_txt, out_txt[-1500:]
+    assert len(write_counter) == 8, "una variabile, non il frame: 8 file su 16"
+    # il frame NON viene rifatto: si rende solo la variabile mancante
+    assert _webps(out) == full, "stessi file, stessi byte del render completo"
+    assert len(_manifests_no_ts(out)) == len(_manifests_no_ts(out_full))
+
+
+def test_una_regione_mancante_rende_solo_quella_regione(domain_tree, tmp_path,
+                                                        capsys, write_counter):
+    """Una variabile pubblicata in 2 regioni su 3 si scrive SOLO nella terza."""
+    out_full = tmp_path / "full"
+    assert _run_regions(domain_tree["in_root"], out_full) == 0
+    full = _webps(out_full)
+    missing = [k for k in _var_paths(full, "pressure_msl")
+               if k.startswith(REGION_B + "/")]
+    assert len(missing) == len(VALID_TIMES)
+
+    out = tmp_path / "shard"
+    _shard_copy(out_full, out, drop=missing)
+    published = {k for k in full if k not in missing}
+    lst = _write_list(tmp_path / "pub.txt", published)
+
+    capsys.readouterr()
+    write_counter.clear()
+    rc = _run_regions(domain_tree["in_root"], out,
+                      ["--existing-list", lst,
+                       "--existing-palette-sha", R.palette_sha256()])
+    assert rc == 0
+    out_txt = capsys.readouterr().out
+    assert "gia' pubblicate 12 su 16" in out_txt, out_txt[-1500:]
+    # 4 celle mancanti (1 variabile x 4 frame), NON 8 (tutte e 2 le regioni)
+    assert len(write_counter) == len(VALID_TIMES), sorted(write_counter)
+    assert all(REGION_B in p for p in write_counter), sorted(write_counter)
+    assert _webps(out) == full
+
+
+def test_manifest_stantio_non_prova_la_pubblicazione(domain_tree, tmp_path,
+                                                     write_counter):
+    """Un ``latest.json`` che nomina un WebP assente NON vale come pubblicato.
+
+    Scenario vero: render interrotto (o push fallito) lascia il manifest di una
+    variabile senza i suoi WebP. Con il manifest come prova il file non viene
+    mai ricreato e il client prende un 404; con l'elenco del branch come prova
+    (o il file su disco) viene rifatto.
+    """
+    out_full = tmp_path / "full"
+    _require(domain_tree["in_root"], out_full)
+    full = _webps(out_full)
+    gone = _var_paths(full, "temperature_2m")[0]
+    out = tmp_path / "shard"
+    shutil.copytree(str(out_full), str(out))
+    os.remove(os.path.join(str(out), gone.replace("/", os.sep)))
+    # il manifest resta (stantio) e nomina ancora il file tolto
+    published = {k for k in full if k != gone}
+    lst = _write_list(tmp_path / "pub.txt", published)
+
+    write_counter.clear()
+    rc = _run(domain_tree["in_root"], out,
+              ["--existing-list", lst,
+               "--existing-palette-sha", R.palette_sha256()])
+    assert rc == 0
+    assert len(write_counter) == 1, write_counter
+    assert os.path.isfile(os.path.join(str(out), gone.replace("/", os.sep))), \
+        "il WebP mancante deve essere ricreato"
+    assert _webps(out) == full
+
+
+# --------------------------------------------------------------------------- #
 # PROVA DI IDENTITA': meta' + incrementale == completo
 # --------------------------------------------------------------------------- #
 def test_incrementale_da_meta_e_identico_al_render_completo(domain_tree, tmp_path):

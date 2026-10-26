@@ -1915,10 +1915,15 @@ def var_publish_state(vdir: str, known_files, palette_sha: str,
 
     ``known_files`` are the names the branch list says are published in that
     directory; ``vdir`` is where they would live. Returns
-    ``{"files": set, "frames": [rec], "reuse": bool, "reason": str}`` where
+    ``{"files": set, "listed": set, "frames": [rec], "reuse": bool, "reason": str}``
+    where
 
       * ``files``  = every name we must NOT prune (list union manifest), i.e. the
         seed of the prune keep-set;
+      * ``listed`` = the names the BRANCH LIST alone proves published. This -- not
+        ``files`` -- is what the incremental skip may trust: a per-variable
+        ``latest.json`` can name frames whose WebP are gone (interrupted render,
+        failed push) and skipping those would publish a 404;
       * ``frames`` = the manifest records to carry over (from ``latest.json`` when
         it exists, rebuilt from the file names otherwise), so the union manifest
         always covers every file we keep;
@@ -1928,7 +1933,8 @@ def var_publish_state(vdir: str, known_files, palette_sha: str,
         the list alone cannot prove which colours the published pixels have.
     """
     files = set(known_files or ())
-    state = {"files": files, "frames": [], "reuse": False, "reason": "no_manifest"}
+    state = {"files": files, "listed": set(files), "frames": [], "reuse": False,
+             "reason": "no_manifest"}
     mpath = os.path.join(vdir, "latest.json")
     manifest = None
     if os.path.isfile(mpath):
@@ -2109,14 +2115,20 @@ def _worker_state_init_spec(scales, out_root, domain, run_id, crop_spec,
 
 
 def _render_var_task(payload) -> dict:
-    """Render every region of one (frame, variable); return write metadata.
+    """Render one (frame, variable) for the regions that still miss it.
 
     Runs inside a worker process (or in-process when ``--workers 1``). Only
     whole-frame array reads are done here; a read failure is RETURNED (the
     parent prints the same ``! <valid>/<var> read failed`` line the serial
     loop printed) while write/encode errors propagate and abort the domain.
+
+    ``payload`` = ``(frame_path, var, valid_time, base_name, regions)`` where
+    ``regions`` is the list of regions whose WebP is missing (``None`` = all of
+    them, the historical full render). The array is read ONCE and cropped per
+    requested region: skipping a published region saves the encode + the write,
+    never the read.
     """
-    frame_path, var, valid_time, base_name = payload
+    frame_path, var, valid_time, base_name, regions = payload
     st = _WORKER_STATE
     scales = st["scales"]
 
@@ -2172,6 +2184,8 @@ def _render_var_task(payload) -> dict:
 
     files = []
     for rname, crop in st["crops"].items():
+        if regions is not None and rname not in regions:
+            continue          # cella gia' pubblicata: ne' encode ne' scrittura
         sub = arr[crop["row0"]:crop["row1"], crop["col0"]:crop["col1"]]
         polar = crop.get("kind") == "polar"
         mask = None
@@ -2447,6 +2461,14 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
     already = 0
     frames_done = 0
     bytes_written = 0
+    # Contatori del lavoro incrementale, nella chiave (regione, variabile,
+    # frame): una "cella" e' un file potenzialmente da scrivere. Servono a
+    # distinguere "frame resi" (frame con almeno una cella mancante) da
+    # "frame gia' pubblicati" (tutte le celle presenti), che e' la lettura che
+    # conta quando si guarda il costo di una run.
+    var_tasks = 0      # coppie (variabile, frame) con almeno una cella mancante
+    cell_total = 0     # celle (regione, variabile, frame) valutate
+    cell_done = 0      # celle gia' pubblicate (elenco del branch o file su disco)
     themes = ["light"]
     # rname -> var -> theme -> [frame records]
     var_frames = {rname: {} for rname in crops}
@@ -2510,19 +2532,38 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
             _scale_cache[var] = _scale_variant(scales, var, "light") is not None
         return _scale_cache[var]
 
-    def _published_everywhere(var, base_name):
-        """True when EVERY region of this run already has ``<base_name>.webp``.
+    def _published_regions(var, base_name):
+        """Regions where THIS ``(variable, valid_time)`` is already published.
 
-        The unit of work is one (frame, variable) rendered across ALL regions, so
-        the task can be skipped only if every region has it. Half-published is
-        rendered again (deterministic bytes, same output, no risk).
+        The unit of work is one cell of the key the published paths have --
+        ``<region>/<domain>/runs/<run>/<var>/<VALID>.webp`` -- i.e.
+        ``(region, variable, valid_time)``. A variable published in two regions
+        of three is written ONLY in the third: the missing part is what costs
+        files, not the frame. The returned list is empty when the variable is
+        published everywhere (the task is skipped) and equal to ``crops`` when
+        nothing is published (new variable on a published frame).
+
+        "Published" is proven by the BRANCH LIST (``listed``) or by the file
+        already on disk; a per-variable manifest is NOT proof, because it can
+        name frames whose WebP are gone (interrupted render, failed push) and
+        skipping those would publish a 404. ``reuse`` still gates everything: a
+        palette or WEBP_VERSION change re-renders the cell even when the file is
+        listed, because the published pixels would have different colours.
         """
         name = base_name + ".webp"
+        done = []
         for _rname in crops:
             stt = var_state.get((_rname, var))
-            if not stt or not stt.get("reuse") or name not in stt.get("files", ()):
-                return False
-        return True
+            if not stt or not stt.get("reuse"):
+                continue
+            if name in stt.get("listed", ()):
+                done.append(_rname)
+                continue
+            if os.path.isfile(os.path.join(
+                    _theme_var_dir(out_root, _rname, domain, var, "light",
+                                   run_id), name)):
+                done.append(_rname)
+        return done
 
     seen_frames = set()
     watch_complete = not bool(args.watch_manifest)
@@ -2591,18 +2632,29 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
 
             base_name = valid_time_to_filename(valid_time)
             todo = names
+            todo_regions = None
             if incremental:
-                # Gia' pubblicato = tutte le regioni hanno il file per questa
-                # variabile: il manifest e' gia' seminato da var_frames, l'array
-                # non viene letto e non si scrive nulla. Una variabile SENZA
-                # scala non produce alcun file, quindi non puo' impedire lo skip
-                # (ne' essere resa): non conta nel decidere se il frame e' finito.
-                todo = [v for v in names
-                        if not _published_everywhere(v, base_name)]
-                if not any(_has_scale(v) for v in todo):
+                # Ogni cella (regione, variabile, frame) e' gia' pubblicata se
+                # l'elenco del branch (o il file su disco) la prova. Si rende
+                # SOLO cio' che manca: una variabile nuova su un frame gia'
+                # pubblicato costa 1 file per regione, non l'intero frame.
+                todo = []
+                todo_regions = {}
+                for _v in names:
+                    if not _has_scale(_v):
+                        continue          # nessuna scala: non produce file
+                    _done = _published_regions(_v, base_name)
+                    cell_total += len(crops)
+                    cell_done += len(_done)
+                    if len(_done) < len(crops):
+                        todo.append(_v)
+                        todo_regions[_v] = [r for r in crops if r not in _done]
+                if not todo:
                     already += 1
                     continue
-            payloads = [(frame_path, var, valid_time, base_name)
+                var_tasks += len(todo)
+            payloads = [(frame_path, var, valid_time, base_name,
+                         None if todo_regions is None else todo_regions[var])
                         for var in todo]
             # One frame at a time (arrival order preserved in --watch-manifest
             # mode); the variables of THAT frame are rendered in parallel.
@@ -2757,6 +2809,13 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
     if incremental:
         print("  [incremental] %s: %d frame gia' pubblicati (saltati), %d frame "
               "resi, %d WebP scritti" % (domain, already, frames_done, rendered))
+        # Seconda riga nella chiave REALE del lavoro: senza questa, "107 frame
+        # resi" si legge come "107 frame gia' pubblicati da rifare" (successo in
+        # produzione il 2026-10-26), mentre le celle dicono quante variabili per
+        # regione erano davvero mancanti.
+        print("  [incremental] %s: celle (regione,variabile,frame) gia' "
+              "pubblicate %d su %d, %d variabili x frame da rendere"
+              % (domain, cell_done, cell_total, var_tasks))
         if not rendered:
             return rendered, skipped, "up-to-date", contrib, frames_done, bytes_written
     return rendered, skipped, None, contrib, frames_done, bytes_written

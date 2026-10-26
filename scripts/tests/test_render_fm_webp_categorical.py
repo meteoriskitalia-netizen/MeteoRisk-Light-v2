@@ -272,7 +272,7 @@ def test_render_var_task_passes_categorical_for_a_code(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "read_frame_array", lambda reader, var: frame)
 
     res = mod._render_var_task(("frame.om", "weather_code", "2026-10-26T06:00Z",
-                                "2026-10-26T0600"))
+                                "2026-10-26T0600", None))
     assert "error" not in res
     assert calls == [True]
     webp = os.path.join(str(tmp_path), "italia", "domA", "runs",
@@ -295,6 +295,6 @@ def test_render_var_task_keeps_the_continuous_path_for_other_fields(tmp_path,
     monkeypatch.setattr(mod, "read_frame_array", lambda reader, var: frame)
 
     res = mod._render_var_task(("frame.om", "cloud_cover", "2026-10-26T06:00Z",
-                                "2026-10-26T0600"))
+                                "2026-10-26T0600", None))
     assert "error" not in res
     assert calls == [False]
