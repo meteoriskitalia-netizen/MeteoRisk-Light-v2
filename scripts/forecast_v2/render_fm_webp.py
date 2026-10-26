@@ -71,17 +71,26 @@ reproduces the historical bytes.  Labels are kept inside the image (and inside
 the disc when enabled); the bound is enforced only when the font is enlarged,
 so the 12-px regions keep their historical output byte-for-byte.
 
-Polar disc for ``north`` (1.2.4.26)
------------------------------------
+Polar disc for ``north`` (1.2.4.26, published since 1.2.4.30)
+-------------------------------------------------------------
 ``--north-projection disc`` renders the north region with a north-polar
 stereographic projection (edge at 20 N, circular alpha mask) instead of the
-Mercator strip. The DEFAULT is ``strip``: the client reprojects the strip
-pixel-by-pixel assuming a Mercator raster with lat/lon bounds, so a published
-disc would be distorted until the dedicated client path lands. The disc is
-sampled from the real domain data up to 90 N (the engine bbox reaches 90 N
-even though the Mercator strip stops at 85.0511 N), is ``--north-disc-size``
-px wide (default 1000), keeps Greenwich at the BOTTOM (same orientation as the
-client's polar canvas) and writes ``projection`` metadata in the manifests.
+Mercator strip. The DEFAULT stays ``strip``, so a render without the flag is
+byte-identical to the historical one; the five ``forecast-maps-*.yml``
+workflows pass the flag explicitly. The client (>= 1.2.4.27,
+``fmPolarPaintProjectedDisc``) draws the published square inside the clipped
+20 N circle without sampling a single pixel. The disc is sampled from the real
+domain data up to 90 N (the engine bbox reaches 90 N even though the Mercator
+strip stops at 85.0511 N), is ``--north-disc-size`` px wide (default 1000) and
+keeps Greenwich at the BOTTOM (same orientation as the client's polar canvas).
+
+The manifests carry ``"projection": "stereographic"`` as a STRING -- that is
+what ``fmRegionProjection`` reads; anything that is not a string is normalised
+to ``mercator`` and the client would reproject the already projected disc
+(measured: 4.23% agreement instead of 99.96%). The full geometry (centre,
+standard parallel, formula, orientation) lives in a separate
+``projection_meta`` object. With ``--north-projection strip`` neither key is
+written, i.e. the historical manifests are unchanged.
 
 Incremental render
 ------------------
@@ -463,6 +472,10 @@ def build_row_resampler(grid: dict, scale: int = 1):
 # ``point(lat, lon) = [cx + R*rho*sin(lon), cy + R*rho*cos(lon)]``).
 # --------------------------------------------------------------------------- #
 NORTH_DISC_EDGE_LAT = 20.0        # bordo del disco (lat del raggio massimo)
+# The value the CLIENT reads: `fmRegionProjection` accepts only a STRING and
+# normalises anything else to 'mercator' (which would reproject the already
+# projected disc). The geometry lives in a separate `projection_meta` key.
+POLAR_PROJECTION = "stereographic"
 
 
 def polar_disc_geometry(size: int, edge_lat: float = NORTH_DISC_EDGE_LAT) -> dict:
@@ -541,6 +554,25 @@ def polar_projection_meta(size: int, edge_lat: float, max_lat: float) -> dict:
         "client_orientation": "Greenwich at bottom, east to the right "
                               "(fmPolarDrawOverlays canvas)",
     }
+
+
+def projection_parts(value):
+    """Return ``(projection_string, projection_meta)`` for a manifest value.
+
+    The published shape (>= 1.2.4.30) is the STRING ``"stereographic"`` under
+    ``projection`` plus the geometry under ``projection_meta``. The dict that
+    the first disc builds wrote under ``projection`` is still accepted and
+    split here, so ``--index-only`` heals such a branch instead of republishing
+    an object the client silently ignores.
+    """
+    if isinstance(value, str):
+        text = value.strip().lower()
+        return (text or None), None
+    if isinstance(value, dict):
+        kind = str(value.get("type") or "").strip().lower()
+        name = POLAR_PROJECTION if kind == "polar_stereographic" else None
+        return name, dict(value)
+    return None, None
 
 
 def build_polar_resampler(grid: dict, size: int,
@@ -1399,6 +1431,23 @@ def _make_overlay(h, w, ss, draw_fn):
     return layer
 
 
+def mask_rgba_to_disc(rgba, mask):
+    """Zero every pixel OUTSIDE a hard circular mask (alpha cut at rho = 1).
+
+    Used twice on the polar path: once on the colored raster and once AFTER the
+    isoline/label overlay has been alpha-composited. The overlay is drawn on the
+    full square with no circular clip, so without the second pass its pixels
+    survive up to a few px beyond the rim (measured on the 1.000 px disc: 224 px
+    for pressure_msl, 576 for temperature_850hPa, 2.237 for wind_speed_850hPa,
+    up to rho = 1.0118). A consumer that does not clip (the client does, a plain
+    <img> does not) would see an alpha ring. Pixels inside the mask are returned
+    byte-identical.
+    """
+    out = np.array(rgba, dtype=np.uint8, copy=True)
+    out[~np.asarray(mask, dtype=bool)] = 0
+    return out
+
+
 def _apply_overlay(base_rgba, draw_fn, ss=None):
     """Composite the overlay on the base raster (the base is NEVER resampled).
 
@@ -1907,8 +1956,11 @@ def _finalise_crop(item: dict) -> dict:
         item["arrow_grid"] = polar_overlay_grid(size)
         item["center"] = (size - 1) * 0.5
         item["radius"] = item["center"]
-        item["projection"] = polar_projection_meta(size, item["edge_lat"],
-                                                   item["max_lat"])
+        # `projection` MUST be the string the client accepts; the geometry is
+        # published separately in `projection_meta`.
+        item["projection"] = POLAR_PROJECTION
+        item["projection_meta"] = polar_projection_meta(size, item["edge_lat"],
+                                                        item["max_lat"])
     else:
         item["resample"] = build_row_resampler(item["grid"], item["scale"])
     return item
@@ -2031,7 +2083,7 @@ def _render_var_task(payload) -> dict:
         rgba = lk(arr_out)
         if mask is not None:
             # Polar disc: HARD circular alpha mask (0 outside the 20N circle).
-            rgba[~mask] = 0
+            rgba = mask_rgba_to_disc(rgba, mask)
 
         # Isolines (with values) and wind arrows are drawn on a separate RGBA
         # layer and alpha-composited: the base raster is NEVER resampled.
@@ -2053,6 +2105,11 @@ def _render_var_task(payload) -> dict:
                 polar=polar, arrow_grid=crop.get("arrow_grid"),
                 arrow_scale=1 if polar else None),
                 ss=POLAR_OVERLAY_SUPERSAMPLE if polar else None)
+            if mask is not None:
+                # The overlay (isolines/labels/arrows) is composited on the full
+                # square: reapply the disc mask so alpha stays EXACTLY 0 outside
+                # the 20N circle. Inside the circle the composite is untouched.
+                rgba = mask_rgba_to_disc(rgba, mask)
 
         vdir = _theme_var_dir(st["out_root"], rname, st["domain"], var, "light",
                               st["run_id"])
@@ -2492,6 +2549,15 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
         cgrid = crops[rname]["grid"]
         cbbox = cropped_bbox(cgrid)
         projection = crops[rname].get("projection")
+        projection_meta = crops[rname].get("projection_meta")
+        if projection:
+            # Polar disc: the image covers the FULL circle. The resampler wraps
+            # the 180 deg seam (``np.mod`` on the column), so the geographic
+            # extent is -180..180, NOT the last grid column (179.75 on a 0.25
+            # deg grid). Publishing 179.75 would describe a 359.75 deg disc and
+            # disagree with the region index bbox.
+            cbbox = dict(cbbox)
+            cbbox["lon_max"] = 180.0
         grid_summary = {"nx": int(cgrid["nx"]), "ny": int(cgrid["ny"])}
         bounds = image_bounds(cbbox)
         variables = {}
@@ -2534,6 +2600,8 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                 }
                 if projection:
                     vmanifest["projection"] = projection
+                if projection_meta:
+                    vmanifest["projection_meta"] = projection_meta
                 write_json(os.path.join(vdir, "latest.json"), vmanifest)
                 sub = "%s/runs/%s/%s" % (domain, run_id, var)
                 entry["themes"][theme] = {
@@ -2543,26 +2611,35 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                     "manifest": "%s/latest.json" % sub,
                 }
             variables[var] = entry
+        run_rec = {
+            "id": run_id,
+            "reference_time": reference_time,
+            "generated_at": generated_at,
+            "expected_frames": expected_frames,
+            "variables": variables,
+        }
+        if projection:
+            run_rec["projection"] = projection
+        if projection_meta:
+            run_rec["projection_meta"] = projection_meta
         contrib[rname] = {
             "bbox": cbbox,
             "bounds": bounds,
             "grid": grid_summary,
             "reference_time": reference_time,
             "current_run": run_id,
-            "runs": [{
-                "id": run_id,
-                "reference_time": reference_time,
-                "generated_at": generated_at,
-                "expected_frames": expected_frames,
-                "variables": variables,
-            }],
+            "runs": [run_rec],
             "variables": variables,
         }
         if projection:
             # Polar disc: the geographic bbox is NOT a Mercator image extent.
             # The client must switch to the dedicated polar path when this key
-            # is present (the default strip path never writes it).
+            # is present (the default strip path never writes it). The value is
+            # the STRING 'stereographic' (see POLAR_PROJECTION); the geometry is
+            # in `projection_meta`.
             contrib[rname]["projection"] = projection
+        if projection_meta:
+            contrib[rname]["projection_meta"] = projection_meta
 
     if incremental:
         print("  [incremental] %s: %d frame gia' pubblicati (saltati), %d frame "
@@ -2573,7 +2650,7 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
 
 
 def write_region_index(out_root: str, region_name: str, region_bbox, domains: dict,
-                       themes, projection=None) -> None:
+                       themes, projection=None, projection_meta=None) -> None:
     """Write ``<out>/<region>/index.json`` summarising the published domains."""
     if region_bbox is None:
         # 'domain' sentinel: there is no single fixed region bbox -> use the
@@ -2607,6 +2684,8 @@ def write_region_index(out_root: str, region_name: str, region_bbox, domains: di
     }
     if projection:
         index["projection"] = projection
+    if projection_meta:
+        index["projection_meta"] = projection_meta
     rdir = os.path.join(out_root, region_name)
     os.makedirs(rdir, exist_ok=True)
     write_json(os.path.join(rdir, "index.json"), index)
@@ -2651,7 +2730,7 @@ def _collect_index_run(run_root: str, out_dir: str, region: str, domain: str,
     variables = {}
     ref_time = generated_at = None
     expected = 0
-    bbox = bounds = grid = projection = None
+    bbox = bounds = grid = projection = projection_meta = None
     for var in sorted(os.listdir(run_root)):
         var_dir = os.path.join(run_root, var)
         if not os.path.isdir(var_dir):
@@ -2690,7 +2769,16 @@ def _collect_index_run(run_root: str, out_dir: str, region: str, domain: str,
             bbox = bbox or vman.get("bbox")
             bounds = bounds or vman.get("bounds")
             grid = grid or vman.get("grid")
-            projection = projection or vman.get("projection")
+            # `projection` is the STRING the client reads (>= 1.2.4.30); the
+            # geometry is under `projection_meta`. A legacy object written under
+            # `projection` by the first disc builds is SPLIT here, so an
+            # --index-only pass heals it instead of republishing the object.
+            if projection is None:
+                projection, legacy_meta = projection_parts(vman.get("projection"))
+                projection_meta = (projection_meta or vman.get("projection_meta")
+                                   or legacy_meta)
+            elif projection_meta is None:
+                projection_meta = vman.get("projection_meta")
             sub = ("%s/%s" % (domain, var) if legacy else
                    "%s/runs/%s/%s" % (domain, run_id, var))
             entry["dir"] = sub
@@ -2725,6 +2813,8 @@ def _collect_index_run(run_root: str, out_dir: str, region: str, domain: str,
     }
     if projection:
         rec["projection"] = projection
+    if projection_meta:
+        rec["projection_meta"] = projection_meta
     return rec
 
 
@@ -2781,6 +2871,7 @@ def rebuild_index(in_dir: str, out_dir: str, domain_list, region_names, themes,
                 legacy_expected = 0
                 legacy_bbox = legacy_bounds = legacy_grid = None
                 legacy_projection = None
+                legacy_projection_meta = None
                 for var in legacy_dirs:
                     var_dir = os.path.join(region_var_root, var)
                     valid_manifests = []
@@ -2802,7 +2893,14 @@ def rebuild_index(in_dir: str, out_dir: str, domain_list, region_names, themes,
                     legacy_bbox = legacy_bbox or vm.get("bbox")
                     legacy_bounds = legacy_bounds or vm.get("bounds")
                     legacy_grid = legacy_grid or vm.get("grid")
-                    legacy_projection = legacy_projection or vm.get("projection")
+                    if legacy_projection is None:
+                        legacy_projection, legacy_vm_meta = projection_parts(
+                            vm.get("projection"))
+                        legacy_projection_meta = (legacy_projection_meta
+                                                  or vm.get("projection_meta")
+                                                  or legacy_vm_meta)
+                    elif legacy_projection_meta is None:
+                        legacy_projection_meta = vm.get("projection_meta")
                     var_entry = {"unit": vm.get("unit"), "dir": "%s/%s" % (domain, var), "themes": {}}
                     for theme, tman in valid_manifests:
                         var_entry["themes"][theme] = {
@@ -2829,6 +2927,8 @@ def rebuild_index(in_dir: str, out_dir: str, domain_list, region_names, themes,
                     }
                     if legacy_projection:
                         legacy_run["projection"] = legacy_projection
+                    if legacy_projection_meta:
+                        legacy_run["projection_meta"] = legacy_projection_meta
                     runs.append(legacy_run)
             runs.sort(key=lambda r: str(r.get("reference_time") or r.get("id") or ""), reverse=True)
             runs = runs[:3]
@@ -2851,8 +2951,11 @@ def rebuild_index(in_dir: str, out_dir: str, domain_list, region_names, themes,
                 "runs": runs,
             }
             dom_projection = latest_run.get("projection")
+            dom_projection_meta = latest_run.get("projection_meta")
             if dom_projection:
                 index_domains[domain]["projection"] = dom_projection
+            if dom_projection_meta:
+                index_domains[domain]["projection_meta"] = dom_projection_meta
 
         if not index_domains:
             print("[index] %s: NESSUN dominio valido -> index.json NON scritto"
@@ -2860,12 +2963,22 @@ def rebuild_index(in_dir: str, out_dir: str, domain_list, region_names, themes,
             continue
         theme_list = [t for t in themes if t in region_themes]
         region_projection = None
+        region_projection_meta = None
         for dom_entry in index_domains.values():
             if dom_entry.get("projection"):
                 region_projection = dom_entry["projection"]
+                region_projection_meta = dom_entry.get("projection_meta")
                 break
+        if (rname == NORTH_REGION
+                and region_projection == POLAR_PROJECTION):
+            # The region really reaches the Pole when a disc domain is indexed:
+            # REGIONS['north'] is the Mercator strip (85.0511 N) and would
+            # contradict the manifests. Keeps --index-only self-consistent
+            # WITHOUT passing --north-projection to the index workflow.
+            region_bbox = (NORTH_DISC_EDGE_LAT, -180.0, 90.0, 180.0)
         write_region_index(out_dir, rname, region_bbox, index_domains, theme_list,
-                           projection=region_projection)
+                           projection=region_projection,
+                           projection_meta=region_projection_meta)
         print("[index] %s: index.json scritto (%d domini: %s)"
               % (rname, len(index_domains), ", ".join(sorted(index_domains))))
         written += 1
@@ -2943,10 +3056,11 @@ def parse_args(argv=None):
                          % MIN_SCREEN_DIGIT_PX)
     ap.add_argument("--north-projection", choices=("strip", "disc"), default="strip",
                     help="projection of the 'north' region: 'strip' = historical Web "
-                         "Mercator strip (default, what the client knows how to "
-                         "reproject), 'disc' = north-polar stereographic disc with a "
-                         "20N circular mask (experimental, the client has no dedicated "
-                         "path for it yet)")
+                         "Mercator strip (default, byte-identical to the pre-1.2.4.26 "
+                         "output), 'disc' = north-polar stereographic disc with a 20N "
+                         "circular mask, published with \"projection\": "
+                         "\"stereographic\" (string, what the client reads) plus the "
+                         "geometry in projection_meta")
     ap.add_argument("--north-disc-size", type=int, default=1000,
                     help="side in px of the north polar disc (default 1000; clamped "
                          "to 64..4000)")
@@ -3116,13 +3230,16 @@ def main(argv=None) -> int:
     if total_ok > 0 or up_to_date:
         for rname in regions:
             region_projection = None
+            region_projection_meta = None
             for dom_entry in index_domains[rname].values():
                 if dom_entry.get("projection"):
                     region_projection = dom_entry["projection"]
+                    region_projection_meta = dom_entry.get("projection_meta")
                     break
             write_region_index(out_dir, rname, region_bboxes[rname],
                                index_domains[rname], args.themes,
-                               projection=region_projection)
+                               projection=region_projection,
+                               projection_meta=region_projection_meta)
 
         # Publish the exact color scales the renderer used so the client legend and
         # the raster agree (single source of truth in the cache root).

@@ -279,6 +279,8 @@ jobs:
             --watch-manifest "$PROGRESS" \
             --limit-frames 0 \
             --method 4 \
+            --north-projection disc \
+            --north-disc-size 1000 \
             $INCR_ARGS &
           RENDER_PID=$!
           if wait "$ENGINE_PID"; then ENGINE_STATUS=0; else ENGINE_STATUS=$?; fi
@@ -497,7 +499,9 @@ jobs:
                 --out data/fm2-rendered \
                 --domains ${{ matrix.domain }} \
                 --limit-frames 0 \
-                --method 4
+                --method 4 \
+                --north-projection disc \
+                --north-disc-size 1000
               HEAL_RENDER_STATUS=$?
               if [ "$HEAL_RENDER_STATUS" -ne 0 ]; then
                 echo "::error::[HEAL] Render di recupero fallito (codice $HEAL_RENDER_STATUS): lo shard del run $HEAL_RUN_ID resta non pubblicato."
