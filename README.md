@@ -6,7 +6,44 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.29
+## Versione attiva: 1.2.4.30
+
+- File applicativo: `mri-light-1.2.4.30.html` (`APP_VERSION = '1.2.4.30'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.30', date: '2026-10-26' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.30'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+  `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
+- Contenuto della 1.2.4.30 (release sopra la 1.2.4.29) - **due fix al client, entrambi misurati**.
+  Nessuna variabile nuova, nessun cambio di palette.
+  - **Fix 1, la proiezione del dominio arriva anche dalla timeline.** `fmRegionProjection`
+    risolveva `projection` come dominio da `index.json` -> `timeline.projection` -> regione ->
+    `mercator`, ma la timeline porta la chiave anche a livello dominio
+    (`domains.<dominio>.projection`, scritta sempre dal renderer e da
+    `scripts/forecast_v2/build_timeline_index.py`) e il client leggeva solo la chiave di REGIONE.
+    Nello stato misto (ECMWF IFS su disco, `dwd_icon`/`ncep`/arpege ancora su striscia) la chiave
+    di regione e' omessa apposta (fix `09f8158b`), quindi finche' `index.json` non arrivava un
+    disco polare veniva disegnato come striscia Mercator. Ora
+    `fmTimeline.domains[fmDomain].projection` si legge PRIMA delle chiavi di regione, e solo se
+    e' una STRINGA: un `projection` che fosse un oggetto viene ignorato e si passa al fallback.
+    La chiave di regione resta l'ultimo fallback.
+  - **Fix 2, geometria esatta del disco.** `fmPolarPaintProjectedDisc` disegnava `2R x 2R`, ma
+    nella sorgente centro e raggio sono `(N-1)/2` su un lato di N pixel: il cerchio `rho=1`
+    finiva a `0,999*R` e il polo a `(cx-0,27, cy-0,27)`. Ora il lato e' `2*R*N/(N-1)` (N letto da
+    `source.width`/`naturalWidth`, non assunto 1000; con N=1000 e R=268,8 -> 538,14 px) con la
+    STESSA origine `(cx-R, cy-R)`; `ctx.clip()` resta del raggio R.
+  - Verifica fix 1: parser vero estratto verbatim dall'html, 13 controlli PASS; gli stessi 13
+    controlli sul file 1.2.4.29 danno 3 FAIL, cioe' la controprova del difetto.
+  - Verifica fix 2: scarto client<->disco sui 37.084 vertici di `ne_50m_coastline` con lat>=20
+    (canvas 754x560, R=268,8) da media 0,3912 / max 0,6470 px a media 2,7e-14 / max 2,3e-13 px;
+    polo e bordo a 0.
+  - Test: `test_html_js_syntax.py` 1 passed; suite `.mjs` 27 file, gli stessi 6 nomi non-zero
+    della baseline misurata su `main` PRIMA delle modifiche (`test_ensemble_module`,
+    `test_fascia_slots`, `test_fm_webp_fastpath`, `test_fm_webp_palette_sync`,
+    `test_player_fluidity`, `test_satellite_sources_italy`); `test_fm_timeline_projection.mjs`
+    verde.
+- NON toccati: `scripts/forecast_v2/*`, `scripts/radar_engine/*`, `scripts/cronjobs/*`, i
+  workflow `forecast-maps-*.yml`, `satellite-engine.yml`, `color_scales.json`.
+
+## Versione 1.2.4.29 (storica)
 
 - File applicativo: `mri-light-1.2.4.29.html` (`APP_VERSION = '1.2.4.29'`; ultimo blocco
   changelog in-app `{ version: '1.2.4.29', date: '2026-10-26' }`) + `sw.js` (Service Worker,

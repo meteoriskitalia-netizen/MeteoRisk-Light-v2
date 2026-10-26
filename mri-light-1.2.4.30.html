@@ -1941,9 +1941,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.29';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.30';  // MAJOR.MINOR.PATCH.BUILD — Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-26';
     const APP_CHANGELOG = [
+        { version: '1.2.4.30', date: '2026-10-26', changes: [
+  'MAPPE= PROIEZIONE DEL DOMINIO LETTA ANCHE DALLA TIMELINE. `fmRegionProjection` leggeva `projection` dai dati con questa precedenza: dominio da `index.json` -> timeline -> regione -> `mercator`. Il renderer e `build_timeline_index.py` scrivono `projection` anche a livello DOMINIO nella timeline (`domains.<dominio>.projection`), ma il client 1.2.4.29 leggeva solo la chiave di REGIONE: nello stato MISTO reale (ECMWF IFS su disco, dwd_icon/ncep/arpege ancora su striscia) la timeline la chiave di regione NON la scrive - e\' omessa apposta dal fix 09f8158b, perche\' il client la applicherebbe a ogni dominio - quindi finche\' `index.json` non arrivava un disco polare veniva disegnato come striscia Mercator. Ora si legge `fmTimeline.domains[fmDomain].projection` PRIMA delle chiavi di regione. Sono accettate SOLO STRINGHE: un `projection` che fosse un oggetto (forma dei primi build del disco) viene ignorato e si passa al fallback. La chiave di regione resta l\'ULTIMO fallback e la sua regola di scrittura non cambia.',
+  'MAPPE= GEOMETRIA ESATTA DEL DISCO. In `fmPolarPaintProjectedDisc` il disco veniva disegnato con `drawImage(source, cx-R, cy-R, 2R, 2R)`, ma nella sorgente il centro e\' a `(N-1)/2` e il raggio e\' `(N-1)/2` su un lato di N pixel: il cerchio `rho=1` finiva a `0,999*R` e il polo a `(cx-0,27, cy-0,27)`. Ora il lato e\' `2*R*N/(N-1)` (con N=1000 e R=268,8 -> 538,14 px) con la STESSA origine `(cx-R, cy-R)`, e N si legge da `source.width`/`naturalWidth` invece di assumerlo 1000. `ctx.clip()` resta del raggio R: rho=1 cade esattamente sul bordo.',
+  'VERIFICA= Parser VERO estratto verbatim dall\'html (`fmPolarNormalizeProjection` + `fmRegionProjection`, stesso metodo di estrazione e stesso contesto vm dei test .mjs), 13 controlli: stato MISTO senza `index.json` -> ecmwf_ifs025 `stereographic` e dwd_icon `mercator` (prima `mercator` per entrambi, cioe\' il difetto); stato MISTO con `index.json` invariato rispetto a oggi; `projection` come OGGETTO nella timeline ignorata -> `mercator`; tutto-disco senza `index.json` -> `stereographic`. Gli stessi 13 controlli eseguiti sul file 1.2.4.29 danno 3 FAIL: la controprova del difetto e\' la misura. Disco: `fmPolarPaintProjectedDisc` eseguita verbatim con un ctx che registra gli argomenti di `drawImage` -> lato 538,1381381381382 = 2R*N/(N-1), origine invariata. Scarto ricalcolato sui 37.084 vertici di `ne_50m_coastline` con lat>=20 (canvas 754x560, R=268,8): media 0,3912 e max 0,6470 px PRIMA (polo 0,3801, bordo 20N/0E 0,6011), media 2,7e-14 e max 2,3e-13 px DOPO (polo 0, bordo 0). `pytest scripts/tests/test_html_js_syntax.py -q --capture=sys` -> 1 passed; suite .mjs 27 file -> gli stessi nomi rossi della baseline misurata su main PRIMA delle modifiche.',
+  'DOC= Bump versione 1.2.4.30 (solo client): html, VERSION (BUILD=30, DATE=2026-10-26), sw.js CACHE_NAME, i 27 test .mjs in entrambe le forme (letterale e pattern con i punti escapati), le righe cp/commento dei 3 workflow che citano l\'html (deploy-pages, radar-engine, update-weather-data) e README. La 1.2.4.29 NON e\' rinominata ne\' cancellata e va RIMOSSA dal repo (una sola app servita da Pages). NON toccati: scripts/forecast_v2/*, scripts/radar_engine/*, scripts/cronjobs/*, i workflow forecast-maps-*.yml, satellite-engine.yml, color_scales.json. Nessuna variabile nuova, nessun cambio di palette.',
+        ] },
         { version: '1.2.4.29', date: '2026-10-26', changes: [
   'MAPPE= SCALE COLORE DELLE DUE VARIABILI A 6 ORE. `precipitation_6h` e `snow_fraction_6h` erano gia\' pubblicate dal motore (commit e67e0607) ma NON avevano una scala in `scripts/forecast_v2/color_scales.json`: il renderer le saltava con `~ no color scale for ... (skip)` e non esisteva alcun WebP. Aggiunte `scales.precipitation_6h` (18 bande 0, 0.2, 0.5, 1, 2, 3, 5, 8, 12, 16, 20, 30, 40, 60, 80, 100, 125, 150; banda [150, +inf) di SATURAZIONE, unita\' \'mm in 6 h\') e `scales.snow_fraction_6h` (copia ESATTA di `snow_fraction`: 7 bande 0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0, unita\' \'frazione 0-1\').',
   'MAPPE= STESSA GRAMMATICA VISIVA dell\'orario, intervallo riscalato sulle 6 ore: identica sequenza di 18 colori di `precipitation` (prima banda [0,0.2) trasparente, poi la rampa azzurro -> blu -> ciano -> verde -> giallo -> arancio -> rosso -> magenta), bande fitte sotto i 20 mm e rade sopra. Le bande sono DIMENSIONATE sulla distribuzione REALE misurata su 1.198.911 celle bagnate (p50 0.50, p90 2.90, p95 5.10, p99 14.80, p99.9 37.60, p99.99 90.59, max 216.60 mm): [0,0.2) 2.5%, [0.2,0.5) 46.3%, [0.5,1) 19.6%, [1,2) 15.9%, [2,3) 6.2%, [3,5) 4.4%, [5,8) 2.4%, [8,12) 1.3%, [12,16) 0.62%, [16,20) 0.32%, [20,30) 0.35%, [30,40) 0.11%, [40,60) 0.057%, [60,80) 0.014%, [80,100) 0.006%, >=100 mm 0.011%.',
@@ -11906,6 +11912,16 @@ function fmPolarNormalizeProjection(value) {
 function fmRegionProjection(dom) {
     var entry = dom || ((typeof fmRunDomainEntry === 'function') ? fmRunDomainEntry() : null);
     var raw = entry && typeof entry.projection === 'string' ? entry.projection : null;
+    // 1.2.4.30: la timeline scrive `projection` anche A LIVELLO DOMINIO
+    // (domains.<dominio>.projection), quindi si legge PRIMA della chiave di regione.
+    // Quest'ultima la scrive il generatore SOLO se tutti i domini concordano: con uno
+    // stato misto e' assente apposta, e senza questa riga un disco polare restava
+    // 'mercator' finche' index.json non arrivava (la striscia veniva disegnata come
+    // disco). Solo STRINGHE: un oggetto (forma dei primi build del disco) si ignora.
+    if (!raw && typeof fmTimeline !== 'undefined' && fmTimeline && fmTimeline.domains && typeof fmDomain === 'string' && fmDomain) {
+        var tlDomainEntry = fmTimeline.domains[fmDomain];
+        if (tlDomainEntry && typeof tlDomainEntry.projection === 'string') raw = tlDomainEntry.projection;
+    }
     if (!raw && typeof fmTimeline !== 'undefined' && fmTimeline && typeof fmTimeline.projection === 'string') raw = fmTimeline.projection;
     if (!raw && typeof fmWebpIndex !== 'undefined' && fmWebpIndex && typeof fmWebpIndex.projection === 'string') raw = fmWebpIndex.projection;
     return fmPolarNormalizeProjection(raw);
@@ -11927,12 +11943,20 @@ function fmPolarPaintProjectedDisc() {
     var ctx = fmPolarCtx, w = fmPolarCanvas.width, h = fmPolarCanvas.height;
     var radius = Math.max(1, Math.min(w, h) * 0.48);
     var cx = w * 0.5, cy = h * 0.5;
+    // 1.2.4.30: geometria esatta del disco. Nella sorgente il centro e' a (N-1)/2 e il
+    // raggio e' (N-1)/2 su un lato di N pixel, quindi il cerchio rho=1 arriva a (N-1)/2
+    // dal centro, non a N/2. Disegnando il quadrato a 2R il disco finiva a 0,999*R
+    // (polo a cx-0,27, cy-0,27; scarto misurato fino a 0,647 px su 37084 vertici di
+    // ne_50m_coastline). Il lato che manda rho=1 esattamente sul bordo del clip e'
+    // 2*R*N/(N-1), con la STESSA origine: con N=1000 e R=268,8 -> 538,14 px.
+    var native = Number(frame.source.width || frame.source.naturalWidth) || 0;
+    var side = native > 1 ? radius * 2 * native / (native - 1) : radius * 2;
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.clip();
     ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(frame.source, cx - radius, cy - radius, radius * 2, radius * 2);
+    ctx.drawImage(frame.source, cx - radius, cy - radius, side, side);
     ctx.restore();
     return true;
 }

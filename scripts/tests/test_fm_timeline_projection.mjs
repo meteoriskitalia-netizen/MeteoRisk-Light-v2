@@ -7,22 +7,23 @@
 // esegue in un contesto vm cambiando fmTimeline / fmWebpIndex / fmDomain.
 // Nessuna riscrittura della logica: il codice e' quello che gira nel browser.
 //
-// CONTRATTO (1.2.4.27+): precedenza dominio (`index.json` ->
-// domains.<dominio>.projection) -> timeline (`timeline.json` -> projection) ->
-// regione (`index.json` -> projection) -> 'mercator'. Una proiezione che non
-// sia una STRINGA viene ignorata (typeof === 'string').
+// CONTRATTO (1.2.4.30+): precedenza dominio (`index.json` ->
+// domains.<dominio>.projection) -> timeline di dominio (`timeline.json` ->
+// domains.<dominio>.projection) -> timeline di regione (`timeline.json` ->
+// projection) -> regione (`index.json` -> projection) -> 'mercator'. Una
+// proiezione che non sia una STRINGA viene ignorata (typeof === 'string').
 //
 // PERCHE' CONTA: `build_timeline_index.py` scrive `projection` a livello
 // dominio (sempre) e a livello regione (solo se TUTTI i domini concordano).
-// Quest'ultima e' l'UNICA chiave della timeline che il parser 1.2.4.29 legge
-// come fallback: con uno stato misto la chiave di regione e' assente e il
-// client resta su 'mercator', che e' la direzione SICURA (una striscia
-// 2879x521 disegnata come disco era il difetto misurato in produzione).
+// Fino alla 1.2.4.29 il client leggeva della timeline SOLO la chiave di
+// regione: con uno stato misto (ECMWF su disco, dwd_icon/ncep/arpege su
+// striscia) quella chiave e' assente apposta, quindi senza `index.json` il
+// disco veniva disegnato come striscia 2879x521 - il difetto misurato. Dalla
+// 1.2.4.30 la chiave di dominio della timeline viene letta PRIMA di quella di
+// regione: i casi sotto la coprono.
 //
 // LIMITI DICHIARATI: non fa rete e non disegna nulla (nessun canvas): verifica
-// la DECISIONE di proiezione, non i pixel. La chiave per dominio della timeline
-// non e' letta da questa versione del client (solo index.json lo e'), quindi il
-// test lo dichiara invece di far finta che funzioni.
+// la DECISIONE di proiezione, non i pixel.
 'use strict';
 
 import fs from 'fs';
@@ -31,8 +32,8 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.29.html');
-if (!fs.existsSync(HTML)) { console.error('FATAL: mri-light-1.2.4.29.html non trovato'); process.exit(1); }
+const HTML = path.join(ROOT, 'mri-light-1.2.4.30.html');
+if (!fs.existsSync(HTML)) { console.error('FATAL: mri-light-1.2.4.30.html non trovato'); process.exit(1); }
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -81,6 +82,21 @@ const INDEX_MIXED = {
     dwd_icon: { grid: { nx: 2879, ny: 521 } },
   },
 };
+// Stato MISTO come lo scrive build_timeline_index.py: la chiave di dominio c'e'
+// su chi ha il disco, quella di regione NO (i domini non concordano).
+const TIMELINE_MIXED = {
+  region: 'north',
+  domains: {
+    ecmwf_ifs025: { projection: 'stereographic' },
+    dwd_icon: { frames: 209 },
+    ncep_gfs025: { frames: 209 },
+  },
+};
+// Forma dei primi build del disco: `projection` come OGGETTO, da ignorare.
+const TIMELINE_OBJ_DOMAIN = {
+  region: 'north',
+  domains: { ecmwf_ifs025: { projection: { type: 'polar_stereographic', size: 1000 } } },
+};
 
 console.log('--- senza index.json (solo timeline) ---');
 ok('timeline con projection di regione -> stereographic',
@@ -89,6 +105,14 @@ ok('timeline senza projection -> mercator',
    makeCtx({ timeline: TIMELINE_STRIP, domain: 'dwd_icon' }).fmRegionProjection() === 'mercator');
 ok('nessuna timeline e nessun index -> mercator',
    makeCtx({ timeline: null, index: null }).fmRegionProjection() === 'mercator');
+
+console.log('--- senza index.json, chiave di DOMINIO nella timeline (fix 1.2.4.30) ---');
+ok('stato misto: il dominio sul disco legge la timeline -> stereographic',
+   makeCtx({ timeline: TIMELINE_MIXED }).fmRegionProjection() === 'stereographic');
+ok('stato misto: il dominio ancora a striscia resta -> mercator',
+   makeCtx({ timeline: TIMELINE_MIXED, domain: 'dwd_icon' }).fmRegionProjection() === 'mercator');
+ok('projection OGGETTO nella timeline di dominio -> ignorata, fallback mercator',
+   makeCtx({ timeline: TIMELINE_OBJ_DOMAIN }).fmRegionProjection() === 'mercator');
 
 console.log('--- con index.json (stato misto reale) ---');
 ok('dominio disco (ecmwf_ifs025) -> stereographic',
