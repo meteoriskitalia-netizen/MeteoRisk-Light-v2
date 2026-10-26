@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """Test del DISCO POLARE di render_fm_webp.py (attivazione in produzione 1.2.4.30).
 
 Due difetti bloccanti, riparati qui e bloccati da questi test:
@@ -111,7 +111,8 @@ def test_projection_parts_splits_the_legacy_object():
 def test_write_region_index_publishes_string_and_meta(tmp_path):
     out = str(tmp_path / "out")
     mod.write_region_index(out, "north", (20.0, -180.0, 90.0, 180.0),
-                           {"domA": {"variables": {}}}, ["light"],
+                           {"domA": {"projection": "stereographic",
+                                     "variables": {}}}, ["light"],
                            projection="stereographic",
                            projection_meta=dict(POLAR_META))
     with open(os.path.join(out, "north", "index.json"), encoding="utf-8") as fh:
@@ -242,6 +243,26 @@ def test_index_only_heals_a_legacy_projection_object(tmp_path):
     assert isinstance(idx["projection"], str)
     assert idx["projection_meta"]["type"] == "polar_stereographic"
     assert idx["projection_meta"]["edge_lat"] == 20.0
+
+
+def test_region_key_dropped_when_domains_disagree(tmp_path):
+    """Stato MISTO (misurato in produzione il 2026-10-26): un dominio disco e uno
+    striscia nella stessa regione. La chiave di REGIONE non va scritta, altrimenti
+    il fallback del client la applica anche al dominio a striscia e disegna un
+    2879x521 come se fosse un disco."""
+    out = str(tmp_path / "out")
+    mod.write_region_index(out, "north", (20.0, -180.0, 90.0, 180.0),
+                           {"domA": {"projection": "stereographic"},
+                            "domB": {"bounds": [[20.0, -180.0], [85.0, 179.75]]}},
+                           ["light"], projection="stereographic",
+                           projection_meta=dict(POLAR_META))
+    with open(os.path.join(out, "north", "index.json"), encoding="utf-8") as fh:
+        idx = json.load(fh)
+    assert "projection" not in idx
+    assert "projection_meta" not in idx
+    # La chiave PER DOMINIO resta: il client la legge prima del fallback.
+    assert idx["domains"]["domA"]["projection"] == "stereographic"
+    assert "projection" not in idx["domains"]["domB"]
 
 
 def test_index_only_keeps_the_mercator_strip_untouched(tmp_path):

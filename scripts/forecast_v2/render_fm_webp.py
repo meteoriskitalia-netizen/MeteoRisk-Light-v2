@@ -2668,6 +2668,17 @@ def write_region_index(out_root: str, region_name: str, region_bbox, domains: di
             lat_min, lon_min, lat_max, lon_max = -90.0, -180.0, 90.0, 180.0
         region_bbox = (lat_min, lon_min, lat_max, lon_max)
     theme_list = list(themes)
+    # The region-level `projection` is only a FALLBACK for the client when the
+    # per-domain entry has none -- but `fmRegionProjection` applies it to EVERY
+    # domain of the region. Publishing it while some domains are still Mercator
+    # strips makes the client draw a 2879x521 strip as if it were a disc
+    # (measured in production on 2026-10-26: dwd_icon -> projection
+    # 'stereographic' with source 2879x521). So it is written ONLY when every
+    # indexed domain declares the SAME projection.
+    proj_set = {(d or {}).get("projection") for d in (domains or {}).values()}
+    if projection and (len(proj_set) != 1 or None in proj_set):
+        projection = None
+        projection_meta = None
     index = {
         "version": WEBP_VERSION,
         "generated_at": _utcnow_iso(),
