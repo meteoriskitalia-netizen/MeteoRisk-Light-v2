@@ -74,14 +74,17 @@ def _merc(lat):
 # --------------------------------------------------------------------------- #
 # La tabella: una regione sola, e il valore NON e' una costante
 # --------------------------------------------------------------------------- #
-def test_only_europa_asks_for_square_mercator_pixels():
-    assert mod.REGION_PIXEL_ASPECT == {"europa": "mercator"}
+def test_the_stretched_regions_ask_for_square_mercator_pixels():
+    # Misurate tutte e tre il 2026-10-26: erano stirate di 1,26x/1,35x/1,55x.
+    assert mod.REGION_PIXEL_ASPECT == {"europa": "mercator",
+                                       "italia": "mercator",
+                                       "domain": "mercator"}
 
 
 def test_the_other_regions_are_not_in_the_table():
     # La tabella e' l'UNICO posto che cambia la forma: chi non c'e' tiene la
     # regola storica (una riga di output per cella sorgente) e i suoi byte.
-    for region in ("italia", "north", "domain", None):
+    for region in ("north", None):
         assert region not in mod.REGION_PIXEL_ASPECT
 
 
@@ -248,8 +251,12 @@ def test_europa_label_font_is_recomputed_and_never_reduced():
     new = mod.label_font_px(1761, 1390, 0, region="europa")
     assert new > 12, new
     assert new >= old
-    # Le regioni fuori tabella restano al valore storico.
+    # ``italia`` e ``domain`` ora sono in tabella, quindi il font e' DEDOTTO:
+    # 580x514 restituisce comunque 12 (il fattore 1,0896 basta), mentre la
+    # ``domain`` alta 1390 comanda il fit e deve crescere come ``europa``.
     assert mod.label_font_px(580, 514, 0, region="italia") == mod.LABEL_FONT_PX
-    assert mod.label_font_px(1761, 897, 0, region="domain") == mod.LABEL_FONT_PX
+    assert mod.label_font_px(1761, 1390, 0, region="domain") > mod.LABEL_FONT_PX
+    # Le regioni fuori tabella restano al valore storico.
+    assert mod.label_font_px(1761, 897, 0, region="med") == mod.LABEL_FONT_PX
     # Un valore forzato continua a vincere.
     assert mod.label_font_px(1761, 1390, 30, region="europa") == 30

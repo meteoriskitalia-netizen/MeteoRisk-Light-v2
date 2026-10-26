@@ -294,14 +294,18 @@ NORTH_REGION_SKIP_NON_GLOBAL = True
 # e' 1,000 su entrambi (misurato: 1,00899/1,00880 = 1,0002 e 1,26691/1,26752 =
 # 0,9995, cioe' l'arrotondamento di 1 riga su 1390).
 #
-# Cosa resta fuori (misurato, NON toccato qui per non allargare il delta):
+# MISURATO il 2026-10-26: TUTTE e tre le regioni erano stirate, non solo
+# ``europa``. Il rapporto lo decide il crop, non la regione:
 #   * ``italia`` (36,5..47,1875N / 6,5..18,5625E) ha un rapporto Mercatore di
-#     0,8353 e viene pubblicata a 1,1284 -> 1,35x di stiramento verticale;
+#     0,8353 (piu' alta che larga) e veniva pubblicata a 1,1284 -> 1,35x;
 #   * ``domain`` su dwd_icon_eu copre ESATTAMENTE la stessa scatola di
-#     ``europa`` (34..62N / 15W..40E) e resta a 1,9632 -> 1,55x.
-# Sono la stessa classe di difetto; si chiudono aggiungendo la regione a questa
-# tabella, che e' una riga sola.
-REGION_PIXEL_ASPECT = {"europa": "mercator"}
+#     ``europa`` (34..62N / 15W..40E) e restava a 1,9632 -> 1,55x;
+#   * ``europa`` (chiudeva il primo giro) 1,2675 dwd / 1,0088 ecmwf.
+# Una regione con rapporto < 1 non e' un caso speciale: ``mercator_out_rows``
+# deduce il numero di righe da ``step_rad = radians(dx)/scale``, quindi
+# funziona identico sopra e sotto 1. Il verso non viene mai assunto.
+REGION_PIXEL_ASPECT = {"europa": "mercator", "italia": "mercator",
+                       "domain": "mercator"}
 
 
 # --------------------------------------------------------------------------- #
@@ -1432,10 +1436,10 @@ def label_font_px(out_w: int, out_h: int, forced: int = 0, region: str | None = 
     A forced positive value (``--label-font-px``) bypasses the computation and
     reproduces the historical output when it is 12.
 
-    Only ``north`` and the regions of ``REGION_PIXEL_ASPECT`` (``europa``) are
-    auto-scaled. ``italia`` (factor 1.10) already keeps 12 px above the target
-    and the ``domain`` region is explicitly kept at the historical 12 px (it
-    must stay byte-identical; its factor varies with the model grid).
+    Only ``north`` and the regions of ``REGION_PIXEL_ASPECT`` (``europa``,
+    ``italia``, ``domain``) are auto-scaled. The other regions are not: they
+    keep the historical 12 px, and with their historical shape that value is
+    already above the target.
 
     ``europa`` used to ride along at 12 px when its shape was 1121x609/1121x701
     or 1761x897/1761x1101. Measured factors (``min(1008/W, 560/H)``): 0.7989 for
