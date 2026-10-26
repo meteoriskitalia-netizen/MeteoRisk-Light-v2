@@ -1,3 +1,12 @@
+MeteoRisk Light - 1.2.4.37 - L'INQUADRATURA SI APPLICA DAVVERO: fitBounds ERA IGNORATO FINCHE' NON SI CHIAMA invalidateSize (MISURATO: STESSO CLIP, ZOOM 5 PRIMA E 3 DOPO) (bump da 1.2.4.36)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=37
+RELEASE_TYPE=release
+DATE=2026-10-27
+NOTE=Release 1.2.4.37 (bump da 1.2.4.36) - SOLO CLIENT. Chiude la catena iniziata con la 1.2.4.35: (1) il RITAGLIO era il riquadro di ICON-EU e tagliava il dato; (2) il rifit non scattava su tutti i percorsi; (3) il fitBounds veniva IGNORATO. Misurato sulla 1.2.4.36: stesso clip [-25,34,45,72], zoom 5 e bounds 33,98..51,04 / -3,56..28,56 identici prima e dopo fitBounds, anche con maxBounds azzerato; dopo invalidateSize() lo stesso fitBounds porta a zoom 3 e bounds 23,56..75,41. FIX: invalidateSize prima del fit e fit ripetuto su requestAnimationFrame (la transizione CSS del pannello puo' cambiare la dimensione dopo il primo tentativo). VERIFICA: test_html_js_syntax 1 passed. BUMP: html mri-light-1.2.4.37.html, VERSION (BUILD=37), sw.js CACHE_NAME mri-1.2.4.37, README.md, test .mjs, 3 righe cp. La 1.2.4.36 va RIMOSSA dal repo.
+APP_FILE=mri-light-1.2.4.37.html
 MeteoRisk Light - 1.2.4.36 - DOPO AVER ALLARGATO L'INQUADRATURA LA VISTA SI RI-INCORNICIA DA SOLA (IL CLIP ERA GIUSTO MA LA MAPPA RESTAVA ZOOMATA: 1593x1579 IN UN PANNELLO 731x532) (bump da 1.2.4.35)
 MAJOR=1
 MINOR=2

@@ -1963,9 +1963,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.36';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.37';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-26';
     const APP_CHANGELOG = [
+        { version: '1.2.4.37', date: '2026-10-27', changes: [
+  'MAPPE= L\'INQUADRATURA ORA SI APPLICA DAVVERO ANCHE AL PRIMO APERTURA. `fitBounds` veniva ignorato: misurato sulla 1.2.4.36, con lo stesso clip [-25,34,45,72] la mappa restava a zoom 5 e bounds 33,98..51,04 / -3,56..28,56 identici prima e dopo la chiamata, anche azzerando `maxBounds`. Dopo un `invalidateSize()` lo stesso `fitBounds` portava a zoom 3 e bounds 23,56..75,41. Leaflet tiene una dimensione interna del contenitore che, con il pannello appena aperto, non e\' ancora coerente e fa scartare il fit.',
+  'MAPPE= FIX: prima del fit si chiama `map.invalidateSize()`, e il fit viene ripetuto al frame successivo (`requestAnimationFrame`) perche\' la transizione CSS del pannello puo\' cambiare la dimensione DOPO il primo tentativo. Effetto: Europa su `dwd_icon` si apre inquadrando davvero 34..72N / -25..45E, con Islanda, Scandinavia intera e Atlantico.',
+  'DOC= Bump versione 1.2.4.37 (solo client). Le 1.2.4.35 e 1.2.4.36 restano valide: qui si chiude la catena ritaglio -> rifit -> fit effettivo.',
+        ] },
         { version: '1.2.4.36', date: '2026-10-27', changes: [
   'MAPPE= DOPO AVER ALLARGATO L\'INQUADRATURA, LA VISTA SI RI-INCORNICIA DA SOLA. La 1.2.4.35 aveva corretto il ritaglio (Europa su `dwd_icon`: da [-15,34,40,62] a [-25,34,45,72], +10 gradi di dato a nord e a ovest) ma la mappa restava al livello di zoom precedente: misurato in produzione, overlay 1593x1579 dentro un pannello 731x532 con il bordo superiore a circa 58,8N. Il dato c\'era e non si vedeva lo stesso.',
   'MAPPE= CAUSA E CORREZIONE. `fmApplyRegion(refit)` rifaceva `fitBounds` solo quando il chiamante passava `true`; ma il clip cambia anche su percorsi che passano `false` (arrivo dell\'index.json, cambio dominio, run con bounds diversi). Ora un controllo esplicito (`fmClipPrev`) ri-innesca il rifit quando il riquadro effettivo cambia, qualunque sia il chiamante.',
@@ -13350,7 +13355,24 @@ function fmApplyRegion(refit) {
                 map.setMaxBounds(null);
             } else if (clip) {
                 map.setMaxBounds([[clip[1], clip[0]], [clip[3], clip[2]]]);
-                if (refit) map.fitBounds([[clip[1], clip[0]], [clip[3], clip[2]]], { padding: [8, 8] });
+                if (refit) {
+                    // 1.2.4.37 - MISURATO: con il pannello appena aperto `fitBounds` non
+                    // cambiava NULLA (zoom 5, bounds identici prima e dopo, anche con
+                    // maxBounds azzerato); dopo un `invalidateSize()` lo stesso fitBounds
+                    // portava a zoom 3 e bounds 23,56..75,41. Leaflet tiene la dimensione
+                    // interna del contenitore e ignora il fit finche' quella non e' coerente
+                    // (pannello che si apre/si assesta). Quindi: invalidateSize, fit, e un
+                    // secondo fit al frame successivo per il caso in cui la transizione CSS
+                    // del pannello cambi la dimensione DOPO il primo fit.
+                    var fmFit = function () {
+                        try {
+                            map.invalidateSize();
+                            map.fitBounds([[clip[1], clip[0]], [clip[3], clip[2]]], { padding: [8, 8] });
+                        } catch (e) { }
+                    };
+                    fmFit();
+                    try { window.requestAnimationFrame(fmFit); } catch (e) { }
+                }
             } else {
                 map.setMaxBounds(null);
             }
