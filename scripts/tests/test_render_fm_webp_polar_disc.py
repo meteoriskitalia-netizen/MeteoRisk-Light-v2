@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Test del DISCO POLARE di render_fm_webp.py (attivazione in produzione 1.2.4.30).
 
 Due difetti bloccanti, riparati qui e bloccati da questi test:
