@@ -1,3 +1,12 @@
+MeteoRisk Light - 1.2.4.36 - DOPO AVER ALLARGATO L'INQUADRATURA LA VISTA SI RI-INCORNICIA DA SOLA (IL CLIP ERA GIUSTO MA LA MAPPA RESTAVA ZOOMATA: 1593x1579 IN UN PANNELLO 731x532) (bump da 1.2.4.35)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=36
+RELEASE_TYPE=release
+DATE=2026-10-27
+NOTE=Release 1.2.4.36 (bump da 1.2.4.35) - SOLO CLIENT. Completa la correzione dell'inquadratura: la 1.2.4.35 aveva corretto il RITAGLIO (Europa su dwd_icon da [-15,34,40,62] a [-25,34,45,72]) ma la vista restava al livello di zoom precedente - misurato in produzione: overlay 1593x1579 in un pannello 731x532, bordo superiore a ~58,8N, cioe' il dato c'era e non si vedeva. (a) CAUSA: fmApplyRegion rifaceva fitBounds solo con refit=true, ma il clip cambia anche su percorsi che passano false (arrivo dell'index.json, cambio dominio, run con bounds diversi). (b) FIX: nuovo stato fmClipPrev, e quando il riquadro effettivo cambia il rifit si ri-innesca da solo. (c) VERIFICA: test_html_js_syntax 1 passed; in produzione il clip su dwd_icon/Europa e' [-25,34,45,72] e l'overlay deve riempire il pannello. (d) BUMP: html mri-light-1.2.4.36.html, VERSION (BUILD=36), sw.js CACHE_NAME mri-1.2.4.36, README.md, test .mjs, 3 righe cp dei workflow. La 1.2.4.35 va RIMOSSA dal repo.
+APP_FILE=mri-light-1.2.4.36.html
 MeteoRisk Light - 1.2.4.35 - L'INQUADRATURA DI UNA REGIONE NON TAGLIA PIU' I DATI CHE ESISTONO (EUROPA SU `dwd_icon` SI FERMAVA A 62N PERCHE' IL RITAGLIO ERA IL RIQUADRO DI ICON-EU: ORA IL RIFERIMENTO SONO I BOUNDS REALI DELLA RUN) (bump da 1.2.4.34)
 MAJOR=1
 MINOR=2

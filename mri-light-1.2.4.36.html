@@ -1963,9 +1963,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.35';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.36';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-26';
     const APP_CHANGELOG = [
+        { version: '1.2.4.36', date: '2026-10-27', changes: [
+  'MAPPE= DOPO AVER ALLARGATO L\'INQUADRATURA, LA VISTA SI RI-INCORNICIA DA SOLA. La 1.2.4.35 aveva corretto il ritaglio (Europa su `dwd_icon`: da [-15,34,40,62] a [-25,34,45,72], +10 gradi di dato a nord e a ovest) ma la mappa restava al livello di zoom precedente: misurato in produzione, overlay 1593x1579 dentro un pannello 731x532 con il bordo superiore a circa 58,8N. Il dato c\'era e non si vedeva lo stesso.',
+  'MAPPE= CAUSA E CORREZIONE. `fmApplyRegion(refit)` rifaceva `fitBounds` solo quando il chiamante passava `true`; ma il clip cambia anche su percorsi che passano `false` (arrivo dell\'index.json, cambio dominio, run con bounds diversi). Ora un controllo esplicito (`fmClipPrev`) ri-innesca il rifit quando il riquadro effettivo cambia, qualunque sia il chiamante.',
+  'DOC= Bump versione 1.2.4.36 (solo client). La 1.2.4.35 resta valida: questo e\' il completamento della stessa correzione.',
+        ] },
         { version: '1.2.4.35', date: '2026-10-27', changes: [
   'MAPPE= L\'INQUADRATURA DI UNA REGIONE NON TAGLIA PIU\' I DATI CHE ESISTONO. Difetto misurato in produzione il 2026-10-27 sulla pagina servita: con dominio `dwd_icon` e regione Europa, `fmClipBounds` valeva [-15, 34, 40, 62] - cioe\' il riquadro di ICON-EU - mentre il WebP pubblicato copre 34..72N / -25..45E. Risultato a schermo: la vista si fermava a 62N e sparivano la Scandinavia settentrionale, l\'Islanda e tutto l\'Atlantico a ovest di -15, pur essendo presenti nell\'immagine. Non era una cache e non era la geometria: era il ritaglio.',
   'MAPPE= CAUSA E CORREZIONE. `FM_REGIONS` dichiarava `europe: [34,-15,62,40]` e `fmApplyRegion` usava quel bbox come RITAGLIO intersecandolo con i bounds del dominio. Su un dominio regionale (ICON-EU) coincideva; su un dominio piu\' ampio tagliava. Ora il bbox di Europa e\' un limite di MASSIMA ([30,-30,72,50]) e il ritaglio vero e\' l\'estensione REALE della run pubblicata letta da `index.json` (`runs[].bounds`, con fallback ai bounds del dominio): la regione puo\' solo stringere, mai togliere una parte di dato che esiste. Le regioni con bbox stretto (Italia, Mediterraneo) restano identiche perche\' il loro bbox e\' davvero piu\' piccolo del dato.',
@@ -12482,6 +12487,7 @@ var fmRegion = 'domain';
 // sovrascrivere la scelta dell'utente quando cambia modello nella stessa sessione.
 var fmRegionUserChosen = false;
 var fmClipBounds = null;
+var fmClipPrev = null;   // 1.2.4.36: ultimo clip applicato (per il rifit)
 var fmTilePending = 0;
 var fmLoaderTimer = null;
     var fmLoaderFallbackTimer = null; // fallback 25s di fmLoaderShow (cancellato in fmLoaderHide)
@@ -13316,7 +13322,18 @@ function fmApplyRegion(refit) {
     } else if (refB) {
         clip = refB;
     }
+    // 1.2.4.36 - SE L'INQUADRATURA CAMBIA, LA VISTA SI RI-INCORNICIA.
+    // Difetto misurato sulla 1.2.4.35 appena pubblicata: il clip era corretto
+    // ([-25,34,45,72] su dwd_icon/Europa, +10N e +10W di dato recuperato) ma la
+    // mappa restava al livello di zoom precedente: overlay 1593x1579 in un
+    // pannello 731x532, con il bordo superiore a ~58,8N. Cioe' il dato c'era e
+    // non si vedeva lo stesso. `refit` da solo non bastava perche' il clip puo'
+    // cambiare DOPO (arrivo dell'index, cambio dominio, run con bounds diversi)
+    // su percorsi che chiamano fmApplyRegion(false).
+    var fmClipChanged = (fmClipPrev === null || fmClipPrev.join(',') !== (clip ? clip.join(',') : ''));
+    fmClipPrev = clip ? clip.slice() : null;
     fmClipBounds = clip;
+    if (fmClipChanged) refit = true;
     var rr0 = fmRenderRegionId();
     if (rr0) { fmFetchRenderedIndex(rr0); fmFetchTimeline(rr0); }
     try {
