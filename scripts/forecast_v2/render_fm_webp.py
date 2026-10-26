@@ -19,6 +19,19 @@ consumable by the client's WebP path.
     resampled (the pixels where the overlay is transparent stay
     byte-identical to the base raster).
 
+Solid phase inside the precipitation maps (1.2.4.32)
+---------------------------------------------------
+``precipitation`` and ``precipitation_6h`` also read ``snow_fraction`` /
+``snow_fraction_6h`` from the SAME frame (``SNOW_HATCH_SOURCE``) and bake a
+hatch into the WebP: a single dashed family for 50-80% of the precipitation
+falling as snow, a cross (dashed + continuous diagonals) above 80%. The hatch
+is drawn on the raster and UNDER the isolines/arrows, so the phase is read on
+the precipitation map itself, not on a second map to compare by eye. Every
+other variable is untouched: with no snow source in the frame the variable is
+rendered exactly as before (one warning per (domain, variable), not per
+frame). The thresholds are a PRODUCT choice, not a model field: the engine
+publishes the fraction, not a phase class.
+
 Regions
 -------
 The raster fast-path only ships two overlapping areas (``italia`` and
@@ -199,7 +212,7 @@ def _require_render_deps() -> None:
 HERE = os.path.dirname(os.path.abspath(__file__))
 COLOR_SCALES_PATH = os.path.join(HERE, "color_scales.json")
 
-WEBP_VERSION = "fm2-webp-1"
+WEBP_VERSION = "fm2-webp-2"
 MERC_LAT_LIMIT = 85.05112878
 UPSAMPLE_TARGET = 512
 UPSCALE_MAX_DEFAULT = 8
@@ -815,6 +828,64 @@ ARROW_VARS = {
     "wind_speed_10hPa": "wind_direction_10hPa",
 }
 
+# --------------------------------------------------------------------------- #
+# TRATTEGGIO DELLA FASE SOLIDA DENTRO LE PRECIPITAZIONI
+#
+# La neve NON e' una mappa separata da confrontare a occhio con la pioggia: la
+# fase solida e' un campo 0..1 che il motore gia' calcola e pubblica nello
+# STESSO frame ``.om`` della precipitazione (``snow_fraction``,
+# ``snow_fraction_6h`` = somma swe / somma precipitazione sulla finestra 6 h).
+# Quando si rende una delle due variabili di precipitazione il renderer legge
+# ANCHE quell'array dallo stesso frame e disegna un tratteggio SOPRA il raster
+# e SOTTO isolinee/frecce (ordine: raster -> tratteggio -> isolinee -> frecce).
+#
+# Le soglie 0,5 e 0,8 sono una SCELTA DI PRODOTTO, non un dato del modello: il
+# modello pubblica la FRAZIONE, non una classe di fase. Due livelli, diversi per
+# COSTRUZIONE e non per densita': una sola famiglia di tratti ``/`` (50-80%) e
+# un INCROCIO ``/`` + ``\`` (>= 80%). A 1,2 px di tratto un tratteggio singolo
+# e una retina restano distinguibili anche dopo il fit a 560 px; due densita'
+# della stessa famiglia no (diventano la stessa trama piu' o meno fitta).
+#
+# La spaziatura e' dichiarata in px SCHERMO e convertita in px IMMAGINE con il
+# fattore di fit del pannello (``snow_hatch_geometry``): con una spaziatura
+# fissa in px immagine la trama su una striscia larga (``north``, 2879 px
+# mostrati a 0,26x) sarebbe ~2,7x troppo fitta e diventerebbe un velo grigio.
+# --------------------------------------------------------------------------- #
+SNOW_HATCH_SOURCE = {
+    "precipitation": "snow_fraction",
+    "precipitation_6h": "snow_fraction_6h",
+}
+SNOW_HATCH_LEVEL_LOW = 0.5         # f fra 0,5 e 0,8 -> una famiglia di tratti
+SNOW_HATCH_LEVEL_HIGH = 0.8        # f >= 0,8 -> incrocio
+SNOW_HATCH_SCREEN_SPACING_LOW = 11.0    # px SCHERMO, distanza perpendicolare
+SNOW_HATCH_SCREEN_SPACING_HIGH = 12.0   # px SCHERMO (per famiglia dell'incrocio)
+SNOW_HATCH_SCREEN_DASH_ON = 7.0    # px SCHERMO di tratto
+SNOW_HATCH_SCREEN_DASH_OFF = 5.0   # px SCHERMO di vuoto (periodo 12 px)
+SNOW_HATCH_SCREEN_WIDTH = 1.2      # px SCHERMO di larghezza del tratto
+# Due tonalita' di inchiostro: quella scura e' la scelta di prodotto
+# (rgb(15,23,42) alpha 150/255). Su un fondo SCURO (le bande blu della scala di
+# precipitazione, che coprono la maggior parte delle celle bagnate) lo stesso
+# inchiostro sparisce: li' si usa la tonalita' CHIARA con alpha piu' alto.
+# MISURATO: con alpha 150/255 nessun colore raggiunge 3:1 sulle bande blu
+# (massimo 2,65:1 con il bianco puro), che e' il motivo dell'alpha asimmetrico.
+SNOW_HATCH_INK_DARK = (15, 23, 42)
+SNOW_HATCH_INK_LIGHT = (241, 245, 249)
+SNOW_HATCH_ALPHA_DARK = 150        # /255 (scelta di prodotto)
+SNOW_HATCH_ALPHA_LIGHT = 190       # /255 (necessario per >= 3:1 sul blu scuro)
+SNOW_HATCH_CONTRAST_TARGET = 3.0   # rapporto WCAG minimo fra tratto e fondo
+# Scaletta di priorita' (ink, alpha): vince la PRIMA che raggiunge il target.
+# L'alpha di prodotto 150/255 resta dove basta; sui toni medi saturi (ciano,
+# verdi) nessun colore al 59% arriva a 3:1 e l'alpha scuro sale per gradi.
+SNOW_HATCH_ALPHA_STEPS = (150, 190, 210, 235)
+SNOW_HATCH_CONTRAST_LADDER = (
+    (SNOW_HATCH_INK_DARK, SNOW_HATCH_ALPHA_DARK),
+    (SNOW_HATCH_INK_LIGHT, SNOW_HATCH_ALPHA_LIGHT),
+    (SNOW_HATCH_INK_DARK, SNOW_HATCH_ALPHA_STEPS[1]),
+    (SNOW_HATCH_INK_DARK, SNOW_HATCH_ALPHA_STEPS[2]),
+    (SNOW_HATCH_INK_DARK, SNOW_HATCH_ALPHA_STEPS[3]),
+)
+SNOW_HATCH_CHUNK_ROWS = 256        # righe per blocco (memoria di picco del pattern)
+
 MAX_CONTOUR_LEVELS = 64           # cap sui livelli per variabile
 LABEL_MIN_SPACING_PX = 110.0      # spaziatura minima fra le etichette
 LABEL_FONT_PX = 12                # altezza del carattere (px di output), storico
@@ -826,6 +897,15 @@ LABEL_MIN_POLYLINE_PX = 60.0      # sotto questa lunghezza il livello non e' eti
 # north di 2879 px). Si usa il caso PEGGIORE (0.35) per dimensionare il font.
 PANEL_HEIGHT_PX = 560.0           # altezza CSS del pannello mappa
 PANEL_WIDTH_PX_MIN = 1008.0       # 0.35 * 2879 (fit factor misurato, caso peggiore)
+# Larghezza in px CSS del pannello mappa (1.2.4.32, per il tratteggio neve).
+# MISURATA dal layout, non assunta: ``.container { max-width: 1200px;
+# grid-template-columns: 1fr 400px; gap: 16px }`` -> colonna mappa 784 px, meno
+# il padding di ``.map-card`` (14 px per lato) = 756 px; il pannello misura 754
+# px (2 px di scrollbar). NON e' 1008 (quella e' la larghezza MINIMA desktop
+# usata per il font delle etichette: 0,35 * 2879) ne' 1120 (valore usato in una
+# misura precedente del tratteggio, che su ``europa`` e ``north`` dava una
+# spaziatura a schermo di 7,4-7,5 px invece di 11, cioe' 1,5x troppo fitta).
+PANEL_WIDTH_PX = 754.0            # px CSS del pannello mappa (fitBounds)
 MIN_SCREEN_DIGIT_PX = 7.0         # altezza minima delle cifre a schermo
 DIGIT_PROBE = "0123456789"        # testo di calibrazione (stesse cifre delle etichette)
 LABEL_FONT_MAX_PX = 48            # tetto di sicurezza della ricerca del font
@@ -1572,6 +1652,247 @@ def _apply_overlay(base_rgba, draw_fn, ss=None):
     return np.asarray(Image.alpha_composite(base, layer))
 
 
+# --------------------------------------------------------------------------- #
+# Tratteggio della fase solida (neve) dentro le precipitazioni
+# --------------------------------------------------------------------------- #
+def snow_hatch_geometry(h, w):
+    """Metriche del tratteggio in px IMMAGINE, derivate dai px SCHERMO.
+
+    ``r`` e' il fattore di fit del pannello mappa del client: con Leaflet
+    ``fitBounds`` l'immagine e' mostrata a ``min(panel_w / W, panel_h / H)``
+    (nessun ritaglio, nessuna distorsione). La spaziatura e il tratto sono
+    dichiarati in px schermo e divisi per ``r``: cosi' la trama ha la STESSA
+    densita' percepita su ``italia`` (613x541, r 1,035), ``europa``
+    (1405x715, r 0,537) e ``north`` (2879x521, r 0,262).
+    """
+    h = max(1, int(h))
+    w = max(1, int(w))
+    r = min(PANEL_HEIGHT_PX / float(h), PANEL_WIDTH_PX / float(w))
+    r = max(r, 1e-6)
+    width = SNOW_HATCH_SCREEN_WIDTH / r
+    # TETTO INFERIORE a 1 px di immagine: su ``italia`` dei domini a 0,25/0,125
+    # gradi l'immagine (385x337, r 1,66) e' PIU' PICCOLA del pannello, quindi
+    # 1,2 px schermo = 0,72 px immagine. Sotto 1 px il tratto non arriva mai a
+    # copertura piena (misurato: cov_max 0,861) e il contrasto scende sotto
+    # 3:1 anche su un fondo dove il colore scelto lo raggiungerebbe. Con il
+    # tetto il tratto e' 1 px immagine -> 1,66 px a schermo (piu' spesso del
+    # nominale, ma l'inchiostro e' pieno e la trama resta leggibile).
+    width = max(1.0, width)
+    return {
+        "r": r,
+        "spacing_low": SNOW_HATCH_SCREEN_SPACING_LOW / r,
+        "spacing_high": SNOW_HATCH_SCREEN_SPACING_HIGH / r,
+        "dash_on": SNOW_HATCH_SCREEN_DASH_ON / r,
+        "dash_off": SNOW_HATCH_SCREEN_DASH_OFF / r,
+        "width": width,
+    }
+
+
+def _hatch_line_coverage(s, t, spacing, dash_on, period, half_width,
+                         dashed=True):
+    """Coverage in [0,1] of one family of diagonal lines.
+
+    ``s`` is the coordinate perpendicular to the lines, ``t`` the one along
+    them (both in image px, already divided by sqrt(2) by the caller). The
+    anti-aliasing is ANALYTIC: the profile is a 1 px ramp around the exact
+    geometry, so the integrated width of a line is ``~= half_width * 2``
+    without any supersampled layer (the pattern is a full-image field, a
+    2x-4x layer would cost tens of MB per frame).
+    """
+    ph = np.mod(s, spacing)
+    dist = np.minimum(ph, spacing - ph)
+    if half_width <= 0.5:
+        # Tratto da 1 px: NESSUN antialiasing possibile (sotto il pixel). Una
+        # rampa qui darebbe un tratto sempre semitrasparente, che sul fondo
+        # scuro scende sotto 3:1. Linea piena, 1 px esatto.
+        line = (dist <= 0.5).astype(np.float32)
+    else:
+        line = np.clip(0.5 + (half_width - dist), 0.0, 1.0)
+    if not dashed:
+        return line
+    if line.max() <= 0.0:
+        return line
+    return line * _dash_coverage(t, dash_on, period)
+
+
+def _dash_coverage(t, dash_on, period):
+    """Coverage of the on/off dashes along the line (1 px ramp at the ends)."""
+    v = np.mod(t, period)
+    return np.clip(0.5 + (0.5 * dash_on - np.abs(v - 0.5 * dash_on)), 0.0, 1.0)
+
+
+def _hatch_family(h, w, spacing, dash_on, dash_off, width, cross=False,
+                  rows=None):
+    """Coverage of a family (``cross`` = second family) over ``rows``."""
+    h = int(h)
+    w = int(w)
+    spacing = float(spacing)
+    if w < 1 or h < 1 or spacing <= 0.0:
+        return None
+    half = 0.5 * max(0.35, float(width))
+    period = max(1e-3, float(dash_on) + float(dash_off))
+    on = max(0.05, float(dash_on))
+    inv = 1.0 / math.sqrt(2.0)
+    y0, y1 = rows if rows else (0, h)
+    y0 = max(0, int(y0))
+    y1 = min(h, int(y1))
+    out = np.zeros((h, w), dtype=np.float32)
+    if y1 <= y0:
+        return out
+    xs = np.arange(w, dtype=np.float32)
+    ny = max(1, min(y1 - y0, int(SNOW_HATCH_CHUNK_ROWS)))
+    for ys in range(y0, y1, ny):
+        ye = min(y1, ys + ny)
+        yy = np.arange(ys, ye, dtype=np.float32)[:, None]
+        cov = _hatch_line_coverage((xs[None, :] + yy) * inv,
+                                   (xs[None, :] - yy) * inv,
+                                   spacing, on, period, half)
+        if cross:
+            # Seconda famiglia CONTINUA (non tratteggiata): incrociata con la
+            # prima da' un reticolo di rombi che si legge come "incrocio" a
+            # qualunque scala. Le due famiglie tratteggiate provate prima
+            # (stesso 7/5, fase sfalsata) producevano invece una fila di
+            # CHEVRON ``«««`` - misurato sulle due scale, vedi il report -
+            # che su una mappa con le frecce del vento e' un simbolo ambiguo.
+            alt = _hatch_line_coverage((xs[None, :] - yy) * inv,
+                                       (xs[None, :] + yy) * inv,
+                                       spacing, 0.0, 1.0, half, dashed=False)
+            np.maximum(cov, alt, out=cov)
+        out[ys:ye] = cov
+    return out
+
+
+def snow_hatch_level_mask(snow, visible=None):
+    """0 = nessun tratteggio, 1 = 50-80 %, 2 = >= 80 %.
+
+    NaN (frazione non definita: precipitazione 0 o dato assente) -> 0, cioe'
+    NESSUN tratteggio: uno zero dipinto sarebbe una fase dichiarata che il
+    modello non ha detto. ``visible`` (alpha del raster > 0) esclude le celle
+    la cui precipitazione e' sotto la prima banda opaca: li' non c'e' colore e
+    un tratteggio resterebbe appeso sul fondo della mappa.
+    """
+    s = np.asarray(snow, dtype=np.float32)
+    lvl = np.zeros(s.shape, dtype=np.uint8)
+    lvl[s >= SNOW_HATCH_LEVEL_HIGH] = 2
+    lvl[(s >= SNOW_HATCH_LEVEL_LOW) & (s < SNOW_HATCH_LEVEL_HIGH)] = 1
+    if visible is not None:
+        lvl[~np.asarray(visible, dtype=bool)] = 0
+    return lvl
+
+
+def snow_hatch_coverage(h, w, level_mask, geometry=None):
+    """Alpha coverage (float32, 0..1) of the hatch for a level mask."""
+    geo = geometry or snow_hatch_geometry(h, w)
+    cov = np.zeros((int(h), int(w)), dtype=np.float32)
+    for level, spacing, cross in ((1, geo["spacing_low"], False),
+                                  (2, geo["spacing_high"], True)):
+        sel = level_mask == level
+        if not sel.any():
+            continue
+        rr = np.flatnonzero(sel.any(axis=1))
+        cc = np.flatnonzero(sel.any(axis=0))
+        r0 = max(0, int(rr[0]) - 2)
+        r1 = min(int(h), int(rr[-1]) + 3)
+        c0 = max(0, int(cc[0]) - 2)
+        c1 = min(int(w), int(cc[-1]) + 3)
+        fam = _hatch_family(h, w, spacing, geo["dash_on"], geo["dash_off"],
+                            geo["width"], cross=cross, rows=(r0, r1))
+        if fam is None:
+            continue
+        sub = np.where(sel[r0:r1, c0:c1], fam[r0:r1, c0:c1], 0.0)
+        np.maximum(cov[r0:r1, c0:c1], sub, out=cov[r0:r1, c0:c1])
+    return cov
+
+
+def srgb_luminance(rgb):
+    """WCAG relative luminance of sRGB values in 0..255 (linearised)."""
+    c = np.asarray(rgb, dtype=np.float32) / 255.0
+    c = np.where(c <= 0.03928, c / 12.92,
+                 ((c + 0.055) / 1.055) ** np.float32(2.4))
+    return (0.2126 * c[..., 0] + 0.7152 * c[..., 1] + 0.0722 * c[..., 2])
+
+
+def contrast_ratio(lum_a, lum_b):
+    """WCAG contrast ratio between two relative luminances."""
+    hi = np.maximum(lum_a, lum_b)
+    lo = np.minimum(lum_a, lum_b)
+    return (hi + 0.05) / np.maximum(lo + 0.05, 1e-6)
+
+
+def apply_snow_hatch(rgba, snow):
+    """Composite the solid-phase hatch on the coloured raster.
+
+    ``snow`` is the snow fraction of the SAME frame, already cropped and
+    resampled to the output raster (NaN where undefined). Returns a NEW RGBA
+    array; pixels outside the hatch mask are byte-identical to ``rgba``.
+
+    Ink and opacity are chosen PER PIXEL with a PRIORITY LADDER against the
+    WCAG contrast ratio of the stroke on its own background:
+
+    1. ``rgb(15,23,42)`` alpha 150/255 -> the product choice, used wherever
+       it already reaches 3:1 (pale and warm bands);
+    2. the same ink in the LIGHT tone (slate-50) alpha 190/255 -> for the dark
+       blue bands, where the dark tone disappears (measured 2,28:1 at 150);
+    3. the dark tone at 190/210/235 -> for the saturated mid-tones (cyan,
+       greens), where NEITHER tone reaches 3:1 at the product alpha.
+
+    The first candidate that reaches ``SNOW_HATCH_CONTRAST_TARGET`` wins; if
+    none does, the one with the highest ratio is used (and the measurement
+    reports it). This is why the alpha is not a single constant: on a
+    mid-luminance background no colour at 59% opacity can reach 3:1.
+    """
+    base = np.asarray(rgba)
+    if base.ndim != 3 or base.shape[2] < 4 or snow is None:
+        return rgba
+    h = int(base.shape[0])
+    w = int(base.shape[1])
+    if tuple(np.shape(snow)) != (h, w):
+        raise ValueError("snow hatch: snow %r vs raster %r"
+                         % (tuple(np.shape(snow)), (h, w)))
+    lvl = snow_hatch_level_mask(snow, base[..., 3] > 0)
+    if not lvl.any():
+        return rgba
+    cov = snow_hatch_coverage(h, w, lvl)
+    rows = np.flatnonzero((cov > 0.0).any(axis=1))
+    if not rows.size:
+        return rgba
+    cols = np.flatnonzero((cov > 0.0).any(axis=0))
+    r0, r1 = int(rows[0]), int(rows[-1]) + 1
+    c0, c1 = int(cols[0]), int(cols[-1]) + 1
+
+    out = np.array(base, dtype=np.uint8, copy=True)
+    bg = base[r0:r1, c0:c1, :3].astype(np.float32)
+    cov_s = cov[r0:r1, c0:c1]
+    # Only the pixels that carry ink are evaluated: the choice depends on the
+    # BACKGROUND, and the background under a transparent pixel is irrelevant.
+    idx = np.flatnonzero(cov_s >= 0.01)
+    if not idx.size:
+        return rgba
+    flat = cov_s.reshape(-1)
+    bgp = bg.reshape(-1, 3)[idx]
+    bgp_lum = srgb_luminance(bgp)
+
+    chosen_alpha = np.full(idx.size, SNOW_HATCH_ALPHA_STEPS[-1],
+                           dtype=np.float32) / np.float32(255.0)
+    chosen_ink = np.empty((idx.size, 3), dtype=np.float32)
+    chosen_ink[...] = np.asarray(SNOW_HATCH_INK_DARK, np.float32)
+    for ink, alpha in reversed(SNOW_HATCH_CONTRAST_LADDER):
+        a = np.float32(alpha) / np.float32(255.0)
+        eff = bgp * (np.float32(1.0) - a) + np.asarray(ink, np.float32) * a
+        cr = contrast_ratio(bgp_lum, srgb_luminance(eff))
+        ok = cr >= np.float32(SNOW_HATCH_CONTRAST_TARGET)
+        chosen_alpha = np.where(ok, a, chosen_alpha)
+        chosen_ink[ok] = np.asarray(ink, np.float32)
+
+    eff_alpha = chosen_alpha * flat[idx]
+    blend = bgp * (np.float32(1.0) - eff_alpha[:, None]) \
+        + chosen_ink * eff_alpha[:, None]
+    sub = out[r0:r1, c0:c1, :3].reshape(-1, 3)
+    sub[idx] = np.clip(np.rint(blend), 0, 255).astype(np.uint8)
+    out[r0:r1, c0:c1, :3] = sub.reshape(r1 - r0, c1 - c0, 3)
+    return out
+
+
 def _overlay_drawer(sub, cgrid, scale, variant, interval, placed,
                     force_labels=False,
                     speed_out=None, dir_out=None, speed_ref=0.0,
@@ -2176,6 +2497,17 @@ def _render_var_task(payload) -> dict:
                 dir_arr = _unwrap_direction(read_frame_array(reader, dir_name))
             except Exception as exc:
                 dir_error = "%s/%s read failed: %s" % (valid_time, dir_name, exc)
+
+        # Fase solida: `snow_fraction` / `snow_fraction_6h` sta nello STESSO
+        # frame della precipitazione (SNOW_HATCH_SOURCE). La lettura e'
+        # opzionale: se l'array non c'e' la variabile si rende senza tratteggio.
+        snow_arr = None
+        snow_name = SNOW_HATCH_SOURCE.get(var)
+        if snow_name:
+            try:
+                snow_arr = read_frame_array(reader, snow_name)
+            except Exception:
+                snow_arr = None
     finally:
         try:
             reader.close()
@@ -2203,6 +2535,16 @@ def _render_var_task(payload) -> dict:
         if mask is not None:
             # Polar disc: HARD circular alpha mask (0 outside the 20N circle).
             rgba = mask_rgba_to_disc(rgba, mask)
+
+        # Tratteggio della fase solida: sopra il raster, sotto le isolinee.
+        if snow_arr is not None:
+            ssub = snow_arr[crop["row0"]:crop["row1"],
+                            crop["col0"]:crop["col1"]]
+            if polar:
+                snow_out = crop["resample"](ssub)[0]
+            else:
+                snow_out = crop["resample"](ssub)
+            rgba = apply_snow_hatch(rgba, snow_out)
 
         # Isolines (with values) and wind arrows are drawn on a separate RGBA
         # layer and alpha-composited: the base raster is NEVER resampled.
@@ -2460,6 +2802,7 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
     skipped = 0
     already = 0
     frames_done = 0
+    hatch_missing = set()   # (dominio, variabile) gia' segnalate: log una volta
     bytes_written = 0
     # Contatori del lavoro incrementale, nella chiave (regione, variabile,
     # frame): una "cella" e' un file potenzialmente da scrivere. Servono a
@@ -2624,6 +2967,15 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                     pass
 
             names = [v for v in requested if v in present] if requested else present
+            # Tratteggio neve: se la sorgente (frazione neve) non e' in QUESTO
+            # dominio, la variabile si rende SENZA tratteggio. Una riga per
+            # (dominio, variabile) - non una per frame (100 volte).
+            for _hv in names:
+                _hsrc = SNOW_HATCH_SOURCE.get(_hv)
+                if _hsrc and _hsrc not in present and (domain, _hv) not in hatch_missing:
+                    hatch_missing.add((domain, _hv))
+                    print("  ~ %s: %s senza %s nel frame -> nessun tratteggio"
+                          % (domain, _hv, _hsrc), file=sys.stderr)
             if args.vars:
                 missing = [v for v in requested if v not in present]
                 if missing:

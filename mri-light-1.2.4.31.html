@@ -160,6 +160,19 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .fm-legend-tick-edd { transform: translateX(-100%); }
         .fm-legend-labels { display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; margin-top: 2px; }
         .fm-legend-overlay { font-size: 11px; color: #cbd5e1; margin-top: 3px; }
+        /* 1.2.4.32 - CAMPIONE della trama neve nella legenda di precipitazione.
+           Non e' una decorazione: la mappa ha due trame DIVERSE (una famiglia di
+           tratti per 50-80%, incrocio oltre 80%) e la legenda deve mostrarle, non
+           solo nominarle. Inchiostro chiaro perche' la legenda sta sul fondo scuro. */
+        .fm-legend-hatch { display: inline-block; width: 30px; height: 12px; margin-right: 5px;
+            border: 1px solid #334155; border-radius: 2px; vertical-align: -2px;
+            background-color: rgba(148,163,184,.18); }
+        .fm-legend-hatch-1 { background-image: repeating-linear-gradient(45deg,
+            rgba(226,232,240,.95) 0, rgba(226,232,240,.95) 2px, transparent 2px, transparent 7px); }
+        .fm-legend-hatch-2 { background-image: repeating-linear-gradient(45deg,
+            rgba(226,232,240,.95) 0, rgba(226,232,240,.95) 2px, transparent 2px, transparent 7px),
+            repeating-linear-gradient(-45deg,
+            rgba(226,232,240,.95) 0, rgba(226,232,240,.95) 2px, transparent 2px, transparent 7px); }
         /* 1.2.4.28 - la classe .fm-legend era usata dal markup (#fm-legend) ma non aveva
            alcuna regola: senza questa dichiarazione il contenitore non impilava barra e
            tick (entrambi position:relative) e con le scale lunghe si sovrapponevano. */
@@ -12291,7 +12304,7 @@ var FM_VAR_LABELS = {
     apparent_temperature: 'Temperatura percepita',
     relative_humidity_2m: 'Umidita relativa 2 m',
     relative_humidity_700hPa: 'Umidita relativa 700 hPa',
-    precipitation: 'Precipitazione totale',
+    precipitation: 'Precipitazioni (passo del modello)',
     precipitation_cum: 'Cumulata precipitazione',
     rain: 'Pioggia',
     showers: 'Rovesci',
@@ -13540,6 +13553,18 @@ function fmPopulateVariables(vars) {
         if (!byCat['Pressione']) byCat['Pressione'] = [];
         if (byCat['Pressione'].indexOf(FM_SYNTH_PRESSURE_GEOPOT) < 0) byCat['Pressione'].push(FM_SYNTH_PRESSURE_GEOPOT);
     }
+    // 1.2.4.32 - Nel gruppo 'Precipitazione e neve' la voce PRINCIPALE e' il
+    // composito a 6 ore: e' l'unico passo in cui il numero significa sempre la stessa
+    // cosa. La precipitazione oraria, oltre il primo tratto del modello, vale 3 o 6 ore
+    // (misurato: DWD/ECMWF a +78 h passano a 3 h, ECMWF a +144 h a 6 h), quindi resta
+    // disponibile ma SUBITO DOPO. Nessuna variabile e' rimossa dal manifest.
+    var pcat = byCat['Precipitazione e neve'];
+    if (pcat && pcat.indexOf('precipitation_6h') >= 0) {
+        pcat = pcat.filter(function (v) { return v !== 'precipitation_6h' && v !== 'precipitation'; });
+        pcat.unshift('precipitation_6h');
+        if (vars.indexOf('precipitation') >= 0) pcat.splice(1, 0, 'precipitation');
+        byCat['Precipitazione e neve'] = pcat;
+    }
     var catSeen = [];
     for (var k = 0; k < FM_CAT_ORDER.length; k++) { if (byCat[FM_CAT_ORDER[k]]) catSeen.push(FM_CAT_ORDER[k]); }
     for (var kk in byCat) { if (catSeen.indexOf(kk) < 0) catSeen.push(kk); }
@@ -14260,6 +14285,14 @@ function fmUpdateLegend() {
     }
     el.innerHTML = barHtml + ticksHtml
         + '<div class="fm-legend-labels"><span>' + fmFmtNum(loTxt) + '</span><span>' + unitTxt + '</span><span>' + fmFmtNum(hiTxt) + '</span></div>';
+    // 1.2.4.32 - FASE SOLIDA DENTRO LE PRECIPITAZIONI: il tratteggio e' cotto nel
+    // WebP dal renderer (SNOW_HATCH_SOURCE: snow_fraction / snow_fraction_6h dello
+    // STESSO frame). La legenda deve dire cosa significano le due trame: senza queste
+    // due righe l'utente vede una trama e non sa che e' neve.
+    if (fmVariable === 'precipitation' || fmVariable === 'precipitation_6h') {
+        el.innerHTML += '<div class="fm-legend-overlay"><span class="fm-legend-hatch fm-legend-hatch-1"></span>neve 50-80%</div>'
+            + '<div class="fm-legend-overlay"><span class="fm-legend-hatch fm-legend-hatch-2"></span>neve oltre 80%</div>';
+    }
     // MODIFICA B: con overlay attivo aggiunge l'etichetta delle isobare MSL. La scala raster
     // (geopotential_height_500hPa) resta invariata e la semantica alpha resta 0..1.
     if (fmOverlayVariable === 'pressure_msl') {
