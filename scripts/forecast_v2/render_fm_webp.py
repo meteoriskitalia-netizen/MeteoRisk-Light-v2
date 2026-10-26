@@ -118,6 +118,16 @@ standard parallel, formula, orientation) lives in a separate
 ``projection_meta`` object. With ``--north-projection strip`` neither key is
 written, i.e. the historical manifests are unchanged.
 
+Label font on the disc (1.2.4.45). The disc is NOT fitted like the Mercator
+strip: ``fmPolarPaintProjectedDisc`` paints the square with side
+``2*0.48*min(w, h)*N/(N-1)``, i.e. 0,53814 px of screen per image px with the
+measured 754x560 pane and N=1000. The old model (0,56) produced 18 px of font =
+13 px of ink = 6,99 px on screen, which is why the values on the polar map were
+the least readable ones. ``DISC_MIN_SCREEN_DIGIT_PX`` = 10,5 px and the search
+lands on 29 px of font (20 px of ink, 10,76 px on screen). Only the disc takes
+this branch: ``--north-projection strip`` and every other region keep the
+historical sizes, and their output stays byte-identical.
+
 Incremental render
 ------------------
 ``--existing-list <file>`` skips the (frame, variable) units that are ALREADY
@@ -1068,6 +1078,26 @@ PANEL_WIDTH_PX = 754.0            # px CSS del pannello mappa (fitBounds)
 MIN_SCREEN_DIGIT_PX = 7.0         # altezza minima delle cifre a schermo
 DIGIT_PROBE = "0123456789"        # testo di calibrazione (stesse cifre delle etichette)
 LABEL_FONT_MAX_PX = 48            # tetto di sicurezza della ricerca del font
+
+# --- cifre del DISCO polare (1.2.4.45) -------------------------------------
+# Il disco non si legge con il modello dello strip: il client
+# (``fmPolarPaintProjectedDisc``) lo dipinge con raggio ``0.48 * min(w, h)``
+# del pannello e lato ``2*raggio*N/(N-1)`` (il cerchio rho=1 arriva a (N-1)/2
+# dal centro, non a N/2). Con il pannello desktop MISURATO (754x560, quindi
+# min = 560) e N=1000 il fattore immagine->schermo e'
+# ``0.96 * 560 / 999 = 0,53814``. NON e' 0,56 (quello e' ``min(1008/N,
+# 560/N)``, il fit dello strip Mercator) ne' 0,5376 (0,96*560/1000, che
+# trascura il fattore N/(N-1)).
+# Il modello storico portava il disco a 18 px: 13 px d'inchiostro x 0,53814 =
+# 6,99 px a schermo (misurato sul WebP pubblicato, north/dwd_icon
+# 2026-10-26T1200Z). Il minimo richiesto e' 10 px; la costante e' 10,5 perche'
+# sul frame reale 29 px (20 px d'inchiostro -> 10,76 px) NON costa nemmeno una
+# etichetta rispetto a 27 px (19 px -> 10,22 px): MISURATO 51 etichette e 0
+# sovrapposizioni a 27, 29 e 51 a 29 (58 con 18 px, cioe' -7 = -12%), e 10,76
+# px e' piu' vicino al riferimento di prodotto (Meteociel 11-12 px). Le altre
+# regioni NON passano da qui.
+DISC_SCREEN_FIT = 0.96            # lato del disco / min(pannello) = 2*0.48
+DISC_MIN_SCREEN_DIGIT_PX = 10.5   # altezza minima delle cifre del disco a schermo
 CONTOUR_LINE_WIDTH = 1.2          # px (come lo strokeStyle del client)
 CONTOUR_ALPHA = 0.95              # opacita' delle isolinee (client: globalAlpha 0.95)
 CONTOUR_FALLBACK_COLOR = (15, 23, 42, 191)    # rgba(15,23,42,0.75) - inchiostro
@@ -1425,7 +1455,21 @@ def _font_digit_height(px: int) -> int:
     return max(1, int(bb[3] - bb[1]))
 
 
-def label_font_px(out_w: int, out_h: int, forced: int = 0, region: str | None = None) -> int:
+def disc_screen_factor(disc_size: int) -> float:
+    """Fattore immagine->schermo del disco polare nel client (misurato).
+
+    ``fmPolarPaintProjectedDisc`` disegna il quadrato con lato
+    ``2*0.48*min(w, h)*N/(N-1)``, quindi un pixel del file vale
+    ``0.96*min(w, h)/(N-1)`` px CSS. Con 754x560 e N=1000: 0,53814.
+    """
+    n = float(max(1, int(disc_size)))
+    if n <= 1.0:
+        return 0.0
+    return (DISC_SCREEN_FIT * min(PANEL_WIDTH_PX, PANEL_HEIGHT_PX)) / (n - 1.0)
+
+
+def label_font_px(out_w: int, out_h: int, forced: int = 0, region: str | None = None,
+                  disc: bool = False) -> int:
     """Font size (px) that keeps the digits >= ``MIN_SCREEN_DIGIT_PX`` on screen.
 
     The client shows the WebP inside a 560-px-tall map pane with Leaflet
@@ -1435,6 +1479,15 @@ def label_font_px(out_w: int, out_h: int, forced: int = 0, region: str | None = 
     MEASURED digit height reaches ``MIN_SCREEN_DIGIT_PX / factor`` is chosen.
     A forced positive value (``--label-font-px``) bypasses the computation and
     reproduces the historical output when it is 12.
+
+    ``disc=True`` switches to the POLAR DISC model, which is a different
+    projection of the same pane: the client paints the disc with
+    ``0.48*min(w, h)`` radius (``disc_screen_factor``), the target is
+    ``DISC_MIN_SCREEN_DIGIT_PX`` and the font chosen is the smallest that
+    reaches it (29 px with Pillow 12.3, i.e. 20 px of ink = 10,76 px on
+    screen). The Mercator strip keeps its own model, so ``strip`` output is
+    unchanged; ``italia``/``europa``/``domain``/``north``-strip never take this
+    branch (they keep 12 px or their ``REGION_PIXEL_ASPECT`` model).
 
     Only ``north`` and the regions of ``REGION_PIXEL_ASPECT`` (``europa``,
     ``italia``, ``domain``) are auto-scaled. The other regions are not: they
@@ -1462,6 +1515,21 @@ def label_font_px(out_w: int, out_h: int, forced: int = 0, region: str | None = 
         forced = 0
     if forced > 0:
         return forced
+    if disc:
+        # Disco polare: modello SUO (vedi disc_screen_factor), non quello dello
+        # strip. Il target e' 10,5 px, piu' alto dei 7 px storici perche' il
+        # riferimento di prodotto (carta emisferica Meteociel) sta a 11-12 px.
+        side = float(max(int(out_w), int(out_h)))
+        factor = disc_screen_factor(side)
+        if not (factor > 0.0):
+            return LABEL_FONT_PX
+        need = float(DISC_MIN_SCREEN_DIGIT_PX) / factor
+        if need <= float(_font_digit_height(LABEL_FONT_PX)):
+            return LABEL_FONT_PX
+        for px in range(LABEL_FONT_PX + 1, LABEL_FONT_MAX_PX + 1):
+            if float(_font_digit_height(px)) >= need - 1e-9:
+                return px
+        return LABEL_FONT_MAX_PX
     if region is not None and region != NORTH_REGION and region not in REGION_PIXEL_ASPECT:
         return LABEL_FONT_PX
     out_w = int(out_w)
@@ -3095,7 +3163,7 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                 "edge_lat": NORTH_DISC_EDGE_LAT,
                 "max_lat": min(90.0, max_lat),
                 "font_px": label_font_px(disc_size, disc_size, forced_font,
-                                         region=rname),
+                                         region=rname, disc=True),
             })
             continue
         scale = resolve_upsample(args, cgrid["nx"], cgrid["ny"])
