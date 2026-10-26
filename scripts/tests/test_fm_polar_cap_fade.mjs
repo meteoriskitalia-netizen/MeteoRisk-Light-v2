@@ -18,8 +18,8 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const htmls = fs.readdirSync(ROOT).filter((f) => /^mri-light-1.2.4.42\.html$/.test(f));
-if (!htmls.length) { console.error('FATAL: mri-light-1.2.4.42.html non trovato in ' + ROOT); process.exit(1); }
+const htmls = fs.readdirSync(ROOT).filter((f) => /^mri-light-1.2.4.44\.html$/.test(f));
+if (!htmls.length) { console.error('FATAL: mri-light-1.2.4.44.html non trovato in ' + ROOT); process.exit(1); }
 const HTML = path.join(ROOT, htmls[0]);
 const src = fs.readFileSync(HTML, 'utf8');
 

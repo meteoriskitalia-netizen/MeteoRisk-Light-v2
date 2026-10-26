@@ -1964,9 +1964,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.43';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-10-27';
+    const APP_VERSION = '1.2.4.44';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-10-26';
     const APP_CHANGELOG = [
+        { version: '1.2.4.44', date: '2026-10-26', changes: [
+  'SATELLITE= LO SLOT SI SCEGLIE DAL MANIFEST, NON PIU\' "ADESSO MENO 15 MINUTI". Il manifest pubblicato su Pages e\' indietro di 28-38 minuti (latenza EUMETSAT ~14 min + deploy Pages ~10-13 min): lo slot NOW-15min NON esiste, quindi il client cadeva sul WMS (261 KB, 3,2-15,5 s per frame) e sul bordo riceveva un XML di errore (net::ERR_BLOCKED_BY_ORB, pannello vuoto). Ora il tetto e\' l\'ULTIMO SLOT dichiarato in satellite/manifest.json (un file che su Pages esiste: 31-38 KB, ~0,5 s) e, se il manifest manca o e\' vuoto, si usa NOW-45min arrotondato per difetto a 5 minuti. Il frame non arriva prima che il primo esito del manifest sia noto (attesa una volta sola, tetto 2,5 s): senza, il cold start sceglierebbe il fallback.',
+  'SATELLITE= E LO SLOT STA SULLA GRIGLIA DI 5 MINUTI. clampedEumetsatIso restituiva NOW-15min CON I SECONDI (es. 20:26:16): non era ne\' uno slot del manifesto ne\' un istante pubblicato, e due chiamate ravvicinate facevano DUE richieste WMS per lo stesso frame (misurate 522 KB, 18,7 s, warning "99 Nearest value used"). Ora floor a 5 minuti e secondi a zero: stesso istante di satellite_engine.py (slot_name = floor a 5 min), una sola richiesta. EUMETSAT_DATA_LAG_MS resta solo come LIMITE MINIMO di sicurezza: se il manifest dichiarasse uno slot piu\' recente di now-15min, non viene chiesto ugualmente.',
+  'DOC= Bump versione 1.2.4.44 (solo client: nessuna modifica a engine, renderer, prefetch, Service Worker - la correzione e\' la SCELTA dello slot). Verifica: test_html_js_syntax.py 1 passed; la nuova logica (satFloor5Ms, satSlotNameToMs, satManifestNewestMs, satSlotCapMs, clampedEumetsatIso) passa 10/10 casi in vm con il manifest reale (tetto = ultimo slot, floor a 5 min, fallback 45 min, limite minimo now-15min). Controprova in-page sulla 1.2.4.43 (patch solo in memoria, mai pubblicata): 1 richiesta, 31,1 KB, primo frame in 551 ms contro 19.235 ms a freddo.',
+        ] },
         { version: '1.2.4.43', date: '2026-10-27', changes: [
   'RISCHIO= LA NEBBIA DIVENTA UNA METRICA, NON SOLO UN BADGE. Nella barra delle metriche c\'e\' il tab "Nebbia" (sempre visibile, non dietro Sviluppo): colora le province con il potenziale di nebbia 0-100, come umidita\' e vento. Prima la nebbia esisteva solo come badge: per sapere DOVE il modello vede nebbia bisognava passare provincia per provincia.',
   'RISCHIO= 4 CLASSI CON LE SOGLIE DEL BADGE, NON UNA SCALA NUOVA. Sotto 30 la provincia resta neutra (nessun colore), 30-49 livello 1 (#a3e635), 50-69 livello 2 (#eab308), 70 o piu\' livello 3 (#f97316): gli stessi colori di BADGE_LEVEL_COLOR[1..3] e le stesse soglie di computeActiveRisks. Cosi\' mappa, badge e legenda dicono la stessa cosa, non tre scale che si somigliano.',
@@ -5079,6 +5084,15 @@ let satSource = 'eumetsat_italy';  // 'eumetsat_italy', 'eumetsat_airmass_italy'
     // richiesta indietro di almeno questa latenza, il frame cade sempre nel dato
     // disponibile. 15 min = margine di sicurezza oltre la soglia misurata di ~14 min.
     const EUMETSAT_DATA_LAG_MS = 15 * 60 * 1000;
+    // 1.2.4.44 - TETTO TEMPORALE DELLO SLOT SATELLITE (fix "satellite lentissimo").
+    // MISURATO il 2026-10-26 sulla pagina servita: il manifest su Pages e' fermo a
+    // 28-38 min (latenza EUMETSAT ~14 min + deploy Pages ~10-13 min), quindi lo slot
+    // NOW-15min NON esiste; il client chiedeva il WMS (261 KB, 3,2-15,5 s per frame) e
+    // sul bordo riceveva un XML di errore (net::ERR_BLOCKED_BY_ORB, pannello vuoto).
+    // Il tetto vero e' l'ULTIMO SLOT DICHIARATO in satellite/manifest.json: un file
+    // che esiste su Pages (31-38 KB, ~0,5 s). Se il manifest manca o e' vuoto si usa
+    // NOW-45min (comunque oltre il lag misurato), arrotondato per difetto a 5 minuti.
+    var SAT_STATIC_FALLBACK_LAG_MS = 45 * 60 * 1000;
 
     // Mappa sorgente satellite -> layer EUMETSAT WMS (EUMETView, view.eumetsat.int)
     // Nomi layer REALI verificati via GetCapabilities ufficiale (2026-09-05):
@@ -6103,12 +6117,55 @@ var liLabel;
     var radarWaitKey = '';                // target dell'attesa (nextIdx#ri): cambia -> reset
     // 1.0.1.3: rimossa buildEumetsatTileUrl() — il player EUMETSAT non usa piu' i tile
     // 256px; ogni frame e' un'immagine GetMap singola via buildEumetsatLiveGetMap.
+    // 1.2.4.44 - SCELTA DELLO SLOT: floor a 5 minuti UTC + tetto = ultimo slot del
+    // manifest (fallback NOW-45min). Prima il clamp restituiva NOW-15min CON I SECONDI
+    // (es. 2026-10-26T20:26:16.000Z): non era ne' uno slot del manifesto ne' un istante
+    // pubblicato, quindi (a) lo slot non esisteva e si cadeva sul WMS, (b) due chiamate
+    // ravvicinate producevano due ISO diversi per lo STESSO frame -> DUE richieste WMS
+    // da ~261 KB (misurate: 522 KB, 18,7 s, warning "99 Nearest value used"). La griglia
+    // di 5 minuti e' quella di satellite_engine.py (slot_name = floor a 5 min), quindi
+    // URL statico e WMS chiedono lo STESSO istante.
+    function satFloor5Ms(ms) {
+        var d = new Date(ms);
+        d.setUTCSeconds(0, 0);
+        d.setUTCMinutes(Math.floor(d.getUTCMinutes() / 5) * 5, 0, 0);
+        return d.getTime();
+    }
+    // Nome slot del manifesto (YYYY-MM-DDTHH-MM-00Z) -> epoch ms UTC.
+    function satSlotNameToMs(name) {
+        var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})Z$/.exec(String(name || ''));
+        if (!m) return NaN;
+        return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    }
+    // Ultimo slot dichiarato dal manifest PER QUESTA SORGENTE (NaN se assente).
+    function satManifestNewestMs(sourceId) {
+        if (!satStaticManifest || !satStaticManifest.sources) return NaN;
+        var list = satStaticManifest.sources[sourceId];
+        if (!list || typeof list.length !== 'number' || !list.length) return NaN;
+        var best = NaN;
+        for (var i = 0; i < list.length; i++) {
+            var ms = satSlotNameToMs(list[i]);
+            if (isFinite(ms) && (!isFinite(best) || ms > best)) best = ms;
+        }
+        return best;
+    }
+    // Tetto richiedibile: MIN fra (ultimo slot del manifest) e (NOW - EUMETSAT_DATA_LAG_MS).
+    // Il secondo termine resta come LIMITE MINIMO DI SICUREZZA: anche se il manifest
+    // dichiarasse uno slot piu' recente, per quell'istante il dato EUMETSAT non esiste
+    // ancora (latenza ~14 min) e la GetMap tornerebbe vuota o in errore.
+    function satSlotCapMs() {
+        var capMs = satManifestNewestMs(satSource);
+        if (!isFinite(capMs)) capMs = satFloor5Ms(Date.now() - SAT_STATIC_FALLBACK_LAG_MS);
+        var safetyMs = satFloor5Ms(Date.now() - EUMETSAT_DATA_LAG_MS);
+        return Math.min(capMs, safetyMs);
+    }
     function clampedEumetsatIso(iso) {
         var ms = new Date(iso).getTime();
-        var minLag = Date.now() - (typeof EUMETSAT_DATA_LAG_MS !== 'undefined' ? EUMETSAT_DATA_LAG_MS : 15 * 60 * 1000);
-        return (ms > minLag)
-            ? new Date(minLag).toISOString().replace(/\.\d{3}Z$/, '.000Z')
-            : iso;
+        if (!isFinite(ms)) return iso;
+        ms = satFloor5Ms(ms);
+        var capMs = satSlotCapMs();
+        if (ms > capMs) ms = capMs;
+        return new Date(ms).toISOString().replace(/\.\d{3}Z$/, '.000Z');
     }
     // ============ 1.1.0.6 — FRAME STATICI (satellite/manifest.json + estensione statica) ============
     // Prima integrazione STATIC-FIRST: se il manifesto pubblicato da satellite_engine
@@ -6123,19 +6180,53 @@ var liLabel;
     var satStaticManifestTs = 0;
     // sourceId -> iso dello slot per cui il file statico e' gia' fallito (niente retry).
     var satStaticFailed = {};
+    // 1.2.4.44 - stato del primo esito del manifest (la scelta dello slot lo richiede).
+    var satStaticManifestKnown = false;
+    var satStaticManifestInFlight = false;
+    var satManifestWaiters = [];
+    function satManifestFlushWaiters() {
+        var ws = satManifestWaiters;
+        satManifestWaiters = [];
+        for (var i = 0; i < ws.length; i++) {
+            try { ws[i](!!satStaticManifest); } catch (e) {}
+        }
+    }
+    // Chiama cb(ok) quando il PRIMO esito del manifest e' noto (caricato o fallito).
+    // Se e' gia' noto risponde subito, altrimenti aspetta il fetch in volo con un tetto
+    // di timeoutMs: oltre il tetto si procede con il fallback NOW-45min.
+    function satManifestWhenKnown(cb, timeoutMs) {
+        if (satStaticManifestKnown) { cb(!!satStaticManifest); return; }
+        var done = false;
+        var once = function(ok) { if (done) return; done = true; cb(ok); };
+        satManifestWaiters.push(once);
+        setTimeout(function() { once(!!satStaticManifest); }, timeoutMs || 2500);
+    }
     function loadSatelliteManifest(force) {
         // Cache in-memory: fetch fatto meno di 5 min fa -> nessuna nuova richiesta.
         if (!force && satStaticManifest && (Date.now() - satStaticManifestTs) < 5 * 60 * 1000) return true;
-        if (typeof fetch !== 'function') return false;
+        if (typeof fetch !== 'function') {
+            satStaticManifestKnown = true;
+            satManifestFlushWaiters();
+            return false;
+        }
+        // 1.2.4.44: un solo fetch in volo (prima ogni chiamata con manifest null ne
+        // apriva uno nuovo: fino a 25 richieste del manifest durante un play).
+        if (satStaticManifestInFlight) return !!satStaticManifest;
         var _store = function(data) {
+            satStaticManifestInFlight = false;
             if (data && typeof data === 'object' && data.sources && typeof data.sources === 'object') {
                 satStaticManifest = data;
                 satStaticManifestTs = Date.now();
+                satStaticManifestKnown = true;
+                satManifestFlushWaiters();
                 return true;
             }
             satStaticManifest = null;   // 404 del repo (non ancora deployato) -> silenzioso
+            satStaticManifestKnown = true;
+            satManifestFlushWaiters();
             return false;
         };
+        satStaticManifestInFlight = true;
         try {
             fetch('satellite/manifest.json', { cache: 'no-store' })
                 .then(function(res) {
@@ -6522,6 +6613,10 @@ liveStrikeCache = [];
     // conferma tardiva e il satellite resterebbe sull'ultimo frame buono).
     var satLastRequestedIso = null;
     var satLastRequestMs = 0;
+    // 1.2.4.44 - attesa one-shot del manifest prima della scelta dello slot: senza
+    // questa attesa il primo frame (cold start) sceglierebbe il fallback NOW-45min.
+    var satManifestGatePending = false;
+    var satManifestGateIso = null;
     // Traccia tutti i layer satellite creati per poter rimuovere gli orfani
     var allSatLayers = [];
     // Rimuove i layer satellite orfani (opacity 0 = mai caricati completamente)
@@ -6568,6 +6663,23 @@ liveStrikeCache = [];
     }
     function showSatFrameAt(isoTime) {
         if (satCacheKey === isoTime && satelliteLayer && map.hasLayer(satelliteLayer)) return;
+        // 1.2.4.44 - la scelta dello slot dipende dal manifest (ultimo slot pubblicato):
+        // al cold start il fetch e' gia' in volo dall'avvio dell'app; qui si aspetta il
+        // primo esito (max 2,5 s) e si rientra UNA volta con la scelta corretta. Senza
+        // questa attesa il primo frame userebbe il fallback e, con manifest null, il WMS.
+        if (!satStaticManifestKnown && typeof fetch === 'function') {
+            satManifestGateIso = isoTime;
+            if (!satManifestGatePending) {
+                satManifestGatePending = true;
+                satManifestWhenKnown(function() {
+                    satManifestGatePending = false;
+                    var want = satManifestGateIso;
+                    satManifestGateIso = null;
+                    if (want && isSatelliteActive) { satCacheKey = null; showSatFrameAt(want); }
+                }, 2500);
+            }
+            return;
+        }
         satCacheKey = isoTime;
         // FIX: generation counter — i callback async controllano se sono stale
         var myGen = ++satFrameGen;
@@ -6579,20 +6691,13 @@ liveStrikeCache = [];
 // 1.2.4.1: rimosso il ramo Infoplaza (URL fissi per frame) — si resta sulle sole sorgenti EUMETSAT WMS.
 
         // --- Sorgenti EUMETSAT WMS ---
-        // FIX SATELLITE VUOTO: i frame EUMETSAT più recenti (ultimi ~14 min) non sono
-        // ancora disponibili sul server (tile trasparente/502). Se l'ora richiesta è
-        // troppo vicina ad adesso, riportala indietro alla soglia EUMETSAT_DATA_LAG_MS,
-        // così la mappa mostra sempre il dato satellite più fresco realmente esistente
-        // invece di restare vuota sui primi slot della timeline.
-        var _eumIsoMs = new Date(isoTime).getTime();
-        var _eumMinLag = Date.now() - EUMETSAT_DATA_LAG_MS;
-        if (_eumIsoMs > _eumMinLag) {
-            isoTime = new Date(_eumMinLag).toISOString().replace(/\.\d{3}Z$/, '.000Z');
-            // NOTA: NON sovrascrivere satCacheKey qui — il guard iniziale (riga 3555)
-            // deve confrontare l'isoTime ORIGINALE dello slot, non il valore clamptato.
-            // La sovrascrittura faceva sì che slot consecutivi (con time diverso)
-            // finissero per avere satCacheKey == isoTime clamptato, saltando il caricamento.
-            console.log('[EUMETSAT] frame troppo recente, clamptato a ' + isoTime);
+        // 1.2.4.44 - SCELTA DELLO SLOT IDENTICA AL RESTO DEL CLIENT: floor a 5 minuti +
+        // tetto = ultimo slot del manifest (fallback NOW-45min). Prima: clamp a
+        // NOW-15min CON I SECONDI -> slot inesistente -> WMS lento o XML di errore.
+        var _eumIsoBefore = isoTime;
+        isoTime = clampedEumetsatIso(isoTime);
+        if (isoTime !== _eumIsoBefore) {
+            console.log('[EUMETSAT] slot ' + _eumIsoBefore + ' -> ' + isoTime + ' (ultimo slot pubblicato dal manifest)');
         }
         satLastRequestedIso = isoTime;
         satLastRequestMs = Date.now();
