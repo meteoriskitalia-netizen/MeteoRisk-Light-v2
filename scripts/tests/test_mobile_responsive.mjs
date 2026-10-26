@@ -46,8 +46,8 @@ ok('P1: anche radar-embed riceve la stessa altezza mobile',
   /#leaflet-map,\s*#radar-embed-container/.test(style));
 ok('P1: tablet 768-1024 altezza mappa clamp(380px,60vh,640px)',
   /height:\s*clamp\(380px,\s*60vh,\s*640px\)/.test(style));
-ok('P1: desktop: #leaflet-map resta height:560px (invariato)',
-  /#leaflet-map\s*\{\s*width:\s*100%;\s*height:\s*560px/.test(style));
+ok('P1: desktop: #leaflet-map height:640px (560 -> 640 dalla 1.2.4.47)',
+  /#leaflet-map\s*\{\s*width:\s*100%;\s*height:\s*640px/.test(style));
 
 // ---------- 3. PRIORITÀ 2 — header ----------
 ok('P2: .app-header a colonna su mobile',
@@ -132,7 +132,7 @@ const viewports = [
   { w: 600, cls: 'app-mobile',  map: 'clamp(45-66dvh)+300px', touch: '44', grid: '2 colonne' },
   { w: 768, cls: 'app-tablet',  map: 'clamp(380px,60vh,640px)',  touch: 'base', grid: '2 colonne' },
   { w: 1024, cls: 'app-tablet', map: 'clamp(380px,60vh,640px)',  touch: 'base', grid: '2 colonne' },
-  { w: 1280, cls: 'app-desktop', map: '560px',                   touch: 'base', grid: '2 colonne' },
+  { w: 1280, cls: 'app-desktop', map: '640px',                   touch: 'base', grid: '2 colonne' },
 ];
 for (const v of viewports) {
   let status = 'PASS';
@@ -144,7 +144,7 @@ for (const v of viewports) {
   } else if (v.cls === 'app-tablet') {
     if (!/clamp\(380px,\s*60vh,\s*640px\)/.test(style)) status = 'FAIL';
   } else if (v.cls === 'app-desktop') {
-    if (!/#leaflet-map\s*\{\s*width:\s*100%;\s*height:\s*560px/.test(style)) status = 'FAIL';
+    if (!/#leaflet-map\s*\{\s*width:\s*100%;\s*height:\s*640px/.test(style)) status = 'FAIL';
   }
   console.log(`  ${status}  ${String(v.w).padStart(4)}px  ${v.cls.padEnd(12)}  mappa=${v.map}  touch=${v.touch}  griglia=${v.grid}`);
 }
