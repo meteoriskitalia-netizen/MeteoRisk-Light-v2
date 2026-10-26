@@ -82,6 +82,42 @@ sampled from the real domain data up to 90 N (the engine bbox reaches 90 N
 even though the Mercator strip stops at 85.0511 N), is ``--north-disc-size``
 px wide (default 1000), keeps Greenwich at the BOTTOM (same orientation as the
 client's polar canvas) and writes ``projection`` metadata in the manifests.
+
+Incremental render
+------------------
+``--existing-list <file>`` skips the (frame, variable) units that are ALREADY
+published on the branch. It is a list of published paths, one per line, relative
+to the branch root
+(``data/fm2-rendered/<region>/<domain>/runs/<run_id>/<var>/<VALID>.webp``); only
+the trailing six components are significant
+(``<region>/<domain>/runs/<run_id>/<var>/<file>``), so the caller may prepend
+whatever checkout prefix it uses. The renderer never derives this from the
+filesystem: on a CI shard the published WebP live on the branch, NOT in the
+artifact.
+
+Five things MUST agree, or the published tree silently loses files:
+  * the payload construction excludes the frames already published FOR THAT
+    ``run_id`` (the output is run-scoped, so a frame of another run can never
+    collide);
+  * ``keep`` of ``prune_dir`` is the UNION of the listed names and the names
+    written now -- a keep-set built from the delta alone would make the delta the
+    whole directory, which is the trap;
+  * the per-variable ``latest.json`` is the UNION of the frames already listed
+    and the frames just rendered (the client reads ``valid_times`` from it);
+  * ``expected_frames`` stays the HORIZON (``len(manifest.valid_times)``), never
+    the delta, or ``completion_pct`` in the region index would be invented;
+  * every manifest carries ``palette_sha256``: when it differs from the value
+    found on disk the variable is RE-RENDERED instead of skipped, because the
+    published pixels would otherwise keep the old colors with nothing saying so.
+    Declared cost: a palette (or ``WEBP_VERSION``) change makes ONE cycle cost
+    the full render again.
+
+Without ``--existing-list`` (or with an EMPTY list) nothing changes: every frame
+is rendered and the prune keeps exactly what this run wrote. The skip is gated on
+PROOF -- the on-disk ``latest.json`` stating the same ``version`` and the same
+palette, or an explicit ``--existing-palette-sha`` for a shard without manifests:
+a list alone cannot prove which colors the published pixels have, so it buys the
+manifest union and the prune protection, not the skip.
 """
 
 from __future__ import annotations
@@ -90,6 +126,7 @@ import argparse
 import concurrent.futures
 import datetime as _dt
 import functools
+import hashlib
 import json
 import math
 import multiprocessing
@@ -158,6 +195,13 @@ MERC_LAT_LIMIT = 85.05112878
 UPSAMPLE_TARGET = 512
 UPSCALE_MAX_DEFAULT = 8
 
+# Published tree layout, relative to the branch root:
+#   data/fm2-rendered/<region>/<domain>/runs/<run_id>/<var>/<VALID>.webp
+# The incremental list is parsed from the TAIL of each path (see
+# ``existing_key_from_path``), so this constant only documents the shape.
+EXISTING_LIST_RUNS_COMPONENT = "runs"
+_VALID_STEM_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})T(\d{2})(\d{2})$")
+
 # Rendered regions, keyed by region id. Tuple is (lat_min, lon_min, lat_max,
 # lon_max) -- the SAME ordering convention used by the engine (V2_BBOX /
 # DOMAIN_BBOX). ``None`` is the "domain" sentinel: the region spans the whole
@@ -194,6 +238,33 @@ def load_color_scales(path: str = COLOR_SCALES_PATH) -> dict:
     if not isinstance(scales, dict) or not scales:
         raise ValueError("color_scales.json: missing/empty 'scales' map")
     return scales
+
+
+def palette_sha256(path: str | None = None) -> str:
+    """sha256 of the palette file the pixels are computed with.
+
+    ``WEBP_VERSION`` is a hand-maintained constant: it cannot notice a change in
+    ``color_scales.json``. This digest can, so every per-variable manifest
+    records it and the incremental path refuses to skip a variable whose
+    published manifest was produced with a different palette.
+    """
+    h = hashlib.sha256()
+    with open(path or COLOR_SCALES_PATH, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 16), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _clean_palette_sha(value) -> str | None:
+    """Normalise ``--existing-palette-sha`` (lowercase hex) or return None."""
+    if not value:
+        return None
+    s = str(value).strip().lower()
+    if len(s) == 64 and all(c in "0123456789abcdef" for c in s):
+        return s
+    print("  ! --existing-palette-sha non e' uno sha256 esadecimale: ignorato (%r)"
+          % value, file=sys.stderr)
+    return None
 
 
 def _scale_variant(scales: dict, var: str, theme: str):
@@ -1573,6 +1644,211 @@ def prune_dir(dir_path: str, keep_files: set) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Incremental render: the list of paths already published on the branch
+#
+# The workflow already has the branch state cheaply (``git fetch --depth=1
+# --filter=blob:none`` + ``git ls-tree -r``: measured 3.6 s / 2.5 MiB for 118.587
+# paths, no WebP blob downloaded). It hands that list over as a FILE, one path per
+# line, because the renderer runs on the shard, where the published frames are
+# NOT on disk -- an ``os.listdir`` here would see the delta and nothing else.
+# --------------------------------------------------------------------------- #
+def normalize_branch_path(path) -> str:
+    """``data\\fm2-rendered/x`` -> ``data/fm2-rendered/x`` (no ``./``, no leading /)."""
+    s = str(path or "").strip().replace("\\", "/")
+    while s.startswith("./"):
+        s = s[2:]
+    return s.lstrip("/")
+
+
+def existing_key_from_path(path):
+    """``((region, domain, run_id, var), file)`` from one published WebP path.
+
+    The published layout is
+    ``<prefix>/<region>/<domain>/runs/<run_id>/<var>/<file>.webp`` and the key is
+    built from the TAIL, so the branch-root prefix the caller prepends
+    (``data/fm2-rendered`` in CI, an absolute checkout locally) is irrelevant.
+    Returns ``None`` for a line that does not have that shape.
+    """
+    parts = normalize_branch_path(path).split("/")
+    if len(parts) < 6 or parts[-4] != EXISTING_LIST_RUNS_COMPONENT:
+        return None
+    region, domain, run_id, var, name = (parts[-6], parts[-5], parts[-3],
+                                         parts[-2], parts[-1])
+    if not (region and domain and run_id and var and name):
+        return None
+    return (region, domain, run_id, var), name
+
+
+def load_existing_list(path: str):
+    """Read a published-path list: ``({(region, domain, run_id, var): {file}}, stats)``.
+
+    Blank lines and ``#`` comments are skipped. Lines that do not parse as a
+    published WebP path are counted in ``stats["ignored"]`` and dropped: they can
+    protect nothing from the prune, so the caller prints the count instead of
+    pretending the list was understood.
+    """
+    table: dict = {}
+    stats = {"lines": 0, "kept": 0, "ignored": 0, "sample": []}
+    with open(path, "r", encoding="utf-8-sig") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            stats["lines"] += 1
+            parsed = existing_key_from_path(line)
+            if parsed is None:
+                stats["ignored"] += 1
+                if len(stats["sample"]) < 5:
+                    stats["sample"].append(line)
+                continue
+            key, name = parsed
+            table.setdefault(key, set()).add(name)
+            stats["kept"] += 1
+    return table, stats
+
+
+def valid_time_from_webp_name(name: str):
+    """``2026-10-14T1600.webp`` -> ``2026-10-14T16:00Z`` (inverse of the writer)."""
+    stem = str(name or "")
+    if stem.lower().endswith(".webp"):
+        stem = stem[:-5]
+    m = _VALID_STEM_RE.match(stem)
+    if not m:
+        return None
+    return "%s-%s-%sT%s:%sZ" % m.groups()
+
+
+def frames_from_names(names) -> list:
+    """Manifest frame records rebuilt from file NAMES alone (``bytes`` unknown).
+
+    Used when the shard has no per-variable manifest: the branch list is the only
+    source of "which frames are published", so the file name gives the
+    ``valid_time`` and ``bytes`` stays ``None`` -- the size is not in the list and
+    a zero would be a lie. The client builds the WebP URLs from ``dir`` +
+    ``valid_times`` and never reads ``bytes``.
+    """
+    recs = []
+    for name in sorted(names):
+        vt = valid_time_from_webp_name(name)
+        if vt is None:
+            continue
+        recs.append({"file": name, "valid_time": vt, "bytes": None})
+    return recs
+
+
+def merge_frame_records(seed_records, fresh_records):
+    """UNION of the already published records and the ones just rendered.
+
+    Returns ``(records, keep_names)``. Keyed by ``file`` and a freshly rendered
+    record WINS (its ``bytes`` is measured, not the ``None`` of a record rebuilt
+    from a file name). ``records`` is sorted by ``valid_time`` and excludes the
+    entries without a string time (the client reads ``valid_times``); their file
+    names stay in ``keep_names`` so an unparseable name is never pruned.
+    """
+    merged = {}
+    for rec in list(seed_records or ()):
+        if isinstance(rec, dict) and rec.get("file"):
+            merged[rec["file"]] = rec
+    for rec in list(fresh_records or ()):
+        if isinstance(rec, dict) and rec.get("file"):
+            merged[rec["file"]] = rec
+    records = [r for r in merged.values() if isinstance(r.get("valid_time"), str)]
+    records.sort(key=lambda r: r["valid_time"])
+    return records, set(merged)
+
+
+def var_publish_state(vdir: str, known_files, palette_sha: str,
+                      declared_palette: str | None = None,
+                      expected_version: str = WEBP_VERSION) -> dict:
+    """What of one published ``<region>/<domain>/runs/<run>/<var>`` dir is reusable.
+
+    ``known_files`` are the names the branch list says are published in that
+    directory; ``vdir`` is where they would live. Returns
+    ``{"files": set, "frames": [rec], "reuse": bool, "reason": str}`` where
+
+      * ``files``  = every name we must NOT prune (list union manifest), i.e. the
+        seed of the prune keep-set;
+      * ``frames`` = the manifest records to carry over (from ``latest.json`` when
+        it exists, rebuilt from the file names otherwise), so the union manifest
+        always covers every file we keep;
+      * ``reuse``  = True ONLY when the on-disk manifest proves the pixels were
+        produced by THIS ``WEBP_VERSION`` and THIS palette. A missing manifest, a
+        version change and a palette change all mean "render the whole variable":
+        the list alone cannot prove which colours the published pixels have.
+    """
+    files = set(known_files or ())
+    state = {"files": files, "frames": [], "reuse": False, "reason": "no_manifest"}
+    mpath = os.path.join(vdir, "latest.json")
+    manifest = None
+    if os.path.isfile(mpath):
+        try:
+            manifest = read_manifest(mpath)
+        except Exception as exc:
+            print("  ! %s: manifest illeggibile (%s)" % (mpath, exc), file=sys.stderr)
+            manifest = None
+    if isinstance(manifest, dict):
+        if manifest.get("version") != expected_version:
+            state["reason"] = "version_changed"
+        else:
+            proof = manifest.get("palette_sha256") or declared_palette
+            if not proof:
+                state["reason"] = "palette_unknown"
+            elif proof != palette_sha:
+                state["reason"] = "palette_changed"
+            else:
+                state["reuse"] = True
+                state["reason"] = "manifest"
+    elif declared_palette and files:
+        # Nessun manifest (shard senza checkout): l'unica prova disponibile e'
+        # l'asserzione esplicita dell'operatore sulla palette gia' pubblicata.
+        state["reuse"] = declared_palette == palette_sha
+        state["reason"] = "declared" if state["reuse"] else "palette_changed"
+    frames = []
+    if isinstance(manifest, dict):
+        for rec in (manifest.get("frames") or []):
+            if isinstance(rec, dict) and rec.get("file"):
+                frames.append(rec)
+                files.add(rec["file"])
+    # Elenco e manifest devono raccontare la stessa cosa: un file elencato ma
+    # assente dal manifest non puo' sparire dal manifest (resterebbe pubblicato
+    # senza entry) ne' essere potato (e' pubblicato). Si ricostruisce la entry.
+    if frames:
+        known_in_frames = {rec["file"] for rec in frames}
+        frames.extend(frames_from_names(files - known_in_frames))
+    else:
+        frames = frames_from_names(files)
+    state["frames"] = frames
+    return state
+
+
+def prune_published_dir(vdir: str, keep: set, incremental: bool, known: set,
+                        label: str = "") -> int:
+    """``prune_dir`` with the incremental guard rail; returns the removed count.
+
+    With ``--existing-list`` an EMPTY known set for a directory that is not empty
+    on disk is the signature of the trap (a list that says "nothing published"
+    while the artifact holds WebP because the ENTRY does not match the layout).
+    Deleting a whole directory of published images is never the intent of an
+    incremental render, so in that case the prune is SKIPPED and reported.
+    """
+    if incremental and not known:
+        try:
+            present = [n for n in os.listdir(vdir) if n.lower().endswith(".webp")]
+        except OSError:
+            present = []
+        if present:
+            print("  ! prune saltato per %s: nessun path pubblicato nell'elenco ma "
+                  "%d WebP presenti (elenco non corrispondente?)"
+                  % (label or vdir, len(present)), file=sys.stderr)
+            return 0
+    removed = prune_dir(vdir, keep)
+    if incremental and removed:
+        print("  [prune] %s: %d WebP rimossi (%d tenuti)"
+              % (label or vdir, removed, len(keep)))
+    return removed
+
+
+# --------------------------------------------------------------------------- #
 # Parallel render workers
 #
 # The heavy part of a frame is PER (frame, variable): the .om array read, the
@@ -1993,14 +2269,97 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
     var_order = [v for v in (manifest.get("var_order") or []) if isinstance(v, str)]
     requested = args.vars if args.vars else var_order
 
+    # Fingerprint of the palette the pixels are computed with. It goes into EVERY
+    # per-variable manifest (so a colour change can never be silent again) and it
+    # is the value the incremental path compares before skipping a variable.
+    try:
+        palette_sha = palette_sha256()
+    except OSError as exc:
+        print("  ! palette_sha256 non calcolabile (%s): skip incrementale "
+              "disabilitato" % exc, file=sys.stderr)
+        palette_sha = None
+
     rendered = 0
     skipped = 0
+    already = 0
     frames_done = 0
     bytes_written = 0
     themes = ["light"]
     # rname -> var -> theme -> [frame records]
     var_frames = {rname: {} for rname in crops}
     var_meta = {}                                # var -> unit
+
+    # Incremental state: what the branch list says is already published for THIS
+    # (region, var) of THIS run_id, plus the manifest records to carry over.
+    # Without --existing-list (or with an empty one) both stay empty and this
+    # block does nothing: the render path is the historical one.
+    existing_map = getattr(args, "existing_map", None) or {}
+    incremental = bool(existing_map)
+    declared_palette = _clean_palette_sha(getattr(args, "existing_palette_sha", None))
+    var_state: dict = {}
+    if incremental:
+        reuse_dirs = 0
+        for rname in crops:
+            if requested:
+                vars_here = requested
+            else:
+                vars_here = sorted({k[3] for k in existing_map
+                                    if k[0] == rname and k[1] == domain
+                                    and k[2] == run_id})
+            for var in vars_here:
+                if _scale_variant(scales, var, "light") is None:
+                    continue  # nessuna scala: la variabile non e' mai resa
+                stt = var_publish_state(
+                    _theme_var_dir(out_root, rname, domain, var, "light", run_id),
+                    existing_map.get((rname, domain, run_id, var)),
+                    palette_sha, declared_palette)
+                if not stt["files"] and not stt["frames"]:
+                    continue
+                var_state[(rname, var)] = stt
+                if stt["reuse"]:
+                    reuse_dirs += 1
+                    if var not in var_meta:
+                        variant = _scale_variant(scales, var, "light")
+                        if variant is not None:
+                            var_meta[var] = variant.get("unit")
+                    # Il manifest per-variabile e' l'UNIONE: qui si semina con i
+                    # frame gia' pubblicati, poi il render vi aggiunge (e
+                    # sovrascrive, a parita' di file) i frame nuovi.
+                    var_frames[rname].setdefault(var, {}).setdefault(
+                        "light", []).extend(stt["frames"])
+        reasons: dict = {}
+        for stt in var_state.values():
+            if not stt["reuse"]:
+                reasons[stt["reason"]] = reasons.get(stt["reason"], 0) + 1
+        print("  [incremental] %d/%d directory (regione,var) riusabili, %d file "
+              "elencati%s"
+              % (reuse_dirs, len(var_state),
+                 sum(len(v) for v in existing_map.values()),
+                 ("; non riusabili: " + ", ".join("%s=%d" % kv
+                                                  for kv in sorted(reasons.items())))
+                 if reasons else ""))
+
+    _scale_cache: dict = {}
+
+    def _has_scale(var):
+        """True when the palette can color this variable at all (else no file)."""
+        if var not in _scale_cache:
+            _scale_cache[var] = _scale_variant(scales, var, "light") is not None
+        return _scale_cache[var]
+
+    def _published_everywhere(var, base_name):
+        """True when EVERY region of this run already has ``<base_name>.webp``.
+
+        The unit of work is one (frame, variable) rendered across ALL regions, so
+        the task can be skipped only if every region has it. Half-published is
+        rendered again (deterministic bytes, same output, no risk).
+        """
+        name = base_name + ".webp"
+        for _rname in crops:
+            stt = var_state.get((_rname, var))
+            if not stt or not stt.get("reuse") or name not in stt.get("files", ()):
+                return False
+        return True
 
     seen_frames = set()
     watch_complete = not bool(args.watch_manifest)
@@ -2068,8 +2427,20 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                           % (valid_time, ",".join(missing)), file=sys.stderr)
 
             base_name = valid_time_to_filename(valid_time)
+            todo = names
+            if incremental:
+                # Gia' pubblicato = tutte le regioni hanno il file per questa
+                # variabile: il manifest e' gia' seminato da var_frames, l'array
+                # non viene letto e non si scrive nulla. Una variabile SENZA
+                # scala non produce alcun file, quindi non puo' impedire lo skip
+                # (ne' essere resa): non conta nel decidere se il frame e' finito.
+                todo = [v for v in names
+                        if not _published_everywhere(v, base_name)]
+                if not any(_has_scale(v) for v in todo):
+                    already += 1
+                    continue
             payloads = [(frame_path, var, valid_time, base_name)
-                        for var in names]
+                        for var in todo]
             # One frame at a time (arrival order preserved in --watch-manifest
             # mode); the variables of THAT frame are rendered in parallel.
             results, executor = _run_var_tasks(executor, payloads)
@@ -2106,6 +2477,10 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
             executor = None
 
     if not any(var_frames[r] for r in var_frames):
+        if incremental and not skipped:
+            # Nulla pubblicato e nulla da pubblicare: il dominio ha fatto il suo
+            # lavoro (exit 0) ma non c'e' nessun manifest da riscrivere.
+            return rendered, skipped, "up-to-date", {}, frames_done, bytes_written
         return rendered, skipped, "nothing rendered", {}, frames_done, bytes_written
 
     generated_at = _utcnow_iso()
@@ -2127,14 +2502,21 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                 "dir": "%s/runs/%s/%s" % (domain, run_id, var),
                 "themes": {},
             }
+            stt = var_state.get((rname, var)) or {}
+            known = set(stt.get("files") or ())
             for theme, recs in recs_by_theme.items():
-                recs.sort(key=lambda r: r["valid_time"])
-                keep = {r["file"] for r in recs}
+                # UNIONE: i frame gia' elencati dal branch + quelli resi adesso.
+                # Riscrivere solo il delta cancellerebbe i valid_times vecchi dal
+                # manifest, che e' esattamente il percorso che il client legge.
+                merged_recs, keep = merge_frame_records(stt.get("frames"), recs)
+                keep |= known
                 vdir = _theme_var_dir(out_root, rname, domain, var, theme, run_id)
-                prune_dir(vdir, keep)
+                prune_published_dir(vdir, keep, incremental, known,
+                                    label="%s/%s/%s/%s" % (rname, domain, var, theme))
                 shutil.rmtree(os.path.join(vdir, "dark"), ignore_errors=True)
                 vmanifest = {
                     "version": WEBP_VERSION,
+                    "palette_sha256": palette_sha,
                     "generated_at": generated_at,
                     "reference_time": reference_time,
                     "run_id": run_id,
@@ -2147,16 +2529,16 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                     "bbox": cbbox,
                     "bounds": bounds,
                     "grid": grid_summary,
-                    "frames": recs,
-                    "valid_times": [r["valid_time"] for r in recs],
+                    "frames": merged_recs,
+                    "valid_times": [r["valid_time"] for r in merged_recs],
                 }
                 if projection:
                     vmanifest["projection"] = projection
                 write_json(os.path.join(vdir, "latest.json"), vmanifest)
                 sub = "%s/runs/%s/%s" % (domain, run_id, var)
                 entry["themes"][theme] = {
-                    "count": len(recs),
-                    "valid_times": [r["valid_time"] for r in recs],
+                    "count": len(merged_recs),
+                    "valid_times": [r["valid_time"] for r in merged_recs],
                     "dir": sub,
                     "manifest": "%s/latest.json" % sub,
                 }
@@ -2182,6 +2564,11 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
             # is present (the default strip path never writes it).
             contrib[rname]["projection"] = projection
 
+    if incremental:
+        print("  [incremental] %s: %d frame gia' pubblicati (saltati), %d frame "
+              "resi, %d WebP scritti" % (domain, already, frames_done, rendered))
+        if not rendered:
+            return rendered, skipped, "up-to-date", contrib, frames_done, bytes_written
     return rendered, skipped, None, contrib, frames_done, bytes_written
 
 
@@ -2536,6 +2923,19 @@ def parse_args(argv=None):
                          "manifests; no rendering (works without numpy/Pillow/omfiles)")
     ap.add_argument("--watch-manifest", default=None,
                     help="wait for atomically announced .om frames in an engine progress manifest")
+    ap.add_argument("--existing-list", default=None,
+                    help="file with ONE published path per line, relative to the branch "
+                         "root (data/fm2-rendered/<region>/<domain>/runs/<run_id>/"
+                         "<var>/<VALID>.webp): the (frame, variable) units already "
+                         "published for that run are NOT re-rendered. Absent or empty "
+                         "file = full render (historical behaviour). The skip also "
+                         "requires the per-variable latest.json (palette proof) or "
+                         "--existing-palette-sha")
+    ap.add_argument("--existing-palette-sha", default=None,
+                    help="sha256 of the palette the files in --existing-list were "
+                         "rendered with, for a shard that has no per-variable manifest "
+                         "(default: read from the manifest; with neither, the skip is "
+                         "disabled and everything is rendered again)")
     ap.add_argument("--label-font-px", type=int, default=0,
                     help="force ONE label font size in output pixels (0 = per-region "
                          "auto: the north strip is enlarged so the digits stay >= "
@@ -2557,6 +2957,34 @@ def main(argv=None) -> int:
     args = parse_args(argv)
     args.domains = _split_csv(args.domains)
     args.vars = _split_csv(args.vars)
+
+    # Incremental render: the published-path list is read ONCE and handed to every
+    # domain as a {(region, domain, run_id, var): {file}} table. Cost measured on
+    # a list of 124.992 paths (11,8 MiB of text, the size `git ls-tree -r` prints
+    # for the real branch): 0,133 s for the whole parse.
+    args.existing_map = {}
+    if args.existing_list:
+        t0 = time.perf_counter()
+        try:
+            args.existing_map, ex_stats = load_existing_list(args.existing_list)
+        except OSError as exc:
+            # FATAL, not a silent fallback: the operator asked for incremental and
+            # silently rendering everything would cost the full render (30+ h/day).
+            print("FATAL: --existing-list illeggibile (%s): %s"
+                  % (args.existing_list, exc), file=sys.stderr)
+            return 2
+        n_dir = len(args.existing_map)
+        n_file = sum(len(v) for v in args.existing_map.values())
+        print("[incremental] elenco esistente: %d path in %d directory letti in %.3f s"
+              % (n_file, n_dir, time.perf_counter() - t0))
+        if ex_stats["ignored"]:
+            print("[incremental] ATTENZIONE: %d righe su %d non sono path pubblicati "
+                  "e sono state ignorate (es. %s)"
+                  % (ex_stats["ignored"], ex_stats["lines"],
+                     "; ".join(ex_stats["sample"][:3])), file=sys.stderr)
+        if not n_dir:
+            print("[incremental] elenco vuoto: nessun frame risulta pubblicato, "
+                  "render completo")
 
     # 0 = auto (4 on the 4-vCPU runner, 1 on a single-core host); hard cap 32
     # so a typo cannot spawn hundreds of processes. --index-only ignores it.
@@ -2649,6 +3077,7 @@ def main(argv=None) -> int:
 
     total_ok = 0
     any_domain_ok = False
+    up_to_date = False
     index_domains = {rname: {} for rname in regions}
 
     for ddir in domains:
@@ -2673,12 +3102,18 @@ def main(argv=None) -> int:
         elif err == "noop":
             any_domain_ok = True
             print("  noop (manifest invariato)")
+        elif err == "up-to-date":
+            # Incrementale: nessun frame nuovo, ma i manifest sono stati
+            # riscritti in unione e contrib e' valido -> il dominio ha lavorato.
+            any_domain_ok = True
+            up_to_date = True
+            print("  up-to-date (0 frame nuovi: WebP gia' pubblicati)")
         else:
             print("  ok=0 skipped=%d (%s)" % (skipped, err or "empty"))
         for rname, entry in contrib.items():
             index_domains[rname][domain] = entry
 
-    if total_ok > 0:
+    if total_ok > 0 or up_to_date:
         for rname in regions:
             region_projection = None
             for dom_entry in index_domains[rname].values():
