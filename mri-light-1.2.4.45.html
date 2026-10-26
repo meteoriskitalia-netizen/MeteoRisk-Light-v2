@@ -1964,9 +1964,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.44';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.45';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-26';
     const APP_CHANGELOG = [
+        { version: '1.2.4.45', date: '2026-10-26', changes: [
+  'MAPPE= IL PRIMO FRAME NON PASSA PIU\' DAL RASTER .om. Aprendo le mappe previsionali il client disegnava il frame con la cache .om (1.403.766 byte misurati a un\'apertura a freddo, 2.575.429 byte a un cambio regione) mentre il WebP dello stesso frame esisteva: la resa della regione finiva con un rebuild immediato, quando indice e timeline erano ancora quelli della regione precedente, quindi fmWebpFrameUrl() tornava null e la mappa imboccava il raster. Ora il rebuild aspetta l\'esito dell\'indice (lo stesso ordine che la timeline usa gia\') e il .om resta solo come fallback REALE: indice arrivato e frame senza WebP (404), indice fallito, o nessuna risposta entro 60 s.',
+  'MAPPE= UN SOLO URL PER FRAME: tolto `?run=` dall\'URL WebP costruito da index.json. Il path contiene gia\' la run (`/runs/<run_id>/<variabile>/<file>`), quindi il parametro rendeva soltanto DIVERSO l\'URL rispetto a quello costruito dalla timeline: lo stesso frame veniva chiesto due volte (306.777 + 306.485 byte misurati) e nessuna cache poteva accorgersene.',
+  'DOC= Bump versione 1.2.4.45 (solo client: nessuna modifica a engine, renderer, workflow dei dati o Service Worker). Verifica: test_html_js_syntax.py 1 passed; misure prima/dopo su Edge headless con la pagina servita (byte .om e .webp per evento, tempo al primo frame); il fallback sul 404 reale e\' provato forzando un URL WebP inesistente.',
+        ] },
         { version: '1.2.4.44', date: '2026-10-26', changes: [
   'SATELLITE= LO SLOT SI SCEGLIE DAL MANIFEST, NON PIU\' "ADESSO MENO 15 MINUTI". Il manifest pubblicato su Pages e\' indietro di 28-38 minuti (latenza EUMETSAT ~14 min + deploy Pages ~10-13 min): lo slot NOW-15min NON esiste, quindi il client cadeva sul WMS (261 KB, 3,2-15,5 s per frame) e sul bordo riceveva un XML di errore (net::ERR_BLOCKED_BY_ORB, pannello vuoto). Ora il tetto e\' l\'ULTIMO SLOT dichiarato in satellite/manifest.json (un file che su Pages esiste: 31-38 KB, ~0,5 s) e, se il manifest manca o e\' vuoto, si usa NOW-45min arrotondato per difetto a 5 minuti. Il frame non arriva prima che il primo esito del manifest sia noto (attesa una volta sola, tetto 2,5 s): senza, il cold start sceglierebbe il fallback.',
   'SATELLITE= E LO SLOT STA SULLA GRIGLIA DI 5 MINUTI. clampedEumetsatIso restituiva NOW-15min CON I SECONDI (es. 20:26:16): non era ne\' uno slot del manifesto ne\' un istante pubblicato, e due chiamate ravvicinate facevano DUE richieste WMS per lo stesso frame (misurate 522 KB, 18,7 s, warning "99 Nearest value used"). Ora floor a 5 minuti e secondi a zero: stesso istante di satellite_engine.py (slot_name = floor a 5 min), una sola richiesta. EUMETSAT_DATA_LAG_MS resta solo come LIMITE MINIMO di sicurezza: se il manifest dichiarasse uno slot piu\' recente di now-15min, non viene chiesto ugualmente.',
@@ -13448,6 +13453,60 @@ function fmRegionChanged() {
     fmFrameSkipAttempts = 0; // 1.2.4.23: la sequenza di frame cambia con la regione
     fmApplyRegion(true);
 }
+// ================= 1.2.4.45 - ATTESA DELL'INDICE DELLA REGIONE (NIENTE RASTER .om DI PASSAGGIO) =================
+// MISURATO sulla 1.2.4.44 servita (Edge headless, profilo nuovo, dwd_icon_eu / domain / temperature_2m):
+// l'apertura a freddo scaricava 1.403.766 byte di `.om` e un cambio regione 2.575.429 byte, mentre il
+// WebP dello STESSO frame esisteva (HEAD 200 sull'URL del frame). Causa: fmApplyRegion() finisce con
+// fmRebuild() INCONDIZIONATO; in quel momento fmTimeline/fmWebpIndex sono ancora quelli della regione
+// precedente, fmWebpFrameUrl() torna null e fmCurrentOmUrl() imbocca il raster. Indice e timeline
+// arrivano poche centinaia di ms dopo e il WebP sostituisce il raster, ma i byte sono gia' spesi.
+// Qui il rebuild aspetta l'esito del caricamento dell'indice (lo stesso ordine che fmSetTimeline usa
+// gia' per la timeline: rebuild DENTRO il callback). Tre uscite, tutte esplicite:
+//   (a) index.json arriva    -> rebuild con il WebP;
+//   (b) index.json fallisce  -> rebuild: il .om e' l'unico disegno possibile (fallback reale);
+//   (c) nessun esito entro FM_TIMELINE_RETRY_MS (60 s, la costante dei retry gia' esistente) -> rebuild
+//       comunque: una rete muta non deve lasciare il pannello vuoto per sempre.
+var fmRegionWait = null;      // { region: <serverRegion>, timer: <id setTimeout> }
+var fmWebpIndexWaiters = [];  // callback in attesa dell'index.json di una regione (1.2.4.45)
+function fmRegionWaitClear() {
+    if (!fmRegionWait) return;
+    if (fmRegionWait.timer) { try { clearTimeout(fmRegionWait.timer); } catch (e) { } }
+    fmRegionWait = null;
+}
+function fmRegionWaitActive() {
+    // L'attesa vale SOLO per la regione resa adesso: cambiando di nuovo regione decade.
+    if (!fmRegionWait) return false;
+    if (fmRegionWait.region !== fmRenderRegionId()) { fmRegionWaitClear(); return false; }
+    return true;
+}
+function fmFlushIndexWaiters(serverRegion, err, idx) {
+    // 1.2.4.45: sveglia i chiamanti accodati su un index.json gia' in volo.
+    var keep = [];
+    for (var i = 0; i < fmWebpIndexWaiters.length; i++) {
+        var w = fmWebpIndexWaiters[i];
+        if (!w || w.region !== serverRegion) { if (w) keep.push(w); continue; }
+        try { w.cb(err, idx); } catch (e) { }
+    }
+    fmWebpIndexWaiters = keep;
+}
+function fmBeginRegionWait(serverRegion) {
+    // Avvia (o riusa) il caricamento di index.json + timeline.json della regione e rimanda il rebuild
+    // al suo esito. Ritorna false quando non c'e' nulla da aspettare.
+    if (!serverRegion) return false;
+    if (fmRegionWait && fmRegionWait.region === serverRegion) return true;
+    fmRegionWaitClear();
+    var wait = { region: serverRegion, timer: null };
+    fmRegionWait = wait;
+    var release = function () {
+        if (fmRegionWait !== wait) return;   // gia' rilasciata (timeout, o regione cambiata)
+        fmRegionWaitClear();
+        fmRebuild();
+    };
+    wait.timer = setTimeout(release, FM_TIMELINE_RETRY_MS);
+    fmSetStatus('Caricamento indice e frame della regione\u2026');
+    fmFetchRenderedIndex(serverRegion, function () { release(); });
+    return true;
+}
 function fmApplyRegion(refit) {
     var domB = fmDomainBounds();
     var region = fmRegionDef(fmRegion);
@@ -13563,7 +13622,19 @@ function fmApplyRegion(refit) {
     // binario) cambiano anche se il dominio resta lo stesso. Riallinea slider e barra.
     fmPopulateTimes(fmDisplayValidTimes());
     fmSyncSlider();
-    fmRebuild();
+    // 1.2.4.45: NIENTE fmRebuild() a freddo. Se index.json/timeline.json della regione resa non
+    // sono ancora noti, il rebuild partirebbe con il WebP "sconosciuto" e finirebbe sul raster
+    // `.om` (1,40 MB a un'apertura a freddo, 2,58 MB a un cambio regione: misurati).
+    var fmRegionNow = fmRenderRegionId();
+    var fmRegionReady = !fmRegionNow
+        || (fmWebpIndex && fmWebpIndexRegion === fmRegionNow)
+        || (fmTimeline && fmTimelineRegion === fmRegionNow);
+    if (fmRegionReady) {
+        fmRegionWaitClear();
+        fmRebuild();
+    } else {
+        fmBeginRegionWait(fmRegionNow);
+    }
 }
 function fmLoaderHasVisiblePlaybackFrame() {
     if (!fmIsPlaying || typeof map === 'undefined' || !map || !map.hasLayer) return false;
@@ -14071,7 +14142,12 @@ function fmFetchRenderedIndex(serverRegion, cb) {
     if (!serverRegion) return;
     fmFetchTimeline(serverRegion);   // 1.2.4.22: la timeline non aspetta index.json
     if (fmWebpIndex && fmWebpIndexRegion === serverRegion) { if (cb) cb(null, fmWebpIndex); return; }
-    if (fmWebpIndexLoading === serverRegion) return;
+    if (fmWebpIndexLoading === serverRegion) {
+        // 1.2.4.45: fetch gia' in volo -> il callback va ACCODATA, non persa (prima si tornava
+        // senza avvisare e un chiamante in attesa restava appeso fino al proprio timeout).
+        if (cb) fmWebpIndexWaiters.push({ region: serverRegion, cb: cb });
+        return;
+    }
     fmWebpIndexLoading = serverRegion;
     var gen = ++fmWebpIndexGen;                       // token anti-race: index di un'altra regione scartata
     var url = FM_RENDERED_BASE + serverRegion + '/index.json';
@@ -14089,6 +14165,7 @@ function fmFetchRenderedIndex(serverRegion, cb) {
                 fmRebuild();
             }
             if (cb) cb(err);
+            fmFlushIndexWaiters(serverRegion, err);   // 1.2.4.45
             return;
         }
         fmWebpIndex = idx;
@@ -14103,6 +14180,7 @@ function fmFetchRenderedIndex(serverRegion, cb) {
             fmRebuild();
         }
         if (cb) cb(null, idx);
+        fmFlushIndexWaiters(serverRegion, null, idx);   // 1.2.4.45
     };
     try {
         fetch(url, { cache: 'no-cache' }).then(function (r) {
@@ -14152,8 +14230,11 @@ function fmWebpFrameUrl(idx) {
     if (vts && vts.length && vts.indexOf(valid) < 0) return null;
     var token = String(valid).replace(/:/g, '').replace('Z', '');
     var url = FM_RENDERED_BASE + fmWebpIndexRegion + '/' + dir + '/' + token + '.webp';
-    var runToken = (selectedRun && (selectedRun.reference_time || selectedRun.id)) || (fmMeta && fmMeta.reference_time);
-    if (runToken) url += '?run=' + encodeURIComponent(runToken);
+    // 1.2.4.45: NIENTE `?run=` sull'URL del frame. Il path contiene GIA' la run
+    // (`.../runs/<run_id>/<variabile>/<file>`), quindi il parametro non aggiungeva informazione:
+    // rendeva soltanto DIVERSO l'URL rispetto a quello costruito dalla timeline
+    // (fmTimelineFileUrl) e la cache HTTP/Service Worker non poteva deduplicare lo stesso frame
+    // chiesto due volte (306.777 + 306.485 byte misurati sulla 1.2.4.44).
     // 1.2.4.31: bounds e proiezione della RUN selezionata (non del dominio, che e'
     // la run corrente): con una run storica su un'altra proiezione la striscia non
     // va disegnata col disco.
@@ -14222,6 +14303,15 @@ function fmRebuild() {
     var webp = wantWebp ? fmWebpFrameUrl() : null;
     // 1.2.4.23: un frame gia' fallito (404/errore) non viene ritentato.
     if (webp && (webp.url === fmWebpFailedUrl || fmDeadWebpIs(webp.url))) webp = null;
+    // 1.2.4.45: indice/timeline della regione ancora in volo -> NON si disegna il raster `.om`.
+    // Il raster e' legittimo solo quando l'indice E' ARRIVATO e dice che il frame non ha il WebP
+    // (fallback reale su 404), oppure quando l'attesa e' finita (errore dell'indice, o timeout).
+    // `north` resta fuori: quella vista non usa il raster (ramo dedicato piu' sotto).
+    if (!webp && fmRegion !== 'north' && fmRegionWaitActive()) {
+        fmPlaybackSetFramePending(false);
+        fmSetStatus('Caricamento frame WebP della regione\u2026');
+        return;
+    }
     // 1.2.4.33: composito richiesto ma NESSUN WebP composito (run pubblicate prima del
     // renderer nuovo): fallback OBBLIGATORIO al percorso storico, altrimenti la mappa
     // resta vuota. Raster `.om` = Z500, isobare MSL disegnate dal client.

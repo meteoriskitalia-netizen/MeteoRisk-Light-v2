@@ -6,40 +6,53 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.44
+## Versione attiva: 1.2.4.45
 
-- File applicativo: `mri-light-1.2.4.44.html` (`APP_VERSION = '1.2.4.44'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.44', date: '2026-10-26' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.44'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+- File applicativo: `mri-light-1.2.4.45.html` (`APP_VERSION = '1.2.4.45'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.45', date: '2026-10-26' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.45'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
-- Contenuto della 1.2.4.44 (release sopra la 1.2.4.43) - **lo slot satellite si sceglie dal
-  manifesto, non piu' "adesso meno 15 minuti"**. Solo client: nessuna modifica a `scripts/`
-  ne' ai workflow oltre alle righe `cp`. Risoluzione immagini, prefetch, Service Worker ed
-  engine NON toccati: la correzione e' la **scelta dello slot**.
-  - **Difetto misurato il 2026-10-26 sulla pagina servita.** Il manifest su Pages e' fermo a
-    **28-38 min** (latenza EUMETSAT ~14 min + deploy Pages ~10-13 min), quindi lo slot
-    `NOW-15min` non esiste: ogni frame cadeva sul **WMS** (261 KB, **3,2-15,5 s**; 498 KB e
-    25,6 s per l'Europa a 2048) e sul bordo la GetMap tornava
-    `application/vnd.ogc.se_xml` (`ServiceException InvalidDimensionValue`), che il browser
-    blocca come immagine (`net::ERR_BLOCKED_BY_ORB`) lasciando il pannello vuoto. Tempo al
-    primo frame a freddo: **19.235 ms**; seconda apertura: **nessun frame in 60 s**.
-  - **Tetto = ultimo slot del manifest.** `satManifestNewestMs` legge il massimo degli slot
-    della sorgente in `satellite/manifest.json` (un file che su Pages esiste: 31-38 KB,
-    mediana 468 ms); `satSlotCapMs` prende il minimo fra quello e `now - EUMETSAT_DATA_LAG_MS`.
-    Se il manifest manca o e' vuoto: fallback `now - 45 min` arrotondato per difetto a 5 min.
-    `EUMETSAT_DATA_LAG_MS` resta **solo** come limite minimo di sicurezza.
-  - **Attesa una volta sola del manifest.** `satManifestWhenKnown` (tetto 2,5 s) evita che il
-    cold start scelga il fallback prima che il manifest sia noto; il loader ha anche una
-    guardia "un solo fetch in volo" (prima, con manifest null, ogni chiamata ne apriva uno).
-  - **Floor a 5 minuti.** `clampedEumetsatIso` restituiva `NOW-15min` **con i secondi**
-    (20:26:16): due chiamate ravvicinate facevano **due** richieste WMS per lo stesso frame
-    (522 KB, 18,7 s, warning "99 Nearest value used"). Ora floor a 5 minuti UTC e secondi a
-    zero, la stessa griglia di `satellite_engine.py`.
-  - **Verifica.** `test_html_js_syntax.py` 1 passed; logica estratta dall'html ed eseguita in
-    vm: **10/10** casi PASS (tetto, floor, fallback, limite minimo, stesso ISO per due
-    chiamate ravvicinate). Controprova in-page sulla 1.2.4.43 (patch solo in memoria, mai
-    pubblicata): 1 richiesta, 31,1 KB, primo frame in **551 ms**.
-- **Nota sullo storico di questo README.** Era fermo alla 1.2.4.34: le release 1.2.4.35 ... 1.2.4.43
+- Contenuto della 1.2.4.45 (release sopra la 1.2.4.44) - **il primo frame delle mappe
+  previsionali non passa piu' dal raster `.om`** e **un solo URL per frame WebP**. Solo client:
+  nessuna modifica a `scripts/`, al renderer, al player, ai workflow dei dati o al Service
+  Worker oltre alle righe `cp`.
+  - **Difetto misurato il 2026-10-26 sulla pagina servita** (Edge headless, profilo nuovo,
+    `dwd_icon_eu` / `domain` / `temperature_2m`, byte attribuiti per richiesta): apertura a
+    freddo **1.403.949 byte** di `.om` in **5** richieste; cambio regione `domain`->`italy`
+    **1.525.652 byte** in **5**; `italy`->`domain` (regione mai visitata) **524.815 byte** in
+    **2**. Il WebP dello stesso frame esisteva sempre e con il Service Worker attivo costava
+    **0 byte** di rete: il raster era il **100%** del payload di una prima apertura.
+  - **Causa: l'ordine, non il dato.** `fmApplyRegion()` finiva con `fmRebuild()`
+    incondizionato mentre `fmTimeline`/`fmWebpIndex` erano ancora quelli della regione
+    precedente: `fmWebpFrameUrl()` tornava `null` e `fmCurrentOmUrl()` imboccava il raster.
+    Indice e timeline arrivano 100-300 ms dopo e il WebP sostituisce il raster, ma i byte sono
+    gia' spesi.
+  - **Fix A - si aspetta l'indice della regione.** `fmApplyRegion()` chiama
+    `fmBeginRegionWait()` quando indice/timeline della regione resa non sono noti; il rebuild
+    avviene nel callback di `fmFetchRenderedIndex()` (lo stesso ordine che `fmSetTimeline` usa
+    gia' per la timeline) e una guardia in `fmRebuild()` vieta il ramo `.om` mentre l'attesa e'
+    in corso. Il `.om` resta come fallback **reale**: indice arrivato senza il WebP di quel
+    frame/dominio (verificato togliendo il dominio dall'indice: **1.049.820 byte** in **4**
+    richieste, raster a **152 ms**), indice fallito, o nessun esito entro
+    `FM_TIMELINE_RETRY_MS` (**60 s**). `fmFetchRenderedIndex()` ora accoda i callback quando un
+    fetch e' gia' in volo.
+  - **Fix B - un solo URL per frame.** Tolto `?run=` dall'URL WebP del path `index.json`: il
+    path contiene gia' `<run_id>`. Misurato: sulla 1.2.4.44 **31/31** URL dell'indice avevano
+    `?run=` e nessuno coincideva con l'URL della timeline; sulla 1.2.4.45 **0/31** e l'URL del
+    frame e' **identico** (`urlIdentico: true`), quindi la cache puo' servirlo una volta sola.
+  - **Risultato dopo il fix** (stessa sonda, build 1.2.4.45 senza Service Worker, quindi con i
+    WebP a rete piena): apertura **0 byte** di `.om` in **0** richieste, cambio regione **0/0**,
+    cambio dominio **0/0** (due volte), regione mai visitata **0/0**.
+  - **404 vero sull'immagine** (URL dichiarato dall'indice ma riscritto su un path inesistente):
+    con la timeline attiva il client salta al frame successivo e disegna quello (stato "Frame
+    non disponibile: salto al frame 11/93 ... tentativo 6/8"), **0 byte** di `.om`; con TUTTI i
+    frame a 404 il fallback `.om` parte comunque (**1.237.910 byte**). Comportamento invariato:
+    la gestione dell'errore non e' stata toccata.
+  - **Verifica.** `test_html_js_syntax.py` -> **1 passed**; suite `.mjs` **25 PASS / 1 FAIL**
+    identica alla 1.2.4.44 (l'unico FAIL e' `test_fm_webp_fastpath.mjs` A15c, che chiede `>= 2`
+    occorrenze di `data/fm2-rendered/north/index.json` in `forecast-maps-index.yml`: il file su
+    `main` ne ha **1**, quindi il test e' disallineato dal workflow, non dalla release).
+- **Nota sullo storico di questo README.** Era fermo alla 1.2.4.34: le release 1.2.4.35 ... 1.2.4.44
   sono documentate in `VERSION` (un blocco per release) e nel changelog in-app, non qui.
 - Storico immediato documentato qui sotto: **1.2.4.34**.
 
