@@ -1189,19 +1189,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             .app-header { margin-bottom: 6px; }
         }
 
-        /* ============================================================
-           1.2.4.50 - DUE MODALITA' DI VISUALIZZAZIONE: pro / sviluppo.
-           La visibilita' la decide SOLO il CSS tramite data-ui-mode sul <body>:
-           nessuna funzione esistente viene riscritta, si aggiungono classi.
-             .dev-only    -> visibile SOLO in sviluppo
-           Se il JS non parte (data-ui-mode assente) non si nasconde nulla.
-           ============================================================ */
-        #ui-mode-switch { display: inline-flex; gap: 2px; align-items: center; padding: 2px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; }
-        #ui-mode-switch .uim-btn { font-size: 11px; line-height: 1; padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; color: #94a3b8; cursor: pointer; white-space: nowrap; }
-        #ui-mode-switch .uim-btn:hover { color: #e2e8f0; }
-        #ui-mode-switch .uim-btn[aria-pressed="true"] { background: #0ea5e9; color: #04121f; font-weight: 600; }
-        body:not([data-ui-mode="sviluppo"]) .dev-only { display: none !important; }
-        #app-footer .dev-switch { display: none !important; }
     </style>
 <!-- ================================================================
      VERSION SYSTEM — AI INSTRUCTIONS (READ BEFORE MODIFYING)
@@ -1237,20 +1224,16 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 </head>
 <body>
 <script>
-/* 1.2.4.50 - La modalita' va scritta sul <body> PRIMA del paint, altrimenti si vede
-   un lampo della UI completa. Due sole modalita': `pro` (default) e `sviluppo`.
-   La 1.2.4.48/1.2.4.49 salvava una TERZA modalita' (il selettore a 3 pulsanti)
-   nella stessa chiave: quel valore non esiste piu', viene riportato a `pro` e
-   RISCRITTO, cosi' non resta nel browser.
-   Stessa chiave di localStorage usata da applyUiMode(). */
+/* 1.2.4.51 - Il selettore di modalita' (pro / sviluppo) e' stato ELIMINATO: la
+   modalita' non esiste piu' e lo stato sperimentale lo decide SOLO lo switch
+   "Sviluppo" del footer (isSviluppoActive, come nella 1.2.4.47). Le chiavi che le
+   versioni 1.2.4.46-1.2.4.50 scrivevano in localStorage non devono restare nel
+   browser come stato fantasma: si rimuovono alla prima apertura. */
 (function () {
-  var m = 'pro';
   try {
-    var v = window.localStorage.getItem('meteorisk.uiMode.v2');
-    if (v === 'sviluppo') { m = 'sviluppo'; }
-    else if (v !== null && v !== 'pro') { window.localStorage.setItem('meteorisk.uiMode.v2', 'pro'); }
-  } catch (e) { /* localStorage negato: si resta su pro */ }
-  document.body.setAttribute('data-ui-mode', m);
+    window.localStorage.removeItem('meteorisk.uiMode.v2');
+    window.localStorage.removeItem('meteorisk.uiMode');
+  } catch (e) { /* localStorage negato o pieno: niente da pulire */ }
 })();
 </script>
 <!-- 1.2.4.33 - Avviso NON bloccante di versione nuova. Il Service Worker installa la
@@ -1276,10 +1259,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 
 <div class="toolbar">
     <div class="toolbar-row" style="display: flex; gap: 8px; flex-wrap: wrap;">
-        <div id="ui-mode-switch" role="group" aria-label="Modalita' di visualizzazione">
-            <button type="button" class="uim-btn" data-ui-mode-btn="pro" onclick="setUiMode('pro')" aria-pressed="false">Pro</button>
-            <button type="button" class="uim-btn" data-ui-mode-btn="sviluppo" onclick="setUiMode('sviluppo')" aria-pressed="false">Sviluppo</button>
-        </div>
         <button class="tool-btn" id="btn-forecast-maps" onclick="toggleForecastMaps()" style="border-color:#38bdf8;">🗺️ Mappe previsionali (OFF)</button>
         <button class="tool-btn" id="btn-radar-player" onclick="toggleRadarPlayer()" style="border-color:#0284c7;">▶️ Radar Player</button>
         <button class="tool-btn" id="btn-radar" onclick="toggleRadar()" style="display:none;">📡 Radar Timeline (OFF)</button>
@@ -1329,7 +1308,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <option value="humidex">💧 Humidex (Canada)</option>
             <option value="windchill">❄️ Wind Chill (WCT)</option>
         </select>
-        <select id="conv-shear-select" class="tool-btn dev-only" onchange="selectConvCategory(this.value)" style="font-size:11px; display:none; flex-shrink:0">
+        <select id="conv-shear-select" class="tool-btn" onchange="selectConvCategory(this.value)" style="font-size:11px; display:none; flex-shrink:0">
             <option value="no">⚡ Conv. Senza shear</option>
             <option value="yes">⚡ Conv. Con shear</option>
             <option value="thunderprob">🌩️ Potenziale temporalesco</option>
@@ -1337,7 +1316,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <option value="vorticosi">🌪️ Vortici</option>
             <option value="downburst">⬇️ Downburst</option>
         </select>
-        <select id="hail-level-select" class="tool-btn dev-only" onchange="selectHailLevel(this.value)" style="font-size:11px; display:none; flex-shrink:0">
+        <select id="hail-level-select" class="tool-btn" onchange="selectHailLevel(this.value)" style="font-size:11px; display:none; flex-shrink:0">
             <option value="prob">🧊 Probabilità grandine</option>
             <option value="size">🧊 Dimensione grandine (stima)</option>
         </select>
@@ -1400,7 +1379,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         Colori sovrapposti indicano temporali di calore stagnanti.
     </div>
     <div class="sc-toggles">
-        <button type="button" id="live-toggle-supercells" class="sc-toggle dev-only" onclick="toggleLiveSupercells()" title="Record di struttura convettiva (data/radar/convective_structures.json) e fenomeni osservati, riusati dal pannello Struttura convettiva e mostrati qui nel pannello LIVE">Struttura convettiva</button>
+        <button type="button" id="live-toggle-supercells" class="sc-toggle" onclick="toggleLiveSupercells()" style="display:none;" title="Record di struttura convettiva (data/radar/convective_structures.json) e fenomeni osservati, riusati dal pannello Struttura convettiva e mostrati qui nel pannello LIVE">Struttura convettiva</button>
         <!-- Sub-toggle spostati dal pannello #sc-radar-panel: stessa logica, stessi handler,
              id dedicati (live-toggle-*), visibili SOLO con celle organizzate attive (come #live-sc-*). -->
         <button type="button" id="live-toggle-trails" class="sc-toggle on" onclick="toggleScTrails()" title="Traccia 2h dei candidati attivi (archivio rolling radar-history)" style="display:none;">Traccia 2h</button>
@@ -1430,7 +1409,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 </div>
 
 <!-- Pannello Struttura convettiva (descrittore SOI dal Motion Engine; rotazione NON misurabile) -->
-<div class="panel-live panel-sc dev-only" id="sc-radar-panel">
+<div class="panel-live panel-sc" id="sc-radar-panel" style="display:none;">
     <div class="live-header" style="border-color:#a855f7;">
         <span style="color:#a855f7; font-size:14px;">🌀</span> <strong>STRUTTURA CONVETTIVA</strong>
         <span style="font-size:10px;color:#22c55e;font-weight:700;">EVENTI OSSERVATI (RADAR)</span>
@@ -1519,9 +1498,9 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     <button class="metric-tab" data-metric="pressure" onclick="selectMetric('pressure')">📊 Pressione</button>
     <button class="metric-tab" data-metric="wind" onclick="selectMetric('wind')">💨 Vento</button>
     <button class="metric-tab" data-metric="thermalrisk" id="metric-tab-thermalrisk" onclick="selectMetric('thermalrisk')">🌡️ Rischio Termico</button>
-    <button class="metric-tab dev-only" id="metric-tab-fog" data-metric="fog" onclick="selectMetric('fog')">🌫️ Nebbia</button>
-    <button class="metric-tab dev-only" data-metric="conv" id="metric-tab-conv" onclick="selectMetric('conv')" style="display:none;">🌩️ Conv.</button>
-    <button class="metric-tab dev-only" data-metric="hail" id="metric-tab-hail" onclick="selectMetric('hail')" style="display:none;">🧊 Grandine</button>
+    <button class="metric-tab" id="metric-tab-fog" data-metric="fog" onclick="selectMetric('fog')" style="display:none;">🌫️ Nebbia</button>
+    <button class="metric-tab" data-metric="conv" id="metric-tab-conv" onclick="selectMetric('conv')" style="display:none;">🌩️ Conv.</button>
+    <button class="metric-tab" data-metric="hail" id="metric-tab-hail" onclick="selectMetric('hail')" style="display:none;">🧊 Grandine</button>
 </div>
 
 <div class="container">
@@ -1594,7 +1573,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                 <span class="mp-knob"></span>
                 <span class="mp-label">Sfuma</span>
             </label>
-            <label class="mp-select dev-only" id="continuous-style-wrap" title="Metodo della vista continua (v10.52.1.1): V1 = IDW classico sui punti campione (può lasciare 'pois'), V2 = uniforme per province (ancore provinciali + raggio adattivo + sfumatura), V3 = reticolo virtuale 0,25° con valori interpolati dai punti reali (solo raster, previsioni invariate)">
+            <label class="mp-select" id="continuous-style-wrap" title="Metodo della vista continua (v10.52.1.1): V1 = IDW classico sui punti campione (può lasciare 'pois'), V2 = uniforme per province (ancore provinciali + raggio adattivo + sfumatura), V3 = reticolo virtuale 0,25° con valori interpolati dai punti reali (solo raster, previsioni invariate)">
                 <span class="mp-label">Sfumatura</span>
                 <select id="continuous-style-select" onchange="setContinuousStyle(this.value)">
                     <option value="v1">V1</option>
@@ -1647,7 +1626,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     </div>
 
     <!-- Selettore modello meteorologico (visibile solo con Sviluppo ON) -->
-    <div id="weather-model-wrapper" class="dev-only" style="max-width:1200px; margin:0 auto 10px auto; display:none; align-items:center; gap:8px; flex-wrap:wrap;">
+    <div id="weather-model-wrapper" style="max-width:1200px; margin:0 auto 10px auto; display:none; align-items:center; gap:8px; flex-wrap:wrap;">
         <label for="weather-model-select" style="font-size:11px; color:#94a3b8; white-space:nowrap;">Modello:</label>
     <select id="weather-model-select" class="tool-btn" onchange="onWeatherModelChange(this.value)" style="font-size:11px;">
         <option value="dual_best_ecmwf" selected>Best Match + ECMWF — Analisi combinata</option>
@@ -1656,7 +1635,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <option value="gfs_seamless">GFS (NOAA 13km Globale)</option>
         <option value="italia_meteo_arpae_icon_2i">ARPAE ICON-2I (2km Italia)</option>
     </select>
-        <span id="api-source-wrapper" class="dev-only" style="display:none; align-items:center; gap:8px;">
+        <span id="api-source-wrapper" style="display:none; align-items:center; gap:8px;">
             <span style="font-size:11px; color:#94a3b8; white-space:nowrap;">Fonte API:</span>
             <select id="api-source-select" class="tool-btn" onchange="onApiSourceChange(this.value)" style="font-size:11px;">
                 <option value="openmeteo_free" selected>Open-Meteo (gratis)</option>
@@ -2038,10 +2017,10 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     const APP_VERSION = '1.2.4.51';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-27';
     const APP_CHANGELOG = [
-﻿        { version: '1.2.4.51', date: '2026-10-27', changes: [
-  'CENTRALINE= TERZA SORGENTE DEL SELETTORE DEL PANNELLO LIVE: `#mnw-source-select` passa da 2 a 3 voci e la nuova e\' "Centraline (osservato, ~30 min)". Scegliendola la mappa mostra le osservazioni di stazione di `data/stations/` (MeteoHub / Agenzia ItaliaMeteo, CC BY 4.0) al posto dei dati METAR/modello, e il pannello LIVE mostra stato, legenda e attribuzione. LETTURA: prima `index.json` su Pages (schema compatto "stations-index/1"), poi `latest.json` su raw.githubusercontent come FALLBACK; se rispondono 404 ENTRAMBI compare un messaggio nel pannello e NESSUNA eccezione. FILE MISURATI il 27/10/2026 alle 08:46 UTC: index.json 542.989 byte su 4.205 stazioni, latest.json 1.063.821 byte; 3.954 stazioni attive entro 90 minuti. FILTRO: `obs_time` piu\' vecchio di 90 minuti viene scartato (costante STATIONS_MAX_OBS_AGE_MIN). DISEGNO: UN canvas (pane dedicato z 560, pointer-events none) e non 4.205 `L.marker` DOM, perche\' a zoom basso migliaia di nodi sono ingestibili. DECIMAZIONE DICHIARATA: si tengono le stazioni attive dentro il viewport, si sovrappone una griglia di 16 px nello spazio dello schermo e si tiene UNA stazione per cella (quella con osservazione piu\' recente, pareggio per id); se le celle occupate superano 600 il lato cresce 12->16->24->32->48->64 px. MISURATO: 444 punti disegnati a zoom 6, 586 punti al massimo (zoom 8), tetto 600 mai superato. COLORE: scala CONTINUA per la temperatura (11 stop da -10 a +40 °C, interpolazione lineare RGB), legenda con la stessa rampa nel pannello; una stazione senza temperatura e\' grigia e non riceve un valore finto. POPUP/HOVER: nome, rete con il nome dell\'ENTE (campo `attribution` del file), eta\' dell\'osservazione ("31 min fa"), temperatura, umidita\', vento (m/s e km/h) e pioggia NORMALIZZATA sul periodo con `precipitation_period_s` ("2,0 mm in 15 min (8,0 mm/h)", non "2 mm in 15 s"). I campi mancanti sono OMESSI: nessun "0" e nessun "n/d" inventato.',
-  'NEBBIA= TAB E BADGE SOLO IN SVILUPPO: il tab `#metric-tab-fog` ("Nebbia") ha ora la classe `dev-only` e il badge `id:\'fog\'` di `computeActiveRisks` viene emesso solo se `isDevOnlyVisible()`. La funzione legge l\'attributo `data-ui-mode` del <body>, lo STESSO che usa il CSS per `.dev-only`: tab e badge non possono divergere. Soglie INVARIATE (70 / 85 / 95), `FOG_BADGE_MIN`, i livelli e `case \'fog\'` non sono stati toccati: cambia solo chi li vede. Uscendo da sviluppo con la nebbia attiva la metrica torna su Rischio (come gia\' facevano Conv. e Grandine). MISURATO sulla pagina: in `pro` 7 tab metriche visibili (una in meno) e 0 badge nebbia sulle 107 province; in `sviluppo` 10 tab e 41 province con badge. Nessun\'altra metrica cambia.',
-  'MISURE= VERIFICA SULLA PAGINA SERVITA (Edge headless, CDP). Selettore: 3 opzioni nel DOM, 3 visibili, la terza selezionabile. Cambio sorgente -> centraline: 444 punti disegnati a zoom 6 in 653 ms di caricamento (index.json HTTP 200), 586 punti al massimo fra zoom 6 e 10, tetto 600. Pannello LIVE: "ultimo aggiornamento: 31 min fa" e "3.954/4.205 centraline attive" con il badge "dato fermo" spento (file di 17 min); con un file invecchiato di 3,3 h il badge si accende ("DATO FERMO: file di 3.3 h, oltre la soglia di 2 h"). Attribuzione "Dati centraline: reti regionali e MeteoNetwork via MeteoHub/ItaliaMeteo — CC BY 4.0" presente nel DOM. Console: 0 eccezioni JS e 0 risposte HTTP >= 400 nella prova pulita; con i DUE URL forzati a 404 (Fetch domain) compare il messaggio "Dati centraline non disponibili (index.json: HTTP 404 · latest.json: HTTP 404)" e le eccezioni restano 0.',
+        { version: '1.2.4.51', date: '2026-10-27', changes: [
+  'CENTRALINE= TERZA SORGENTE DEL SELETTORE DEL PANNELLO LIVE: `#mnw-source-select` passa da 2 a 3 voci e la nuova e\' "Centraline (osservato, ~30 min)". Scegliendola la mappa mostra le osservazioni di stazione di `data/stations/` (MeteoHub / Agenzia ItaliaMeteo, CC BY 4.0) al posto dei dati METAR/modello, e il pannello LIVE mostra stato, legenda e attribuzione. LETTURA: prima `index.json` su Pages (schema compatto "stations-index/1"), poi `latest.json` su raw.githubusercontent come FALLBACK; se rispondono 404 ENTRAMBI compare un messaggio nel pannello e NESSUNA eccezione. FILE MISURATI il 27/10/2026: index.json 542.989 byte su 4.205 stazioni, latest.json 1.063.821 byte; 1.787 stazioni attive entro 90 minuti (3.580 alle 08:31 sullo stesso file). FILTRO: `obs_time` piu\' vecchio di 90 minuti viene scartato (costante STATIONS_MAX_OBS_AGE_MIN). DISEGNO: UN canvas (pane dedicato z 560, pointer-events none) e non 4.205 `L.marker` DOM, perche\' a zoom basso migliaia di nodi sono ingestibili. DECIMAZIONE DICHIARATA: si tengono le stazioni attive dentro il viewport, si sovrappone una griglia di 16 px nello spazio dello schermo e si tiene UNA stazione per cella (quella con osservazione piu\' recente, pareggio per id); se le celle occupate superano 600 il lato cresce 12->16->24->32->48->64 px. MISURATO: 471 punti disegnati a zoom 6, 486 punti al massimo (zoom 8), tetto 600 mai superato. COLORE: scala CONTINUA per la temperatura (11 stop da -10 a +40 °C, interpolazione lineare RGB), legenda con la stessa rampa nel pannello; una stazione senza temperatura e\' grigia e non riceve un valore finto. POPUP/HOVER: nome, rete con il nome dell\'ENTE (campo `attribution` del file), eta\' dell\'osservazione ("31 min fa"), temperatura, umidita\', vento (m/s e km/h) e pioggia NORMALIZZATA sul periodo con `precipitation_period_s` ("2,0 mm in 15 min (8,0 mm/h)", non "2 mm in 15 s"). I campi mancanti sono OMESSI: nessun "0" e nessun "n/d" inventato.',
+  'UI= IL SELETTORE DI MODALITA\' E\' STATO ELIMINATO E TORNA LO SWITCH "SVILUPPO" DEL FOOTER COME NELLA 1.2.4.47. Rimossi per intero, non nascosti: il markup `#ui-mode-switch` con i due pulsanti Pro/Sviluppo, il CSS `#ui-mode-switch`/`.uim-btn` con `body:not([data-ui-mode="sviluppo"]) .dev-only`, la regola `#app-footer .dev-switch { display:none !important; }` che nascondeva lo switch storico, le funzioni `readUiMode`/`applyUiMode`/`setUiMode`, le variabili `uiMode`/`UI_MODES`/`UI_MODE_KEY`/`UI_MODE_LEGACY_KEY`, lo script di pre-paint che scriveva `data-ui-mode` sul <body> e la chiamata di boot. `isSviluppoActive` e\' pilotato SOLO da `toggleSviluppo()`, come nella 1.2.4.47. Le chiavi `meteorisk.uiMode.v2` e `meteorisk.uiMode` vengono RIMOSSE alla prima apertura (nessuno stato fantasma nel browser). Le classi `.dev-only` non esistono piu\': la visibilita\' di Conv./Grandine/Nebbia e della Struttura convettiva (SOI) la decide `toggleSviluppo()` con `style.display`, e uscendo da sviluppo si chiudono davvero (timer e layer), non solo con display:none. MISURATO in stato normale: 19 pulsanti visibili (la 1.2.4.47 ne aveva 20: l\'unica differenza e\' il tab Nebbia, che per il punto 9 del brief ora e\' sperimentale), 3 <select>, 0 elementi con id `ui-mode-switch`, 0 `data-ui-mode` nel DOM, `typeof setUiMode === "undefined"`; switch Sviluppo nel footer visibile e cliccabile (`elementFromPoint` = lo switch). Con lo switch ON: 10 tab metriche e compaiono Conv./Grandine/Nebbia e il toggle SOI (visibile); con lo switch OFF si torna a 7 tab e il toggle SOI passa a display:none.',
+  'MISURE= VERIFICA SULLA PAGINA SERVITA (Edge headless, CDP). NEBBIA, gate sul badge: verificato sullo STESSO `computeActiveRisks` con un aggregato di prova (`fog.score = 80`, identico nei tre casi) perche\' sul dato reale del momento nessuna provincia supera la soglia 70: 0 rischi con lo switch SPENTO, 1 con lo switch ACCESO (livello 1, "Nebbia tra le 05:00 e le 09:00 — indice 80/100"), 0 di nuovo spegnendolo. Con lo switch ON compaiono anche i tab Conv. e Grandine (10 tab metriche totali). CONFRONTO CON LA 1.2.4.47 (sha256 4055d19c3c454198, 2.215.026 byte): 20 pulsanti visibili contro 19, differenza di insieme = solo il tab Nebbia (0 altri nomi mancanti, 0 aggiunti). Selettore del LIVE: 3 opzioni nel DOM, 3 visibili, la terza selezionabile. Cambio sorgente -> centraline: 471 punti disegnati a zoom 6 in 908 ms di caricamento (index.json HTTP 200), 486 punti al massimo fra zoom 6 e 10, tetto 600. Pannello LIVE: "ultimo aggiornamento: 66 min fa" e "1787/4205 centraline attive" con il badge "dato fermo" spento (il filtro a 90 minuti si vede: lo stesso file alle 08:31 dava 3580 attive, alle 09:36 ne da 1787, perche\' le osservazioni invecchiano); con un file invecchiato di 3,3 h il badge si accende ("DATO FERMO: file di 3.3 h, oltre la soglia di 2 h"). Attribuzione "Dati centraline: reti regionali e MeteoNetwork via MeteoHub/ItaliaMeteo — CC BY 4.0" presente nel DOM. Console: 0 eccezioni JS e 0 risposte HTTP >= 400 nella prova pulita; con i DUE URL forzati a 404 (Fetch domain) compare il messaggio "Dati centraline non disponibili (index.json: HTTP 404 · latest.json: HTTP 404)" e le eccezioni restano 0.',
         ] },
         { version: '1.2.4.50', date: '2026-10-27', changes: [
   'UI= LA MODALITA\' "SEMPLICE" E\' STATA ELIMINATA, NON NASCOSTA: restano DUE MODALITA\', `pro` (default) e `sviluppo`. Tolta la legenda tecnica, le metriche, la toolbar e il pannello dettagli, "Semplice" lasciava 6 pulsanti e 0 <select>: una pagina in cui non c\'era nulla da usare. RIMOSSI PER INTERO: il pulsante "Semplice" dal selettore (restano Pro e Sviluppo), la legenda `#easy-legend` con il suo markup, le 5 regole CSS che citavano `easy` (4 `body[data-ui-mode="easy"]` piu\' `body:not([data-ui-mode="easy"]) #easy-legend`) con il loro commento, la classe `.easy-hide` da 25 punti del markup, `easyRiskSentence` con il dizionario `EASY_RISK_WORDS` e `easyPeriodWord`, il ramo `if (uiMode === \'easy\')` in `buildRiskTooltip` e il gate `uiMode !== \'easy\'` nel raggruppamento dei badge. MISURATO sulla pagina servita: 2 pulsanti nel selettore, 22 pulsanti visibili con profilo nuovo (i 20 di prima piu\' i 2 del selettore), 3 <select>, 0 occorrenze di "Semplice" nel testo visibile e nell\'HTML senza gli script, 0 eccezioni JS.',
@@ -4385,20 +4364,6 @@ function enabledLightningSourceIds() {
     // Codici WMO che indicano neve
     function isSnowCode(code) { return (code >= 71 && code <= 77) || (code >= 85 && code <= 86); }
 
-    // 1.2.4.51 - NEBBIA SOLO IN SVILUPPO. La sorgente di verita' e' l'attributo
-    // `data-ui-mode` sul <body>, lo stesso che usa il CSS per .dev-only: cosi' il tab
-    // (nascosto dal CSS) e il badge (deciso qui) non possono divergere. Se l'attributo
-    // non c'e' (script di pre-paint non eseguito) si ricade su isSviluppoActive, che
-    // e' il gate storico di TUTTE le funzioni sperimentali.
-    function isDevOnlyVisible() {
-        try {
-            var m = (document.body && document.body.getAttribute) ? document.body.getAttribute('data-ui-mode') : null;
-            if (m === 'sviluppo') return true;
-            if (m === 'pro') return false;
-        } catch (e) { }
-        return !!isSviluppoActive;
-    }
-
     function computeActiveRisks(idx) {
         var agg = getAggregateForZone(idx);
         if (!agg) return [];
@@ -4487,9 +4452,10 @@ function enabledLightningSourceIds() {
         // aveva il badge, a 70 il 15,2% con gli stessi eventi osservati, e sopra 90 la
         // nebbia osservata e' il 2%. Il badge si accende quindi solo nel decile alto (70+)
         // e i livelli sono 70 (Lieve) / 85 (Moderato) / 95 (Forte), gli stessi della metrica.
-        // 1.2.4.51 - badge nebbia EMESSO SOLO IN SVILUPPO. Soglie (70/85/95),
-        // FOG_BADGE_MIN, livelli e case 'fog' restano identici: cambia solo chi li vede.
-        if (isDevOnlyVisible() && agg.fog && agg.fog.score >= FOG_BADGE_MIN) {
+        // 1.2.4.51 - badge nebbia EMESSO SOLO CON LO SWITCH "Sviluppo" ACCESO.
+        // Soglie (70/85/95), FOG_BADGE_MIN, livelli e case 'fog' restano identici:
+        // cambia solo chi li vede (isSviluppoActive, lo stesso gate di Conv./Grandine).
+        if (isSviluppoActive && agg.fog && agg.fog.score >= FOG_BADGE_MIN) {
             risks.push({ id: 'fog', level: agg.fog.score >= 95 ? 3 : agg.fog.score >= 85 ? 2 : 1,
                          hour: agg.fog.hour, from: agg.fog.from, to: agg.fog.to,
                          dayScore: agg.fog.dayScore, dayHour: agg.fog.dayHour,
@@ -16248,10 +16214,25 @@ function toggleForecastMaps() {
         var ht = document.getElementById('metric-tab-hail');
         if (ht) ht.style.display = isSviluppoActive ? '' : 'none';
         if (!isSviluppoActive && currentMetric === 'hail') { selectMetric('risk'); }
-        // 1.2.4.51 - la metrica Nebbia e' solo in sviluppo (classe .dev-only sul tab):
-        // uscendo da sviluppo con la nebbia attiva la mappa resterebbe colorata di
-        // nebbia con il tab nascosto, quindi si torna al rischio.
+        // 1.2.4.51 - Nebbia e Struttura convettiva (SOI) seguono lo switch "Sviluppo"
+        // come Conv. e Grandine: la visibilita' la decide QUI, non il CSS.
+        var ft = document.getElementById('metric-tab-fog');
+        if (ft) ft.style.display = isSviluppoActive ? '' : 'none';
         if (!isSviluppoActive && currentMetric === 'fog') { selectMetric('risk'); }
+        var lts = document.getElementById('live-toggle-supercells');
+        if (lts) lts.style.display = isSviluppoActive ? '' : 'none';
+        var scrp = document.getElementById('sc-radar-panel');
+        if (scrp) {
+            if (!isSviluppoActive) {
+                // Chiudere DAVVERO (timer + layer), non solo con display:none.
+                try { if (liveShowSupercells) toggleLiveSupercells(); } catch (e) { }
+                try { if (isScRadarActive) toggleScRadar(); } catch (e) { }
+                try { scrp.classList.remove('active'); } catch (e) { }
+                scrp.style.display = 'none';
+            } else {
+                scrp.style.display = '';
+            }
+        }
         var hlSel = document.getElementById('hail-level-select');
         if (hlSel) {
             hlSel.style.display = isSviluppoActive ? '' : 'none';
@@ -16292,48 +16273,6 @@ function toggleForecastMaps() {
     }
 
 
-    // --- 1.2.4.50 - DUE MODALITA' DI VISUALIZZAZIONE: pro / sviluppo ---
-    // UN SOLO stato (uiMode), persistito in localStorage. La visibilita' la decide
-    // il CSS con body[data-ui-mode]: qui non si riscrive nessuna funzione esistente.
-    // `isSviluppoActive` resta la variabile che i gate gia' in produzione leggono
-    // (righe 17278, 19409, 22520): viene DERIVATA da uiMode, non da uno switch a parte.
-    var UI_MODE_KEY = 'meteorisk.uiMode.v2';
-    var UI_MODE_LEGACY_KEY = 'meteorisk.uiMode';
-    var UI_MODES = ['pro', 'sviluppo'];
-    var uiMode = 'pro';
-    function readUiMode() {
-        try {
-            var v = window.localStorage.getItem(UI_MODE_KEY);
-            if (v === 'pro' || v === 'sviluppo') return v;
-            // Migrazione 1.2.4.50: la terza modalita' non esiste piu'. Chi l'aveva
-            // scelta (la 1.2.4.48 ce la metteva da sola alla prima visita) parte in
-            // `pro` e la chiave viene RISCRITTA, cosi' il valore vecchio non resta
-            // nel browser. La chiave ancora piu' vecchia della 1.2.4.48 si rimuove.
-            if (v !== null) window.localStorage.setItem(UI_MODE_KEY, 'pro');
-            window.localStorage.removeItem(UI_MODE_LEGACY_KEY);
-        } catch (e) { /* localStorage negato o pieno: si resta sul default pro */ }
-        return 'pro';
-    }
-    function applyUiMode(mode, persist) {
-        if (UI_MODES.indexOf(mode) === -1) mode = 'pro';
-        uiMode = mode;
-        try { document.body.setAttribute('data-ui-mode', mode); } catch (e) { }
-        // MAPPATURA esplicita: sviluppo <=> isSviluppoActive. toggleSviluppo() fa il
-        // resto (mostra/nasconde Meteociel, Nuovi Indici, Fonte API, tab Conv./Grandine)
-        // e resetta le metriche non piu' disponibili quando si esce da sviluppo.
-        var wantDev = (mode === 'sviluppo');
-        if (wantDev !== !!isSviluppoActive) toggleSviluppo(wantDev);
-        var btns = document.querySelectorAll('#ui-mode-switch .uim-btn');
-        for (var i = 0; i < btns.length; i++) {
-            var on = btns[i].getAttribute('data-ui-mode-btn') === mode;
-            btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
-        }
-        if (persist) { try { window.localStorage.setItem(UI_MODE_KEY, mode); } catch (e) { } }
-        // I testi dipendenti dalla modalita' si rigenerano (tooltip provincia, badge).
-        try { if (typeof updateRiskBadges === 'function') updateRiskBadges(); } catch (e) { }
-        try { if (typeof refreshRiskSummary === 'function') refreshRiskSummary(); } catch (e) { }
-    }
-    function setUiMode(mode) { applyUiMode(mode, true); }
 
 
     // --- Toggle Nuovi Indici: WMAXSHEAR+SHIP vs vecchia logica ---
@@ -25002,10 +24941,6 @@ initMap();
         document.body.appendChild(footer);
     })();
 
-    // 1.2.4.46 - la modalita' salvata (1.2.4.49: default pro) si applica a DOM completo:
-    // allinea i gate JS (isSviluppoActive) e i pulsanti. persist=false al primo avvio:
-    // chi non ha mai scelto resta sul default senza scrivere nulla.
-    applyUiMode(readUiMode(), false);
 
     // Easter egg: rompi l'uovo per rivelare il toggle La Caletta nella toolbar
     function crackEgg() {
