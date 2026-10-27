@@ -15,13 +15,15 @@ Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 - Contenuto della 1.2.4.50 (release sopra la 1.2.4.49) - **la modalita' "Semplice" e' stata
   eliminata, non nascosta: restano DUE modalita', `pro` (default) e `sviluppo`**. Solo client.
   - **Rimosso per intero**: il pulsante "Semplice" dal selettore, la legenda `#easy-legend` con il
-    suo markup, le **6** regole CSS `body[data-ui-mode="easy"]` piu' `body:not([data-ui-mode="easy"])
-    #easy-legend`, la classe `.easy-hide` da **25** punti del markup, `easyRiskSentence` con il
+    suo markup, le **5** regole CSS che citavano `easy` (4 `body[data-ui-mode="easy"]` piu'
+    `body:not([data-ui-mode="easy"]) #easy-legend`) e il loro commento, la classe `.easy-hide` da
+    **25** punti del markup, `easyRiskSentence` con il
     dizionario `EASY_RISK_WORDS` e `easyPeriodWord`, il ramo `if (uiMode === 'easy')` in
     `buildRiskTooltip` e il gate `uiMode !== 'easy'` nel raggruppamento dei badge.
   - **Selettore a 2 pulsanti**: con profilo nuovo **22 pulsanti** visibili (i **20** della
-    1.2.4.47 piu' i **2** del selettore), **3 `<select>`** e almeno **13** acronimi; nel DOM servito
-    la parola "Semplice" non compare piu' (**0** occorrenze) e le eccezioni JS sono **0**.
+    1.2.4.47 piu' i **2** del selettore), **3 `<select>`** e almeno **13** acronimi; nel testo visibile e
+    nell'HTML senza gli script la parola "Semplice" non compare piu' (**0** occorrenze) e le
+    eccezioni JS sono **0**.
   - **Migrazione**: chi ha `easy` salvato in `meteorisk.uiMode.v2` parte in **`pro`** e la chiave
     viene **riscritta** a `pro`; `sviluppo` resta `sviluppo`; la vecchia `meteorisk.uiMode`
     continua a essere rimossa alla prima lettura.
