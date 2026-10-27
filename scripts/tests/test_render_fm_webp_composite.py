@@ -135,7 +135,11 @@ def test_the_composite_has_no_second_set_of_contours():
 
 
 def test_the_isobars_are_white_over_a_dark_casing():
-    """Bianco pieno sopra, contorno scuro sotto.
+    """Bianco pieno sopra, contorno scuro sotto: questo e' lo stile STRIP.
+
+    Il DISCO polare non usa piu' questa coppia (nero su casing bianco, vedi
+    ``test_render_fm_webp_disc_style.py``): questo test resta il contratto delle
+    regioni ``italia``/``europa``/``domain``, che devono restare byte-identiche.
 
     MISURATO: le bande della palette Z500 con luminanza > 210 coprono il 38,2%
     di ``europa`` (la banda 255,255,134 ha luminanza 246 contro 255 del bianco):
@@ -187,7 +191,6 @@ def test_the_composite_borrows_the_palette_of_its_raster():
 @pytest.mark.parametrize("region,w,h", [
     ("europa", 1121, 701),
     ("italia", 385, 337),
-    ("north", 1000, 1000),
 ])
 def test_the_composite_font_is_at_least_14px(region, w, h):
     """Il composito e' UNA carta: il doppio strato storico non c'e' piu'.
@@ -201,28 +204,41 @@ def test_the_composite_font_is_at_least_14px(region, w, h):
     assert mod._font_digit_height(font_px) >= 8, (region, font_px)
 
 
+def test_the_composite_font_on_the_disc_is_the_1_4_percent_model():
+    """``north`` e' il DISCO: il font lo sceglie ``composite_disc_font_px``.
+
+    MISURATO il 2026-10-27: 20 px di font, 14 px d'inchiostro su 1000 px =
+    1,40% del diametro (il riferimento Meteociel sta a 1,42-1,55%).
+    """
+    font_px = mod.composite_disc_font_px(1000)
+    assert font_px == 20, font_px
+    assert mod._font_digit_height(font_px) == 14
+    assert 0.0139 <= mod._font_digit_height(font_px) / 1000.0 <= 0.0160
+
+
 def test_the_label_ink_is_at_least_7px_on_the_real_panel():
     """7 px a schermo, con i fattori MISURATI del pannello.
 
     ``europa``: 754 px CSS su 1121 px di immagine -> 0,673, il disco ``north``:
     538 su 1000 -> 0,538. Inchiostro ``_font_digit_height``: 12 px -> 9,
-    16 px -> 11, 18 px -> 13.
+    16 px -> 11, 20 px -> 14, 29 px -> 20.
 
       * europa con i 16 px del composito: 11 * 0,673 = 7,40 px;
-      * north con i 18 px che ``label_font_px`` sceglie da solo: 13 * 0,538 =
-        6,994 px, cioe' 7,0 arrotondato — margine NULLO, dichiarato (con 16 px
-        sarebbero 5,9 px, sotto la soglia: da qui il massimo fra i due);
+      * disco, composito (1.2.4.49): 20 px di font -> 14 px d'inchiostro ->
+        7,53 px a 538 e 8,60 px a 614 (il diametro su cui il prodotto misura);
+      * disco, altre variabili: 29 px -> 20 px -> 10,76 px;
       * con i 12 px storici europa darebbe 9 * 0,673 = 6,06 px, sotto la soglia.
     """
     ink_16 = mod._font_digit_height(mod.COMPOSITE_LABEL_FONT_PX)
     assert ink_16 >= 11, ink_16
     assert ink_16 * (754.0 / 1121.0) >= 7.0
-    ink_north = mod._font_digit_height(
-        max(int(mod.label_font_px(1000, 1000, 0, region="north")),
-            mod.COMPOSITE_LABEL_FONT_PX))
-    assert ink_north >= 11, ink_north
-    assert ink_north * (538.0 / 1000.0) >= 6.99
-    assert mod._font_digit_height(16) * (538.0 / 1000.0) < 7.0
+    ink_disc = mod._font_digit_height(mod.composite_disc_font_px(1000))
+    assert ink_disc >= 14, ink_disc
+    assert ink_disc * (538.0 / 1000.0) >= 7.0
+    assert ink_disc * (614.0 / 1000.0) >= 8.0
+    ink_other = mod._font_digit_height(
+        int(mod.label_font_px(1000, 1000, 0, region="north", disc=True)))
+    assert ink_other >= 20, ink_other
     # e i 12 px storici, per contrasto, NON ci arrivano piu'
     assert mod._font_digit_height(12) * (754.0 / 1121.0) < 7.0
 

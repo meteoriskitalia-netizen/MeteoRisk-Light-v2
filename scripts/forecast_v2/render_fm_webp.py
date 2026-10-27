@@ -128,6 +128,21 @@ lands on 29 px of font (20 px of ink, 10,76 px on screen). Only the disc takes
 this branch: ``--north-projection strip`` and every other region keep the
 historical sizes, and their output stays byte-identical.
 
+Style of the COMPOSITE on the disc (1.2.4.49). The composite
+(``__pressure_geopot``) on the polar disc is the one chart the user compared
+with Meteociel: there the labels were 20 px of ink = 2,0% of the diameter (the
+reference is 1,42-1,55%), the isobars were WHITE on a palette that goes from
+black to (255,255,134), and the labels inverted to white ink over the dark
+bands -- i.e. two light families (isobars and coastlines) plus white numbers.
+``COMPOSITE_DISC_STYLE`` therefore applies, ONLY to ``polar=True``: black
+isobars (17,17,17) 1,2 px over a white casing 2,5 px at alpha 150, a NON
+adaptive black label (17,17,17) with a 2,5 px white halo drawn as a real stroke,
+a gap erased under each label so the value is never crossed by the lines, and
+``composite_disc_font_px`` = 20 px (14 px of ink = 1,40% of a 1000 px disc, 8,6
+px of ink at the 614 px diameter the product measures on screen). The strip
+composite (``italia``/``europa``/``domain``) keeps the historical white isobars
+and the adaptive ink, so those files stay byte-identical.
+
 Incremental render
 ------------------
 ``--existing-list <file>`` skips the (frame, variable) units that are ALREADY
@@ -1190,6 +1205,99 @@ COMPOSITE_LABEL_HALO_ON_DARK = (12, 18, 32, 220)
 # Unita' delle isolinee del composito, scritta nel manifest della variabile.
 COMPOSITE_ISOBAR_UNIT = "hPa"
 
+# --------------------------------------------------------------------------- #
+# STILE DEL COMPOSITO SUL DISCO POLARE (1.2.4.49) - nero su bianco
+#
+# Il disco emisferico era l'unica carta in cui etichette e isobare erano ENTRAMBE
+# chiare: l'isobara bianca e il suo casing scuro, l'etichetta chiara con alone
+# scuro sulle bande scure (inchiostro adattivo). Il risultato, a confronto con la
+# carta emisferica di riferimento (Meteociel, disco ~772 px), era una carta in
+# cui i numeri "si fondono" con il colore e le isobare con le coste.
+#
+# MISURE che hanno deciso i valori (frame reale dwd_icon 2026-10-27T12Z, disco
+# 1000 px, composito __pressure_geopot, 49 etichette):
+#   * etichette: 29 px di font = 20 px d'inchiostro = 2,0% del diametro; il
+#     riferimento sta a 11-12 px su 772 px = 1,42-1,55%. Qui il target e' 1,40%
+#     del diametro (-> 20 px di font = 14 px d'inchiostro su 1000 px), che a
+#     614 px di diametro misurati a schermo da' 8,6 px d'inchiostro: sopra la
+#     soglia di 8 px chiesta dal prodotto (sotto, si resta a 20 px). Il font del
+#     disco per le ALTRE variabili (label_font_px(disc=True) = 29 px) non cambia,
+#     e DISC_MIN_SCREEN_DIGIT_PX resta il minimo di quelle.
+#   * inchiostro nero (17,17,17) e alone BIANCO di 2,5 px, sempre uguali: niente
+#     inversione adattiva. L'alone e' un vero stroke di Pillow, non 8 copie
+#     offsettate: a 2,5 px gli 8 offset lasciano buchi sui vertici.
+#   * isobare NERE (17,17,17) 1,2 px su casing BIANCO 2,5 px alpha 150/255.
+#     MISURATO sulle 31 bande della scala Z500: nessun inchiostro singolo puo'
+#     stare sopra 4,5:1 su tutte (la scala va da (0,0,0) a (255,255,134)), quindi
+#     il contrasto lo garantisce il casing: con alpha 150 il minimo locale
+#     (max fra contrasto linea/fondo e linea/casing) e' 6,38:1 contro 5,02:1
+#     della coppia precedente (bianco + casing scuro 150). Con alpha 0,5 il
+#     minimo sarebbe 4,75 (sotto il 5,02 di partenza); a 0,588 e' 6,38.
+#   * il tratteggio neve, le scale di colore, la proiezione e la geometria del
+#     disco NON cambiano; italia/europa/domain e il composito in forma strip
+#     restano byte-identici (lo stile nuovo e' scelto da `composite_style` solo
+#     per `polar=True`).
+# --------------------------------------------------------------------------- #
+COMPOSITE_ISOBAR_INK = (17, 17, 17, 255)          # nero quasi pieno (isobare)
+COMPOSITE_ISOBAR_CASING = (255, 255, 255, 150)    # bianco alpha 0,588 (misurato)
+COMPOSITE_ISOBAR_CASING_PX = 2.5                  # larghezza TOTALE del casing
+COMPOSITE_LABEL_INK = (17, 17, 17, 255)           # stesso nero delle isobare
+COMPOSITE_LABEL_HALO = (255, 255, 255, 255)       # alone bianco pieno
+COMPOSITE_LABEL_HALO_PX = 2.5                     # spessore dell'alone (px output)
+COMPOSITE_DISC_INK_RATIO = 0.0140                 # inchiostro / diametro (Meteociel 1,42%)
+COMPOSITE_DISC_SCREEN_REF_PX = 614.0              # diametro a schermo di riferimento
+COMPOSITE_DISC_MIN_SCREEN_PX = 8.0                # minimo d'inchiostro a 614 px
+# Stile applicato SOLO al composito del disco polare: le altre regioni
+# (composito in forma strip compreso) usano ancora ``COMPOSITE_VARS``.
+COMPOSITE_DISC_STYLE = {
+    "isobar_color": COMPOSITE_ISOBAR_INK,
+    "isobar_casing": COMPOSITE_ISOBAR_CASING,
+    "isobar_casing_px": COMPOSITE_ISOBAR_CASING_PX,
+    "label_ink": COMPOSITE_LABEL_INK,
+    "label_halo": COMPOSITE_LABEL_HALO,
+    "label_halo_px": COMPOSITE_LABEL_HALO_PX,
+    "adaptive_labels": False,
+    "smooth_joins": True,
+    "label_pad_px": 2.0,
+    "label_gap_px": 4.0,
+}
+
+
+def composite_style(polar: bool):
+    """Stile del composito: disco polare -> ``COMPOSITE_DISC_STYLE``, else None.
+
+    ``None`` means "keep the historical behaviour", i.e. the composite keeps the
+    white isobars with the dark casing, the adaptive label ink, the per-segment
+    joins and the strip font: that is what makes ``italia``/``europa``/``domain``
+    byte-identical.
+    """
+    return dict(COMPOSITE_DISC_STYLE) if polar else None
+
+
+def composite_disc_font_px(side: int, forced: int = 0) -> int:
+    """Font (px output) del composito sul disco: inchiostro = 1,4% del diametro.
+
+    Il minimo e' ``max(COMPOSITE_DISC_INK_RATIO * side, COMPOSITE_DISC_MIN_SCREEN_PX
+    * side / COMPOSITE_DISC_SCREEN_REF_PX)`` px d'inchiostro: a 1000 px sono 14
+    px (1,40% del diametro, 8,6 px a 614), cioe' 20 px di font misurati con
+    ``_font_digit_height`` (14 px). Un ``forced`` positivo (``--label-font-px``)
+    vince, come nel resto del renderer.
+    """
+    try:
+        forced = int(forced or 0)
+    except (TypeError, ValueError):
+        forced = 0
+    if forced > 0:
+        return forced
+    side = max(1, int(side))
+    need = max(float(COMPOSITE_DISC_INK_RATIO) * side,
+               float(COMPOSITE_DISC_MIN_SCREEN_PX) * side
+               / float(COMPOSITE_DISC_SCREEN_REF_PX))
+    for px in range(1, LABEL_FONT_MAX_PX + 1):
+        if float(_font_digit_height(px)) >= need - 1e-9:
+            return px
+    return LABEL_FONT_MAX_PX
+
 # Tabella dei 16 casi di marching squares: coppie di LATI da collegare.
 # Lati: 0 = ovest (fra z00 e z10), 1 = nord (fra z10 e z11), 2 = est (fra z01 e
 # z11), 3 = sud (fra z00 e z01). Bit degli angoli: b00 (SO) = 1, b10 (NO) = 2,
@@ -1549,15 +1657,27 @@ def label_font_px(out_w: int, out_h: int, forced: int = 0, region: str | None = 
     return LABEL_FONT_MAX_PX
 
 
-def _draw_label(draw, x, y, text, font, halo_r=1, ink=None, halo=None):
+def _draw_label(draw, x, y, text, font, halo_r=1, ink=None, halo=None,
+                halo_stroke=None):
     """Text with a halo and ink on top (orizzontale: no rotation).
 
     ``ink``/``halo`` override the defaults (dark ink, white halo). The composite
     uses them to INVERT the pair over the dark bands of the Z500 palette, where
     dark ink on dark blue is barely legible even with the white halo.
+
+    ``halo_stroke`` (px of the SUPERSAMPLED layer) switches the halo to a real
+    Pillow stroke around the glyph instead of the historical 8 offset copies.
+    At 2-3 px the 8 offsets leave holes at the glyph corners (the diagonals are
+    sampled at distance 1 only), which is why the disc composite asks for the
+    stroke; every caller that does not pass it stays byte-identical.
     """
     ink = INK_COLOR if ink is None else ink
     halo = HALO_COLOR if halo is None else halo
+    if halo_stroke is not None and float(halo_stroke) > 0.0:
+        draw.text((x, y), text, font=font, fill=ink,
+                  stroke_width=max(1, int(round(float(halo_stroke)))),
+                  stroke_fill=halo)
+        return
     for dx in (-halo_r, 0, halo_r):
         for dy in (-halo_r, 0, halo_r):
             if dx == 0 and dy == 0:
@@ -1698,7 +1818,9 @@ def _boxes_hit(boxes, x0, y0, x1, y1):
 def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=None,
                    force_labels=False, font_px=None, clip_circle=None,
                    color=None, strict_labels=False, casing_color=None,
-                   bg_rgba=None):
+                   bg_rgba=None, casing_px=None, label_ink=None, label_halo=None,
+                   label_halo_px=None, smooth_joins=False, label_pad_px=None,
+                   label_gap_px=None):
     """Draw the isolines of ``sub`` (and their VALUE labels) on ``draw``.
 
     ``draw`` is an ImageDraw on the SUPERSAMPLED overlay: every coordinate is
@@ -1728,6 +1850,20 @@ def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=No
     background, so the value stays readable on both ends of the palette instead
     of only on the bright bands. All of them default to the historical
     behaviour, so every variable that does not ask for them is byte-identical.
+
+    ``casing_px`` is the TOTAL casing width in OUTPUT px (``None`` = historical
+    ``width + 2*ss``), ``smooth_joins`` draws every chained polyline in ONE call
+    with ``joint="curve"`` instead of one call per marching-squares segment (the
+    only difference is that the joints are filled), and ``label_ink``/
+    ``label_halo``/``label_halo_px`` force a NON-adaptive label (same ink on
+    every band, halo of ``label_halo_px`` output px drawn as a real stroke):
+    when ``label_ink`` is given, ``bg_rgba`` is ignored for the ink choice.
+    ``label_pad_px`` (= ``None`` = historical) defers EVERY label to the end of
+    the level loop, erases a rounded hole of that many px around the ink box and
+    only then draws the text: the isobar has a GAP under the value instead of
+    running through the digits (the Meteociel convention). Without it a label
+    placed inside a tight low is crossed by 3-5 black isobars and cannot be read
+    (measured on the disc, dwd_icon 2026-10-27T12Z, south-Atlantic 970 hPa).
     """
     empty = {"levels": [], "labels": []}
     if sub is None:
@@ -1762,6 +1898,7 @@ def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=No
             bg_lum = None
     drawn_levels = []
     drawn_labels = []
+    pending = []
     for level in levels:
         segs = contour_segments(z, level)
         if len(segs) < 2:
@@ -1777,14 +1914,32 @@ def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=No
         if not lines:
             continue
         band_color = _level_color(variant, level) if color is None else color
+        polys = None
+        if smooth_joins:
+            polys = [[(x * ss, y * ss) for (x, y) in line] for line in lines]
         if casing_color is not None:
-            cwidth = width + max(2, int(round(2.0 * ss)))
+            if casing_px is not None and float(casing_px) > 0.0:
+                cwidth = max(width + 1, int(round(float(casing_px) * ss)))
+            else:
+                cwidth = width + max(2, int(round(2.0 * ss)))
+            if polys is not None:
+                for poly in polys:
+                    if len(poly) >= 2:
+                        draw.line(poly, fill=casing_color, width=cwidth,
+                                  joint="curve")
+            else:
+                for (x0, y0, x1, y1) in seg_px:
+                    draw.line([(x0 * ss, y0 * ss), (x1 * ss, y1 * ss)],
+                              fill=casing_color, width=cwidth)
+        if polys is not None:
+            for poly in polys:
+                if len(poly) >= 2:
+                    draw.line(poly, fill=band_color, width=width,
+                              joint="curve")
+        else:
             for (x0, y0, x1, y1) in seg_px:
                 draw.line([(x0 * ss, y0 * ss), (x1 * ss, y1 * ss)],
-                          fill=casing_color, width=cwidth)
-        for (x0, y0, x1, y1) in seg_px:
-            draw.line([(x0 * ss, y0 * ss), (x1 * ss, y1 * ss)],
-                      fill=band_color, width=width)
+                          fill=band_color, width=width)
         drawn_levels.append(level)
         total = 0.0
         for line in lines:
@@ -1817,15 +1972,21 @@ def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=No
             # messa. Il valore mancante e' visibile sulla linea, un numero
             # stampato sopra un altro numero non e' leggibile.
             bb_s = _label_bbox_px(font, text, ss)
+            # `label_gap_px` (0 = storico) impone una DISTANZA minima fra i
+            # riquadri, non solo l'assenza di sovrapposizione: con il font
+            # piccolo due "1015" su anelli paralleli finivano a 1,3 px (misurato
+            # sul disco, dwd_icon 2026-10-27T12Z) e i due aloni bianchi si
+            # fondevano in una macchia sola.
+            gap = max(0.0, float(label_gap_px or 0.0)) * 0.5
             free = []
             for c in chosen:
                 if enforce_bounds and not _label_fits(c[0], c[1], bb_s, W, H,
                                                      clip_circle):
                     continue
-                x0 = c[0] + bb_s[0]
-                y0 = c[1] + bb_s[1]
-                x1 = c[0] + bb_s[2]
-                y1 = c[1] + bb_s[3]
+                x0 = c[0] + bb_s[0] - gap
+                y0 = c[1] + bb_s[1] - gap
+                x1 = c[0] + bb_s[2] + gap
+                y1 = c[1] + bb_s[3] + gap
                 if _boxes_hit(placed_boxes, x0, y0, x1, y1):
                     continue
                 placed_boxes.append((x0, y0, x1, y1))
@@ -1855,7 +2016,16 @@ def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=No
             placed.append(c)
             drawn_labels.append((level, c[0], c[1]))
             ink = halo = None
-            if bg_lum is not None:
+            stroke = None
+            if label_ink is not None:
+                # Inchiostro FISSO (composito del disco): niente inversione
+                # adattiva, l'alone e' uno stroke del font di ``label_halo_px``
+                # px di output. ``bg_rgba`` viene ignorato di proposito.
+                ink = label_ink
+                halo = label_halo
+                if label_halo_px is not None and float(label_halo_px) > 0.0:
+                    stroke = float(label_halo_px) * ss
+            elif bg_lum is not None:
                 bb = _label_bbox_px(font, text, ss)
                 x0 = max(0, int(round(c[0] + bb[0])) - 1)
                 x1 = min(bg_lum.shape[1], int(round(c[0] + bb[2])) + 1)
@@ -1864,8 +2034,31 @@ def _draw_contours(draw, sub, cgrid, scale, variant, interval, ss=1.0, placed=No
                 if x1 > x0 and y1 > y0:
                     if float(bg_lum[y0:y1, x0:x1].mean()) < COMPOSITE_LABEL_DARK_BG_LUM:
                         ink, halo = COMPOSITE_LABEL_INK_ON_DARK, COMPOSITE_LABEL_HALO_ON_DARK
+            if label_pad_px is not None:
+                pending.append((text, c, ink, halo, stroke))
+                continue
             _draw_label(draw, c[0] * ss, c[1] * ss, text, font,
-                        ink=ink, halo=halo)
+                        ink=ink, halo=halo, halo_stroke=stroke)
+    if pending:
+        # Fase 2 (solo disco/composito): buco tondo sotto OGNI etichetta, poi il
+        # testo. Il buco e' fatto con un fill (0,0,0,0): su un layer RGBA
+        # ImageDraw SCRIVE il pixel invece di comporlo, quindi cancella davvero
+        # (verificato: pixel (0,0,0,255) -> (0,0,0,0)). Prima tutti i buchi,
+        # poi tutti i testi: nessuna etichetta puo' finire tagliata da un buco
+        # successivo.
+        pad = float(label_pad_px)
+        rad = max(1, int(round(2.0 * ss)))
+        for text, c, ink, halo, stroke in pending:
+            bb = _label_bbox_px(font, text, ss)
+            x0 = int(math.floor((c[0] + bb[0] - pad) * ss))
+            y0 = int(math.floor((c[1] + bb[1] - pad) * ss))
+            x1 = int(math.ceil((c[0] + bb[2] + pad) * ss))
+            y1 = int(math.ceil((c[1] + bb[3] + pad) * ss))
+            draw.rounded_rectangle([x0, y0, x1, y1], radius=rad,
+                                   fill=(0, 0, 0, 0))
+        for text, c, ink, halo, stroke in pending:
+            _draw_label(draw, c[0] * ss, c[1] * ss, text, font,
+                        ink=ink, halo=halo, halo_stroke=stroke)
     return {"levels": drawn_levels, "labels": drawn_labels}
 
 
@@ -2292,7 +2485,9 @@ def _overlay_drawer(sub, cgrid, scale, variant, interval, placed,
                     font_px=None, clip_circle=None, polar=False,
                     arrow_grid=None, arrow_scale=None,
                     contour_color=None, strict_labels=False,
-                    contour_casing=None, contour_bg=None):
+                    contour_casing=None, contour_bg=None, contour_casing_px=None,
+                    label_ink=None, label_halo=None, label_halo_px=None,
+                    smooth_joins=False, label_pad_px=None, label_gap_px=None):
     """Build the draw callback of the overlay (isolines + wind arrows).
 
     ``sub`` is the data-grid field (for the isolines), ``speed_out``/
@@ -2304,7 +2499,9 @@ def _overlay_drawer(sub, cgrid, scale, variant, interval, placed,
     isoline grid (the disc contours use the SOURCE grid, the arrows use the
     1000x1000 sampled raster). ``contour_color``/``strict_labels``/``
     contour_casing`` are the composite options of ``_draw_contours`` and default
-    to the historical behaviour.
+    to the historical behaviour; ``contour_casing_px``/``label_ink``/
+    ``label_halo``/``label_halo_px``/``smooth_joins`` are the disc-composite
+    overrides (see ``COMPOSITE_DISC_STYLE``).
     """
     def _draw(draw, ss):
         if interval is not None:
@@ -2312,7 +2509,11 @@ def _overlay_drawer(sub, cgrid, scale, variant, interval, placed,
                            ss=ss, placed=placed, force_labels=force_labels,
                            font_px=font_px, clip_circle=clip_circle,
                            color=contour_color, strict_labels=strict_labels,
-                           casing_color=contour_casing, bg_rgba=contour_bg)
+                           casing_color=contour_casing, bg_rgba=contour_bg,
+                           casing_px=contour_casing_px, label_ink=label_ink,
+                           label_halo=label_halo, label_halo_px=label_halo_px,
+                           smooth_joins=smooth_joins, label_pad_px=label_pad_px,
+                           label_gap_px=label_gap_px)
         if speed_out is not None and dir_out is not None:
             _draw_wind_arrows(draw, speed_out, dir_out,
                               arrow_grid if arrow_grid is not None else cgrid,
@@ -2767,6 +2968,7 @@ def _crop_spec(crops: dict) -> dict:
                 "disc_size": int(crop["disc_size"]),
                 "edge_lat": float(crop["edge_lat"]),
                 "max_lat": float(crop["max_lat"]),
+                "font_forced": bool(crop.get("font_forced")),
             })
     return spec
 
@@ -2986,9 +3188,20 @@ def _render_var_task(payload) -> dict:
                     dir_out = crop["resample"](dsub)
             interval_r = (contour_interval_for(var, rname)
                           if comp else interval)
+            # Stile del composito: SOLO il disco polare prende il nero su bianco
+            # (COMPOSITE_DISC_STYLE). ``style`` None = comportamento storico, che
+            # e' quello che tiene byte-identiche le altre regioni.
+            style = composite_style(polar) if comp else None
             font_r = crop.get("font_px")
             if comp:
-                font_r = max(int(font_r or LABEL_FONT_PX), COMPOSITE_LABEL_FONT_PX)
+                if style is not None:
+                    forced = int(crop.get("font_px") or 0) \
+                        if crop.get("font_forced") else 0
+                    font_r = composite_disc_font_px(
+                        int(crop.get("disc_size") or 0), forced)
+                else:
+                    font_r = max(int(font_r or LABEL_FONT_PX),
+                                 COMPOSITE_LABEL_FONT_PX)
             rgba = _apply_overlay(rgba, _overlay_drawer(
                 iso_sub, overlay_grid, overlay_scale,
                 variant, interval_r, [], force_labels=force_labels,
@@ -2997,10 +3210,21 @@ def _render_var_task(payload) -> dict:
                 font_px=font_r, clip_circle=clip_circle,
                 polar=polar, arrow_grid=crop.get("arrow_grid"),
                 arrow_scale=1 if polar else None,
-                contour_color=comp["isobar_color"] if comp else None,
+                contour_color=(style or comp)["isobar_color"] if comp else None,
                 strict_labels=bool(comp and comp.get("strict_labels")),
-                contour_casing=comp.get("isobar_casing") if comp else None,
-                contour_bg=rgba if comp else None),
+                contour_casing=((style or comp).get("isobar_casing")
+                                if comp else None),
+                contour_casing_px=(style or {}).get("isobar_casing_px"),
+                label_ink=(style or {}).get("label_ink"),
+                label_halo=(style or {}).get("label_halo"),
+                label_halo_px=(style or {}).get("label_halo_px"),
+                smooth_joins=bool((style or {}).get("smooth_joins")),
+                label_pad_px=(style or {}).get("label_pad_px"),
+                label_gap_px=(style or {}).get("label_gap_px"),
+                # L'adattivo resta acceso SOLO fuori dal disco: nel disco
+                # l'inchiostro e' fisso e ``bg_rgba`` viene ignorato comunque.
+                contour_bg=(rgba if (comp and (style is None or bool(
+                    style.get("adaptive_labels")))) else None)),
                 ss=POLAR_OVERLAY_SUPERSAMPLE if polar else None)
             if mask is not None:
                 # The overlay (isolines/labels/arrows) is composited on the full
@@ -3164,6 +3388,11 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                 "max_lat": min(90.0, max_lat),
                 "font_px": label_font_px(disc_size, disc_size, forced_font,
                                          region=rname, disc=True),
+                # Un font FORZATO da riga di comando deve vincere anche sul
+                # composito (che altrimenti usa composite_disc_font_px): senza
+                # questo flag i due casi "29 automatico" e "29 forzato" sarebbero
+                # indistinguibili nel crop.
+                "font_forced": bool(forced_font),
             })
             continue
         scale = resolve_upsample(args, cgrid["nx"], cgrid["ny"])
