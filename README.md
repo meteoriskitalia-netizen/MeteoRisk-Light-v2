@@ -6,28 +6,29 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.49
+## Versione attiva: 1.2.4.50
 
-- File applicativo: `mri-light-1.2.4.49.html` (`APP_VERSION = '1.2.4.49'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.49', date: '2026-10-27' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.49'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+- File applicativo: `mri-light-1.2.4.50.html` (`APP_VERSION = '1.2.4.50'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.50', date: '2026-10-27' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.50'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
-- Contenuto della 1.2.4.49 (release sopra la 1.2.4.48) - **la pagina si apre di nuovo in `pro`**;
-  le tre modalita' (`easy` / `pro` / `sviluppo`) restano una **scelta** nel selettore. Solo
-  client: nessuna modifica a `scripts/`, al renderer, al player o ai workflow dei dati oltre
+- Contenuto della 1.2.4.50 (release sopra la 1.2.4.49) - **la modalita' "Semplice" e' stata
+  eliminata, non nascosta: restano DUE modalita', `pro` (default) e `sviluppo`**. Solo client.
+  - **Rimosso per intero**: il pulsante "Semplice" dal selettore, la legenda `#easy-legend` con il
+    suo markup, le **6** regole CSS `body[data-ui-mode="easy"]` piu' `body:not([data-ui-mode="easy"])
+    #easy-legend`, la classe `.easy-hide` da **25** punti del markup, `easyRiskSentence` con il
+    dizionario `EASY_RISK_WORDS` e `easyPeriodWord`, il ramo `if (uiMode === 'easy')` in
+    `buildRiskTooltip` e il gate `uiMode !== 'easy'` nel raggruppamento dei badge.
+  - **Selettore a 2 pulsanti**: con profilo nuovo **22 pulsanti** visibili (i **20** della
+    1.2.4.47 piu' i **2** del selettore), **3 `<select>`** e almeno **13** acronimi; nel DOM servito
+    la parola "Semplice" non compare piu' (**0** occorrenze) e le eccezioni JS sono **0**.
+  - **Migrazione**: chi ha `easy` salvato in `meteorisk.uiMode.v2` parte in **`pro`** e la chiave
+    viene **riscritta** a `pro`; `sviluppo` resta `sviluppo`; la vecchia `meteorisk.uiMode`
+    continua a essere rimossa alla prima lettura.
+- Storico - Contenuto della 1.2.4.49 (release sopra la 1.2.4.48) - **la pagina si apre di nuovo in
+  `pro`**; le tre modalita' (`easy` / `pro` / `sviluppo`) restavano una **scelta** nel selettore.
+  Solo client: nessuna modifica a `scripts/`, al renderer, al player o ai workflow dei dati oltre
   alle righe `cp`.
-  - **Default `pro`**: con nessuna chiave salvata (o con un valore non riconosciuto) si parte in
-    `pro`, cioe' la UI della 1.2.4.47: **23 pulsanti** (i **20** della 1.2.4.47 piu' i **3** del
-    selettore), **3 `<select>`**, 262 parole (misurate in Edge headless, profilo nuovo). Rispetto
-    alla 1.2.4.47 i pulsanti persi sono **0** e le `<select>` sono le stesse 3.
-  - **Migrazione**: la scelta vive nella chiave nuova `meteorisk.uiMode.v2`; la
-    `meteorisk.uiMode` scritta dalla 1.2.4.48 **non viene piu' letta** e viene rimossa alla prima
-    lettura. Chi era rimasto in `easy` per il vecchio default si ritrova in `pro`; chi clicca
-    "Semplice" scrive `easy` nella chiave nuova e ci resta dopo il reload (misurato).
-  - **`easy` e `sviluppo` restano**: il selettore a tre pulsanti non e' stato rimosso. `easy` da'
-    6 pulsanti e 0 `<select>`; `sviluppo` da' `pro` piu' i pannelli e i tab tecnici gia' esistenti
-    (SOI "Struttura convettiva", tab Conv. e Grandine, selettori shear e livello grandine,
-    Meteociel, Fonte API, Nuovi Indici).
 - Storico - Contenuto della 1.2.4.48 (release sopra la 1.2.4.47) - **tre modalita' di visualizzazione
   (`easy` / `pro` / `sviluppo`) scelte da un selettore in toolbar e ricordate in `localStorage`**.
   Solo client: nessuna modifica a `scripts/`, al renderer, al player o ai workflow dei dati oltre
@@ -989,22 +990,12 @@ Sito statico piu' sei workflow GitHub Actions che aggiornano i dati e pubblicano
 | `phenomena-verify.yml` | ogni 10 min valuta i fenomeni grandine/rotazione dai derivati radar + fulmini MLI EUMETSAT (WMS anonimo, CC-BY-4.0) e committa `data/phenomena/{events,badges}.json` su `main` (niente build/deploy: i file arrivano su Pages nell'artefatto di radar-engine e update-weather-data) |
 | `forecast-maps-v2.yml` | ogni 6h (cron-job.org) genera la cache mappe previsionali V2 in `data/fm2/` (`<VALID>.om` + `latest.json`, crop multi-variabile, orizzonte intero `--valid-frames 0`, prune). Da 1.2.4.12 i dati (frame `.om` + WebP) NON stanno piu' su `main` ma sul branch `fm2-cache`: il commit nasce dal tree del branch + allowlist dei soli path `data/fm2/**` (isolamento indice), il push dei WebP e' incrementale a soglia 1,4 GiB, il job engine ha `timeout-minutes: 180` |
 | `deploy-pages.yml` | deploy manuale/consolidamento: ricostruisce `_site/` con app + `data/latest`, `data/geography`, `data/radar` (incl. archivio rolling `radar-history`), `data/phenomena`, `data/fm2` e `satellite/` (finestra `satellite-cache`) e pubblica su Pages (`configure-pages` + `upload-pages-artifact@v4` + `deploy-pages@v4`, concurrency dedicata `pages-deploy` come gli altri) |
-| `stations.yml` | ogni 10 min scarica le osservazioni di ~4.000 stazioni da MeteoHub (MISTRAL, Agenzia ItaliaMeteo/CINECA, **CC BY 4.0** con attribuzione per rete) e committa **solo** `data/stations/latest.json`. Niente build/deploy: il file e' il materiale del layer client (fase successiva) |
 
 - I 4 domini **globali** (`dwd_icon`, `ecmwf_ifs025`, `ncep_gfs025`, `meteofrance_arpege_world025`) usano il bbox emisferico `NORTH_HEMISPHERE_BBOX = (20.0, -180.0, 90.0, 180.0)` (lat 20..90N, lon intera), definito in `scripts\forecast_v2\forecast_v2_engine.py`. Il renderer WebP pubblica anche la regione north, selezionabile come Emisfero nord nel player. Il client la presenta in proiezione stereografica polare dall'alto: riproietta i frame WebP, mantenendo colori, isolinee numeriche e frecce del vento; aggiunge graticola e coste Natural Earth. Il frame sorgente è Web Mercator fino a 85.05N, quindi il piccolo cappuccio fino al Polo usa il valore del bordo più vicino. T850 è etichettata ogni 4°C. I 3 regionali mantengono i loro bbox (`dwd_icon_eu`/`ncep_gfs013` `(34,-15,62,40)`, `dwd_icon_d2` `(43.18,-3.94,58.08,20.34)`).
 
 - I frame satellitari sono WebP a **risoluzione invariata**: stesso slot, stesso
   orologio e stessi formati dati della codifica precedente, solo meno byte.
 - GeoTIFF radar raw e payload Open-Meteo non vengono mai committati: solo derivati.
-- **Rete di centraline** (`data/stations/latest.json`): ~4.000 stazioni di 27 reti
-  regionali + MeteoNetwork da MeteoHub/MISTRAL, licenza **CC BY 4.0** con
-  attribuzione per rete DENTRO il file (campo `attribution`, una voce per rete).
-  Prima il layer osservato erano solo i 43 aeroporti METAR. Limiti dichiarati nel
-  file: latenza della sorgente 30-40 minuti (misurata: mediana 32, p90 42),
-  nessuna `visibility`, nessuna `pressure_msl` (la sorgente espone solo pressione
-  di stazione, non riducibile al livello del mare senza la quota), copertura non
-  uniforme per rete, e il periodo di accumulo della precipitazione cambia per rete
-  (campo `precipitation_period_s`).
 
 ## Trigger
 
