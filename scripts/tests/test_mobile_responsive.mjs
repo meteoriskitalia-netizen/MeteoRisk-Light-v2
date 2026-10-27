@@ -11,7 +11,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.47.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.48.html');
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -46,7 +46,7 @@ ok('P1: anche radar-embed riceve la stessa altezza mobile',
   /#leaflet-map,\s*#radar-embed-container/.test(style));
 ok('P1: tablet 768-1024 altezza mappa clamp(380px,60vh,640px)',
   /height:\s*clamp\(380px,\s*60vh,\s*640px\)/.test(style));
-ok('P1: desktop: #leaflet-map height:640px (560 -> 640 dalla 1.2.4.47)',
+ok('P1: desktop: #leaflet-map height:640px (560 -> 640 dalla 1.2.4.48)',
   /#leaflet-map\s*\{\s*width:\s*100%;\s*height:\s*640px/.test(style));
 
 // ---------- 3. PRIORITÀ 2 — header ----------

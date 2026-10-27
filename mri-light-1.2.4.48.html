@@ -1188,6 +1188,28 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             .app-title p { display: none; }
             .app-header { margin-bottom: 6px; }
         }
+
+        /* ============================================================
+           1.2.4.46 - TRE MODALITA' DI VISUALIZZAZIONE: easy / pro / sviluppo.
+           La visibilita' la decide SOLO il CSS tramite data-ui-mode sul <body>:
+           nessuna funzione esistente viene riscritta, si aggiungono classi.
+             .easy-hide   -> nascosto in easy, visibile in pro e sviluppo
+             .dev-only    -> visibile SOLO in sviluppo
+             #easy-legend -> visibile SOLO in easy
+           Se il JS non parte (data-ui-mode assente) non si nasconde nulla.
+           ============================================================ */
+        #ui-mode-switch { display: inline-flex; gap: 2px; align-items: center; padding: 2px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; }
+        #ui-mode-switch .uim-btn { font-size: 11px; line-height: 1; padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; color: #94a3b8; cursor: pointer; white-space: nowrap; }
+        #ui-mode-switch .uim-btn:hover { color: #e2e8f0; }
+        #ui-mode-switch .uim-btn[aria-pressed="true"] { background: #0ea5e9; color: #04121f; font-weight: 600; }
+        body:not([data-ui-mode="easy"]) #easy-legend { display: none !important; }
+        body[data-ui-mode="easy"] .easy-hide { display: none !important; }
+        body:not([data-ui-mode="sviluppo"]) .dev-only { display: none !important; }
+        body[data-ui-mode="easy"] #risk-summary { display: none !important; }
+        body[data-ui-mode="easy"] #stale-badge { display: none !important; }
+        /* in easy il pannello dettagli (400px) e' nascosto: la mappa prende tutta la riga */
+        body[data-ui-mode="easy"] .container { grid-template-columns: 1fr; }
+        #app-footer .dev-switch { display: none !important; }
     </style>
 <!-- ================================================================
      VERSION SYSTEM — AI INSTRUCTIONS (READ BEFORE MODIFYING)
@@ -1222,6 +1244,18 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
      ================================================================ -->
 </head>
 <body>
+<script>
+/* 1.2.4.46 - La modalita' va scritta sul <body> PRIMA del paint, altrimenti si vede
+   un lampo della UI completa. Stessa chiave di localStorage usata da applyUiMode(). */
+(function () {
+  var m = 'easy';
+  try {
+    var v = window.localStorage.getItem('meteorisk.uiMode');
+    if (v === 'easy' || v === 'pro' || v === 'sviluppo') m = v;
+  } catch (e) { /* localStorage negato: si resta su easy */ }
+  document.body.setAttribute('data-ui-mode', m);
+})();
+</script>
 <!-- 1.2.4.33 - Avviso NON bloccante di versione nuova. Il Service Worker installa la
      release nuova (skipWaiting + clients.claim) ma la pagina gia' aperta continua a
      eseguire il vecchio JavaScript: senza questo banner l'utente attribuisce al codice
@@ -1231,7 +1265,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 
 <div class="app-header">
     <div class="app-title">
-        <h1>MeteoRisk Italia – Light <span class="live-tag">EDUCATIONAL / NON-COMMERCIAL</span> <span id="app-version-badge" style="font-size:11px;color:#64748b;font-weight:normal;">v1.2</span></h1>
+        <h1>MeteoRisk Italia – Light <span class="live-tag easy-hide">EDUCATIONAL / NON-COMMERCIAL</span> <span id="app-version-badge" style="font-size:11px;color:#64748b;font-weight:normal;">v1.2</span></h1>
         <p>Mappa geografica reale — Previsioni &amp; Modelli Comparati · Uso educativo e sperimentale · Non sostituisce bollettini o allerte ufficiali</p>
     </div>
     <div class="time-controls">
@@ -1245,20 +1279,25 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 
 <div class="toolbar">
     <div class="toolbar-row" style="display: flex; gap: 8px; flex-wrap: wrap;">
-        <button class="tool-btn" id="btn-forecast-maps" onclick="toggleForecastMaps()" style="border-color:#38bdf8;">🗺️ Mappe previsionali (OFF)</button>
-        <button class="tool-btn" id="btn-radar-player" onclick="toggleRadarPlayer()" style="border-color:#0284c7;">▶️ Radar Player</button>
-        <button class="tool-btn" id="btn-radar" onclick="toggleRadar()" style="display:none;">📡 Radar Timeline (OFF)</button>
-        <button class="tool-btn" id="btn-satellite" onclick="toggleSatellite()" style="display:none;">🛰️ SATELLITE (OFF)</button>
-        <button class="tool-btn" id="btn-forecast" onclick="toggleForecast()">🌤️ Previsioni (OFF)</button>
-        <button class="tool-btn" id="btn-caletta" onclick="showCaletta()" style="display:none;">🍽️ La Caletta</button>
-        <button class="tool-btn" id="btn-high-risk" onclick="toggleHighRiskFilter()">🚨 Evidenzia Zone a Rischio</button>
-        <button class="tool-btn" id="btn-live" onclick="toggleLivePanel()" style="border-color:#fbbf24;">🔴 LIVE Panel (OFF)</button>
-        <button class="tool-btn" id="btn-newindices" onclick="toggleNewIndices()" style="border-color:#06b6d4; display:none;">🔬 Nuovi Indici (OFF)</button>
-        <button class="tool-btn" id="btn-sources" onclick="toggleSourcesPanel()" style="border-color:#a855f7;">📚 Fonti &amp; Metodologie</button>
+        <div id="ui-mode-switch" role="group" aria-label="Modalita' di visualizzazione">
+            <button type="button" class="uim-btn" data-ui-mode-btn="easy" onclick="setUiMode('easy')" aria-pressed="false">Semplice</button>
+            <button type="button" class="uim-btn" data-ui-mode-btn="pro" onclick="setUiMode('pro')" aria-pressed="false">Pro</button>
+            <button type="button" class="uim-btn" data-ui-mode-btn="sviluppo" onclick="setUiMode('sviluppo')" aria-pressed="false">Sviluppo</button>
+        </div>
+        <button class="tool-btn easy-hide" id="btn-forecast-maps" onclick="toggleForecastMaps()" style="border-color:#38bdf8;">🗺️ Mappe previsionali (OFF)</button>
+        <button class="tool-btn easy-hide" id="btn-radar-player" onclick="toggleRadarPlayer()" style="border-color:#0284c7;">▶️ Radar Player</button>
+        <button class="tool-btn easy-hide" id="btn-radar" onclick="toggleRadar()" style="display:none;">📡 Radar Timeline (OFF)</button>
+        <button class="tool-btn easy-hide" id="btn-satellite" onclick="toggleSatellite()" style="display:none;">🛰️ SATELLITE (OFF)</button>
+        <button class="tool-btn easy-hide" id="btn-forecast" onclick="toggleForecast()">🌤️ Previsioni (OFF)</button>
+        <button class="tool-btn easy-hide" id="btn-caletta" onclick="showCaletta()" style="display:none;">🍽️ La Caletta</button>
+        <button class="tool-btn easy-hide" id="btn-high-risk" onclick="toggleHighRiskFilter()">🚨 Evidenzia Zone a Rischio</button>
+        <button class="tool-btn easy-hide" id="btn-live" onclick="toggleLivePanel()" style="border-color:#fbbf24;">🔴 LIVE Panel (OFF)</button>
+        <button class="tool-btn easy-hide" id="btn-newindices" onclick="toggleNewIndices()" style="border-color:#06b6d4; display:none;">🔬 Nuovi Indici (OFF)</button>
+        <button class="tool-btn easy-hide" id="btn-sources" onclick="toggleSourcesPanel()" style="border-color:#a855f7;">📚 Fonti &amp; Metodologie</button>
         <!-- 1.2.3.1: attivazione Celle organizzate spostata nel pannello LIVE (#live-toggle-supercells) -->
         <!-- Toggle Sviluppo spostato nel footer: switch vicino al badge versione -->
     </div>
-    <div style="max-width:1200px; margin:0 auto 10px auto; display:flex; gap:8px; align-items:center; overflow-x:auto; padding-bottom:4px;" class="map-toolbar-scroll">
+    <div style="max-width:1200px; margin:0 auto 10px auto; display:flex; gap:8px; align-items:center; overflow-x:auto; padding-bottom:4px;" class="map-toolbar-scroll easy-hide">
         <span id="radar-provider-label" style="font-size: 11px; color: #94a3b8; display:none; flex-shrink:0">Sorgente Radar:</span>
         <select id="radar-provider-select" class="tool-btn" onchange="changeRadarProvider(this.value)" style="font-size:11px; display:none; flex-shrink:0">
             <option value="rainviewer" selected>RainViewer</option>
@@ -1294,7 +1333,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <option value="humidex">💧 Humidex (Canada)</option>
             <option value="windchill">❄️ Wind Chill (WCT)</option>
         </select>
-        <select id="conv-shear-select" class="tool-btn" onchange="selectConvCategory(this.value)" style="font-size:11px; display:none; flex-shrink:0">
+        <select id="conv-shear-select" class="tool-btn dev-only" onchange="selectConvCategory(this.value)" style="font-size:11px; display:none; flex-shrink:0">
             <option value="no">⚡ Conv. Senza shear</option>
             <option value="yes">⚡ Conv. Con shear</option>
             <option value="thunderprob">🌩️ Potenziale temporalesco</option>
@@ -1302,7 +1341,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <option value="vorticosi">🌪️ Vortici</option>
             <option value="downburst">⬇️ Downburst</option>
         </select>
-        <select id="hail-level-select" class="tool-btn" onchange="selectHailLevel(this.value)" style="font-size:11px; display:none; flex-shrink:0">
+        <select id="hail-level-select" class="tool-btn dev-only" onchange="selectHailLevel(this.value)" style="font-size:11px; display:none; flex-shrink:0">
             <option value="prob">🧊 Probabilità grandine</option>
             <option value="size">🧊 Dimensione grandine (stima)</option>
         </select>
@@ -1314,7 +1353,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 </div>
 
 <!-- Timeline sincronizzata unica -->
-<div class="panel-timeline" id="sync-timeline-panel">
+<div class="panel-timeline easy-hide" id="sync-timeline-panel">
     <div class="controls">
         <button class="btn-timeline" onclick="prevSyncFrame()" title="Frame precedente">⏮</button>
         <button class="btn-timeline" id="sync-play-btn" onclick="toggleSyncPlay()">▶ Play</button>
@@ -1341,7 +1380,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 <!-- Spostato dentro .map-card sotto -->
 
 <!-- Pannello LIVE (satellite + radar + fulmini in tempo reale) -->
-<div class="panel-live" id="live-panel">
+<div class="panel-live easy-hide" id="live-panel">
     <div class="live-header">
         <span class="live-dot"></span> <strong>LIVE · TEMPO REALE</strong>
         <span id="live-subtitle" style="font-size:10px;color:#94a3b8;">Satellite + radar live · Struttura convettiva (toggle)</span>
@@ -1365,7 +1404,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         Colori sovrapposti indicano temporali di calore stagnanti.
     </div>
     <div class="sc-toggles">
-        <button type="button" id="live-toggle-supercells" class="sc-toggle" onclick="toggleLiveSupercells()" title="Record di struttura convettiva (data/radar/convective_structures.json) e fenomeni osservati, riusati dal pannello Struttura convettiva e mostrati qui nel pannello LIVE">Struttura convettiva</button>
+        <button type="button" id="live-toggle-supercells" class="sc-toggle dev-only" onclick="toggleLiveSupercells()" title="Record di struttura convettiva (data/radar/convective_structures.json) e fenomeni osservati, riusati dal pannello Struttura convettiva e mostrati qui nel pannello LIVE">Struttura convettiva</button>
         <!-- Sub-toggle spostati dal pannello #sc-radar-panel: stessa logica, stessi handler,
              id dedicati (live-toggle-*), visibili SOLO con celle organizzate attive (come #live-sc-*). -->
         <button type="button" id="live-toggle-trails" class="sc-toggle on" onclick="toggleScTrails()" title="Traccia 2h dei candidati attivi (archivio rolling radar-history)" style="display:none;">Traccia 2h</button>
@@ -1379,7 +1418,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 </div>
 
 <!-- Pannello Struttura convettiva (descrittore SOI dal Motion Engine; rotazione NON misurabile) -->
-<div class="panel-live panel-sc" id="sc-radar-panel">
+<div class="panel-live panel-sc dev-only" id="sc-radar-panel">
     <div class="live-header" style="border-color:#a855f7;">
         <span style="color:#a855f7; font-size:14px;">🌀</span> <strong>STRUTTURA CONVETTIVA</strong>
         <span style="font-size:10px;color:#22c55e;font-weight:700;">EVENTI OSSERVATI (RADAR)</span>
@@ -1460,7 +1499,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     <div id="sc-list" style="max-height:220px;overflow-y:auto;border-top:1px solid #334155;"></div>
 </div>
 
-<div class="metric-tabs" id="metric-tabs">
+<div class="metric-tabs easy-hide" id="metric-tabs">
     <button class="metric-tab active" data-metric="risk" onclick="selectMetric('risk')">⚠️ Rischio</button>
     <button class="metric-tab" data-metric="tempmax" onclick="selectMetric('tempmax')">🌡️ Temp. Max</button>
     <button class="metric-tab" data-metric="tempmin" onclick="selectMetric('tempmin')">❄️ Temp. Min</button>
@@ -1469,8 +1508,8 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     <button class="metric-tab" data-metric="wind" onclick="selectMetric('wind')">💨 Vento</button>
     <button class="metric-tab" data-metric="thermalrisk" id="metric-tab-thermalrisk" onclick="selectMetric('thermalrisk')">🌡️ Rischio Termico</button>
     <button class="metric-tab" data-metric="fog" onclick="selectMetric('fog')">🌫️ Nebbia</button>
-    <button class="metric-tab" data-metric="conv" id="metric-tab-conv" onclick="selectMetric('conv')" style="display:none;">🌩️ Conv.</button>
-    <button class="metric-tab" data-metric="hail" id="metric-tab-hail" onclick="selectMetric('hail')" style="display:none;">🧊 Grandine</button>
+    <button class="metric-tab dev-only" data-metric="conv" id="metric-tab-conv" onclick="selectMetric('conv')" style="display:none;">🌩️ Conv.</button>
+    <button class="metric-tab dev-only" data-metric="hail" id="metric-tab-hail" onclick="selectMetric('hail')" style="display:none;">🧊 Grandine</button>
 </div>
 
 <div class="container">
@@ -1491,7 +1530,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         </div>
         <div id="leaflet-map"></div>
         <!-- Mappe previsionali (Open-Meteo Weather Map Layer) -->
-        <div id="forecast-maps-panel" class="fm-panel">
+        <div id="forecast-maps-panel" class="fm-panel easy-hide">
             <div class="fm-header">
                 <span>🗺️ Mappe previsionali</span>
                 <span class="fm-close" onclick="toggleForecastMaps()">✕</span>
@@ -1533,7 +1572,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             </div>
         </div>
         <!-- Switch a coriandolo nell'angolo della mappa -->
-        <div class="map-corner-switches">
+        <div class="map-corner-switches easy-hide">
             <label class="mp-switch" title="Badge di rischio dentro le province (zoom dipendente)">
                 <input type="checkbox" id="switch-riskbadges" checked onchange="toggleRiskBadges()">
                 <span class="mp-knob"></span>
@@ -1543,7 +1582,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                 <span class="mp-knob"></span>
                 <span class="mp-label">Sfuma</span>
             </label>
-            <label class="mp-select" id="continuous-style-wrap" title="Metodo della vista continua (v10.52.1.1): V1 = IDW classico sui punti campione (può lasciare 'pois'), V2 = uniforme per province (ancore provinciali + raggio adattivo + sfumatura), V3 = reticolo virtuale 0,25° con valori interpolati dai punti reali (solo raster, previsioni invariate)">
+            <label class="mp-select dev-only" id="continuous-style-wrap" title="Metodo della vista continua (v10.52.1.1): V1 = IDW classico sui punti campione (può lasciare 'pois'), V2 = uniforme per province (ancore provinciali + raggio adattivo + sfumatura), V3 = reticolo virtuale 0,25° con valori interpolati dai punti reali (solo raster, previsioni invariate)">
                 <span class="mp-label">Sfumatura</span>
                 <select id="continuous-style-select" onchange="setContinuousStyle(this.value)">
                     <option value="v1">V1</option>
@@ -1563,7 +1602,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <div id="preload-text" class="preload-text">Caricamento...</div>
         </div>
         <!-- Popup La Caletta -->
-        <div id="caletta-popup" class="caletta-popup">
+        <div id="caletta-popup" class="caletta-popup easy-hide">
             <button class="close-caletta" onclick="closeCaletta()">✕</button>
             <h3 id="caletta-title">🍽️ La Caletta</h3>
             <div class="address" id="caletta-address">Via Provinciale Vigna di Valle, 42, Anguillara Sabazia</div>
@@ -1575,7 +1614,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <div id="caletta-details" style="margin-top:8px;display:none;"></div>
             <div id="caletta-live" style="margin-top:8px;display:none;"></div>
         </div>
-        <div class="legend" id="legend-container"></div>
+        <div class="legend easy-hide" id="legend-container"></div>
+        <!-- 1.2.4.46 - Legenda di "easy": 3 classi in parole, nessun acronimo.
+             Stessi colori della scala del rischio (legends.risk, riga 20446). -->
+        <div class="legend" id="easy-legend" aria-label="Legenda semplificata">
+            <div class="legend-item"><div class="legend-color" style="background:#22c55e"></div> Nessun rischio</div>
+            <div class="legend-item"><div class="legend-color" style="background:#eab308"></div> Attenzione</div>
+            <div class="legend-item"><div class="legend-color" style="background:#ef4444"></div> Forte</div>
+        </div>
         <!-- Selettore ORARIO a slider sotto la mappa (sostituisce la tendina) -->
         <div class="hour-slider" id="hour-slider-wrap" style="display:none;">
             <label class="hour-slider-label" id="hour-slider-label">Scegli l'ora</label>
@@ -1583,20 +1629,20 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <span class="hour-slider-disp" id="hour-slider-disp">Tutto il giorno (Max)</span>
         </div>
         <!-- Legenda BADGE rischio sotto la mappa: nascosta di default, si apre con il pulsante -->
-        <button type="button" id="badge-legend-toggle" onclick="toggleBadgeLegend()" title="Mostra/nascondi la legenda dei badge di RISCHIO (potenziale ambientale da modello NWP, non eventi osservati)">🏷️ Legenda badge (potenziale NWP)</button>
-        <div class="badge-legend-bar" id="badge-legend-bar" style="display:none;">
+        <button type="button" class="easy-hide" id="badge-legend-toggle" onclick="toggleBadgeLegend()" title="Mostra/nascondi la legenda dei badge di RISCHIO (potenziale ambientale da modello NWP, non eventi osservati)">🏷️ Legenda badge (potenziale NWP)</button>
+        <div class="badge-legend-bar easy-hide" id="badge-legend-bar" style="display:none;">
             <div class="bl-tip"></div>
         </div>
 
-        <div style="display:flex; align-items:center; justify-content:center; gap:8px; flex-wrap:wrap;">
+        <div class="easy-hide" style="display:flex; align-items:center; justify-content:center; gap:8px; flex-wrap:wrap;">
             <div id="status-msg" class="status-loading">Inizializzazione mappa...</div>
-            <button class="tool-btn" onclick="requestWeatherData('manual')" style="font-size:11px; padding:4px 10px; flex-shrink:0;" title="Aggiorna i dati meteo (dataset derivato per i modelli coperti, Open-Meteo live per gli altri)">🔄 Aggiorna</button>
+            <button class="tool-btn easy-hide" onclick="requestWeatherData('manual')" style="font-size:11px; padding:4px 10px; flex-shrink:0;" title="Aggiorna i dati meteo (dataset derivato per i modelli coperti, Open-Meteo live per gli altri)">🔄 Aggiorna</button>
         </div>
-        <div class="attribution-small">Satellite: © EUMETSAT · Radar: © RainViewer / DPC (Protezione Civile)</div>
+        <div class="attribution-small easy-hide">Satellite: © EUMETSAT · Radar: © RainViewer / DPC (Protezione Civile)</div>
     </div>
 
     <!-- Selettore modello meteorologico (visibile solo con Sviluppo ON) -->
-    <div id="weather-model-wrapper" style="max-width:1200px; margin:0 auto 10px auto; display:none; align-items:center; gap:8px; flex-wrap:wrap;">
+    <div id="weather-model-wrapper" class="dev-only" style="max-width:1200px; margin:0 auto 10px auto; display:none; align-items:center; gap:8px; flex-wrap:wrap;">
         <label for="weather-model-select" style="font-size:11px; color:#94a3b8; white-space:nowrap;">Modello:</label>
     <select id="weather-model-select" class="tool-btn" onchange="onWeatherModelChange(this.value)" style="font-size:11px;">
         <option value="dual_best_ecmwf" selected>Best Match + ECMWF — Analisi combinata</option>
@@ -1605,7 +1651,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <option value="gfs_seamless">GFS (NOAA 13km Globale)</option>
         <option value="italia_meteo_arpae_icon_2i">ARPAE ICON-2I (2km Italia)</option>
     </select>
-        <span id="api-source-wrapper" style="display:none; align-items:center; gap:8px;">
+        <span id="api-source-wrapper" class="dev-only" style="display:none; align-items:center; gap:8px;">
             <span style="font-size:11px; color:#94a3b8; white-space:nowrap;">Fonte API:</span>
             <select id="api-source-select" class="tool-btn" onchange="onApiSourceChange(this.value)" style="font-size:11px;">
                 <option value="openmeteo_free" selected>Open-Meteo (gratis)</option>
@@ -1821,7 +1867,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         </div>
     </div>
 
-    <div class="details-card">
+    <div class="details-card easy-hide">
         <div class="search-box">
             <input type="text" id="city-search" class="search-input" placeholder="🔍 Cerca comune o provincia..." oninput="handleSearch(this.value)">
             <div id="search-results" class="search-results"></div>
@@ -1983,9 +2029,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.47';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.48';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-27';
     const APP_CHANGELOG = [
+        { version: '1.2.4.48', date: '2026-10-27', changes: [
+  'UI= TRE MODALITA\' DI VISUALIZZAZIONE: SEMPLICE, PRO, SVILUPPO. Un selettore a tre pulsanti in toolbar sceglie quanta interfaccia si vede: `easy` (SEMPLICE, default alla prima visita), `pro` (la UI di sempre) e `sviluppo` (pro piu\' i pannelli tecnici gia\' esistenti). MISURATO sulla pagina servita in Edge headless, per modalita\': easy 6 pulsanti visibili / 0 <select> / 0 acronimi / 58 parole di testo visibile; pro 23 / 3 / 25 token in maiuscolo su 13 distinti / 327 parole; sviluppo 42 / 19 / 57 su 25 / 706 parole. Il confronto con la 1.2.4.47 sulla stessa pagina dice che la differenza di insieme dei pulsanti visibili in `pro` e\' ESATTAMENTE i 3 del selettore, e le <select> sono le stesse 3.',
+  'UI= LA MODALITA\' SI RICORDA E NON DIPENDE DAL DISEGNO DEL CSS. Un solo stato (`uiMode`) nella chiave `localStorage` `meteorisk.uiMode`, scritto solo quando l\'utente clicca e riletto prima del paint (niente lampo della UI completa). La visibilita\' la decide il CSS con `body[data-ui-mode=...]` e due classi, `.easy-hide` (nascosto in easy) e `.dev-only` (solo in sviluppo): nessuna funzione esistente e\' stata riscritta. La variabile storica `isSviluppoActive` e\' ora DERIVATA dalla modalita\' (`mode === \'sviluppo\'`), quindi i gate gia\' in produzione continuano a funzionare senza un secondo interruttore. MISURATO: scelgo pro -> reload -> pro; scelgo easy -> reload -> easy. Con `localStorage` NEGATO o PIENO la pagina parte in easy e non lancia eccezioni (0 in tutte le prove).',
+  'UI= IN "SEMPLICE" LA MAPPA PARLA ITALIANO. La legenda tecnica (classi, sigle, scale) e\' sostituita da 3 classi in parole (Nessun rischio / Attenzione / Forte) con gli STESSI colori della scala del rischio; il tooltip di provincia e\' UNA frase da un dizionario chiuso (max 12 parole, nessun acronimo, nessun numero) che dice il periodo che l\'utente sta guardando e al massimo due fenomeni, es. "Oggi nebbia molto fitta e vento forte.", "Oggi pomeriggio vento moderato.", "Domani pomeriggio pioggia debole e vento moderato.". MISURATO su tutte le 107 province: 17 frasi distinte in vista giornaliera, 3 alle ore 15 di oggi, 4 alle ore 15 di domani, 0 acronimi, massimo 7 parole. Tornando in easy i pannelli di pro vengono CHIUSI davvero e non solo nascosti col CSS: nasconderli lasciava la mappa del rischio senza i 107 poligoni delle province (difetto noto "pannelli chiusi -> 0 poligoni"), che dopo apri/chiudi delle Mappe previsionali restano 107/107.',
+  'DOC= Bump versione 1.2.4.48 (solo client: nessuna modifica a `scripts/`, engine, renderer, player o workflow dei dati oltre alle righe `cp`). Verifica: `test_html_js_syntax.py` 1 passed (7 blocchi inline, 0 errori); suite `.mjs` 26 PASS / 2 FAIL sugli stessi 2 nomi misurati PRIMA sulla 1.2.4.47 (contratto dataset senza fixture, e un check pre-esistente A15c di `test_fm_webp_fastpath`); 0 eccezioni JS in tutte le modalita\'; 390x844: nessun overflow orizzontale (scrollWidth = clientWidth = 390, riga toolbar 370 = 370) e i 3 pulsanti cliccabili.'
+        ] },
         { version: '1.2.4.47', date: '2026-10-27', changes: [
   'MAPPE= LA VISTA POLARE HA LO ZOOM (FINO A 3x) E IL TRASCINAMENTO. Nella regione `north` il disco emisferico era un raster fisso: un pixel del WebP 1000x1000 vale 0,538 px di schermo sul pannello 754x560, quindi i valori vicini al polo non si leggevano. Ora ci sono due pulsanti (- e +, passo 1,25x), la rotella ancorata al cursore (passo 1,15x) e il trascinamento del disco. Tetto a 3x: a 1,613 px di schermo per pixel di immagine il testo del WebP resta nitido, a 4x (2,15) no, e il client non puo\' ridisegnare le cifre perche\' non conosce ne\' gli isolivelli ne\' i valori. A zoom 1 la geometria e\' IDENTICA a quella della 1.2.4.46 (cx = w/2, cy = h/2, R = 0,48*min(w,h)), quindi il canvas a zoom 1 e\' identico pixel per pixel; il ridimensionamento del pannello conserva l\'inquadratura perche\' il centro e\' memorizzato in unita\' di R0. In vista polare i gestori Leaflet (scrollWheelZoom, dragging, doubleClickZoom, boxZoom, touchZoom) si spengono e all\'uscita si riaccendono SOLO quelli che erano accesi: senza, la rotella faceva lo zoom di una mappa invisibile e il trascinamento spostava i pane sotto il disco. La rotella non cambia map.getZoom(): il disco e\' un canvas sopra il pannello. In verifica (Edge headless) e\' emerso un DIFETTO della prima stesura: fmPolarSetActive(true) viene richiamata a ogni frame dal player, quindi il ramo che spegne i gestori girava piu\' volte e al secondo giro salvava {} (i gestori erano gia\' spenti); uscendo da north non si riaccendeva NULLA e il pannello restava senza rotella e senza trascinamento. Corretto con una guardia di idempotenza (lo stato salvato si scrive una volta sola): misurato dopo il fix, i 5 gestori tornano true all\'uscita.',
   'LEGENDA= IL GEOPOTENZIALE A 500 hPa IN DECAMETRI, CON UNA TACCA PER BANDA. La carta composita `__pressure_geopot` mostrava 9 tacche in METRI (4920...6120) mentre la carta emisferica di riferimento riporta 492, 496, 500 ... 612 dam sulle STESSE bande. Ora la legenda divide per 10 e mette 31 tacche, una per banda di `FM_GEOP_BREAKPOINTS_500` (4920..6120 m, passo 40): valori 492...612 dam, unita\' "dam". Il DATO resta in metri e la scala colori e\' la stessa (stesse bande, stessi colori): cambia solo l\'ETICHETTA della legenda. Le altre variabili restano a 9 tacche e le unita\' non cambiano. Le 31 tacche valgono quando la legenda e\' larga almeno 680 px; sotto (MISURATO a 390 px di viewport: legenda 348 px, 30 coppie di etichette sovrapposte fino a 12 px) si torna a 9 tacche, altrimenti i numeri si accavallano.',
@@ -4521,6 +4573,9 @@ function enabledLightningSourceIds() {
 
     // Costruisce l'HTML della nuvola hover: nome provincia + disco dei rischi attivi
     function buildRiskTooltip(idx) {
+        // 1.2.4.46 - in easy il tooltip e' UNA frase in italiano (dizionario chiuso,
+        // nessun acronimo, <= 12 parole): stesso aggancio, nessun listener nuovo.
+        if (uiMode === 'easy') return easyRiskSentence(idx);
         var item = regionsData[idx];
         var base = '<b>' + 'Provincia di ' + item.prov + '</b><br><span style="color:#94a3b8;">' + item.region + ' · criticità previste (potenziale ambientale NWP)</span>';
         var risks = computeActiveRisks(idx);
@@ -15554,6 +15609,118 @@ function toggleForecastMaps() {
         }
     }
 
+
+    // --- 1.2.4.46 - TRE MODALITA' DI VISUALIZZAZIONE: easy / pro / sviluppo ---
+    // UN SOLO stato (uiMode), persistito in localStorage. La visibilita' la decide
+    // il CSS con body[data-ui-mode]: qui non si riscrive nessuna funzione esistente.
+    // `isSviluppoActive` resta la variabile che i gate gia' in produzione leggono
+    // (righe 17278, 19409, 22520): viene DERIVATA da uiMode, non da uno switch a parte.
+    var UI_MODE_KEY = 'meteorisk.uiMode';
+    var UI_MODES = ['easy', 'pro', 'sviluppo'];
+    var uiMode = 'easy';
+    function readUiMode() {
+        try {
+            var v = window.localStorage.getItem(UI_MODE_KEY);
+            if (v && UI_MODES.indexOf(v) !== -1) return v;
+        } catch (e) { /* localStorage negato o pieno: si resta sul default easy */ }
+        return 'easy';
+    }
+    function applyUiMode(mode, persist) {
+        if (UI_MODES.indexOf(mode) === -1) mode = 'pro';
+        uiMode = mode;
+        try { document.body.setAttribute('data-ui-mode', mode); } catch (e) { }
+        // MAPPATURA esplicita: sviluppo <=> isSviluppoActive. toggleSviluppo() fa il
+        // resto (mostra/nasconde Meteociel, Nuovi Indici, Fonte API, tab Conv./Grandine)
+        // e resetta le metriche non piu' disponibili quando si esce da sviluppo.
+        var wantDev = (mode === 'sviluppo');
+        if (wantDev !== !!isSviluppoActive) toggleSviluppo(wantDev);
+        // easy mostra UN solo indicatore: se si arriva da una metrica tecnica
+        // (Nebbia, Vento, Pressione...) la mappa torna al rischio, altrimenti la
+        // legenda a 3 parole non corrisponderebbe ai colori mostrati.
+        if (mode === 'easy' && typeof currentMetric !== 'undefined' && currentMetric !== 'risk') {
+            try { selectMetric('risk'); } catch (e) { }
+        }
+        // Tornando in easy i pannelli di pro si CHIUDONO davvero, non solo col CSS:
+        // le Mappe previsionali nascondono i poligoni delle province (paths=0 misurato)
+        // e nasconderle con display:none lascerebbe la mappa del rischio vuota.
+        if (mode === 'easy') {
+            try { if (fmActive) toggleForecastMaps(); } catch (e) { }
+            try { if (forecastActive) toggleForecast(); } catch (e) { }
+            try { if (isRadarPlayerActive) toggleRadarPlayer(); } catch (e) { }
+            try { if (isSatelliteActive) toggleSatellite(); } catch (e) { }
+            try { if (isLivePanelActive) toggleLivePanel(); } catch (e) { }
+            try { if (dpcAlertMode === 'on') toggleDpcAlert('off'); } catch (e) { }
+        }
+        var btns = document.querySelectorAll('#ui-mode-switch .uim-btn');
+        for (var i = 0; i < btns.length; i++) {
+            var on = btns[i].getAttribute('data-ui-mode-btn') === mode;
+            btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+        if (persist) { try { window.localStorage.setItem(UI_MODE_KEY, mode); } catch (e) { } }
+        // I testi dipendenti dalla modalita' si rigenerano (tooltip provincia, badge).
+        try { if (typeof updateRiskBadges === 'function') updateRiskBadges(); } catch (e) { }
+        try { if (typeof refreshRiskSummary === 'function') refreshRiskSummary(); } catch (e) { }
+    }
+    function setUiMode(mode) { applyUiMode(mode, true); }
+
+    // Dizionario CHIUSO delle frasi di easy: nessun acronimo, nessun numero.
+    // Le 4 varianti per rischio sono indicizzate per LIVELLO (1 lieve .. 4 estremo),
+    // cosi' l'accordo grammaticale non dipende dai dati (niente "possibili pioggia").
+    var EASY_RISK_WORDS = {
+        rain:         ['pioggia debole', 'pioggia', 'pioggia forte', 'pioggia molto forte'],
+        wind:         ['vento moderato', 'vento forte', 'vento molto forte', 'vento di burrasca'],
+        thunderstorm: ['qualche temporale', 'temporali sparsi', 'temporali forti', 'temporali violenti'],
+        hail:         ['grandine piccola', 'grandine', 'grandine grossa', 'grandine molto grossa'],
+        heat:         ['caldo', 'caldo intenso', 'ondata di calore', 'caldo estremo'],
+        cold:         ['freddo', 'gelate', 'freddo intenso', 'gelo intenso'],
+        snow:         ['neve debole', 'neve', 'neve abbondante', 'neve molto abbondante'],
+        fog:          ['nebbia', 'nebbia fitta', 'nebbia molto fitta', 'nebbia molto fitta'],
+        generic:      ['meteo variabile', 'meteo da seguire', 'meteo da seguire', 'meteo da seguire'],
+        supercell:    ['temporali intensi', 'temporali intensi', 'temporali molto intensi', 'temporali violenti'],
+        vorticosi:    ['vortici d\'aria', 'vortici d\'aria', 'vortici d\'aria', 'vortici d\'aria'],
+        downburst:    ['raffiche', 'raffiche', 'raffiche improvvise', 'raffiche violente']
+    };
+    // Periodo della frase: legge lo stato che l'utente vede (giorno attivo + ora).
+    function easyPeriodWord() {
+        var uiDay = 0;
+        try {
+            var btns = document.querySelectorAll('.day-btn');
+            for (var i = 0; i < btns.length; i++) {
+                if (btns[i].classList.contains('active')) { uiDay = i; break; }
+            }
+        } catch (e) { }
+        var part = '';
+        var h = (currentHour === 'all' || currentHour === null || currentHour === undefined)
+            ? null : parseInt(currentHour, 10);
+        if (h !== null && !isNaN(h)) {
+            if (h >= 5 && h < 12) part = 'mattina';
+            else if (h >= 12 && h < 18) part = 'pomeriggio';
+            else if (h >= 18 && h < 23) part = 'sera';
+            else part = 'notte';
+        }
+        var day = (uiDay === 1) ? 'Domani' : ((uiDay === 2) ? 'Dopodomani' : 'Oggi');
+        return part ? (day + ' ' + part) : day;
+    }
+    // UNA frase, <= 12 parole, al massimo DUE fenomeni (gli stessi due badge).
+    function easyRiskSentence(idx) {
+        var head = easyPeriodWord();
+        var risks = computeActiveRisks(idx);
+        if (!risks || !risks.length) return head + ': nessun rischio rilevante.';
+        var sorted = risks.slice().sort(function(a, b) { return (b.level || 1) - (a.level || 1); });
+        var words = [];
+        for (var i = 0; i < sorted.length && words.length < 2; i++) {
+            var table = EASY_RISK_WORDS[sorted[i].id];
+            if (!table) continue;
+            var lv = Math.min(Math.max(sorted[i].level || 1, 1), 4);
+            words.push(table[lv - 1]);
+        }
+        if (!words.length) return head + ': meteo variabile.';
+        var sentence = head + ' ' + words[0];
+        if (words.length === 2) sentence += ' e ' + words[1];
+        if (sentence.split(/\s+/).length > 12) sentence = head + ' ' + words[0];
+        return sentence + '.';
+    }
+
     // --- Toggle Nuovi Indici: WMAXSHEAR+SHIP vs vecchia logica ---
     var isNewIndicesActive = false;  // default OFF (viene attivato dall'utente tramite toggle Sviluppo)
     function toggleNewIndices() {
@@ -15878,7 +16045,7 @@ function toggleForecastMaps() {
             var risks = computeActiveRisks(i);
             if (!risks.length) continue;
             var pt = map.latLngToContainerPoint([regionsData[i].lat, regionsData[i].lon]);
-            var showAll = zoom >= showAllZoom && risks.length <= 2;
+            var showAll = zoom >= showAllZoom && risks.length <= 2 && uiMode !== 'easy';
             candidates.push({
                 idx: i,
                 x: pt.x,
@@ -24219,6 +24386,11 @@ initMap();
             '</label>';
         document.body.appendChild(footer);
     })();
+
+    // 1.2.4.46 - la modalita' salvata (default easy) si applica a DOM completo:
+    // allinea i gate JS (isSviluppoActive) e i pulsanti. persist=false al primo avvio:
+    // chi non ha mai scelto resta sul default senza scrivere nulla.
+    applyUiMode(readUiMode(), false);
 
     // Easter egg: rompi l'uovo per rivelare il toggle La Caletta nella toolbar
     function crackEgg() {

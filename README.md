@@ -6,13 +6,32 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.47
+## Versione attiva: 1.2.4.48
 
-- File applicativo: `mri-light-1.2.4.47.html` (`APP_VERSION = '1.2.4.47'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.47', date: '2026-10-27' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.47'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+- File applicativo: `mri-light-1.2.4.48.html` (`APP_VERSION = '1.2.4.48'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.48', date: '2026-10-27' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.48'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
-- Contenuto della 1.2.4.47 (release sopra la 1.2.4.46) - **la vista polare si puo' zoomare fino a
+- Contenuto della 1.2.4.48 (release sopra la 1.2.4.47) - **tre modalita' di visualizzazione
+  (`easy` / `pro` / `sviluppo`) scelte da un selettore in toolbar e ricordate in `localStorage`**.
+  Solo client: nessuna modifica a `scripts/`, al renderer, al player o ai workflow dei dati oltre
+  alle righe `cp`.
+  - **`easy` (default alla prima visita)**: 6 pulsanti visibili, 0 `<select>`, 0 acronimi e 58
+    parole di testo visibile (misurate); legenda a 3 classi in parole (Nessun rischio / Attenzione /
+    Forte) al posto di quella tecnica; tooltip di provincia con UNA frase in italiano da un
+    dizionario chiuso (max 12 parole, 0 sigle), es. "Oggi nebbia molto fitta e vento forte.".
+  - **`pro`**: la UI completa (23 pulsanti, 3 `<select>`, 327 parole, 25 token in maiuscolo su 13
+    distinti); rispetto alla 1.2.4.47 la differenza di insieme dei pulsanti e' **solo** i 3 del
+    selettore, e le `<select>` sono le stesse.
+  - **`sviluppo`**: `pro` piu' i pannelli e i tab tecnici gia' esistenti (SOI "Struttura
+    convettiva", tab Conv. e Grandine, selettori shear e livello grandine, Meteociel, Fonte API,
+    Nuovi Indici): 42 pulsanti, 19 `<select>`, 706 parole, 57 token su 25 distinti.
+  - **Un solo stato** (`uiMode`, chiave `meteorisk.uiMode`) con **mappatura esplicita**
+    `isSviluppoActive = (mode === 'sviluppo')`; la visibilita' la decide il CSS con
+    `body[data-ui-mode=...]` e le classi `.easy-hide` / `.dev-only`. Tornando in `easy` i pannelli
+    di `pro` vengono **chiusi davvero** (non solo nascosti): con il solo CSS la mappa del rischio
+    restava senza i **107** poligoni delle province (difetto noto "pannelli chiusi -> 0 poligoni").
+- Storico - Contenuto della 1.2.4.47 (release sopra la 1.2.4.46) - **la vista polare si puo' zoomare fino a
   3x e trascinare**, **la legenda del geopotenziale a 500 hPa si legge in decametri con una
   tacca per banda** e **il pannello mappa desktop passa da 560 a 640 px**. Solo client: nessuna
   modifica a `scripts/`, al renderer, al player o ai workflow dei dati oltre alle righe `cp`.
