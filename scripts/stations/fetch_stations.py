@@ -681,7 +681,11 @@ def main(argv: list[str] | None = None) -> int:
 
     networks_path = Path(args.networks_file)
     if args.refresh_networks:
-        doc = refresh_networks(networks_path)
+        try:
+            doc = refresh_networks(networks_path)
+        except RuntimeError as exc:
+            print(f"[FATAL] impossibile leggere i metadati: {exc}", file=sys.stderr)
+            return 3
         print(
             f"[OK] tabella reti rigenerata: {len(doc['networks'])} reti -> {networks_path}"
         )
@@ -713,12 +717,26 @@ def main(argv: list[str] | None = None) -> int:
         f"({args.window_minutes} min)"
     )
 
-    raw, info = http_get(url)
+    try:
+        raw, info = http_get(url)
+    except RuntimeError as exc:
+        print(
+            f"[FATAL] lettura fallita: {exc}\n"
+            "        (se e' un 401 il servizio ha introdotto un token: "
+            "fermarsi e chiedere l'accesso, non inventarlo)\n"
+            "        nessun file scritto: l'ultimo dataset valido resta in piedi",
+            file=sys.stderr,
+        )
+        return 3
     print(
         f"[INFO] HTTP {info['http_status']} wire {info['wire_bytes']} B "
         f"in {info['seconds']} s"
     )
-    payload = json.loads(raw)
+    try:
+        payload = json.loads(raw)
+    except ValueError as exc:
+        print(f"[FATAL] risposta non JSON: {exc}", file=sys.stderr)
+        return 3
     doc = normalize_payload(
         payload, networks, generated_at=now, max_age_minutes=args.max_age_minutes
     )
