@@ -6,13 +6,53 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.52
+## Versione attiva: 1.2.4.53
 
-- File applicativo: `mri-light-1.2.4.52.html` (`APP_VERSION = '1.2.4.52'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.52', date: '2026-10-27' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.52'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+- File applicativo: `mri-light-1.2.4.53.html` (`APP_VERSION = '1.2.4.53'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.53', date: '2026-10-27' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.53'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
-- Contenuto della 1.2.4.52 (release sopra la 1.2.4.51) - **due modifiche, entrambe sul client**:
+- Contenuto della 1.2.4.53 (release sopra la 1.2.4.52) - **due modifiche, entrambe sul client**:
+  le centraline osservate diventano **etichette con la temperatura** (rettangoli arrotondati,
+  fondo a bande della scala `temperature_2m`, testo a contrasto calcolato, zero sovrapposizioni)
+  e la **Struttura convettiva (SOI)** torna visibile nel pannello LIVE per tutti.
+  - **Etichette, non puntini.** Con la sorgente "Centraline" ogni stazione visibile e' un
+    rettangolo arrotondato (testo **11 px**, angoli 3 px, **32x15 px** misurati sul contesto) con
+    la temperatura a 2 m, **una cifra decimale e la virgola** (`13,8`). Il valore senza
+    temperatura **non si disegna** (nessun `--`, nessun `n/d`).
+  - **Fondo = banda della scala delle mappe.** I **42** breakpoint e i **42** colori di
+    `temperature_2m` (**-80..+50 °C**, ultima banda aperta) sono copiati identici da
+    `scripts/forecast_v2/color_scales.json` e registrati in `FM_COLOR_SCALE_OVERRIDES` come
+    `FM_TEMP2M_COLOR_SCALE` (registro da **21** a **22** chiavi). La scala `temperature` della
+    libreria (wml 0.2.2) e' **identica** voce per voce: mappa, legenda ed etichette usano lo
+    stesso array.
+  - **Testo scelto per contrasto, non a occhio.** Nero `#000000` o bianco `#ffffff`, quello con
+    il rapporto WCAG maggiore: **42/42 bande >= 4,5:1**, minimo **4,87:1** (banda -40 °C). Con
+    `#0f172a`/`#f8fafc` tre bande restavano sotto (4,14 / 4,21 / 4,46).
+  - **Zero sovrapposizioni.** Griglia di occupazione di **(larghezza + 2) x (altezza + 1) px**
+    (**34x16**): ogni etichetta marca tutte le celle che copre, quindi due rettangoli possono
+    intersecarsi solo se condividono una cella. Ordine per **osservazione piu' recente**: chi
+    collide viene scartato (vince la piu' recente). Tetto **250** etichette: la decimazione
+    **12->16->24->32->48->64 px** alza il lato finche' non scende sotto il tetto.
+  - **Misure (Edge headless, CDP, canvas 754x640, filtro 90 minuti invariato).** File reale
+    **4.246** stazioni / **4.105** attive: **60** etichette a zoom 6. Con una **fixture
+    dichiarata** (tutte le 4.246 con `obs_time` = adesso, 3.364 con temperatura, coordinate e
+    valori reali): **63 / 93 / 91** etichette a zoom **6 / 7 / 8**, **0** sovrapposizioni
+    geometriche, **161 / 117 / 55** scartate per collisione, tempo di disegno (mediana su 20)
+    **19,1 / 11,7 / 8,9 ms** (soglia 60). Testi intercettati da `fillText`: `16,8` `17,8` `12,5`
+    `13,5` `17,1`, **91/91** conformi a `xx,x`.
+  - **Click.** Il popup si apre sul **rettangolo** dell'etichetta; il canvas resta
+    `pointer-events:none`, quindi un click lontano non viene rubato alla mappa (verificato a
+    40,700 px: nessun popup).
+  - **Struttura convettiva (SOI) di nuovo visibile per tutti.** `#live-toggle-supercells` non ha
+    piu' `style="display:none"` e `toggleSviluppo()` non lo nasconde piu' fuori da Sviluppo. La
+    **nebbia resta dietro lo switch**. Corretto nello stesso punto un difetto reale:
+    `toggleScRadar()` aggiungeva `active` ma l'inline `display:none` del markup vinceva su
+    `.panel-live.active{display:flex}`, quindi il pannello restava chiuso; ora azzera l'inline
+    (misurato: `flex`, altezza **312 px**, e di nuovo `none` a altezza 0 al secondo click).
+  - Non toccati: filtro delle osservazioni a **90 minuti**, nebbia dietro lo switch, popup e hover
+    con tutti i campi, attribuzione CC BY 4.0, mappe previsionali, player.
+- Storico - Contenuto della 1.2.4.52 (release sopra la 1.2.4.51) - **due modifiche, entrambe sul client**:
   la legenda delle temperature a 850 e 500 hPa che segue la mappa (scale copiate identiche dal
   JSON del renderer, commit `a449322a`, che finora il client non registrava) e la regione
   **Europa** dei domini globali allargata al **Nord Atlantico** (renderer gia' aggiornato,

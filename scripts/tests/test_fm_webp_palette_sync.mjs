@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // TEST 1.2.4.12 — SINCRONIA PALETTE CLIENT <-> RENDERER (precipitazione, geopotenziale, pressure_msl, vento).
-// Guardia contro la divergenza: le scale definite nel CLIENT (mri-light-1.2.4.52.html) devono
+// Guardia contro la divergenza: le scale definite nel CLIENT (mri-light-1.2.4.53.html) devono
 // essere IDENTICHE a quelle pubblicate dal renderer in scripts/forecast_v2/color_scales.json:
 //   - precipitation / rain / showers (breakpoints + colori light/dark);
 //   - precipitation_cum (cumulata dal riferimento: 21 bande 0..300 mm tarate sulla
@@ -32,7 +32,7 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.52.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.53.html');
 const JSON_PATH = path.join(ROOT, 'scripts', 'forecast_v2', 'color_scales.json');
 const src = fs.readFileSync(HTML, 'utf8');
 const scales = JSON.parse(fs.readFileSync(JSON_PATH, 'utf8')).scales;
@@ -485,6 +485,50 @@ for (const [nm, jsbp, jscl] of [
   badClientCol[0] = [0, 0, 0, 1];
   ok(`H8: sensitivita' ${nm} - colore CLIENT mutato => FALLISCE`,
     scaleMatchesJson(jsbp, badClientCol, goodEntry) === false);
+}
+
+// ---------- J. SCALA temperature_2m (1.2.4.53): fondo delle etichette delle centraline ----------
+// Le etichette delle centraline prendono il fondo dalle BANDE della scala `temperature_2m`
+// registrata in FM_COLOR_SCALE_OVERRIDES: deve essere la stessa del renderer (42 bande
+// -80..+50 °C, ultima banda aperta, colori identici in light e dark). Se qualcuno cambia il
+// JSON del renderer senza aggiornare il client (o viceversa) questo blocco fallisce.
+const jsT2mBp = extractArrayLiteral('FM_TEMP2M_BREAKPOINTS');
+const jsT2mColors = extractArrayLiteral('FM_TEMP2M_COLORS');
+ok('J: FM_TEMP2M_BREAKPOINTS estratta (42 bande)', Array.isArray(jsT2mBp) && jsT2mBp.length === 42,
+  jsT2mBp ? jsT2mBp.length : 'null');
+ok('J: FM_TEMP2M_COLORS estratta (42 colori)', Array.isArray(jsT2mColors) && jsT2mColors.length === 42,
+  jsT2mColors ? jsT2mColors.length : 'null');
+ok('J: FM_TEMP2M_COLOR_SCALE dichiarata con unita\' °C',
+  /var\s+FM_TEMP2M_COLOR_SCALE\s*=\s*\{[^}]*unit:\s*'°C'/.test(src));
+ok('J: FM_COLOR_SCALE_OVERRIDES registra temperature_2m',
+  /var\s+FM_COLOR_SCALE_OVERRIDES\s*=\s*\{\s*temperature_2m:\s*FM_TEMP2M_COLOR_SCALE/.test(src));
+ok('J: temperature_2m presente in color_scales.json (light+dark)',
+  !!(scales.temperature_2m && scales.temperature_2m.light && scales.temperature_2m.dark));
+ok('J: breakpoints + colori temperature_2m JS == JSON (light e dark)',
+  scaleMatchesJson(jsT2mBp, jsT2mColors, scales.temperature_2m));
+ok('J: temperature_2m light == dark (palette identica)',
+  !!scales.temperature_2m && eq(scales.temperature_2m.light, scales.temperature_2m.dark));
+// Il fondo delle etichette e' la BANDA del registro, non una rampa locale: la funzione
+// stationsBandScale deve leggere FM_TEMP2M_COLOR_SCALE e la vecchia rampa continua
+// (STATIONS_TEMP_STOPS) non deve piu' esistere.
+{
+  const i0 = src.indexOf('function stationsBandScale');
+  const body = i0 >= 0 ? src.slice(i0, i0 + 400) : '';
+  ok('J: stationsBandScale legge il registro (nessuna rampa locale)', i0 >= 0 && /FM_TEMP2M_COLOR_SCALE/.test(body));
+  ok('J: STATIONS_TEMP_STOPS rimossa (nessun colore proprio)', !/STATIONS_TEMP_STOPS/.test(src));
+}
+// Sensibilita' del comparatore anche su questa scala.
+{
+  const good = JSON.parse(JSON.stringify(scales.temperature_2m));
+  ok('J: baseline temperature_2m supera il comparatore', scaleMatchesJson(jsT2mBp, jsT2mColors, good) === true);
+  const badBp = JSON.parse(JSON.stringify(good));
+  badBp.light.breakpoints[0] = -79;
+  ok('J: sensitivita\' temperature_2m - breakpoint mutato => FALLISCE',
+    scaleMatchesJson(jsT2mBp, jsT2mColors, badBp) === false);
+  const badCol = JSON.parse(JSON.stringify(good));
+  badCol.light.colors[3] = [1, 2, 3, 1];
+  ok('J: sensitivita\' temperature_2m - colore mutato => FALLISCE',
+    scaleMatchesJson(jsT2mBp, jsT2mColors, badCol) === false);
 }
 
 // ---------- ESITO ----------

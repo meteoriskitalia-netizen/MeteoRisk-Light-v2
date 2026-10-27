@@ -1379,7 +1379,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         Colori sovrapposti indicano temporali di calore stagnanti.
     </div>
     <div class="sc-toggles">
-        <button type="button" id="live-toggle-supercells" class="sc-toggle" onclick="toggleLiveSupercells()" style="display:none;" title="Record di struttura convettiva (data/radar/convective_structures.json) e fenomeni osservati, riusati dal pannello Struttura convettiva e mostrati qui nel pannello LIVE">Struttura convettiva</button>
+        <button type="button" id="live-toggle-supercells" class="sc-toggle" onclick="toggleLiveSupercells()" title="Record di struttura convettiva (data/radar/convective_structures.json) e fenomeni osservati, riusati dal pannello Struttura convettiva e mostrati qui nel pannello LIVE">Struttura convettiva</button>
         <!-- Sub-toggle spostati dal pannello #sc-radar-panel: stessa logica, stessi handler,
              id dedicati (live-toggle-*), visibili SOLO con celle organizzate attive (come #live-sc-*). -->
         <button type="button" id="live-toggle-trails" class="sc-toggle on" onclick="toggleScTrails()" title="Traccia 2h dei candidati attivi (archivio rolling radar-history)" style="display:none;">Traccia 2h</button>
@@ -1391,13 +1391,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
          sorgente del selettore e' "Centraline" (refreshMnwPanel -> stationsSetActive).
          Riusa le classi .live-legend/.legend-title/.legend-row: nessun CSS nuovo. -->
     <div class="live-legend" id="live-stations-box" style="display:none;">
-        <div class="legend-title" id="live-stations-title">Centraline osservate — temperatura a 2 m (osservato, non modello)</div>
+        <div class="legend-title" id="live-stations-title">Centraline osservate — temperatura a 2 m in °C, etichette con il valore (osservato, non modello)</div>
         <div class="legend-row" id="live-stations-status" style="font-size:11px;">Caricamento centraline...</div>
         <div class="legend-row" id="live-stations-stale" style="display:none;font-weight:700;color:#fca5a5;"></div>
         <div class="legend-row" style="margin-top:4px;gap:8px;">
             <span style="font-size:10px;color:#94a3b8;">°C</span>
             <span id="live-stations-scale" style="flex:1 1 240px;min-width:180px;height:10px;border-radius:3px;border:1px solid #475569;"></span>
-            <span class="legend-swatch" style="background:rgba(148,163,184,0.75);"></span><span style="font-size:10px;">senza temperatura</span>
+            <span style="font-size:10px;">stazione senza temperatura: non disegnata</span>
         </div>
         <div class="legend-row" id="live-stations-scale-labels" style="font-size:9px;color:#94a3b8;"></div>
         <div class="legend-row" id="live-stations-decimation" style="font-size:9px;color:#64748b;"></div>
@@ -2014,10 +2014,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.52';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.53';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-27';
     const APP_CHANGELOG = [
-        { version: '1.2.4.52', date: '2026-10-27', changes: [
+        { version: '1.2.4.53', date: '2026-10-27', changes: [
+  'CENTRALINE= LE STAZIONI OSSERVATE SONO ETICHETTE CON IL VALORE, NON PUNTINI. Con la sorgente "Centraline" ogni stazione visibile e\\\' un rettangolo arrotondato (11 px di testo, angoli 3 px) che porta la TEMPERATURA A 2 M con UNA cifra decimale e la VIRGOLA ("13,8"), come la mappa di riferimento dell\\\'utente. Il FONDO e\\\' la banda della scala `temperature_2m` delle MAPPE: 42 bande da 2 °C, -80..+50 °C (ultima banda aperta), copiate IDENTICHE da `scripts/forecast_v2/color_scales.json` (`scales.temperature_2m`, light == dark, verificate uguali alla scala `temperature` della libreria wml 0.2.2) e registrate in `FM_COLOR_SCALE_OVERRIDES` (`FM_TEMP2M_COLOR_SCALE`): prima il client non aveva l\\\'array e le etichette non potevano usare "le stesse bande". Nessun colore inventato e legenda a scalini con gli stessi colori. TESTO scelto per CONTRASTO WCAG >= 4,5:1 CALCOLATO sulla banda (nero o bianco puro, quello con il rapporto maggiore): con #0f172a/#f8fafc tre bande restavano sotto (magenta -40 °C 4,14:1, viola -32 °C 4,21:1, rosso +42 °C 4,46:1), con il nero/bianco puri TUTTE le 42 bande superano 4,5:1 (minimo 4,87:1 sulla banda -40 °C, 4,88:1 sulla +42 °C). NIENTE SOVRAPPOSIZIONI: griglia di occupazione di (larghezza etichetta + 2) x (altezza + 1) px, ogni etichetta marca TUTTE le celle che copre (due rettangoli possono intersecarsi solo se condividono una cella), le stazioni sono ordinate per osservazione piu\\\' recente e chi collide viene SCARTATO: vince la piu\\\' recente. TETTO 250 etichette: la decimazione a griglia 12->16->24->32->48->64 px alza il lato finche\\\' non scende sotto il tetto, poi taglia la coda piu\\\' vecchia. Una stazione SENZA temperatura non si disegna (nessun "--", nessun "n/d"). Il campo mostrato e\\\' un unico punto di configurazione (`STATIONS_LABEL_FIELD`: campo, unita\\\' °C, decimali, chiave della scala) per passare a umidita\\\' o vento senza toccare il disegno. Click: il popup con tutti i campi si apre sul rettangolo dell\\\'etichetta; il canvas resta `pointer-events:none`, quindi un click lontano non viene rubato alla mappa.',
+  'UI= LA STRUTTURA CONVETTIVA (SOI) TORNA VISIBILE NEL PANNELLO LIVE PER TUTTI. `#live-toggle-supercells` non ha piu\\\' `style="display:none"` nel markup e `toggleSviluppo()` non lo nasconde piu\\\' fuori dalla modalita\\\' Sviluppo: era il comportamento fino alla 1.2.4.50, poi la 1.2.4.51 lo aveva legato allo switch e il pulsante era SPARITO per chi non usa Sviluppo. La NEBBIA resta invece dietro lo switch (scelta dell\\\'utente): `#metric-tab-fog` e il badge `id:fog` non sono stati toccati. DIFETTO TROVATO E CORRETTO NELLO STESSO PUNTO: `toggleScRadar()` aggiungeva la classe `active` a `#sc-radar-panel`, ma il markup porta `style="display:none"` e lo stile INLINE vince su `.panel-live.active{display:flex}`, quindi il pannello restava chiuso finche\\\' un giro dello switch Sviluppo non azzerava l\\\'inline. Ora `toggleScRadar()` azzera l\\\'inline all\\\'apertura (verificato: pannello visibile con altezza > 0 dopo il click, e di nuovo chiuso al secondo click).',
+
   'MAPPE= LEGENDA E MAPPA TORNANO D\'ACCORDO SU `temperature_850hPa`: scala di TEMPERATURA DEDICATA su 34 bande da 2 °C, da -32 a +34 °C (l\'ultima banda e\' aperta: `[34, +inf)`), registrata in `FM_COLOR_SCALE_OVERRIDES` come `FM_T850_COLOR_SCALE`. MOTIVO: la variabile non aveva un override e la libreria la risolveva per prefisso sulla scala generica di `temperature` (42 bande da -80 a +50 °C); su 850 hPa il rosso arrivava solo verso +38/+40 °C, un valore che a quella quota non si osserva, e i valori REALI (0 °C contro +8 °C: la differenza che decide la neve in quota) cadevano su tre verdi quasi indistinguibili. INTERVALLO tarato su una MISURA, non a occhio: 10.724.490 celle finite da 15 frame `.om` reali (5 domini x 3 frame), min -32,1, p0,1 -23,3, p1 -18,9, p50 +2,9, p99 +20,9, p99,9 +24,0, max +32,6. 0 °C resta il verde menta #72E8A5 e la zona -18..0 °C e\' IDENTICA alla rampa precedente, quindi nessun colore nuovo e nessuna scala reinterpretata: i valori sono copiati IDENTICI da `scripts/forecast_v2/color_scales.json` (`scales.temperature_850hPa`, passo 2 °C), cioe\' la stessa scala che il renderer usa gia\' dalla 1.2.4.51.',
   'MAPPE= LEGENDA E MAPPA TORNANO D\'ACCORDO SU `temperature_500hPa`: scala di TEMPERATURA DEDICATA su 27 bande da 2 °C, da -46 a +6 °C (l\'ultima banda e\' aperta: `[6, +inf)`), registrata in `FM_COLOR_SCALE_OVERRIDES` come `FM_T500_COLOR_SCALE`. MOTIVO: come per 850 hPa la legenda usava la rampa generica da -80 a +50 °C, dove il rosso sta a +38 °C mentre a 500 hPa l\'Italia sta fra -27 e -7 °C: la mappa era tutta blu e la legenda non distingueva nulla. INTERVALLO dalla stessa misura (min -45,5, p0,1 -42,9, p1 -39,2, p50 -18,7, p99 -3,3, p99,9 -1,4, max +5,6): le prime 19 voci della rampa piu\' 8 voci verdi/gialle, saltando la voce #11DC3D perche\' indistinguibile dalla precedente (dE2000 2,0): due bande identiche in una legenda da 2 °C non sono informazione. Valori copiati IDENTICI da `scripts/forecast_v2/color_scales.json` (`scales.temperature_500hPa`).',
   'MAPPE= LA REGIONE \'EUROPA\' DEI DOMINI GLOBALI ARRIVA AL NORD ATLANTICO: Labrador, Groenlandia meridionale, Islanda e Azzorre. `FM_REGIONS` passa da `bbox [30, -30, 72, 50]` a `[30, -70, 75, 45]`, perche\' `fmApplyRegion` INTERSECA il bbox della regione con i bounds della run: con il riquadro vecchio il Labrador a 60W sarebbe stato tagliato anche se il WebP lo contiene. Il renderer e\' gia\' aggiornato (commit dc9a31b6): la regione `europa` dei 4 domini globali (`dwd_icon`, `ecmwf_ifs025`, `ncep_gfs025`, `meteofrance_arpege_world025`) copre 30..75N / 70W..45E con output 921x679 (prima 1121x1111). AREA PIU\' GRANDE E FILE PIU\' LEGGERI: -27,2% di byte su `ecmwf_ifs025` e -31,5% su `dwd_icon` (misurati dal renderer). Le cifre restano leggibili: 8,19 px a schermo sulla densita\' 921x679. NON toccati: `FM_GLOBAL_DOMAINS`, `fmDomainRegionIds` e i 3 domini regionali (`dwd_icon_eu`, `dwd_icon_d2`, `ncep_gfs013`), che restano ritagliati dal renderer sulla loro copertura: con `dwd_icon_eu` la regione Europa resta 34..62N / 15W..40E.',
@@ -9043,7 +9046,11 @@ removeLightningTile();
         if (isScRadarActive) {
             setScButton(true);
             var panel = scRadarEl('sc-radar-panel');
-            if (panel) panel.classList.add('active');
+            // 1.2.4.53: il markup porta style="display:none" e lo stile INLINE vince su
+            // `.panel-live.active{display:flex}`: senza questa riga il pannello restava
+            // chiuso pur con la classe attiva (visibile solo dopo un giro dello switch
+            // Sviluppo, che azzerava l'inline). Ora toggleScRadar() lo apre DAVVERO.
+            if (panel) { panel.classList.add('active'); panel.style.display = ''; }
             var st = scRadarEl('sc-status');
             if (st) st.innerText = 'Caricamento dati radar (data/radar/convective_structures.json)...';
             refreshScRadar();
@@ -11879,14 +11886,34 @@ stopSyncPlay();
     var STATIONS_FULL_URL = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/main/data/stations/latest.json';
     var STATIONS_MAX_OBS_AGE_MIN = 90;   // filtro: obs_time piu' vecchio di 90 min -> scartato
     var STATIONS_STALE_MIN = 120;        // file piu' vecchio di 2 h -> badge "dato fermo"
-    var STATIONS_MAX_POINTS = 600;       // tetto dei punti disegnati sul canvas
+    var STATIONS_MAX_POINTS = 250;       // TETTO delle etichette disegnate (= STATIONS_LABEL_MAX)
     var STATIONS_GRID_STEPS = [12, 16, 24, 32, 48, 64];  // lato cella (px schermo)
-    // Scala CONTINUA per la temperatura (stessi stop usati dal disegno e dalla legenda).
-    var STATIONS_TEMP_STOPS = [
-        [-10, [67, 56, 202]], [-5, [37, 99, 235]], [0, [14, 165, 233]], [5, [34, 211, 238]],
-        [10, [34, 197, 94]], [15, [163, 230, 53]], [20, [250, 204, 21]], [25, [249, 115, 22]],
-        [30, [239, 68, 68]], [35, [185, 28, 28]], [40, [127, 29, 29]]
-    ];
+    // 1.2.4.53 - ETICHETTE, NON PUNTINI. Ogni centralina visibile e' un rettangolo
+    // arrotondato con il valore del campo scelto (oggi temperatura a 2 m, UNA cifra
+    // decimale con la VIRGOLA: "13,8"). Il fondo e' la BANDA della scala
+    // `temperature_2m` delle MAPPE (la stessa registrata in FM_COLOR_SCALE_OVERRIDES:
+    // 42 bande da -80 a +50 °C copiate da scripts/forecast_v2/color_scales.json), non
+    // una rampa inventata qui. Il testo (nero o bianco) si sceglie per CONTRASTO
+    // WCAG >= 4,5:1 CALCOLATO sulla banda (stationsInkForBand).
+    // STATIONS_LABEL_FIELD e' l'unico punto da cambiare per mostrare un altro campo
+    // (umidita', vento): cambiano campo, unita', decimali e scala, non il disegno.
+    var STATIONS_LABEL_FIELD = {
+        key: 'temp',              // campo di stationsData.stations[]
+        label: 'Temperatura 2 m',
+        unit: '°C',
+        decimals: 1,
+        scale: 'temperature_2m'   // chiave del registro FM_COLOR_SCALE_OVERRIDES
+    };
+    var STATIONS_LABEL_MAX = STATIONS_MAX_POINTS;
+    var STATIONS_LABEL_FONT_PX = 11;     // corpo del testo (px)
+    var STATIONS_LABEL_FONT = '600 ' + STATIONS_LABEL_FONT_PX + 'px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
+    var STATIONS_LABEL_PAD_X = 3;        // padding orizzontale dentro il rettangolo (px)
+    var STATIONS_LABEL_RADIUS = 3;       // raggio degli angoli (px)
+    // Inchiostri candidati: NERO e BIANCO puri. Con #0f172a/#f8fafc tre bande
+    // (magenta -40, viola -32, rosso +42) restavano sotto 4,5:1; con il nero/bianco
+    // puri TUTTE le 42 bande superano 4,5:1 (minimo misurato 4,87:1).
+    var STATIONS_INK_DARK = [0, 0, 0];
+    var STATIONS_INK_LIGHT = [255, 255, 255];
     var stationsData = null;
     var stationsError = null;
     var stationsLoading = null;
@@ -11895,8 +11922,12 @@ stopSyncPlay();
     var stationsActive = false;
     var stationsLayerObj = null;
     var stationsCanvas = null;
-    var stationsDrawn = [];             // [{x,y,st}] in coordinate container
-    var stationsStats = null;           // {active,total,candidates,cell,zoom,drawn}
+    var stationsDrawn = [];             // [{x,y,st,bx,by,bw,bh,band}] in coordinate container
+    var stationsStats = null;           // {active,total,candidates,cell,zoom,drawn,collisions,noValue,drawMs}
+    var stationsLastDrawMs = null;      // durata MISURATA del disegno (ms)
+    var stationsLabelSizeCache = null;  // {w,h} del rettangolo, misurata una volta
+    var stationsBandCssCache = {};      // banda -> 'rgb(r,g,b)'
+    var stationsBandInkCache = {};      // banda -> {css,ratio,dark}
     var stationsHoverEl = null;
     var stationsBound = false;
     var stationsAgeTimer = null;
@@ -11941,23 +11972,89 @@ stopSyncPlay();
         return txt;
     }
 
-    function stationsColorForTemp(t) {
-        if (t === null || !isFinite(t)) return 'rgba(148,163,184,0.75)';
-        var stops = STATIONS_TEMP_STOPS;
-        if (t <= stops[0][0]) return 'rgb(' + stops[0][1].join(',') + ')';
-        var last = stops[stops.length - 1];
-        if (t >= last[0]) return 'rgb(' + last[1].join(',') + ')';
-        for (var i = 1; i < stops.length; i++) {
-            if (t <= stops[i][0]) {
-                var a = stops[i - 1], b = stops[i];
-                var f = (t - a[0]) / (b[0] - a[0]);
-                var r = Math.round(a[1][0] + (b[1][0] - a[1][0]) * f);
-                var g = Math.round(a[1][1] + (b[1][1] - a[1][1]) * f);
-                var bl = Math.round(a[1][2] + (b[1][2] - a[1][2]) * f);
-                return 'rgb(' + r + ',' + g + ',' + bl + ')';
-            }
-        }
-        return 'rgba(148,163,184,0.75)';
+    // ---- SCALA A BANDE (temperature_2m del registro FM_COLOR_SCALE_OVERRIDES) ----
+    // Nessun colore proprio: si legge la scala che le MAPPE usano per la stessa
+    // variabile. Se un giorno il registro non la portasse, si smette di disegnare
+    // invece di colorare a caso (vedi il gate in stationsDrawCanvas).
+    function stationsBandScale() {
+        var sc = (typeof FM_TEMP2M_COLOR_SCALE !== 'undefined') ? FM_TEMP2M_COLOR_SCALE : null;
+        return (sc && sc.breakpoints && sc.colors && sc.colors.light) ? sc : null;
+    }
+
+    // Indice della banda che contiene il valore: banda i = [bp[i], bp[i+1]); la prima
+    // e' chiusa a sinistra, l'ultima e' APERTA a destra (saturazione), come il renderer.
+    function stationsBandIndex(scale, v) {
+        var bp = scale.breakpoints, n = bp.length;
+        if (!(n > 0)) return 0;
+        if (v < bp[0]) return 0;
+        for (var i = n - 1; i >= 0; i--) if (v >= bp[i]) return i;
+        return 0;
+    }
+
+    // Luminanza relativa e contrasto WCAG 2.x (sRGB, soglia 0,03928).
+    function stationsRelLum(rgb) {
+        var f = function (x) {
+            var c = x / 255;
+            return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+        };
+        return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]);
+    }
+
+    function stationsContrastRatio(a, b) {
+        var la = stationsRelLum(a), lb = stationsRelLum(b);
+        var hi = la > lb ? la : lb, lo = la > lb ? lb : la;
+        return (hi + 0.05) / (lo + 0.05);
+    }
+
+    // Inchiostro della banda: nero o bianco, quello con il contrasto WCAG MAGGIORE.
+    // Ritorna {css, ratio, dark}: ratio e' il contrasto EFFETTIVO della scelta.
+    function stationsInkForBand(rgb) {
+        var cd = stationsContrastRatio(rgb, STATIONS_INK_DARK);
+        var cl = stationsContrastRatio(rgb, STATIONS_INK_LIGHT);
+        return (cl > cd)
+            ? { css: '#ffffff', ratio: cl, dark: false }
+            : { css: '#000000', ratio: cd, dark: true };
+    }
+
+    function stationsBandColor(bandIdx) {
+        var sc = stationsBandScale();
+        if (!sc) return [148, 163, 184];
+        var cols = sc.colors.light;
+        var c = cols[bandIdx] || cols[cols.length - 1];
+        return [c[0], c[1], c[2]];
+    }
+
+    function stationsBandCss(bandIdx) {
+        var k = 'b' + bandIdx;
+        if (stationsBandCssCache[k]) return stationsBandCssCache[k];
+        var c = stationsBandColor(bandIdx);
+        var css = 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
+        stationsBandCssCache[k] = css;
+        return css;
+    }
+
+    function stationsBandInk(bandIdx) {
+        if (!stationsBandInkCache[bandIdx]) stationsBandInkCache[bandIdx] = stationsInkForBand(stationsBandColor(bandIdx));
+        return stationsBandInkCache[bandIdx];
+    }
+
+    // Valore dell'etichetta: UNA cifra decimale con la VIRGOLA ("13,8"). fmtNum()
+    // dell'app usa il punto (contratto fissato da test_number_format.mjs) e il canvas
+    // non ha locale: qui c'e' un formatter dedicato, con -0,0 corretto in 0,0.
+    function stationsLabelText(v) {
+        var n = Number(v);
+        if (!isFinite(n)) return '';
+        var s = n.toFixed(STATIONS_LABEL_FIELD.decimals);
+        if (/^-0(?:[.,]0+)?$/.test(s)) s = s.substring(1);
+        return s.replace('.', ',');
+    }
+
+    // Valore del campo scelto, oppure null: una stazione senza il valore NON si
+    // disegna (nessun "--", nessun "n/d" sulla mappa).
+    function stationsFieldValue(st) {
+        if (!st) return null;
+        var v = st[STATIONS_LABEL_FIELD.key];
+        return (v === null || v === undefined || v === '' || !isFinite(Number(v))) ? null : Number(v);
     }
 
     function stationsDistanceKm(lat1, lon1, lat2, lon2) {
@@ -12083,12 +12180,18 @@ stopSyncPlay();
     }
 
     // DECIMAZIONE (criterio dichiarato anche nell'interfaccia):
-    //  1. si tengono solo le stazioni ATTIVE (obs_time <= 90 min) e dentro il viewport;
-    //  2. griglia di 12 px nello spazio dello schermo: UNA stazione per cella, quella
-    //     con osservazione piu' recente (pareggio: id minore). La copertura resta
-    //     uniforme a ogni zoom e i punti non si sovrappongono;
-    //  3. se le celle occupate superano 600 il lato cresce 12 -> 16 -> 24 -> 32 -> 48
-    //     -> 64 px finche' non si scende sotto il tetto: mai piu' di 600 punti.
+    //  1. si tengono solo le stazioni ATTIVE (obs_time <= 90 min), dentro il viewport e
+    //     CON un valore per il campo dell'etichetta: una stazione senza temperatura non
+    //     entra proprio (nessun "--" e nessun "n/d" sulla mappa);
+    //  2. griglia di 12 px nello spazio dello schermo: UNA stazione per cella, quella con
+    //     osservazione piu' recente (pareggio: id minore). La copertura resta uniforme a
+    //     ogni zoom e i punti non si sovrappongono;
+    //  3. se le celle occupate superano il tetto (250 etichette: oltre non si leggono) il
+    //     lato cresce 12 -> 16 -> 24 -> 32 -> 48 -> 64 px finche' non si scende sotto il
+    //     tetto;
+    //  4. la lista finale e' ORDINATA per osservazione piu' recente e tagliata al tetto:
+    //     il posizionamento delle etichette (stationsDrawCanvas) scarta quelle che
+    //     collidono, quindi l'ordine decide chi resta.
     function stationsDecimate() {
         if (!stationsData || !stationsData.stations.length || !map) return { points: [], cell: 0, candidates: 0 };
         var bounds = map.getBounds();
@@ -12097,9 +12200,12 @@ stopSyncPlay();
         for (var i = 0; i < stationsData.stations.length; i++) {
             var st = stationsData.stations[i];
             if ((now - st.time) / 60000 > STATIONS_MAX_OBS_AGE_MIN) continue;
+            if (stationsFieldValue(st) === null) continue;
             if (!bounds.contains(L.latLng(st.lat, st.lon))) continue;
             cands.push(st);
         }
+        if (!cands.length) return { points: [], cell: STATIONS_GRID_STEPS[0], candidates: 0 };
+        cands.sort(function (a, b) { return (b.time - a.time) || (String(a.id) < String(b.id) ? -1 : 1); });
         var cell = STATIONS_GRID_STEPS[0];
         var picked = [];
         for (var g = 0; g < STATIONS_GRID_STEPS.length; g++) {
@@ -12118,11 +12224,57 @@ stopSyncPlay();
             for (var k = 0; k < keys.length; k++) picked.push(cells[keys[k]]);
             if (picked.length <= STATIONS_MAX_POINTS) break;
         }
+        picked.sort(function (a, b) { return (b.time - a.time) || (String(a.id) < String(b.id) ? -1 : 1); });
+        if (picked.length > STATIONS_MAX_POINTS) picked.length = STATIONS_MAX_POINTS;
         return { points: picked, cell: cell, candidates: cands.length };
     }
 
+    // Dimensione del rettangolo, misurata UNA volta sul contesto reale: la larghezza
+    // e' quella del valore piu' largo fra i plausibili (tutte le etichette hanno la
+    // stessa larghezza, cosi' la griglia di occupazione e' regolare), l'altezza viene
+    // dal corpo del font (11 px + 4 px di respiro).
+    function stationsLabelSize(ctx) {
+        if (stationsLabelSizeCache) return stationsLabelSizeCache;
+        var prev = ctx.font;
+        ctx.font = STATIONS_LABEL_FONT;
+        var samples = ['-80,0', '-9,9', '0,0', '13,8'];
+        var wmax = 0;
+        for (var i = 0; i < samples.length; i++) {
+            var m = ctx.measureText(samples[i]);
+            if (m && m.width > wmax) wmax = m.width;
+        }
+        ctx.font = prev;
+        stationsLabelSizeCache = {
+            w: Math.ceil(wmax) + STATIONS_LABEL_PAD_X * 2,
+            h: STATIONS_LABEL_FONT_PX + 4
+        };
+        return stationsLabelSizeCache;
+    }
+
+    function stationsRoundRectPath(ctx, x, y, w, h, r) {
+        var rr = Math.min(r, w / 2, h / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + rr, y);
+        ctx.lineTo(x + w - rr, y);
+        ctx.arcTo(x + w, y, x + w, y + rr, rr);
+        ctx.lineTo(x + w, y + h - rr);
+        ctx.arcTo(x + w, y + h, x + w - rr, y + h, rr);
+        ctx.lineTo(x + rr, y + h);
+        ctx.arcTo(x, y + h, x, y + h - rr, rr);
+        ctx.lineTo(x, y + rr);
+        ctx.arcTo(x, y, x + rr, y, rr);
+        ctx.closePath();
+    }
+
+    // DISEGNO: un rettangolo arrotondato per stazione, NESSUNA sovrapposizione.
+    // Griglia di occupazione di (larghezza + 2) x (altezza + 1) px: ogni etichetta
+    // marca TUTTE le celle che copre, quindi due rettangoli possono intersecarsi solo
+    // se condividono una cella (se si intersecano, il punto comune sta in una cella
+    // coperta da entrambi). Le stazioni arrivano ordinate per osservazione piu'
+    // recente: in caso di collisione vince la piu' recente, la piu' vecchia si scarta.
     function stationsDrawCanvas(canvas) {
         if (!canvas || !canvas.getContext || !map) return;
+        var t0 = (window.performance && performance.now) ? performance.now() : Date.now();
         var ctx = canvas.getContext('2d');
         var dpr = window.devicePixelRatio || 1;
         var w = canvas.width / dpr, h = canvas.height / dpr;
@@ -12130,45 +12282,91 @@ stopSyncPlay();
         ctx.clearRect(0, 0, w, h);
         var res = stationsDecimate();
         var zoom = map.getZoom();
-        var radius = zoom >= 9 ? 4.2 : (zoom >= 7 ? 3.6 : 3.0);
+        var scale = stationsBandScale();
+        // Senza la scala delle mappe non si colora nulla: meglio nessuna etichetta che
+        // un colore inventato (la condizione e' dichiarata, non silenziosa).
+        if (!scale) {
+            stationsDrawn = [];
+            stationsStats = { drawn: 0, candidates: res.candidates, cell: res.cell, zoom: zoom, active: stationsActiveCount(), total: stationsData ? stationsData.stations.length : 0, collisions: 0, noValue: 0, labelW: 0, labelH: 0, drawMs: 0, noScale: true };
+            stationsUpdateStatus();
+            return;
+        }
+        var size = stationsLabelSize(ctx);
+        var cellW = size.w + 2, cellH = size.h + 1;
+        var occ = {};                       // "cx:cy" -> 1 sulle celle occupate
+        var collisions = 0, noValue = 0;
         stationsDrawn = [];
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(15,23,42,0.65)';
         for (var i = 0; i < res.points.length; i++) {
             var st = res.points[i];
+            var v = stationsFieldValue(st);
+            if (v === null) { noValue++; continue; }
             var p = map.latLngToContainerPoint([st.lat, st.lon]);
-            stationsDrawn.push({ x: p.x, y: p.y, st: st });
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
-            ctx.fillStyle = stationsColorForTemp(st.temp);
-            ctx.globalAlpha = 0.9;
+            var bx = Math.round(p.x - size.w / 2);
+            var by = Math.round(p.y - size.h / 2);
+            if (bx > w || by > h || bx + size.w < 0 || by + size.h < 0) continue;
+            var c0 = Math.floor(bx / cellW), c1 = Math.floor((bx + size.w) / cellW);
+            var r0 = Math.floor(by / cellH), r1 = Math.floor((by + size.h) / cellH);
+            var cx, cy, free = true;
+            for (cy = r0; cy <= r1 && free; cy++) {
+                for (cx = c0; cx <= c1; cx++) {
+                    if (occ[cx + ':' + cy]) { free = false; break; }
+                }
+            }
+            if (!free) { collisions++; continue; }
+            for (cy = r0; cy <= r1; cy++) {
+                for (cx = c0; cx <= c1; cx++) occ[cx + ':' + cy] = 1;
+            }
+            var band = stationsBandIndex(scale, v);
+            ctx.fillStyle = stationsBandCss(band);
+            stationsRoundRectPath(ctx, bx, by, size.w, size.h, STATIONS_LABEL_RADIUS);
             ctx.fill();
-            ctx.globalAlpha = 1;
-            ctx.lineWidth = 1;
-            ctx.strokeStyle = 'rgba(15,23,42,0.85)';
             ctx.stroke();
+            ctx.fillStyle = stationsBandInk(band).css;
+            ctx.font = STATIONS_LABEL_FONT;
+            ctx.fillText(stationsLabelText(v), bx + size.w / 2, by + size.h / 2 + 0.5);
+            stationsDrawn.push({ x: p.x, y: p.y, st: st, bx: bx, by: by, bw: size.w, bh: size.h, band: band });
         }
+        var t1 = (window.performance && performance.now) ? performance.now() : Date.now();
+        stationsLastDrawMs = Math.round((t1 - t0) * 10) / 10;
         stationsStats = {
-            drawn: res.points.length, candidates: res.candidates, cell: res.cell,
+            drawn: stationsDrawn.length, candidates: res.candidates, cell: res.cell,
             zoom: zoom, active: stationsActiveCount(),
-            total: stationsData ? stationsData.stations.length : 0
+            total: stationsData ? stationsData.stations.length : 0,
+            collisions: collisions, noValue: noValue,
+            labelW: size.w, labelH: size.h, drawMs: stationsLastDrawMs
         };
         stationsUpdateStatus();
     }
 
+    // Legenda: la STESSA sequenza di bande usata dalle etichette (scala
+    // `temperature_2m` del registro, 42 bande da -80 a +50 °C), a SCALINI: ogni banda
+    // ha il suo colore piatto, cosi' quello che si legge in legenda e' esattamente il
+    // colore che porta un'etichetta (niente rampa interpolata).
     function stationsBuildLegend() {
         var bar = document.getElementById('live-stations-scale');
         var labels = document.getElementById('live-stations-scale-labels');
         if (!bar) return;
-        var stops = STATIONS_TEMP_STOPS;
-        var span = stops[stops.length - 1][0] - stops[0][0];
+        var sc = stationsBandScale();
+        if (!sc) return;
+        var bp = sc.breakpoints, cols = sc.colors.light;
+        var span = bp[bp.length - 1] - bp[0];
+        if (!(span > 0)) return;
         var parts = [];
-        for (var i = 0; i < stops.length; i++) {
-            var pct = Math.round((stops[i][0] - stops[0][0]) / span * 100);
-            parts.push('rgb(' + stops[i][1].join(',') + ') ' + pct + '%');
+        for (var i = 0; i < bp.length; i++) {
+            var c = cols[i] || cols[cols.length - 1];
+            var a = Math.round((bp[i] - bp[0]) / span * 1000) / 10;
+            var b = (i + 1 < bp.length) ? Math.round((bp[i + 1] - bp[0]) / span * 1000) / 10 : 100;
+            parts.push('rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ') ' + a + '% ' + b + '%');
         }
         bar.style.background = 'linear-gradient(90deg,' + parts.join(',') + ')';
         if (labels && !labels.childNodes.length) {
             var html = '';
-            for (var k = -10; k <= 40; k += 10) html += '<span>' + k + '</span>';
+            for (var k = -80; k <= 40; k += 20) html += '<span>' + String(k).replace('-', '\u2212') + '</span>';
+            html += '<span>+50</span>';
             labels.innerHTML = html;
         }
     }
@@ -12208,9 +12406,12 @@ stopSyncPlay();
         }
         if (dec) {
             if (stationsStats && stationsData) {
-                dec.textContent = 'Decimazione a griglia ' + stationsStats.cell + ' px: ' + stationsStats.drawn +
-                    ' punti disegnati su ' + stationsStats.candidates + ' attivi nell\u2019area visibile' +
-                    ' (tetto ' + STATIONS_MAX_POINTS + ', zoom ' + stationsStats.zoom + ').';
+                dec.textContent = 'Etichette: ' + stationsStats.drawn + ' disegnate su ' + stationsStats.candidates +
+                    ' centraline attive con ' + STATIONS_LABEL_FIELD.label.toLowerCase() + ' nell\u2019area visibile' +
+                    ' (tetto ' + STATIONS_MAX_POINTS + ', griglia ' + stationsStats.cell + ' px, zoom ' + stationsStats.zoom +
+                    ', ' + stationsStats.collisions + ' scartate perche\u2019 si sovrapporrebbero' +
+                    (stationsStats.noValue ? ', ' + stationsStats.noValue + ' senza ' + STATIONS_LABEL_FIELD.label.toLowerCase() + ' non disegnate' : '') +
+                    ', disegno ' + stationsStats.drawMs + ' ms).';
             } else {
                 dec.textContent = '';
             }
@@ -12289,11 +12490,19 @@ stopSyncPlay();
         try { return map.mouseEventToContainerPoint(ev); } catch (e) { return null; }
     }
 
+    // Hit-test: prima il RETTANGOLO dell'etichetta (il click su un'etichetta apre il
+    // popup con tutti i campi), poi la vecchia soglia di 7 px dal centro. Il canvas ha
+    // pointer-events:none, quindi un click LONTANO da ogni etichetta non viene mai
+    // fermato: la mappa e le province rispondono come prima.
     function stationsPick(p) {
         if (!p) return null;
-        var best = null, bestD = 7 * 7;
         for (var i = 0; i < stationsDrawn.length; i++) {
-            var d = stationsDrawn[i];
+            var r = stationsDrawn[i];
+            if (p.x >= r.bx && p.x <= r.bx + r.bw && p.y >= r.by && p.y <= r.by + r.bh) return r.st;
+        }
+        var best = null, bestD = 7 * 7;
+        for (var j = 0; j < stationsDrawn.length; j++) {
+            var d = stationsDrawn[j];
             var dx = d.x - p.x, dy = d.y - p.y;
             var dd = dx * dx + dy * dy;
             if (dd <= bestD) { bestD = dd; best = d.st; }
@@ -12487,8 +12696,9 @@ stopSyncPlay();
                 escapeHtml(stationsError || 'Dati centraline non disponibili.') + '</div>';
         } else {
             html += '<div style="color:#94a3b8;font-size:10px;margin-bottom:4px;">' + escapeHtml(stationsCountsLine()) + '</div>';
-            html += '<div style="color:#cbd5e1;font-size:11px;">La mappa mostra le centraline attive, decimate per zoom (max ' +
-                STATIONS_MAX_POINTS + ' punti). Seleziona una località per la stazione più vicina.</div>';
+            html += '<div style="color:#cbd5e1;font-size:11px;">La mappa mostra le centraline attive come etichette con la ' +
+                STATIONS_LABEL_FIELD.label.toLowerCase() + ' in ' + STATIONS_LABEL_FIELD.unit + ', decimate per zoom (max ' +
+                STATIONS_MAX_POINTS + ' etichette, nessuna sovrapposizione). Seleziona una località per la stazione più vicina.</div>';
         }
         html += stationsAttributionLine();
         content.innerHTML = html;
@@ -13474,7 +13684,18 @@ var FM_T850_COLOR_SCALE = { type: 'breakpoint', unit: '°C', min: null, max: nul
 var FM_T500_BREAKPOINTS = [-46, -44, -42, -40, -38, -36, -34, -32, -30, -28, -26, -24, -22, -20, -18, -16, -14, -12, -10, -8, -6, -4, -2, 0, 2, 4, 6];
 var FM_T500_COLORS = [[74, 13, 0, 1], [130, 1, 29, 1], [185, 4, 114, 1], [221, 6, 193, 1], [207, 6, 241, 1], [163, 5, 243, 1], [118, 4, 246, 1], [71, 3, 249, 1], [41, 2, 250, 1], [11, 1, 252, 1], [1, 22, 253, 1], [0, 52, 255, 1], [35, 99, 251, 1], [69, 139, 247, 1], [102, 171, 245, 1], [134, 197, 245, 1], [114, 232, 165, 1], [78, 232, 133, 1], [40, 233, 96, 1], [9, 191, 36, 1], [4, 160, 15, 1], [0, 128, 0, 1], [40, 160, 0, 1], [96, 192, 0, 1], [167, 223, 0, 1], [255, 255, 0, 1], [255, 237, 0, 1]];
 var FM_T500_COLOR_SCALE = { type: 'breakpoint', unit: '°C', min: null, max: null, breakpoints: FM_T500_BREAKPOINTS, colors: { light: FM_T500_COLORS, dark: FM_T500_COLORS } };
-var FM_COLOR_SCALE_OVERRIDES = { precipitation_cum: FM_PRECUM_COLOR_SCALE, precipitation: FM_PRECIP_COLOR_SCALE, rain: FM_PRECIP_COLOR_SCALE, showers: FM_PRECIP_COLOR_SCALE, geopotential_height_500hPa: FM_GEOP_500_COLOR_SCALE, geopotential_height_850hPa: FM_GEOP_850_COLOR_SCALE, geopotential_height_1000hPa: FM_GEOP_1000_COLOR_SCALE, pressure_msl: FM_MSL_COLOR_SCALE, wind_speed_10m: FM_WIND_COLOR_SCALE, wind_speed_850hPa: FM_WIND_COLOR_SCALE, wind_speed_300hPa: FM_JET_COLOR_SCALE, temperature_10hPa: FM_T10_COLOR_SCALE, temperature_850hPa: FM_T850_COLOR_SCALE, temperature_500hPa: FM_T500_COLOR_SCALE, geopotential_height_10hPa: FM_GEOP_10_COLOR_SCALE, wind_speed_10hPa: FM_JET10_COLOR_SCALE, snowfall_water_equivalent: FM_SNOWWE_COLOR_SCALE, snow_fraction: FM_SNOWFRAC_COLOR_SCALE, weather_code: FM_WCODE_COLOR_SCALE, precipitation_6h: FM_PRECIP6H_COLOR_SCALE, snow_fraction_6h: FM_SNOWFRAC6H_COLOR_SCALE };
+// 1.2.4.53 - SCALA `temperature_2m` NEL REGISTRO: 42 bande da 2 °C, -80..+50 °C
+// (l'ultima banda e' APERTA: [50, +inf)), unita' °C, light == dark. Fino alla 1.2.4.52
+// la scala arrivava al client SOLO dalla libreria (chiave `temperature`) e il client non
+// aveva un array proprio: le etichette delle centraline non potevano usare "le stesse
+// bande delle mappe". I 42 breakpoint e i 42 colori sono copiati IDENTICI da
+// scripts/forecast_v2/color_scales.json (`scales.temperature_2m`), verificati uguali
+// alla scala `temperature` della libreria (wml 0.2.2): registrarla qui non cambia un
+// pixel delle mappe, ma da' a mappa, legenda ed etichette UN solo array.
+var FM_TEMP2M_BREAKPOINTS = [-80, -65, -50, -40, -32, -28, -24, -20, -17.5, -15, -12.5, -10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50];
+var FM_TEMP2M_COLORS = [[74, 13, 0, 1], [130, 1, 29, 1], [185, 4, 114, 1], [221, 6, 193, 1], [207, 6, 241, 1], [163, 5, 243, 1], [118, 4, 246, 1], [71, 3, 249, 1], [41, 2, 250, 1], [11, 1, 252, 1], [1, 22, 253, 1], [0, 52, 255, 1], [35, 99, 251, 1], [69, 139, 247, 1], [102, 171, 245, 1], [134, 197, 245, 1], [114, 232, 165, 1], [78, 232, 133, 1], [40, 233, 96, 1], [17, 220, 61, 1], [9, 191, 36, 1], [4, 160, 15, 1], [0, 128, 0, 1], [40, 160, 0, 1], [96, 192, 0, 1], [167, 223, 0, 1], [255, 255, 0, 1], [255, 237, 0, 1], [255, 219, 0, 1], [255, 201, 0, 1], [255, 183, 0, 1], [255, 165, 0, 1], [255, 138, 0, 1], [255, 110, 0, 1], [255, 83, 0, 1], [255, 55, 0, 1], [255, 27, 0, 1], [255, 0, 0, 1], [228, 0, 10, 1], [201, 0, 18, 1], [174, 0, 23, 1], [147, 0, 26, 1]];
+var FM_TEMP2M_COLOR_SCALE = { type: 'breakpoint', unit: '°C', min: null, max: null, breakpoints: FM_TEMP2M_BREAKPOINTS, colors: { light: FM_TEMP2M_COLORS, dark: FM_TEMP2M_COLORS } };
+var FM_COLOR_SCALE_OVERRIDES = { temperature_2m: FM_TEMP2M_COLOR_SCALE, precipitation_cum: FM_PRECUM_COLOR_SCALE, precipitation: FM_PRECIP_COLOR_SCALE, rain: FM_PRECIP_COLOR_SCALE, showers: FM_PRECIP_COLOR_SCALE, geopotential_height_500hPa: FM_GEOP_500_COLOR_SCALE, geopotential_height_850hPa: FM_GEOP_850_COLOR_SCALE, geopotential_height_1000hPa: FM_GEOP_1000_COLOR_SCALE, pressure_msl: FM_MSL_COLOR_SCALE, wind_speed_10m: FM_WIND_COLOR_SCALE, wind_speed_850hPa: FM_WIND_COLOR_SCALE, wind_speed_300hPa: FM_JET_COLOR_SCALE, temperature_10hPa: FM_T10_COLOR_SCALE, temperature_850hPa: FM_T850_COLOR_SCALE, temperature_500hPa: FM_T500_COLOR_SCALE, geopotential_height_10hPa: FM_GEOP_10_COLOR_SCALE, wind_speed_10hPa: FM_JET10_COLOR_SCALE, snowfall_water_equivalent: FM_SNOWWE_COLOR_SCALE, snow_fraction: FM_SNOWFRAC_COLOR_SCALE, weather_code: FM_WCODE_COLOR_SCALE, precipitation_6h: FM_PRECIP6H_COLOR_SCALE, snow_fraction_6h: FM_SNOWFRAC6H_COLOR_SCALE };
 var FM_VAR_LABELS = {
     temperature_2m: 'Temperatura 2 m',
     dew_point_2m: 'Punto di rugiada 2 m',
@@ -16241,19 +16462,17 @@ function toggleForecastMaps() {
         var ft = document.getElementById('metric-tab-fog');
         if (ft) ft.style.display = isSviluppoActive ? '' : 'none';
         if (!isSviluppoActive && currentMetric === 'fog') { selectMetric('risk'); }
+        // 1.2.4.53 - STRUTTURA CONVETTIVA (SOI): torna VISIBILE NEL PANNELLO LIVE PER
+        // TUTTI, come fino alla 1.2.4.50. Il toggle non e' piu' legato allo switch
+        // "Sviluppo" (che resta obbligatorio per la NEBBIA, vedi sopra): il pannello
+        // #sc-radar-panel lo apre toggleScRadar(), non questo gate.
         var lts = document.getElementById('live-toggle-supercells');
-        if (lts) lts.style.display = isSviluppoActive ? '' : 'none';
+        if (lts) lts.style.display = '';
         var scrp = document.getElementById('sc-radar-panel');
         if (scrp) {
-            if (!isSviluppoActive) {
-                // Chiudere DAVVERO (timer + layer), non solo con display:none.
-                try { if (liveShowSupercells) toggleLiveSupercells(); } catch (e) { }
-                try { if (isScRadarActive) toggleScRadar(); } catch (e) { }
-                try { scrp.classList.remove('active'); } catch (e) { }
-                scrp.style.display = 'none';
-            } else {
-                scrp.style.display = '';
-            }
+            // Nessuna chiusura forzata quando lo switch Sviluppo si spegne: il toggle
+            // SOI e' pubblico, quindi anche la sua vista deve restare comandabile.
+            if (isScRadarActive) scrp.style.display = '';
         }
         var hlSel = document.getElementById('hail-level-select');
         if (hlSel) {
