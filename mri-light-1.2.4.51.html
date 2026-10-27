@@ -1408,6 +1408,22 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <button type="button" id="live-toggle-phenomena" class="sc-toggle on" onclick="toggleScPhenomena()" title="Badge grandine/struttura asimmetrica (proxy riflettività, senza Doppler)" style="display:none;">Fenomeni</button>
         <button type="button" id="live-toggle-hail" class="sc-toggle on" onclick="toggleScHail()" title="Badge grandine (proxy riflettività, senza Doppler)" style="display:none;">Grandine</button>
     </div>
+    <!-- 1.2.4.51 - Centraline osservate: blocco del pannello LIVE visibile SOLO quando la
+         sorgente del selettore e' "Centraline" (refreshMnwPanel -> stationsSetActive).
+         Riusa le classi .live-legend/.legend-title/.legend-row: nessun CSS nuovo. -->
+    <div class="live-legend" id="live-stations-box" style="display:none;">
+        <div class="legend-title" id="live-stations-title">Centraline osservate — temperatura a 2 m (osservato, non modello)</div>
+        <div class="legend-row" id="live-stations-status" style="font-size:11px;">Caricamento centraline...</div>
+        <div class="legend-row" id="live-stations-stale" style="display:none;font-weight:700;color:#fca5a5;"></div>
+        <div class="legend-row" style="margin-top:4px;gap:8px;">
+            <span style="font-size:10px;color:#94a3b8;">°C</span>
+            <span id="live-stations-scale" style="flex:1 1 240px;min-width:180px;height:10px;border-radius:3px;border:1px solid #475569;"></span>
+            <span class="legend-swatch" style="background:rgba(148,163,184,0.75);"></span><span style="font-size:10px;">senza temperatura</span>
+        </div>
+        <div class="legend-row" id="live-stations-scale-labels" style="font-size:9px;color:#94a3b8;"></div>
+        <div class="legend-row" id="live-stations-decimation" style="font-size:9px;color:#64748b;"></div>
+        <div class="legend-row" id="live-stations-credit" style="font-size:10px;color:#94a3b8;">Dati centraline: reti regionali e MeteoNetwork via MeteoHub/ItaliaMeteo — CC BY 4.0</div>
+    </div>
     <div id="live-sc-summary" style="display:none;gap:8px;flex-wrap:wrap;padding:0 10px 6px 10px;font-size:11px;color:#e2e8f0;"></div>
     <div id="live-sc-phenomena" style="display:none;"></div>
     <div id="live-sc-list" style="max-height:220px;overflow-y:auto;border-top:1px solid #334155;"></div>
@@ -1503,7 +1519,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     <button class="metric-tab" data-metric="pressure" onclick="selectMetric('pressure')">📊 Pressione</button>
     <button class="metric-tab" data-metric="wind" onclick="selectMetric('wind')">💨 Vento</button>
     <button class="metric-tab" data-metric="thermalrisk" id="metric-tab-thermalrisk" onclick="selectMetric('thermalrisk')">🌡️ Rischio Termico</button>
-    <button class="metric-tab" data-metric="fog" onclick="selectMetric('fog')">🌫️ Nebbia</button>
+    <button class="metric-tab dev-only" id="metric-tab-fog" data-metric="fog" onclick="selectMetric('fog')">🌫️ Nebbia</button>
     <button class="metric-tab dev-only" data-metric="conv" id="metric-tab-conv" onclick="selectMetric('conv')" style="display:none;">🌩️ Conv.</button>
     <button class="metric-tab dev-only" data-metric="hail" id="metric-tab-hail" onclick="selectMetric('hail')" style="display:none;">🧊 Grandine</button>
 </div>
@@ -1879,6 +1895,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                         <select id="mnw-source-select" class="hour-select" style="font-size:10px;padding:2px 6px;" onchange="refreshMnwPanel()">
                             <option value="live">Dati Live (METAR)</option>
                             <option value="model">Estratto Modelli</option>
+                            <option value="stations">Centraline (osservato, ~30 min)</option>
                         </select>
                     </div>
                     <div id="mnw-live-content"></div>
@@ -2018,9 +2035,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.50';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.51';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-27';
     const APP_CHANGELOG = [
+﻿        { version: '1.2.4.51', date: '2026-10-27', changes: [
+  'CENTRALINE= TERZA SORGENTE DEL SELETTORE DEL PANNELLO LIVE: `#mnw-source-select` passa da 2 a 3 voci e la nuova e\' "Centraline (osservato, ~30 min)". Scegliendola la mappa mostra le osservazioni di stazione di `data/stations/` (MeteoHub / Agenzia ItaliaMeteo, CC BY 4.0) al posto dei dati METAR/modello, e il pannello LIVE mostra stato, legenda e attribuzione. LETTURA: prima `index.json` su Pages (schema compatto "stations-index/1"), poi `latest.json` su raw.githubusercontent come FALLBACK; se rispondono 404 ENTRAMBI compare un messaggio nel pannello e NESSUNA eccezione. FILE MISURATI il 27/10/2026 alle 08:46 UTC: index.json 542.989 byte su 4.205 stazioni, latest.json 1.063.821 byte; 3.954 stazioni attive entro 90 minuti. FILTRO: `obs_time` piu\' vecchio di 90 minuti viene scartato (costante STATIONS_MAX_OBS_AGE_MIN). DISEGNO: UN canvas (pane dedicato z 560, pointer-events none) e non 4.205 `L.marker` DOM, perche\' a zoom basso migliaia di nodi sono ingestibili. DECIMAZIONE DICHIARATA: si tengono le stazioni attive dentro il viewport, si sovrappone una griglia di 16 px nello spazio dello schermo e si tiene UNA stazione per cella (quella con osservazione piu\' recente, pareggio per id); se le celle occupate superano 600 il lato cresce 12->16->24->32->48->64 px. MISURATO: 444 punti disegnati a zoom 6, 586 punti al massimo (zoom 8), tetto 600 mai superato. COLORE: scala CONTINUA per la temperatura (11 stop da -10 a +40 °C, interpolazione lineare RGB), legenda con la stessa rampa nel pannello; una stazione senza temperatura e\' grigia e non riceve un valore finto. POPUP/HOVER: nome, rete con il nome dell\'ENTE (campo `attribution` del file), eta\' dell\'osservazione ("31 min fa"), temperatura, umidita\', vento (m/s e km/h) e pioggia NORMALIZZATA sul periodo con `precipitation_period_s` ("2,0 mm in 15 min (8,0 mm/h)", non "2 mm in 15 s"). I campi mancanti sono OMESSI: nessun "0" e nessun "n/d" inventato.',
+  'NEBBIA= TAB E BADGE SOLO IN SVILUPPO: il tab `#metric-tab-fog` ("Nebbia") ha ora la classe `dev-only` e il badge `id:\'fog\'` di `computeActiveRisks` viene emesso solo se `isDevOnlyVisible()`. La funzione legge l\'attributo `data-ui-mode` del <body>, lo STESSO che usa il CSS per `.dev-only`: tab e badge non possono divergere. Soglie INVARIATE (70 / 85 / 95), `FOG_BADGE_MIN`, i livelli e `case \'fog\'` non sono stati toccati: cambia solo chi li vede. Uscendo da sviluppo con la nebbia attiva la metrica torna su Rischio (come gia\' facevano Conv. e Grandine). MISURATO sulla pagina: in `pro` 7 tab metriche visibili (una in meno) e 0 badge nebbia sulle 107 province; in `sviluppo` 10 tab e 41 province con badge. Nessun\'altra metrica cambia.',
+  'MISURE= VERIFICA SULLA PAGINA SERVITA (Edge headless, CDP). Selettore: 3 opzioni nel DOM, 3 visibili, la terza selezionabile. Cambio sorgente -> centraline: 444 punti disegnati a zoom 6 in 653 ms di caricamento (index.json HTTP 200), 586 punti al massimo fra zoom 6 e 10, tetto 600. Pannello LIVE: "ultimo aggiornamento: 31 min fa" e "3.954/4.205 centraline attive" con il badge "dato fermo" spento (file di 17 min); con un file invecchiato di 3,3 h il badge si accende ("DATO FERMO: file di 3.3 h, oltre la soglia di 2 h"). Attribuzione "Dati centraline: reti regionali e MeteoNetwork via MeteoHub/ItaliaMeteo — CC BY 4.0" presente nel DOM. Console: 0 eccezioni JS e 0 risposte HTTP >= 400 nella prova pulita; con i DUE URL forzati a 404 (Fetch domain) compare il messaggio "Dati centraline non disponibili (index.json: HTTP 404 · latest.json: HTTP 404)" e le eccezioni restano 0.',
+        ] },
         { version: '1.2.4.50', date: '2026-10-27', changes: [
   'UI= LA MODALITA\' "SEMPLICE" E\' STATA ELIMINATA, NON NASCOSTA: restano DUE MODALITA\', `pro` (default) e `sviluppo`. Tolta la legenda tecnica, le metriche, la toolbar e il pannello dettagli, "Semplice" lasciava 6 pulsanti e 0 <select>: una pagina in cui non c\'era nulla da usare. RIMOSSI PER INTERO: il pulsante "Semplice" dal selettore (restano Pro e Sviluppo), la legenda `#easy-legend` con il suo markup, le 5 regole CSS che citavano `easy` (4 `body[data-ui-mode="easy"]` piu\' `body:not([data-ui-mode="easy"]) #easy-legend`) con il loro commento, la classe `.easy-hide` da 25 punti del markup, `easyRiskSentence` con il dizionario `EASY_RISK_WORDS` e `easyPeriodWord`, il ramo `if (uiMode === \'easy\')` in `buildRiskTooltip` e il gate `uiMode !== \'easy\'` nel raggruppamento dei badge. MISURATO sulla pagina servita: 2 pulsanti nel selettore, 22 pulsanti visibili con profilo nuovo (i 20 di prima piu\' i 2 del selettore), 3 <select>, 0 occorrenze di "Semplice" nel testo visibile e nell\'HTML senza gli script, 0 eccezioni JS.',
   'MIGRAZIONE= CHI AVEVA `easy` SALVATO IN `meteorisk.uiMode.v2` PARTE IN `pro` E LA CHIAVE VIENE RISCRITTA. La 1.2.4.48 ce la metteva da sola alla prima visita, quindi il valore non e\' una scelta dell\'utente: alla lettura viene riportato a `pro` e riscritto in localStorage (sia nello script pre-paint sia in `readUiMode`), cosi\' non resta nel browser. `sviluppo` resta `sviluppo`; con localStorage negato o pieno si parte in `pro` senza eccezioni. La vecchia chiave `meteorisk.uiMode` continua a essere rimossa. MISURATO: chiave preesistente `easy` -> `data-ui-mode=pro` e chiave = `pro`; chiave `sviluppo` -> resta `sviluppo`; profilo nuovo -> `pro`.',
@@ -4363,6 +4385,20 @@ function enabledLightningSourceIds() {
     // Codici WMO che indicano neve
     function isSnowCode(code) { return (code >= 71 && code <= 77) || (code >= 85 && code <= 86); }
 
+    // 1.2.4.51 - NEBBIA SOLO IN SVILUPPO. La sorgente di verita' e' l'attributo
+    // `data-ui-mode` sul <body>, lo stesso che usa il CSS per .dev-only: cosi' il tab
+    // (nascosto dal CSS) e il badge (deciso qui) non possono divergere. Se l'attributo
+    // non c'e' (script di pre-paint non eseguito) si ricade su isSviluppoActive, che
+    // e' il gate storico di TUTTE le funzioni sperimentali.
+    function isDevOnlyVisible() {
+        try {
+            var m = (document.body && document.body.getAttribute) ? document.body.getAttribute('data-ui-mode') : null;
+            if (m === 'sviluppo') return true;
+            if (m === 'pro') return false;
+        } catch (e) { }
+        return !!isSviluppoActive;
+    }
+
     function computeActiveRisks(idx) {
         var agg = getAggregateForZone(idx);
         if (!agg) return [];
@@ -4451,7 +4487,9 @@ function enabledLightningSourceIds() {
         // aveva il badge, a 70 il 15,2% con gli stessi eventi osservati, e sopra 90 la
         // nebbia osservata e' il 2%. Il badge si accende quindi solo nel decile alto (70+)
         // e i livelli sono 70 (Lieve) / 85 (Moderato) / 95 (Forte), gli stessi della metrica.
-        if (agg.fog && agg.fog.score >= FOG_BADGE_MIN) {
+        // 1.2.4.51 - badge nebbia EMESSO SOLO IN SVILUPPO. Soglie (70/85/95),
+        // FOG_BADGE_MIN, livelli e case 'fog' restano identici: cambia solo chi li vede.
+        if (isDevOnlyVisible() && agg.fog && agg.fog.score >= FOG_BADGE_MIN) {
             risks.push({ id: 'fog', level: agg.fog.score >= 95 ? 3 : agg.fog.score >= 85 ? 2 : 1,
                          hour: agg.fog.hour, from: agg.fog.from, to: agg.fog.to,
                          dayScore: agg.fog.dayScore, dayHour: agg.fog.dayHour,
@@ -11634,8 +11672,16 @@ stopSyncPlay();
     let mnwLastLon = null;
 
     function refreshMnwPanel() {
+        // 1.2.4.51 - la terza sorgente ("Centraline") accende/spegne il layer canvas
+        // sulla mappa e il blocco #live-stations-box del pannello LIVE, anche prima che
+        // una localita' sia selezionata.
+        var sel0 = document.getElementById('mnw-source-select');
+        var src0 = sel0 ? sel0.value : 'live';
+        try { stationsSetActive(src0 === 'stations'); } catch (e) { }
         if (mnwLastLat !== null && mnwLastLon !== null) {
             updateMnwLivePanel(mnwLastLat, mnwLastLon);
+        } else if (src0 === 'stations') {
+            mnwShowStationsOverview();
         }
     }
 
@@ -11701,6 +11747,10 @@ stopSyncPlay();
         var source = sel ? sel.value : 'live';
         if (source === 'model') {
             return renderModelExtract(lat, lon);
+        }
+        // 1.2.4.51 - terza sorgente: centraline osservate (MeteoHub/ItaliaMeteo, CC BY 4.0)
+        if (source === 'stations') {
+            return renderStationsExtract(lat, lon);
         }
         content.innerHTML = '<div style="color:#94a3b8;font-size:11px;">Caricamento dati stazione...</div>';
 
@@ -11837,6 +11887,640 @@ stopSyncPlay();
             if (lat !== mnwLastLat || lon !== mnwLastLon) return;
             content.innerHTML = '<div style="color:#64748b;font-size:11px;">Errore dati live: ' + e.message + '</div>';
         }
+    }
+
+    // ================================================================
+    // 1.2.4.51 - CENTRALINE OSSERVATE (MeteoHub / Agenzia ItaliaMeteo)
+    // ================================================================
+    // Terza sorgente del selettore #mnw-source-select ("Centraline (osservato,
+    // ~30 min)"): le osservazioni di stazione pubblicate dal workflow stations.yml
+    // in data/stations/.
+    //   - index.json  (schema compatto "stations-index/1": array paralleli a
+    //     station_fields) e' il percorso PRIMARIO, sta su Pages;
+    //   - latest.json (oggetti con i nomi dei campi) e' il FALLBACK su
+    //     raw.githubusercontent.com.
+    // Se ENTRAMBI rispondono 404 la funzione NON lancia: scrive un messaggio nel
+    // pannello e lo stato resta "dati centraline non disponibili".
+    // PERCHE' UN CANVAS: 4.000+ stazioni sono altrettanti nodi DOM se disegnate con
+    // L.marker; qui si disegna su UN canvas e i punti sono decimati (stationsDecimate).
+    // LICENZA: CC BY 4.0 con attribuzione per rete (campo `attribution` del file).
+    var STATIONS_INDEX_URL = 'https://meteoriskitalia-netizen.github.io/MeteoRisk-Light-v2/data/stations/index.json';
+    var STATIONS_FULL_URL = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/main/data/stations/latest.json';
+    var STATIONS_MAX_OBS_AGE_MIN = 90;   // filtro: obs_time piu' vecchio di 90 min -> scartato
+    var STATIONS_STALE_MIN = 120;        // file piu' vecchio di 2 h -> badge "dato fermo"
+    var STATIONS_MAX_POINTS = 600;       // tetto dei punti disegnati sul canvas
+    var STATIONS_GRID_STEPS = [12, 16, 24, 32, 48, 64];  // lato cella (px schermo)
+    // Scala CONTINUA per la temperatura (stessi stop usati dal disegno e dalla legenda).
+    var STATIONS_TEMP_STOPS = [
+        [-10, [67, 56, 202]], [-5, [37, 99, 235]], [0, [14, 165, 233]], [5, [34, 211, 238]],
+        [10, [34, 197, 94]], [15, [163, 230, 53]], [20, [250, 204, 21]], [25, [249, 115, 22]],
+        [30, [239, 68, 68]], [35, [185, 28, 28]], [40, [127, 29, 29]]
+    ];
+    var stationsData = null;
+    var stationsError = null;
+    var stationsLoading = null;
+    var stationsLoadedAt = 0;
+    var stationsLastLoadMs = null;      // durata MISURATA del caricamento (ms)
+    var stationsActive = false;
+    var stationsLayerObj = null;
+    var stationsCanvas = null;
+    var stationsDrawn = [];             // [{x,y,st}] in coordinate container
+    var stationsStats = null;           // {active,total,candidates,cell,zoom,drawn}
+    var stationsHoverEl = null;
+    var stationsBound = false;
+    var stationsAgeTimer = null;
+
+    function stationsNum(v) {
+        if (v === null || v === undefined || v === '') return null;
+        var n = Number(v);
+        return isFinite(n) ? n : null;
+    }
+
+    function stationsAgeMin(t) { return (Date.now() - t) / 60000; }
+
+    function stationsAgeText(t) {
+        var min = Math.round(stationsAgeMin(t));
+        if (!isFinite(min) || min < 1) return 'adesso';
+        if (min < 60) return min + ' min fa';
+        var h = Math.floor(min / 60);
+        var m = min % 60;
+        return h + ' h' + (m ? ' ' + m + ' min' : '') + ' fa';
+    }
+
+    function stationsClock(t) {
+        try { return new Date(t).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }); }
+        catch (e) { return ''; }
+    }
+
+    function stationsPeriodText(sec) {
+        if (sec === null || !isFinite(sec) || sec <= 0) return '';
+        if (sec % 3600 === 0) return (sec / 3600) + ' h';
+        if (sec >= 60 && sec % 60 === 0) return (sec / 60) + ' min';
+        return Math.round(sec) + ' s';
+    }
+
+    // Pioggia NORMALIZZATA sul periodo di accumulo: 2 mm in 15 min NON sono 2 mm in
+    // 15 s. Si mostra il valore con il suo periodo e, accanto, il rate orario.
+    function stationsRainText(st) {
+        if (st.precip === null) return '';
+        var per = stationsPeriodText(st.period);
+        var txt = fmtNum(st.precip, 1) + ' mm';
+        if (per) txt += ' in ' + per;
+        if (st.period && st.period > 0) txt += ' (' + fmtNum(st.precip * 3600 / st.period, 1) + ' mm/h)';
+        return txt;
+    }
+
+    function stationsColorForTemp(t) {
+        if (t === null || !isFinite(t)) return 'rgba(148,163,184,0.75)';
+        var stops = STATIONS_TEMP_STOPS;
+        if (t <= stops[0][0]) return 'rgb(' + stops[0][1].join(',') + ')';
+        var last = stops[stops.length - 1];
+        if (t >= last[0]) return 'rgb(' + last[1].join(',') + ')';
+        for (var i = 1; i < stops.length; i++) {
+            if (t <= stops[i][0]) {
+                var a = stops[i - 1], b = stops[i];
+                var f = (t - a[0]) / (b[0] - a[0]);
+                var r = Math.round(a[1][0] + (b[1][0] - a[1][0]) * f);
+                var g = Math.round(a[1][1] + (b[1][1] - a[1][1]) * f);
+                var bl = Math.round(a[1][2] + (b[1][2] - a[1][2]) * f);
+                return 'rgb(' + r + ',' + g + ',' + bl + ')';
+            }
+        }
+        return 'rgba(148,163,184,0.75)';
+    }
+
+    function stationsDistanceKm(lat1, lon1, lat2, lon2) {
+        var R = 6371, toRad = Math.PI / 180;
+        var dLat = (lat2 - lat1) * toRad, dLon = (lon2 - lon1) * toRad;
+        var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+    }
+
+    // Normalizza i DUE schemi pubblicati (index compatto / latest a oggetti) in una
+    // lista unica. Nessun campo viene inventato: quello che manca resta null e non
+    // viene mostrato.
+    function stationsNormalize(payload, url) {
+        if (!payload || !payload.stations || !payload.stations.length) return null;
+        var fields = payload.station_fields || null;
+        var raw = payload.stations;
+        var att = {};
+        var list = payload.attribution || [];
+        for (var a = 0; a < list.length; a++) {
+            if (list[a] && list[a].network) att[list[a].network] = list[a];
+        }
+        var nets = {};
+        var nl = payload.networks || [];
+        for (var n = 0; n < nl.length; n++) {
+            if (nl[n] && nl[n].id) nets[nl[n].id] = nl[n];
+        }
+        var out = [];
+        for (var i = 0; i < raw.length; i++) {
+            var row = raw[i];
+            var s = null;
+            if (row && typeof row === 'object' && !(row instanceof Array)) s = row;
+            else if (fields && fields.length) {
+                s = {};
+                for (var f = 0; f < fields.length; f++) s[fields[f]] = row ? row[f] : null;
+            }
+            if (!s) continue;
+            var lat = stationsNum(s.lat), lon = stationsNum(s.lon);
+            var tm = Date.parse(s.obs_time || '');
+            if (lat === null || lon === null || !isFinite(tm)) continue;
+            out.push({
+                id: s.id || (String(s.network || 'rete') + ':' + lat + ',' + lon),
+                lat: lat, lon: lon,
+                name: s.name ? String(s.name) : '',
+                network: s.network ? String(s.network) : '',
+                time: tm,
+                temp: stationsNum(s.temperature_2m),
+                rh: stationsNum(s.relative_humidity_2m),
+                wind: stationsNum(s.wind_speed_10m),
+                windDir: stationsNum(s.wind_direction_10m),
+                precip: stationsNum(s.precipitation),
+                period: stationsNum(s.precipitation_period_s)
+            });
+        }
+        if (!out.length) return null;
+        var gen = Date.parse(payload.generated_at || '');
+        if (!isFinite(gen)) {
+            gen = 0;
+            for (var g = 0; g < out.length; g++) if (out[g].time > gen) gen = out[g].time;
+        }
+        return {
+            stations: out,
+            meta: {
+                generatedAt: gen,
+                licence: payload.licence || 'CC BY 4.0',
+                licenceUrl: payload.licence_url || 'https://creativecommons.org/licenses/by/4.0/',
+                source: payload.source || 'MeteoHub (Agenzia ItaliaMeteo)',
+                sourceUrl: payload.source_url || '',
+                schema: payload.schema || 'stations/objects',
+                url: url,
+                maxAgeMinutes: payload.max_age_minutes || null,
+                attribution: att,
+                networks: nets
+            }
+        };
+    }
+
+    // Carica index.json e, se fallisce, latest.json. Non lancia MAI: in caso di doppio
+    // errore valorizza stationsError (il chiamante mostra il messaggio).
+    function stationsLoad(force) {
+        if (!force && stationsData) return Promise.resolve(stationsData);
+        if (stationsLoading) return stationsLoading;
+        var t0 = (window.performance && performance.now) ? performance.now() : Date.now();
+        var p = (async function () {
+            var urls = [STATIONS_INDEX_URL, STATIONS_FULL_URL];
+            var errs = [];
+            for (var i = 0; i < urls.length; i++) {
+                try {
+                    var res = await fetchWithTimeout(urls[i], 12000);
+                    if (!res || !res.ok) throw new Error('HTTP ' + (res ? res.status : '?'));
+                    var payload = await res.json();
+                    var norm = stationsNormalize(payload, urls[i]);
+                    if (!norm) throw new Error('formato non riconosciuto');
+                    stationsData = norm;
+                    stationsError = null;
+                    stationsLoadedAt = Date.now();
+                    var t1 = (window.performance && performance.now) ? performance.now() : Date.now();
+                    stationsLastLoadMs = Math.round(t1 - t0);
+                    return stationsData;
+                } catch (e) {
+                    errs.push((String(urls[i]).split('/').pop() || urls[i]) + ': ' + (e && e.message ? e.message : String(e)));
+                }
+            }
+            stationsData = null;
+            stationsError = 'Dati centraline non disponibili (' + errs.join(' · ') + ')';
+            var t2 = (window.performance && performance.now) ? performance.now() : Date.now();
+            stationsLastLoadMs = Math.round(t2 - t0);
+            return null;
+        })();
+        stationsLoading = p;
+        p.then(function () { if (stationsLoading === p) stationsLoading = null; },
+               function () { if (stationsLoading === p) stationsLoading = null; });
+        return p;
+    }
+
+    function stationsActiveCount() {
+        if (!stationsData) return 0;
+        var now = Date.now(), n = 0;
+        for (var i = 0; i < stationsData.stations.length; i++) {
+            if ((now - stationsData.stations[i].time) / 60000 <= STATIONS_MAX_OBS_AGE_MIN) n++;
+        }
+        return n;
+    }
+
+    // DECIMAZIONE (criterio dichiarato anche nell'interfaccia):
+    //  1. si tengono solo le stazioni ATTIVE (obs_time <= 90 min) e dentro il viewport;
+    //  2. griglia di 12 px nello spazio dello schermo: UNA stazione per cella, quella
+    //     con osservazione piu' recente (pareggio: id minore). La copertura resta
+    //     uniforme a ogni zoom e i punti non si sovrappongono;
+    //  3. se le celle occupate superano 600 il lato cresce 12 -> 16 -> 24 -> 32 -> 48
+    //     -> 64 px finche' non si scende sotto il tetto: mai piu' di 600 punti.
+    function stationsDecimate() {
+        if (!stationsData || !stationsData.stations.length || !map) return { points: [], cell: 0, candidates: 0 };
+        var bounds = map.getBounds();
+        var now = Date.now();
+        var cands = [];
+        for (var i = 0; i < stationsData.stations.length; i++) {
+            var st = stationsData.stations[i];
+            if ((now - st.time) / 60000 > STATIONS_MAX_OBS_AGE_MIN) continue;
+            if (!bounds.contains(L.latLng(st.lat, st.lon))) continue;
+            cands.push(st);
+        }
+        var cell = STATIONS_GRID_STEPS[0];
+        var picked = [];
+        for (var g = 0; g < STATIONS_GRID_STEPS.length; g++) {
+            cell = STATIONS_GRID_STEPS[g];
+            var cells = {};
+            var keys = [];
+            for (var c = 0; c < cands.length; c++) {
+                var s2 = cands[c];
+                var pt = map.latLngToContainerPoint([s2.lat, s2.lon]);
+                var kk = Math.floor(pt.x / cell) + ':' + Math.floor(pt.y / cell);
+                var cur = cells[kk];
+                if (!cur) { cells[kk] = s2; keys.push(kk); }
+                else if (s2.time > cur.time || (s2.time === cur.time && String(s2.id) < String(cur.id))) cells[kk] = s2;
+            }
+            picked = [];
+            for (var k = 0; k < keys.length; k++) picked.push(cells[keys[k]]);
+            if (picked.length <= STATIONS_MAX_POINTS) break;
+        }
+        return { points: picked, cell: cell, candidates: cands.length };
+    }
+
+    function stationsDrawCanvas(canvas) {
+        if (!canvas || !canvas.getContext || !map) return;
+        var ctx = canvas.getContext('2d');
+        var dpr = window.devicePixelRatio || 1;
+        var w = canvas.width / dpr, h = canvas.height / dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, w, h);
+        var res = stationsDecimate();
+        var zoom = map.getZoom();
+        var radius = zoom >= 9 ? 4.2 : (zoom >= 7 ? 3.6 : 3.0);
+        stationsDrawn = [];
+        for (var i = 0; i < res.points.length; i++) {
+            var st = res.points[i];
+            var p = map.latLngToContainerPoint([st.lat, st.lon]);
+            stationsDrawn.push({ x: p.x, y: p.y, st: st });
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+            ctx.fillStyle = stationsColorForTemp(st.temp);
+            ctx.globalAlpha = 0.9;
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = 'rgba(15,23,42,0.85)';
+            ctx.stroke();
+        }
+        stationsStats = {
+            drawn: res.points.length, candidates: res.candidates, cell: res.cell,
+            zoom: zoom, active: stationsActiveCount(),
+            total: stationsData ? stationsData.stations.length : 0
+        };
+        stationsUpdateStatus();
+    }
+
+    function stationsBuildLegend() {
+        var bar = document.getElementById('live-stations-scale');
+        var labels = document.getElementById('live-stations-scale-labels');
+        if (!bar) return;
+        var stops = STATIONS_TEMP_STOPS;
+        var span = stops[stops.length - 1][0] - stops[0][0];
+        var parts = [];
+        for (var i = 0; i < stops.length; i++) {
+            var pct = Math.round((stops[i][0] - stops[0][0]) / span * 100);
+            parts.push('rgb(' + stops[i][1].join(',') + ') ' + pct + '%');
+        }
+        bar.style.background = 'linear-gradient(90deg,' + parts.join(',') + ')';
+        if (labels && !labels.childNodes.length) {
+            var html = '';
+            for (var k = -10; k <= 40; k += 10) html += '<span>' + k + '</span>';
+            labels.innerHTML = html;
+        }
+    }
+
+    function stationsUpdateStatus() {
+        var el = document.getElementById('live-stations-status');
+        var stale = document.getElementById('live-stations-stale');
+        var dec = document.getElementById('live-stations-decimation');
+        var credit = document.getElementById('live-stations-credit');
+        if (credit) credit.textContent = 'Dati centraline: reti regionali e MeteoNetwork via MeteoHub/ItaliaMeteo — CC BY 4.0';
+        stationsBuildLegend();
+        if (el) {
+            if (stationsError) {
+                el.innerHTML = '⚠️ ' + escapeHtml(stationsError);
+            } else if (!stationsData) {
+                el.textContent = 'Caricamento centraline...';
+            } else {
+                var gen = stationsData.meta.generatedAt;
+                var age = gen ? Math.round(stationsAgeMin(gen)) : null;
+                el.textContent = '🕒 ultimo aggiornamento: ' +
+                    (age === null ? 'n/d' : (age < 1 ? 'adesso' : age + ' min fa')) +
+                    (gen ? ' (' + stationsClock(gen) + ')' : '') + ' · ' +
+                    stationsActiveCount() + '/' + stationsData.stations.length +
+                    ' centraline attive (osservazione <= ' + STATIONS_MAX_OBS_AGE_MIN + ' min)';
+            }
+        }
+        if (stale) {
+            var isStale = !!(stationsData && stationsData.meta.generatedAt &&
+                stationsAgeMin(stationsData.meta.generatedAt) > STATIONS_STALE_MIN);
+            stale.style.display = isStale ? '' : 'none';
+            if (isStale) {
+                var ore = stationsAgeMin(stationsData.meta.generatedAt) / 60;
+                stale.textContent = '⛔ DATO FERMO: file di ' +
+                    (ore >= 1 ? fmtNum(ore, 1) + ' h' : Math.round(ore * 60) + ' min') +
+                    ', oltre la soglia di ' + (STATIONS_STALE_MIN / 60) + ' h. I valori osservati NON sono attuali.';
+            }
+        }
+        if (dec) {
+            if (stationsStats && stationsData) {
+                dec.textContent = 'Decimazione a griglia ' + stationsStats.cell + ' px: ' + stationsStats.drawn +
+                    ' punti disegnati su ' + stationsStats.candidates + ' attivi nell\u2019area visibile' +
+                    ' (tetto ' + STATIONS_MAX_POINTS + ', zoom ' + stationsStats.zoom + ').';
+            } else {
+                dec.textContent = '';
+            }
+        }
+    }
+
+    // Canvas unico in un pane dedicato (z 560: sopra radar/bordi, sotto i marker).
+    // pointer-events:none — il canvas non deve rubare i click alle province: il
+    // hit-test si fa sulle coordinate del mouse (stationsBindPointer).
+    function stationsEnsureLayer() {
+        if (stationsLayerObj || !map || !window.L || !L.Layer) return stationsLayerObj;
+        var pane = map.getPane('stationsPane');
+        if (!pane) {
+            map.createPane('stationsPane');
+            pane = map.getPane('stationsPane');
+            pane.style.zIndex = '560';
+            pane.style.pointerEvents = 'none';
+        }
+        var LayerClass = L.Layer.extend({
+            onAdd: function (m) {
+                this._map = m;
+                if (!this._canvas) {
+                    this._canvas = L.DomUtil.create('canvas', 'leaflet-layer');
+                    this._canvas.style.position = 'absolute';
+                    this._canvas.style.left = '0px';
+                    this._canvas.style.top = '0px';
+                    this._canvas.style.pointerEvents = 'none';
+                }
+                pane.appendChild(this._canvas);
+                if (!this._bound) {
+                    this._bound = true;
+                    m.on('move zoom resize viewreset', this._schedule, this);
+                }
+                this._reset();
+            },
+            onRemove: function (m) {
+                m.off('move zoom resize viewreset', this._schedule, this);
+                this._bound = false;
+                if (this._canvas && this._canvas.parentNode) this._canvas.parentNode.removeChild(this._canvas);
+            },
+            _schedule: function () {
+                if (this._raf) return;
+                var that = this;
+                this._raf = requestAnimationFrame(function () { that._raf = null; that._reset(); });
+            },
+            _reset: function () {
+                if (!this._map || !this._canvas) return;
+                var size = this._map.getSize();
+                var tl = this._map.containerPointToLayerPoint([0, 0]);
+                L.DomUtil.setPosition(this._canvas, tl);
+                var dpr = window.devicePixelRatio || 1;
+                this._canvas.width = Math.max(1, Math.round(size.x * dpr));
+                this._canvas.height = Math.max(1, Math.round(size.y * dpr));
+                this._canvas.style.width = size.x + 'px';
+                this._canvas.style.height = size.y + 'px';
+                stationsCanvas = this._canvas;
+                stationsDrawCanvas(this._canvas);
+            }
+        });
+        stationsLayerObj = new LayerClass();
+        stationsLayerObj.addTo(map);
+        stationsBindPointer();
+        return stationsLayerObj;
+    }
+
+    function stationsRemoveLayer() {
+        if (stationsLayerObj && map) { try { map.removeLayer(stationsLayerObj); } catch (e) { } }
+        stationsLayerObj = null;
+        stationsCanvas = null;
+        stationsDrawn = [];
+        stationsStats = null;
+    }
+
+    function stationsEventPoint(ev) {
+        if (!map) return null;
+        try { return map.mouseEventToContainerPoint(ev); } catch (e) { return null; }
+    }
+
+    function stationsPick(p) {
+        if (!p) return null;
+        var best = null, bestD = 7 * 7;
+        for (var i = 0; i < stationsDrawn.length; i++) {
+            var d = stationsDrawn[i];
+            var dx = d.x - p.x, dy = d.y - p.y;
+            var dd = dx * dx + dy * dy;
+            if (dd <= bestD) { bestD = dd; best = d.st; }
+        }
+        return best;
+    }
+
+    function stationsHoverNode() {
+        if (stationsHoverEl && stationsHoverEl.parentNode) return stationsHoverEl;
+        if (!map || !map.getContainer) return null;
+        var el = document.createElement('div');
+        el.id = 'stations-hover';
+        el.style.cssText = 'position:absolute;z-index:1200;pointer-events:none;display:none;' +
+            'background:rgba(15,23,42,0.95);border:1px solid #334155;border-radius:6px;' +
+            'padding:4px 7px;font-size:11px;color:#e2e8f0;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.4);';
+        map.getContainer().appendChild(el);
+        stationsHoverEl = el;
+        return el;
+    }
+
+    function stationsShowHover(st, p) {
+        var el = stationsHoverNode();
+        if (!el) return;
+        var txt = (st.name || 'Stazione');
+        if (st.temp !== null) txt += ' · ' + fmtNum(st.temp, 1) + ' °C';
+        txt += ' · ' + stationsAgeText(st.time);
+        el.textContent = txt;
+        el.style.display = 'block';
+        el.style.left = Math.round(p.x + 12) + 'px';
+        el.style.top = Math.round(p.y + 12) + 'px';
+    }
+
+    function stationsHideHover() {
+        if (stationsHoverEl) stationsHoverEl.style.display = 'none';
+    }
+
+    function stationsPopupHtml(st) {
+        var meta = (stationsData && stationsData.meta) || {};
+        var att = (meta.attribution && meta.attribution[st.network]) ? meta.attribution[st.network] : null;
+        var ente = (att && att.text) ? att.text : (st.network || 'rete non indicata');
+        var h = '<div style="font-size:12px;line-height:1.45;min-width:190px;">';
+        h += '<div style="font-weight:700;color:#e2e8f0;">' + escapeHtml(st.name || 'Stazione') + '</div>';
+        h += '<div style="font-size:10px;color:#94a3b8;">rete: ' + escapeHtml(ente) + '</div>';
+        h += '<div style="font-size:10px;color:#94a3b8;">osservazione di ' + escapeHtml(stationsAgeText(st.time)) +
+             ' (' + escapeHtml(stationsClock(st.time)) + ')</div>';
+        if (st.temp !== null) h += '<div>🌡️ <b>' + fmtNum(st.temp, 1) + ' °C</b></div>';
+        if (st.rh !== null) h += '<div>💧 umidità ' + fmtNum(st.rh, 0) + ' %</div>';
+        if (st.wind !== null) {
+            var dir = (st.windDir !== null) ? ' ' + windDirToCardinal(st.windDir) : '';
+            h += '<div>💨 vento ' + fmtNum(st.wind, 1) + ' m/s' + dir + ' (' + fmtNum(st.wind * 3.6, 0) + ' km/h)</div>';
+        }
+        var rain = stationsRainText(st);
+        if (rain) h += '<div>🌧️ ' + rain + '</div>';
+        h += '<div style="font-size:9px;color:#64748b;margin-top:2px;">' + escapeHtml(meta.source || 'MeteoHub') + ' · CC BY 4.0</div>';
+        h += '</div>';
+        return h;
+    }
+
+    function stationsOpenPopup(st) {
+        if (!map || !st) return;
+        stationsHideHover();
+        L.popup({ maxWidth: 320, autoPan: true, closeButton: true, className: 'stations-popup' })
+            .setLatLng([st.lat, st.lon])
+            .setContent(stationsPopupHtml(st))
+            .openOn(map);
+    }
+
+    function stationsBindPointer() {
+        if (stationsBound || !map || !map.getContainer) return;
+        var container = map.getContainer();
+        if (!container) return;
+        stationsBound = true;
+        container.addEventListener('mousemove', function (ev) {
+            if (!stationsActive) return;
+            var p = stationsEventPoint(ev);
+            var st = p ? stationsPick(p) : null;
+            if (st) stationsShowHover(st, p); else stationsHideHover();
+        }, false);
+        container.addEventListener('mouseout', function () { stationsHideHover(); }, false);
+        // Click in fase di CATTURA: se cade su una stazione apre il popup e ferma la
+        // propagazione (altrimenti la provincia sotto verrebbe selezionata). Fuori
+        // dalle stazioni non tocca nulla: la selezione delle province resta identica.
+        container.addEventListener('click', function (ev) {
+            if (!stationsActive) return;
+            var p = stationsEventPoint(ev);
+            var st = p ? stationsPick(p) : null;
+            if (!st) return;
+            ev.stopPropagation();
+            ev.preventDefault();
+            stationsOpenPopup(st);
+        }, true);
+    }
+
+    function stationsSetActive(on) {
+        on = !!on;
+        if (on === stationsActive && (!on || stationsLayerObj)) return;
+        stationsActive = on;
+        var box = document.getElementById('live-stations-box');
+        if (box) box.style.display = on ? '' : 'none';
+        if (!on) {
+            if (stationsAgeTimer) { clearInterval(stationsAgeTimer); stationsAgeTimer = null; }
+            stationsRemoveLayer();
+            stationsHideHover();
+            return;
+        }
+        stationsBuildLegend();
+        stationsUpdateStatus();
+        stationsLoad(false).then(function () {
+            if (!stationsActive) return;
+            if (stationsData) stationsEnsureLayer();
+            stationsUpdateStatus();
+        }).catch(function () { stationsUpdateStatus(); });
+        if (stationsAgeTimer) clearInterval(stationsAgeTimer);
+        stationsAgeTimer = setInterval(function () { if (stationsActive) stationsUpdateStatus(); }, 60000);
+    }
+
+    function stationsAttributionLine() {
+        return '<div style="margin-top:3px;color:#475569;font-size:9px;">Dati centraline: reti regionali e MeteoNetwork via MeteoHub/ItaliaMeteo — CC BY 4.0</div>';
+    }
+
+    function stationsCountsLine() {
+        if (!stationsData) return '';
+        var gen = stationsData.meta.generatedAt;
+        var age = gen ? Math.round(stationsAgeMin(gen)) : null;
+        return 'ultimo aggiornamento: ' + (age === null ? 'n/d' : (age < 1 ? 'adesso' : age + ' min fa')) +
+            ' · ' + stationsActiveCount() + '/' + stationsData.stations.length + ' centraline attive';
+    }
+
+    // Sorgente "Centraline" nel pannello della localita' selezionata: stazione piu'
+    // vicina entro 60 km, campi mancanti OMESSI (nessun "0" o "n/d" finto).
+    async function renderStationsExtract(lat, lon) {
+        var content = document.getElementById('mnw-live-content');
+        if (!content) return;
+        content.innerHTML = '<div style="color:#94a3b8;font-size:11px;">Caricamento centraline osservate...</div>';
+        var d = null;
+        try { d = await stationsLoad(false); } catch (e) { d = null; }
+        if (lat !== mnwLastLat || lon !== mnwLastLon) return;
+        if (!d) {
+            content.innerHTML = '<div style="color:#fca5a5;font-size:11px;">' +
+                escapeHtml(stationsError || 'Dati centraline non disponibili.') + '</div>' + stationsAttributionLine();
+            return;
+        }
+        var best = null, bestKm = 1e9;
+        var now = Date.now();
+        for (var i = 0; i < d.stations.length; i++) {
+            var st = d.stations[i];
+            if ((now - st.time) / 60000 > STATIONS_MAX_OBS_AGE_MIN) continue;
+            var km = stationsDistanceKm(lat, lon, st.lat, st.lon);
+            if (km < bestKm) { bestKm = km; best = st; }
+        }
+        var html = '<div style="color:#22d3ee;font-weight:bold;font-size:12px;margin-bottom:4px;">🌡️ Centraline osservate</div>';
+        html += '<div style="color:#94a3b8;font-size:10px;margin-bottom:4px;">' + escapeHtml(stationsCountsLine()) + '</div>';
+        if (!best || bestKm > 60) {
+            html += '<div style="color:#64748b;font-size:11px;">Nessuna centralina entro 60 km con osservazione entro 90 min.</div>';
+        } else {
+            var att = (d.meta.attribution && d.meta.attribution[best.network]) ? d.meta.attribution[best.network].text : best.network;
+            html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 10px;font-size:11px;">';
+            html += '<div style="grid-column:1 / span 2;"><span style="color:#94a3b8;">Stazione:</span> <b>' +
+                escapeHtml(best.name) + '</b> · ' + escapeHtml(att) + '</div>';
+            html += '<div style="grid-column:1 / span 2;"><span style="color:#94a3b8;">Osservazione:</span> ' +
+                escapeHtml(stationsAgeText(best.time)) + ' · distanza ' + String(Math.round(bestKm)) + ' km</div>';
+            if (best.temp !== null) html += '<div><span style="color:#94a3b8;">Temp:</span> <span style="color:#fbbf24;font-weight:bold;">' + fmtNum(best.temp, 1) + ' °C</span></div>';
+            if (best.rh !== null) html += '<div><span style="color:#94a3b8;">Umidità:</span> <span style="color:#34d399;font-weight:bold;">' + fmtNum(best.rh, 0) + ' %</span></div>';
+            if (best.wind !== null) {
+                var dir2 = (best.windDir !== null) ? ' ' + windDirToCardinal(best.windDir) : '';
+                html += '<div><span style="color:#94a3b8;">Vento:</span> <span style="color:#38bdf8;font-weight:bold;">' +
+                    fmtNum(best.wind, 1) + ' m/s' + dir2 + '</span></div>';
+            }
+            var rain2 = stationsRainText(best);
+            if (rain2) html += '<div><span style="color:#94a3b8;">Pioggia:</span> <span style="color:#60a5fa;font-weight:bold;">' +
+                escapeHtml(rain2) + '</span></div>';
+            html += '</div>';
+        }
+        html += stationsAttributionLine();
+        content.innerHTML = html;
+    }
+
+    // Panoramica quando la sorgente e' "Centraline" ma nessuna localita' e' stata
+    // ancora selezionata (il pannello deve comunque mostrare stato e attribuzione).
+    async function mnwShowStationsOverview() {
+        var panel = document.getElementById('mnw-live-panel');
+        if (panel) panel.style.display = 'block';
+        var content = document.getElementById('mnw-live-content');
+        if (!content) return;
+        content.innerHTML = '<div style="color:#94a3b8;font-size:11px;">Caricamento centraline osservate...</div>';
+        var d = null;
+        try { d = await stationsLoad(false); } catch (e) { d = null; }
+        var html = '<div style="color:#22d3ee;font-weight:bold;font-size:12px;margin-bottom:4px;">🌡️ Centraline osservate</div>';
+        if (!d) {
+            html += '<div style="color:#fca5a5;font-size:11px;">' +
+                escapeHtml(stationsError || 'Dati centraline non disponibili.') + '</div>';
+        } else {
+            html += '<div style="color:#94a3b8;font-size:10px;margin-bottom:4px;">' + escapeHtml(stationsCountsLine()) + '</div>';
+            html += '<div style="color:#cbd5e1;font-size:11px;">La mappa mostra le centraline attive, decimate per zoom (max ' +
+                STATIONS_MAX_POINTS + ' punti). Seleziona una località per la stazione più vicina.</div>';
+        }
+        html += stationsAttributionLine();
+        content.innerHTML = html;
     }
 
 // ================= MAPPE PREVISIONALI (Open-Meteo Weather Map Layer) =================
@@ -15564,6 +16248,10 @@ function toggleForecastMaps() {
         var ht = document.getElementById('metric-tab-hail');
         if (ht) ht.style.display = isSviluppoActive ? '' : 'none';
         if (!isSviluppoActive && currentMetric === 'hail') { selectMetric('risk'); }
+        // 1.2.4.51 - la metrica Nebbia e' solo in sviluppo (classe .dev-only sul tab):
+        // uscendo da sviluppo con la nebbia attiva la mappa resterebbe colorata di
+        // nebbia con il tab nascosto, quindi si torna al rischio.
+        if (!isSviluppoActive && currentMetric === 'fog') { selectMetric('risk'); }
         var hlSel = document.getElementById('hail-level-select');
         if (hlSel) {
             hlSel.style.display = isSviluppoActive ? '' : 'none';

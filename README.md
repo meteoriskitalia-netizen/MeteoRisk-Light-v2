@@ -6,27 +6,46 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.50
+## Versione attiva: 1.2.4.51
 
-- File applicativo: `mri-light-1.2.4.50.html` (`APP_VERSION = '1.2.4.50'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.50', date: '2026-10-27' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.50'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+- File applicativo: `mri-light-1.2.4.51.html` (`APP_VERSION = '1.2.4.51'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.51', date: '2026-10-27' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.51'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
-- Contenuto della 1.2.4.50 (release sopra la 1.2.4.49) - **la modalita' "Semplice" e' stata
+- Contenuto della 1.2.4.51 (release sopra la 1.2.4.50) - **due sole cose, entrambe sul client**.
+  - **Terza sorgente "Centraline (osservato, ~30 min)"** nel selettore del pannello live: legge
+    `data/stations/index.json` su Pages e, se non risponde, `data/stations/latest.json` su
+    `raw.githubusercontent` (se rispondono 404 **entrambi** compare un messaggio, nessuna
+    eccezione). Filtro `obs_time` entro **90 minuti**; disegno su **un canvas** con
+    **decimazione dichiarata** (griglia di **16 px** nello spazio dello schermo, una
+    stazione per cella — la piu' recente — lato che cresce 12/16/24/32/48/64 px oltre il tetto di
+    **600** punti); colore **continuo** per temperatura (-10..+40 °C) con legenda; popup e
+    hover con nome, **ente** (attribuzione per rete del file), eta' dell'osservazione,
+    temperatura, umidita', vento e pioggia **normalizzata** su `precipitation_period_s`; campi
+    mancanti **omessi**. Attribuzione **CC BY 4.0** visibile nel pannello e nel popup. Pannello
+    LIVE con **"ultimo aggiornamento: N min fa"**, **attive/totali** e badge **"dato fermo"**
+    oltre **2 ore**. Misurato: index.json **542.989 byte** / **4.205 stazioni**,
+    latest.json **1.063.821 byte**, **3.954** attive entro 90 min, **444**
+    punti disegnati a zoom 6 in **653 ms**.
+  - **Nebbia solo in sviluppo**: il tab `#metric-tab-fog` ha la classe `dev-only` e il badge
+    `id:'fog'` di `computeActiveRisks` viene emesso solo se `isDevOnlyVisible()` (attributo
+    `data-ui-mode` del `<body>`, lo stesso che usa il CSS). Soglie **70/85/95**, `FOG_BADGE_MIN` e
+    `case 'fog'` **invariati**. Misurato: in `pro` **7** tab metriche e **0**
+    badge nebbia sulle **107** province; in `sviluppo` **10** tab e **41**
+    badge. Uscendo da sviluppo con la nebbia attiva la metrica torna su Rischio.
+- Storico - Contenuto della 1.2.4.50 (release sopra la 1.2.4.49) - **la modalita' "Semplice" e'
   eliminata, non nascosta: restano DUE modalita', `pro` (default) e `sviluppo`**. Solo client.
   - **Rimosso per intero**: il pulsante "Semplice" dal selettore, la legenda `#easy-legend` con il
-    suo markup, le **5** regole CSS che citavano `easy` (4 `body[data-ui-mode="easy"]` piu'
-    `body:not([data-ui-mode="easy"]) #easy-legend`) e il loro commento, la classe `.easy-hide` da
-    **25** punti del markup, `easyRiskSentence` con il
-    dizionario `EASY_RISK_WORDS` e `easyPeriodWord`, il ramo `if (uiMode === 'easy')` in
-    `buildRiskTooltip` e il gate `uiMode !== 'easy'` nel raggruppamento dei badge.
-  - **Selettore a 2 pulsanti**: con profilo nuovo **22 pulsanti** visibili (i **20** della
-    1.2.4.47 piu' i **2** del selettore), **3 `<select>`** e almeno **13** acronimi; nel testo visibile e
-    nell'HTML senza gli script la parola "Semplice" non compare piu' (**0** occorrenze) e le
-    eccezioni JS sono **0**.
+    suo markup, le **6** regole CSS `body[data-ui-mode="easy"]` piu'
+    `body:not([data-ui-mode="easy"]) #easy-legend`, la classe `.easy-hide` da **25** punti del
+    markup, `easyRiskSentence` con il dizionario `EASY_RISK_WORDS` e `easyPeriodWord`, il ramo
+    `if (uiMode === 'easy')` in `buildRiskTooltip` e il gate `uiMode !== 'easy'` nel
+    raggruppamento dei badge.
+  - **Selettore a 2 pulsanti**: con profilo nuovo **22 pulsanti** visibili, **3 `<select>`** e
+    almeno **13** acronimi; nel DOM servito la parola "Semplice" non compare piu' (**0**
+    occorrenze) e le eccezioni JS sono **0**.
   - **Migrazione**: chi ha `easy` salvato in `meteorisk.uiMode.v2` parte in **`pro`** e la chiave
-    viene **riscritta** a `pro`; `sviluppo` resta `sviluppo`; la vecchia `meteorisk.uiMode`
-    continua a essere rimossa alla prima lettura.
+    viene **riscritta** a `pro`; `sviluppo` resta `sviluppo`.
 - Storico - Contenuto della 1.2.4.49 (release sopra la 1.2.4.48) - **la pagina si apre di nuovo in
   `pro`**; le tre modalita' (`easy` / `pro` / `sviluppo`) restavano una **scelta** nel selettore.
   Solo client: nessuna modifica a `scripts/`, al renderer, al player o ai workflow dei dati oltre
