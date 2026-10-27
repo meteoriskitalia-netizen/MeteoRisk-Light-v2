@@ -146,8 +146,22 @@ def main():
                 continue
             hv = set(mod["hourly"].keys())
             dv = set(mod["daily"].keys())
-            check("variabili hourly == param set", hv == set(common.HOURLY_FIELDS),
-                  "mancanti=%s" % sorted(set(common.HOURLY_FIELDS) - hv)[:5])
+            # CONTRATTO hourly: tutti i campi OBBLIGATORI presenti, nessun
+            # campo sconosciuto, e i parametri OPZIONALI (`visibility`) SOLO se
+            # POPOLATI. Un `visibility` di soli null viene scartato da
+            # `common.hourly_record_fields`: pretenderlo qui renderebbe il
+            # validatore incompatibile con la pipeline (e un campo vuoto non e'
+            # un dato).
+            req = set(common.HOURLY_FIELDS_REQUIRED)
+            check("variabili hourly obbligatorie == param set",
+                  req <= hv <= set(common.HOURLY_FIELDS),
+                  "mancanti=%s ignote=%s" % (
+                      sorted(req - hv)[:5],
+                      sorted(hv - set(common.HOURLY_FIELDS))[:5]))
+            empty_opt = [f for f in sorted(hv & set(common.HOURLY_OPTIONAL_PARAMS))
+                         if all(v is None for v in (mod["hourly"].get(f) or []))]
+            check("parametri hourly opzionali presenti solo se popolati",
+                  not empty_opt, "vuoti=%s" % empty_opt)
             check("variabili daily == param set", dv == set(common.DAILY_FIELDS))
             lens = {k: len(v) for k, v in mod["hourly"].items()}
             check("hourly array == 72 (3 giorni)", setId(lens.values()) == {72})

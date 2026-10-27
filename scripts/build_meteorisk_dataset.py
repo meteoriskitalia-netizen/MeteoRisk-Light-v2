@@ -296,6 +296,10 @@ def main():
                     "forecast_days": common.FORECAST_DAYS,
                     "timezone": common.TIMEZONE,
                     "models": ["best_match", "ecmwf_ifs"],
+                    # Copertura dei parametri OPZIONALI (visibility in metri):
+                    # e' il conteggio che dice quante localita' hanno davvero
+                    # il campo. Assente nei raw vecchi -> nessuna chiave.
+                    "hourly_optional": raw.get("hourly_optional"),
                     "day0": day_label(0),
                     "points": points_out}
     provinces_write = {"schema_version": 4, "status": "live",

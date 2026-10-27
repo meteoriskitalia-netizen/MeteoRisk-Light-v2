@@ -107,10 +107,16 @@ def fetch_batch(batch):
         for k, el in enumerate(els):
             h = el.get("hourly") or {}
             d = el.get("daily") or {}
+            # Campi hourly: i OBBLIGATORI presenti + gli OPZIONALI solo se
+            # hanno almeno un valore non nullo e l'unita' ammessa (vedi
+            # common.hourly_record_fields). Un `visibility` di soli null non
+            # entra nel record: il badge nebbia mostrera' niente invece di 0 m.
+            hourly, _dropped = common.hourly_record_fields(
+                h, el.get("hourly_units"))
             rec = records.setdefault(k, {"elevation": el.get("elevation")})
             rec[model] = {
                 "daily": {f: d[f] for f in common.DAILY_FIELDS if f in d},
-                "hourly": {f: h[f] for f in common.HOURLY_FIELDS if f in h},
+                "hourly": hourly,
             }
             # 1.0.1.4 — FIX day0: le serie Open-Meteo partono dall'00:00 del giorno
             # Europe/Rome del fetch (daily[0]=stesso giorno), NON dal giorno di init
@@ -304,6 +310,28 @@ def main():
     leg_ts = {"best_match_fetched_at": fetched_ts, "ecmwf_fetched_at": fetched_ts}
     cycle_mode = "coordinated"
 
+    # COPERTURA DEI PARAMETRI OPZIONALI (`visibility`): conteggiata sui record
+    # FINALI, quindi indipendente da retry e batch. `with_data` dice quante
+    # localita' hanno davvero il campo (almeno un valore non nullo, unita'
+    # "m"): e' il numero che autorizza il badge nebbia, non il fatto che la
+    # chiave sia stata chiesta.
+    hourly_optional = {
+        "params": list(common.HOURLY_OPTIONAL_PARAMS),
+        "units": {k: list(v) for k, v in common.HOURLY_OPTIONAL_UNITS.items()},
+        "coverage": {},
+    }
+    for model in common.DUAL_MODELS.split(","):
+        st = {"locations": 0, "with_data": 0}
+        for _pidx, rec in results.items():
+            h = ((rec.get(model) or {}).get("hourly") or {})
+            st["locations"] += 1
+            if any(h.get(p) for p in common.HOURLY_OPTIONAL_PARAMS):
+                st["with_data"] += 1
+        hourly_optional["coverage"][model] = st
+        print("[fetch_source_data] copertura %s: %d/%d localita' con dato (%s)"
+              % (model, st["with_data"], st["locations"],
+                 "/".join(common.HOURLY_OPTIONAL_PARAMS)))
+
     payload = {
         "fetched_at": fetched_ts,
         "forecast_days": common.FORECAST_DAYS,
@@ -312,6 +340,7 @@ def main():
         "models": common.DUAL_MODELS.split(","),   # dataset SEMPRE dual (best_match + ecmwf_ifs)
         "cycle_mode": cycle_mode,
         "leg_timestamps": leg_ts,
+        "hourly_optional": hourly_optional,
         "points": sorted_points,
     }
     tmp_path.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")

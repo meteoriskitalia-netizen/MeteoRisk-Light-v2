@@ -127,7 +127,18 @@ HOURLY_PARAMS = (
     "relative_humidity_850hPa,relative_humidity_700hPa,"
     "dew_point_850hPa,dew_point_700hPa,"
     "geopotential_height_850hPa,geopotential_height_700hPa,"
-    "geopotential_height_500hPa,convective_inhibition,lifted_index,k_index"
+    "geopotential_height_500hPa,convective_inhibition,lifted_index,k_index,"
+    # --- OPZIONALE (vedi HOURLY_OPTIONAL_PARAMS): visibilita' in METRI ------
+    # MISURATO il 2026-10-27 sull'API Forecast (Milano, 72 h):
+    #   best_match  -> HTTP 200, hourly_units.visibility = "m", 72/72 valori
+    #                  (min 180 m, max 38.940 m);
+    #   ecmwf_ifs   -> HTTP 200, unit "m", 72/72 valori;
+    #   ecmwf_ifs025, meteofrance_arpege_world025, ncep_gfs013 -> HTTP 200 ma
+    #                  visibility = [null x72] e hourly_units = "undefined"
+    #                  (NON un 400: l'API accetta il nome e riempie di null).
+    # Percio' il campo va tenuto solo dove ha ALMENO un valore non nullo e
+    # unita' "m" (hourly_record_fields): niente serie di 72 null nel JSON.
+    "visibility"
 )
 DAILY_PARAMS = (
     "weathercode,temperature_2m_max,temperature_2m_min,"
@@ -141,6 +152,34 @@ DUAL_MODELS = "best_match,ecmwf_ifs"
 
 HOURLY_FIELDS = HOURLY_PARAMS.split(",")
 DAILY_FIELDS = DAILY_PARAMS.split(",")
+
+# ---------------------------------------------------------------------------
+# PARAMETRI HOURLY OPZIONALI — fallback silenzioso
+# ---------------------------------------------------------------------------
+# Un parametro opzionale e' un campo che il NOSTRO codice vuole ma che il
+# modello puo' non avere. Contratto:
+#   1. la richiesta parte con TUTTI i campi (HOURLY_PARAMS);
+#   2. se l'API risponde 400 per uno di questi nomi, `fetch_source_batch`
+#      ripete UNA volta la richiesta con `HOURLY_PARAMS_REQUIRED` (senza gli
+#      opzionali): il batch NON fallisce e il ciclo dati non si rompe;
+#   3. se la risposta e' 200 ma il campo e' TUTTO null (o con unita' diversa
+#      da quella attesa), il campo NON entra nel record del punto
+#      (`hourly_record_fields`): meglio nessun dato che 72 null.
+# MISURATO il 2026-10-27 (API Forecast, 8 modelli, Milano): oggi NESSUN modello
+# risponde 400 su `visibility` — i modelli che non ce l'hanno restituiscono
+# [null x72] con hourly_units.visibility = "undefined". Il ramo 400 resta come
+# difesa (una versione futura dell'API puo' rifiutare il nome) ed e' coperto dal
+# test dedicato.
+HOURLY_OPTIONAL_PARAMS = ("visibility",)
+HOURLY_OPTIONAL_SET = frozenset(HOURLY_OPTIONAL_PARAMS)
+# Unita' ammesse per un parametro opzionale (Open-Meteo dichiara "m";
+# per i modelli che non hanno il campo dichiara la stringa "undefined").
+HOURLY_OPTIONAL_UNITS = {"visibility": ("m",)}
+# Campi OBBLIGATORI (tutti tranne gli opzionali) e stringa `hourly` ridotta:
+# l'ordine storico dei campi e' PRESERVATO, l'opzionale e' in coda.
+HOURLY_FIELDS_REQUIRED = [f for f in HOURLY_FIELDS
+                          if f not in HOURLY_OPTIONAL_SET]
+HOURLY_PARAMS_REQUIRED = ",".join(HOURLY_FIELDS_REQUIRED)
 
 # COORDINATED SCHEDULING: ECMWF IFS e' il driver UNICO del ciclo.
 # best_match NON ha un proprio run_key: e' un composito senza endpoint metadata
@@ -920,16 +959,86 @@ def _pace_next_request():
     _last_request_at = time.monotonic()
 
 
-def fetch_source_batch(lats, lons, models=DUAL_MODELS, forecast_days=FORECAST_DAYS):
+def _optional_field_ok(name, values, units):
+    """True se un parametro OPZIONALE e' utilizzabile per quel punto/modello.
+
+    Regola (misurata il 2026-10-27): serve ALMENO un valore non nullo E, se
+    l'unita' e' dichiarata, una delle unita' ammesse per il campo. Un array
+    [null x72] con unit "undefined" e' esattamente cio' che l'API restituisce
+    per i modelli che non hanno `visibility`: non e' un dato.
+    """
+    if not isinstance(values, (list, tuple)) or not values:
+        return False
+    if all(v is None for v in values):
+        return False
+    allowed = HOURLY_OPTIONAL_UNITS.get(name)
+    if allowed and isinstance(units, dict):
+        unit = units.get(name)
+        if unit is not None and unit not in allowed:
+            return False
+    return True
+
+
+def hourly_record_fields(hourly, units=None):
+    """Estrae dal blocco `hourly` di Open-Meteo i campi da PUBBLICARE.
+
+    Ritorna (fields, dropped): `fields` contiene i campi obbligatori presenti,
+    nell'ordine di `HOURLY_FIELDS`; `dropped` elenca i parametri OPZIONALI
+    scartati perche' vuoti (tutti null) o con unita' non ammessa. Nessuna
+    eccezione: un campo assente e' semplicemente assente (la presenza reale e'
+    decisa dalla risposta), un opzionale vuoto NON entra nel JSON.
+    """
+    fields = {}
+    dropped = []
+    hourly = hourly or {}
+    for name in HOURLY_FIELDS:
+        if name not in hourly:
+            continue
+        if name in HOURLY_OPTIONAL_SET and not _optional_field_ok(
+                name, hourly.get(name), units):
+            dropped.append(name)
+            continue
+        fields[name] = hourly[name]
+    return fields, dropped
+
+
+def _optional_params_in_error(msg):
+    """Nomi di HOURLY_OPTIONAL_PARAMS citati in un messaggio d'errore 400.
+
+    Se il messaggio non nomina nessun parametro ma parla di `hourly` non
+    valido, si considera responsabile l'INSIEME degli opzionali (e' l'unica
+    differenza rispetto alla richiesta storica). Ritorna una tupla
+    (eventualmente vuota: in quel caso l'errore NON e' nostro e va propagato).
+    """
+    text = (msg or "").lower()
+    named = tuple(p for p in HOURLY_OPTIONAL_PARAMS if p.lower() in text)
+    if named:
+        return named
+    if "hourly" in text and ("invalid" in text or "not available" in text
+                             or "unknown" in text):
+        return tuple(HOURLY_OPTIONAL_PARAMS)
+    return ()
+
+
+def fetch_source_batch(lats, lons, models=DUAL_MODELS, forecast_days=FORECAST_DAYS,
+                       hourly=None):
     """One batched multi-location request (<=BATCH_MAX_LOCATIONS locations),
     pace-limited, with LIMITED exponential backoff. Only THIS batch is retried.
+
+    `hourly` (default `HOURLY_PARAMS`) e' la lista dei campi orari; serve ai
+    test per forzare la forma storica.
+
+    FALLBACK OPZIONALE (silenzioso per il ciclo): se l'API risponde 400 citando
+    un parametro di `HOURLY_OPTIONAL_PARAMS`, la richiesta viene ripetuta UNA
+    volta con `HOURLY_PARAMS_REQUIRED` e il batch prosegue senza quel campo.
+    Un 400 su un campo OBBLIGATORIO non viene ritentato: si propaga.
 
     Returns the parsed response. Raises RuntimeError with the API reason on
     hard failures (e.g. 429 after retries, 5xx after retries)."""
     params = {
         "latitude": ",".join(str(x) for x in lats),
         "longitude": ",".join(str(x) for x in lons),
-        "hourly": HOURLY_PARAMS,
+        "hourly": hourly or HOURLY_PARAMS,
         "daily": DAILY_PARAMS,
         "timezone": "Europe/Rome",
         "forecast_days": str(forecast_days),
@@ -939,12 +1048,17 @@ def fetch_source_batch(lats, lons, models=DUAL_MODELS, forecast_days=FORECAST_DA
     url = OPENMETEO_BASE + "?" + urllib.parse.urlencode(params)
     last_err = None
     delay = 0.0
+    # Il retry del fallback opzionale non passa dal gate di budget: e' la
+    # STESSA richiesta corretta una volta (senza gli opzionali), non un
+    # tentativo aggiuntivo su un errore transitorio.
+    fallback_retry = False
     for attempt in range(RETRY_LIMIT):
-        if attempt > 0 and not budget_ok_for(1):
+        if attempt > 0 and not fallback_retry and not budget_ok_for(1):
             raise RuntimeError(
                 "Open-Meteo: budget insufficiente per il retry (tetto giornaliero "
                 "raggiunto, FIX 1.0.0.8: nessuna prenotazione preventiva, nessun "
                 "retry oltre il tetto). Errore precedente: %r" % last_err)
+        fallback_retry = False
         if delay > 0:
             time.sleep(delay)
         _pace_next_request()
@@ -961,6 +1075,22 @@ def fetch_source_batch(lats, lons, models=DUAL_MODELS, forecast_days=FORECAST_DA
             except Exception:  # noqa: BLE001
                 pass
             msg = body.decode("utf-8", "replace")
+            # FALLBACK OPZIONALE: un 400 che cita un parametro di
+            # HOURLY_OPTIONAL_PARAMS non e' un guasto del ciclo. Si ripete UNA
+            # volta la richiesta senza gli opzionali: il batch prosegue e la
+            # copertura del campo finisce nel manifest (`hourly_optional`).
+            if exc.code == 400 and params["hourly"] != HOURLY_PARAMS_REQUIRED:
+                dropped = _optional_params_in_error(msg)
+                if dropped:
+                    params["hourly"] = HOURLY_PARAMS_REQUIRED
+                    url = (OPENMETEO_BASE + "?"
+                           + urllib.parse.urlencode(params))
+                    delay = 0.0
+                    fallback_retry = True
+                    print("[openmeteo] parametro opzionale rifiutato dall'API "
+                          "(%s): richiesta ripetuta senza (fallback, il ciclo "
+                          "prosegue)" % ",".join(dropped))
+                    continue
             if exc.code == 429 or ("limit" in msg.lower() and "minutely" in msg.lower()):
                 delay = 60.0  # Open-Meteo: "try again in one minute"
             elif exc.code >= 500:

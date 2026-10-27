@@ -101,6 +101,19 @@ def synth_point(lat, lon, elev):
             hourly[f] = [round(pv * (0.8 if conv > 0.5 else 0.1), 2) for pv in hourly["precipitation"]]
         elif f == "freezing_level_height":
             hourly[f] = [round(3200 + (elev or 0) + conv * 300 + math.sin(h % 24 / 24 * math.pi * 2) * 200, 1) for h in range(72)]
+        elif f == "visibility":
+            # METRI (Open-Meteo dichiara unit "m"). Fixture: visibilita' alta
+            # fuori dagli episodi, ridotta nella cella convettiva e NEBBIA
+            # notturna in pianura (ore 1-7, quota < 300 m). Serve a esercitare
+            # il badge nebbia (soglie 200 m / 500 m) senza inventare punteggi.
+            arr = []
+            for h in range(72):
+                hour = h % 24
+                base = 24000.0 - conv * 9000.0
+                if (elev or 0) < 300 and 1 <= hour <= 7:
+                    base = min(base, 180.0 + 60.0 * abs(hour - 4))
+                arr.append(round(max(30.0, base + rnd.uniform(-800, 800) * (0.05 + conv)), 1))
+            hourly[f] = arr
         elif f.startswith("temperature_850hPa") or f == "temperature_850hPa":
             hourly[f] = [round(t - (elev or 0) * 0.006 - 8, 2) for t in hourly["temperature_2m"]]
         elif f == "temperature_700hPa":
