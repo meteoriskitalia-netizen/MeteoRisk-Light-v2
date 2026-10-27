@@ -6,13 +6,44 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.51
+## Versione attiva: 1.2.4.52
 
-- File applicativo: `mri-light-1.2.4.51.html` (`APP_VERSION = '1.2.4.51'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.51', date: '2026-10-27' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.51'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+- File applicativo: `mri-light-1.2.4.52.html` (`APP_VERSION = '1.2.4.52'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.52', date: '2026-10-27' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.52'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
-- Contenuto della 1.2.4.51 (release sopra la 1.2.4.50) - **tre cose, tutte sul client**.
+- Contenuto della 1.2.4.52 (release sopra la 1.2.4.51) - **due modifiche, entrambe sul client**:
+  la legenda delle temperature a 850 e 500 hPa che segue la mappa (scale copiate identiche dal
+  JSON del renderer, commit `a449322a`, che finora il client non registrava) e la regione
+  **Europa** dei domini globali allargata al **Nord Atlantico** (renderer gia' aggiornato,
+  commit `dc9a31b6`).
+  - **`temperature_850hPa`: 34 bande da 2 °C, da -32 a +34 °C** (ultima banda aperta
+    `[34, +inf)`), in `FM_COLOR_SCALE_OVERRIDES` come `FM_T850_COLOR_SCALE`. Prima la variabile
+    non aveva override e la libreria la risolveva per prefisso sulla scala di `temperature`
+    (**42 bande -80..+50 °C**): il rosso arrivava solo verso **+38/+40 °C**, quindi i valori reali
+    di 850 hPa (**0 °C contro +8 °C**, la differenza che decide la neve in quota) cadevano su tre
+    verdi quasi uguali. Range tarato su **10.724.490** celle misurate (15 frame `.om`, 5 domini x
+    3 frame): min **-32,1**, p50 **+2,9**, max **+32,6**. **0 °C** resta il verde menta
+    `#72E8A5` e la zona **-18..0 °C** e' **identica** alla rampa precedente.
+  - **`temperature_500hPa`: 27 bande da 2 °C, da -46 a +6 °C** (ultima banda aperta
+    `[6, +inf)`), in `FM_COLOR_SCALE_OVERRIDES` come `FM_T500_COLOR_SCALE`. Con la rampa
+    generica il rosso stava a **+38 °C** su un livello che in Italia sta fra **-27 e -7 °C**: la
+    mappa era tutta blu. Stessa misura: min **-45,5**, p50 **-18,7**, max **+5,6**; prime **19**
+    voci della rampa piu' **8** verdi/gialle, saltando `#11DC3D` (indistinguibile dalla precedente,
+    dE2000 **2,0**).
+  - Il registro `FM_COLOR_SCALE_OVERRIDES` passa da **19** a **21** chiavi.
+  - **Regione `europe` dei 4 domini globali: da `bbox [30, -30, 72, 50]` a `[30, -70, 75, 45]`**,
+    cioe' **Labrador, Groenlandia meridionale, Islanda e Azzorre**. Serve perche'
+    `fmApplyRegion` **interseca** il bbox della regione con i bounds della run: con il riquadro
+    vecchio il Labrador a **60W** sarebbe stato tagliato anche se il WebP lo contiene. Il
+    renderer copre ora **30..75N / 70W..45E** con output **921x679** (prima 1121x1111): area piu'
+    grande e **file piu' leggeri**, **-27,2%** di byte su `ecmwf_ifs025` e **-31,5%** su
+    `dwd_icon` (misurati dal renderer), cifre **8,19 px** a schermo. **Invariati**
+    `FM_GLOBAL_DOMAINS`, `fmDomainRegionIds` e i 3 domini regionali: con `dwd_icon_eu` la vista
+    Europa resta **34..62N / 15W..40E**.
+  - Non toccati: `temperature_2m` (resta -80..+50), `temperature_10hPa`, nebbia dietro lo switch,
+    centraline del LIVE, zoom polare, legenda dam, fix mappe.
+- Storico - Contenuto della 1.2.4.51 (release sopra la 1.2.4.50) - **tre cose, tutte sul client**.
   - **Il selettore di modalità è eliminato e torna lo switch "Sviluppo" del footer** (dov'era
     nella 1.2.4.47). Rimossi per intero: il markup `#ui-mode-switch` con i due pulsanti
     Pro/Sviluppo, il CSS `#ui-mode-switch`/`.uim-btn` con
