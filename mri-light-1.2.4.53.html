@@ -11973,12 +11973,21 @@ stopSyncPlay();
         return txt;
     }
 
-    // ---- SCALA A BANDE (temperature_2m del registro FM_COLOR_SCALE_OVERRIDES) ----
-    // Nessun colore proprio: si legge la scala che le MAPPE usano per la stessa
-    // variabile. Se un giorno il registro non la portasse, si smette di disegnare
-    // invece di colorare a caso (vedi il gate in stationsDrawCanvas).
+    // ---- SCALA A BANDE: si risolve DAL REGISTRO con la chiave dichiarata in
+    // STATIONS_LABEL_FIELD.scale (oggi 'temperature_2m'). Nessun colore proprio: si
+    // legge la scala che le MAPPE usano per la stessa variabile, prima dagli override
+    // (FM_COLOR_SCALE_OVERRIDES) e poi dal registro unificato della libreria
+    // (fmColorScales, che contiene anche le scale base). Se la chiave non esiste si
+    // smette di disegnare invece di colorare a caso (gate in stationsDrawCanvas).
     function stationsBandScale() {
-        var sc = (typeof FM_TEMP2M_COLOR_SCALE !== 'undefined') ? FM_TEMP2M_COLOR_SCALE : null;
+        var key = STATIONS_LABEL_FIELD.scale;
+        if (!key) return null;
+        var sc = null;
+        if (typeof FM_COLOR_SCALE_OVERRIDES !== 'undefined' && FM_COLOR_SCALE_OVERRIDES && FM_COLOR_SCALE_OVERRIDES[key]) {
+            sc = FM_COLOR_SCALE_OVERRIDES[key];
+        } else if (typeof fmColorScales !== 'undefined' && fmColorScales && fmColorScales[key]) {
+            sc = fmColorScales[key];
+        }
         return (sc && sc.breakpoints && sc.colors && sc.colors.light) ? sc : null;
     }
 

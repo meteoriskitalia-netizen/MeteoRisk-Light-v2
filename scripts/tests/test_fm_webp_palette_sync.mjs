@@ -514,7 +514,8 @@ ok('J: temperature_2m light == dark (palette identica)',
 {
   const i0 = src.indexOf('function stationsBandScale');
   const body = i0 >= 0 ? src.slice(i0, i0 + 400) : '';
-  ok('J: stationsBandScale legge il registro (nessuna rampa locale)', i0 >= 0 && /FM_TEMP2M_COLOR_SCALE/.test(body));
+  ok('J: stationsBandScale risolve la scala dal registro per chiave', i0 >= 0 &&
+    /FM_COLOR_SCALE_OVERRIDES\[key\]/.test(body) && /STATIONS_LABEL_FIELD\.scale/.test(body));
   ok('J: STATIONS_TEMP_STOPS rimossa (nessun colore proprio)', !/STATIONS_TEMP_STOPS/.test(src));
 }
 // Sensibilita' del comparatore anche su questa scala.
