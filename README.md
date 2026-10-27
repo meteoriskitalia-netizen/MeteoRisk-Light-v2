@@ -6,17 +6,33 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.48
+## Versione attiva: 1.2.4.49
 
-- File applicativo: `mri-light-1.2.4.48.html` (`APP_VERSION = '1.2.4.48'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.48', date: '2026-10-27' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.48'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+- File applicativo: `mri-light-1.2.4.49.html` (`APP_VERSION = '1.2.4.49'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.49', date: '2026-10-27' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.49'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
-- Contenuto della 1.2.4.48 (release sopra la 1.2.4.47) - **tre modalita' di visualizzazione
+- Contenuto della 1.2.4.49 (release sopra la 1.2.4.48) - **la pagina si apre di nuovo in `pro`**;
+  le tre modalita' (`easy` / `pro` / `sviluppo`) restano una **scelta** nel selettore. Solo
+  client: nessuna modifica a `scripts/`, al renderer, al player o ai workflow dei dati oltre
+  alle righe `cp`.
+  - **Default `pro`**: con nessuna chiave salvata (o con un valore non riconosciuto) si parte in
+    `pro`, cioe' la UI della 1.2.4.47: **23 pulsanti** (i **20** della 1.2.4.47 piu' i **3** del
+    selettore), **3 `<select>`**, 262 parole (misurate in Edge headless, profilo nuovo). Rispetto
+    alla 1.2.4.47 i pulsanti persi sono **0** e le `<select>` sono le stesse 3.
+  - **Migrazione**: la scelta vive nella chiave nuova `meteorisk.uiMode.v2`; la
+    `meteorisk.uiMode` scritta dalla 1.2.4.48 **non viene piu' letta** e viene rimossa alla prima
+    lettura. Chi era rimasto in `easy` per il vecchio default si ritrova in `pro`; chi clicca
+    "Semplice" scrive `easy` nella chiave nuova e ci resta dopo il reload (misurato).
+  - **`easy` e `sviluppo` restano**: il selettore a tre pulsanti non e' stato rimosso. `easy` da'
+    6 pulsanti e 0 `<select>`; `sviluppo` da' `pro` piu' i pannelli e i tab tecnici gia' esistenti
+    (SOI "Struttura convettiva", tab Conv. e Grandine, selettori shear e livello grandine,
+    Meteociel, Fonte API, Nuovi Indici).
+- Storico - Contenuto della 1.2.4.48 (release sopra la 1.2.4.47) - **tre modalita' di visualizzazione
   (`easy` / `pro` / `sviluppo`) scelte da un selettore in toolbar e ricordate in `localStorage`**.
   Solo client: nessuna modifica a `scripts/`, al renderer, al player o ai workflow dei dati oltre
   alle righe `cp`.
-  - **`easy` (default alla prima visita)**: 6 pulsanti visibili, 0 `<select>`, 0 acronimi e 58
+  - **`easy` (default nella 1.2.4.48, non piu' dalla 1.2.4.49)**: 6 pulsanti visibili, 0 `<select>`, 0 acronimi e 58
     parole di testo visibile (misurate); legenda a 3 classi in parole (Nessun rischio / Attenzione /
     Forte) al posto di quella tecnica; tooltip di provincia con UNA frase in italiano da un
     dizionario chiuso (max 12 parole, 0 sigle), es. "Oggi nebbia molto fitta e vento forte.".

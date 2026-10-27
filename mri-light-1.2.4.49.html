@@ -1191,6 +1191,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 
         /* ============================================================
            1.2.4.46 - TRE MODALITA' DI VISUALIZZAZIONE: easy / pro / sviluppo.
+           1.2.4.49 - la modalita' iniziale e' pro; easy resta una scelta volontaria.
            La visibilita' la decide SOLO il CSS tramite data-ui-mode sul <body>:
            nessuna funzione esistente viene riscritta, si aggiungono classi.
              .easy-hide   -> nascosto in easy, visibile in pro e sviluppo
@@ -1245,14 +1246,17 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 </head>
 <body>
 <script>
-/* 1.2.4.46 - La modalita' va scritta sul <body> PRIMA del paint, altrimenti si vede
-   un lampo della UI completa. Stessa chiave di localStorage usata da applyUiMode(). */
+/* 1.2.4.49 - La modalita' va scritta sul <body> PRIMA del paint, altrimenti si vede
+   un lampo della UI completa. Default `pro`: si legge SOLO la chiave nuova
+   `meteorisk.uiMode.v2`, la `meteorisk.uiMode` scritta dalla 1.2.4.48 non si eredita
+   (migrazione: chi era in easy per il vecchio default si ritrova in pro).
+   Stessa chiave di localStorage usata da applyUiMode(). */
 (function () {
-  var m = 'easy';
+  var m = 'pro';
   try {
-    var v = window.localStorage.getItem('meteorisk.uiMode');
+    var v = window.localStorage.getItem('meteorisk.uiMode.v2');
     if (v === 'easy' || v === 'pro' || v === 'sviluppo') m = v;
-  } catch (e) { /* localStorage negato: si resta su easy */ }
+  } catch (e) { /* localStorage negato: si resta su pro */ }
   document.body.setAttribute('data-ui-mode', m);
 })();
 </script>
@@ -2029,9 +2033,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.48';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.49';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-27';
     const APP_CHANGELOG = [
+        { version: '1.2.4.49', date: '2026-10-27', changes: [
+  'UI= LA UI TORNA QUELLA DI SEMPRE ALL\'APERTURA: la modalita\' iniziale e\' `pro`, non piu\' "Semplice". Le tre modalita\' restano (Semplice / Pro / Sviluppo) e il selettore non e\' stato rimosso: cambia solo lo stato di partenza, quindi la pagina non si apre piu\' su una UI in cui non c\'e\' nulla di utile. MISURATO in Edge headless con profilo nuovo sullo stesso html: `uiMode = pro`, 23 pulsanti visibili (i 20 della 1.2.4.47 piu\' i 3 del selettore) e 3 <select>. Chi sceglie "Semplice" dal selettore continua ad avere 6 pulsanti, 0 <select> e 0 acronimi.',
+  'UI= MIGRAZIONE DELLA CHIAVE DI PERSISTENZA: la 1.2.4.48 scriveva la scelta in `meteorisk.uiMode` e alla prima visita ci metteva `easy`; quel valore ora NON viene piu\' letto, altrimenti chi ha aperto l\'app una volta resterebbe bloccato in una UI che non ha scelto. La persistenza passa alla chiave nuova `meteorisk.uiMode.v2`: se manca o contiene un valore non riconosciuto si parte in `pro`, e la vecchia `meteorisk.uiMode` viene rimossa alla prima lettura (nessuno stato orfano). Un click esplicito su "Semplice" scrive `easy` nella chiave nuova e resta dopo il reload. Con `localStorage` negato o pieno si parte in `pro` senza eccezioni.'
+        ] },
         { version: '1.2.4.48', date: '2026-10-27', changes: [
   'UI= TRE MODALITA\' DI VISUALIZZAZIONE: SEMPLICE, PRO, SVILUPPO. Un selettore a tre pulsanti in toolbar sceglie quanta interfaccia si vede: `easy` (SEMPLICE, default alla prima visita), `pro` (la UI di sempre) e `sviluppo` (pro piu\' i pannelli tecnici gia\' esistenti). MISURATO sulla pagina servita in Edge headless, per modalita\': easy 6 pulsanti visibili / 0 <select> / 0 acronimi / 58 parole di testo visibile; pro 23 / 3 / 25 token in maiuscolo su 13 distinti / 327 parole; sviluppo 42 / 19 / 57 su 25 / 706 parole. Il confronto con la 1.2.4.47 sulla stessa pagina dice che la differenza di insieme dei pulsanti visibili in `pro` e\' ESATTAMENTE i 3 del selettore, e le <select> sono le stesse 3.',
   'UI= LA MODALITA\' SI RICORDA E NON DIPENDE DAL DISEGNO DEL CSS. Un solo stato (`uiMode`) nella chiave `localStorage` `meteorisk.uiMode`, scritto solo quando l\'utente clicca e riletto prima del paint (niente lampo della UI completa). La visibilita\' la decide il CSS con `body[data-ui-mode=...]` e due classi, `.easy-hide` (nascosto in easy) e `.dev-only` (solo in sviluppo): nessuna funzione esistente e\' stata riscritta. La variabile storica `isSviluppoActive` e\' ora DERIVATA dalla modalita\' (`mode === \'sviluppo\'`), quindi i gate gia\' in produzione continuano a funzionare senza un secondo interruttore. MISURATO: scelgo pro -> reload -> pro; scelgo easy -> reload -> easy. Con `localStorage` NEGATO o PIENO la pagina parte in easy e non lancia eccezioni (0 in tutte le prove).',
@@ -15615,15 +15623,20 @@ function toggleForecastMaps() {
     // il CSS con body[data-ui-mode]: qui non si riscrive nessuna funzione esistente.
     // `isSviluppoActive` resta la variabile che i gate gia' in produzione leggono
     // (righe 17278, 19409, 22520): viene DERIVATA da uiMode, non da uno switch a parte.
-    var UI_MODE_KEY = 'meteorisk.uiMode';
+    var UI_MODE_KEY = 'meteorisk.uiMode.v2';
+    var UI_MODE_LEGACY_KEY = 'meteorisk.uiMode';
     var UI_MODES = ['easy', 'pro', 'sviluppo'];
-    var uiMode = 'easy';
+    var uiMode = 'pro';
     function readUiMode() {
         try {
             var v = window.localStorage.getItem(UI_MODE_KEY);
             if (v && UI_MODES.indexOf(v) !== -1) return v;
-        } catch (e) { /* localStorage negato o pieno: si resta sul default easy */ }
-        return 'easy';
+            // Migrazione 1.2.4.49: il valore scritto dalla 1.2.4.48 nella chiave
+            // vecchia NON si eredita (l'utente se lo trovava addosso, non lo aveva
+            // scelto). Si rimuove per non lasciare stato orfano nel browser.
+            window.localStorage.removeItem(UI_MODE_LEGACY_KEY);
+        } catch (e) { /* localStorage negato o pieno: si resta sul default pro */ }
+        return 'pro';
     }
     function applyUiMode(mode, persist) {
         if (UI_MODES.indexOf(mode) === -1) mode = 'pro';
@@ -24387,7 +24400,7 @@ initMap();
         document.body.appendChild(footer);
     })();
 
-    // 1.2.4.46 - la modalita' salvata (default easy) si applica a DOM completo:
+    // 1.2.4.46 - la modalita' salvata (1.2.4.49: default pro) si applica a DOM completo:
     // allinea i gate JS (isSviluppoActive) e i pulsanti. persist=false al primo avvio:
     // chi non ha mai scelto resta sul default senza scrivere nulla.
     applyUiMode(readUiMode(), false);
