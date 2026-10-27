@@ -6,13 +6,44 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.53
+## Versione attiva: 1.2.4.54
 
-- File applicativo: `mri-light-1.2.4.53.html` (`APP_VERSION = '1.2.4.53'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.53', date: '2026-10-27' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.53'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+- File applicativo: `mri-light-1.2.4.54.html` (`APP_VERSION = '1.2.4.54'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.54', date: '2026-10-27' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.54'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
-- Contenuto della 1.2.4.53 (release sopra la 1.2.4.52) - **due modifiche, entrambe sul client**:
+- Contenuto della 1.2.4.54 (release sopra la 1.2.4.53) - **due modifiche, entrambe sul client**:
+  il **secondo toggle "Centraline"** nel pannello LIVE e la **rimozione della sincronizzazione**
+  fra selettore della sorgente e strato delle etichette.
+  - **Due toggle affiancati e indipendenti.** `#live-toggle-stations` ("Centraline") sta accanto a
+    `#live-toggle-supercells` ("Struttura convettiva") nello stesso `.sc-toggles`, con la stessa
+    classe `.sc-toggle`: rettangoli misurati **112,47x17** e **66,91x17 px**, stessa riga
+    (`y=174`), altezza identica, distanza **6 px**. I due non si escludono.
+  - **Cosa accende.** ON: carica `data/stations/` se serve e mostra il canvas delle etichette, la
+    legenda `#live-stations-box` e la riga di stato `#live-stations-status`; OFF: rimuove lo
+    strato dal DOM, nasconde legenda e stato e ferma il timer di refresh (60 s). Lo stato e' una
+    variabile di sessione (`liveShowStations`), non `localStorage`: al reload parte OFF
+    (misurato: `localStorage` vuoto, dopo il reload toggle OFF e canvas assente).
+  - **Ortogonale al selettore.** `#mnw-source-select` resta a **tre voci** (`live`, `model`,
+    `stations`) e il ramo `renderStationsExtract` resta: il selettore sceglie cosa mostra il
+    **pannello**, il toggle accende lo **strato** sulla mappa. `refreshMnwPanel()` non chiama piu'
+    `stationsSetActive`, `toggleLiveStations()` non legge ne' scrive `select.value`.
+  - **Sei combinazioni verificate** (select x toggle): `select.value` invariato prima e dopo il
+    click in **6/6**, **0 eccezioni JS**. Con `stations` + toggle OFF il pannello mostra le
+    centraline e la mappa **non** ha etichette (canvas assente, **0** pixel); con `live` + toggle
+    ON le etichette stanno sopra i METAR; con `model` + toggle ON sopra l'estratto modelli.
+  - **Misure dello strato** (zoom 7, canvas **754x640**, filtro 90 minuti invariato): **4.182/4.275**
+    centraline attive, **1.796** candidate, **94** etichette (griglia **32 px**), **147** scartate
+    per collisione, **0** intersezioni verificate a coppie su **4.371** coppie, **51.087** pixel
+    dipinti, **6,2-46,1 ms** di disegno. Con OFF: canvas rimosso e **0** pixel dipinti.
+  - **Difetto pre-esistente corretto.** `fetchWithTimeout()` passava `options.priority` (numero
+    della coda interna, es. `40`) dentro `fetch()`; `RequestInit.priority` accetta solo
+    `high|low|auto`, quindi l'**Estratto Modelli** falliva prima della rete con `40 is not a valid
+    enum` anche nella 1.2.4.53. Ora `delete opts.priority` sulla copia passata a `fetch` e il
+    pannello modello carica (misurato: Open-Meteo, **19,6 °C**).
+  - **Nebbia e Sviluppo.** `#metric-tab-fog` resta dietro lo switch (none / flex / none), i due
+    toggle restano visibili e alti **17 px** in tutti e 3 gli stati.
+- Storico - Contenuto della 1.2.4.53 (release sopra la 1.2.4.52) - **due modifiche, entrambe sul client**:
   le centraline osservate diventano **etichette con la temperatura** (rettangoli arrotondati,
   fondo a bande della scala `temperature_2m`, testo a contrasto calcolato, zero sovrapposizioni)
   e la **Struttura convettiva (SOI)** torna visibile nel pannello LIVE per tutti.

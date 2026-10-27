@@ -20,7 +20,7 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.53.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.54.html');
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -54,6 +54,8 @@ for (const n of ['function refreshBlitzTile', 'function refreshLiveLightningMark
 // gating del fetch supercelle condiviso con il pannello #sc-radar-panel).
 pure += '\nvar isScRadarActive = false;';
 pure += '\nvar liveShowSupercells = false;';
+pure += '\nvar liveShowStations = false;';
+pure += '\n' + extractFn('function toggleLiveStations');
 pure += '\n' + extractFn('function scDataActive');
 pure += '\n' + extractFn('function toggleLiveSupercells');
 pure += '\n' + extractFn('function refreshLiveSupercells');
@@ -71,6 +73,7 @@ let liveLightningMarkerLayer = null;
 let liveBlitzTileLayer = null;
 let liveFlashLayer = null;
 let tileCalls = 0, layerCalls = 0;
+let stationCalls = [];
 
 function makeDoc() {
   const status = { innerText: 'prima' };
@@ -88,6 +91,7 @@ function makeDoc() {
     // toggle interno "Supercelle radar" + id dedicati della vista LIVE (nessun
     // id duplicato del pannello #sc-radar-panel).
     'live-toggle-supercells': { classList: { add() {}, remove() {} }, style: {}, innerHTML: '' },
+    'live-toggle-stations': { classList: { add() {}, remove() {} }, style: {}, innerHTML: '' },
     // sub-toggle del pannello LIVE (spostati dal pannello SC): gating di visibilita'
     'live-toggle-trails': { style: {} },
     'live-toggle-forecast': { style: {} },
@@ -137,6 +141,7 @@ const ctx = {
   blitzWsPruneTimer: null,
   connectBlitzWs() {},
   setInterval() { return 1; },
+  stationsSetActive(on) { stationCalls.push(on); },
 };
 vm.runInNewContext(pure, ctx);
 
@@ -351,6 +356,37 @@ ok('LAYER: flashLightningStrike non crea layer con flag OFF', layerCalls === 0 &
     /function liveRenderScSummaryList\(cands, cards\)[\s\S]{0,1600}scEnsureListClickHandler\('live-sc-list'\)/.test(src));
   ok('LIVE-SC: scSelectCandidate evidenzia le righe in entrambe le liste (#sc-list + #live-sc-list)',
     /querySelectorAll\('#sc-list \.sc-item, #live-sc-list \.sc-item'\)/.test(src));
+}
+
+// ---------- 7g. SECONDO TOGGLE "CENTRALINE" (1.2.4.54), ORTOGONALE AL SELETTORE ----------
+{
+  ok('LIVE-ST: #live-toggle-stations presente una volta, classe .sc-toggle, handler toggleLiveStations()',
+    (src.match(/id="live-toggle-stations"/g) || []).length === 1 &&
+    /id="live-toggle-stations"[^>]*class="sc-toggle"[^>]*onclick="toggleLiveStations\(\)"/.test(src));
+  const iSc = src.indexOf('id="live-toggle-supercells"');
+  const iSt = src.indexOf('id="live-toggle-stations"');
+  const iScPanel = src.indexOf('id="sc-radar-panel"');
+  ok('LIVE-ST: i due toggle sono affiancati nello stesso .sc-toggles (prima di #sc-radar-panel)',
+    iSc > 0 && iSt > iSc && iSt < iScPanel &&
+    src.lastIndexOf('<div class="sc-toggles">', iSc) === src.lastIndexOf('<div class="sc-toggles">', iSt));
+  ok('LIVE-ST: il selettore resta a TRE voci (live/model/stations)',
+    /<option value="live">/.test(src) && /<option value="model">/.test(src) && /<option value="stations">/.test(src));
+  const rf = extractFn('function refreshMnwPanel');
+  ok('LIVE-ST: refreshMnwPanel NON chiama stationsSetActive (nessuna sincronizzazione)',
+    !/stationsSetActive\s*\(/.test(rf) && /mnwShowStationsOverview\s*\(/.test(rf));
+  const tl = extractFn('function toggleLiveStations');
+  ok('LIVE-ST: toggleLiveStations non tocca #mnw-source-select',
+    /stationsSetActive\(liveShowStations\)/.test(tl) && !/mnw-source-select/.test(tl));
+  ok('LIVE-ST: toggleSviluppo rende visibili ENTRAMBI i toggle (nebbia resta gated)',
+    /live-toggle-supercells'\);\s*\n\s*if \(lts\) lts\.style\.display = '';[\s\S]{0,420}?live-toggle-stations'\);\s*\n\s*if \(lst\) lst\.style\.display = '';/.test(src));
+  stationCalls = [];
+  ctx.liveShowStations = false;
+  ctx.toggleLiveStations();
+  const onOk = stationCalls.length === 1 && stationCalls[0] === true && ctx.liveShowStations === true;
+  ctx.toggleLiveStations();
+  const offOk = stationCalls.length === 2 && stationCalls[1] === false && ctx.liveShowStations === false;
+  ok('LIVE-ST: toggle ON/OFF chiama stationsSetActive(true/false) e aggiorna liveShowStations',
+    onOk && offOk, JSON.stringify(stationCalls));
 }
 
 console.log(`\nRESULT: ${failures === 0 ? 'PASS' : 'FAIL'} (${failures} errori)`);

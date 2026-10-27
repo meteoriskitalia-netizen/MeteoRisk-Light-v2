@@ -1358,7 +1358,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 <div class="panel-live" id="live-panel">
     <div class="live-header">
         <span class="live-dot"></span> <strong>LIVE · TEMPO REALE</strong>
-        <span id="live-subtitle" style="font-size:10px;color:#94a3b8;">Satellite + radar live · Struttura convettiva (toggle)</span>
+        <span id="live-subtitle" style="font-size:10px;color:#94a3b8;">Satellite + radar live · Struttura convettiva e centraline (toggle)</span>
     </div>
     <div class="live-legend" id="live-legend">
         <div class="legend-title">Età dei fulmini (giallo → rosso, 0-120 min)</div>
@@ -1380,6 +1380,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     </div>
     <div class="sc-toggles">
         <button type="button" id="live-toggle-supercells" class="sc-toggle" onclick="toggleLiveSupercells()" title="Record di struttura convettiva (data/radar/convective_structures.json) e fenomeni osservati, riusati dal pannello Struttura convettiva e mostrati qui nel pannello LIVE">Struttura convettiva</button>
+        <button type="button" id="live-toggle-stations" class="sc-toggle" onclick="toggleLiveStations()" title="Strato delle centraline osservate (data/stations/, MeteoHub/ItaliaMeteo, CC BY 4.0): etichette con la temperatura a 2 m. Indipendente dalla sorgente METAR/Modelli/Centraline del pannello.">Centraline</button>
         <!-- Sub-toggle spostati dal pannello #sc-radar-panel: stessa logica, stessi handler,
              id dedicati (live-toggle-*), visibili SOLO con celle organizzate attive (come #live-sc-*). -->
         <button type="button" id="live-toggle-trails" class="sc-toggle on" onclick="toggleScTrails()" title="Traccia 2h dei candidati attivi (archivio rolling radar-history)" style="display:none;">Traccia 2h</button>
@@ -1387,9 +1388,10 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <button type="button" id="live-toggle-phenomena" class="sc-toggle on" onclick="toggleScPhenomena()" title="Badge grandine/struttura asimmetrica (proxy riflettività, senza Doppler)" style="display:none;">Fenomeni</button>
         <button type="button" id="live-toggle-hail" class="sc-toggle on" onclick="toggleScHail()" title="Badge grandine (proxy riflettività, senza Doppler)" style="display:none;">Grandine</button>
     </div>
-    <!-- 1.2.4.51 - Centraline osservate: blocco del pannello LIVE visibile SOLO quando la
-         sorgente del selettore e' "Centraline" (refreshMnwPanel -> stationsSetActive).
-         Riusa le classi .live-legend/.legend-title/.legend-row: nessun CSS nuovo. -->
+    <!-- 1.2.4.54 - Centraline osservate: blocco del pannello LIVE comandato SOLO dal
+         toggle #live-toggle-stations (toggleLiveStations -> stationsSetActive), non dal
+         selettore della sorgente: le due cose sono ortogonali. Riusa le classi
+         .live-legend/.legend-title/.legend-row: nessun CSS nuovo. -->
     <div class="live-legend" id="live-stations-box" style="display:none;">
         <div class="legend-title" id="live-stations-title">Centraline osservate — temperatura a 2 m in °C, etichette con il valore (osservato, non modello)</div>
         <div class="legend-row" id="live-stations-status" style="font-size:11px;">Caricamento centraline...</div>
@@ -2014,9 +2016,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.53';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.54';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-27';
     const APP_CHANGELOG = [
+        { version: '1.2.4.54', date: '2026-10-27', changes: [
+  'UI= DUE TOGGLE INDIPENDENTI NEL PANNELLO LIVE, AFFIANCATI E CON LO STESSO STILE: #live-toggle-stations ("Centraline") accanto a #live-toggle-supercells ("Struttura convettiva"). Il nuovo toggle accende/spegne SOLO lo strato delle centraline (canvas delle etichette, legenda #live-stations-box, riga di stato #live-stations-status, timer del refresh): ON carica i dati se serve e li mostra, OFF rimuove lo strato dal DOM, nasconde il blocco e ferma il timer. Lo stato vive in una variabile di sessione (liveShowStations), non in localStorage: al reload parte OFF. I due toggle non si escludono e non toccano il selettore della sorgente.',
+  'SORGENTE= #mnw-source-select RESTA A TRE VOCI (Dati Live/METAR, Estratto Modelli, Centraline) e il ramo renderStationsExtract resta: il selettore sceglie COSA MOSTRA IL PANNELLO, non lo strato della mappa. RIMOSSA SOLO LA SINCRONIZZAZIONE della 1.2.4.53: refreshMnwPanel() non chiama più stationsSetActive, quindi scegliere "Centraline" non accende più il toggle e scegliere METAR/Modelli non lo spegne; toggleLiveStations() non legge e non scrive select.value. Le due cose sono ortogonali: con select=stations e toggle OFF il pannello mostra le centraline ma la mappa non ha etichette; con select=live e toggle ON la mappa ha le etichette sopra i METAR. Verificato sulle 6 combinazioni select x toggle: select.value invariato prima e dopo ogni click, 0 eccezioni JS.',
+        ] },
         { version: '1.2.4.53', date: '2026-10-27', changes: [
   'CENTRALINE= LE STAZIONI OSSERVATE SONO ETICHETTE CON IL VALORE, NON PUNTINI. Con la sorgente "Centraline" ogni stazione visibile e\\\' un rettangolo arrotondato (11 px di testo, angoli 3 px) che porta la TEMPERATURA A 2 M con UNA cifra decimale e la VIRGOLA ("13,8"), come la mappa di riferimento dell\\\'utente. Il FONDO e\\\' la banda della scala `temperature_2m` delle MAPPE: 42 bande da 2 °C, -80..+50 °C (ultima banda aperta), copiate IDENTICHE da `scripts/forecast_v2/color_scales.json` (`scales.temperature_2m`, light == dark, verificate uguali alla scala `temperature` della libreria wml 0.2.2) e registrate in `FM_COLOR_SCALE_OVERRIDES` (`FM_TEMP2M_COLOR_SCALE`): prima il client non aveva l\\\'array e le etichette non potevano usare "le stesse bande". Nessun colore inventato e legenda a scalini con gli stessi colori. TESTO scelto per CONTRASTO WCAG >= 4,5:1 CALCOLATO sulla banda (nero o bianco puro, quello con il rapporto maggiore): con #0f172a/#f8fafc tre bande restavano sotto (magenta -40 °C 4,14:1, viola -32 °C 4,21:1, rosso +42 °C 4,46:1), con il nero/bianco puri TUTTE le 42 bande superano 4,5:1 (minimo 4,87:1 sulla banda -40 °C, 4,88:1 sulla +42 °C). NIENTE SOVRAPPOSIZIONI: griglia di occupazione di (larghezza etichetta + 2) x (altezza + 1) px, ogni etichetta marca TUTTE le celle che copre (due rettangoli possono intersecarsi solo se condividono una cella), le stazioni sono ordinate per osservazione piu\\\' recente e chi collide viene SCARTATO: vince la piu\\\' recente. TETTO 250 etichette: la decimazione a griglia 12->16->24->32->48->64 px alza il lato finche\\\' non scende sotto il tetto, poi taglia la coda piu\\\' vecchia. Una stazione SENZA temperatura non si disegna (nessun "--", nessun "n/d"). Il campo mostrato e\\\' un unico punto di configurazione (`STATIONS_LABEL_FIELD`: campo, unita\\\' °C, decimali, chiave della scala) per passare a umidita\\\' o vento senza toccare il disegno. Click: il popup con tutti i campi si apre sul rettangolo dell\\\'etichetta; il canvas resta `pointer-events:none`, quindi un click lontano non viene rubato alla mappa.',
   'UI= LA STRUTTURA CONVETTIVA (SOI) TORNA VISIBILE NEL PANNELLO LIVE PER TUTTI. `#live-toggle-supercells` non ha piu\\\' `style="display:none"` nel markup e `toggleSviluppo()` non lo nasconde piu\\\' fuori dalla modalita\\\' Sviluppo: era il comportamento fino alla 1.2.4.50, poi la 1.2.4.51 lo aveva legato allo switch e il pulsante era SPARITO per chi non usa Sviluppo. La NEBBIA resta invece dietro lo switch (scelta dell\\\'utente): `#metric-tab-fog` e il badge `id:fog` non sono stati toccati. DIFETTO TROVATO E CORRETTO NELLO STESSO PUNTO: `toggleScRadar()` aggiungeva la classe `active` a `#sc-radar-panel`, ma il markup porta `style="display:none"` e lo stile INLINE vince su `.panel-live.active{display:flex}`, quindi il pannello restava chiuso finche\\\' un giro dello switch Sviluppo non azzerava l\\\'inline. Ora `toggleScRadar()` azzera l\\\'inline all\\\'apertura (verificato: pannello visibile con altezza > 0 dopo il click, e di nuovo chiuso al secondo click).'
@@ -8516,6 +8522,7 @@ removeLightningTile();
     let liveStrikeCache = [];             // Cache dedicata: strike campionati per il LIVE panel
     let liveZoomHandler = null;            // Handler zoomend per refresh marker proporzionale
     let liveShowSupercells = false;        // Toggle interno "Struttura convettiva" del pannello LIVE (default OFF)
+    let liveShowStations = false;          // Toggle "Centraline" del pannello LIVE (default OFF, stato di sessione)
     const LIVE_TILE_REFRESH_MS = 90 * 1000;   // 1.5 min refresh tile Blitzortung + marker (sincronizzati)
 
     // LIVE_SOURCES: fonti real-time del pannello LIVE valutate in modo LAZY contro i flag
@@ -11651,12 +11658,12 @@ stopSyncPlay();
     let mnwLastLon = null;
 
     function refreshMnwPanel() {
-        // 1.2.4.51 - la terza sorgente ("Centraline") accende/spegne il layer canvas
-        // sulla mappa e il blocco #live-stations-box del pannello LIVE, anche prima che
-        // una localita' sia selezionata.
+        // 1.2.4.54 - ORTOGONALITA': il selettore sceglie cosa mostra il pannello LIVE
+        // (METAR, modello o centraline) e NON tocca lo strato della mappa, che ha il suo
+        // toggle #live-toggle-stations. Qui non c'e' piu' alcuna chiamata a
+        // stationsSetActive: cambiare voce non accende ne' spegne le etichette.
         var sel0 = document.getElementById('mnw-source-select');
         var src0 = sel0 ? sel0.value : 'live';
-        try { stationsSetActive(src0 === 'stations'); } catch (e) { }
         if (mnwLastLat !== null && mnwLastLon !== null) {
             updateMnwLivePanel(mnwLastLat, mnwLastLon);
         } else if (src0 === 'stations') {
@@ -12604,6 +12611,21 @@ stopSyncPlay();
             ev.preventDefault();
             stationsOpenPopup(st);
         }, true);
+    }
+
+    // 1.2.4.54 - Toggle "Centraline" (#live-toggle-stations): strato INDIPENDENTE dalla
+    // sorgente del pannello (METAR/Modelli/Centraline) e dal toggle SOI. ON carica (se
+    // serve) e mostra canvas, legenda e riga di stato; OFF rimuove lo strato, nasconde il
+    // blocco e ferma il timer. Lo stato vive in memoria (liveShowStations): al reload OFF.
+    // NON legge e NON scrive #mnw-source-select: nessuna sincronizzazione.
+    function toggleLiveStations() {
+        liveShowStations = !liveShowStations;
+        var btn = document.getElementById('live-toggle-stations');
+        if (btn) {
+            if (liveShowStations) btn.classList.add('on');
+            else btn.classList.remove('on');
+        }
+        stationsSetActive(liveShowStations);
     }
 
     function stationsSetActive(on) {
@@ -16478,6 +16500,10 @@ function toggleForecastMaps() {
         // #sc-radar-panel lo apre toggleScRadar(), non questo gate.
         var lts = document.getElementById('live-toggle-supercells');
         if (lts) lts.style.display = '';
+        // 1.2.4.54 - il toggle Centraline e' pubblico come quello SOI: lo switch
+        // "Sviluppo" non lo nasconde (la NEBBIA resta invece dietro lo switch).
+        var lst = document.getElementById('live-toggle-stations');
+        if (lst) lst.style.display = '';
         var scrp = document.getElementById('sc-radar-panel');
         if (scrp) {
             // Nessuna chiusura forzata quando lo switch Sviluppo si spegne: il toggle
@@ -17113,6 +17139,11 @@ function toggleForecastMaps() {
         if (!controller.signal.aborted) timer = setTimeout(() => controller.abort(), timeoutMs);
         try {
             var opts = Object.assign({ signal: controller.signal, cache: 'no-store' }, options || {});
+            // 1.2.4.54 - options.priority e' la priorita' della CODA interna (PRIO_API),
+            // non un'opzione di fetch: RequestInit.priority accetta solo 'high'|'low'|'auto'
+            // e con un numero la richiesta fallisce PRIMA della rete ("40 is not a valid
+            // enum"). Va tolta dalla copia passata a fetch (l'oggetto del chiamante non si tocca).
+            delete opts.priority;
             opts.signal = controller.signal;
             return await fetch(url, opts);
         } catch (e) {
