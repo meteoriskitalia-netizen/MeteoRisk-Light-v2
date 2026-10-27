@@ -1,0 +1,80 @@
+name: Stations (MeteoHub — rete di centraline, osservazioni in tempo reale)
+
+# Rete di centraline per il nowcasting: ~4.000 stazioni da MeteoHub
+# (Agenzia ItaliaMeteo / CINECA), licenza CC BY 4.0 con attribuzione per rete
+# DENTRO il file pubblicato (`attribution`). Prima di questo workflow il layer
+# osservato erano solo i 43 aeroporti METAR.
+#
+# Perche' ogni 10 minuti (misure del 2026-10-27, non stime):
+#   * la sorgente pubblica con latenza mediana ~32 min (p90 42 min, p95 57 min):
+#     interrogarla piu' spesso di cosi' non farebbe arrivare i dati prima;
+#   * la richiesta e' compressa: 4.611.899 -> 286.837 byte (16x) e 1,06 s
+#     contro 9,56 s senza gzip. 144 run/giorno = ~41 MB scaricati in totale.
+#   * servizio pubblico e anonimo: nessun token, nessun account.
+#
+# Il commit tocca SOLO data/stations/. Il push e' protetto da pull --rebase
+# perche' main riceve commit automatici ogni pochi minuti dagli altri workflow.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+  repository_dispatch:
+    types: [ci-stations]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stations-data
+  cancel-in-progress: false
+
+jobs:
+  stations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # Lo script valida da solo: sotto --min-stations (500) NON scrive il file
+      # ed esce 2, quindi una risposta vuota o troncata non arriva mai su main.
+      - name: Scarica e normalizza le osservazioni
+        run: python -u scripts/stations/fetch_stations.py --out data/stations/latest.json
+
+      - name: Commit data/stations
+        run: |
+          git config user.name "meteorisk-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/stations
+          if git diff --cached --quiet; then
+            echo "[INFO] Nessuna modifica alle osservazioni."
+          else
+            git commit -m "chore(stations): osservazioni MeteoHub (CC BY 4.0, attribuzione per rete)"
+            # FIX RACE PUSH: main riceve commit dagli altri workflow ogni pochi
+            # minuti. Il pull --rebase replaya il nostro commit sopra origin/main
+            # prima del push; il loop riprova perche' la race puo' ripetersi.
+            # Semantica -e: le git del loop stanno in una condizione `if`, quindi
+            # un tentativo fallito non termina il passo; l'exit 1 esplicito
+            # segnala il fallimento dopo 5 tentativi (nessun errore silenziato).
+            push_ok=0
+            for i in 1 2 3 4 5; do
+              if git pull --rebase --autostash origin main && git push origin main; then
+                push_ok=1
+                break
+              fi
+              echo "[WARN] Push rifiutato (race su main) - tentativo $i/5"
+              if [ "$i" -lt 5 ]; then sleep 5; fi
+            done
+            if [ "$push_ok" -ne 1 ]; then
+              echo "[ERROR] Push non riuscito dopo 5 tentativi (race con altri workflow su main)"
+              exit 1
+            fi
+          fi

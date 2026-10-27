@@ -989,12 +989,22 @@ Sito statico piu' sei workflow GitHub Actions che aggiornano i dati e pubblicano
 | `phenomena-verify.yml` | ogni 10 min valuta i fenomeni grandine/rotazione dai derivati radar + fulmini MLI EUMETSAT (WMS anonimo, CC-BY-4.0) e committa `data/phenomena/{events,badges}.json` su `main` (niente build/deploy: i file arrivano su Pages nell'artefatto di radar-engine e update-weather-data) |
 | `forecast-maps-v2.yml` | ogni 6h (cron-job.org) genera la cache mappe previsionali V2 in `data/fm2/` (`<VALID>.om` + `latest.json`, crop multi-variabile, orizzonte intero `--valid-frames 0`, prune). Da 1.2.4.12 i dati (frame `.om` + WebP) NON stanno piu' su `main` ma sul branch `fm2-cache`: il commit nasce dal tree del branch + allowlist dei soli path `data/fm2/**` (isolamento indice), il push dei WebP e' incrementale a soglia 1,4 GiB, il job engine ha `timeout-minutes: 180` |
 | `deploy-pages.yml` | deploy manuale/consolidamento: ricostruisce `_site/` con app + `data/latest`, `data/geography`, `data/radar` (incl. archivio rolling `radar-history`), `data/phenomena`, `data/fm2` e `satellite/` (finestra `satellite-cache`) e pubblica su Pages (`configure-pages` + `upload-pages-artifact@v4` + `deploy-pages@v4`, concurrency dedicata `pages-deploy` come gli altri) |
+| `stations.yml` | ogni 10 min scarica le osservazioni di ~4.000 stazioni da MeteoHub (MISTRAL, Agenzia ItaliaMeteo/CINECA, **CC BY 4.0** con attribuzione per rete) e committa **solo** `data/stations/latest.json`. Niente build/deploy: il file e' il materiale del layer client (fase successiva) |
 
 - I 4 domini **globali** (`dwd_icon`, `ecmwf_ifs025`, `ncep_gfs025`, `meteofrance_arpege_world025`) usano il bbox emisferico `NORTH_HEMISPHERE_BBOX = (20.0, -180.0, 90.0, 180.0)` (lat 20..90N, lon intera), definito in `scripts\forecast_v2\forecast_v2_engine.py`. Il renderer WebP pubblica anche la regione north, selezionabile come Emisfero nord nel player. Il client la presenta in proiezione stereografica polare dall'alto: riproietta i frame WebP, mantenendo colori, isolinee numeriche e frecce del vento; aggiunge graticola e coste Natural Earth. Il frame sorgente è Web Mercator fino a 85.05N, quindi il piccolo cappuccio fino al Polo usa il valore del bordo più vicino. T850 è etichettata ogni 4°C. I 3 regionali mantengono i loro bbox (`dwd_icon_eu`/`ncep_gfs013` `(34,-15,62,40)`, `dwd_icon_d2` `(43.18,-3.94,58.08,20.34)`).
 
 - I frame satellitari sono WebP a **risoluzione invariata**: stesso slot, stesso
   orologio e stessi formati dati della codifica precedente, solo meno byte.
 - GeoTIFF radar raw e payload Open-Meteo non vengono mai committati: solo derivati.
+- **Rete di centraline** (`data/stations/latest.json`): ~4.000 stazioni di 27 reti
+  regionali + MeteoNetwork da MeteoHub/MISTRAL, licenza **CC BY 4.0** con
+  attribuzione per rete DENTRO il file (campo `attribution`, una voce per rete).
+  Prima il layer osservato erano solo i 43 aeroporti METAR. Limiti dichiarati nel
+  file: latenza della sorgente 30-40 minuti (misurata: mediana 32, p90 42),
+  nessuna `visibility`, nessuna `pressure_msl` (la sorgente espone solo pressione
+  di stazione, non riducibile al livello del mare senza la quota), copertura non
+  uniforme per rete, e il periodo di accumulo della precipitazione cambia per rete
+  (campo `precipitation_period_s`).
 
 ## Trigger
 
