@@ -238,6 +238,7 @@ jobs:
           cp sw.js _site/sw.js                                      # 1.2.4.15: Service Worker (cache applicativa)
           if [ -d data/latest ]; then cp -R data/latest _site/data/latest; fi
           if [ -d data/geography ]; then cp -R data/geography _site/data/geography; fi
+          if [ -d data/stations ]; then cp -R data/stations _site/data/stations; fi
           if [ -d data/radar ]; then cp -R data/radar _site/data/radar; fi
           if [ -d data/phenomena ]; then cp -R data/phenomena _site/data/phenomena; fi
           if git fetch --depth 1 origin "+satellite-cache:refs/heads/satellite-cache-base" 2>/dev/null && git restore --source satellite-cache-base --worktree -- satellite 2>/dev/null; then

@@ -232,6 +232,7 @@ jobs:
           cp sw.js _site/sw.js                                      # 1.2.4.15: Service Worker (cache applicativa)
           cp -R data/latest _site/data/latest                    # dataset derivato
           cp -R data/geography _site/data/geography              # boundaries richieste
+          if [ -d data/stations ]; then cp -R data/stations _site/data/stations; fi
           # Archivio rolling radar (branch radar-history, clone dello step radar-engine):
           # senza questo ripristino i deploy di questo workflow cancellerebbero da
           # Pages data/radar/history pubblicata dal radar-engine (le tracce 2h del client).
