@@ -27,6 +27,12 @@ COSA PUBBLICA
                  precipitation, precipitation_period_s, dew_point_2m?}]}
 
 Scelte dichiarate (non sono semplificazioni nascoste):
+  * finestra e soglia di eta' sono lo stesso numero, 180 minuti: il file contiene
+    l'ultima osservazione di ogni stazione entro 3 ore. Non e' un dettaglio: con
+    una finestra da 60 minuti `mnw` (927 stazioni) e `arpafvg` (152) sparivano per
+    intero, perche' pubblicano a lotti e il loro record piu' recente e' stato
+    misurato a 67,6 minuti (2026-10-27 07:07 UTC). Ogni stazione porta comunque il
+    suo `obs_time`: un client che vuole solo dati freschi filtra su quello.
   * `pressure_msl` NON c'e'. La sorgente ha B10004 al livello `1,0,0,0`, cioe'
     PRESSIONE DI STAZIONE, non ridotta al livello del mare; senza la quota non
     si puo' ridurre. Inoltre nel campione reale i valori vanno da 58.590 a
@@ -109,9 +115,10 @@ DEFAULT_MAX_BYTES = 1_500_000  # target dichiarato dal committente
 def http_get(url: str, attempts: int = 3, timeout: int = 180) -> tuple[bytes, dict]:
     """GET con gzip e retry. Ritorna (body decompresso, info trasporto).
 
-    gzip non e' un dettaglio: sulla finestra da 60 minuti il corpo passa da
-    4.611.899 a 286.837 byte (16x) e il tempo da 9,56 s a 1,06 s (misurato il
-    2026-10-27). Meno byte significa meno carico sul servizio pubblico.
+    gzip non e' un dettaglio: sulla finestra da 180 minuti il corpo passa da
+    17.800.239 a 964.862 byte (18x); sulla finestra da 60 minuti da 4.611.899 a
+    286.837 byte (16x) e da 9,56 s a 1,06 s (misurato il 2026-10-27). Meno byte
+    significa meno carico sul servizio pubblico.
     """
     headers = {
         "User-Agent": USER_AGENT,
@@ -660,8 +667,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", default="data/stations/latest.json")
     ap.add_argument("--networks-file", default=str(here / "networks.json"))
     ap.add_argument(
-        "--window-minutes", type=int, default=60,
-        help="finestra reftime richiesta (default 60)",
+        "--window-minutes", type=int, default=180,
+        help="finestra reftime richiesta (default 180 = 3 h, come --max-age-minutes)",
     )
     ap.add_argument(
         "--max-age-minutes", type=int, default=180,

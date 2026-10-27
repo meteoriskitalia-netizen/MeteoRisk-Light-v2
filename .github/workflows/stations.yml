@@ -8,8 +8,11 @@ name: Stations (MeteoHub — rete di centraline, osservazioni in tempo reale)
 # Perche' ogni 10 minuti (misure del 2026-10-27, non stime):
 #   * la sorgente pubblica con latenza mediana ~32 min (p90 42 min, p95 57 min):
 #     interrogarla piu' spesso di cosi' non farebbe arrivare i dati prima;
-#   * la richiesta e' compressa: 4.611.899 -> 286.837 byte (16x) e 1,06 s
-#     contro 9,56 s senza gzip. 144 run/giorno = ~41 MB scaricati in totale.
+#   * la richiesta e' compressa: 17.800.239 -> 964.862 byte (18x). 144 run/giorno
+#     = ~139 MB scaricati in totale, su un servizio pubblico e anonimo.
+#   * la finestra e' 180 minuti (come la soglia di scarto): con 60 minuti le reti
+#     che pubblicano a lotti (`mnw` 927 stazioni, `arpafvg` 152) sparivano del
+#     tutto, perche' il loro record piu' recente e' stato misurato a 67,6 minuti.
 #   * servizio pubblico e anonimo: nessun token, nessun account.
 #
 # Il commit tocca SOLO data/stations/. Il push e' protetto da pull --rebase
