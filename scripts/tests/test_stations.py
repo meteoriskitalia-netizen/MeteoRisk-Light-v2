@@ -18,6 +18,7 @@ Nessuna rete: il payload e' su disco e `normalize_payload` e' una funzione pura.
 """
 import json
 import math
+import random
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -255,3 +256,159 @@ def test_trange_period_parsing():
     assert fs.trange_period_seconds("254,0,0") is None
     assert fs.trange_period_seconds("0,0,900") is None
     assert fs.trange_period_seconds("") is None
+
+# ---------------------------------------------------------------------------
+# indice compatto (index.json): schema, coerenza con latest.json, dimensione
+# ---------------------------------------------------------------------------
+REAL_LATEST = _HERE.parents[1] / "data" / "stations" / "latest.json"
+INDEX_VALUE_FIELDS = (
+    "temperature_2m",
+    "relative_humidity_2m",
+    "wind_speed_10m",
+    "wind_direction_10m",
+    "precipitation",
+    "precipitation_period_s",
+)
+
+
+@pytest.fixture(scope="module")
+def index(doc):
+    return fs.build_index(doc, NETWORKS)
+
+
+def test_index_schema_is_declared_and_rows_are_compact(index, doc):
+    assert index["schema"] == fs.INDEX_SCHEMA
+    assert index["station_fields"] == list(fs.INDEX_STATION_FIELDS)
+    assert index["count"] == len(doc["stations"]) == len(index["stations"])
+    for row in index["stations"]:
+        assert len(row) == len(fs.INDEX_STATION_FIELDS)
+        # niente serie orarie: solo scalari (nessun oggetto/array annidato)
+        assert all(not isinstance(v, (dict, list)) for v in row)
+    assert set(index["bbox"]) == {"west", "south", "east", "north"}
+    for st in doc["stations"]:
+        assert index["bbox"]["west"] <= st["lon"] <= index["bbox"]["east"]
+        assert index["bbox"]["south"] <= st["lat"] <= index["bbox"]["north"]
+
+
+def test_index_has_the_same_stations_and_values_as_latest(index, doc):
+    """Stesse stazioni, stesso ordine, stessi valori entro 0,05 (1 decimale)."""
+    assert [row[0] for row in index["stations"]] == [
+        st["id"] for st in doc["stations"]
+    ]
+    fields = index["station_fields"]
+    for row, st in zip(index["stations"], doc["stations"]):
+        record = dict(zip(fields, row))
+        for key in ("network", "obs_time", "lat", "lon"):
+            assert record[key] == st[key]
+        for key in INDEX_VALUE_FIELDS:
+            if key in st:
+                assert record[key] is not None, (st["id"], key)
+                assert abs(float(record[key]) - float(st[key])) <= 0.05, (
+                    st["id"],
+                    key,
+                )
+            else:
+                assert record[key] is None, (st["id"], key)
+    assert fs.validate_index(index, doc) == []
+
+
+def test_index_attribution_and_network_counts(index, doc):
+    assert index["licence"] == "CC BY 4.0"
+    assert index["licence_url"].startswith("https://creativecommons.org/")
+    assert len(index["attribution"]) == len(doc["attribution"])
+    assert {a["network"] for a in index["attribution"]} == {
+        st["network"] for st in doc["stations"]
+    }
+    for item in index["attribution"]:
+        assert item["text"], item
+        assert item["url"], item
+    counts = {n["id"]: n["count"] for n in index["networks"]}
+    assert sum(counts.values()) == index["count"]
+    for net, count in counts.items():
+        assert count == sum(1 for st in doc["stations"] if st["network"] == net)
+
+
+def test_index_serialization_is_lf_no_bom_one_row_per_station(index):
+    text = fs.dumps_index(index)
+    raw = text.encode("utf-8")
+    assert b"\r" not in raw
+    assert not raw.startswith(b"\xef\xbb\xbf")
+    assert text.endswith("\n")
+    rows = [ln for ln in text.split("\n") if ln.startswith("    [")]
+    assert len(rows) == index["count"]
+    assert json.loads(text)["count"] == index["count"]
+
+
+def test_index_validation_catches_drift(index, doc):
+    """Il validatore non e' di facciata: ogni deriva deve produrre un problema."""
+    broken = json.loads(json.dumps(index))
+    position = next(
+        i for i, row in enumerate(index["stations"]) if row[6] is not None
+    )
+    broken["stations"][position][6] = round(float(broken["stations"][position][6]) + 0.2, 1)
+    assert any(
+        "temperature_2m" in p for p in fs.validate_index(broken, doc)
+    ), fs.validate_index(broken, doc)
+
+    no_attr = json.loads(json.dumps(index))
+    no_attr["attribution"] = []
+    assert any("attribuzione" in p for p in fs.validate_index(no_attr, doc))
+
+    dropped = json.loads(json.dumps(index))
+    dropped["stations"].pop()
+    assert any(
+        "count" in p or "latest" in p for p in fs.validate_index(dropped, doc)
+    )
+
+
+def test_index_can_drop_names_without_losing_stations(doc):
+    """Degradazione dichiarata: si perde il nome, non la stazione ne' il valore."""
+    index = fs.build_index(doc, NETWORKS, include_names=False)
+    name_position = fs.INDEX_STATION_FIELDS.index("name")
+    assert all(row[name_position] is None for row in index["stations"])
+    assert index["count"] == len(doc["stations"])
+    assert fs.validate_index(index, doc) == []
+
+
+@pytest.mark.skipif(
+    not REAL_LATEST.exists(),
+    reason="data/stations/latest.json assente in questa copia (i dati vivono su main)",
+)
+def test_index_budget_on_real_data_and_ten_station_spot_check():
+    """Sul file REALE: budget < 120 KB gzip e 10 stazioni a caso coerenti.
+
+    Il seed e' fisso: il campione e' riproducibile. `latest.json` sul repo ha
+    4.137 stazioni; nelle copie di release senza `data/` il test si salta e lo
+    dichiara, invece di passare su una fixture che non misura niente.
+    """
+    latest = json.loads(REAL_LATEST.read_text(encoding="utf-8"))
+    index = fs.build_index(latest, NETWORKS)
+    assert fs.validate_index(index, latest) == []
+    raw_size = len(fs.dumps_index(index).encode("utf-8"))
+    gzip_size = fs.index_gzip_bytes(index)
+    latest_size = REAL_LATEST.stat().st_size
+    print(
+        f"[index reale] latest={latest_size} B -> index={raw_size} B "
+        f"({raw_size / 1024:.0f} KiB) gzip={gzip_size} B ({gzip_size / 1024:.0f} KiB)"
+    )
+    assert gzip_size <= fs.INDEX_MAX_GZIP_BYTES
+    assert gzip_size < 120_000
+    assert raw_size < latest_size  # piu' piccolo anche NON compresso
+
+    rng = random.Random(20261027)
+    fields = index["station_fields"]
+    positions = sorted(rng.sample(range(len(index["stations"])), 10))
+    for position in positions:
+        record = dict(zip(fields, index["stations"][position]))
+        st = latest["stations"][position]
+        assert record["id"] == st["id"]
+        for key in INDEX_VALUE_FIELDS:
+            if key in st:
+                assert abs(float(record[key]) - float(st[key])) <= 0.05, (
+                    st["id"],
+                    key,
+                    record[key],
+                    st[key],
+                )
+            else:
+                assert record[key] is None, (st["id"], key)

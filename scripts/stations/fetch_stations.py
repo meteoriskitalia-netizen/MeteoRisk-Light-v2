@@ -26,6 +26,17 @@ COSA PUBBLICA
                  wind_speed_10m, wind_direction_10m,
                  precipitation, precipitation_period_s, dew_point_2m?}]}
 
+`data/stations/index.json` (stesso run, `--index-out`), pensato per il client:
+stesse stazioni SENZA le serie orarie, `stations` come array nell'ordine
+dichiarato in `station_fields` (`id, lat, lon, name, network, obs_time,
+temperature_2m, relative_humidity_2m, wind_speed_10m, wind_direction_10m,
+precipitation, precipitation_period_s`), valori correnti a 1 decimale, piu'
+`count`, `networks` con i conteggi, `attribution`, `bbox`, licenza e unita'.
+Misurato il 2026-10-27 sulle 4.137 stazioni reali: 535.300 B / 102.098 B gzip
+contro 1.045.677 B / 132.209 B gzip di `latest.json` (la forma a oggetti, con
+gli stessi campi e gli stessi `null`, costava 1.213.768 B / 127.742 B gzip:
+sopra il budget e piu' grossa del file completo).
+
 Scelte dichiarate (non sono semplificazioni nascoste):
   * finestra e soglia di eta' sono lo stesso numero, 180 minuti: il file contiene
     l'ultima osservazione di ogni stazione entro 3 ore. Non e' un dettaglio: con
@@ -107,6 +118,30 @@ LIMITS = {
 }
 
 DEFAULT_MAX_BYTES = 1_500_000  # target dichiarato dal committente
+
+# Indice compatto per il client (index.json): stesse stazioni di latest.json,
+# senza le serie orarie. Misurato il 2026-10-27 sul file reale (4.137 stazioni):
+# 1.045.677 B / 132.209 B gzip per latest.json -> 535.300 B / 102.098 B gzip
+# per l'indice. La forma a OGGETTI con gli stessi campi costava 1.213.768 B /
+# 127.742 B gzip (ogni valore assente diventa `"campo":null`, ~22 B invece dei
+# 5 B di un `null` in un array): sopra il budget, quindi le stazioni sono array
+# con l'ordine dichiarato in `station_fields`.
+INDEX_SCHEMA = "stations-index/1"
+INDEX_STATION_FIELDS = (
+    "id",
+    "lat",
+    "lon",
+    "name",
+    "network",
+    "obs_time",
+    "temperature_2m",
+    "relative_humidity_2m",
+    "wind_speed_10m",
+    "wind_direction_10m",
+    "precipitation",
+    "precipitation_period_s",
+)
+INDEX_MAX_GZIP_BYTES = 122_880  # 120 KiB (misurato: 101.258 B, margine 17%)
 
 
 # --------------------------------------------------------------------------
@@ -659,6 +694,226 @@ def validate_document(doc: dict, min_stations: int, max_bytes: int) -> list[str]
 
 
 # --------------------------------------------------------------------------
+# Indice compatto per il client (index.json)
+# --------------------------------------------------------------------------
+def _round1(value: float):
+    """1 decimale; gli interi restano interi (e niente -0.0 nei diff)."""
+    out = round(float(value), 1)
+    if out == 0:
+        out = 0.0
+    return int(out) if out == int(out) else out
+
+
+def build_index(
+    latest: dict,
+    networks: dict | None = None,
+    include_names: bool = True,
+) -> dict:
+    """Sottoinsieme di `latest.json` senza le serie: solo i valori correnti.
+
+    Perche' non e' una copia: `latest.json` pesa 1.045.677 B (132.209 gzip) e un
+    client mobile non deve scaricarlo a ogni apertura. L'indice tiene le stesse
+    `count` stazioni, con `id`/`lat`/`lon`/`name`/`network`/`obs_time` e i soli
+    valori correnti arrotondati a 1 decimale; le serie orarie restano in
+    `latest.json`. Le stazioni sono ARRAY nell'ordine dichiarato da
+    `station_fields`: la forma a oggetti costa ~230 B/stazione di chiavi
+    ripetute e sfora il budget (misurato: 123.671 B gzip contro 101.258 B).
+
+    `include_names=False` e' la degradazione dichiarata: il nome e' il campo
+    opzionale piu' grosso, si azzera (`null`) se l'indice sfora il budget.
+    """
+    stations = latest.get("stations") or []
+    table = networks or {}
+    per_network: dict[str, dict] = {}
+    for st in stations:
+        net = st.get("network")
+        entry = per_network.setdefault(
+            net,
+            {
+                "id": net,
+                "name": (table.get(net) or {}).get("name"),
+                "count": 0,
+            },
+        )
+        entry["count"] += 1
+
+    rows: list[list] = []
+    for st in stations:
+        row = []
+        for field in INDEX_STATION_FIELDS:
+            if field == "name" and not include_names:
+                row.append(None)
+            elif field in ("id", "name", "network", "obs_time", "lat", "lon"):
+                row.append(st.get(field))
+            else:
+                value = st.get(field)
+                row.append(None if value is None else _round1(value))
+        rows.append(row)
+
+    lats = [st["lat"] for st in stations if st.get("lat") is not None]
+    lons = [st["lon"] for st in stations if st.get("lon") is not None]
+    bbox = (
+        {
+            "west": min(lons),
+            "south": min(lats),
+            "east": max(lons),
+            "north": max(lats),
+        }
+        if lats and lons
+        else None
+    )
+    units = latest.get("units") or {}
+    return {
+        "schema": INDEX_SCHEMA,
+        "generated_at": latest.get("generated_at"),
+        "count": len(stations),
+        "source": latest.get("source"),
+        "source_url": latest.get("source_url"),
+        "licence": latest.get("licence"),
+        "licence_url": latest.get("licence_url"),
+        "max_age_minutes": latest.get("max_age_minutes"),
+        "attribution": latest.get("attribution") or [],
+        "bbox": bbox,
+        "networks": [per_network[k] for k in sorted(per_network, key=lambda n: (n is None, n))],
+        "units": {
+            key: units[key]
+            for key in (
+                "temperature_2m",
+                "relative_humidity_2m",
+                "wind_speed_10m",
+                "wind_direction_10m",
+                "precipitation",
+                "precipitation_period_s",
+            )
+            if key in units
+        },
+        "station_fields": list(INDEX_STATION_FIELDS),
+        "note": (
+            "Stesse stazioni di latest.json, SENZA le serie orarie. Valori "
+            "correnti arrotondati a 1 decimale; null = grandezza non "
+            "disponibile. `precipitation` va letta con "
+            "`precipitation_period_s` (il periodo di accumulo cambia per rete)."
+        ),
+        "stations": rows,
+    }
+
+
+def dumps_index(index: dict) -> str:
+    """JSON dell'indice con una stazione per riga: diff git piccoli."""
+    head = {k: v for k, v in index.items() if k != "stations"}
+    lines = ["{"]
+    for key, value in head.items():
+        lines.append(
+            "  %s: %s,"
+            % (
+                json.dumps(key),
+                json.dumps(value, ensure_ascii=False, separators=(",", ":")),
+            )
+        )
+    rows = index.get("stations") or []
+    if rows:
+        body = ",\n".join(
+            "    " + json.dumps(row, ensure_ascii=False, separators=(",", ":"))
+            for row in rows
+        )
+        lines.append('  "stations": [')
+        lines.append(body)
+        lines.append("  ]")
+    else:
+        lines.append('  "stations": []')
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def index_gzip_bytes(index: dict) -> int:
+    return len(gzip.compress(dumps_index(index).encode("utf-8"), 9))
+
+
+def validate_index(
+    index: dict,
+    latest: dict,
+    max_gzip_bytes: int | None = None,
+    max_problems: int = 20,
+) -> list[str]:
+    """Coerenza indice <-> latest: stesse stazioni, stessi valori, attribuzione.
+
+    Non e' un confronto di facciata: ogni riga viene ricomposta con
+    `station_fields` e confrontata con la stazione corrispondente di
+    `latest.json` (tolleranza 0,05 = arrotondamento a 1 decimale).
+    """
+    problems: list[str] = []
+
+    def add(message: str) -> None:
+        if len(problems) < max_problems:
+            problems.append(message)
+
+    if index.get("schema") != INDEX_SCHEMA:
+        add(f"schema {index.get('schema')!r} != {INDEX_SCHEMA!r}")
+    fields = list(index.get("station_fields") or [])
+    if fields != list(INDEX_STATION_FIELDS):
+        add("station_fields diverso da INDEX_STATION_FIELDS")
+    if not index.get("attribution"):
+        add("attribuzione assente")
+    rows = index.get("stations") or []
+    latest_sts = latest.get("stations") or []
+    if index.get("count") != len(rows):
+        add(f"count {index.get('count')} != stazioni indice {len(rows)}")
+    if len(rows) != len(latest_sts):
+        add(f"stazioni indice {len(rows)} != latest {len(latest_sts)}")
+    if len(rows) != len(latest_sts):
+        return problems  # il confronto riga per riga non avrebbe senso
+
+    value_fields = [f for f in fields if f not in ("id", "lat", "lon", "name", "network", "obs_time")]
+    for position, (row, st) in enumerate(zip(rows, latest_sts)):
+        if len(row) != len(fields):
+            add(f"riga {position}: {len(row)} campi invece di {len(fields)}")
+            continue
+        record = dict(zip(fields, row))
+        if record.get("id") != st.get("id"):
+            add(f"riga {position}: id {record.get('id')!r} != {st.get('id')!r}")
+        for key in ("network", "obs_time", "lat", "lon"):
+            if record.get(key) != st.get(key):
+                add(f"riga {position} ({st.get('id')}): {key} diverso")
+        for key in value_fields:
+            expected = st.get(key)
+            got = record.get(key)
+            if expected is None:
+                if got is not None:
+                    add(f"riga {position} ({st.get('id')}): {key} dovrebbe essere null")
+            elif got is None or abs(float(got) - float(expected)) > 0.05:
+                add(
+                    f"riga {position} ({st.get('id')}): {key} {got!r} != {expected!r}"
+                )
+    networks = {st.get("network") for st in latest_sts}
+    if {item.get("network") for item in index.get("attribution") or []} != networks:
+        add("reti dell'attribuzione diverse dalle reti pubblicate")
+    declared = {item.get("id") for item in index.get("networks") or []}
+    if declared != networks:
+        add("reti dell'indice diverse dalle reti pubblicate")
+    counts = {item.get("id"): item.get("count") for item in index.get("networks") or []}
+    for net in networks:
+        expected = sum(1 for st in latest_sts if st.get("network") == net)
+        if counts.get(net) != expected:
+            add(f"rete {net}: conteggio {counts.get(net)} != {expected}")
+    bbox = index.get("bbox")
+    if latest_sts and not bbox:
+        add("bbox assente")
+    elif bbox:
+        for st in latest_sts:
+            if not (
+                bbox["west"] <= st["lon"] <= bbox["east"]
+                and bbox["south"] <= st["lat"] <= bbox["north"]
+            ):
+                add(f"stazione {st.get('id')} fuori dal bbox")
+                break
+    if max_gzip_bytes is not None:
+        size = index_gzip_bytes(index)
+        if size > max_gzip_bytes:
+            add(f"indice {size} B gzip > budget {max_gzip_bytes}")
+    return problems
+
+
+# --------------------------------------------------------------------------
 # main
 # --------------------------------------------------------------------------
 def main(argv: list[str] | None = None) -> int:
@@ -679,6 +934,17 @@ def main(argv: list[str] | None = None) -> int:
         help="sotto questo numero il file NON viene scritto",
     )
     ap.add_argument("--max-bytes", type=int, default=DEFAULT_MAX_BYTES)
+    ap.add_argument(
+        "--index-out",
+        default=None,
+        help="indice compatto (default: index.json nella stessa cartella di --out)",
+    )
+    ap.add_argument(
+        "--index-max-gzip-bytes",
+        type=int,
+        default=INDEX_MAX_GZIP_BYTES,
+        help="budget dell'indice in byte gzip (default 122880 = 120 KiB)",
+    )
     ap.add_argument("--refresh-networks", action="store_true")
     ap.add_argument(
         "--now", default=None,
@@ -760,10 +1026,50 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[FATAL] {problem}", file=sys.stderr)
         return 2
 
+    # Indice compatto: si valida PRIMA di scrivere, cosi' non esiste un run in
+    # cui latest.json e index.json descrivono stazioni diverse.
+    index = build_index(doc, networks=networks)
+    index_problems = validate_index(index, doc)
+    if index_problems:
+        for problem in index_problems:
+            print(f"[FATAL] indice: {problem}", file=sys.stderr)
+        return 2
+    index_text = dumps_index(index)
+    index_size = len(index_text.encode("utf-8"))
+    index_gz = index_gzip_bytes(index)
+    if index_gz > args.index_max_gzip_bytes:
+        # Degradazione dichiarata: il nome e' il campo opzionale piu' grosso.
+        index = build_index(doc, networks=networks, include_names=False)
+        index["name_omitted"] = True
+        index_problems = validate_index(index, doc)
+        if index_problems:
+            for problem in index_problems:
+                print(f"[FATAL] indice: {problem}", file=sys.stderr)
+            return 2
+        index_text = dumps_index(index)
+        index_size = len(index_text.encode("utf-8"))
+        index_gz = index_gzip_bytes(index)
+        print(
+            f"[WARN] indice {index_gz} B gzip > budget "
+            f"{args.index_max_gzip_bytes} B: nomi rimossi (name_omitted)",
+            file=sys.stderr,
+        )
+        if index_gz > args.index_max_gzip_bytes:
+            print(
+                f"[WARN] indice ancora sopra budget anche senza nomi "
+                f"({index_gz} B gzip): scritto comunque e dichiarato",
+                file=sys.stderr,
+            )
+
     text = dumps_document(doc)
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(text, encoding="utf-8", newline="\n")
+    index_path = (
+        Path(args.index_out) if args.index_out else out_path.with_name("index.json")
+    )
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_text(index_text, encoding="utf-8", newline="\n")
 
     counts = doc["counts"]
     size = len(text.encode("utf-8"))
@@ -773,6 +1079,11 @@ def main(argv: list[str] | None = None) -> int:
         f"scartate_senza_dati={counts['stations_excluded_no_data']} "
         f"rete_ignota={counts['stations_excluded_unknown_network']} "
         f"fuori_range={counts['values_out_of_range']}"
+    )
+    print(
+        f"[OK] {index_path} {index_size} B ({index_size / 1024:.0f} KiB), "
+        f"gzip {index_gz} B ({index_gz / 1024:.0f} KiB), "
+        f"stazioni={index['count']}, budget={args.index_max_gzip_bytes} B"
     )
     for net in doc.get("excluded_networks", {}):
         print(f"[WARN] rete esclusa (licenza/attribuzione non verificate): {net}")
