@@ -6,13 +6,37 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.54
+## Versione attiva: 1.2.4.55
 
-- File applicativo: `mri-light-1.2.4.54.html` (`APP_VERSION = '1.2.4.54'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.54', date: '2026-10-27' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.54'`, servito come `/sw.js` e copiato in `_site/sw.js` da
+- File applicativo: `mri-light-1.2.4.55.html` (`APP_VERSION = '1.2.4.55'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.55', date: '2026-10-27' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.55'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
-- Contenuto della 1.2.4.54 (release sopra la 1.2.4.53) - **due modifiche, entrambe sul client**:
+- Contenuto della 1.2.4.55 (release sopra la 1.2.4.54) - **una modifica, solo documentale nel
+  pannello "Fonti Dati & Metodologie"**:
+  - **Nuova sezione "Osservazioni al Suolo — Rete di Centraline"**, subito dopo i METAR:
+    MeteoHub (Agenzia ItaliaMeteo / CINECA, portale del progetto MISTRAL), **4.269 stazioni su
+    26 reti** nel file del 2026-10-27T13:20:25Z (ARPA regionali e MeteoNetwork, **1.045**
+    MeteoNetwork), campi temperatura a 2 m, umidità relativa, vento a 10 m e precipitazione.
+    **Nessuna visibilità** e **nessuna pressione al livello del mare**: la sorgente espone solo
+    la pressione di stazione (`B10004`, livello 1.0.0.0), non riducibile senza la quota.
+    Licenza **CC BY 4.0** con attribuzione per ente nel campo `attribution` di
+    `data/stations/latest.json`; aggiornamento ogni **10 minuti** (`stations.yml`, cron
+    `*/10 * * * *`), latenza mediana misurata **37,7 minuti**, **99,11%** delle osservazioni
+    entro **90 minuti**, scarto client a 90 minuti (`STATIONS_MAX_OBS_AGE_MIN`). Periodo di
+    accumulo dichiarato per stazione (`precipitation_period_s`: 60, 300, 900, 1.800, 3.600 s
+    prevalenti, 600 s su 202 stazioni, due casi a 180/360 s), quindi i millimetri non sono
+    confrontabili senza normalizzare. Copertura non uniforme (da 1 a 1.045 stazioni). I dati
+    sono **osservati, non previsti**, su uno strato indipendente dal pannello LIVE.
+  - **Riferimento morto corretto**: la sezione "Mappe Previsionali" citava `fm2-cache` (branch
+    storico, non più scritto da alcun workflow). Ora indica `fm2-rendered` per i WebP e gli
+    indici aggregati (scrittore unico `forecast-maps-index.yml`) e i cinque branch per
+    fornitore (`fm2-dwdicon`, `fm2-dwd`, `fm2-ecmwf`, `fm2-ncep`, `fm2-meteofrance`) per i
+    frame `.om`.
+  - **Verificato senza modifiche**: i **7 domini** delle mappe sono 7 anche nei workflow di
+    `main`; le risoluzioni dichiarate tornano con i manifest (`dwd_icon_eu` dx 0,0625° =
+    6,95 km in latitudine; `dwd_icon` dx 0,125° = 13,9 km N-S e 9,8 km E-W a 45°N).
+- Storico - Contenuto della 1.2.4.54 (release sopra la 1.2.4.53) - **due modifiche, entrambe sul client**:
   il **secondo toggle "Centraline"** nel pannello LIVE e la **rimozione della sincronizzazione**
   fra selettore della sorgente e strato delle etichette.
   - **Due toggle affiancati e indipendenti.** `#live-toggle-stations` ("Centraline") sta accanto a

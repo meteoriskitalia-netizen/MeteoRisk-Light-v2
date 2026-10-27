@@ -29,7 +29,7 @@
  */
 'use strict';
 
-var CACHE_NAME = 'mri-1.2.4.54';
+var CACHE_NAME = 'mri-1.2.4.55';
 var MAX_ENTRIES = 1200;
 var NETWORK_TIMEOUT_MS = 3000;
 
