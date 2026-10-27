@@ -12,27 +12,40 @@ Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
   changelog in-app `{ version: '1.2.4.51', date: '2026-10-27' }`) + `sw.js` (Service Worker,
   `CACHE_NAME = 'mri-1.2.4.51'`, servito come `/sw.js` e copiato in `_site/sw.js` da
   `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
-- Contenuto della 1.2.4.51 (release sopra la 1.2.4.50) - **due sole cose, entrambe sul client**.
+- Contenuto della 1.2.4.51 (release sopra la 1.2.4.50) - **tre cose, tutte sul client**.
+  - **Il selettore di modalità è eliminato e torna lo switch "Sviluppo" del footer** (dov'era
+    nella 1.2.4.47). Rimossi per intero: il markup `#ui-mode-switch` con i due pulsanti
+    Pro/Sviluppo, il CSS `#ui-mode-switch`/`.uim-btn` con
+    `body:not([data-ui-mode="sviluppo"]) .dev-only`, la regola
+    `#app-footer .dev-switch { display:none !important; }`, `readUiMode`/`applyUiMode`/`setUiMode`,
+    `uiMode`/`UI_MODES`/`UI_MODE_KEY`/`UI_MODE_LEGACY_KEY`, lo script di pre-paint che scriveva
+    `data-ui-mode` e la chiamata di boot. `isSviluppoActive` è pilotato **solo** da
+    `toggleSviluppo()`; le chiavi `meteorisk.uiMode.v2` e `meteorisk.uiMode` vengono **rimosse**
+    alla prima apertura. Le classi `.dev-only` non esistono più: **Conv./Grandine/Nebbia/SOI** le
+    accende e le spegne `toggleSviluppo()` con `style.display` (e uscendo da sviluppo chiude timer e
+    layer). Misurato in stato normale: **19 pulsanti** visibili, **3**
+    `<select>`, **0** elementi con id `ui-mode-switch`, **0** `data-ui-mode` nel DOM,
+    `typeof setUiMode === 'undefined'`, switch del footer visibile e cliccabile. Confronto con la
+    1.2.4.47: stessi **20** pulsanti, **differenza di insieme vuota**.
   - **Terza sorgente "Centraline (osservato, ~30 min)"** nel selettore del pannello live: legge
     `data/stations/index.json` su Pages e, se non risponde, `data/stations/latest.json` su
     `raw.githubusercontent` (se rispondono 404 **entrambi** compare un messaggio, nessuna
     eccezione). Filtro `obs_time` entro **90 minuti**; disegno su **un canvas** con
     **decimazione dichiarata** (griglia di **16 px** nello spazio dello schermo, una
-    stazione per cella — la piu' recente — lato che cresce 12/16/24/32/48/64 px oltre il tetto di
+    stazione per cella — la piu' recente — lato 12/16/24/32/48/64 px oltre il tetto di
     **600** punti); colore **continuo** per temperatura (-10..+40 °C) con legenda; popup e
     hover con nome, **ente** (attribuzione per rete del file), eta' dell'osservazione,
     temperatura, umidita', vento e pioggia **normalizzata** su `precipitation_period_s`; campi
     mancanti **omessi**. Attribuzione **CC BY 4.0** visibile nel pannello e nel popup. Pannello
     LIVE con **"ultimo aggiornamento: N min fa"**, **attive/totali** e badge **"dato fermo"**
-    oltre **2 ore**. Misurato: index.json **542.989 byte** / **4.205 stazioni**,
-    latest.json **1.063.821 byte**, **3.954** attive entro 90 min, **444**
-    punti disegnati a zoom 6 in **653 ms**.
-  - **Nebbia solo in sviluppo**: il tab `#metric-tab-fog` ha la classe `dev-only` e il badge
-    `id:'fog'` di `computeActiveRisks` viene emesso solo se `isDevOnlyVisible()` (attributo
-    `data-ui-mode` del `<body>`, lo stesso che usa il CSS). Soglie **70/85/95**, `FOG_BADGE_MIN` e
-    `case 'fog'` **invariati**. Misurato: in `pro` **7** tab metriche e **0**
-    badge nebbia sulle **107** province; in `sviluppo` **10** tab e **41**
-    badge. Uscendo da sviluppo con la nebbia attiva la metrica torna su Rischio.
+    oltre **2 ore**. Misurato: index.json **542.989 byte** / **4205 stazioni**,
+    latest.json **1.063.821 byte**, **1787** attive entro 90 min, **471**
+    punti disegnati a zoom 6 in **908 ms**.
+  - **Nebbia solo con lo switch**: il tab `#metric-tab-fog` e il badge `id:'fog'` di
+    `computeActiveRisks` esistono solo con `isSviluppoActive === true`. Soglie **70/85/95**,
+    `FOG_BADGE_MIN` e `case 'fog'` **invariati**. Misurato: **7** tab metriche e
+    **0** badge nebbia sulle **107** province in stato normale, **10** tab
+    e **0** province con badge con lo switch ON.
 - Storico - Contenuto della 1.2.4.50 (release sopra la 1.2.4.49) - **la modalita' "Semplice" e'
   eliminata, non nascosta: restano DUE modalita', `pro` (default) e `sviluppo`**. Solo client.
   - **Rimosso per intero**: il pulsante "Semplice" dal selettore, la legenda `#easy-legend` con il
