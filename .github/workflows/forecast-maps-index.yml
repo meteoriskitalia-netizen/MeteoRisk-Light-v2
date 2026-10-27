@@ -113,7 +113,7 @@ on:
 # dietro un merge WebP (che puo' durare decine di minuti) ne' viceversa.
 concurrency:
   group: forecast-maps-index-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: write
