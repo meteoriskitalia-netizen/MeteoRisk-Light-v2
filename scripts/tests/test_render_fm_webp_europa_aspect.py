@@ -1,23 +1,24 @@
 # -*- coding: utf-8 -*-
 """Test del PIXEL QUADRATO in Mercatore della regione ``europa`` (render_fm_webp.py).
 
-Contesto MISURATO il 2026-10-26 sui frame reali del branch dati:
+Contesto MISURATO il 2026-10-27 sui frame reali del branch dati, con la regione
+``europa`` estesa all'Atlantico (30..75N / 70W..45E, 1.2.4.52):
 
-  * ``ecmwf_ifs025`` 2026-10-26T00Z: crop 281x153 (0,25 gradi, 34..72N / 25W..45E),
-    upsampling x4 -> ``1121x609`` = rapporto **1,8407**;
-  * ``dwd_icon_eu`` 2026-10-26T09Z: crop 881x449 (0,0625 gradi, 34..62N / 15W..40E),
-    x2 -> ``1761x897`` = rapporto **1,9632**.
+  * ``ecmwf_ifs025`` (0,25 gradi, griglia 1440x281): crop **461x181**, x2 ->
+    ``921x679`` = rapporto **1,3564**;
+  * ``dwd_icon_eu`` 2026-10-27T03Z: crop 881x449 (0,0625 gradi, 34..62N / 15W..40E),
+    x2 -> ``1761x1390`` = rapporto **1,2669**.
 
-La stessa regione usciva quindi con due forme diverse: il rapporto era un
-effetto collaterale di ``ceil(512 / lato corto)``, non una scelta.
+La stessa regione usciva quindi con forme diverse: il rapporto era un effetto
+collaterale di ``ceil(512 / lato corto)``, non una scelta.
 
 Il rapporto GIUSTO non e' una costante: e' quello della scatola Mercatore che
-``imageOverlay`` riempie, e dipende dal crop -- **1,0088** su ``ecmwf_ifs025``
-(34..72N) contro **1,2675** su ``dwd_icon_eu`` (34..62N), cioe' il 26% di
-differenza. Una costante unica (la 1,6 della 1.2.4.32) lasciava 1,59x di
-stiramento verticale su uno e 1,26x sull'altro. ``REGION_PIXEL_ASPECT`` ricava
-quindi l'altezza dall'estensione in Mercatore del crop (``mercator_out_rows``):
-il pixel e' quadrato in EPSG:3857 e lo stiramento e' 1,000 su entrambi.
+``imageOverlay`` riempie, e dipende dal crop -- **1,3577** su ``ecmwf_ifs025``
+(30..75N) contro **1,2675** su ``dwd_icon_eu`` (34..62N). Una costante unica
+(la 1,6 della 1.2.4.32) lascia 1,18x di stiramento verticale su uno e 1,26x
+sull'altro. ``REGION_PIXEL_ASPECT`` ricava quindi l'altezza dall'estensione in
+Mercatore del crop (``mercator_out_rows``): il pixel e' quadrato in EPSG:3857 e
+lo stiramento e' 1,000 su entrambi.
 
 Il test NON si limita a ripetere la formula: verifica che il passo di riga e
 quello di colonna siano uguali in unita' Mercatore (la definizione di pixel
@@ -54,14 +55,17 @@ mod = _load_renderer()
 
 # I due crop reali: (nx, ny, dx, lat_min, lat_max)
 CROPS = {
-    "ecmwf_ifs025": dict(nx=281, ny=153, dx=0.25, latMin=34.0, latMax=72.0,
-                         published=(1121, 1111), merc_ratio=1.00880),
+    # 30..75N / 70W..45E: 115 gradi di longitudine su 45 di latitudine.
+    # ``capped``: il dominio e' GLOBALE, quindi ``REGION_MAX_OUT_W`` limita la
+    # larghezza (dwd_icon_eu non e' globale e tiene il suo 1761).
+    "ecmwf_ifs025": dict(nx=461, ny=181, dx=0.25, latMin=30.0, latMax=75.0,
+                         published=(921, 679), merc_ratio=1.35771, capped=True),
     "dwd_icon_eu": dict(nx=881, ny=449, dx=0.0625, latMin=34.0, latMax=62.0,
-                        published=(1761, 1390), merc_ratio=1.26752),
+                        published=(1761, 1390), merc_ratio=1.26752, capped=False),
 }
 
 
-def _cgrid(crop, lon_min=-25.0):
+def _cgrid(crop, lon_min=-70.0):
     return {"nx": crop["nx"], "ny": crop["ny"], "lonMin": lon_min,
             "latMin": crop["latMin"], "dx": crop["dx"],
             "dy": (crop["latMax"] - crop["latMin"]) / (crop["ny"] - 1)}
@@ -129,11 +133,16 @@ def test_published_size_is_the_measured_one(domain):
     args = type("A", (), {"upsample": "auto",
                           "upsample_max": mod.UPSCALE_MAX_DEFAULT})()
     scale = mod.resolve_upsample(args, grid["nx"], grid["ny"])
+    if crop["capped"]:
+        # Dominio GLOBALE: ``render_domain`` applica il tetto di larghezza.
+        scale = mod.fit_scale_to_width(grid["nx"], scale,
+                                       mod.REGION_MAX_OUT_W["europa"])
     published = ((grid["nx"] - 1) * scale + 1, mod.mercator_out_rows(grid, scale))
     assert published == crop["published"], domain
     # Il rapporto pubblicato coincide col rapporto Mercatore del crop entro lo
-    # 0,1% (l'unico residuo e' l'arrotondamento di 1 riga su 1390).
-    assert abs(published[0] / float(published[1]) / crop["merc_ratio"] - 1.0) < 0.001
+    # 0,2% (l'unico residuo e' l'arrotondamento di 1 riga: misurato 0,096% su
+    # 921x679 e 0,047% su 1761x1390).
+    assert abs(published[0] / float(published[1]) / crop["merc_ratio"] - 1.0) < 0.002
 
 
 @pytest.mark.parametrize("domain", sorted(CROPS))
@@ -142,9 +151,12 @@ def test_the_derived_height_differs_from_the_constant_1_6(domain):
     crop = CROPS[domain]
     w, h = crop["published"]
     stretch = (w / float(h)) / crop["merc_ratio"]
-    assert abs(stretch - 1.0) < 0.001
-    # Con 1,6 lo stiramento sarebbe stato questo (misurato, non stimato).
-    assert abs((w / float(round(w / 1.6))) / crop["merc_ratio"] - 1.0) > 0.2
+    assert abs(stretch - 1.0) < 0.002
+    # Con 1,6 lo stiramento sarebbe questo (misurato, non stimato): 17,8% su
+    # ecmwf (1,3577 contro 1,6) e 26,2% su dwd_icon_eu (1,2675). Con la scatola
+    # vecchia 1,0088 l'errore su ecmwf era il 59%: per questo la soglia scende
+    # da 0,2 a 0,15, che resta un errore macroscopic.
+    assert abs((w / float(round(w / 1.6))) / crop["merc_ratio"] - 1.0) > 0.15
 
 
 # --------------------------------------------------------------------------- #

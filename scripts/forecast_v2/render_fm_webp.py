@@ -42,6 +42,23 @@ skipped. The raw frame array is cropped to that intersection on the domain grid
 and only THEN resampled to Mercator, so each WebP spans exactly its own
 ``imageOverlay`` bounds.
 
+Atlantic extent (1.2.4.52)
+--------------------------
+``europa`` used to stop at 25 W: the Labrador (60 W), southern Greenland and the
+Azores were outside the image even though every global model has them (the
+product reference is Meteociel, which reaches the Labrador). The region is now
+``30..75 N / 70 W..45 E``. It is a MAXIMUM, not a crop: ``region_crop``
+intersects it with the DOMAIN coverage, so the three regional domains
+(``dwd_icon_eu``, ``dwd_icon_d2``, ``ncep_gfs013``) keep exactly the crop they
+had -- the renderer never invents a pixel where the model has no data.
+Cost, measured on real frames (``ecmwf_ifs025`` 2026-10-26T00Z and ``dwd_icon``
+2026-10-26T12Z, whole frame, serial): the automatic factor would have produced
+1841x1356 px on the 0,125-degree global domain (dwd_icon), i.e. +100% pixels vs
+today's 1121x1111, so ``REGION_MAX_OUT_W`` caps the WIDTH for GLOBAL domains.
+The rows are untouched by the cap: they stay derived in Mercator
+(``mercator_out_rows``), so the image aspect still equals the bounds box and the
+client stretches nothing.
+
 Output shape: one integer upsampling factor ``ceil(512 / shorter side)`` on BOTH
 axes, i.e. ``(nx-1)*scale+1`` by ``(ny-1)*scale+1`` -- except ``europa``, whose
 height is DERIVED from the Mercator span of its own crop (``REGION_PIXEL_ASPECT``
@@ -268,7 +285,17 @@ _VALID_STEM_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})T(\d{2})(\d{2})$")
 # engine manifest bbox (the domain's own coverage), NOT a fixed window.
 REGIONS = {
     "italia": (36.5, 6.5, 47.2, 18.6),
-    "europa": (34.0, -25.0, 72.0, 45.0),
+    # 1.2.4.52 - LA REGIONE EUROPA ARRIVA IN ATLANTICO. Prima fermava a 25W:
+    # il Labrador (60W), la Groenlandia meridionale e le Azzorre restavano fuori
+    # dall'immagine pur essendo in TUTTI i modelli globali (riferimento di
+    # prodotto: le carte Meteociel, che arrivano al Labrador). Ora il bordo ovest
+    # e' 70W e il nord sale a 75N.
+    # Il bbox e' un limite di MASSIMA: ``region_crop`` lo INTERSECA con la
+    # copertura del dominio, quindi i 3 domini regionali NON guadagnano pixel
+    # fuori dal modello (dwd_icon_eu resta 34..62N / 15W..40E, dwd_icon_d2
+    # 43,18..58,08N / 3,94W..20,34E, ncep_gfs013 34,03..61,91N / 14,88W..39,96E)
+    # e i 4 globali arrivano a 70W perche' il loro dato c'e'.
+    "europa": (30.0, -70.0, 75.0, 45.0),
     # Vista globale dei modelli tagliati sul Nord (dai 20°N al limite Mercator).
     # L'immagine resta in EPSG:3857, quindi si apre direttamente in Leaflet.
     "north": (20.0, -180.0, 85.05112878, 180.0),
@@ -331,6 +358,24 @@ NORTH_REGION_SKIP_NON_GLOBAL = True
 # funziona identico sopra e sotto 1. Il verso non viene mai assunto.
 REGION_PIXEL_ASPECT = {"europa": "mercator", "italia": "mercator",
                        "domain": "mercator"}
+
+# Larghezza di output MASSIMA per regione (px), applicata SOLO ai domini GLOBALI.
+# La larghezza e' la variabile che governa il peso del file: a parita' di fattore
+# di upsampling raddoppiare la larghezza quadruplica i pixel, e il WebP cresce
+# quasi con essi. Con il bbox nuovo (30..75N / 70W..45E) il fattore "auto" del
+# dominio a 0,125 gradi (dwd_icon) salirebbe a 1841 px, cioe' il doppio dei pixel
+# di oggi: qui la larghezza viene tenuta sotto il tetto scegliendo il fattore
+# intero piu' grande che ci sta (``fit_scale_to_width``). I 3 domini REGIONALI
+# non sono toccati: il loro crop non cambia (il bbox nuovo e' un limite di
+# massima e loro si fermano prima), quindi la loro larghezza pubblicata resta
+# quella di oggi e il tetto non deve accorciarla (dwd_icon_eu e' 1761 px, sopra
+# il tetto di 1000, e senza questa condizione perderebbe meta' risoluzione).
+# Il rapporto dell'immagine NON cambia: le righe restano dedotte in Mercatore da
+# ``mercator_out_rows``, quindi lo stiramento del client resta 1,000 a qualunque
+# larghezza. MISURATO su un frame intero ecmwf a 32 variabili: 1121x1111 di oggi
+# = 5.620.428 B, 921x679 = 4.089.440 B (-27,2%), 1381x1017 = 7.452.438 B
+# (+32,6%, scartato), 1841x1356 = 12.240.162 B (+117,8%, scartato).
+REGION_MAX_OUT_W = {"europa": 1000}
 
 
 # --------------------------------------------------------------------------- #
@@ -500,6 +545,23 @@ def _upsample_factor(nx: int, ny: int, target: int, max_scale: int) -> int:
     if shorter < 1 or target <= 0:
         return 1
     return max(1, min(int(max_scale), int(math.ceil(target / shorter))))
+
+
+def fit_scale_to_width(nx: int, scale: int, max_w: int) -> int:
+    """Fattore di upsampling piu' grande che tiene la larghezza <= ``max_w``.
+
+    La larghezza di una regione e' ``(nx-1)*scale+1``: il fattore e' intero,
+    quindi i valori ottenibili sono a scalini. Si scende di uno finche' la
+    larghezza rientra, e MAI sotto 1 (sotto 1 si perderebbe il dato: la griglia
+    sorgente e' il minimo, non un parametro). Un ``max_w`` piu' piccolo della
+    larghezza a scala 1 viene quindi ignorato, e il chiamante puo' misurarlo.
+    """
+    scale = max(1, int(scale))
+    if nx <= 1 or int(max_w) <= 0:
+        return scale
+    while scale > 1 and (int(nx) - 1) * scale + 1 > int(max_w):
+        scale -= 1
+    return scale
 
 
 def resolve_upsample(args, nx: int, ny: int) -> int:
@@ -1090,6 +1152,15 @@ PANEL_WIDTH_PX_MIN = 1008.0       # 0.35 * 2879 (fit factor misurato, caso peggi
 # misura precedente del tratteggio, che su ``europa`` e ``north`` dava una
 # spaziatura a schermo di 7,4-7,5 px invece di 11, cioe' 1,5x troppo fitta).
 PANEL_WIDTH_PX = 754.0            # px CSS del pannello mappa (fitBounds)
+
+# Target di leggibilita' PROPRIO di una regione: (px di cifra a schermo, larghezza
+# del pannello in px CSS). ``europa`` e' la regione la cui immagine e' cosi'
+# larga da non stare nel pannello: il pannello MISURATO e' 754 px CSS
+# (``PANEL_WIDTH_PX``) e il target di prodotto e' 8 px di cifra, non i 7 px
+# storici che il modello assumeva su un pannello da 1008 px
+# (``PANEL_WIDTH_PX_MIN`` = 0,35 * 2879, il caso peggiore della striscia north).
+# Senza questa voce ``europa`` usciva a 7,06-7,10 px sul pannello reale.
+REGION_LABEL_SCREEN = {"europa": (8.0, PANEL_WIDTH_PX)}
 MIN_SCREEN_DIGIT_PX = 7.0         # altezza minima delle cifre a schermo
 DIGIT_PROBE = "0123456789"        # testo di calibrazione (stesse cifre delle etichette)
 LABEL_FONT_MAX_PX = 48            # tetto di sicurezza della ricerca del font
@@ -1644,11 +1715,13 @@ def label_font_px(out_w: int, out_h: int, forced: int = 0, region: str | None = 
     out_h = int(out_h)
     if out_w <= 0 or out_h <= 0:
         return LABEL_FONT_PX
-    factor = min(float(PANEL_WIDTH_PX_MIN) / float(out_w),
+    _target, _panel_w = REGION_LABEL_SCREEN.get(
+        region, (MIN_SCREEN_DIGIT_PX, PANEL_WIDTH_PX_MIN))
+    factor = min(float(_panel_w) / float(out_w),
                  float(PANEL_HEIGHT_PX) / float(out_h))
     if not (factor > 0.0):
         return LABEL_FONT_PX
-    need = float(MIN_SCREEN_DIGIT_PX) / factor
+    need = float(_target) / factor
     if need <= float(_font_digit_height(LABEL_FONT_PX)):
         return LABEL_FONT_PX
     for px in range(LABEL_FONT_PX + 1, LABEL_FONT_MAX_PX + 1):
@@ -3396,6 +3469,9 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
             })
             continue
         scale = resolve_upsample(args, cgrid["nx"], cgrid["ny"])
+        _max_w = REGION_MAX_OUT_W.get(rname) if _is_global_bbox(bbox) else None
+        if _max_w:
+            scale = fit_scale_to_width(int(cgrid["nx"]), scale, int(_max_w))
         out_w = (int(cgrid["nx"]) - 1) * scale + 1
         out_h = (int(cgrid["ny"]) - 1) * scale + 1
         # Pixel quadrato in Mercatore (``REGION_PIXEL_ASPECT``): la larghezza

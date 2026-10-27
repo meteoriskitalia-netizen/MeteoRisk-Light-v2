@@ -53,14 +53,22 @@ DISC_N = 1000
 # ogni riga e' (out_w, out_h, region, font atteso).
 HISTORICAL = [
     (2879, 521, "north", 29),     # strip Mercator: il modello a 0,35
-    (1121, 701, "europa", 12),
-    (1121, 1111, "europa", 20),
-    (1761, 897, "europa", 18),
-    (1761, 1390, "europa", 25),
     (900, 700, "italia", 12),
     (2000, 1000, "domain", 20),
     (1440, 281, "domain", 14),
     (5000, 4000, "italia", 48),
+]
+
+# 1.2.4.52 - ``europa`` non e' piu' una regione "storica": il suo pannello e' 754
+# px CSS (``PANEL_WIDTH_PX``) e il target di prodotto e' 8 px di cifra, non i 7 px
+# su 1008 del modello nato per la striscia north. Le taglie sono MISURATE su
+# Pillow 12.3 (9 px d'inchiostro a 12 px, 20 a 29 px). 1121x701 e 1761x897 non
+# sono piu' pubblicate (erano le forme stirate), restano come vettori del modello.
+EUROPA = [
+    (1121, 701, 18),
+    (1121, 1111, 23),
+    (1761, 897, 27),
+    (1761, 1390, 29),
 ]
 
 
@@ -80,7 +88,8 @@ def _historical_strip_model(out_w, out_h):
 
     Serve come baseline: se il disco non passa di qui, ogni regione deve
     restituire ESATTAMENTE questo numero, altrimenti la promessa
-    "italia/europa/domain byte-identiche" e' falsa.
+    "italia/domain byte-identiche" e' falsa. ``europa`` NON e' piu' in questa
+    lista dal 1.2.4.52: ha un target proprio (8 px sul pannello da 754 px).
     """
     factor = min(mod.PANEL_WIDTH_PX_MIN / float(out_w),
                  mod.PANEL_HEIGHT_PX / float(out_h))
@@ -170,6 +179,38 @@ def test_other_regions_keep_the_historical_font(out_w, out_h, region, expected):
         _historical_strip_model(out_w, out_h)
 
 
+def _europa_strip_model(out_w, out_h):
+    """Modello PROPRIO di ``europa`` (1.2.4.52): 8 px su un pannello da 754 px."""
+    factor = min(mod.PANEL_WIDTH_PX / float(out_w),
+                 mod.PANEL_HEIGHT_PX / float(out_h))
+    need = 8.0 / factor
+    if need <= float(mod._font_digit_height(mod.LABEL_FONT_PX)):
+        return mod.LABEL_FONT_PX
+    for px in range(mod.LABEL_FONT_PX + 1, mod.LABEL_FONT_MAX_PX + 1):
+        if float(mod._font_digit_height(px)) >= need - 1e-9:
+            return px
+    return mod.LABEL_FONT_MAX_PX
+
+
+@pytest.mark.parametrize("out_w,out_h,expected", EUROPA)
+def test_europa_uses_its_own_eight_pixel_target(out_w, out_h, expected):
+    """``europa`` non e' piu' "storica": 8 px sul pannello da 754, non 7 su 1008.
+
+    Misurato su Pillow 12.3: a 1121x1111 il modello vecchio dava 20 px (9 px
+    d'inchiostro x 0,5041 = 7,06 px a schermo), il nuovo 23 px (16 x 0,5041 =
+    8,06). A 1761x1390: 25 -> 29 (7,25 -> 8,06).
+    """
+    got = mod.label_font_px(out_w, out_h, 0, region="europa")
+    assert got == expected
+    assert got == _europa_strip_model(out_w, out_h)
+    # Il target e' piu' alto del modello storico: il font non puo' rimpicciolirsi.
+    assert got >= _historical_strip_model(out_w, out_h)
+    ink = float(mod._font_digit_height(got))
+    factor = min(mod.PANEL_WIDTH_PX / float(out_w),
+                 mod.PANEL_HEIGHT_PX / float(out_h))
+    assert ink * factor >= 8.0, (out_w, out_h, got, ink * factor)
+
+
 def test_strip_does_not_take_the_disc_model():
     """Il disco e lo strip condividono la REGIONE ``north``: il flag separa i
     due modelli, altrimenti lo strip cambierebbe font (e byte) senza motivo."""
@@ -183,8 +224,8 @@ def test_strip_does_not_take_the_disc_model():
 def test_region_gate_still_returns_12_for_untouched_regions():
     """Fuori da ``REGION_PIXEL_ASPECT`` (e fuori da ``north``) il font resta
     12 px qualunque sia la dimensione: era vero prima, deve restare vero dopo.
-    Le tre regioni di produzione (italia/europa/domain) sono invece in
-    ``REGION_PIXEL_ASPECT`` e seguono il modello storico, non questo."""
+    ``italia`` e ``domain`` sono in ``REGION_PIXEL_ASPECT`` e seguono il modello
+    storico; ``europa`` ha invece un target proprio dal 1.2.4.52."""
     assert mod.label_font_px(5000, 4000, 0, region="radar") == mod.LABEL_FONT_PX
     assert mod.label_font_px(5000, 4000, 0, region="satellite") == mod.LABEL_FONT_PX
     # e le regioni in tabella NON vengono toccate dal modello del disco
