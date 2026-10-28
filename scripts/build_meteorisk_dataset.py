@@ -20,12 +20,15 @@ Per provincia:
   - riepilogo derivato per giorno del punto peggiore.
 
 Output (in data/_staging, poi validate_dataset.py e publish_dataset.py):
-  data/latest/metadata.json, meteorisk-points.json, meteorisk-provinces.json
+  data/latest/metadata.json, meteorisk-points.json, meteorisk-provinces.json,
+  meteorisk-points-compact.json (aggregato per provincia, una sola richiesta
+  HTTP dal client: vedi COMPACT_* qui sotto)
 """
 
 import argparse
 import datetime as _dt
 import json
+import math
 import os
 import sys
 
@@ -34,6 +37,109 @@ import common
 
 ATTR = ("Meteorological source data: Open-Meteo.com / Data license: CC BY 4.0 / "
         "Processed and aggregated by MeteoRisk Light.")
+
+# ---------------------------------------------------------------------------
+# DATASET COMPATTO PER PROVINCIA (data/latest/meteorisk-points-compact.json)
+# ---------------------------------------------------------------------------
+# PERCHE' ESISTE: un refresh completo del client interroga api.open-meteo.com
+# UNA volta per punto di campionamento (257 punti reali, piu' i virtuali), e con
+# i limiti free (5.000 richieste/ora, 600/minuto) regge ~19 refresh/ora ->
+# HTTP 429 "Hourly API request limit exceeded". Questo file fa la stessa
+# aggregazione UNA VOLTA nella pipeline: un record per provincia (107), serie
+# orarie in array paralleli, 333 KB gzip MISURATI sul dataset reale del
+# 2026-10-28 (raw 1,44 MB contro 8,9 MB del completo), quindi una sola richiesta.
+#
+# CONTRATTO (letto dal client e da scripts/tests/test_compact_dataset.py):
+#   - province_fields = ["sigla","lat","lon","n_points"] e provinces = array di
+#     record compatti (stesso stile di data/stations/index.json);
+#   - fields = elenco dei campi orari presenti; series[campo][provincia][ora];
+#   - time = etichette ISO locali (Europe/Rome) condivise da tutte le serie;
+#   - null = nessun punto della provincia ha quel valore a quell'ora.
+#
+# AGGREGAZIONE: media aritmetica dei punti della provincia (sui soli valori non
+# nulli). Due eccezioni DICHIARATE:
+#   - `weathercode` non e' una grandezza ordinale (la media di 1 e 95 non e' un
+#     codice meteo): si prende il codice PIU' SEVERO fra i punti dell'ora,
+#     coerente con la semantica "peggior condizione" gia' usata dal client nella
+#     vista giornaliera;
+#   - le direzioni del vento usano la media VETTORIALE (u/v): la media
+#     aritmetica di 350 e 10 gradi darebbe 180, cioe' il vento opposto.
+#
+# PRECISIONE (dichiarata nel campo `rounding` del file):
+#   - 1 decimale: temperature, dew point, velocita' del vento, pressione,
+#     lifted index;
+#   - interi: umidita', probabilita', codici meteo, CAPE, CIN, K index,
+#     freezing level, geopotenziali, direzioni del vento;
+#   - 2 decimali: precipitazione e rovesci (0,01 mm/h non si perde);
+#   - direzioni del vento arrotondate a 5 gradi: una media spaziale ha senso a
+#     5 gradi e i 3 digit pieni costavano ~35 KB gzip (misurato).
+#
+# ESCLUSO `visibility`: nessuna funzione del client legge `hourly.visibility`
+# (nel client la parola compare solo in CSS e nelle osservazioni METAR), e il
+# campo e' popolato solo da best_match (72/72) e nullo sugli altri modelli.
+COMPACT_SCHEMA = "meteorisk-points-compact/1"
+COMPACT_PROVINCE_FIELDS = ["sigla", "lat", "lon", "n_points"]
+COMPACT_WORST_FIELDS = frozenset(("weathercode",))
+_COMPACT_LEVELS = (1000, 975, 950, 925, 900, 850, 800, 700, 600, 500)
+# (campo, decimali, passo di arrotondamento o None)
+COMPACT_HOURLY_FIELDS = (
+    ("temperature_2m", 1, None),
+    ("relativehumidity_2m", 0, None),
+    ("dew_point_2m", 1, None),
+    ("pressure_msl", 1, None),
+    ("cape", 0, None),
+    ("precipitation_probability", 0, None),
+    ("windspeed_10m", 1, None),
+    ("winddirection_10m", 0, 5),
+    ("windspeed_100m", 1, None),
+    ("winddirection_100m", 0, 5),
+    ("windgusts_10m", 1, None),
+    ("weathercode", 0, None),
+    ("precipitation", 2, None),
+    ("showers", 2, None),
+    ("freezing_level_height", 0, None),
+    ("convective_inhibition", 0, None),
+    ("lifted_index", 1, None),
+    ("k_index", 0, None),
+    # Livelli di pressione: il client li legge TUTTI (hodograph 10 livelli in
+    # computeSevereIndices, gate grandine, vorticosi/downburst). Toglierli
+    # azzererebbe shear/SRH/SCP e i badge severi.
+    ) + tuple(("wind_speed_%dhPa" % lv, 1, None) for lv in _COMPACT_LEVELS) \
+      + tuple(("wind_direction_%dhPa" % lv, 0, 5) for lv in _COMPACT_LEVELS) \
+      + tuple(("temperature_%dhPa" % lv, 1, None) for lv in (850, 700, 500)) \
+      + tuple(("relative_humidity_%dhPa" % lv, 0, None) for lv in (850, 700)) \
+      + tuple(("dew_point_%dhPa" % lv, 1, None) for lv in (850, 700)) \
+      + tuple(("geopotential_height_%dhPa" % lv, 0, None) for lv in (850, 700, 500))
+# Campi giornalieri: la vista "giorno intero" del client legge daily.temp max/min,
+# precipitation_sum e precipitation_probability_max (computeAggregateForStore).
+COMPACT_DAILY_FIELDS = (
+    ("temperature_2m_max", 1, None),
+    ("temperature_2m_min", 1, None),
+    ("precipitation_sum", 2, None),
+    ("windspeed_10m_max", 1, None),
+    ("precipitation_probability_max", 0, None),
+    ("weathercode", 0, None),
+)
+COMPACT_UNITS = {
+    "temperature_2m": "C", "relativehumidity_2m": "%", "dew_point_2m": "C",
+    "pressure_msl": "hPa", "cape": "J/kg", "precipitation_probability": "%",
+    "windspeed_10m": "km/h", "winddirection_10m": "deg", "windspeed_100m": "km/h",
+    "winddirection_100m": "deg", "windgusts_10m": "km/h", "weathercode": "wmo",
+    "precipitation": "mm", "showers": "mm", "freezing_level_height": "m",
+    "convective_inhibition": "J/kg", "lifted_index": "K", "k_index": "K",
+    "temperature_2m_max": "C", "temperature_2m_min": "C", "precipitation_sum": "mm",
+    "windspeed_10m_max": "km/h", "precipitation_probability_max": "%",
+}
+for _lv in _COMPACT_LEVELS:
+    COMPACT_UNITS["wind_speed_%dhPa" % _lv] = "km/h"
+    COMPACT_UNITS["wind_direction_%dhPa" % _lv] = "deg"
+for _lv in (850, 700, 500):
+    COMPACT_UNITS["temperature_%dhPa" % _lv] = "C"
+    COMPACT_UNITS["geopotential_height_%dhPa" % _lv] = "m"
+for _lv in (850, 700):
+    COMPACT_UNITS["relative_humidity_%dhPa" % _lv] = "%"
+    COMPACT_UNITS["dew_point_%dhPa" % _lv] = "C"
+del _lv
 
 
 def dedupe_models(record):
@@ -94,6 +200,171 @@ def day_summary(hourly, daily, day_index, day_label):
 
 def _at(arr, i):
     return arr[i] if i < len(arr) else None
+
+
+def _is_wind_direction(field):
+    """True per ENTRAMBE le forme del dataset: `winddirection_10m` (superficie,
+    senza underscore dopo "wind") e `wind_direction_500hPa` (livelli)."""
+    return field.startswith("wind_direction") or field.startswith("winddirection")
+
+
+def compact_value(values, field, decimals, step=None):
+    """Valore aggregato di una grandezza per una provincia a un'ora.
+
+    - media aritmetica dei soli valori numerici (None se non ce ne sono);
+    - direzioni del vento: media VETTORIALE (u/v), non aritmetica. La media
+      aritmetica di 350 e 10 gradi darebbe 180, cioe' il vento opposto; il
+      vettore medio da' 0. Se i versori si annullano (venti opposti) si usa la
+      media aritmetica e il caso resta dichiarato qui;
+    - `weathercode`: codice PIU' SEVERO (non e' una grandezza ordinale);
+    - `step`: arrotondamento a multiplo (direzioni a 5 gradi, con
+      riavvolgimento a 0-359);
+    - `decimals == 0` -> int; altrimenti il float intero diventa int (niente
+      ".0": -3 byte per valore, misurato).
+    """
+    nums = [v for v in values
+            if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    if not nums:
+        return None
+    if field in COMPACT_WORST_FIELDS:
+        out = float(max(nums))
+    elif _is_wind_direction(field):
+        sin_sum = sum(math.sin(math.radians(float(v))) for v in nums)
+        cos_sum = sum(math.cos(math.radians(float(v))) for v in nums)
+        if abs(sin_sum) < 1e-12 and abs(cos_sum) < 1e-12:
+            out = float(sum(nums)) / float(len(nums))
+        else:
+            out = math.degrees(math.atan2(sin_sum, cos_sum)) % 360.0
+    else:
+        out = float(sum(nums)) / float(len(nums))
+    if step:
+        out = round(out / float(step)) * step
+        if _is_wind_direction(field):
+            out = out % 360
+    if decimals == 0:
+        return int(round(out))
+    out = round(out, decimals)
+    if out == int(out):
+        return int(out)
+    return out
+
+
+def _series_length(points, model, fields):
+    """Lunghezza comune delle serie (minimo fra le serie non vuote presenti)."""
+    lens = []
+    for p in points:
+        hourly = ((p.get("models") or {}).get(model) or {}).get("hourly") or {}
+        for field, _dec, _step in fields:
+            arr = hourly.get(field)
+            if arr:
+                lens.append(len(arr))
+    return min(lens) if lens else 0
+
+
+def build_compact_dataset(points, regions, generated_at, day0, time_base=None,
+                          model="best_match"):
+    """Aggrega i punti per provincia nel file compatto (una richiesta HTTP).
+
+    `points` sono gli stessi record scritti in meteorisk-points.json: il
+    compatto e' quindi coerente per costruzione con la fonte completa, che
+    resta invariata. `regions` e' data/geography/regions_data.json (ordine e
+    indici delle province). Ritorna il dict pronto da serializzare.
+    """
+    present_hourly = [
+        (field, dec, step) for field, dec, step in COMPACT_HOURLY_FIELDS
+        if any((((p.get("models") or {}).get(model) or {}).get("hourly") or {}).get(field)
+               for p in points)
+    ]
+    present_daily = [
+        (field, dec, step) for field, dec, step in COMPACT_DAILY_FIELDS
+        if any((((p.get("models") or {}).get(model) or {}).get("daily") or {}).get(field)
+               for p in points)
+    ]
+    n_hours = _series_length(points, model, present_hourly)
+    n_days = 0
+    if present_daily and points:
+        n_days = min(len((((p.get("models") or {}).get(model) or {}).get("daily") or {}).get(f)
+                         or []) for p in points for f, _d, _s in present_daily
+                     if (((p.get("models") or {}).get(model) or {}).get("daily") or {}).get(f))
+
+    by_prov = {}
+    for p in points:
+        by_prov.setdefault(p.get("provinceIdx"), []).append(p)
+
+    provinces = []
+    series = {field: [] for field, _d, _s in present_hourly}
+    daily_series = {field: [] for field, _d, _s in present_daily}
+    for region in regions:
+        idx = region.get("idx")
+        group = by_prov.get(idx) or []
+        provinces.append([
+            region.get("sigla"),
+            common.r2(region.get("lat"), 5),
+            common.r2(region.get("lon"), 5),
+            len(group),
+        ])
+        for field, dec, step in present_hourly:
+            row = []
+            for h in range(n_hours):
+                vals = []
+                for p in group:
+                    arr = (((p.get("models") or {}).get(model) or {}).get("hourly") or {}).get(field) or []
+                    if h < len(arr):
+                        vals.append(arr[h])
+                row.append(compact_value(vals, field, dec, step))
+            series[field].append(row)
+        for field, dec, step in present_daily:
+            row = []
+            for d in range(n_days):
+                vals = []
+                for p in group:
+                    arr = (((p.get("models") or {}).get(model) or {}).get("daily") or {}).get(field) or []
+                    if d < len(arr):
+                        vals.append(arr[d])
+                row.append(compact_value(vals, field, dec, step))
+            daily_series[field].append(row)
+
+    base = time_base or (day0.isoformat() + "T00:00")
+    try:
+        day_start = _dt.date.fromisoformat(str(base)[:10])
+    except ValueError:
+        day_start = day0
+    time = [(day_start + _dt.timedelta(days=h // 24)).isoformat() + ("T%02d:00" % (h % 24))
+            for h in range(n_hours)]
+
+    fields = [field for field, _d, _s in present_hourly]
+    daily_fields = [field for field, _d, _s in present_daily]
+    return {
+        "schema": COMPACT_SCHEMA,
+        "status": "live" if points else "empty",
+        "generated_at": generated_at,
+        "model": model,
+        "licence": common.SOURCE_LICENSE,
+        "licence_url": "https://creativecommons.org/licenses/by/4.0/",
+        "attribution": ATTR,
+        "source": common.SOURCE_NAME,
+        "timezone": common.TIMEZONE,
+        "forecast_days": common.FORECAST_DAYS,
+        "hours": n_hours,
+        "days": n_days,
+        "count": len(provinces),
+        "aggregation": "mean per province (vector mean for wind_direction); weathercode = worst WMO code",
+        "rounding": {"decimals_default": 1, "wind_direction_step_deg": 5,
+                     "integers": "humidity, probability, codes, cape, cin, k_index,"
+                                 " freezing_level, geopotential, wind direction"},
+        "time": time,
+        "fields": fields,
+        "units": {f: COMPACT_UNITS.get(f) for f in fields},
+        "province_fields": list(COMPACT_PROVINCE_FIELDS),
+        "provinces": provinces,
+        "series": series,
+        "daily_fields": daily_fields,
+        "daily": daily_series,
+        "note": ("Aggregato per provincia dei punti di campionamento (media; "
+                 "weathercode = codice peggiore). Solo best_match: il modello "
+                 "ecmwf_ifs resta nel dataset completo. null = nessun punto "
+                 "della provincia con il dato a quell'ora."),
+    }
 
 
 def main():
@@ -157,6 +428,7 @@ def main():
             "province_count": 0,
             "run_info": run_info,
             "files": {"points": "meteorisk-points.json", "provinces": "meteorisk-provinces.json",
+                      "compact": "meteorisk-points-compact.json",
                       "validation": "validation.json"},
             "note": "Placeholder: il dataset reale viene generato dalla GitHub Action "
                     "(o da un run locale riuscito) con i dati della fonte Open-Meteo.",
@@ -171,6 +443,20 @@ def main():
         with open(common.DATA_STAGING / "meteorisk-provinces.json", "w", encoding="utf-8") as fh:
             json.dump({"schema_version": 4, "status": "empty", "generated_at": metadata["generated_at"],
                        "province_count": 0, "provinces": []}, fh, ensure_ascii=False)
+        # Placeholder del dataset compatto: publish_dataset.py lo copia in
+        # blocco con gli altri, quindi il file deve ESISTERE anche a dataset
+        # vuoto (contratto: 0 province, 0 campi, series {}).
+        with open(common.DATA_STAGING / "meteorisk-points-compact.json", "w", encoding="utf-8") as fh:
+            json.dump({"schema": COMPACT_SCHEMA, "status": "empty",
+                       "generated_at": metadata["generated_at"], "model": "best_match",
+                       "licence": common.SOURCE_LICENSE,
+                       "licence_url": "https://creativecommons.org/licenses/by/4.0/",
+                       "attribution": ATTR, "source": common.SOURCE_NAME,
+                       "timezone": common.TIMEZONE, "forecast_days": common.FORECAST_DAYS,
+                       "hours": 0, "days": 0, "count": 0, "time": [],
+                       "fields": [], "units": {}, "province_fields": list(COMPACT_PROVINCE_FIELDS),
+                       "provinces": [], "series": {}, "daily_fields": [], "daily": {}},
+                      fh, separators=(",", ":"), ensure_ascii=False)
         print("[build] Staging placeholder pronto in data/_staging.")
         return 0
 
@@ -313,6 +599,15 @@ def main():
     common.DATA_STAGING.joinpath("meteorisk-provinces.json").write_text(
         json.dumps(provinces_write, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
 
+    # Dataset COMPATTO per provincia (una sola richiesta HTTP dal client).
+    # Costruito dagli stessi record appena scritti in meteorisk-points.json:
+    # la fonte completa resta invariata, l'aggregato e' coerente per costruzione.
+    compact = build_compact_dataset(points_out, regions, raw["fetched_at"], day0,
+                                    time_base=time_base)
+    compact_path = common.DATA_STAGING / "meteorisk-points-compact.json"
+    compact_path.write_text(json.dumps(compact, separators=(",", ":"), ensure_ascii=False),
+                            encoding="utf-8")
+
     metadata = {
         "schema_version": 4,
         "dataset_type": common.APP_DATA_TYPE,
@@ -333,15 +628,17 @@ def main():
         "fetch_timestamps": fetch_timestamps,
         "update_strategy": cycle_mode,
         "files": {"points": "meteorisk-points.json", "provinces": "meteorisk-provinces.json",
+                  "compact": "meteorisk-points-compact.json",
                   "validation": "validation.json"},
     }
     with open(common.DATA_STAGING / "metadata.json", "w", encoding="utf-8") as fh:
         json.dump(metadata, fh, indent=2, ensure_ascii=False)
 
-    print("[build] Staging: %d punti · %d province (%.0f KB points, %.0f KB provinces)"
+    print("[build] Staging: %d punti · %d province (%.0f KB points, %.0f KB provinces, %.0f KB compact)"
           % (len(points_out), len(provinces),
              (common.DATA_STAGING / "meteorisk-points.json").stat().st_size / 1024.0,
-             (common.DATA_STAGING / "meteorisk-provinces.json").stat().st_size / 1024.0))
+             (common.DATA_STAGING / "meteorisk-provinces.json").stat().st_size / 1024.0,
+             compact_path.stat().st_size / 1024.0))
     return 0
 
 

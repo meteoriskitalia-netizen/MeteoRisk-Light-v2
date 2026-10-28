@@ -39,7 +39,8 @@ def main():
               % validation.get("outcome"))
         return 1
 
-    files = ["metadata.json", "meteorisk-points.json", "meteorisk-provinces.json", "validation.json"]
+    files = ["metadata.json", "meteorisk-points.json", "meteorisk-provinces.json",
+             "meteorisk-points-compact.json", "validation.json"]
     staging = common.DATA_STAGING
     latest = common.DATA_LATEST
     latest.mkdir(parents=True, exist_ok=True)
