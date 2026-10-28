@@ -19118,7 +19118,7 @@ function toggleForecastMaps() {
                 spentWeight += capSlots.length * locWeight;
                 refreshZonePreview();
                 updateMapColors();
-                statusEl.innerText = 'Dati modello: capoluoghi ' + Math.min(reqDone, firstCapIdx) + '/' + firstCapIdx + ' caricati · punti interni di dettaglio in coda...';
+                statusEl.innerText = liveSourceLabel + 'Dati modello: capoluoghi ' + Math.min(reqDone, firstCapIdx) + '/' + firstCapIdx + ' caricati · punti interni di dettaglio in coda...';
             }
             // FASE 2 — COORDINATE AGGIUNTIVE: richieste singole per i punti
             // interni (coordIdx 1, 2, ...) con cadenza, adeguate al rate-limit
@@ -19143,7 +19143,7 @@ function toggleForecastMaps() {
                 if (continuousMode && mapColorsVisible) { if (reqDone % 12 === 0) renderContinuousOverlay(); }
                 else updateMapColors();
                 var leftPts = pts.length - reqDone;
-                statusEl.innerText = 'Sincronizzazione dati: punto ' + reqDone + '/' + total + ' (' + r2.sigla + ' · ' + (COORD_LABELS[r2.coordIdx] || ('punto interno ' + r2.coordIdx)) + ') caricato · resta tutta la mappa ' + fmtETA(Math.ceil(leftPts * POINT_PACE_SEC)) + '...';
+                statusEl.innerText = liveSourceLabel + 'Sincronizzazione dati: punto ' + reqDone + '/' + total + ' (' + r2.sigla + ' · ' + (COORD_LABELS[r2.coordIdx] || ('punto interno ' + r2.coordIdx)) + ') caricato · resta tutta la mappa ' + fmtETA(Math.ceil(leftPts * POINT_PACE_SEC)) + '...';
                 var el = Date.now() - cadStart;
                 if (el < MIN_POINT_INTERVAL) await sleepMs(MIN_POINT_INTERVAL - el);
                 cadStart = Date.now();
@@ -19167,7 +19167,7 @@ function toggleForecastMaps() {
                 // coordinata appena caricata (non solo uno slot su 3)
                 refreshZonePreview();
                 var etaLeft = estSeconds(totalWeight - spentWeight, coordGroups.length - reqDone);
-                statusEl.innerText = 'Sincronizzazione dati: coordinata ' + (g + 1) + '/' + numGroups + ' (' + (COORD_LABELS[g] || ('punto interno ' + g)) + ', ' + grp.length + ' province) caricata · ' + success + '/' + total + ' punti · resta tutta la mappa ' + fmtETA(etaLeft);
+                statusEl.innerText = liveSourceLabel + 'Sincronizzazione dati: coordinata ' + (g + 1) + '/' + numGroups + ' (' + (COORD_LABELS[g] || ('punto interno ' + g)) + ', ' + grp.length + ' province) caricata · ' + success + '/' + total + ' punti · resta tutta la mappa ' + fmtETA(etaLeft);
                 updateMapColors();
                 // Pausa minima tra le richieste (coda globale: regia + priorità)
                 if (g < coordGroups.length - 1) await sleepMs(300);
