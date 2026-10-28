@@ -2028,9 +2028,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.57';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.58';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-28';
     const APP_CHANGELOG = [
+        { version: '1.2.4.58', date: '2026-10-28', changes: [
+  'MODELLI COPERTI LETTI DAL DATASET (PRO: BEST MATCH, ECMWF, DUAL A 72 ORE). La lista non e\' piu\' scritta a mano nel client: si legge da metadata.json -> models_covered + models_derived a OGNI caricamento, con l\'array statico usato SOLO come fallback quando il campo manca. Il client costruisce lo store di provincia di OGNI modello coperto dal payload gia\' scaricato: `points[].models[modello]` nel payload a punti, `series`/`daily` per best_match e `model_series[modello]`/`model_daily[modello]` nel payload compatto (stessa forma, nessuna trasformazione dei valori); dual_best_ecmwf resta il merge client-side di best_match + ecmwf_ifs. Conseguenza misurata: per i tre modelli coperti l\'apertura e il cambio modello costano 0 richieste API invece del percorso live a 257 coordinate, e per gfs_seamless/italia_meteo_arpae_icon_2i il client non finge piu\' di averli nel dataset. ORIZZONTE DERIVATO DAGLI ARRAY, NON DA UNA COSTANTE: il numero di giorni viene da time.length/lunghezza delle serie (72 h = 3 giorni, una serie piu\' corta chiude i giorni che non ci sono), i pulsanti giorno si nascondono quando il giorno non esiste, il pannello confronto non stampa piu\' "Dopodomani" vuoto e il grafico prende le etichette dalla lunghezza REALE della serie. Confronto modelli: la chiave di cache NON contiene piu\' il giorno (il record contiene gia\' tutti i giorni), quindi cambiare giorno con la stessa localita\' costa 0 richieste invece di 1.',
+  'PERIMETRO PRO DICHIARATO: GFS E ARPAE RESTANO SOLO API, DISPONIBILI IN SVILUPPO. Il dataset pubblica i modelli Pro (best_match, ecmwf_ifs e il dual derivato); gfs_seamless e italia_meteo_arpae_icon_2i NON ci sono per scelta di perimetro, non per un guasto. Quando l\'utente li seleziona il pannello lo scrive: "disponibile solo in Sviluppo: il dato non e\' nel dataset (perimetro Pro: ...)", con il numero di punti, le richieste stimate e il peso stimato del percorso live. Sul 429 il percorso live non aspetta piu\' 60 s per ogni coordinata: il primo 429 apre un GATE unico che dichiara il countdown a schermo, ferma il ciclo (nessun retry a raffica) e lascia il dato gia\' caricato. La run operativa del modulo Ensemble e\' dichiarata per quello che e\': Best Match dal dataset, con la GFS deterministica fuori dataset. Il selettore del grafico si costruisce dai modelli coperti piu\' i due di Sviluppo: nessuna lista cablata.',
+        ] },
         { version: '1.2.4.57', date: '2026-10-28', changes: [
   'CONFRONTO MODELLI= UNA RICHIESTA PER MODELLO, CACHE 10 MINUTI E DEDUPE IN VOLO. MISURATO sulla 1.2.4.56 (Edge headless, cache disabilitata): 4 richieste per OGNI updateUI (apertura, cambio giorno, un passo di slider, click provincia) - ECMWF daily, GFS daily, ECMWF hourly, GFS hourly - tutte a forecast_days=7 mentre il pannello ne mostra 3; le stesse 4 URL sono partite 5 volte in 11 minuti (20 richieste, 4 uniche, 80% sprecate) e un drag completo dello slider 0->24 ha prodotto 96 richieste. Ora daily e hourly viaggiano nella STESSA chiamata, una richiesta per modello, forecast_days=3, cache per chiave (lat, lon, giorno, modelli) con TTL 10 minuti e la promise CONDIVISA se la stessa chiave e\' gia\' in volo. Atteso: apertura 1-2 richieste, 0 a parita\' di chiave, drag completo <=4.',
   'DATASET PRIMA DELL\'API, IN OGNI PANNELLO. Gerarchia applicata: (1) dataset gia\' pubblicato su GitHub (data/latest, data/stations, data/fm2-rendered, data/radar) = prima scelta, 0 quota Open-Meteo; (2) API diretta solo se il dato manca davvero (404 o status diverso da live), MAI per un errore transitorio; (3) ogni passaggio all\'API e\' DICHIARATO nel pannello. Il dataset derivato copre best_match ed ecmwf_ifs sulle 257 coordinate di provincia (metadata.models_covered, forecast_days=3): il confronto modelli prende ECMWF dal payload GIA\' scaricato e sulla rete resta solo GFS (non coperto dal dataset: lacuna dichiarata, non errore); il grafico orario usa il payload per le province e l\'API solo per le localita\' fuori dataset (es. La Caletta); la run operativa GFS del modulo Ensemble legge best_match dal payload (0 richieste forecast: resta API solo ensemble-api, che non ha equivalente locale). I 5 campi daily (temperature_2m_max, temperature_2m_min, precipitation_sum, windspeed_10m_max, weathercode) e i 5 hourly (temperature_2m, precipitation, precipitation_probability, windspeed_10m, weathercode) sono VERIFICATI contro il payload, non assunti: se una chiave manca il record viene scartato e il pannello ricade sull\'API.',
@@ -5424,11 +5428,11 @@ satLoadedFrames.clear();
             // modello e' coperto dal dataset e il dataset non e' ancora in memoria, si
             // prova PRIMA il dataset (0 richieste); solo se il dataset manca davvero
             // (404 / status != live) initWeatherData dichiara e passa all'API diretta.
-            if (DATASET_COVERED_MODELS.indexOf(val) >= 0 && !(typeof datasetState !== 'undefined' && datasetState && datasetState.loaded)) {
-                initWeatherData('manual');
-            } else {
-                fetchWeatherData(false, true);   // strictSingles: 1 coordinata alla volta + resting time
-            }
+            // 1.2.4.58 - il ramo NON coperto passa da initWeatherData (non piu' diretto a
+            // fetchWeatherData): cosi' il pannello DICHIARA "solo Sviluppo / non nel
+            // dataset / N richieste, peso ~P" e, se il gate 429 e' aperto, mostra il
+            // countdown invece di far partire 257 richieste.
+            initWeatherData('manual');
         }
     }
 
@@ -17263,6 +17267,67 @@ function toggleForecastMaps() {
         });
     }
 
+    // 1.2.4.58 - GATE 429 UNICO del percorso live.
+    // Prima: ogni punto in 429 faceva `await 60s` e riprovava (2 tentativi), quindi con
+    // 257 punti la pagina restava ferma e muta per decine di minuti. Ora il primo 429
+    // apre il gate, il messaggio dichiara l'attesa e i cicli si FERMANO: nessun retry
+    // a raffica, nessuna attesa silenziosa.
+    var liveRateLimitUntil = 0;
+    var liveRateLimitTimer = null;
+    function liveRateLimitRemaining() {
+        var left = liveRateLimitUntil - Date.now();
+        return left > 0 ? Math.ceil(left / 1000) : 0;
+    }
+    function liveRateLimitMessage() {
+        var left = liveRateLimitRemaining();
+        if (!left) return '';
+        return 'Limite API Open-Meteo raggiunto (HTTP 429): riprovo tra ' + left + 's. Il percorso live si ferma qui, nessun retry a raffica.';
+    }
+    // Scrive il messaggio del gate SOLO se il gate e' attivo (ritorna true in quel caso).
+    function liveRateLimitStatus() {
+        var msg = liveRateLimitMessage();
+        var el = document.getElementById('status-msg');
+        if (!msg) {
+            if (el && el.removeAttribute) el.removeAttribute('data-rate-limit');
+            return false;
+        }
+        if (el) {
+            el.innerText = msg;
+            if (el.setAttribute) el.setAttribute('data-rate-limit', '1');
+        }
+        return true;
+    }
+    function liveRateLimitStart(seconds) {
+        var secs = parseInt(seconds, 10);
+        if (!isFinite(secs) || secs < 1) secs = 60;
+        liveRateLimitUntil = Date.now() + secs * 1000;
+        liveRateLimitStatus();
+        if (liveRateLimitTimer) return;
+        liveRateLimitTimer = setInterval(function () {
+            var msg = liveRateLimitMessage();
+            if (!msg) {
+                clearInterval(liveRateLimitTimer);
+                liveRateLimitTimer = null;
+                var el = document.getElementById('status-msg');
+                if (el && el.removeAttribute) el.removeAttribute('data-rate-limit');
+                return;
+            }
+            var el2 = document.getElementById('status-msg');
+            if (el2 && el2.getAttribute && el2.getAttribute('data-rate-limit') === '1') el2.innerText = msg;
+        }, 1000);
+    }
+    // Secondi dichiarati dall'API nel `reason` ("... try again in 3600 seconds").
+    function liveRetrySecondsFromReason(reason) {
+        var s = String(reason || '');
+        var m = s.match(/(\d+(?:\.\d+)?)\s*(?:seconds?|secs?|s)\b/i);
+        if (m) return Math.max(5, Math.min(86400, Math.ceil(parseFloat(m[1]))));
+        m = s.match(/(\d+)\s*(?:minutes?|mins?)\b/i);
+        if (m) return Math.max(5, Math.min(86400, parseInt(m[1], 10) * 60));
+        m = s.match(/(\d+)\s*(?:hours?|hrs?|h)\b/i);
+        if (m) return Math.max(5, Math.min(86400, parseInt(m[1], 10) * 3600));
+        return 60;
+    }
+
     // Attende che la finestra mobile abbia "posto" per il peso della richiesta.
     function waitApiBudget(weight) {
         return new Promise(function(resolve) {
@@ -17415,9 +17480,28 @@ function toggleForecastMaps() {
                 if (res.status !== 429 && res.status < 500) break;
                 console.warn('[Open-Meteo] ' + lastErr.message + ' (tentativo ' + (i + 1) + '/' + attempts + ')');
                 if (res.status === 429) {
-                    console.warn('[Open-Meteo] 429 rate-limit esaurito (minuto/ora/giorno, peso = variabili/10 × giorni/7 × location): attendo 60s prima di ritentare');
-                    await new Promise(function(r) { setTimeout(r, 60000); });
-                    continue;
+                    // 1.2.4.58 - NIENTE attesa silenziosa di 60 s per ogni punto e niente
+                    // retry: si apre il gate con l'attesa DICHIARATA dall'API e si esce.
+                    // Il chiamante interrompe il ciclo (vedi i controlli del gate nei
+                    // loop di fetchWeatherData) e il messaggio resta a schermo.
+                    var after429 = 60;
+                    try {
+                        var ra = res.headers.get('retry-after');
+                        if (ra && isFinite(parseInt(ra, 10))) after429 = Math.max(5, Math.min(86400, parseInt(ra, 10)));
+                    } catch (eRA) { /* header non leggibile: resta 60 */ }
+                    try {
+                        var body429 = await res.clone().json();
+                        if (body429 && typeof body429 === 'object') {
+                            if (body429.reason) after429 = liveRetrySecondsFromReason(body429.reason);
+                            else if (body429.__httpStatus === 429) after429 = 60;
+                        }
+                    } catch (eB429) { /* corpo non JSON: resta 60 */ }
+                    liveRateLimitStart(after429);
+                    console.warn('[Open-Meteo] 429 rate-limit esaurito: gate aperto per ' + after429 + 's, percorso live fermato (nessun retry a raffica)');
+                    var err429 = new Error('HTTP 429 rate-limit: attesa dichiarata ' + after429 + 's');
+                    err429.rateLimited = true;
+                    err429.retryAfterMs = after429 * 1000;
+                    throw err429;
                 }
             } catch (e) {
                 lastErr = e;
@@ -18891,6 +18975,19 @@ function toggleForecastMaps() {
             var _lwLive = Math.max(1, _nVarsLive / 10) * _dayFLive;
             liveSourceLabel = 'API diretta (dati locali non disponibili): ' + total + ' capoluoghi, peso ~' + Math.round(total * _lwLive * _mf) + ' su 560/min. Per tutti i punti: secondo click su Aggiorna. ';
         }
+        // 1.2.4.58 - MODELLO FUORI PERIMETRO (solo Sviluppo): la fonte e il peso si
+        // dichiarano in OGNI messaggio del percorso live, non solo in quello iniziale
+        // (che il primo aggiornamento di avanzamento sovrascriveva).
+        if (DATASET_COVERED_MODELS.indexOf(selectedWeatherModel) < 0) {
+            var _wOne = 1;
+            try {
+                _wOne = apiWeightFromUrl(buildWeatherUrl(regionsData[0].lat, regionsData[0].lon,
+                    getModelHourlyParams(), getModelParam(), getModelForecastDays()));
+            } catch (eW2) { _wOne = 1; }
+            liveSourceLabel = 'Modello "' + selectedWeatherModel + '" disponibile solo in Sviluppo, dato NON nel dataset (perimetro Pro: ' +
+                DATASET_COVERED_MODELS.join(', ') + ') · API diretta ' + total + ' richieste, peso ~' +
+                Math.round(total * _wOne) + ' · ';
+        }
         try { window.__liveSourceLabel = liveSourceLabel; } catch (e) { }
 
         // Se la fonte API e openmeteo_key, leggi la chiave dall'input
@@ -19029,6 +19126,8 @@ function toggleForecastMaps() {
             var MIN_POINT_INTERVAL = 400;
             for (var k2 = firstCapIdx; k2 < pts.length; k2++) {
                 if (myGen !== weatherFetchGeneration) return; // abbandona subito se il fetch è divenuto stale
+                // 1.2.4.58 - gate 429: il giro si ferma e il messaggio dichiara l'attesa.
+                if (liveRateLimitRemaining() > 0) { liveRateLimitStatus(); break; }
                 var r2 = pts[k2];
                 var got2 = await fetchOmAdaptive(
                     [{ index: r2.index, lat: r2.lat, lon: r2.lon, provinceIdx: r2.provinceIdx }],
@@ -19053,6 +19152,8 @@ function toggleForecastMaps() {
             // ============ MODALITA A BLOCCHI (una richiesta per coordinata) ============
             for (var g = 0; g < coordGroups.length; g++) {
                 if (myGen !== weatherFetchGeneration) return; // abbandona subito se il fetch è divenuto stale
+                // 1.2.4.58 - gate 429 (stesso comportamento del percorso paced).
+                if (liveRateLimitRemaining() > 0) { liveRateLimitStatus(); break; }
                 var grp = coordGroups[g];
                 var grpWeight = grp.length * locWeight;
                 // Gap temporale e tetto del minuto gestiti dalla coda globale con priorità
@@ -19121,9 +19222,14 @@ function toggleForecastMaps() {
                 if (typeof renderContinuousOverlay === 'function') renderContinuousOverlay();
             }
             // Didascalia di caricamento: quante coordinate REALI scaricate e quante VIRTUALI create
+            // 1.2.4.58 - la FONTE resta dichiarata anche a caricamento finito: il dataset
+            // per i modelli Pro, l'API diretta per i modelli fuori perimetro (Sviluppo).
+            var srcNote = (DATASET_COVERED_MODELS.indexOf(myModel) < 0)
+                ? ' · fonte: API diretta Open-Meteo (modello fuori dal dataset, disponibile in Sviluppo)'
+                : ' · fonte: dataset locale (data/latest)';
             statusEl.innerText = ((typeof window !== 'undefined' && window.__liveSourceLabel) ? window.__liveSourceLabel : '') + ((DENSIFY && DENSIFY._status && DENSIFY._status.enabled)
                 ? 'Dati meteo aggiornati ✓ · ' + provincesOk + ' province · ' + (provinceSamplePoints.length - virtualsAdded) + ' coordinate reali scaricate + ' + virtualsAdded + ' coordinate virtuali (IDW) create'
-                : 'Dati meteo aggiornati ✓ (' + provincesOk + ' province)');
+                : 'Dati meteo aggiornati ✓ (' + provincesOk + ' province)') + srcNote;
         } else {
             // Fetch STALE sul fallimento: non toccare lo store, lascia i dati attuali
             if (myGen !== weatherFetchGeneration) {
@@ -19139,6 +19245,9 @@ function toggleForecastMaps() {
             statusEl.innerText = 'Errore: impossibile caricare dati meteo (modello: ' + myModel + ')';
             console.error('[Weather] Tutte le fetch sono fallite per il modello: ' + myModel);
         }
+        // 1.2.4.58 - se il percorso live si e' fermato su un 429, il messaggio finale e'
+        // quello DICHIARATO con il countdown, non "Dati meteo aggiornati".
+        if (liveRateLimitRemaining() > 0) liveRateLimitStatus();
         updateUI();
         } catch(e) {
             console.error('[Weather] Errore imprevisto:', e);
@@ -19184,6 +19293,7 @@ function toggleForecastMaps() {
 
     function renderModelComparison() {
         var mode = document.getElementById('model-compare-mode').value;
+        if (typeof syncModelCompareDaySelect === 'function') syncModelCompareDaySelect();
         if (mode === 'hourly') renderModelHourly(); else renderModelDaily();
     }
 
@@ -19269,6 +19379,32 @@ function toggleForecastMaps() {
         return 80;
     }
 
+    // 1.2.4.58 - Giorni EFFETTIVAMENTE presenti nel record (72 h -> 3, 48 h -> 2).
+    // I giorni non sono piu' cablati a 3: se la serie e' piu' corta il pannello mostra
+    // solo i giorni che esistono, senza righe "Dopodomani" vuote.
+    function modelCompareAvailableDays() {
+        var n = 0;
+        if (modelCompareDailyE && modelCompareDailyE.days) n = Math.max(n, modelCompareDailyE.days);
+        if (modelCompareDailyG && modelCompareDailyG.days) n = Math.max(n, modelCompareDailyG.days);
+        if (!n) {
+            var dd = (modelCompareDailyE && modelCompareDailyE.daily) || (modelCompareDailyG && modelCompareDailyG.daily);
+            n = (dd && dd.weathercode && dd.weathercode.length) ? dd.weathercode.length : 3;
+        }
+        if (n > 3) n = 3;
+        if (n < 1) n = 1;
+        return n;
+    }
+    // Il select del giorno orario segue gli stessi giorni del record.
+    function syncModelCompareDaySelect() {
+        var sel = document.getElementById('model-compare-day');
+        if (!sel || !sel.options) return;
+        var n = modelCompareAvailableDays();
+        for (var i = 0; i < sel.options.length; i++) {
+            sel.options[i].style.display = (i < n) ? '' : 'none';
+        }
+        if ((parseInt(sel.value, 10) || 0) >= n) sel.value = '0';
+    }
+
     function renderModelDaily() {
         const tbody = document.getElementById('model-compare-body');
         var dataE = modelCompareDailyE, dataG = modelCompareDailyG;
@@ -19299,10 +19435,11 @@ function toggleForecastMaps() {
         };
         let html = '';
         const days = ['Oggi', 'Domani', 'Dopodomani'];
-        for (let d = 0; d < 3; d++) {
+        var nDays = (typeof modelCompareAvailableDays === 'function') ? modelCompareAvailableDays() : 3;
+        for (let d = 0; d < nDays; d++) {
             html += `
                 <tr>
-                    <td rowspan="2" style="font-weight:bold; background:#1e293b;">${days[d]}</td>
+                    <td rowspan="2" style="font-weight:bold; background:#1e293b;">${days[d] || ('Giorno ' + (d + 1))}</td>
                     <td><span class="model-tag tag-ecmwf">ECMWF</span></td>
                     ${fmtRow(dataE, d, modelCompareHourlyE)}
                 </tr>
@@ -19386,8 +19523,13 @@ function toggleForecastMaps() {
         return Number(lat).toFixed(4) + ',' + Number(lon).toFixed(4);
     }
 
-    function modelCompareKey(lat, lon, dayIdx) {
-        return modelCompareCoordKey(lat, lon) + ',' + String(dayIdx) + ',gfs_seamless';
+    // 1.2.4.58 - LA CHIAVE DI CACHE NON CONTIENE PIU' IL GIORNO.
+    // Il record scaricato contiene GIA' i 3 giorni (daily + 24*3 ore) e viene sempre
+    // allineato a datasetIndexForDayLabel(0), che NON dipende da currentDay: cambiare
+    // giorno con la stessa localita' deve costare 0 richieste (sulla 1.2.4.57 costava 1
+    // perche' dayIdx era nella chiave).
+    function modelCompareKey(lat, lon) {
+        return modelCompareCoordKey(lat, lon) + ',ecmwf_ifs+gfs_seamless';
     }
 
     function modelCompareUrl(lat, lon, model) {
@@ -19403,30 +19545,46 @@ function toggleForecastMaps() {
         el.style.color = color || '#64748b';
     }
 
-    // ECMWF dal payload gia' scaricato, allineato ai 3 giorni del pannello
-    // (Oggi/Domani/Dopodomani). NON si assume che il payload contenga i campi: se
-    // manca una delle 5 chiavi daily o hourly il record viene scartato e il
+    // Record del pannello dal payload gia' scaricato, per QUALUNQUE modello coperto
+    // (1.2.4.58: prima solo ecmwf_ifs). Allineato ai giorni del pannello a partire
+    // dall'indice REALE di "Oggi"; se il modello non e' nel dataset ritorna null e il
     // chiamante ricade sull'API (verifica di struttura, non fiducia cieca).
-    function modelCompareDatasetEcmwf(lat, lon) {
+    // Il numero di giorni e' quello EFFETTIVO degli array (48 h -> 2, 72 h -> 3).
+    function modelCompareDatasetModel(model, lat, lon) {
         if (typeof datasetState === 'undefined' || !datasetState || !datasetState.loaded) return null;
-        var rec = datasetEcmwfByCoord[modelCompareCoordKey(lat, lon)];
+        if (DATASET_COVERED_MODELS.indexOf(model) < 0) return null;
+        var byCoord = datasetModelByCoord[model];
+        if (!byCoord) return null;
+        var rec = byCoord[modelCompareCoordKey(lat, lon)];
         if (!rec || !rec.daily || !rec.hourly) return null;
         var off = datasetIndexForDayLabel(0);
         if (off === null || off === undefined) off = 0;
-        var daily = {}, hourly = {}, i, k, src;
+        var maxDays = MODEL_COMPARE_DAYS;
+        var i, k, src;
         for (i = 0; i < MODEL_COMPARE_DAILY_KEYS.length; i++) {
             k = MODEL_COMPARE_DAILY_KEYS[i];
             src = rec.daily[k];
             if (!src || !src.length) return null;
-            daily[k] = src.slice(off, off + MODEL_COMPARE_DAYS);
         }
         for (i = 0; i < MODEL_COMPARE_HOURLY_KEYS.length; i++) {
             k = MODEL_COMPARE_HOURLY_KEYS[i];
             src = rec.hourly[k];
             if (!src || !src.length) return null;
-            hourly[k] = src.slice(off * 24, off * 24 + 24 * MODEL_COMPARE_DAYS);
         }
-        return { daily: daily, hourly: hourly, __source: 'dataset' };
+        var hours = rec.hourly.temperature_2m.length;
+        var daysByHours = Math.floor(hours / 24) - off;
+        if (daysByHours < maxDays) maxDays = daysByHours;
+        if (maxDays < 1) maxDays = 1;
+        var daily = {}, hourly = {};
+        for (i = 0; i < MODEL_COMPARE_DAILY_KEYS.length; i++) {
+            k = MODEL_COMPARE_DAILY_KEYS[i];
+            daily[k] = rec.daily[k].slice(off, off + maxDays);
+        }
+        for (i = 0; i < MODEL_COMPARE_HOURLY_KEYS.length; i++) {
+            k = MODEL_COMPARE_HOURLY_KEYS[i];
+            hourly[k] = rec.hourly[k].slice(off * 24, off * 24 + 24 * maxDays);
+        }
+        return { daily: daily, hourly: hourly, days: maxDays, __source: 'dataset' };
     }
 
     function modelCompareIs429(settled) {
@@ -19493,10 +19651,14 @@ function toggleForecastMaps() {
             modelCompareStats.inflightHits++;
             return modelCompareInFlight[key];
         }
-        var dsE = modelCompareDatasetEcmwf(lat, lon);
+        // 1.2.4.58 - OGNI modello coperto dal dataset viene letto da li'. Sulla 1.2.4.57
+        // il GFS andava SEMPRE in rete (1 richiesta per localita') anche se il dato era
+        // nel payload: ora con gfs_seamless in models_covered la richiesta e' 0.
+        var dsE = modelCompareDatasetModel('ecmwf_ifs', lat, lon);
+        var dsG = modelCompareDatasetModel('gfs_seamless', lat, lon);
         var jobs = [];
         if (!dsE) jobs.push({ role: 'E', url: modelCompareUrl(lat, lon, 'ecmwf_ifs') });
-        jobs.push({ role: 'G', url: modelCompareUrl(lat, lon, 'gfs_seamless') });
+        if (!dsG) jobs.push({ role: 'G', url: modelCompareUrl(lat, lon, 'gfs_seamless') });
         modelCompareStats.requests += jobs.length;
         modelCompareStats.lastKey = key;
         var t0 = Date.now();
@@ -19506,16 +19668,17 @@ function toggleForecastMaps() {
             var byRole = { E: null, G: null };
             for (var i = 0; i < settled.length; i++) byRole[jobs[i].role] = settled[i];
             var g = byRole.G, e = byRole.E;
-            var gOk = !!(g && g.status === 'fulfilled' && g.value && !g.value.error);
+            var gOk = !!dsG || !!(g && g.status === 'fulfilled' && g.value && !g.value.error);
             var eOk = !!dsE || !!(e && e.status === 'fulfilled' && e.value && !e.value.error);
             var rec = {
                 ts: Date.now(),
-                dailyE: dsE ? dsE : (eOk ? e.value : null),
-                dailyG: gOk ? g.value : null,
-                hourlyE: dsE ? dsE : (eOk ? e.value : null),
-                hourlyG: gOk ? g.value : null,
+                dailyE: dsE || (eOk ? e.value : null),
+                dailyG: dsG || (gOk ? g.value : null),
+                hourlyE: dsE || (eOk ? e.value : null),
+                hourlyG: dsG || (gOk ? g.value : null),
                 sourceE: dsE ? 'dataset' : (eOk ? 'network' : 'none'),
-                sourceG: gOk ? 'network' : 'none',
+                sourceG: dsG ? 'dataset' : (gOk ? 'network' : 'none'),
+                days: Math.max((dsE && dsE.days) || 0, (dsG && dsG.days) || 0, MODEL_COMPARE_DAYS),
                 http429: modelCompareIs429(g) || modelCompareIs429(e),
                 reason429: (modelCompareIs429(g) && g.value && g.value.reason) || (modelCompareIs429(e) && e.value && e.value.reason) || '',
                 reasonOther: (g && g.status === 'fulfilled' && g.value && g.value.reason) || (e && e.status === 'fulfilled' && e.value && e.value.reason) || '',
@@ -19540,8 +19703,9 @@ function toggleForecastMaps() {
             return;
         }
         modelCompareLat = lat; modelCompareLon = lon;
-        var dayIdx = (typeof currentDay === 'number' && isFinite(currentDay)) ? currentDay : 0;
-        var key = modelCompareKey(lat, lon, dayIdx);
+        // 1.2.4.58 - la chiave NON dipende piu' dal giorno scelto (il record contiene
+        // gia' tutti i giorni disponibili): stesso costo 0 cambiando giorno.
+        var key = modelCompareKey(lat, lon);
         var tbody = document.getElementById('model-compare-body');
         // Backoff 429 attivo: NESSUNA richiesta finche' non scade l'attesa dichiarata.
         if (modelCompareBackoffRemaining() > 0) {
@@ -19601,7 +19765,9 @@ function toggleForecastMaps() {
         }
         // Provenienza dichiarata: dataset locale (0 richieste) oppure API diretta.
         var note, noteColor = '#64748b';
-        if (rec.sourceE === 'dataset' && rec.sourceG === 'network') {
+        if (rec.sourceE === 'dataset' && rec.sourceG === 'dataset') {
+            note = 'ECMWF e GFS dal dataset locale (0 richieste API).';
+        } else if (rec.sourceE === 'dataset' && rec.sourceG === 'network') {
             note = 'ECMWF dal dataset locale (0 richieste API); GFS non e\' nel dataset: richiesta all\'API diretta.';
         } else if (rec.sourceE === 'dataset') {
             note = 'ECMWF dal dataset locale (0 richieste API); GFS non e\' nel dataset e l\'API non ha risposto: non e\' un errore del dataset.';
@@ -22447,14 +22613,25 @@ function renderContinuousOverlay() {
         if (_pendingChartData && hourlyChartInstance) {
             var hd = _pendingChartData;
             var st = currentDay * 24;
-            hourlyChartInstance.data.datasets[0].data = hd.temperature_2m ? hd.temperature_2m.slice(st, st + 24) : [];
-            var pd = hd.precipitation_probability ? hd.precipitation_probability.slice(st, st + 24) : Array(24).fill(0);
-            hourlyChartInstance.data.datasets[1].data = pd;
+            var tArr0 = hd.temperature_2m ? hd.temperature_2m.slice(st, st + 24) : [];
+            var pd0 = hd.precipitation_probability ? hd.precipitation_probability.slice(st, st + 24) : [];
+            // 1.2.4.58 - etichette dalla lunghezza REALE della serie (niente 24 fisso:
+            // una serie piu' corta o con coda nulla non deve inventare ore).
+            hourlyChartInstance.data.labels = chartLabelsFor(st, tArr0.length || pd0.length);
+            hourlyChartInstance.data.datasets[0].data = tArr0;
+            hourlyChartInstance.data.datasets[1].data = pd0;
             hourlyChartInstance.update();
         }
         } finally {
             _chartBuilding = false;
         }
+    }
+
+    // 1.2.4.58 - etichette del grafico dalla lunghezza REALE della serie (non 24 fisso).
+    function chartLabelsFor(start, n) {
+        var out = [];
+        for (var i = 0; i < n; i++) out.push(((start + i) % 24) + ':00');
+        return out;
     }
 
     function updateChart(hourlyData) {
@@ -22469,31 +22646,79 @@ function renderContinuousOverlay() {
         if (!hourlyData) return;
         _pendingChartData = hourlyData;
         const start = currentDay * 24;
-        hourlyChartInstance.data.datasets[0].data = hourlyData.temperature_2m ? hourlyData.temperature_2m.slice(start, start + 24) : [];
-        var probData = hourlyData.precipitation_probability ? hourlyData.precipitation_probability.slice(start, start + 24) : Array(24).fill(0);
+        var tArr = hourlyData.temperature_2m ? hourlyData.temperature_2m.slice(start, start + 24) : [];
+        var probData = hourlyData.precipitation_probability ? hourlyData.precipitation_probability.slice(start, start + 24) : [];
+        // 1.2.4.58 - serie piu' corta (o coda nulla) => etichette piu' corte, nessuna
+        // ora inventata oltre la fine dell'array.
+        hourlyChartInstance.data.labels = chartLabelsFor(start, tArr.length || probData.length);
+        hourlyChartInstance.data.datasets[0].data = tArr;
         hourlyChartInstance.data.datasets[1].data = probData;
         hourlyChartInstance.update();
     }
 
     var chartLat = null, chartLon = null;
 
+    // 1.2.4.58 - il selettore del grafico si costruisce dai MODELLI DEL DATASET (piu'
+    // i modelli Sviluppo, che restano su API): nessuna lista cablata.
+    var CHART_MODEL_LABELS = {
+        best_match: 'Best Match', ecmwf_ifs: 'ECMWF', gfs_seamless: 'GFS',
+        italia_meteo_arpae_icon_2i: 'ARPAE ICON-2I'
+    };
+    function syncChartModelSelect() {
+        var sel = document.getElementById('chart-model-select');
+        if (!sel) return;
+        var prev = sel.value || 'locale';
+        var list = ['locale'];
+        var push = function (m) { if (m && list.indexOf(m) < 0) list.push(m); };
+        for (var i = 0; i < DATASET_COVERED_MODELS.length; i++) {
+            if (DATASET_COVERED_MODELS[i] === DATASET_DUAL_MODEL) continue;
+            push(DATASET_COVERED_MODELS[i]);
+        }
+        push('gfs_seamless');
+        push('italia_meteo_arpae_icon_2i');
+        var html = '<option value="locale">Locale</option>';
+        for (var j = 1; j < list.length; j++) {
+            html += '<option value="' + list[j] + '">' + (CHART_MODEL_LABELS[list[j]] || list[j]) + '</option>';
+        }
+        sel.innerHTML = html;
+        sel.value = (list.indexOf(prev) >= 0) ? prev : 'locale';
+    }
+    // Serie oraria della localita' selezionata per il modello scelto: dal DATASET se il
+    // modello e' coperto (0 richieste), altrimenti dalla cache del confronto modelli o
+    // dallo store live gia' scaricato. Mai una fetch partita dal grafico.
+    function chartHourlyForModel(model) {
+        var item = (isCustomCity && customCityData) ? customCityData : regionsData[selectedIndex];
+        if (!model || model === 'locale') {
+            var src = (isCustomCity && customCityData) ? customCityData : weatherStore[selectedIndex];
+            return src ? src.hourly : null;
+        }
+        if (item && DATASET_COVERED_MODELS.indexOf(model) >= 0) {
+            var byCoord = datasetModelByCoord[model];
+            var rec = byCoord ? byCoord[modelCompareCoordKey(item.lat, item.lon)] : null;
+            if (rec && rec.hourly) return rec.hourly;
+        }
+        if (model === 'ecmwf_ifs' && modelCompareHourlyE) return modelCompareHourlyE.hourly;
+        if (model === 'gfs_seamless' && modelCompareHourlyG) return modelCompareHourlyG.hourly;
+        if (modelStores[model] && modelStores[model][selectedIndex]) return modelStores[model][selectedIndex].hourly;
+        return null;
+    }
+
     function onChartModelChange() {
-        var sel = document.getElementById('chart-model-select').value;
-        if (sel === 'locale') {
-            let dataSource = (isCustomCity && customCityData) ? customCityData : weatherStore[selectedIndex];
-            if (dataSource) updateChart(dataSource.hourly);
-        } else if (sel === 'ecmwf' && modelCompareHourlyE) {
-            updateChart(modelCompareHourlyE.hourly);
-        } else if (sel === 'gfs' && modelCompareHourlyG) {
-            updateChart(modelCompareHourlyG.hourly);
-        } else {
-            _pendingChartData = null;
-            if (!hourlyChartInstance) initChart();
-            if (hourlyChartInstance) {
-                hourlyChartInstance.data.datasets[0].data = [];
-                hourlyChartInstance.data.datasets[1].data = [];
-                hourlyChartInstance.update();
-            }
+        var selEl = document.getElementById('chart-model-select');
+        if (!selEl) return;
+        var hourly = chartHourlyForModel(selEl.value);
+        if (hourly) { updateChart(hourly); return; }
+        _pendingChartData = null;
+        if (!hourlyChartInstance) initChart();
+        if (hourlyChartInstance) {
+            hourlyChartInstance.data.datasets[0].data = [];
+            hourlyChartInstance.data.datasets[1].data = [];
+            hourlyChartInstance.update();
+        }
+        if (selEl.value !== 'locale') {
+            var st = document.getElementById('status-msg');
+            if (st) st.innerText = 'Grafico: ' + (CHART_MODEL_LABELS[selEl.value] || selEl.value) +
+                ' non disponibile in locale (modello fuori dal dataset e nessuna risposta API).';
         }
     }
 
@@ -23053,11 +23278,11 @@ function renderContinuousOverlay() {
     // valido): non lancia mai, quindi non puo' bloccare il render dell'ensemble.
     // Stessa localita'/variabili della richiesta ensemble; forecast_days clamato
     // a 16 (GEFS 0.5° arriva a 35 giorni, i deterministici non oltre 16).
-    // 1.2.4.57 - GERARCHIA DATASET -> API anche qui: la "run operativa GFS" e' la
-    // deterministica gfs_seamless, che duplica il best_match GIA' presente nel
-    // payload (data/latest). Per le 257 coordinate di provincia la serie si
-    // ricostruisce dal dataset (0 richieste forecast); per una localita' fuori
-    // dataset (es. La Caletta) la richiesta API resta, ed e' dichiarata.
+    // 1.2.4.58 - PERIMETRO: il dataset pubblica solo i modelli Pro (best_match, ecmwf_ifs
+    // e il dual derivato). La deterministica gfs_seamless NON e' nel dataset, quindi la
+    // "run operativa" del modulo Ensemble si ricostruisce dal best_match del payload
+    // (0 richieste forecast) e il pannello LO DICHIARA; per una localita' fuori dataset
+    // (es. La Caletta) resta la richiesta API, dichiarata.
     var ENS_DET_DATASET_MAP = { wind_speed_10m: 'windspeed_10m', wind_gusts_10m: 'windgusts_10m' };
     function ensDetFromDataset(q) {
         if (typeof datasetState === 'undefined' || !datasetState || !datasetState.loaded) return null;
@@ -23133,7 +23358,7 @@ function renderContinuousOverlay() {
         ensHeadMeta(data.model.label + ' · ' + data.location.name + ' · ' + days + ' giorni');
         // 1.2.4.57 - provenienza della run operativa, dichiarata nel pannello.
         if (detJson && detJson.__source === 'dataset') {
-            ensHeadMeta(data.model.label + ' - ' + data.location.name + ' - ' + days + ' giorni - run operativa: dataset locale');
+            ensHeadMeta(data.model.label + ' - ' + data.location.name + ' - ' + days + ' giorni - run operativa: Best Match dal dataset (GFS deterministica non nel dataset)');
         } else if (detJson) {
             ensHeadMeta(data.model.label + ' - ' + data.location.name + ' - ' + days + ' giorni - run operativa: API diretta');
         }
@@ -24329,12 +24554,16 @@ function renderContinuousOverlay() {
         if (!a || !b) return 0;
         return Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000);
     }
-    function datasetIndexForDayLabelAt(uiIdx, now, datasetDay0) {
+    function datasetIndexForDayLabelAt(uiIdx, now, datasetDay0, maxDay) {
         if (!datasetDay0) return uiIdx;
         var todayKey = dateKeyInTimeZone('Europe/Rome', now);
         var off = daysBetweenIso(datasetDay0, todayKey);
         var idx = uiIdx + off;
-        return (idx < 0 || idx > 2) ? null : idx;
+        // 1.2.4.58 - il numero di giorni NON e' piu' fisso a 3: deriva dalla lunghezza
+        // REALE degli array (72 h = 3 giorni, 48 h = 2). Default 2 per i chiamanti
+        // storici e per i test che passano 3 argomenti.
+        var last = (typeof maxDay === 'number' && isFinite(maxDay) && maxDay >= 0) ? Math.floor(maxDay) : 2;
+        return (idx < 0 || idx > last) ? null : idx;
     }
     // 1.0.1.4 — FIX SCARTO "+1 GIORNO" (oggi->domani LIVE). Le serie Open-Meteo
     // (best_match/ecmwf) partono SEMPRE dall'00:00 del giorno Europe/Rome in cui
@@ -24370,7 +24599,28 @@ function renderContinuousOverlay() {
     }
     function datasetIndexForDayLabel(uiIdx) {
         var d0 = (typeof datasetState !== 'undefined' && datasetState) ? datasetState.day0 : '';
-        return datasetIndexForDayLabelAt(uiIdx, new Date(), d0);
+        var last = (typeof datasetMaxDayIndex === 'function') ? datasetMaxDayIndex() : 2;
+        return datasetIndexForDayLabelAt(uiIdx, new Date(), d0, last);
+    }
+    // 1.2.4.58 - Ultimo indice-giorno disponibile nei dati REALMENTE caricati.
+    // Prima era un 2 cablato (3 giorni): con il dataset compatto a 48 h il terzo
+    // giorno non esiste e "Dopodomani" mostrava campi vuoti.
+    function datasetMaxDayIndex() {
+        var days = (typeof datasetState !== 'undefined' && datasetState && datasetState.days) ? datasetState.days : 0;
+        if (!days) {
+            var len = (typeof getAvailableHourlyLength === 'function') ? getAvailableHourlyLength() : 0;
+            if (len) days = Math.floor(len / 24);
+        }
+        return days > 0 ? days - 1 : 2;
+    }
+    // I pulsanti giorno erano 3 FISSI: si nasconde quello che i dati non coprono.
+    function syncDayButtons() {
+        var last = datasetMaxDayIndex();
+        var b1 = document.getElementById('btn-d1');
+        var b2 = document.getElementById('btn-d2');
+        if (b1) b1.style.display = (last >= 1) ? '' : 'none';
+        if (b2) b2.style.display = (last >= 2) ? '' : 'none';
+        if (typeof currentDay === 'number' && currentDay > last) currentDay = last;
     }
     function datasetDateKey(dsIdx) {
         var d0 = (typeof datasetState !== 'undefined' && datasetState) ? datasetState.day0 : '';
@@ -24393,6 +24643,7 @@ function renderContinuousOverlay() {
         if (b0) b0.innerText = dayLabel(0, 'Oggi');
         if (b1) b1.innerText = dayLabel(1, 'Domani');
         if (b2) b2.innerText = dayLabel(2, 'Dopodomani');
+        if (typeof syncDayButtons === 'function') syncDayButtons();
     }
 
     function selectHour(hourVal) {
@@ -25333,11 +25584,46 @@ syncSelect('lightning-source-select', [
     }
 
     var DATASET_PREFIX = 'data/latest/';
-    // 1.2.4.57 - indici per coordinata del payload gia' scaricato (0 richieste API).
+    // 1.2.4.58 - LA LISTA DEI MODELLI COPERTI NON E' PIU' SCRITTA A MANO.
+    // Fonte di verita': metadata.json -> models_covered (+ models_derived), letta a ogni
+    // caricamento del dataset. L'array FALLBACK qui sotto serve SOLO finche' i metadati
+    // non sono stati letti (startup) o se il campo manca: e' l'unico posto in cui i nomi
+    // restano scritti e non decide piu' quali modelli restano sul dataset.
+    // MISURATO sulla 1.2.4.57 con metadata.models_covered = 5 modelli: il client ne
+    // conosceva 3 e per gfs_seamless e italia_meteo_arpae_icon_2i faceva 257 richieste
+    // API per modello, con il dato GIA' dentro il payload scaricato.
+    var DATASET_COVERED_MODELS_FALLBACK = ['dual_best_ecmwf', 'best_match', 'ecmwf_ifs'];
+    var DATASET_COVERED_MODELS = DATASET_COVERED_MODELS_FALLBACK.slice();
+    var DATASET_DUAL_MODEL = 'dual_best_ecmwf';
+    var DATASET_PRIMARY_MODEL = 'best_match';
+    // datasetModelByCoord[modello][coordKey] = { daily, hourly }: indice per coordinata
+    // del payload gia' scaricato (confronto modelli, run operativa Ensemble, grafico).
+    var datasetModelByCoord = {};
+    // Alias storici (1.2.4.57): restano valorizzati per i lettori esistenti.
     var datasetEcmwfByCoord = {};
     var datasetBestMatchByCoord = {};
-    var DATASET_COVERED_MODELS = ['dual_best_ecmwf', 'best_match', 'ecmwf_ifs'];
-    var datasetState = { loaded: false, generatedAt: null, day0: null, pointCount: 0, virtualCount: 0 };
+    var datasetState = { loaded: false, generatedAt: null, day0: null, pointCount: 0, virtualCount: 0, hours: 0, days: 0 };
+
+    // Unisce models_covered e models_derived in UNA lista (dedupe, ordine dei metadati).
+    // Se i campi mancano o sono vuoti si tiene il fallback statico.
+    function applyDatasetModelCoverage(meta) {
+        var out = [];
+        var add = function (m) {
+            if (typeof m !== 'string' || !m) return;
+            if (out.indexOf(m) >= 0) return;
+            out.push(m);
+        };
+        var src = (meta && Array.isArray(meta.models_covered)) ? meta.models_covered : null;
+        if (src) for (var i = 0; i < src.length; i++) add(src[i]);
+        var der = (meta && Array.isArray(meta.models_derived)) ? meta.models_derived : null;
+        if (der) for (var j = 0; j < der.length; j++) add(der[j]);
+        // Il dual e' un DERIVATO client-side: se i due primari sono coperti, e' coperto
+        // anche quando i metadati non lo elencano in models_derived.
+        if (out.indexOf(DATASET_PRIMARY_MODEL) >= 0 && out.indexOf('ecmwf_ifs') >= 0) add(DATASET_DUAL_MODEL);
+        if (!out.length) out = DATASET_COVERED_MODELS_FALLBACK.slice();
+        DATASET_COVERED_MODELS = out;
+        return out;
+    }
     var datasetLoading = false;
     // Controlla le pubblicazioni dei workflow senza ricaricare l'app. Il payload
     // viene richiesto di nuovo solo quando metadata.json annuncia una generazione
@@ -25357,15 +25643,82 @@ syncSelect('lightning-source-select', [
         return await res.json();
     }
 
+    // 1.2.4.58 - Payload COMPATTO (meteorisk-points-compact.json: 107 province x N ore).
+    // Forma: series[campo][provincia] = [ore], daily[campo][provincia] = [giorni],
+    // model_series[modello] / model_daily[modello] per i modelli NON primari; series e
+    // daily SONO il best_match. Qui si converte nella forma a punti usata dal resto del
+    // client (un punto per provincia, coordIdx 0 = capoluogo), SENZA toccare i valori.
+    function normalizeCompactPayload(payload, covered) {
+        var provs = payload.provinces || [];
+        var bySigla = {};
+        for (var r = 0; r < regionsData.length; r++) {
+            if (regionsData[r] && regionsData[r].sigla) bySigla[regionsData[r].sigla] = r;
+        }
+        function toRows(map, idx) {
+            var out = {};
+            if (!map) return out;
+            for (var k in map) {
+                if (!Object.prototype.hasOwnProperty.call(map, k)) continue;
+                var col = map[k];
+                if (!col || !col[idx]) continue;
+                out[k] = col[idx];
+            }
+            return out;
+        }
+        var points = [];
+        for (var i = 0; i < provs.length; i++) {
+            var row = provs[i];
+            var sigla = row[0];
+            var provIdx = Object.prototype.hasOwnProperty.call(bySigla, sigla) ? bySigla[sigla] : i;
+            var models = {};
+            models[DATASET_PRIMARY_MODEL] = { hourly: toRows(payload.series, i), daily: toRows(payload.daily, i) };
+            var ms = payload.model_series || {};
+            var md = payload.model_daily || {};
+            for (var mm in ms) {
+                if (!Object.prototype.hasOwnProperty.call(ms, mm)) continue;
+                if (covered && covered.indexOf(mm) < 0) continue;
+                var dayMap = toRows(md[mm], i), hourMap = toRows(ms[mm], i);
+                // Senza il daily il modello non e' utilizzabile: meglio NON inserirlo
+                // (il client lo tratta come non coperto) che passare un record vuoto.
+                if (!Object.keys(dayMap).length) continue;
+                models[mm] = { hourly: hourMap, daily: dayMap };
+            }
+            points.push({
+                id: i, provinceIdx: provIdx, sigla: sigla, coordIdx: 0,
+                lat: row[1], lon: row[2], elevation: 0, models: models
+            });
+        }
+        return {
+            points: points,
+            hours: payload.hours || (payload.time ? payload.time.length : 0),
+            days: payload.days || payload.forecast_days || 0,
+            forecast_days: payload.forecast_days || 0
+        };
+    }
+
     function applyStaticDataset(meta, payload) {
+        // 1.2.4.58 - i modelli coperti arrivano dai METADATI (fallback all'array statico
+        // se il campo manca). applyDatasetModelCoverage puo' non esistere nel sandbox dei
+        // test che estraggono SOLO questa funzione: in quel caso si usa la lista gia'
+        // presente in DATASET_COVERED_MODELS, senza inventare nulla.
+        var covered = (typeof applyDatasetModelCoverage === 'function') ? applyDatasetModelCoverage(meta) : DATASET_COVERED_MODELS.slice();
+        // Nomi risolti in locale: il sandbox dei test estrae SOLO questa funzione, quindi le
+        // costanti di modulo possono non esistere (typeof su un non dichiarato e' sicuro).
+        var primaryModel = (typeof DATASET_PRIMARY_MODEL === 'string') ? DATASET_PRIMARY_MODEL : 'best_match';
+        var dualModel = (typeof DATASET_DUAL_MODEL === 'string') ? DATASET_DUAL_MODEL : 'dual_best_ecmwf';
+        if ((!payload || !payload.points || !payload.points.length) && payload && payload.series && payload.provinces &&
+            typeof normalizeCompactPayload === 'function') {
+            payload = normalizeCompactPayload(payload, covered);
+        }
         var points = payload.points || [];
         var realList = [];
+        var i, mi, m, pi;
         // 1.2.4.57 - GERARCHIA DATASET -> API: il payload e' la prima fonte per i
-        // pannelli (confronto modelli e run operativa dell'Ensemble). Indicizziamo
-        // per coordinata (4 decimali: i capoluoghi di regionsData e i punti
-        // coordIdx=0 hanno la STESSA lat/lon, verificato 107/107, scarto 0) il
-        // record ecmwf_ifs e il record best_match, cosi' il pannello li legge da
-        // memoria senza alcuna richiesta.
+        // pannelli (confronto modelli e run operativa dell'Ensemble). Indicizziamo per
+        // coordinata (4 decimali: i capoluoghi di regionsData e i punti coordIdx=0 hanno
+        // la STESSA lat/lon, verificato 107/107, scarto 0) OGNI modello coperto, cosi'
+        // i pannelli li leggono da memoria senza alcuna richiesta.
+        datasetModelByCoord = {};
         datasetEcmwfByCoord = {};
         datasetBestMatchByCoord = {};
         // Chiave di coordinata locale alla funzione: nessuna dipendenza esterna
@@ -25374,7 +25727,7 @@ syncSelect('lightning-source-select', [
             if (typeof modelCompareCoordKey === 'function') return modelCompareCoordKey(lat, lon);
             return Number(lat).toFixed(4) + ',' + Number(lon).toFixed(4);
         };
-        for (var i = 0; i < points.length; i++) {
+        for (i = 0; i < points.length; i++) {
             var pt = points[i];
             realList.push({
                 index: pt.id, provinceIdx: pt.provinceIdx, sigla: pt.sigla,
@@ -25386,56 +25739,76 @@ syncSelect('lightning-source-select', [
         provinceSamplesReady = true;
         rawPointStores = {};
         modelStores = {};
-        for (var m = 0; m < DATASET_COVERED_MODELS.length; m++) {
-            rawPointStores[DATASET_COVERED_MODELS[m]] = {};
-            modelStores[DATASET_COVERED_MODELS[m]] = {};
+        for (i = 0; i < covered.length; i++) {
+            rawPointStores[covered[i]] = {};
+            modelStores[covered[i]] = {};
+            datasetModelByCoord[covered[i]] = {};
         }
-        for (var j = 0; j < points.length; j++) {
-            var p = points[j];
-            var bm = p.models['best_match'];
-            var ecm = p.models['ecmwf_ifs'];
-            if (bm && bm.daily) {
-                var recA = { daily: bm.daily, hourly: bm.hourly, elevation: p.elevation };
-                rawPointStores['best_match'][p.id] = recA;
-                rawPointStores['dual_best_ecmwf'][p.id] = recA;
-            }
-            if (ecm && ecm.daily) {
-                rawPointStores['ecmwf_ifs'][p.id] = { daily: ecm.daily, hourly: ecm.hourly, elevation: p.elevation };
-                datasetEcmwfByCoord[_dsCoordKey(p.lat, p.lon)] = { daily: ecm.daily, hourly: ecm.hourly };
-            }
-            if (bm && bm.daily) {
-                datasetBestMatchByCoord[_dsCoordKey(p.lat, p.lon)] = { daily: bm.daily, hourly: bm.hourly };
+        var hoursSeen = 0, daysSeen = 0;
+        for (pi = 0; pi < points.length; pi++) {
+            var p = points[pi];
+            for (mi = 0; mi < covered.length; mi++) {
+                m = covered[mi];
+                if (m === dualModel) continue;   // derivato: nessun dato proprio
+                var rec = p.models ? p.models[m] : null;
+                if (!rec || !rec.daily) continue;
+                rawPointStores[m][p.id] = { daily: rec.daily, hourly: rec.hourly, elevation: p.elevation };
+                datasetModelByCoord[m][_dsCoordKey(p.lat, p.lon)] = { daily: rec.daily, hourly: rec.hourly };
+                var hLen = (rec.hourly && rec.hourly.temperature_2m) ? rec.hourly.temperature_2m.length : 0;
+                if (hLen > hoursSeen) hoursSeen = hLen;
+                var dLen = (rec.daily.weathercode) ? rec.daily.weathercode.length : 0;
+                if (dLen > daysSeen) daysSeen = dLen;
             }
         }
+        // Il dual legge i record del primario (come nella 1.2.4.57: stessa forma, mappa
+        // separata perche' densifyVirtualPoints aggiunge le virtuali per modello).
+        if (rawPointStores[primaryModel]) {
+            rawPointStores[dualModel] = Object.assign({}, rawPointStores[primaryModel]);
+        }
+        // Alias storici (1.2.4.57) riallineati al nuovo indice per modello: la run
+        // operativa dell'Ensemble e i lettori esistenti continuano a trovarli popolati.
+        datasetBestMatchByCoord = datasetModelByCoord[primaryModel] || {};
+        datasetEcmwfByCoord = datasetModelByCoord['ecmwf_ifs'] || {};
         if (typeof densifyVirtualPoints === 'function' && provinceGeoJsonData) {
-            densifyVirtualPoints('best_match');
-            densifyVirtualPoints('ecmwf_ifs');
-            densifyVirtualPoints('dual_best_ecmwf');
+            for (i = 0; i < covered.length; i++) {
+                try { densifyVirtualPoints(covered[i]); } catch (e) { /* virtuale non indispensabile */ }
+            }
         }
-        var collapsedA = {};
-        var collapsedB = {};
+        // Store di provincia per OGNI modello coperto: stesso collasso "worst point" del
+        // best_match, nessuna trasformazione dei valori.
+        var collapsed = {};
+        for (i = 0; i < covered.length; i++) collapsed[covered[i]] = {};
         var nProv = regionsData.length;
         for (var pr = 0; pr < nProv; pr++) {
-            var bA = worstPointForProvince(rawPointStores['dual_best_ecmwf'], pr);
-            if (bA) collapsedA[pr] = bA;
-            var bB = worstPointForProvince(rawPointStores['ecmwf_ifs'], pr);
-            if (bB) collapsedB[pr] = bB;
+            for (i = 0; i < covered.length; i++) {
+                m = covered[i];
+                if (m === dualModel) continue;
+                var b = worstPointForProvince(rawPointStores[m], pr);
+                if (b) collapsed[m][pr] = b;
+            }
         }
-        modelStores['best_match'] = Object.assign({}, collapsedA);
-        modelStores['ecmwf_ifs'] = Object.assign({}, collapsedB);
-        if (Object.keys(collapsedA).length === 0 && Object.keys(collapsedB).length === 0) {
-            throw new Error('dataset senza dati di provincia');
+        var filled = 0;
+        for (i = 0; i < covered.length; i++) {
+            m = covered[i];
+            if (m === dualModel) continue;
+            modelStores[m] = collapsed[m];
+            if (Object.keys(collapsed[m]).length) filled++;
         }
-        if (Object.keys(collapsedA).length === 0) {
-            weatherStore = collapsedB;
-            modelStores['dual_best_ecmwf'] = Object.assign({}, collapsedB);
-        } else if (Object.keys(collapsedB).length === 0) {
-            weatherStore = collapsedA;
-            modelStores['dual_best_ecmwf'] = Object.assign({}, collapsedA);
+        if (!filled) throw new Error('dataset senza dati di provincia');
+        var bmA = collapsed[primaryModel] || null;
+        var ecmB = collapsed['ecmwf_ifs'] || null;
+        if (bmA && Object.keys(bmA).length && ecmB && Object.keys(ecmB).length) {
+            assembleDualModelStores(bmA, ecmB, primaryModel, 'ecmwf_ifs', weatherFetchGeneration);
         } else {
-            assembleDualModelStores(collapsedA, collapsedB, 'best_match', 'ecmwf_ifs', weatherFetchGeneration);
+            var onlyStore = null;
+            for (i = 0; i < covered.length && !onlyStore; i++) {
+                if (Object.keys(collapsed[covered[i]]).length) onlyStore = collapsed[covered[i]];
+            }
+            weatherStore = onlyStore || {};
+            modelStores[dualModel] = Object.assign({}, weatherStore);
         }
-        if (selectedWeatherModel !== 'dual_best_ecmwf' && modelStores[selectedWeatherModel]) {
+        if (selectedWeatherModel !== dualModel && modelStores[selectedWeatherModel] &&
+            Object.keys(modelStores[selectedWeatherModel]).length) {
             weatherStore = modelStores[selectedWeatherModel];
         }
         zonePreview = null;
@@ -25458,14 +25831,22 @@ syncSelect('lightning-source-select', [
         datasetState.day0 = _effD0 || meta.day0 || '';
         datasetState.pointCount = points.length;
         datasetState.virtualCount = (DENSIFY._status && DENSIFY._status.virtuals) || 0;
+        // 1.2.4.58 - orizzonte REALE letto dal payload (72 h = 3 giorni, 48 h = 2).
+        // Il numero di GIORNI SELEZIONABILI deriva dalle ORE orarie (il daily puo'
+        // avere una giornata in piu' solo parziale): nessuna costante "3 giorni".
+        datasetState.hours = hoursSeen || (payload && payload.hours) || 0;
+        var hourlyDays = datasetState.hours ? Math.floor(datasetState.hours / 24) : 0;
+        datasetState.days = hourlyDays || daysSeen || (payload && payload.days) || 0;
         // Selezione iniziale "Oggi" → indice REALE del dataset (offset dalla data locale
         // Europe/Rome al dataset.day0). MAI assumere dayIndex===0 come sinonimo di "Oggi".
         var initIdx = datasetIndexForDayLabel(0);
         currentDay = (initIdx === null || initIdx === undefined) ? 0 : initIdx;
         updateUI();
         updateDayButtonLabels();
+        if (typeof syncDayButtons === 'function') syncDayButtons();
+        if (typeof syncChartModelSelect === 'function') syncChartModelSelect();
         var statusEl = document.getElementById('status-msg');
-        if (statusEl) statusEl.innerText = 'Dati meteo dal dataset derivato · ' + datasetState.day0 + ' · ' + points.length + ' punti reali + ' + datasetState.virtualCount + ' virtuali (IDW) · generato ' + datasetState.generatedAt + ' · oggi=' + dateKeyInTimeZone('Europe/Rome', new Date());
+        if (statusEl) statusEl.innerText = 'Dati meteo dal dataset derivato · ' + datasetState.day0 + ' · ' + points.length + ' punti reali + ' + datasetState.virtualCount + ' virtuali (IDW) · ' + DATASET_COVERED_MODELS.length + ' modelli (' + DATASET_COVERED_MODELS.join(', ') + ') · ' + (datasetState.hours || '?') + ' h · generato ' + datasetState.generatedAt + ' · oggi=' + dateKeyInTimeZone('Europe/Rome', new Date());
         if (initIdx === null || initIdx === undefined) {
             if (statusEl) statusEl.innerText += ' · Dati disponibili dal ' + datasetState.day0 + ' (oggi non coperto dal dataset).';
         }
@@ -25508,10 +25889,25 @@ syncSelect('lightning-source-select', [
                         throw perr;
                     }
                     if (!(meta.point_count > 0)) throw new Error('point_count=0');
+                    // 1.2.4.58 - modello coperti dai METADATI, non da un array statico.
+                    applyDatasetModelCoverage(meta);
                     var payloadUrl = DATASET_PREFIX + 'meteorisk-points.json?v=' + encodeURIComponent(meta.generated_at || meta.day0 || '');
-                    var payload = await datasetFetchJson(payloadUrl);
+                    var payload = null;
+                    try {
+                        payload = await datasetFetchJson(payloadUrl);
+                    } catch (perrPts) {
+                        if (perrPts.httpStatus !== 404) throw perrPts;
+                    }
                     if (weatherFetchGeneration !== gen) return { ok: false, permanent: false, reason: 'generazione cambiata', attempts: attempt };
-                    if (!payload || !payload.points || payload.points.length === 0) throw new Error('payload senza punti');
+                    // 1.2.4.58 - FALLBACK COMPATTO: se il payload a punti non c'e' (404) si usa
+                    // meteorisk-points-compact.json, che copre gli stessi modelli a livello di
+                    // provincia (series/daily = best_match, model_series/model_daily = gli altri).
+                    if (!payload || !payload.points || payload.points.length === 0) {
+                        var compactUrl = DATASET_PREFIX + 'meteorisk-points-compact.json?v=' + encodeURIComponent(meta.generated_at || meta.day0 || '');
+                        payload = await datasetFetchJson(compactUrl);
+                        if (!payload || !payload.provinces || !payload.series) throw new Error('payload senza punti');
+                    }
+                    if (weatherFetchGeneration !== gen) return { ok: false, permanent: false, reason: 'generazione cambiata', attempts: attempt };
                     if (provinceGeoJsonPromise) { try { await provinceGeoJsonPromise; } catch (e) {} }
                     applyStaticDataset(meta, payload);
                     liveFallbackStage = 0;
@@ -25565,11 +25961,32 @@ syncSelect('lightning-source-select', [
             }
             return;
         }
-        // Modello NON coperto dal dataset: non e' un guasto, e' una lacuna del dataset.
-        // L'API diretta e' legittima, ma va DICHIARATA (peso del percorso live incluso).
+        // Modello NON coperto dal dataset: NON e' un errore, e' una SCELTA DI PERIMETRO
+        // (1.2.4.58: il dataset pubblica solo i modelli Pro). L'API diretta e' legittima,
+        // ma va DICHIARATA con la fonte e il peso stimato del percorso live.
+        var isDevOnlyModel = (selectedWeatherModel === 'gfs_seamless' || selectedWeatherModel === 'italia_meteo_arpae_icon_2i');
         if (reason === 'startup' || reason === 'manual') {
             var st2 = document.getElementById('status-msg');
-            if (st2) st2.innerText = 'Modello "' + selectedWeatherModel + '" non presente nel dataset locale: uso l\'API diretta.';
+            if (liveRateLimitRemaining() > 0) {
+                liveRateLimitStatus();
+                return;
+            }
+            if (st2) {
+                var nPt = (typeof provinceSamplePoints !== 'undefined' && provinceSamplePoints.length) ? provinceSamplePoints.length : 0;
+                var wOne = 0;
+                try {
+                    if (typeof apiWeightFromUrl === 'function' && typeof buildWeatherUrl === 'function' && regionsData.length) {
+                        wOne = apiWeightFromUrl(buildWeatherUrl(regionsData[0].lat, regionsData[0].lon,
+                            getModelHourlyParams(), getModelParam(selectedWeatherModel), getModelForecastDays()));
+                    }
+                } catch (eW) { wOne = 0; }
+                var perimeter = DATASET_COVERED_MODELS.join(', ');
+                st2.innerText = 'Modello "' + selectedWeatherModel + '"' +
+                    (isDevOnlyModel ? ' disponibile solo in Sviluppo' : '') +
+                    ': il dato NON e\' nel dataset (perimetro Pro: ' + perimeter + '). ' +
+                    'Uso l\'API diretta: ' + nPt + ' richieste stimate, peso ~' +
+                    (wOne > 0 ? Math.round(wOne * nPt) : 'n/d') + '.';
+            }
             console.warn('[Dataset] modello non coperto dal dataset, uso API diretta: ' + selectedWeatherModel);
             fetchWeatherData(false, true);
         }

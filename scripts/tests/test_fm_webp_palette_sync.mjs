@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // TEST 1.2.4.12 — SINCRONIA PALETTE CLIENT <-> RENDERER (precipitazione, geopotenziale, pressure_msl, vento).
-// Guardia contro la divergenza: le scale definite nel CLIENT (mri-light-1.2.4.57.html) devono
+// Guardia contro la divergenza: le scale definite nel CLIENT (mri-light-1.2.4.58.html) devono
 // essere IDENTICHE a quelle pubblicate dal renderer in scripts/forecast_v2/color_scales.json:
 //   - precipitation / rain / showers (breakpoints + colori light/dark);
 //   - precipitation_cum (cumulata dal riferimento: 21 bande 0..300 mm tarate sulla
@@ -32,7 +32,7 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.57.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.58.html');
 const JSON_PATH = path.join(ROOT, 'scripts', 'forecast_v2', 'color_scales.json');
 const src = fs.readFileSync(HTML, 'utf8');
 const scales = JSON.parse(fs.readFileSync(JSON_PATH, 'utf8')).scales;
@@ -487,7 +487,7 @@ for (const [nm, jsbp, jscl] of [
     scaleMatchesJson(jsbp, badClientCol, goodEntry) === false);
 }
 
-// ---------- J. SCALA temperature_2m (1.2.4.57): fondo delle etichette delle centraline ----------
+// ---------- J. SCALA temperature_2m (1.2.4.58): fondo delle etichette delle centraline ----------
 // Le etichette delle centraline prendono il fondo dalle BANDE della scala `temperature_2m`
 // registrata in FM_COLOR_SCALE_OVERRIDES: deve essere la stessa del renderer (42 bande
 // -80..+50 °C, ultima banda aperta, colori identici in light e dark). Se qualcuno cambia il

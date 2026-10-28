@@ -28,8 +28,8 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.57.html');
-if (!fs.existsSync(HTML)) { console.error('FATAL: mri-light-1.2.4.57.html non trovato'); process.exit(1); }
+const HTML = path.join(ROOT, 'mri-light-1.2.4.58.html');
+if (!fs.existsSync(HTML)) { console.error('FATAL: mri-light-1.2.4.58.html non trovato'); process.exit(1); }
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -163,7 +163,7 @@ ok('D5: la scelta manuale alza fmRegionUserChosen',
   /function fmRegionChanged\(\)\s*\{[\s\S]{0,300}?fmRegionUserChosen = true;/.test(src));
 ok('D6: il default si applica SOLO se l\'utente non ha scelto (fmLoadDomain)',
   /if \(!fmRegionUserChosen\) \{\s*\n\s*var defaultRegion = fmRegionDefaultForDomain\(fmDomain\);/.test(src));
-// 1.2.4.57: la risoluzione della regione non e' piu' una riga del polling ma la PRIMA
+// 1.2.4.58: la risoluzione della regione non e' piu' una riga del polling ma la PRIMA
 // istruzione della funzione di rivalidazione condivisa (fmRevalidateRendered), che il
 // polling richiama. L'asserzione vecchia cercava `var renderRegion = fmRenderRegionId();`
 // nel polling: sostituita (non allentata) perche' il comportamento e' lo stesso e ora

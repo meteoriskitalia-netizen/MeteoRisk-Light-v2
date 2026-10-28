@@ -6,13 +6,18 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.57
+## Versione attiva: 1.2.4.58
 
-- File applicativo: `mri-light-1.2.4.57.html` (`APP_VERSION = '1.2.4.57'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.57', date: '2026-10-28' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.57'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.58.html` (`APP_VERSION = '1.2.4.58'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.58', date: '2026-10-28' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.58'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
+- Contenuto della 1.2.4.58 (release sopra la 1.2.4.57) - **modelli coperti letti dal dataset, perimetro Pro dichiarato, cache del confronto per localita'**. Solo client: nessuna modifica a `scripts/` (motore, renderer, `build_meteorisk_dataset.py`), ai workflow dei dati o a `color_scales.json`; i workflow toccano solo le righe `cp` del nome del file.
+  - **La lista dei modelli coperti non e' piu' cablata.** Si legge da `metadata.json` -> `models_covered` + `models_derived` a ogni caricamento (fallback all'array statico solo se il campo manca) e si usa in `initWeatherData`, `loadStaticDataset`, `applyStaticDataset`, nel cambio modello, nel pannello confronto, nell'Ensemble e nel grafico. Lo store di provincia di ogni modello coperto si costruisce dal payload gia' scaricato: `points[].models[modello]` nel payload a punti, `series`/`daily` + `model_series[modello]`/`model_daily[modello]` nel payload compatto (stessa forma, nessuna trasformazione dei valori); `dual_best_ecmwf` resta il merge client-side di `best_match` + `ecmwf_ifs`.
+  - **Perimetro Pro dichiarato.** Il dataset pubblica `best_match`, `ecmwf_ifs` e il dual derivato; `gfs_seamless` e `italia_meteo_arpae_icon_2i` restano sul percorso API per scelta di perimetro, non per un guasto, e il pannello lo scrive ("disponibile solo in Sviluppo: il dato non e' nel dataset") con richieste stimate e peso. Il primo 429 apre un **gate unico** con countdown a schermo che ferma i cicli live: nessuna attesa silenziosa di 60 s per coordinata e nessun retry a raffica.
+  - **Orizzonte derivato dagli array.** 72 h = 3 giorni (48 h = 2): day mapping, pulsanti giorno, pannello confronto e grafico leggono la lunghezza reale delle serie, e il grafico non inventa ore oltre la fine dell'array.
+  - **Confronto modelli: 0 richieste cambiando giorno.** La chiave di cache non contiene piu' il giorno (il record contiene gia' tutti i giorni disponibili), quindi cambiare giorno con la stessa localita' costa 0 richieste invece di 1.
 - Contenuto della 1.2.4.57 (release sopra la 1.2.4.56) - **dataset prima dell'API in ogni
   pannello, confronto modelli in cache, slider con debounce**. Solo client: nessuna modifica a
   `scripts/` (motore, renderer, `build_meteorisk_dataset.py`), ai workflow dei dati o a
