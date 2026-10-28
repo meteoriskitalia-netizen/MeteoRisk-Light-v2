@@ -1,7 +1,7 @@
 {
   "valid": true,
   "outcome": "OK",
-  "checked_at": "2026-10-28T11:38:36.331751+00:00",
+  "checked_at": "2026-10-28T11:43:23.255027+00:00",
   "dataset": {
     "status": "live"
   },
@@ -57,9 +57,14 @@
       "detail": ""
     },
     {
-      "check": "models_covered = i leg di common.SOURCE_MODELS (percorso Pro)",
+      "check": "models_covered = modelli del percorso Pro (dual + 2 scaricati)",
       "status": "PASS",
-      "detail": "got ['best_match', 'ecmwf_ifs']"
+      "detail": "got ['dual_best_ecmwf', 'best_match', 'ecmwf_ifs']"
+    },
+    {
+      "check": "models_derived dichiara i modelli derivati (dual_best_ecmwf)",
+      "status": "PASS",
+      "detail": "got ['dual_best_ecmwf']"
     },
     {
       "check": "driver_model == ecmwf_ifs",
@@ -94,12 +99,12 @@
     {
       "check": "best_match_fetch_timestamp >= ecmwf_fetch_timestamp",
       "status": "PASS",
-      "detail": "best=2026-10-28T11:38:34.860566+00:00 ecmwf=2026-10-28T11:38:34.860566+00:00"
+      "detail": "best=2026-10-28T11:43:21.650378+00:00 ecmwf=2026-10-28T11:43:21.650378+00:00"
     },
     {
       "check": "update_strategy coerente con leg_timestamps",
       "status": "PASS",
-      "detail": "strategy=coordinated best=2026-10-28T11:38:34.860566+00:00 ecmwf=2026-10-28T11:38:34.860566+00:00"
+      "detail": "strategy=coordinated best=2026-10-28T11:43:21.650378+00:00 ecmwf=2026-10-28T11:43:21.650378+00:00"
     },
     {
       "check": "point_count == metadati",
@@ -20728,8 +20733,8 @@
     }
   ],
   "infos": [
-    "sha256 meteorisk-points.json = 55d709264d9929484810c411afd4d4c05365478ef0ce7490bfe34e0bf87b63e3 (9292367 byte)",
-    "sha256 meteorisk-provinces.json = 6a3fb38228f2aeb32485c89d7550743e54b166db90f7cc7c8d7547f7c6aa0cce (123210 byte)"
+    "sha256 meteorisk-points.json = 6ef720762bbce456cc8d1920514e4d0fb09ebd1c7cfb643fc6da01c1c7ce38f0 (9292374 byte)",
+    "sha256 meteorisk-provinces.json = 9c09c0a94ba4642b00c76559bc07fc0516a3ce60cbf78ea7b5ca7284117f55e1 (123213 byte)"
   ],
   "errors": []
 }

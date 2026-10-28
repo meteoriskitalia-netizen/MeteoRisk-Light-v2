@@ -11,13 +11,18 @@
     }
   ],
   "attribution": "Meteorological source data: Open-Meteo.com / Data license: CC BY 4.0 / Processed and aggregated by MeteoRisk Light.",
-  "generated_at": "2026-10-28T11:38:34.860566+00:00",
+  "generated_at": "2026-10-28T11:43:21.650378+00:00",
   "models_covered": [
+    "dual_best_ecmwf",
     "best_match",
     "ecmwf_ifs"
   ],
   "models_derived": [
     "dual_best_ecmwf"
+  ],
+  "models_dev_only": [
+    "gfs_seamless",
+    "italia_meteo_arpae_icon_2i"
   ],
   "forecast_days": 3,
   "timezone": "Europe/Rome",
@@ -30,12 +35,12 @@
     "driver_model": "ecmwf_ifs",
     "run_init_ts": 1793145600,
     "run_available_ts": 1793167200,
-    "fetched_at": "2026-10-28T11:38:34.860566+00:00"
+    "fetched_at": "2026-10-28T11:43:21.650378+00:00"
   },
   "fetch_timestamps": {
-    "dataset_generation_timestamp": "2026-10-28T11:38:34.860566+00:00",
-    "ecmwf_fetch_timestamp": "2026-10-28T11:38:34.860566+00:00",
-    "best_match_fetch_timestamp": "2026-10-28T11:38:34.860566+00:00",
+    "dataset_generation_timestamp": "2026-10-28T11:43:21.650378+00:00",
+    "ecmwf_fetch_timestamp": "2026-10-28T11:43:21.650378+00:00",
+    "best_match_fetch_timestamp": "2026-10-28T11:43:21.650378+00:00",
     "coordinated_cycle": "best_match e ecmwf_ifs scaricati nello stesso ciclo di fetch comandato dal run ECMWF IFS (coerenza temporale del dataset)."
   },
   "update_strategy": "coordinated",
