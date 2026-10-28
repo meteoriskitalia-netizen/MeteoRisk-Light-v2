@@ -28,8 +28,8 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.55.html');
-if (!fs.existsSync(HTML)) { console.error('FATAL: mri-light-1.2.4.55.html non trovato'); process.exit(1); }
+const HTML = path.join(ROOT, 'mri-light-1.2.4.56.html');
+if (!fs.existsSync(HTML)) { console.error('FATAL: mri-light-1.2.4.56.html non trovato'); process.exit(1); }
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -163,8 +163,14 @@ ok('D5: la scelta manuale alza fmRegionUserChosen',
   /function fmRegionChanged\(\)\s*\{[\s\S]{0,300}?fmRegionUserChosen = true;/.test(src));
 ok('D6: il default si applica SOLO se l\'utente non ha scelto (fmLoadDomain)',
   /if \(!fmRegionUserChosen\) \{\s*\n\s*var defaultRegion = fmRegionDefaultForDomain\(fmDomain\);/.test(src));
-ok('D7: il polling periodico usa la regione risolta (fmRenderRegionId)',
-  /var renderRegion = fmRenderRegionId\(\);/.test(src));
+// 1.2.4.56: la risoluzione della regione non e' piu' una riga del polling ma la PRIMA
+// istruzione della funzione di rivalidazione condivisa (fmRevalidateRendered), che il
+// polling richiama. L'asserzione vecchia cercava `var renderRegion = fmRenderRegionId();`
+// nel polling: sostituita (non allentata) perche' il comportamento e' lo stesso e ora
+// c'e' UNA sola strada, non due copie.
+ok('D7: il polling periodico usa la regione risolta (via fmRevalidateRendered)',
+  /await fmRevalidateRendered\(\{ allowCold: true, reason: 'poll' \}\)/.test(src) &&
+  /async function fmRevalidateRendered\(opts\) \{\s*\n\s*opts = opts \|\| \{\};\s*\n\s*var region = fmRenderRegionId\(\);/.test(src));
 
 // ---------- E. FM_REGIONS: 'natl' RIMOSSO (1.2.4.26) ----------
 const regionIds = sandbox.FM_REGIONS.map((r) => r.id);

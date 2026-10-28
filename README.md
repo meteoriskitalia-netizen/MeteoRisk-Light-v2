@@ -6,13 +6,65 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.55
+## Versione attiva: 1.2.4.56
 
-- File applicativo: `mri-light-1.2.4.55.html` (`APP_VERSION = '1.2.4.55'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.55', date: '2026-10-27' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.55'`, servito come `/sw.js` e copiato in `_site/sw.js` da
-  `deploy-pages.yml`, `radar-engine.yml`, `update-weather-data.yml`).
-- Contenuto della 1.2.4.55 (release sopra la 1.2.4.54) - **una modifica, solo documentale nel
+- File applicativo: `mri-light-1.2.4.56.html` (`APP_VERSION = '1.2.4.56'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.56', date: '2026-10-28' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.56'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+  servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
+  `update-weather-data.yml`).
+- Contenuto della 1.2.4.56 (release sopra la 1.2.4.55) - **tre cause di cache, misurate**:
+  - **CAUSA 1 - il Service Worker ignorava `request.cache`.** Il client chiede la timeline con
+    `cache: 'no-store'` e l'index con `cache: 'no-cache'`, ma `staleWhileRevalidate` rispondeva
+    `if (hit) return hit;` **prima** della rete: con un `index.json` vecchio in CacheStorage il
+    player chiedeva gli 8 frame di una run gia' potata, tutti 404, e la mappa restava vuota
+    («Nessun frame caricabile: 8 tentativi consecutivi falliti» - misura della diagnosi). Ora
+    `request.cache` ha la priorita' su ogni regola: `no-store` = solo rete (la cache non si legge
+    nemmeno in errore), `no-cache`/`reload` = rete sempre e cache ammessa solo in errore/5xx,
+    marcata `X-MRI-Cache: stale`; la risposta ok aggiorna la cache. La navigazione e' l'eccezione
+    dichiarata (un reload puo' arrivare con `reload`): resta network-first con timeout e cache.
+    In piu' gli indici aggregati (`index.json`, `timeline.json`, `color_scales.json`) passano a
+    **network-first con timeout 2000 ms** per le richieste a cache di default. **MISURATO in
+    browser: 2.021 ms** con header `stale`, contro i **10,2 ms** del vecchio
+    stale-while-revalidate. INVARIATI: WebP cache-first, `latest.json` e gli altri JSON del
+    branch in stale-while-revalidate. Il player riprogramma una rivalidazione 2 s dopo una
+    risposta stale (max 3 giri) e ricostruisce i frame **solo se `generated_at` cambia**.
+  - **CAUSA 2 - un errore transitorio diventava definitivo.** `cacheFirst` rispondeva 504 se
+    la rete falliva senza copia; su un `<img>` l'errore finiva in `fmDeadWebpRemember`, il
+    player saltava il frame e dopo lo sblocco quel WebP non veniva piu' richiesto (ripiego
+    `.om` da **512.710-525.014 B** in 206 Range contro **~319 KB** del WebP, mappa vuota nel
+    frattempo: misura della diagnosi), e la blacklist si azzerava solo ricaricando la pagina.
+    Ora, sul solo percorso di errore, una **probe HEAD** distingue 404/410 (frame non
+    pubblicato -> blacklist per la vita del run, come la 1.2.4.23) da errore di rete/5xx/timeout
+    (**nessuna blacklist**: retry del frame corrente con backoff **1 s / 3 s / 9 s**, tetto 3;
+    esauriti, `.om` per quel solo rebuild senza marcare il frame).
+  - **CAUSA 3 - la navigazione con timeout 3 s serviva la build precedente.** L'html della
+    1.2.4.55 pesa **2.294.179 B**: a 3 s servono **>=6,12 Mbit/s**, sotto quella soglia il SW
+    serviva la build in cache e chi aveva una versione vecchia non vedeva le mappe nuove. Il
+    timeout della sola navigazione passa a **10000 ms**; se la rete arriva **dopo** e la build
+    e' diversa (ETag/Last-Modified/Content-Length) il SW manda un `postMessage` ai client e
+    compare il banner `#app-update` gia' esistente, senza ricaricare e senza bloccare il primo
+    paint (la fetch tardiva e' tenuta viva da `event.waitUntil`).
+  - **Misure in browser (Edge headless + CDP, server locale con due stati degli indici reali).**
+    Cache popolata dalla run `20261028T000000Z`, server che pubblica la `20261028T030000Z`: la
+    **1.2.4.55** resta sulla run vecchia e chiede `runs/20261028T000000Z/...`; la **1.2.4.56**
+    mostra `generated_at 2026-10-28T09:01:19Z` e chiede `runs/20261028T030000Z/...`. Frame in
+    cache del SW: **2/2** dopo il primo caricamento; alla riapertura i WebP arrivano dal SW
+    (`fromServiceWorker: true`). WebP con 5xx poi 200: **nessuna blacklist**, retry a 1 s,
+    frame caricato (`Frame 41/93`); WebP 404: blacklist immediata e salto al frame successivo.
+    Index con rete a 5 s: risposta dalla cache in **2.021 ms** con `X-MRI-Cache: stale`.
+    Navigazione con html a +12 s: build dalla cache in **10.244 ms** (`transferSize 0`), banner
+    nascosto al load e visibile dopo la risposta tardiva, cache aggiornata alla build nuova.
+    Rivalidazione con `generated_at` identico: **1** rivalidazione eseguita, `fmTimeline` e
+    `fmWebpIndex` **stessi oggetti**, `fmWebpGeneration` invariato (nessun rebuild).
+    0 eccezioni JS.
+  - **Test**: `test_sw_cache_policy.mjs` **83 PASS / 0 FAIL** (prima 41/0; le asserzioni nuove
+    coprono `request.cache`, network-first 2 s, il marker stale, 404 vs 5xx e l'avviso di build
+    nuova); `test_html_js_syntax.py` **1 passed**; suite `.mjs` **26 PASS / 2 FAIL**, gli stessi
+    due FAIL pre-esistenti della baseline (`contract_dataset_loader` 257 errori,
+    `test_fm_webp_fastpath` A15c).
+
+- Storico - Contenuto della 1.2.4.55 (release sopra la 1.2.4.54) - **una modifica, solo documentale nel
   pannello "Fonti Dati & Metodologie"**:
   - **Nuova sezione "Osservazioni al Suolo — Rete di Centraline"**, subito dopo i METAR:
     MeteoHub (Agenzia ItaliaMeteo / CINECA, portale del progetto MISTRAL), **4.269 stazioni su

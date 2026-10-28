@@ -2027,9 +2027,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.55';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-10-27';
+    const APP_VERSION = '1.2.4.56';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-10-28';
     const APP_CHANGELOG = [
+        { version: '1.2.4.56', date: '2026-10-28', changes: [
+  'CACHE= GLI INDICI AGGREGATI DELLE MAPPE NON SI LEGGONO PIU\' DALLA COPIA VECCHIA, E `request.cache` ORA CONTA: `data/fm2-rendered/<regione>/index.json`, `<regione>/timeline.json` e `color_scales.json` passano da stale-while-revalidate a NETWORK-FIRST CON TIMEOUT 2000 ms. Se la rete risponde entro 2 s vince la rete e la copia viene aggiornata; se e\' piu\' lenta o fallisce si serve la cache con l\'header `X-MRI-Cache: stale` (la cache NON si cancella); senza rete e senza cache la fetch fallisce come una fetch normale, senza risposte vuote inventate. CAUSA 1 (misurata) E IL FIX CHE CONTA: il client chiede la timeline con `cache: \'no-store\'` e l\'index con `cache: \'no-cache\'`, ma `staleWhileRevalidate` rispondeva `if (hit) return hit;` PRIMA della rete; con un index.json vecchio in CacheStorage il player chiedeva gli 8 frame di una run potata, tutti 404, e la mappa restava vuota ("Nessun frame caricabile: 8 tentativi consecutivi falliti"). Ora `request.cache` ha la PRIORITA\' su ogni regola: `no-store` = solo rete (la cache non si legge nemmeno in errore), `no-cache`/`reload` = rete sempre e cache ammessa solo in errore, marcata stale. INVARIATI: i WebP restano cache-first e i `latest.json` del motore `.om` restano stale-while-revalidate. Il player riprogramma una rivalidazione 2 s dopo una risposta stale (max 3 giri) e ricostruisce i frame SOLO se `generated_at` cambia; il polling dei 5 minuti usa la stessa funzione (`fmRevalidateRendered`).',
+  'CACHE= UN ERRORE TRANSITORIO NON DIVENTA PIU\' DEFINITIVO. CAUSA 2 (misurata): `cacheFirst` rispondeva 504 se la rete falliva senza copia; su un <img> l\'errore finiva in `fmDeadWebpRemember`, il player saltava il frame e DOPO lo sblocco quel WebP non veniva piu\' richiesto (ripiego `.om` da 512.710-525.014 B in 206 Range contro ~319 KB del WebP, mappa vuota nel frattempo). La blacklist si azzerava solo ricaricando la pagina. Ora, sul solo percorso di errore, si fa UNA probe HEAD: 404/410 = frame non pubblicato, blacklist per la vita del run (come la 1.2.4.23); errore di rete, 5xx o timeout = NESSUNA blacklist, si ritenta il frame corrente con backoff 1 s / 3 s / 9 s (tetto 3 tentativi) e, esauriti, si usa `.om` per quel solo rebuild senza marcare il frame: al prossimo utilizzo il WebP viene ritentato.',
+  'MAPPE= NAVIGAZIONE: TIMEOUT 10 s E AVVISO DI BUILD NUOVA. CAUSA 3 (calcolata sul codice): il timeout della navigazione era 3 s e l\'html pesa 2.294.179 B, quindi sotto ~6,12 Mbit/s il SW serviva la build in cache e chi aveva una versione vecchia non vedeva le mappe nuove. Il timeout della sola navigazione passa a 10000 ms; quando la rete arriva DOPO aver servito la cache e la build e\' diversa (ETag/Last-Modified/Content-Length), il SW manda un `postMessage` ai client e compare il banner `#app-update` gia\' esistente, senza ricaricare e senza bloccare il primo paint.',
+        ] },
         { version: '1.2.4.55', date: '2026-10-27', changes: [
   'FONTI= IL PANNELLO "FONTI DATI & METODOLOGIE" DICHIARA LA RETE DI CENTRALINE E NON CITA PIÙ IL BRANCH DISMESSO `fm2-cache`. Nuova sezione "Osservazioni al Suolo — Rete di Centraline" subito dopo "Osservazioni al Suolo Live (METAR)": MeteoHub (Agenzia ItaliaMeteo / CINECA, portale del progetto MISTRAL) con circa 4.270 stazioni su 26 reti (ARPA regionali e MeteoNetwork) e i campi temperatura a 2 m, umidità relativa, vento a 10 m (velocità e direzione) e precipitazione. NESSUNA visibilità e NESSUNA pressione al livello del mare: la sorgente espone solo la pressione di stazione (B10004, livello 1.0.0.0), non riducibile senza la quota. Licenza CC BY 4.0 con attribuzione per ente nel campo `attribution` di data/stations/latest.json; aggiornamento ogni 10 minuti (cron `*/10 * * * *` di stations.yml), latenza mediana misurata 37,7 minuti e 99,11% delle osservazioni entro 90 minuti, con scarto client oltre 90 minuti (STATIONS_MAX_OBS_AGE_MIN); periodo di accumulo della precipitazione dichiarato stazione per stazione (60/300/600/900/1800/3600 s prevalenti, due casi a 180/360 s), quindi millimetri non confrontabili senza normalizzare; copertura non uniforme da 1 a 1.045 stazioni; nota esplicita che sono dati OSSERVATI e non previsti, su uno strato indipendente dalla sorgente del pannello LIVE. Nella sezione "Mappe Previsionali" il riferimento a `fm2-cache` (branch storico, non più scritto da alcun workflow) è sostituito dai branch realmente in uso: `fm2-rendered` per i WebP e gli indici aggregati (scrittore unico forecast-maps-index.yml) e i cinque branch per fornitore per i frame `.om`. I numeri già presenti sono stati verificati senza modifiche: i 7 domini coincidono con le matrici dei workflow di main, `dwd_icon_eu` ha dx 0,0625 gradi (6,95 km) e `dwd_icon` dx 0,125 gradi (13,9 km N-S e 9,8 km E-W a 45N), quindi 7 km, 13 km e 11 km restano entro il 10%.',
         ] },
@@ -13891,6 +13896,7 @@ var fmLoaderTimer = null;
     var fmWebpIndexRegion = null; // id regione server a cui appartiene fmWebpIndex
     var fmWebpIndexLoading = null; // id regione server la cui index.json e' in caricamento
     var fmWebpFailedUrl = null; // URL WebP che ha fallito: disabilita il fast-path per quel frame (anti-loop)
+    var fmWebpTransientUrl = null; // 1.2.4.56: URL saltato SOLO nel rebuild corrente (errore transitorio esaurito)
     var fmWebpGeneration = 0;
     var fmWebpVisibleLayer = null;
     var fmWebpRetiringLayers = [];
@@ -13916,6 +13922,19 @@ var fmSelectedRunId = null;
     var fmTimelineGen = 0;                 // token anti-race
     var fmTimelineMiss = Object.create(null); // regione -> timestamp dell'ultimo 404/invalido
     var FM_TIMELINE_RETRY_MS = 60000;
+    // 1.2.4.56 - RIVALIDAZIONE DEGLI INDICI DOPO UNA RISPOSTA "STALE" DEL SERVICE WORKER.
+    // Dalla 1.2.4.56 il SW serve index.json/timeline.json/color_scales.json in
+    // network-first con timeout 2 s: se la rete non risponde entro il timeout restituisce
+    // la copia in cache con l'header `X-MRI-Cache: stale`. Il player non puo' accorgersi
+    // da solo che l'indice era vecchio, quindi quando vede il marker riprogramma UNA
+    // rivalidazione ravvicinata (max 3 giri, poi resta il polling dei 5 minuti) e
+    // ricostruisce i frame SOLO se `generated_at` e' cambiato.
+    var FM_STALE_RECHECK_MS = 2000;
+    var FM_STALE_RECHECK_MAX = 3;
+    var fmStaleRecheckTimer = null;
+    var fmStaleRecheckLeft = FM_STALE_RECHECK_MAX;
+    var fmRevalidateBusy = false;  // una sola rivalidazione alla volta (poll + stale)
+    var fmRenderedRechecks = 0;   // diagnostica/test: rivalidazioni effettivamente eseguite
     // 1.2.4.23 - FRAME WEBP MORTI (404/errore) E SALTO AUTOMATICO.
     // La timeline puo' citare frame di run gia' potate: l'URL che ha fallito viene
     // ricordato per la sessione (non ritentato a ogni giro) e il pannello passa al
@@ -14303,6 +14322,60 @@ function fmDeadWebpRemember(url) {
     }
 }
 function fmDeadWebpIs(url) { return !!(url && fmDeadWebpUrls[url]); }
+// 1.2.4.56 - CAUSA 2: un errore TRANSITORIO non deve diventare definitivo.
+// L'evento `error` di <img>/ImageOverlay non porta lo status HTTP, quindi sul SOLO
+// percorso di errore si fa UNA probe HEAD (mai sul percorso felice). 404/410 = frame
+// non pubblicato -> blacklist per la vita del run (comportamento 1.2.4.23). Errore di
+// rete, 5xx o timeout -> NESSUNA blacklist: si ritenta il frame corrente con backoff
+// 1 s / 3 s / 9 s (tetto 3), poi si resta sul fallback `.om` senza marcare il frame:
+// al prossimo rebuild (cambio frame/dominio/run) il WebP viene ritentato.
+var FM_WEBP_RETRY_DELAYS = [1000, 3000, 9000];
+var fmWebpRetry = Object.create(null);   // url -> { n, timer }
+var fmWebpProbeCount = 0;                // diagnostica/test: probe HEAD eseguite
+function fmWebpRetryForget(url) {
+    if (!url || !fmWebpRetry[url]) return;
+    if (fmWebpRetry[url].timer) clearTimeout(fmWebpRetry[url].timer);
+    delete fmWebpRetry[url];
+}
+function fmWebpProbe(url) {
+    // HEAD: NON passa dal SW (shouldSkip intercetta solo GET), non scarica il frame e con
+    // cache:'no-store' non legge la cache HTTP. -1 = rete non raggiungibile.
+    fmWebpProbeCount++;
+    try {
+        return fetch(url, { method: 'HEAD', cache: 'no-store', mode: 'cors' }).then(function (r) {
+            return r ? r.status : 0;
+        })['catch'](function () { return -1; });
+    } catch (e) { return Promise.resolve(-1); }
+}
+function fmWebpFailure(url, cb, opts) {
+    opts = opts || {};
+    var st = fmWebpRetry[url];
+    if (!st) st = fmWebpRetry[url] = { n: 0, timer: null };
+    fmWebpProbe(url).then(function (status) {
+        if (status === 404 || status === 410) {
+            fmWebpRetryForget(url);
+            fmDeadWebpRemember(url);
+            cb({ permanent: true, status: status });
+            return;
+        }
+        if (opts.noRetry) { cb({ permanent: false, status: status, noRetry: true }); return; }
+        if (st.n >= FM_WEBP_RETRY_DELAYS.length) {
+            st.n = 0;
+            cb({ permanent: false, status: status, exhausted: true });
+            return;
+        }
+        var delay = FM_WEBP_RETRY_DELAYS[st.n];
+        st.n++;
+        if (st.timer) clearTimeout(st.timer);
+        st.timer = setTimeout(function () {
+            st.timer = null;
+            var f = (typeof fmWebpFrameUrl === 'function') ? fmWebpFrameUrl() : null;
+            if (f && f.url === url) { fmLayerKey = null; fmRebuild(); }
+            else if (st.n > 0) st.n--;   // frame cambiato: il tentativo non e' stato speso
+        }, delay);
+        cb({ permanent: false, status: status, retryInMs: delay, attempt: st.n });
+    });
+}
 function fmTimelineBucketValue(entry) {
     var b = Number(entry && entry.bucket);
     return (isFinite(b) && b >= 0) ? b : 0;
@@ -14530,9 +14603,75 @@ function fmFetchTimeline(serverRegion, force) {
     try {
         fetch(url, { cache: 'no-store' }).then(function (r) {
             if (!r || !r.ok) throw new Error('HTTP ' + (r ? r.status : '?'));
+            if (fmIsStaleResponse(r)) fmScheduleStaleRecheck(); else fmResetStaleBudget();
             return r.json();
         }).then(function (j) { finish(null, j); })['catch'](function (e) { finish(e); });
     } catch (e) { finish(e); }
+}
+// 1.2.4.56 - marker del Service Worker: la copia servita e' quella in cache (la rete non
+// ha risposto entro INDEX_TIMEOUT_MS). Non e' un errore: e' un avviso che l'indice puo'
+// essere vecchio di una run.
+function fmIsStaleResponse(res) {
+    try { return !!(res && res.headers && res.headers.get('X-MRI-Cache') === 'stale'); } catch (e) { return false; }
+}
+function fmResetStaleBudget() { fmStaleRecheckLeft = FM_STALE_RECHECK_MAX; }
+function fmScheduleStaleRecheck() {
+    if (fmStaleRecheckLeft <= 0) return false;      // tetto raggiunto: resta il polling dei 5 minuti
+    if (fmStaleRecheckTimer) return true;           // gia' programmata: nessun doppione
+    fmStaleRecheckTimer = setTimeout(function () {
+        fmStaleRecheckTimer = null;
+        fmStaleRecheckLeft--;
+        fmRevalidateRendered({ reason: 'stale' });
+    }, FM_STALE_RECHECK_MS);
+    return true;
+}
+// 1.2.4.56 - UNA sola strada per accorgersi di un indice nuovo: la usano il polling dei
+// 5 minuti E la rivalidazione ravvicinata che segue una risposta marcata stale.
+// Regola: si ricostruisce SOLO quando `generated_at` cambia. Se e' identico non si tocca
+// niente (niente fmSetTimeline, niente fmFetchRenderedIndex, niente rebuild).
+async function fmRevalidateRendered(opts) {
+    opts = opts || {};
+    var region = fmRenderRegionId();
+    if (!region) return { skipped: 'no-region' };
+    if (fmRevalidateBusy) return { skipped: 'busy' };
+    fmRevalidateBusy = true;
+    fmRenderedRechecks++;
+    var out = { region: region, index: false, timeline: false, reason: opts.reason || null };
+    try {
+        if (!fmWebpIndexLoading) {
+            var idxRes = await fetch(FM_RENDERED_BASE + region + '/index.json', { cache: 'no-cache' });
+            if (idxRes && idxRes.ok) {
+                var idx = await idxRes.json();
+                var oldIdxGen = (fmWebpIndex && fmWebpIndexRegion === region) ? fmWebpIndex.generated_at : null;
+                // allowCold: solo il polling recupera un indice mai arrivato (comportamento
+                // della 1.2.4.14); la rivalidazione da stale confronta due generazioni.
+                var cold = !!opts.allowCold && !oldIdxGen;
+                if (idx && idx.generated_at && (cold || (oldIdxGen && idx.generated_at !== oldIdxGen))) {
+                    fmWebpIndex = null;
+                    fmWebpIndexRegion = null;
+                    fmWebpIndexLoading = null;
+                    fmWebpFailedUrl = null;
+                    fmWebpIndexGen++;
+                    fmFetchRenderedIndex(region);   // stessa strada del bootstrap
+                    out.index = true;
+                }
+            }
+        }
+        var tlRes = await fetch(FM_RENDERED_BASE + region + '/timeline.json', { cache: 'no-cache' });
+        if (tlRes && tlRes.ok) {
+            var doc = await tlRes.json();
+            var oldGen = (fmTimeline && fmTimelineRegion === region) ? fmTimeline.generated_at : null;
+            if (doc && doc.domains && doc.generated_at && oldGen && doc.generated_at !== oldGen) {
+                fmSetTimeline(doc, region);         // ricostruisce frame e barra (un rebuild)
+                out.timeline = true;
+            }
+        }
+    } catch (e) {
+        out.error = String((e && e.message) || e);
+    } finally {
+        fmRevalidateBusy = false;
+    }
+    return out;
 }
 function fmFmtNum(v) { if (v === '' || v === null || v === undefined) return ''; var n = Number(v); return isFinite(n) ? (Math.round(n * 100) / 100) : String(v); }
 function fmVarLabel(v) {
@@ -15405,6 +15544,7 @@ function fmFetchRenderedIndex(serverRegion, cb) {
     try {
         fetch(url, { cache: 'no-cache' }).then(function (r) {
             if (!r || !r.ok) throw new Error('HTTP ' + (r ? r.status : '?'));
+            if (fmIsStaleResponse(r)) fmScheduleStaleRecheck(); else fmResetStaleBudget();
             return r.json();
         }).then(function (j) { done(null, j); }).catch(function (e) { done(e); });
     } catch (e) { done(e); }
@@ -15522,7 +15662,9 @@ function fmRebuild() {
     var wantWebp = !fmOverlayVariable || fmRegion === 'north';
     var webp = wantWebp ? fmWebpFrameUrl() : null;
     // 1.2.4.23: un frame gia' fallito (404/errore) non viene ritentato.
-    if (webp && (webp.url === fmWebpFailedUrl || fmDeadWebpIs(webp.url))) webp = null;
+    // 1.2.4.56 - CAUSA 2: `fmWebpTransientUrl` vale UN SOLO rebuild (fallback `.om` dopo
+    // che i retry sono esauriti) e NON e' una blacklist: non finisce in fmDeadWebpUrls.
+    if (webp && (webp.url === fmWebpFailedUrl || webp.url === fmWebpTransientUrl || fmDeadWebpIs(webp.url))) webp = null;
     // 1.2.4.45: indice/timeline della regione ancora in volo -> NON si disegna il raster `.om`.
     // Il raster e' legittimo solo quando l'indice E' ARRIVATO e dice che il frame non ha il WebP
     // (fallback reale su 404), oppure quando l'attesa e' finita (errore dell'indice, o timeout).
@@ -15625,6 +15767,7 @@ function fmRebuild() {
                 fmPlaybackSetFramePending(fmIsPlaying);
                 if (fmWebpLayer && fmWebpLayer.once) {
                     fmWebpLayer.once('load', function () {
+                        fmWebpRetryForget(webp.url);   // 1.2.4.56: frame arrivato, azzera i retry
                         if (myWebpGeneration !== fmWebpGeneration) {
                             try { if (map.hasLayer(nextWebpLayer)) map.removeLayer(nextWebpLayer); } catch (e) { }
                             return;
@@ -15659,23 +15802,44 @@ function fmRebuild() {
                         });
                     });
                     fmWebpLayer.once('error', function () {
-                        // Il .webp non e' disponibile: rimuovi l'overlay e ricadi sul raster .om.
+                        // Il .webp non e' disponibile. 1.2.4.56 - CAUSA 2: si distingue
+                        // il 404 (frame non pubblicato -> morto per la vita del run) da
+                        // un errore transitorio (rete/5xx/timeout -> retry con backoff).
                         if (myWebpGeneration !== fmWebpGeneration) return;
                         fmPlaybackSetFramePending(false);
-                        fmWebpFailedUrl = webp.url;
-                        fmDeadWebpRemember(webp.url); // 1.2.4.23: non ritentare questo frame
-                        if (nextWebpLayer) { try { if (typeof map !== 'undefined' && map) map.removeLayer(nextWebpLayer); } catch (e) {} }
-                        fmWebpLayer = oldWebpLayer;
-                        fmWebpVisibleLayer = oldWebpLayer;
-                        fmLayerKey = null; // forza il rebuild
-                        if (fmTimelineFramesActive().length) {
-                            // 1.2.4.23: con la timeline un frame morto (es. run potata) non
-                            // deve lasciare la mappa vuota: salta al successivo, max 8 volte.
-                            fmTimelineSkipUnusableFrame(webp.url);
-                            return;
-                        }
-                        fmSetStatus('Vista pre-renderizzata non disponibile: uso la cache .om');
-                        fmRebuild();
+                        fmWebpFailure(webp.url, function (fail) {
+                            if (fail.permanent) fmWebpFailedUrl = webp.url;
+                            if (nextWebpLayer) { try { if (typeof map !== 'undefined' && map) map.removeLayer(nextWebpLayer); } catch (e) {} }
+                            fmWebpLayer = oldWebpLayer;
+                            fmWebpVisibleLayer = oldWebpLayer;
+                            fmLayerKey = null; // forza il rebuild
+                            if (fail.permanent) {
+                                if (fmTimelineFramesActive().length) {
+                                    // 1.2.4.23: con la timeline un frame morto (es. run
+                                    // potata) non deve lasciare la mappa vuota: salta al
+                                    // successivo, max 8 volte.
+                                    fmTimelineSkipUnusableFrame(webp.url);
+                                    return;
+                                }
+                                fmSetStatus('Vista pre-renderizzata non disponibile: uso la cache .om');
+                                fmRebuild();
+                                return;
+                            }
+                            if (fail.exhausted) {
+                                // Retry esauriti: fallback `.om` per QUESTO rebuild, senza
+                                // blacklist (il prossimo rebuild ritenta il WebP).
+                                fmWebpTransientUrl = webp.url;
+                                fmSetStatus('Vista pre-renderizzata non raggiungibile: uso la cache .om');
+                                fmRebuild();
+                                setTimeout(function () {
+                                    if (fmWebpTransientUrl === webp.url) fmWebpTransientUrl = null;
+                                }, 0);
+                                return;
+                            }
+                            var why = fail.status > 0 ? 'HTTP ' + fail.status : 'rete';
+                            fmSetStatus('Frame WebP non raggiungibile (' + why + '): riprovo' +
+                                (fail.retryInMs ? ' tra ' + Math.round(fail.retryInMs / 1000) + ' s' : '') + '\u2026');
+                        });
                     });
                 }
                 fmWebpLayer.addTo(map);
@@ -16246,6 +16410,7 @@ function fmResetPlayerForModelChange(reason) {
             var im = new Image();
             im.crossOrigin = 'anonymous';
             im.onload = function () {
+                fmWebpRetryForget(f.url);   // 1.2.4.56: frame arrivato, azzera i retry
                 var decoded = im.decode ? im.decode() : Promise.resolve();
                 decoded.then(function () {
                     if (gen !== fmPreloadGen) return;
@@ -16255,7 +16420,12 @@ function fmResetPlayerForModelChange(reason) {
                     ok();
                 }).catch(bad);
             };
-            im.onerror = function () { fmDeadWebpRemember(f.url); bad(); };
+            im.onerror = function () {
+                // 1.2.4.56 - CAUSA 2: solo un 404 marca il frame come morto. Un errore
+                // di rete/5xx non entra in blacklist: si degrada a `.om` per questo
+                // preload e il frame verra' ritentato quando lo si mostra.
+                fmWebpFailure(f.url, function () { bad(); }, { noRetry: true });
+            };
             im.src = f.url;
             setTimeout(function () {
                 if (!settled) {
@@ -25026,45 +25196,15 @@ syncSelect('lightning-source-select', [
                     }
                 } catch (e) { /* il manifest verrà ricontrollato al ciclo successivo */ }
 
-                // Il render può terminare dopo il manifest engine. Controlla anche
-                // l'indice WebP: così si aggiorna appena il workflow di render pubblica
-                // i frame, senza aspettare un altro run e senza ricaricare la pagina.
+                // 1.2.4.56 - Il render può terminare dopo il manifest engine. La
+                // rivalidazione di index.json e timeline.json e' UNA funzione
+                // (fmRevalidateRendered), la stessa richiamata 2 s dopo una risposta
+                // marcata `X-MRI-Cache: stale` dal Service Worker. Ricostruisce frame e
+                // barra SOLO se generated_at cambia; allowCold conserva il recupero
+                // dell'indice mai arrivato (comportamento della 1.2.4.14).
                 try {
-                    var renderRegion = fmRenderRegionId();
-                    if (renderRegion) { // 1.2.4.14: ricarica l'indice anche senza generated_at
-                        var idxRes = await fetch(FM_RENDERED_BASE + renderRegion + '/index.json', { cache: 'no-store' });
-                        if (idxRes.ok) {
-                            var publishedIndex = await idxRes.json();
-                            var oldGen = fmWebpIndex && fmWebpIndex.generated_at;
-                            if (publishedIndex && publishedIndex.generated_at &&
-                                (!oldGen || publishedIndex.generated_at !== oldGen) &&
-                                !fmWebpIndexLoading) {
-                                fmWebpIndex = null;
-                                fmWebpIndexRegion = null;
-                                fmWebpIndexGen++;
-                                fmFetchRenderedIndex(renderRegion);
-                            }
-                        }
-                    }
-                } catch (e) { /* l'indice WebP verrà ricontrollato al ciclo successivo */ }
-
-                // 1.2.4.22: timeline.json puo' essere pubblicata dopo index.json. Se
-                // generated_at cambia si aggiornano frame e barra SENZA ricaricare la
-                // pagina, mantenendo il frame corrente quando esiste ancora.
-                try {
-                    var tlRegion = fmRenderRegionId();
-                    if (tlRegion) {
-                        var tlRes = await fetch(FM_RENDERED_BASE + tlRegion + '/timeline.json', { cache: 'no-store' });
-                        if (tlRes.ok) {
-                            var tlDoc = await tlRes.json();
-                            var tlGen = tlDoc && tlDoc.generated_at ? tlDoc.generated_at : null;
-                            var tlOld = (fmTimeline && fmTimelineRegion === tlRegion) ? fmTimeline.generated_at : null;
-                            if (tlDoc && tlDoc.domains && tlGen && tlGen !== tlOld) {
-                                fmSetTimeline(tlDoc, tlRegion);
-                            }
-                        }
-                    }
-                } catch (e) { /* timeline non ancora pubblicata: si riprova al ciclo successivo */ }
+                    await fmRevalidateRendered({ allowCold: true, reason: 'poll' });
+                } catch (e) { /* si riprova al ciclo successivo */ }
             }
         } finally {
             workflowDataPollBusy = false;
@@ -25450,6 +25590,14 @@ start();
     var c = navigator.serviceWorker.controller;
     if (fmFirstWorker && c === fmFirstWorker) return;
     fmShowUpdateBanner(c);
+  });
+  // 1.2.4.56 - CAUSA 3: una navigazione LENTA ha servito la build in cache e la rete ha
+  // risposto dopo con una build DIVERSA (ETag/Last-Modified/Content-Length). Il SW avvisa
+  // con un postMessage; qui si mostra lo stesso banner #app-update, senza ricaricare.
+  navigator.serviceWorker.addEventListener('message', function (ev) {
+    var d = ev && ev.data;
+    if (!d || d.type !== 'mri-build-changed') return;
+    fmShowUpdateBanner(null);   // null: nessuna guardia sulla prima installazione
   });
   function fmRegisterServiceWorker() {
     try {

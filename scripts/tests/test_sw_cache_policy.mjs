@@ -1,13 +1,16 @@
 #!/usr/bin/env node
-// TEST 1.2.4.16 - POLICY DEL SERVICE WORKER (sw.js).
+// TEST 1.2.4.56 - POLICY DEL SERVICE WORKER (sw.js).
 //
 // COSA COPRE DAVVERO: sw.js viene ESEGUITO in un contesto vm con Cache API, self,
 // clients e fetch SIMULATI in memoria. Il test guida gli handler reali
 // (install / activate / fetch) e verifica il comportamento, non solo la presenza
 // di stringhe: nessuna intercettazione per Range e per i metodi non-GET, niente
-// 206/404 in cache, stale-while-revalidate per gli indici, cache-first per i
-// WebP, network-first con timeout e fallback in cache per la navigazione,
-// potatura oltre il limite di voci, cancellazione delle cache di altre release.
+// 206/404 in cache, NETWORK-FIRST CON TIMEOUT per gli indici aggregati
+// (index.json / timeline.json / color_scales.json) con fallback marcato
+// `X-MRI-Cache: stale`, stale-while-revalidate per gli ALTRI json del branch,
+// cache-first per i WebP, network-first con timeout e fallback in cache per la
+// navigazione, potatura oltre il limite di voci, cancellazione delle cache di
+// altre release.
 //
 // LIMITI DICHIARATI: e' un emulatore Node, non un browser. Non valida il
 // comportamento reale di Chromium (quota di storage, `opaque` response, HTTP/2),
@@ -15,6 +18,8 @@
 // raw.githubusercontent.com. La Cache API simulata conserva l'ordine di
 // inserimento come quella vera, quindi la potatura testata e' quella
 // "LRU approssimata" dichiarata nel commento di sw.js, non una LRU esatta.
+// Il comportamento nel browser (tempo alla prima risposta, run richiesta,
+// fromServiceWorker) e' misurato a parte con CDP: questo file non lo sostituisce.
 'use strict';
 
 import fs from 'fs';
@@ -78,6 +83,7 @@ function buildContext() {
   const flags = { skipWaiting: false, claim: false };
   const listeners = {};
   const fetchCalls = [];
+  const messages = [];   // 1.2.4.56: postMessage ai client (avviso di build nuova)
   const ctx = {
     console,
     URL,
@@ -91,10 +97,14 @@ function buildContext() {
     self: {
       registration: { scope: 'https://meteoriskitalia-netizen.github.io/MeteoRisk-Light-v2/' },
       skipWaiting: () => { flags.skipWaiting = true; return Promise.resolve(); },
-      clients: { claim: () => { flags.claim = true; return Promise.resolve(); } },
+      clients: {
+        claim: () => { flags.claim = true; return Promise.resolve(); },
+        matchAll: () => Promise.resolve([{ postMessage: (m) => { messages.push(m); } }]),
+      },
       addEventListener: (type, fn) => { (listeners[type] = listeners[type] || []).push(fn); },
     },
     fetchCalls,
+    messages,
     _respond: null,
   };
   ctx.fetch = async (req) => {
@@ -107,11 +117,11 @@ function buildContext() {
   vm.runInContext(swSrc, ctx);
   const fire = (type, event) => (listeners[type] || []).forEach((fn) => fn(event));
   const dispatchFetch = async (request) => {
-    const event = { request, responded: null, respondWith(p) { this.responded = p; } };
+    const event = { request, responded: null, waits: [], respondWith(p) { this.responded = p; }, waitUntil(p) { this.waits.push(p); } };
     fire('fetch', event);
     return event;
   };
-  return { ctx, caches, flags, listeners, fetchCalls, fire, dispatchFetch };
+  return { ctx, caches, flags, listeners, fetchCalls, messages, fire, dispatchFetch };
 }
 
 const APP_VER = (() => {
@@ -121,13 +131,22 @@ const APP_VER = (() => {
 
 // ---------- A. STATICHE DI SICUREZZA (prima di eseguire) ----------
 ok('A1: CACHE_NAME e\' la costante del modulo', /var CACHE_NAME = '[^']+';/.test(swSrc));
-ok('A2: CACHE_NAME versionata con la versione della release', /var CACHE_NAME = 'mri-1.2.4.55';/.test(swSrc), 'app=' + APP_VER);
+ok('A2: CACHE_NAME versionata con la versione della release', /var CACHE_NAME = 'mri-1.2.4.56';/.test(swSrc), 'app=' + APP_VER);
 ok('A2b: CACHE_NAME corrisponde a VERSION (MAJOR.MINOR.PATCH.BUILD)', swSrc.indexOf("'mri-" + APP_VER + "'") >= 0);
 ok('A3: nessun precache pesante (nessun addAll / cache.add)', !/\.addAll\s*\(/.test(swSrc) && !/cache\.add\s*\(/.test(swSrc));
 ok('A4: limite di voci dichiarato a 1200', /var MAX_ENTRIES = 1200;/.test(swSrc));
 ok('A5: il commento dichiara la LRU approssimata e il limite sul numero di voci',
   /LRU APPROSSIMATA/.test(swSrc) && /NUMERO di voci/.test(swSrc));
-ok('A6: timeout della navigazione a 3000 ms', /var NETWORK_TIMEOUT_MS = 3000;/.test(swSrc));
+ok('A6: timeout della navigazione a 10000 ms (1.2.4.56: era 3000)', /var NETWORK_TIMEOUT_MS = 10000;/.test(swSrc));
+ok('A6b: timeout degli indici a 2000 ms (network-first)', /var INDEX_TIMEOUT_MS = 2000;/.test(swSrc));
+ok('A7: il marker di stale e\' dichiarato una volta sola', /var STALE_HEADER = 'X-MRI-Cache';/.test(swSrc));
+ok('A8: gli indici sono riconosciuti da RE_INDEX_JSON (index|timeline) e RE_COLOR_SCALES_JSON',
+  /var RE_INDEX_JSON = .*index\|timeline/.test(swSrc) && /var RE_COLOR_SCALES_JSON = .*color_scales/.test(swSrc));
+ok('A9: request.cache e\' rispettato PRIMA di ogni regola (con la navigazione esclusa)',
+  /function forcesNetwork\(request\)/.test(swSrc) && /if \(forcesNetwork\(request\) && !nav\) \{ event\.respondWith\(networkRespectingCacheMode\(request\)\); return; \}/.test(swSrc));
+ok('A10: il messaggio di build nuova e\' dichiarato', /var BUILD_MESSAGE = 'mri-build-changed';/.test(swSrc));
+ok('A11: la fetch tardiva della navigazione e\' tenuta viva da event.waitUntil',
+  /event\.waitUntil\(network\.then/.test(swSrc) && /networkFirst\(request, event\)/.test(swSrc));
 
 // ---------- B. INSTALL / ACTIVATE ----------
 {
@@ -139,7 +158,7 @@ ok('A6: timeout della navigazione a 3000 ms', /var NETWORK_TIMEOUT_MS = 3000;/.t
   ok('B2: skipWaiting eseguito e nessuna cache creata all\'install',
     h.flags.skipWaiting === true && h.caches._stores.size === 0);
 
-  h.caches._map('mri-1.2.4.55').set('https://x/y', new Response('cur', { status: 200 }));
+  h.caches._map('mri-1.2.4.56').set('https://x/y', new Response('cur', { status: 200 }));
   h.caches._map('mri-1.2.4.14').set('https://x/y', new Response('old', { status: 200 }));
   h.caches._map('altro-prefisso').set('https://x/z', new Response('old', { status: 200 }));
   const activateEvent = { waitUntil: (p) => { activateEvent.pending = p; } };
@@ -147,7 +166,7 @@ ok('A6: timeout della navigazione a 3000 ms', /var NETWORK_TIMEOUT_MS = 3000;/.t
   await activateEvent.pending;
   const names = Array.from(h.caches._stores.keys());
   ok('B3: activate elimina le cache con nome diverso da CACHE_NAME e tiene la corrente',
-    names.length === 1 && names[0] === 'mri-1.2.4.55', JSON.stringify(names));
+    names.length === 1 && names[0] === 'mri-1.2.4.56', JSON.stringify(names));
   ok('B4: activate chiama clients.claim', h.flags.claim === true);
 }
 
@@ -166,28 +185,109 @@ ok('A6: timeout della navigazione a 3000 ms', /var NETWORK_TIMEOUT_MS = 3000;/.t
     h.fetchCalls.length === 0 && h.caches._stores.size === 0);
 }
 
-// ---------- D. STALE-WHILE-REVALIDATE (indici) ----------
+// ---------- D. NETWORK-FIRST CON TIMEOUT (indici aggregati) ----------
+const CACHE = 'mri-1.2.4.56';
+const IDX = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/refs/heads/fm2-rendered/data/fm2-rendered/north/index.json';
+const IDX_JSON = { 'content-type': 'application/json' };
+const bodyOfCache = async (h, url) => {
+  const hit = h.caches._map(CACHE).get(url);
+  return hit ? await hit.clone().text() : null;
+};
+const rejects = async (p) => { try { await p; return false; } catch (e) { return true; } };
 {
   const h = buildContext();
-  const url = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/refs/heads/fm2-rendered/data/fm2-rendered/north/index.json';
-  h.ctx._respond = async () => new Response('{"v":1}', { status: 200, headers: { 'content-type': 'application/json' } });
-  const e1 = await h.dispatchFetch(new Request(url));
+  h.ctx._respond = async () => new Response('{"v":1}', { status: 200, headers: IDX_JSON });
+  const e1 = await h.dispatchFetch(new Request(IDX));
   const r1 = await e1.responded;
-  ok('D1: index.json gestito dal SW (respondWith) e servito dalla rete al primo colpo',
+  ok('D1: index.json intercettato e servito dalla RETE al primo colpo (cache vuota)',
     r1.ok && (await r1.text()) === '{"v":1}' && h.fetchCalls.length === 1);
-  h.ctx._respond = async () => new Response('{"v":2}', { status: 200, headers: { 'content-type': 'application/json' } });
-  const e2 = await h.dispatchFetch(new Request(url));
-  const r2 = await e2.responded;
-  const body2 = await r2.text();
   await new Promise((r) => setTimeout(r, 10));
-  ok('D2: seconda richiesta servita dalla CACHE (stale) mentre la rete e\' chiamata in background',
-    body2 === '{"v":1}' && h.fetchCalls.length === 2, `body=${body2} fetch=${h.fetchCalls.length}`);
-  const e3 = await h.dispatchFetch(new Request(url));
-  const body3 = await (await e3.responded).text();
-  ok('D3: la copia aggiornata in background e\' quella servita al colpo successivo', body3 === '{"v":2}', `body=${body3}`);
+  ok('D1b: la risposta di rete finisce in cache', (await bodyOfCache(h, IDX)) === '{"v":1}');
+
+  // IL CUORE DELLA 1.2.4.56: con una copia in cache la seconda richiesta NON deve
+  // servire la copia vecchia (era lo stale-while-revalidate della 1.2.4.55).
+  h.ctx._respond = async () => new Response('{"v":2}', { status: 200, headers: IDX_JSON });
+  const e2 = await h.dispatchFetch(new Request(IDX));
+  const body2 = await (await e2.responded).text();
+  ok('D2: con la cache piena vince la RETE (network-first), non la copia vecchia', body2 === '{"v":2}', `body=${body2}`);
+  await new Promise((r) => setTimeout(r, 10));
+  ok('D2b: la cache viene aggiornata alla risposta di rete', (await bodyOfCache(h, IDX)) === '{"v":2}');
+
+  // Rete piu' lenta del timeout: si risponde SUBITO dalla cache, marcata stale, e la
+  // fetch in volo continua ad aggiornare la cache per la richiesta successiva.
+  vm.runInContext('INDEX_TIMEOUT_MS = 40;', h.ctx);
+  h.ctx._respond = () => new Promise((res) => setTimeout(() => res(new Response('{"v":3}', { status: 200, headers: IDX_JSON })), 160));
+  const t0 = Date.now();
+  const e3 = await h.dispatchFetch(new Request(IDX));
+  const r3 = await e3.responded;
+  const elapsed = Date.now() - t0;
+  const body3 = await r3.text();
+  ok('D3: rete piu\' lenta del timeout -> si serve la CACHE (nessuna attesa oltre il timeout)',
+    body3 === '{"v":2}' && elapsed >= 30 && elapsed < 150, `body=${body3} elapsed=${elapsed}ms`);
+  ok('D3b: la copia servita in fallback e\' marcata X-MRI-Cache: stale',
+    r3.headers.get('X-MRI-Cache') === 'stale');
+  ok('D3c: il fallback NON cancella la cache', (await bodyOfCache(h, IDX)) === '{"v":2}');
+  await new Promise((r) => setTimeout(r, 200));
+  ok('D3d: la fetch in volo aggiorna comunque la cache (v3) per la richiesta dopo',
+    (await bodyOfCache(h, IDX)) === '{"v":3}', `cache=${await bodyOfCache(h, IDX)}`);
+
+  // Rete in errore con copia in cache: cache immediata e marcata, nessuna eccezione.
+  h.ctx._respond = async () => { throw new Error('offline'); };
+  const e4 = await h.dispatchFetch(new Request(IDX));
+  const r4 = await e4.responded;
+  ok('D4: rete in errore + cache -> si serve la cache marcata stale',
+    (await r4.text()) === '{"v":3}' && r4.headers.get('X-MRI-Cache') === 'stale');
+}
+{
+  // Niente cache e rete in errore: la promise RIFIUTA (nessuna risposta vuota inventata).
+  const h = buildContext();
+  h.ctx._respond = async () => { throw new Error('offline'); };
+  const e = await h.dispatchFetch(new Request(IDX));
+  const refused = await rejects(e.responded);
+  ok('D5: senza rete e senza cache la risposta e\' un ERRORE (nessun 504/body finto)', refused === true);
+  ok('D5b: nulla e\' finito in cache', h.caches._map(CACHE).size === 0);
+}
+{
+  // Niente cache e rete lenta: si ASPETTA la rete (non si inventa una risposta vuota).
+  const h = buildContext();
+  vm.runInContext('INDEX_TIMEOUT_MS = 20;', h.ctx);
+  h.ctx._respond = () => new Promise((res) => setTimeout(() => res(new Response('{"late":true}', { status: 200, headers: IDX_JSON })), 70));
+  const t0 = Date.now();
+  const e = await h.dispatchFetch(new Request(IDX));
+  const r = await e.responded;
+  const elapsed = Date.now() - t0;
+  ok('D6: senza cache il timeout non inventa nulla: si aspetta la rete vera',
+    (await r.text()) === '{"late":true}' && elapsed >= 60, `elapsed=${elapsed}ms`);
+}
+{
+  // color_scales.json e timeline.json seguono la stessa policy degli indici.
+  const h = buildContext();
+  const cs = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/refs/heads/fm2-rendered/data/fm2-rendered/color_scales.json';
+  const tl = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/refs/heads/fm2-rendered/data/fm2-rendered/north/timeline.json';
+  h.ctx._respond = async () => new Response('{"s":1}', { status: 200, headers: IDX_JSON });
+  const c1 = await h.dispatchFetch(new Request(cs));
+  ok('D7: color_scales.json e\' intercettato (network-first)', (await c1.responded) !== null);
+  h.ctx._respond = async () => new Response('{"s":2}', { status: 200, headers: IDX_JSON });
+  const c2 = await h.dispatchFetch(new Request(cs));
+  ok('D7b: color_scales.json -> vince la rete, non la cache', (await (await c2.responded).text()) === '{"s":2}');
+  h.ctx._respond = async () => new Response('{"tl":1}', { status: 200, headers: IDX_JSON });
+  await (await h.dispatchFetch(new Request(tl))).responded;
+  h.ctx._respond = async () => new Response('{"tl":2}', { status: 200, headers: IDX_JSON });
+  const t2 = await h.dispatchFetch(new Request(tl));
+  ok('D7c: timeline.json -> vince la rete, non la cache', (await (await t2.responded).text()) === '{"tl":2}');
+  // Un JSON del branch che NON e' un indice resta in stale-while-revalidate.
+  const other = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/refs/heads/fm2-rendered/data/fm2-rendered/north/ncep_gfs025/runs/20261028T000000Z/manifest.json';
+  h.ctx._respond = async () => new Response('{"m":1}', { status: 200, headers: IDX_JSON });
+  await (await h.dispatchFetch(new Request(other))).responded;
+  h.ctx._respond = async () => new Response('{"m":2}', { status: 200, headers: IDX_JSON });
+  const o2 = await h.dispatchFetch(new Request(other));
+  const o2body = await (await o2.responded).text();
+  await new Promise((r) => setTimeout(r, 10));
+  ok('D8: un JSON NON-indice dello stesso branch resta stale-while-revalidate', o2body === '{"m":1}', `body=${o2body}`);
+  ok('D8b: e la copia aggiornata in background e\' quella servita dopo', (await bodyOfCache(h, other)) === '{"m":2}');
   const latest = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/refs/heads/fm2-ncep/data/fm2/ncep_gfs025/latest.json';
   const e4 = await h.dispatchFetch(new Request(latest));
-  ok('D4: anche data/fm2/**/latest.json e\' intercettato (stale-while-revalidate)', e4.responded !== null);
+  ok('D9: data/fm2/**/latest.json resta stale-while-revalidate (non e\' un indice aggregato)', e4.responded !== null);
 }
 
 // ---------- E. CACHE-FIRST (WebP) ----------
@@ -234,12 +334,12 @@ ok('A6: timeout della navigazione a 3000 ms', /var NETWORK_TIMEOUT_MS = 3000;/.t
   h.ctx._respond = async () => new Response('nope', { status: 404 });
   await (await h.dispatchFetch(new Request(url))).responded;
   await new Promise((r) => setTimeout(r, 10));
-  ok('G1: una 404 non viene messa in cache', h.caches._map('mri-1.2.4.55').size === 0);
+  ok('G1: una 404 non viene messa in cache', h.caches._map('mri-1.2.4.56').size === 0);
   const webp = 'https://x.test/data/fm2-rendered/north/ncep_gfs025/temperature_2m/2026102300.webp';
   h.ctx._respond = async () => new Response('partial', { status: 206 });
   await (await h.dispatchFetch(new Request(webp))).responded;
   await new Promise((r) => setTimeout(r, 10));
-  ok('G2: una 206 non viene messa in cache', h.caches._map('mri-1.2.4.55').size === 0);
+  ok('G2: una 206 non viene messa in cache', h.caches._map('mri-1.2.4.56').size === 0);
 }
 
 // ---------- H. LIMITE DI VOCI (potatura delle piu' vecchie) ----------
@@ -252,7 +352,7 @@ ok('A6: timeout della navigazione a 3000 ms', /var NETWORK_TIMEOUT_MS = 3000;/.t
     await e.responded;
     await new Promise((r) => setTimeout(r, 5));
   }
-  const keys = Array.from(h.caches._map('mri-1.2.4.55').keys());
+  const keys = Array.from(h.caches._map('mri-1.2.4.56').keys());
   ok('H1: oltre MAX_ENTRIES le voci piu\' vecchie vengono eliminate', keys.length === 3, `keys=${keys.length}`);
   ok('H2: restano le 3 piu\' recenti (ordine di inserimento)', keys.every((k) => /2026102[234]\.webp$/.test(k)), JSON.stringify(keys));
 }
@@ -272,6 +372,119 @@ ok('I6: l\'avviso ascolta updatefound + statechange activated',
   /addEventListener\('updatefound'/.test(htmlSrc) && /worker\.state === 'activated'/.test(htmlSrc));
 ok('I7: la prima installazione non mostra il banner (guardia sul primo worker)',
   /fmFirstWorker = reg\.active \|\| reg\.installing/.test(htmlSrc) && /if \(worker && worker === fmFirstWorker\) return;/.test(htmlSrc));
+// 1.2.4.56: il client deve accorgersi della risposta marcata stale e ricaricare i frame
+// SOLO quando generated_at cambia. Sono controlli STATICI sul sorgente: il comportamento
+// nel browser (run richiesta, tempo, rebuild) e' misurato con CDP, non qui.
+ok('I8: il client legge il marker X-MRI-Cache: stale',
+  /headers\.get\('X-MRI-Cache'\) === 'stale'/.test(htmlSrc));
+ok('I9: esiste una sola funzione di rivalidazione (fmRevalidateRendered)',
+  /async function fmRevalidateRendered\(/.test(htmlSrc) && (htmlSrc.match(/async function fmRevalidateRendered\(/g) || []).length === 1);
+ok('I10: la rivalidazione ricostruisce solo se generated_at cambia',
+  /doc\.generated_at !== oldGen/.test(htmlSrc) && /idx\.generated_at !== oldIdxGen/.test(htmlSrc));
+ok('I11: il polling dei 5 minuti usa la stessa rivalidazione',
+  /await fmRevalidateRendered\(\{ allowCold: true, reason: 'poll' \}\)/.test(htmlSrc));
+ok('I12: la rivalidazione da stale e\' a 2 s con tetto di 3 giri',
+  /var FM_STALE_RECHECK_MS = 2000;/.test(htmlSrc) && /var FM_STALE_RECHECK_MAX = 3;/.test(htmlSrc));
+// 1.2.4.56 - causa 2 e causa 3 lato client.
+ok('I13: il retry dei WebP distingue 404 (definitivo) da errore transitorio (backoff)',
+  /function fmWebpFailure\(url, cb, opts\)/.test(htmlSrc) &&
+  /FM_WEBP_RETRY_DELAYS = \[1000, 3000, 9000\]/.test(htmlSrc) &&
+  /status === 404 \|\| status === 410/.test(htmlSrc));
+ok('I14: il fallback `.om` da errore transitorio NON entra in blacklist',
+  /fmWebpTransientUrl/.test(htmlSrc) && !/im\.onerror = function \(\) \{ fmDeadWebpRemember/.test(htmlSrc));
+ok('I15: il client ascolta mri-build-changed e mostra il banner #app-update',
+  /addEventListener\('message'[\s\S]{0,500}mri-build-changed/.test(htmlSrc) && /fmShowUpdateBanner\(null\)/.test(htmlSrc));
+ok('I16: la probe HEAD non legge la cache (method HEAD + cache no-store)',
+  /method: 'HEAD', cache: 'no-store'/.test(htmlSrc));
+
+// ---------- K. request.cache ESPLICITO (CAUSA 1: priorita' su ogni regola) ----------
+{
+  const h = buildContext();
+  const json = { 'content-type': 'application/json' };
+  h.ctx._respond = async () => new Response('{"v":1}', { status: 200, headers: json });
+  await (await h.dispatchFetch(new Request(IDX))).responded;
+  await new Promise((r) => setTimeout(r, 10));
+  h.ctx._respond = async () => new Response('{"v":2}', { status: 200, headers: json });
+  const e1 = await h.dispatchFetch(new Request(IDX, { cache: 'no-store' }));
+  const b1 = await (await e1.responded).text();
+  ok('K1: no-store -> SEMPRE rete, anche con la cache piena', b1 === '{"v":2}', `body=${b1}`);
+  await new Promise((r) => setTimeout(r, 10));
+  ok('K1b: la risposta ok aggiorna la cache anche con no-store', (await bodyOfCache(h, IDX)) === '{"v":2}');
+  h.ctx._respond = async () => { throw new Error('offline'); };
+  const e2 = await h.dispatchFetch(new Request(IDX, { cache: 'no-store' }));
+  ok('K2: no-store + rete in errore -> ERRORE (la cache non si legge)', await rejects(e2.responded));
+  const e3 = await h.dispatchFetch(new Request(IDX, { cache: 'no-cache' }));
+  const r3 = await e3.responded;
+  ok('K3: no-cache + rete in errore -> cache ammessa e marcata stale',
+    (await r3.text()) === '{"v":2}' && r3.headers.get('X-MRI-Cache') === 'stale');
+  h.ctx._respond = async () => new Response('{"v":3}', { status: 200, headers: json });
+  const e4 = await h.dispatchFetch(new Request(IDX, { cache: 'reload' }));
+  ok('K4: reload -> vince la rete', (await (await e4.responded).text()) === '{"v":3}');
+  const webp = 'https://x.test/data/fm2-rendered/north/ncep_gfs025/temperature_2m/2026102300.webp';
+  h.ctx._respond = async () => new Response('IMG-1', { status: 200 });
+  await (await h.dispatchFetch(new Request(webp))).responded;
+  h.ctx._respond = async () => new Response('IMG-2', { status: 200 });
+  const e5 = await h.dispatchFetch(new Request(webp, { cache: 'no-store' }));
+  ok('K5: no-store su un WebP scavalca il cache-first', (await (await e5.responded).text()) === 'IMG-2');
+
+  const h2 = buildContext();
+  vm.runInContext('INDEX_TIMEOUT_MS = 20;', h2.ctx);
+  h2.ctx._respond = async () => new Response('{"w":1}', { status: 200, headers: json });
+  await (await h2.dispatchFetch(new Request(IDX))).responded;
+  h2.ctx._respond = () => new Promise((res) => setTimeout(() => res(new Response('{"w":2}', { status: 200, headers: json })), 80));
+  const t0 = Date.now();
+  const e6 = await h2.dispatchFetch(new Request(IDX, { cache: 'no-store' }));
+  const b6 = await (await e6.responded).text();
+  const el6 = Date.now() - t0;
+  ok('K6: no-store su un indice -> aspetta la rete, non il timeout dei 2 s', b6 === '{"w":2}' && el6 >= 70, `body=${b6} elapsed=${el6}ms`);
+
+  // La navigazione e' l'ECCEZIONE dichiarata: un reload arriva con cache:'reload' e deve
+  // continuare a usare la cache di fallback (altrimenti la causa 3 non ha rimedio).
+  const h3 = buildContext();
+  const navUrl = 'https://meteoriskitalia-netizen.github.io/MeteoRisk-Light-v2/index.html';
+  h3.ctx._respond = async () => new Response('<html>CACHED</html>', { status: 200, headers: { 'content-type': 'text/html', etag: '"b1"' } });
+  await (await h3.dispatchFetch(navRequest(navUrl))).responded;
+  await new Promise((r) => setTimeout(r, 10));
+  vm.runInContext('NETWORK_TIMEOUT_MS = 30;', h3.ctx);
+  h3.ctx._respond = () => new Promise(() => { });
+  const navReload = navRequest(navUrl);
+  navReload.cache = 'reload';
+  const e7 = await h3.dispatchFetch(navReload);
+  const b7 = await (await e7.responded).text();
+  ok('K7: navigazione con cache:reload -> resta la cache di fallback (timeout, causa 3)', b7 === '<html>CACHED</html>', `body=${b7}`);
+}
+
+// ---------- L. NAVIGAZIONE LENTA: cache subito + avviso di build nuova (CAUSA 3) ----------
+{
+  const h = buildContext();
+  const url = 'https://meteoriskitalia-netizen.github.io/MeteoRisk-Light-v2/index.html';
+  h.ctx._respond = async () => new Response('<html>OLD</html>', { status: 200, headers: { 'content-type': 'text/html', etag: '"build-1"' } });
+  await (await h.dispatchFetch(navRequest(url))).responded;
+  await new Promise((r) => setTimeout(r, 10));
+  vm.runInContext('NETWORK_TIMEOUT_MS = 40;', h.ctx);
+  h.ctx._respond = () => new Promise((res) => setTimeout(() => res(new Response('<html>NEW</html>', { status: 200, headers: { 'content-type': 'text/html', etag: '"build-2"' } })), 140));
+  const t0 = Date.now();
+  const e = await h.dispatchFetch(navRequest(url));
+  const body = await (await e.responded).text();
+  const el = Date.now() - t0;
+  ok('L1: navigazione oltre il timeout -> cache SUBITO (primo paint non bloccato)',
+    body === '<html>OLD</html>' && el >= 30 && el < 130, `body=${body} elapsed=${el}ms`);
+  await new Promise((r) => setTimeout(r, 220));
+  ok('L2: la risposta tardiva con ETag diverso manda mri-build-changed ai client',
+    h.messages.some((m) => m && m.type === 'mri-build-changed'), JSON.stringify(h.messages));
+  ok('L1b: la fetch tardiva e\' tenuta viva da event.waitUntil (il SW non muore)', e.waits.length === 1, 'waits=' + e.waits.length);
+  ok('L3: la cache e\' aggiornata alla build nuova per la navigazione successiva',
+    (await bodyOfCache(h, url)) === '<html>NEW</html>');
+  const h2 = buildContext();
+  h2.ctx._respond = async () => new Response('<html>SAME</html>', { status: 200, headers: { 'content-type': 'text/html', etag: '"same"' } });
+  await (await h2.dispatchFetch(navRequest(url))).responded;
+  await new Promise((r) => setTimeout(r, 10));
+  vm.runInContext('NETWORK_TIMEOUT_MS = 30;', h2.ctx);
+  h2.ctx._respond = () => new Promise((res) => setTimeout(() => res(new Response('<html>SAME</html>', { status: 200, headers: { 'content-type': 'text/html', etag: '"same"' } })), 100));
+  await (await h2.dispatchFetch(navRequest(url))).responded;
+  await new Promise((r) => setTimeout(r, 160));
+  ok('L4: ETag identico -> nessun avviso (niente banner inutili)', h2.messages.length === 0, JSON.stringify(h2.messages));
+}
 
 // ---------- J. DEPLOY: sw.js DEVE FINIRE IN _site/sw.js ----------
 const wfDir = path.join(ROOT, '.github', 'workflows');
