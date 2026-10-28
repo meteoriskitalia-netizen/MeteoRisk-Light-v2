@@ -11,8 +11,8 @@ costituenti non vengono ripubblicati, specchiati o incapsulati.
   ciclo — stesso fetched_at, dataset temporalmente coerente):
   - REQUEST PLANNER integrato: coordinate DEDUPLICATE + BATCH (100/richiesta) +
     pre-flight GUARDRAIL (api_usage.json, hard safety ceiling).
-  - Piano reale (257 punti, 107 province): 3 blocchi (100/100/57) x 4 leg =
-    12 richieste (era 1 a punto: 257). Spaziatura 30 s anti minutely-limit
+  - Piano reale (257 punti, 107 province): 3 blocchi (100/100/57) x 2 leg =
+    6 richieste (era 1 a punto: 257). Spaziatura 30 s anti minutely-limit
     (~5/min osservato sul campo).
   - RETRY selettivi e limitati: al primo giro falliscono solo alcuni batch;
     vengono ritentati SOLO quelli falliti; l'exponential backoff limitato vive
@@ -31,9 +31,9 @@ costituenti non vengono ripubblicati, specchiati o incapsulati.
     merge dell'ecmwf_ifs dal raw PRECEDENTE) è RIMOSSA: data/_raw non persiste
     tra i run (runner GitHub ephemeral), quindi quel merge non era riproducibile
     e rendeva la pipeline dipendente da stato residuale. OGGI ogni ciclo di
-    lavoro scarica SEMPRE tutti i leg (common.SOURCE_MODELS: best_match,
-    ecmwf_ifs, gfs_seamless, italia_meteo_arpae_icon_2i) in un fetch
-    completo coordinato: il raw è scritto e consumato DENTRO lo stesso run,
+    lavoro scarica SEMPRE i leg del percorso PRO (common.SOURCE_MODELS:
+    best_match + ecmwf_ifs) in un fetch completo coordinato: il raw è scritto e
+    consumato DENTRO lo stesso run,
     MAI riletto da un ciclo successivo (STATELESS rispetto a data/_raw).
   - BOOTSTRAP (G5): se non esiste ancora un dataset live, gli esiti che in
     steady-state sono "safe skip" diventano FATAL (rc 4): hard ceiling o

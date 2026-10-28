@@ -151,16 +151,9 @@ def synth_point(lat, lon, elev):
         d2["weathercode"] = list(daily["weathercode"])
         return {"daily": d2, "hourly": h2}
 
-    # MISURATO il 2026-10-28 sull'API: ARPAE ICON-2I restituisce queste chiavi
-    # come [null x72] (non le omette). Il fixture le riproduce cosi'.
-    arpae_missing = ("precipitation_probability", "windspeed_100m", "winddirection_100m",
-                     "wind_speed_950hPa", "wind_direction_950hPa",
-                     "lifted_index", "k_index")
     return {
         "best_match": model_rec(0.15),
         "ecmwf_ifs": model_rec(0.35),
-        "gfs_seamless": model_rec(0.55),
-        "italia_meteo_arpae_icon_2i": model_rec(0.65, null_fields=arpae_missing),
         "elevation": (elev or 0),
         # COPPERTURA TEMPORALE TRANSITORIA (mai pubblicata): hourly[0]/daily[0] = giorno
         # del fetch (2026-01-01), coerente con fetched_at del raw. Qui il day0 dai dati

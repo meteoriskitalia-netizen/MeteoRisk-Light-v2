@@ -148,20 +148,21 @@ FORECAST_DAYS = 3
 TIMEZONE = "Europe/Rome"
 # Leg modello scaricati in OGNI ciclo (coordinati col run driver ECMWF IFS).
 # None di essi "comanda" il run: best_match è COORDINATO, non driver.
-# I 4 identificatori sono quelli dell'API Open-Meteo E le chiavi del payload
-# (`points[].models`) e del dataset compatto: così il client non deve tradurre.
-# MISURATO il 2026-10-28 (1 richiesta, Roma, 72 h, tutti i parametri):
-#   - gfs_seamless: 48/49 campi con dati (solo k_index nullo);
-#   - italia_meteo_arpae_icon_2i: mancano precipitation_probability,
-#     windspeed_100m/winddirection_100m, 950 hPa, lifted_index, k_index
-#     (le chiavi esistono nella risposta ma sono [null x72]).
-SOURCE_MODELS = ("best_match", "ecmwf_ifs", "gfs_seamless",
-                 "italia_meteo_arpae_icon_2i")
+# SOLO i modelli del PERCORSO PRO: i due modelli sperimentali (gfs_seamless,
+# italia_meteo_arpae_icon_2i) sono selezionabili SOLO in modalità Sviluppo e
+# NON entrano nel dataset: scaricarli costava 6 richieste Open-Meteo in più per
+# run (3 batch x 2 leg: 6 -> 12) e 3 minuti di pacing, e allargava il payload
+# completo da 9.292.906 a 18.123.212 byte (MISURATO: run 40679287587 del
+# 2026-10-28 che li ha pubblicati) più il compatto da 1,47 MB a 1,85 MB, per
+# dati che fuori da Sviluppo nessuno chiede. Restano raggiungibili via API
+# diretta dal client, con il peso dichiarato (257 punti = 257 richieste).
+SOURCE_MODELS = ("best_match", "ecmwf_ifs")
+DEV_MODELS = ("gfs_seamless", "italia_meteo_arpae_icon_2i")
 # Nome storico: stringa `models=` usata dal planner/fetch (una richiesta per leg).
 DUAL_MODELS = ",".join(SOURCE_MODELS)
-# Modelli del MENU del client. `dual_best_ecmwf` NON è un download: è il merge
-# client-side di best_match + ecmwf_ifs, quindi non ha una serie propria nel
-# dataset (il compatto lo dichiara in `models_derived`).
+# Modelli dichiarati dal dataset compatto/metadata: i 2 scaricati + il merge
+# `dual_best_ecmwf`, che NON è un download (il client unisce best_match ed
+# ecmwf_ifs lato client) e per questo vive in `models_derived`.
 MODEL_MENU = ("dual_best_ecmwf",) + SOURCE_MODELS
 MODELS_DERIVED = ("dual_best_ecmwf",)
 

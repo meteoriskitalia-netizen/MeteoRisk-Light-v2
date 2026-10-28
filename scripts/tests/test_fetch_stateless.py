@@ -113,7 +113,7 @@ def test_caso_a_new_runner_stateless_full_fetch():
                            forecast_days=None: [_ok_element() for _ in range(len(lats))]) as fb:
         rc = _run_fetch(env.points)
         assert rc == 0
-        assert fb.call_count == 4  # 1 batch x 4 leg (SOURCE_MODELS)
+        assert fb.call_count == len(common.SOURCE_MODELS)  # 1 batch x n leg (2: Pro)
         raw = json.loads(env.raw.read_text(encoding="utf-8"))
     assert raw["cycle_mode"] == "coordinated"
     assert raw["models"] == list(common.SOURCE_MODELS)

@@ -80,7 +80,7 @@ def main():
           not any(w in att.lower() for w in ("affiliated", "endorsed", "by open-meteo", "supported by")))
     check("forecast_days=3", meta.get("forecast_days") == common.FORECAST_DAYS)
     check("timezone Europe/Rome", meta.get("timezone") == common.TIMEZONE)
-    check("models_covered = i 4 leg di common.SOURCE_MODELS",
+    check("models_covered = i leg di common.SOURCE_MODELS (percorso Pro)",
           sorted(meta.get("models_covered") or []) == sorted(common.SOURCE_MODELS),
           "got %s" % (meta.get("models_covered"),))
 

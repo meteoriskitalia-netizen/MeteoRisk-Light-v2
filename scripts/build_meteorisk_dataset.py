@@ -82,38 +82,49 @@ COMPACT_PROVINCE_FIELDS = ["sigla", "lat", "lon", "n_points"]
 COMPACT_WORST_FIELDS = frozenset(("weathercode",))
 _COMPACT_LEVELS = (1000, 975, 950, 925, 900, 850, 800, 700, 600, 500)
 # ORIZZONTE E CAMPI PUBBLICATI NEL COMPATTO (scelta MISURATA, non stimata).
-# Il budget e' 400 KB gzip con 4 modelli x 107 province. Misure del 2026-10-28
-# sul dataset reale (257 punti, valori veri) con i 2 modelli nuovi ricostruiti
-# come perturbazione ad alta entropia (l'API era in 429: sigma per campo, non
-# uno shift costante, che sarebbe troppo comprimibile):
-#   48 campi @72h -> 845 KB gz9   (fuori budget)
-#   48 campi @48h -> 581 KB       (fuori)
-#   27 campi @48h -> 401 KB gz9 / 416 KB gz6  (fuori)
-#   24 campi @48h -> 372 KB gz9 / 386 KB gz6  (Pages serve ~+8-10% -> ~405 KB: fuori)
-#   22 campi @48h -> 350 KB gz9 / 362 KB gz6  <- SCELTO (Pages atteso ~385 KB)
-#   20 campi @48h -> 329 KB gz9
-# Nota: GitHub Pages ricomprime (misurato sul file a 1 modello: gz9 341.398 ->
-# servito 378.086, +10,7%), quindi il budget va valutato sul gz9 x ~1,1.
-# Quindi: orizzonte 48 h (2 giorni) e 22 campi. Tagliati, dichiarati:
-#   - 7 livelli di pressione extra (1000/975/950/925/900/800/600 hPa): il
-#     hodograph resta su 850/700/500, shear/SRH/SCP calcolabili ma piu' grossolani;
-#   - windspeed_100m/winddirection_100m (il rischio vento usa i 10 m);
-#   - temperature_850hPa, relative_humidity_850/700hPa, dew_point_850/700hPa:
-#     input del solo badge downburst (resta spento sul compatto);
-#   - convective_inhibition/lifted_index/k_index e temperature_700/500hPa:
-#     gate e input del badge GRANDINE, che sul compatto resta spento (il dataset
-#     completo li ha). Con 2 campi in piu' il file servito superava i 400 KB.
-# Restano gli input di: mappa dei rischi, badge di rischio (temperatura, caldo/
-# freddo, vento, pioggia, temporale), indici severi (core 850/700/500 + quote
-# geometriche per AGL/Bunkers/SRH), neve (codice+temperature), nebbia esclusa
-# (visibility non e' nel dataset). Il dataset COMPLETO resta a 72 h e 49 campi.
-COMPACT_MAX_HOURS = 48
+# L'ORIZZONTE NON SI TOCCA: 72 ore = 3 giorni come il dataset completo (il
+# criterio "Dopodomani" deve funzionare anche sul compatto).
+# Misure del 2026-10-28 sul dataset REALE servito da Pages (257 punti, 107
+# province, i 4 modelli veri presenti in quel momento: le righe PRO usano i 2
+# modelli Pro, la riga "4 modelli" misura quanto si sarebbe pagato tenendoli):
+#   PRO 2 modelli, 48 campi @72h -> gz9 432,3 KB / gz6 451,3 KB / servito ~475 KB
+#   PRO 2 modelli, 27 campi @72h -> 253,8 / 265,0 / ~279 KB   <- SCELTO
+#   PRO 2 modelli, 24 campi @72h -> 234,4 / 246,0 / ~258 KB
+#   PRO 2 modelli, 22 campi @72h -> 221,3 / 231,8 / ~243 KB
+#   4 modelli,     27 campi @72h -> 506,7 KB gz9 (2,00x)
+#   4 modelli,     48 campi @72h -> 991,9 KB gz9 (2,24x)
+# (GitHub Pages ricomprime: misurato +10,7% sul file a 1 modello, 341.398 B gz9
+# -> 378.086 B serviti; "servito" = gz9 x 1,10. Budget: 600 KB -> rispettato.)
+# I 27 campi tenuti sono TUTTI REFERENZIATI dal client (occorrenze su
+# mri-light-1.2.4.57.html: temperature_2m 69, relativehumidity_2m 10,
+# dew_point_2m 24, pressure_msl 43, cape 191, precipitation_probability 16,
+# windspeed_10m 31, winddirection_10m 10, windgusts_10m 16, weathercode 72,
+# precipitation 74, showers 43, freezing_level_height 12, convective_inhibition
+# 8, lifted_index 9, k_index 7, wind_speed_850hPa 12, wind_direction_850hPa 4,
+# wind_speed_700hPa 3, wind_direction_700hPa 3, wind_speed_500hPa 5,
+# wind_direction_500hPa 5, geopotential_height_850hPa 12,
+# geopotential_height_700hPa 5, geopotential_height_500hPa 21,
+# temperature_700hPa 4, temperature_500hPa 15).
+# Tagliati rispetto al dataset completo (48 campi), tutti presenti nel file
+# completo: 7 livelli di pressione (1000/975/950/925/900/800/600 hPa),
+# windspeed_100m/winddirection_100m, temperature_850hPa,
+# relative_humidity_850/700hPa, dew_point_850/700hPa. Sono i livelli extra
+# dell'hodograph e gli input del solo badge downburst: tenerli porta il compatto
+# da 254 a 432 KB gz9 (servito ~475 KB) senza cambiare la copertura della mappa.
+COMPACT_MAX_HOURS = 72
+# Tutti i campi tenuti sono REFERENZIATI dal client e coprono: mappa dei rischi,
+# badge di rischio (temperatura, caldo/freddo, vento, pioggia, temporale, neve,
+# grandine), indici severi (shear/SRH/SCP su 850/700/500 + quote geometriche per
+# AGL/Bunkers) e gate convettivi (CIN/LI/KI).
+COMPACT_MAX_HOURS = 72
 COMPACT_FIELD_NAMES = (
     # superficie: colori mappa + badge di rischio
     "temperature_2m", "relativehumidity_2m", "dew_point_2m", "pressure_msl",
     "cape", "precipitation_probability", "windspeed_10m", "winddirection_10m",
     "windgusts_10m", "weathercode", "precipitation", "showers",
     "freezing_level_height",
+    # gate convettivi (temporale/grandine)
+    "convective_inhibition", "lifted_index", "k_index",
     # hodograph ridotto: i 3 livelli CORE che il client pretende
     "wind_speed_850hPa", "wind_direction_850hPa",
     "wind_speed_700hPa", "wind_direction_700hPa",
@@ -121,6 +132,8 @@ COMPACT_FIELD_NAMES = (
     # quote geometriche (AGL/Bunkers/SRH)
     "geopotential_height_850hPa", "geopotential_height_700hPa",
     "geopotential_height_500hPa",
+    # grandine (stima client-side: temperature dei due livelli)
+    "temperature_700hPa", "temperature_500hPa",
 )
 # (campo, decimali, passo di arrotondamento o None)
 COMPACT_HOURLY_FIELDS = (
@@ -418,6 +431,19 @@ def build_compact_dataset(points, regions, generated_at, day0, time_base=None,
 
     fields_out = [field for field, _d, _s in schema_hourly]
     daily_fields = [field for field, _d, _s in present_daily]
+    # ORE REALMENTE DISPONIBILI per modello: se un modello ha un orizzonte piu'
+    # corto, le serie restano lunghe `n_hours` e i valori oltre la disponibilita'
+    # sono null (nessun troncamento degli altri modelli: la lunghezza e' comune).
+    model_hours = {}
+    for m in ([primary] + [x for x in present_models if x != primary]):
+        lens = []
+        for p in points:
+            arrs = (((p.get("models") or {}).get(m) or {}).get("hourly") or {})
+            for spec in schema_hourly:
+                a = arrs.get(spec[0]) or []
+                if a:
+                    lens.append(len(a))
+        model_hours[m] = min(min(lens), n_hours) if lens else 0
     return {
         "schema": COMPACT_SCHEMA,
         "status": "live" if points else "empty",
@@ -425,6 +451,7 @@ def build_compact_dataset(points, regions, generated_at, day0, time_base=None,
         "model": primary,
         "models_covered": list(common.MODEL_MENU),
         "models_derived": list(common.MODELS_DERIVED),
+        "models_dev_only": list(common.DEV_MODELS),
         "licence": common.SOURCE_LICENSE,
         "licence_url": "https://creativecommons.org/licenses/by/4.0/",
         "attribution": ATTR,
@@ -433,6 +460,7 @@ def build_compact_dataset(points, regions, generated_at, day0, time_base=None,
         "forecast_days": common.FORECAST_DAYS,
         "hours": n_hours,
         "days": n_days,
+        "model_hours": model_hours,
         "count": len(provinces),
         "aggregation": "mean per province (vector mean for wind_direction); weathercode = worst WMO code",
         "rounding": {"decimals_default": 1, "wind_direction_step_deg": 5,
@@ -448,12 +476,21 @@ def build_compact_dataset(points, regions, generated_at, day0, time_base=None,
         "daily_fields": daily_fields,
         "daily": daily_series,
         "model_daily": other_daily,
-        "note": ("Aggregato per provincia dei punti di campionamento (media; "
-                 "weathercode = codice peggiore). `series`/`daily` = best_match; "
-                 "`model_series`/`model_daily` = gli altri modelli. "
-                 "dual_best_ecmwf e' il merge client-side di best_match + "
-                 "ecmwf_ifs (models_derived), non una serie. null = nessun punto "
-                 "della provincia con il dato a quell'ora."),
+        "note": ("Orizzonte 72 ore (3 giorni, come il dataset completo): "
+                 "len(time) == hours == 72. Aggregato per provincia dei punti di "
+                 "campionamento (media; weathercode = codice peggiore). "
+                 "`series`/`daily` sono best_match (chiavi storiche), "
+                 "`model_series`/`model_daily` contengono gli altri modelli del "
+                 "dataset (oggi ecmwf_ifs). dual_best_ecmwf NON ha serie proprie: "
+                 "e' il merge client-side di best_match + ecmwf_ifs "
+                 "(models_derived). I modelli di Sviluppo gfs_seamless e "
+                 "italia_meteo_arpae_icon_2i NON sono nel dataset e restano "
+                 "disponibili solo via API diretta Open-Meteo, con il peso "
+                 "dichiarato: 257 punti = 257 richieste per refresh, peso 2.808 "
+                 "(i limiti free sono 5.000/ora e 600/minuto). Se un modello ha "
+                 "orizzonte piu' corto, `model_hours` lo dichiara e le ore oltre "
+                 "la disponibilita' sono null (nessun troncamento degli altri). "
+                 "null = nessun punto della provincia con il dato a quell'ora."),
     }
 
 
@@ -541,11 +578,12 @@ def main():
                        "generated_at": metadata["generated_at"], "model": "best_match",
                        "models_covered": list(common.MODEL_MENU),
                        "models_derived": list(common.MODELS_DERIVED),
+                       "models_dev_only": list(common.DEV_MODELS),
                        "licence": common.SOURCE_LICENSE,
                        "licence_url": "https://creativecommons.org/licenses/by/4.0/",
                        "attribution": ATTR, "source": common.SOURCE_NAME,
                        "timezone": common.TIMEZONE, "forecast_days": common.FORECAST_DAYS,
-                       "hours": 0, "days": 0, "count": 0, "time": [],
+                       "hours": 0, "days": 0, "model_hours": {}, "count": 0, "time": [],
                        "fields": [], "units": {}, "province_fields": list(COMPACT_PROVINCE_FIELDS),
                        "provinces": [], "series": {}, "model_series": {},
                        "daily_fields": [], "daily": {}, "model_daily": {}},

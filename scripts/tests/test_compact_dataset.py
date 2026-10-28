@@ -5,29 +5,32 @@
 Cosa copre (data/latest/meteorisk-points-compact.json, prodotto da
 scripts/build_meteorisk_dataset.py e pubblicato da scripts/publish_dataset.py):
 
-  1. schema: chiavi obbligatorie, `models_covered` (i 5 modelli del menu),
-     `fields`, `province_fields`, `model_series`, unita';
-  2. lunghezze coerenti: `time` = 48 ore consecutive (COMPACT_MAX_HOURS), ogni
-     serie = 107 x 48, ogni record provincia della stessa lunghezza, daily 107 x 3;
+  1. schema: chiavi obbligatorie, `models_covered` (i modelli del PERCORSO PRO:
+     dual_best_ecmwf, best_match, ecmwf_ifs), `models_dev_only` (i modelli di
+     Sviluppo, dichiarati fuori dal dataset), `fields`, `province_fields`;
+  2. lunghezze coerenti: `time` = 72 ore consecutive, ogni serie = 107 x 72,
+     daily 107 x 3, `model_hours` coerente;
   3. nessun null INATTESO: input completo -> zero null; dato mancante in TUTTI i
      punti -> un solo null; dato mancante in UN punto -> media sui presenti;
-     i campi che ARPAE ICON-2I non fornisce sono null SOLO nel suo blocco;
+     modello con orizzonte piu' corto -> null DOPO la sua disponibilita', senza
+     troncare gli altri;
   4. regole di aggregazione: media aritmetica, weathercode = codice peggiore,
      direzioni del vento con media VETTORIALE (350 e 10 gradi -> 0, non 180),
      arrotondamenti dichiarati; ogni modello usa i PROPRI valori (non copia);
-  5. BUDGET di dimensione: gzip <= 400 KB, verificato SUL DATASET REALE quando
+  5. BUDGET di dimensione: 600 KB gzip SERVITI (misurato +10,7% fra gz9 e file
+     servito da Pages), verificato SUL DATASET REALE quando
      data/latest/meteorisk-points.json e' presente (in CI lo e'). La serie
      sintetica NON e' un proxy valido del budget (sovrastima del 30-45%);
   6. il file viene davvero scritto/pubblicato/servito: build lo produce,
      publish_dataset.py lo copia in data/latest, i 3 workflow che costruiscono
      `_site` copiano data/latest in blocco.
 
-BASELINE MISURATA (2026-10-28, dataset reale 257 punti, 107 province):
-  - compatto a UN modello (48 campi x 72 h): gzip-9 341.398 byte (333,4 KB);
-  - compatto a 4 modelli (22 campi x 48 h; i 2 modelli nuovi ricostruiti come
-    perturbazione ad alta entropia perche' l'API era in 429): gzip-9 358.516
-    byte (350,1 KB), gzip-6 371.145 byte (362,4 KB). Le alternative misurate e
-    SCARTATE sono nel commento di COMPACT_MAX_HOURS.
+BASELINE MISURATA (2026-10-28, dataset REALE servito da Pages, 257 punti, 107
+province, 72 ore):
+  - 2 modelli Pro, 48 campi: gzip-9 442.664 B (432,3 KB), gzip-6 462.152 B;
+  - 2 modelli Pro, 27 campi (schema pubblicato): gzip-9 259.844 B (253,8 KB),
+    gzip-6 271.366 B (265,0 KB);
+  - 4 modelli (gfs_seamless + ARPAE, NON pubblicati) 27 campi: 506,7 KB gz9.
 """
 
 import gzip
@@ -49,14 +52,11 @@ import build_meteorisk_dataset as build  # noqa: E402
 
 HOURS = build.COMPACT_MAX_HOURS
 DAYS = 3
-BUDGET_GZIP = 400 * 1024
+BUDGET_SERVED = 600 * 1024      # budget sul file che arriva al client
+PAGES_INFLATION = 1.10          # gz9 -> servito (misurato: 341.398 -> 378.086)
 DAY0 = "2026-01-01"
 REAL_POINTS = common.DATA_LATEST / "meteorisk-points.json"
 MODELS = list(common.SOURCE_MODELS)
-ARPAE = "italia_meteo_arpae_icon_2i"
-# Chiavi che l'API restituisce come [null x72] per ARPAE (MISURATO 2026-10-28).
-ARPAE_MISSING = ("precipitation_probability", "windspeed_100m", "winddirection_100m",
-                 "wind_speed_950hPa", "wind_direction_950hPa", "lifted_index", "k_index")
 
 _RANGES = {
     "temperature_2m": (-3.7, 23.5), "relativehumidity_2m": (19.0, 100.0),
@@ -109,42 +109,33 @@ def _quantize(value, field):
     return float(int(round(value))) if digits == 0 else round(value, digits)
 
 
-def _sparse_series(rnd, field, count_lo, count_hi, zero_frac, step_h=6):
+def _sparse_series(rnd, field, count_lo, count_hi, zero_frac, step_h=6, n=72):
     """Serie realistica per i campi SPARSI (precipitazione, CAPE, probabilita',
-    codici): nella realta' la maggior parte delle ore e' secca/zero e i valori
-    cambiano a blocchi, non a ogni ora. Misurato sul dataset reale: precipitation
-    0 nella maggior parte delle ore, probability e weathercode costanti per ore."""
+    codici): la maggior parte delle ore e' secca/zero e i valori cambiano a
+    blocchi, non a ogni ora."""
     out = []
     value = 0.0
-    for h in range(72):
+    for h in range(n):
         if h % step_h == 0:
-            if rnd.random() < zero_frac:
-                value = 0.0
-            else:
-                value = rnd.uniform(count_lo, count_hi)
+            value = 0.0 if rnd.random() < zero_frac else rnd.uniform(count_lo, count_hi)
         out.append(_quantize(value, field))
     return out
 
 
-def _smooth(rnd, field, base, amp24, amp72, noise, phase=None):
+def _smooth(rnd, field, base, amp24, amp72, noise, phase=None, n=72):
     """Serie liscia con la FASE CONDIVISA dalla provincia: i campi di una
-    provincia si muovono insieme (come nell'atmosfera reale), quindi i blocchi
-    di campo adiacenti sono correlati e comprimibili quanto i dati veri."""
+    provincia si muovono insieme, come nell'atmosfera reale."""
     p1 = rnd.uniform(0, 2 * math.pi) if phase is None else phase
     p2 = p1 * 0.7 + 1.1
     return [_quantize(base + amp24 * math.sin(2 * math.pi * h / 24.0 + p1)
                       + amp72 * math.sin(2 * math.pi * h / 72.0 + p2)
-                      + rnd.gauss(0, noise), field) for h in range(72)]
+                      + rnd.gauss(0, noise), field) for h in range(n)]
 
 
 def synthetic_points(seed=20261028, provinces=107, points_per_province=None,
-                     models=MODELS):
-    """Punti deterministici con la STRUTTURA dei dati veri e TUTTI i modelli.
-
-    Serie lisce (ciclo diurno + tendenza + rumore) quantizzate alla precisione
-    di storage; i modelli differiscono per offset e rumore, come nella realta'.
-    ARPAE riceve [null x72] sulle chiavi che l'API non fornisce (misurate).
-    """
+                     models=MODELS, hours=72):
+    """Punti deterministici con la STRUTTURA dei dati veri e i modelli del
+    percorso PRO. Serie lisce quantizzate alla precisione di storage."""
     rnd = random.Random(seed)
     counts = list(_POINTS_PER_PROVINCE)
     rnd.shuffle(counts)
@@ -170,23 +161,19 @@ def synthetic_points(seed=20261028, provinces=107, points_per_province=None,
         for _ in range(counts[pidx] if pidx < len(counts) else 1):
             per_model = {}
             for mi, model in enumerate(models):
-                shift = (mi - 1.5) * 0.8
+                shift = (mi - 0.5) * 0.8
                 hourly = {}
                 for field in fields:
                     if field in ("precipitation", "showers"):
-                        hourly[field] = _sparse_series(rnd, field, 0.1, 3.2, 0.72)
+                        hourly[field] = _sparse_series(rnd, field, 0.1, 3.2, 0.72, n=hours)
                     elif field in ("precipitation_probability", "weathercode"):
-                        hourly[field] = _sparse_series(rnd, field, 5, 95, 0.55)
+                        hourly[field] = _sparse_series(rnd, field, 5, 95, 0.55, n=hours)
                     elif field in ("cape", "convective_inhibition"):
-                        hourly[field] = _sparse_series(rnd, field, 20, 420, 0.70)
+                        hourly[field] = _sparse_series(rnd, field, 20, 420, 0.70, n=hours)
                     else:
                         hourly[field] = _smooth(rnd, field, base[field][0] + shift,
                                                 base[field][1], base[field][2],
-                                                base[field][3] + 0.02 * mi, phase)
-                if model == ARPAE:
-                    for field in ARPAE_MISSING:
-                        if field in hourly:
-                            hourly[field] = [None] * 72
+                                                base[field][3] + 0.02 * mi, phase, n=hours)
                 daily = {}
                 for field in daily_fields:
                     lo, hi = _DAILY_RANGES[field]
@@ -233,14 +220,15 @@ def compact():
 
 
 # ---------------------------------------------------------------------------
-# 1. Schema e copertura dei 5 modelli
+# 1. Schema e copertura
 # ---------------------------------------------------------------------------
 def test_schema_keys(compact):
     for key in ("schema", "status", "generated_at", "model", "models_covered",
-                "models_derived", "licence", "attribution", "timezone",
-                "forecast_days", "hours", "count", "time", "fields", "units",
-                "province_fields", "provinces", "series", "model_series",
-                "daily_fields", "daily", "model_daily"):
+                "models_derived", "models_dev_only", "licence", "attribution",
+                "timezone", "forecast_days", "hours", "days", "model_hours",
+                "count", "time", "fields", "units", "province_fields",
+                "provinces", "series", "model_series", "daily_fields", "daily",
+                "model_daily", "note"):
         assert key in compact, "chiave mancante: %s" % key
     assert compact["schema"] == "meteorisk-points-compact/1"
     assert compact["status"] == "live"
@@ -249,53 +237,64 @@ def test_schema_keys(compact):
     assert "Open-Meteo" in compact["attribution"]
     assert "MeteoRisk" in compact["attribution"]
     assert compact["timezone"] == "Europe/Rome"
-    assert compact["forecast_days"] == common.FORECAST_DAYS
-    assert compact["generated_at"] == "2026-01-01T00:00:00Z"
+    assert compact["forecast_days"] == common.FORECAST_DAYS == 3
 
 
-def test_models_covered_are_the_five_menu_models(compact):
-    assert compact["models_covered"] == list(common.MODEL_MENU)
-    assert len(compact["models_covered"]) == 5
-    for model in ("dual_best_ecmwf", "best_match", "ecmwf_ifs", "gfs_seamless", ARPAE):
-        assert model in compact["models_covered"], model
+def test_models_covered_are_the_pro_models(compact):
+    # SOLO percorso Pro: 2 modelli scaricati + il merge client-side
+    assert compact["models_covered"] == ["dual_best_ecmwf", "best_match", "ecmwf_ifs"]
+    assert len(compact["models_covered"]) == 3
     assert compact["models_derived"] == ["dual_best_ecmwf"]
-    # 4 blocchi reali: best_match in `series`, gli altri tre in `model_series`
-    assert set(compact["model_series"]) == set(MODELS) - {"best_match"}
-    for model in MODELS:
-        if model == "best_match":
-            assert compact["series"]
-        else:
-            assert compact["model_series"][model]
+    # i modelli di Sviluppo sono dichiarati FUORI dal dataset
+    assert compact["models_dev_only"] == ["gfs_seamless", "italia_meteo_arpae_icon_2i"]
+    for model in compact["models_dev_only"]:
+        assert model not in compact["models_covered"]
+        assert model not in compact["model_series"]
+        assert model not in compact["model_daily"]
+    # 2 blocchi reali: best_match in `series`, ecmwf_ifs in `model_series`
+    assert set(compact["model_series"]) == {"ecmwf_ifs"}
+    assert set(compact["model_daily"]) == {"ecmwf_ifs"}
+    assert compact["series"]
+
+
+def test_note_declares_horizon_and_layout(compact):
+    note = compact["note"]
+    for token in ("72 ore", "series", "model_series", "best_match", "ecmwf_ifs",
+                  "dual_best_ecmwf", "gfs_seamless", "italia_meteo_arpae_icon_2i",
+                  "API diretta", "257", "2.808"):
+        assert token in note, "il note non dichiara %r" % token
 
 
 def test_fields_lists(compact):
     assert set(compact["fields"]) == set(build.COMPACT_FIELD_NAMES)
-    assert len(compact["fields"]) == 22
+    assert len(compact["fields"]) == 27
     assert compact["province_fields"] == ["sigla", "lat", "lon", "n_points"]
     assert compact["daily_fields"] == [f for f, _d, _s in build.COMPACT_DAILY_FIELDS]
     for field in ("temperature_2m", "relativehumidity_2m", "dew_point_2m", "pressure_msl",
                   "cape", "precipitation_probability", "windspeed_10m", "windgusts_10m",
                   "weathercode", "precipitation", "freezing_level_height",
+                  "convective_inhibition", "lifted_index", "k_index",
                   "wind_speed_850hPa", "wind_direction_500hPa",
-                  "geopotential_height_500hPa"):
+                  "geopotential_height_500hPa", "temperature_700hPa",
+                  "temperature_500hPa"):
         assert field in compact["fields"], field
-    # campi tagliati per il budget: NON devono comparire
+    # campi tagliati (stanno solo nel dataset completo): NON devono comparire
     for field in ("visibility", "windspeed_100m", "wind_speed_925hPa",
-                  "dew_point_850hPa", "wind_speed_950hPa", "k_index",
-                  "lifted_index", "temperature_700hPa", "convective_inhibition"):
+                  "dew_point_850hPa", "wind_speed_950hPa", "temperature_850hPa"):
         assert field not in compact["fields"], field
     for field in compact["fields"]:
         assert compact["units"].get(field), "unita' mancante per %s" % field
 
 
 # ---------------------------------------------------------------------------
-# 2. Lunghezze
+# 2. Lunghezze (72 ore, 3 giorni)
 # ---------------------------------------------------------------------------
 def test_lengths(compact):
-    assert compact["hours"] == HOURS == 48
+    assert compact["hours"] == HOURS == 72
+    assert compact["days"] == DAYS == 3
     assert len(compact["time"]) == HOURS
     assert compact["time"][0] == DAY0 + "T00:00"
-    assert compact["time"][-1] == "2026-01-02T23:00"
+    assert compact["time"][-1] == "2026-01-03T23:00"
     prev = None
     for label in compact["time"]:
         cur = common._dt.datetime.strptime(label, "%Y-%m-%dT%H:%M")
@@ -321,6 +320,7 @@ def test_lengths(compact):
     for model, block in compact["model_daily"].items():
         assert set(block) == set(compact["daily_fields"]), model
         assert all(len(r) == DAYS for rows in block.values() for r in rows), model
+    assert compact["model_hours"] == {"best_match": 72, "ecmwf_ifs": 72}
 
 
 # ---------------------------------------------------------------------------
@@ -330,21 +330,10 @@ def test_complete_input_has_no_nulls(compact):
     nulls = [(f, i, h) for f, rows in compact["series"].items()
              for i, row in enumerate(rows) for h, v in enumerate(row) if v is None]
     assert nulls == []
-    for model in ("ecmwf_ifs", "gfs_seamless"):
+    for model in compact["model_series"]:
         nulls = [(f, i, h) for f, rows in compact["model_series"][model].items()
                  for i, row in enumerate(rows) for h, v in enumerate(row) if v is None]
-        assert nulls == []
-
-
-def test_arpae_nulls_only_in_its_block(compact):
-    block = compact["model_series"][ARPAE]
-    # precipitazione probabilistica: ARPAE non la fornisce (misurato 2026-10-28)
-    assert all(v is None for row in block["precipitation_probability"] for v in row)
-    # lo stesso campo ha dati in best_match
-    assert any(v is not None for row in compact["series"]["precipitation_probability"]
-               for v in row)
-    # un campo che ARPAE fornisce non e' null
-    assert all(v is not None for row in block["temperature_2m"] for v in row)
+        assert nulls == [], model
 
 
 def test_null_only_where_the_source_is_null():
@@ -368,6 +357,24 @@ def test_null_in_one_point_uses_the_others():
     others = [p["models"]["best_match"]["hourly"]["temperature_2m"][3] for p in points[1:]]
     assert got is not None
     assert abs(got - sum(others) / float(len(others))) <= 0.05
+
+
+def test_shorter_model_horizon_is_declared_and_does_not_truncate_others():
+    """Se un modello ha orizzonte piu' corto: `model_hours` lo dichiara, le ore
+    oltre la sua disponibilita' sono null, gli altri modelli restano a 72."""
+    points = synthetic_points(models=("best_match", "ecmwf_ifs"), hours=72)
+    for p in points:
+        h = p["models"]["ecmwf_ifs"]["hourly"]
+        for field in list(h):
+            h[field] = h[field][:48]
+    out = build_compact(points)
+    assert out["model_hours"] == {"best_match": 72, "ecmwf_ifs": 48}
+    assert len(out["time"]) == 72
+    row = out["model_series"]["ecmwf_ifs"]["temperature_2m"][0]
+    assert len(row) == 72
+    assert all(v is not None for v in row[:48])
+    assert all(v is None for v in row[48:])
+    assert all(v is not None for v in out["series"]["temperature_2m"][0])
 
 
 # ---------------------------------------------------------------------------
@@ -440,27 +447,27 @@ def test_integral_floats_are_stored_as_integers():
 
 
 def test_each_model_uses_its_own_values_not_best_match():
-    points = points_in_province_zero(2, models=("best_match", "gfs_seamless"))
-    for p, (t_bm, t_gfs) in zip(points, ((10.0, 20.0), (10.0, 20.0))):
+    points = points_in_province_zero(2, models=("best_match", "ecmwf_ifs"))
+    for p, (t_bm, t_ec) in zip(points, ((10.0, 20.0), (10.0, 20.0))):
         p["models"]["best_match"]["hourly"]["temperature_2m"] = [t_bm] * 72
-        p["models"]["gfs_seamless"]["hourly"]["temperature_2m"] = [t_gfs] * 72
-    out = build_compact(points, regions=ONE_REGION, models=("best_match", "gfs_seamless"))
+        p["models"]["ecmwf_ifs"]["hourly"]["temperature_2m"] = [t_ec] * 72
+    out = build_compact(points, regions=ONE_REGION)
     assert out["series"]["temperature_2m"][0][0] == pytest.approx(10.0, abs=0.05)
-    assert out["model_series"]["gfs_seamless"]["temperature_2m"][0][0] == pytest.approx(
+    assert out["model_series"]["ecmwf_ifs"]["temperature_2m"][0][0] == pytest.approx(
         20.0, abs=0.05)
 
 
 def test_horizon_is_capped_but_override_works():
     points = points_in_province_zero(2)
     out = build_compact(points, regions=ONE_REGION)
-    assert out["hours"] == HOURS
-    out72 = build_compact(points, regions=ONE_REGION, hours=72)
-    assert out72["hours"] == 72
-    assert len(out72["time"]) == 72
+    assert out["hours"] == HOURS == 72
+    out48 = build_compact(points, regions=ONE_REGION, hours=48)
+    assert out48["hours"] == 48
+    assert len(out48["time"]) == 48
 
 
 # ---------------------------------------------------------------------------
-# 5. Budget
+# 5. Budget (600 KB serviti) sul dataset reale
 # ---------------------------------------------------------------------------
 @pytest.mark.skipif(not REAL_POINTS.exists(), reason="data/latest assente (copia di release)")
 def test_gzip_budget_on_real_dataset():
@@ -473,24 +480,26 @@ def test_gzip_budget_on_real_dataset():
     raw = dump(compact)
     gz9 = gzip.compress(raw, 9, mtime=0)
     gz6 = gzip.compress(raw, 6, mtime=0)
-    print("\nREALE: punti %d, modelli %s, raw %d B (%.1f KB), gzip-9 %d B (%.1f KB),"
-          " gzip-6 %d B (%.1f KB)"
-          % (len(points), ",".join(compact["model_series"].keys()), len(raw),
-             len(raw) / 1024.0, len(gz9), len(gz9) / 1024.0, len(gz6), len(gz6) / 1024.0))
-    assert len(gz9) <= BUDGET_GZIP
-    assert len(gz6) <= BUDGET_GZIP
+    served = len(gz9) * PAGES_INFLATION
+    print("\nREALE: %d punti, modelli %s, %d campi, %d h -> raw %d B (%.1f KB),"
+          " gzip-9 %d B (%.1f KB), gzip-6 %d B (%.1f KB), servito atteso %.0f B (%.1f KB)"
+          % (len(points), ",".join(compact["model_series"].keys()), len(compact["fields"]),
+             compact["hours"], len(raw), len(raw) / 1024.0, len(gz9), len(gz9) / 1024.0,
+             len(gz6), len(gz6) / 1024.0, served, served / 1024.0))
+    assert compact["hours"] == 72
+    assert len(gz9) <= BUDGET_SERVED / PAGES_INFLATION
+    assert len(gz6) <= BUDGET_SERVED
+    assert served <= BUDGET_SERVED
 
 
-def test_gzip_budget_synthetic_is_not_the_binding_check(compact):
+def test_gzip_synthetic_is_not_the_binding_check(compact):
     """Il budget si misura sul dataset REALE (test sopra): la serie sintetica
-    sovrastima del 30-45% perche' non ha la correlazione fra campi e fra modelli
-    dei dati veri (misurato: 449 KB sintetico contro 347 KB reale a parita' di
-    schema). Qui si verifica solo che il formato non esploda e che il gzip
-    riduca davvero (rapporto raw/gzip >= 2)."""
+    sovrastima del 30-45%. Qui si verifica solo che il formato non esploda e
+    che il gzip riduca davvero (rapporto raw/gzip >= 2)."""
     raw = dump(compact)
     gz9 = gzip.compress(raw, 9, mtime=0)
     gz6 = gzip.compress(raw, 6, mtime=0)
-    print("\nSINTETICO 4 modelli: raw %d B (%.1f KB), gzip-9 %d B (%.1f KB),"
+    print("\nSINTETICO 2 modelli: raw %d B (%.1f KB), gzip-9 %d B (%.1f KB),"
           " gzip-6 %d B (%.1f KB)"
           % (len(raw), len(raw) / 1024.0, len(gz9), len(gz9) / 1024.0,
              len(gz6), len(gz6) / 1024.0))
@@ -506,6 +515,16 @@ def test_build_writes_and_metadata_declares_compact():
     assert "meteorisk-points-compact.json" in src
     assert '"compact": "meteorisk-points-compact.json"' in src
     assert "build_compact_dataset(" in src
+
+
+def test_dataset_downloads_only_pro_models():
+    """La pipeline NON deve scaricare i modelli di Sviluppo."""
+    assert common.SOURCE_MODELS == ("best_match", "ecmwf_ifs")
+    assert getattr(common, "DEV_MODELS", ()) == ("gfs_seamless",
+                                                 "italia_meteo_arpae_icon_2i")
+    assert common.DUAL_MODELS == "best_match,ecmwf_ifs"
+    for model in common.DEV_MODELS:
+        assert model not in common.SOURCE_MODELS
 
 
 def test_publish_copies_compact():
