@@ -113,15 +113,15 @@ def test_caso_a_new_runner_stateless_full_fetch():
                            forecast_days=None: [_ok_element() for _ in range(len(lats))]) as fb:
         rc = _run_fetch(env.points)
         assert rc == 0
-        assert fb.call_count == 2  # 1 batch x 2 leg (best_match + ecmwf_ifs)
+        assert fb.call_count == 4  # 1 batch x 4 leg (SOURCE_MODELS)
         raw = json.loads(env.raw.read_text(encoding="utf-8"))
     assert raw["cycle_mode"] == "coordinated"
-    assert raw["models"] == ["best_match", "ecmwf_ifs"]
+    assert raw["models"] == list(common.SOURCE_MODELS)
     assert raw["leg_timestamps"]["best_match_fetched_at"] == raw["leg_timestamps"]["ecmwf_fetched_at"]
     pts = dict(raw["points"])
     assert set(pts.keys()) == {0, 1}
-    assert "best_match" in pts[0] and "ecmwf_ifs" in pts[0]
-    assert "best_match" in pts[1] and "ecmwf_ifs" in pts[1]
+    for model in common.SOURCE_MODELS:
+        assert model in pts[0] and model in pts[1]
 
 
 def test_caso_c_ecmwf_new_full_fetch():
@@ -159,6 +159,7 @@ def test_caso_d_retry_runs_when_budget_available():
     """Errore retryable al primo giro + budget residuo disponibile -> il retry
     selettivo PARTE (fetch_source_batch richiamato di nuovo sui batch falliti)."""
     calls = {"n": 0}
+    n_models = len(common.SOURCE_MODELS)
 
     def flaky(lats, lons, models=None, forecast_days=None):
         calls["n"] += 1
@@ -166,11 +167,15 @@ def test_caso_d_retry_runs_when_budget_available():
             raise RuntimeError("Open-Meteo API error: Minutely API request limit")
         return [_ok_element() for _ in range(len(lats))]
 
-    with _isolated_env(used=90, ceiling=100) as env, \
+    # Budget: 1 batch x n_models al primo giro + 1 batch x n_models al retry,
+    # tutto dentro il tetto (con n_models leg il vecchio 90 non basta piu').
+    with _isolated_env(used=100 - 2 * n_models, ceiling=100) as env, \
          mock.patch.object(common, "fetch_source_batch", side_effect=flaky) as fb:
         rc = _run_fetch(env.points)
         assert rc == 0
-        assert fb.call_count == 3  # 1 primo giro + 2 retry selettivo (entrambi i leg)
+        # primo giro: si ferma al PRIMO leg che fallisce (1 chiamata); il retry
+        # selettivo rifa' il batch intero (n_models chiamate).
+        assert fb.call_count == 1 + n_models
         raw = json.loads(env.raw.read_text(encoding="utf-8"))
     assert len(raw["points"]) == 2
     assert raw["cycle_mode"] == "coordinated"
@@ -180,17 +185,21 @@ def test_caso_e_no_retry_without_budget():
     """Errore retryable ma budget GIORNALIERO esaurito -> NESSUN retry: il gate
     budget (prima del re-tentativo) ferma i retry; capoluoghi mancanti -> rc 3
     (safe skip, no partial publish). Nessuna prenotazione preventiva."""
+    n_models = len(common.SOURCE_MODELS)
+
     def always_flaky(lats, lons, models=None, forecast_days=None):
         raise RuntimeError("Open-Meteo API error: Minutely API request limit")
 
-    with _isolated_env(used=98, ceiling=100) as env, \
+    # Il pre-flight deve PASSARE (100 - n_models + n_models = 100) e il primo
+    # giro deve esaurire esattamente il tetto: cosi' il retry non parte.
+    with _isolated_env(used=100 - n_models, ceiling=100) as env, \
          mock.patch.object(common, "fetch_source_batch", side_effect=always_flaky) as fb:
         rc = _run_fetch(env.points)
         assert rc == 3  # capoluoghi mancanti in steady-state: no-publish, safe skip
-        assert fb.call_count == 1  # SOLO primo giro: nessun retry (budget esaurito)
+        assert fb.call_count == 1  # SOLO primo leg del primo giro: nessun retry
         assert not env.raw.exists()  # nessun raw parziale scritto
         usage = json.loads(env.usage.read_text(encoding="utf-8"))
-    assert usage["days"][common.usage_day_key()]["requests"] == 100  # 98 + 2 primo giro
+    assert usage["days"][common.usage_day_key()]["requests"] == 100
 
 
 def test_budget_ok_for_retry_gate():

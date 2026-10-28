@@ -148,7 +148,22 @@ FORECAST_DAYS = 3
 TIMEZONE = "Europe/Rome"
 # Leg modello scaricati in OGNI ciclo (coordinati col run driver ECMWF IFS).
 # None di essi "comanda" il run: best_match è COORDINATO, non driver.
-DUAL_MODELS = "best_match,ecmwf_ifs"
+# I 4 identificatori sono quelli dell'API Open-Meteo E le chiavi del payload
+# (`points[].models`) e del dataset compatto: così il client non deve tradurre.
+# MISURATO il 2026-10-28 (1 richiesta, Roma, 72 h, tutti i parametri):
+#   - gfs_seamless: 48/49 campi con dati (solo k_index nullo);
+#   - italia_meteo_arpae_icon_2i: mancano precipitation_probability,
+#     windspeed_100m/winddirection_100m, 950 hPa, lifted_index, k_index
+#     (le chiavi esistono nella risposta ma sono [null x72]).
+SOURCE_MODELS = ("best_match", "ecmwf_ifs", "gfs_seamless",
+                 "italia_meteo_arpae_icon_2i")
+# Nome storico: stringa `models=` usata dal planner/fetch (una richiesta per leg).
+DUAL_MODELS = ",".join(SOURCE_MODELS)
+# Modelli del MENU del client. `dual_best_ecmwf` NON è un download: è il merge
+# client-side di best_match + ecmwf_ifs, quindi non ha una serie propria nel
+# dataset (il compatto lo dichiara in `models_derived`).
+MODEL_MENU = ("dual_best_ecmwf",) + SOURCE_MODELS
+MODELS_DERIVED = ("dual_best_ecmwf",)
 
 HOURLY_FIELDS = HOURLY_PARAMS.split(",")
 DAILY_FIELDS = DAILY_PARAMS.split(",")
@@ -1020,10 +1035,16 @@ def _optional_params_in_error(msg):
     return ()
 
 
-def fetch_source_batch(lats, lons, models=DUAL_MODELS, forecast_days=FORECAST_DAYS,
+def fetch_source_batch(lats, lons, models=None, forecast_days=FORECAST_DAYS,
                        hourly=None):
     """One batched multi-location request (<=BATCH_MAX_LOCATIONS locations),
     pace-limited, with LIMITED exponential backoff. Only THIS batch is retried.
+
+    `models` e' il SINGOLO leg da scaricare (una richiesta per leg, come fa
+    fetch_source_data): Open-Meteo risponde con array piatti. Con piu' modelli
+    nella stessa richiesta i campi tornano suffissati `_<modello>` e il record
+    non sarebbe piu' quello atteso: non passare una lista qui.
+    None = default dell'API (best_match).
 
     `hourly` (default `HOURLY_PARAMS`) e' la lista dei campi orari; serve ai
     test per forzare la forma storica.
@@ -1162,13 +1183,14 @@ def split_dual_response_element(el):
     """Extract per-model records {daily, hourly, elevation} from one response element.
 
     Element shapes supported:
-      - element has 'best_match'/'ecmwf_ifs' sub-objects (dual, per location)
+      - element has per-model sub-objects (best_match/ecmwf_ifs/gfs_seamless/
+        italia_meteo_arpae_icon_2i)
       - element has daily/hourly directly (single model)
     Returns dict model_id -> {'daily':..., 'hourly':..., 'elevation':...}
     """
     out = {}
-    models = ["best_match", "ecmwf_ifs"]
-    if el.get(models[0]) or el.get(models[1]):
+    models = list(SOURCE_MODELS)
+    if any(el.get(m) for m in models):
         for m in models:
             sub = el.get(m)
             if sub and sub.get("daily") and sub.get("hourly"):

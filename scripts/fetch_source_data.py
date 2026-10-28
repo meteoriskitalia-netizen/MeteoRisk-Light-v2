@@ -11,8 +11,8 @@ costituenti non vengono ripubblicati, specchiati o incapsulati.
   ciclo — stesso fetched_at, dataset temporalmente coerente):
   - REQUEST PLANNER integrato: coordinate DEDUPLICATE + BATCH (100/richiesta) +
     pre-flight GUARDRAIL (api_usage.json, hard safety ceiling).
-  - Piano reale (257 punti, 107 province): 3 blocchi (100/100/57) x 2 leg =
-    6 richieste (era 1 a punto: 257). Spaziatura 30 s anti minutely-limit
+  - Piano reale (257 punti, 107 province): 3 blocchi (100/100/57) x 4 leg =
+    12 richieste (era 1 a punto: 257). Spaziatura 30 s anti minutely-limit
     (~5/min osservato sul campo).
   - RETRY selettivi e limitati: al primo giro falliscono solo alcuni batch;
     vengono ritentati SOLO quelli falliti; l'exponential backoff limitato vive
@@ -31,7 +31,8 @@ costituenti non vengono ripubblicati, specchiati o incapsulati.
     merge dell'ecmwf_ifs dal raw PRECEDENTE) è RIMOSSA: data/_raw non persiste
     tra i run (runner GitHub ephemeral), quindi quel merge non era riproducibile
     e rendeva la pipeline dipendente da stato residuale. OGGI ogni ciclo di
-    lavoro scarica SEMPRE entrambi i leg (best_match + ecmwf_ifs) in un fetch
+    lavoro scarica SEMPRE tutti i leg (common.SOURCE_MODELS: best_match,
+    ecmwf_ifs, gfs_seamless, italia_meteo_arpae_icon_2i) in un fetch
     completo coordinato: il raw è scritto e consumato DENTRO lo stesso run,
     MAI riletto da un ciclo successivo (STATELESS rispetto a data/_raw).
   - BOOTSTRAP (G5): se non esiste ancora un dataset live, gli esiti che in
@@ -151,8 +152,8 @@ def main():
     parser.add_argument("--skip-preflight", action="store_true",
                         help="Salta il blocco da hard safety ceiling (uso diagnostico, MAI nelle Action).")
     parser.add_argument("--mode", choices=["coordinated", "none"], default="coordinated",
-                        help="coordinated (default): fetch completo di entrambi i leg "
-                             "(best_match + ecmwf_ifs). none = NO-OP del ciclo idle (rc 5, nessuna "
+                        help="coordinated (default): fetch completo di tutti i leg "
+                             "(common.SOURCE_MODELS: 4 modelli). none = NO-OP del ciclo idle (rc 5, nessuna "
                              "richiesta, nessun raw). Niente refresh parziale best_match_only "
                              "(rimosso: dipendeva dal raw di un ciclo precedente).")
     args = parser.parse_args()
@@ -244,7 +245,7 @@ def main():
         return ok_here, bad_here
 
     def record_usage(reqs, bads, batch_list):
-        # ogni batch = UNA richiesta per leg modello (best_match + ecmwf_ifs)
+        # ogni batch = UNA richiesta per leg modello (common.SOURCE_MODELS)
         common.record_api_usage(requests=reqs * n_models, failed=bads * n_models,
                                 successful=(reqs - bads) * n_models,
                                 forecast=reqs * n_models,
@@ -337,7 +338,7 @@ def main():
         "forecast_days": common.FORECAST_DAYS,
         "timezone": common.TIMEZONE,
         "driver_model": common.DRIVER_MODEL,
-        "models": common.DUAL_MODELS.split(","),   # dataset SEMPRE dual (best_match + ecmwf_ifs)
+        "models": list(common.SOURCE_MODELS),   # dataset SEMPRE multi-modello (4 leg)
         "cycle_mode": cycle_mode,
         "leg_timestamps": leg_ts,
         "hourly_optional": hourly_optional,

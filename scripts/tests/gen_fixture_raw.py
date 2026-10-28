@@ -140,17 +140,27 @@ def synth_point(lat, lon, elev):
         "precipitation_probability_max": [max(hourly["precipitation_probability"][d * 24: (d + 1) * 24]) for d in range(3)],
     }
 
-    def model_rec(jitter):
+    def model_rec(jitter, null_fields=()):
         h2 = {}
         for f, arr in hourly.items():
-            h2[f] = [round(v + rnd.uniform(-jitter, jitter), 2) for v in arr]
+            if f in null_fields:
+                h2[f] = [None] * len(arr)
+            else:
+                h2[f] = [round(v + rnd.uniform(-jitter, jitter), 2) for v in arr]
         d2 = {k: [round(v + rnd.uniform(-jitter, jitter), 2) for v in arr] for k, arr in daily.items()}
         d2["weathercode"] = list(daily["weathercode"])
         return {"daily": d2, "hourly": h2}
 
+    # MISURATO il 2026-10-28 sull'API: ARPAE ICON-2I restituisce queste chiavi
+    # come [null x72] (non le omette). Il fixture le riproduce cosi'.
+    arpae_missing = ("precipitation_probability", "windspeed_100m", "winddirection_100m",
+                     "wind_speed_950hPa", "wind_direction_950hPa",
+                     "lifted_index", "k_index")
     return {
         "best_match": model_rec(0.15),
         "ecmwf_ifs": model_rec(0.35),
+        "gfs_seamless": model_rec(0.55),
+        "italia_meteo_arpae_icon_2i": model_rec(0.65, null_fields=arpae_missing),
         "elevation": (elev or 0),
         # COPPERTURA TEMPORALE TRANSITORIA (mai pubblicata): hourly[0]/daily[0] = giorno
         # del fetch (2026-01-01), coerente con fetched_at del raw. Qui il day0 dai dati
@@ -189,7 +199,7 @@ def main():
     points = common.generate_real_points()
     out = {"fetched_at": "2026-01-01T00:00:00Z", "forecast_days": 3, "timezone": "Europe/Rome",
            "driver_model": "ecmwf_ifs",
-           "models": ["best_match", "ecmwf_ifs"],
+           "models": list(common.SOURCE_MODELS),
            "points": []}
     # elevation fake deterministica (gradiente orografico sintetico)
     for p in points:

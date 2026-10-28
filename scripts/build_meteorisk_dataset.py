@@ -81,6 +81,47 @@ COMPACT_SCHEMA = "meteorisk-points-compact/1"
 COMPACT_PROVINCE_FIELDS = ["sigla", "lat", "lon", "n_points"]
 COMPACT_WORST_FIELDS = frozenset(("weathercode",))
 _COMPACT_LEVELS = (1000, 975, 950, 925, 900, 850, 800, 700, 600, 500)
+# ORIZZONTE E CAMPI PUBBLICATI NEL COMPATTO (scelta MISURATA, non stimata).
+# Il budget e' 400 KB gzip con 4 modelli x 107 province. Misure del 2026-10-28
+# sul dataset reale (257 punti, valori veri) con i 2 modelli nuovi ricostruiti
+# come perturbazione ad alta entropia (l'API era in 429: sigma per campo, non
+# uno shift costante, che sarebbe troppo comprimibile):
+#   48 campi @72h -> 845 KB gz9   (fuori budget)
+#   48 campi @48h -> 581 KB       (fuori)
+#   27 campi @48h -> 401 KB gz9 / 416 KB gz6  (fuori)
+#   24 campi @48h -> 372 KB gz9 / 386 KB gz6  (Pages serve ~+8-10% -> ~405 KB: fuori)
+#   22 campi @48h -> 350 KB gz9 / 362 KB gz6  <- SCELTO (Pages atteso ~385 KB)
+#   20 campi @48h -> 329 KB gz9
+# Nota: GitHub Pages ricomprime (misurato sul file a 1 modello: gz9 341.398 ->
+# servito 378.086, +10,7%), quindi il budget va valutato sul gz9 x ~1,1.
+# Quindi: orizzonte 48 h (2 giorni) e 22 campi. Tagliati, dichiarati:
+#   - 7 livelli di pressione extra (1000/975/950/925/900/800/600 hPa): il
+#     hodograph resta su 850/700/500, shear/SRH/SCP calcolabili ma piu' grossolani;
+#   - windspeed_100m/winddirection_100m (il rischio vento usa i 10 m);
+#   - temperature_850hPa, relative_humidity_850/700hPa, dew_point_850/700hPa:
+#     input del solo badge downburst (resta spento sul compatto);
+#   - convective_inhibition/lifted_index/k_index e temperature_700/500hPa:
+#     gate e input del badge GRANDINE, che sul compatto resta spento (il dataset
+#     completo li ha). Con 2 campi in piu' il file servito superava i 400 KB.
+# Restano gli input di: mappa dei rischi, badge di rischio (temperatura, caldo/
+# freddo, vento, pioggia, temporale), indici severi (core 850/700/500 + quote
+# geometriche per AGL/Bunkers/SRH), neve (codice+temperature), nebbia esclusa
+# (visibility non e' nel dataset). Il dataset COMPLETO resta a 72 h e 49 campi.
+COMPACT_MAX_HOURS = 48
+COMPACT_FIELD_NAMES = (
+    # superficie: colori mappa + badge di rischio
+    "temperature_2m", "relativehumidity_2m", "dew_point_2m", "pressure_msl",
+    "cape", "precipitation_probability", "windspeed_10m", "winddirection_10m",
+    "windgusts_10m", "weathercode", "precipitation", "showers",
+    "freezing_level_height",
+    # hodograph ridotto: i 3 livelli CORE che il client pretende
+    "wind_speed_850hPa", "wind_direction_850hPa",
+    "wind_speed_700hPa", "wind_direction_700hPa",
+    "wind_speed_500hPa", "wind_direction_500hPa",
+    # quote geometriche (AGL/Bunkers/SRH)
+    "geopotential_height_850hPa", "geopotential_height_700hPa",
+    "geopotential_height_500hPa",
+)
 # (campo, decimali, passo di arrotondamento o None)
 COMPACT_HOURLY_FIELDS = (
     ("temperature_2m", 1, None),
@@ -143,9 +184,10 @@ del _lv
 
 
 def dedupe_models(record):
-    """record: {best_match: {daily,hourly}, ecmwf_ifs: {...}, elevation}."""
+    """record: {best_match: {daily,hourly}, ecmwf_ifs: {...}, gfs_seamless: {...},
+    italia_meteo_arpae_icon_2i: {...}, elevation}."""
     out = {}
-    for m in ("best_match", "ecmwf_ifs"):
+    for m in common.SOURCE_MODELS:
         sub = record.get(m)
         if sub and sub.get("daily") and sub.get("hourly"):
             out[m] = {"daily": sub["daily"], "hourly": sub["hourly"]}
@@ -262,38 +304,87 @@ def _series_length(points, model, fields):
 
 
 def build_compact_dataset(points, regions, generated_at, day0, time_base=None,
-                          model="best_match"):
+                          model="best_match", models=None, hours=None, fields=None):
     """Aggrega i punti per provincia nel file compatto (una richiesta HTTP).
 
     `points` sono gli stessi record scritti in meteorisk-points.json: il
     compatto e' quindi coerente per costruzione con la fonte completa, che
     resta invariata. `regions` e' data/geography/regions_data.json (ordine e
     indici delle province). Ritorna il dict pronto da serializzare.
+
+    COPERTURA: tutti i modelli di `common.SOURCE_MODELS` (default) presenti nei
+    punti. Il PRIMO (`best_match`) vive nelle chiavi storiche `series`/`daily`;
+    gli altri in `model_series[modello]`/`model_daily[modello]`, cosi' un
+    lettore del formato a un solo modello continua a funzionare. `model` resta
+    il modello principale (compatibilita' della chiave singola).
+
+    LIMITI DI DIMENSIONE: `hours` taglia l'orizzonte (48 = due giorni) e
+    `fields` sceglie il sottoinsieme di COMPACT_HOURLY_FIELDS. Servono al
+    budget di 400 KB gzip con 4 modelli: vedi COMPACT_HOURS/COMPACT_FIELD_NAMES.
     """
-    present_hourly = [
-        (field, dec, step) for field, dec, step in COMPACT_HOURLY_FIELDS
-        if any((((p.get("models") or {}).get(model) or {}).get("hourly") or {}).get(field)
-               for p in points)
-    ]
+    wanted_models = list(models or common.SOURCE_MODELS)
+    present_models = [m for m in wanted_models
+                      if any((((p.get("models") or {}).get(m) or {}).get("hourly"))
+                             for p in points)]
+    primary = model if model in present_models else (present_models[0] if present_models else model)
+
+    allowed = set(fields) if fields else set(COMPACT_FIELD_NAMES)
+    schema_hourly = [(f, d, s) for f, d, s in COMPACT_HOURLY_FIELDS
+                     if allowed is None or f in allowed]
     present_daily = [
         (field, dec, step) for field, dec, step in COMPACT_DAILY_FIELDS
-        if any((((p.get("models") or {}).get(model) or {}).get("daily") or {}).get(field)
+        if any((((p.get("models") or {}).get(primary) or {}).get("daily") or {}).get(field)
                for p in points)
     ]
-    n_hours = _series_length(points, model, present_hourly)
+    n_hours = _series_length(points, primary, schema_hourly)
+    hours = COMPACT_MAX_HOURS if hours is None else hours
+    if hours:
+        n_hours = min(n_hours, int(hours))
     n_days = 0
     if present_daily and points:
-        n_days = min(len((((p.get("models") or {}).get(model) or {}).get("daily") or {}).get(f)
+        n_days = min(len((((p.get("models") or {}).get(primary) or {}).get("daily") or {}).get(f)
                          or []) for p in points for f, _d, _s in present_daily
-                     if (((p.get("models") or {}).get(model) or {}).get("daily") or {}).get(f))
+                     if (((p.get("models") or {}).get(primary) or {}).get("daily") or {}).get(f))
 
     by_prov = {}
     for p in points:
         by_prov.setdefault(p.get("provinceIdx"), []).append(p)
 
+    def hourly_series(group, model_id, fields_spec):
+        out = {}
+        for field, dec, step in fields_spec:
+            row = []
+            for h in range(n_hours):
+                vals = []
+                for p in group:
+                    arr = (((p.get("models") or {}).get(model_id) or {}).get("hourly") or {}).get(field) or []
+                    if h < len(arr):
+                        vals.append(arr[h])
+                row.append(compact_value(vals, field, dec, step))
+            out[field] = row
+        return out
+
+    def daily_series_fn(group, model_id):
+        out = {}
+        for field, dec, step in present_daily:
+            row = []
+            for d in range(n_days):
+                vals = []
+                for p in group:
+                    arr = (((p.get("models") or {}).get(model_id) or {}).get("daily") or {}).get(field) or []
+                    if d < len(arr):
+                        vals.append(arr[d])
+                row.append(compact_value(vals, field, dec, step))
+            out[field] = row
+        return out
+
     provinces = []
-    series = {field: [] for field, _d, _s in present_hourly}
+    series = {field: [] for field, _d, _s in schema_hourly}
     daily_series = {field: [] for field, _d, _s in present_daily}
+    other_series = {m: {field: [] for field, _d, _s in schema_hourly}
+                    for m in present_models if m != primary}
+    other_daily = {m: {field: [] for field, _d, _s in present_daily}
+                   for m in present_models if m != primary}
     for region in regions:
         idx = region.get("idx")
         group = by_prov.get(idx) or []
@@ -303,26 +394,19 @@ def build_compact_dataset(points, regions, generated_at, day0, time_base=None,
             common.r2(region.get("lon"), 5),
             len(group),
         ])
-        for field, dec, step in present_hourly:
-            row = []
-            for h in range(n_hours):
-                vals = []
-                for p in group:
-                    arr = (((p.get("models") or {}).get(model) or {}).get("hourly") or {}).get(field) or []
-                    if h < len(arr):
-                        vals.append(arr[h])
-                row.append(compact_value(vals, field, dec, step))
-            series[field].append(row)
-        for field, dec, step in present_daily:
-            row = []
-            for d in range(n_days):
-                vals = []
-                for p in group:
-                    arr = (((p.get("models") or {}).get(model) or {}).get("daily") or {}).get(field) or []
-                    if d < len(arr):
-                        vals.append(arr[d])
-                row.append(compact_value(vals, field, dec, step))
-            daily_series[field].append(row)
+        prim = hourly_series(group, primary, schema_hourly)
+        for field in series:
+            series[field].append(prim[field])
+        pri_daily = daily_series_fn(group, primary)
+        for field in daily_series:
+            daily_series[field].append(pri_daily[field])
+        for m in other_series:
+            again = hourly_series(group, m, schema_hourly)
+            for field in again:
+                other_series[m][field].append(again[field])
+            again_d = daily_series_fn(group, m)
+            for field in again_d:
+                other_daily[m][field].append(again_d[field])
 
     base = time_base or (day0.isoformat() + "T00:00")
     try:
@@ -332,13 +416,15 @@ def build_compact_dataset(points, regions, generated_at, day0, time_base=None,
     time = [(day_start + _dt.timedelta(days=h // 24)).isoformat() + ("T%02d:00" % (h % 24))
             for h in range(n_hours)]
 
-    fields = [field for field, _d, _s in present_hourly]
+    fields_out = [field for field, _d, _s in schema_hourly]
     daily_fields = [field for field, _d, _s in present_daily]
     return {
         "schema": COMPACT_SCHEMA,
         "status": "live" if points else "empty",
         "generated_at": generated_at,
-        "model": model,
+        "model": primary,
+        "models_covered": list(common.MODEL_MENU),
+        "models_derived": list(common.MODELS_DERIVED),
         "licence": common.SOURCE_LICENSE,
         "licence_url": "https://creativecommons.org/licenses/by/4.0/",
         "attribution": ATTR,
@@ -353,16 +439,20 @@ def build_compact_dataset(points, regions, generated_at, day0, time_base=None,
                      "integers": "humidity, probability, codes, cape, cin, k_index,"
                                  " freezing_level, geopotential, wind direction"},
         "time": time,
-        "fields": fields,
-        "units": {f: COMPACT_UNITS.get(f) for f in fields},
+        "fields": fields_out,
+        "units": {f: COMPACT_UNITS.get(f) for f in fields_out},
         "province_fields": list(COMPACT_PROVINCE_FIELDS),
         "provinces": provinces,
         "series": series,
+        "model_series": other_series,
         "daily_fields": daily_fields,
         "daily": daily_series,
+        "model_daily": other_daily,
         "note": ("Aggregato per provincia dei punti di campionamento (media; "
-                 "weathercode = codice peggiore). Solo best_match: il modello "
-                 "ecmwf_ifs resta nel dataset completo. null = nessun punto "
+                 "weathercode = codice peggiore). `series`/`daily` = best_match; "
+                 "`model_series`/`model_daily` = gli altri modelli. "
+                 "dual_best_ecmwf e' il merge client-side di best_match + "
+                 "ecmwf_ifs (models_derived), non una serie. null = nessun punto "
                  "della provincia con il dato a quell'ora."),
     }
 
@@ -421,7 +511,7 @@ def main():
                              "license": common.SOURCE_LICENSE}],
             "attribution": ATTR,
             "generated_at": common.now_iso(),
-            "models_covered": ["best_match", "ecmwf_ifs"],
+            "models_covered": list(common.SOURCE_MODELS),
             "forecast_days": common.FORECAST_DAYS,
             "timezone": common.TIMEZONE,
             "point_count": 0,
@@ -449,13 +539,16 @@ def main():
         with open(common.DATA_STAGING / "meteorisk-points-compact.json", "w", encoding="utf-8") as fh:
             json.dump({"schema": COMPACT_SCHEMA, "status": "empty",
                        "generated_at": metadata["generated_at"], "model": "best_match",
+                       "models_covered": list(common.MODEL_MENU),
+                       "models_derived": list(common.MODELS_DERIVED),
                        "licence": common.SOURCE_LICENSE,
                        "licence_url": "https://creativecommons.org/licenses/by/4.0/",
                        "attribution": ATTR, "source": common.SOURCE_NAME,
                        "timezone": common.TIMEZONE, "forecast_days": common.FORECAST_DAYS,
                        "hours": 0, "days": 0, "count": 0, "time": [],
                        "fields": [], "units": {}, "province_fields": list(COMPACT_PROVINCE_FIELDS),
-                       "provinces": [], "series": {}, "daily_fields": [], "daily": {}},
+                       "provinces": [], "series": {}, "model_series": {},
+                       "daily_fields": [], "daily": {}, "model_daily": {}},
                       fh, separators=(",", ":"), ensure_ascii=False)
         print("[build] Staging placeholder pronto in data/_staging.")
         return 0
@@ -581,7 +674,7 @@ def main():
                     "generated_at": raw["fetched_at"],
                     "forecast_days": common.FORECAST_DAYS,
                     "timezone": common.TIMEZONE,
-                    "models": ["best_match", "ecmwf_ifs"],
+                    "models": list(common.SOURCE_MODELS),
                     # Copertura dei parametri OPZIONALI (visibility in metri):
                     # e' il conteggio che dice quante localita' hanno davvero
                     # il campo. Assente nei raw vecchi -> nessuna chiave.
@@ -603,7 +696,8 @@ def main():
     # Costruito dagli stessi record appena scritti in meteorisk-points.json:
     # la fonte completa resta invariata, l'aggregato e' coerente per costruzione.
     compact = build_compact_dataset(points_out, regions, raw["fetched_at"], day0,
-                                    time_base=time_base)
+                                    time_base=time_base, hours=COMPACT_MAX_HOURS,
+                                    fields=COMPACT_FIELD_NAMES)
     compact_path = common.DATA_STAGING / "meteorisk-points-compact.json"
     compact_path.write_text(json.dumps(compact, separators=(",", ":"), ensure_ascii=False),
                             encoding="utf-8")
@@ -617,7 +711,8 @@ def main():
                          "license": common.SOURCE_LICENSE}],
         "attribution": ATTR,
         "generated_at": raw["fetched_at"],
-        "models_covered": ["best_match", "ecmwf_ifs"],
+        "models_covered": list(common.SOURCE_MODELS),
+        "models_derived": list(common.MODELS_DERIVED),
         "forecast_days": common.FORECAST_DAYS,
         "timezone": common.TIMEZONE,
         "point_count": len(points_out),
