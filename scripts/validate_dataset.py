@@ -80,9 +80,12 @@ def main():
           not any(w in att.lower() for w in ("affiliated", "endorsed", "by open-meteo", "supported by")))
     check("forecast_days=3", meta.get("forecast_days") == common.FORECAST_DAYS)
     check("timezone Europe/Rome", meta.get("timezone") == common.TIMEZONE)
-    check("models_covered = i leg di common.SOURCE_MODELS (percorso Pro)",
-          sorted(meta.get("models_covered") or []) == sorted(common.SOURCE_MODELS),
+    check("models_covered = modelli del percorso Pro (dual + 2 scaricati)",
+          sorted(meta.get("models_covered") or []) == sorted(common.MODEL_MENU),
           "got %s" % (meta.get("models_covered"),))
+    check("models_derived dichiara i modelli derivati (dual_best_ecmwf)",
+          sorted(meta.get("models_derived") or []) == sorted(common.MODELS_DERIVED),
+          "got %s" % (meta.get("models_derived"),))
 
     live = meta.get("status") == "live"
     if not live:
