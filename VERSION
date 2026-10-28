@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.2.4.59 - CONFRONTO MODELLI SENZA SCADENZA AUTOMATICA: IL PANNELLO RESTA IN CACHE FINCHE' NON PREMI "AGGIORNA" (NIENTE PIU' 2 RICHIESTE OGNI 10 MINUTI SENZA CHE NESSUNO LE CHIEDA) (bump da 1.2.4.58)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=59
+RELEASE_TYPE=release
+DATE=2026-10-28
+NOTE=Release 1.2.4.59 (bump da 1.2.4.58) - SOLO CLIENT: IL CONFRONTO MODELLI NON SCADE PIU' DA SOLO. (1) CACHE SENZA TTL: la chiave della localita' resta valida a tempo indefinito; sulla 1.2.4.58 ogni 10 minuti la cache scadeva e il successivo updateUI (cambio giorno, slider, click provincia) rifaceva 2 richieste GFS senza che l'utente le avesse chieste. (2) PULSANTE "Aggiorna" nel pannello confronto: svuota la chiave della localita' corrente e rifa' le richieste dichiarando la fonte; quando i dati arrivano dalla cache la nota lo dice ("in cache: premi Aggiorna per ricaricare"). MISURATO sulla pagina servita: cambio giorno 0 richieste API, slider 0, click provincia 0; solo il pulsante fa partire le richieste. (3) Nessuna modifica a dataset, pipeline, indicatori severi o mappe. BUMP: html mri-light-1.2.4.59.html (APP_VERSION, APP_RELEASE_DATE 2026-10-28, 2 voci di changelog), VERSION (BUILD=59, DATE=2026-10-28, APP_FILE=mri-light-1.2.4.59.html), sw.js (CACHE_NAME mri-1.2.4.59), README.md, i test .mjs che citano il nome del file e le 3 righe cp dei workflow. La 1.2.4.58 va RIMOSSA dal repo. NON toccati: scripts/*, i workflow dei dati, color_scales.json, data/latest/*.
+APP_FILE=mri-light-1.2.4.59.html
+
 MeteoRisk Light - 1.2.4.58 - MODELLI COPERTI LETTI DAL DATASET (PRO: BEST MATCH, ECMWF, DUAL A 72 ORE), PERIMETRO DICHIARATO PER GFS/ARPAE (SOLO API, DISPONIBILI IN SVILUPPO), CHIAVE DI CACHE DEL CONFRONTO SENZA GIORNO, GATE 429 UNICO NEL PERCORSO LIVE (bump da 1.2.4.57)
 MAJOR=1
 MINOR=2

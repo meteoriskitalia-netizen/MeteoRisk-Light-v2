@@ -60,7 +60,7 @@
  */
 'use strict';
 
-var CACHE_NAME = 'mri-1.2.4.58';
+var CACHE_NAME = 'mri-1.2.4.59';
 var MAX_ENTRIES = 1200;
 var NETWORK_TIMEOUT_MS = 10000;  // navigazione (1.2.4.56: era 3000)
 var INDEX_TIMEOUT_MS = 2000;     // indici aggregati (1.2.4.56)

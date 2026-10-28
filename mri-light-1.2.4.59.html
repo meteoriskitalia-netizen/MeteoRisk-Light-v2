@@ -1930,6 +1930,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                     <option value="1">Domani</option>
                     <option value="2">Dopodomani</option>
                 </select>
+                <button type="button" id="model-compare-refresh" onclick="refreshModelComparison()" title="Ricarica i dati del confronto (le richieste restano in cache finche' non premi qui)" style="font-size:10px; padding:3px 8px; cursor:pointer; background:#1e293b; color:#e2e8f0; border:1px solid #475569; border-radius:4px;">↻ Aggiorna</button>
             </div>
             <div id="model-compare-note" style="font-size:10px; line-height:1.35; color:#64748b; margin-bottom:6px;"></div>
             <table class="model-table">
@@ -2028,9 +2029,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.58';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.59';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-10-28';
     const APP_CHANGELOG = [
+        { version: '1.2.4.59', date: '2026-10-28', changes: [
+  'CONFRONTO MODELLI= NIENTE PIU\' SCADENZA AUTOMATICA, AGGIORNAMENTO A RICHIESTA. La cache del pannello non scade piu\' ogni 10 minuti: il record resta valido finche\' non premi il pulsante "Aggiorna" accanto ai selettori. Prima, ogni 10 minuti, un semplice updateUI rifaceva 2 richieste (GFS) senza che nessuno le avesse chieste; ora dopo il primo caricamento le richieste sono 0 finche\' non decidi tu.',
+  'PULSANTE "Aggiorna" NEL PANNELLO. Svuota la chiave della localita\' corrente e rifa\' le richieste dichiarando la fonte; quando i dati vengono dalla cache la nota lo scrive ("in cache: premi ↻ Aggiorna per ricaricare"). Verificato: cambio giorno 0 richieste, slider 0 richieste, solo il pulsante fa partire le 2 richieste del confronto.',
+        ] },
         { version: '1.2.4.58', date: '2026-10-28', changes: [
   'MODELLI COPERTI LETTI DAL DATASET (PRO: BEST MATCH, ECMWF, DUAL A 72 ORE). La lista non e\' piu\' scritta a mano nel client: si legge da metadata.json -> models_covered + models_derived a OGNI caricamento, con l\'array statico usato SOLO come fallback quando il campo manca. Il client costruisce lo store di provincia di OGNI modello coperto dal payload gia\' scaricato: `points[].models[modello]` nel payload a punti, `series`/`daily` per best_match e `model_series[modello]`/`model_daily[modello]` nel payload compatto (stessa forma, nessuna trasformazione dei valori); dual_best_ecmwf resta il merge client-side di best_match + ecmwf_ifs. Conseguenza misurata: per i tre modelli coperti l\'apertura e il cambio modello costano 0 richieste API invece del percorso live a 257 coordinate, e per gfs_seamless/italia_meteo_arpae_icon_2i il client non finge piu\' di averli nel dataset. ORIZZONTE DERIVATO DAGLI ARRAY, NON DA UNA COSTANTE: il numero di giorni viene da time.length/lunghezza delle serie (72 h = 3 giorni, una serie piu\' corta chiude i giorni che non ci sono), i pulsanti giorno si nascondono quando il giorno non esiste, il pannello confronto non stampa piu\' "Dopodomani" vuoto e il grafico prende le etichette dalla lunghezza REALE della serie. Confronto modelli: la chiave di cache NON contiene piu\' il giorno (il record contiene gia\' tutti i giorni), quindi cambiare giorno con la stessa localita\' costa 0 richieste invece di 1.',
   'PERIMETRO PRO DICHIARATO: GFS E ARPAE RESTANO SOLO API, DISPONIBILI IN SVILUPPO. Il dataset pubblica i modelli Pro (best_match, ecmwf_ifs e il dual derivato); gfs_seamless e italia_meteo_arpae_icon_2i NON ci sono per scelta di perimetro, non per un guasto. Quando l\'utente li seleziona il pannello lo scrive: "disponibile solo in Sviluppo: il dato non e\' nel dataset (perimetro Pro: ...)", con il numero di punti, le richieste stimate e il peso stimato del percorso live. Sul 429 il percorso live non aspetta piu\' 60 s per ogni coordinata: il primo 429 apre un GATE unico che dichiara il countdown a schermo, ferma il ciclo (nessun retry a raffica) e lascia il dato gia\' caricato. La run operativa del modulo Ensemble e\' dichiarata per quello che e\': Best Match dal dataset, con la GFS deterministica fuori dataset. Il selettore del grafico si costruisce dai modelli coperti piu\' i due di Sviluppo: nessuna lista cablata.',
@@ -19504,7 +19509,10 @@ function toggleForecastMaps() {
     // chiamata e forecast_days=3, cache per chiave (lat, lon, giorno, modelli) con
     // TTL 10 minuti, promise CONDIVISA se la stessa chiave e' gia' in volo, e
     // backoff sul 429 che non riparte al successivo updateUI.
-    var MODEL_COMPARE_TTL_MS = 10 * 60 * 1000;
+    // 1.2.4.59 - NESSUNA SCADENZA AUTOMATICA. Il record resta valido finche'
+    // l'utente non preme "Aggiorna" nel pannello: prima ogni 10 minuti la cache
+    // scadeva e il pannello rifaceva 2 richieste (GFS) senza che nessuno le avesse
+    // chieste. La freschezza ora e' un gesto esplicito, non un timer.
     var MODEL_COMPARE_DAYS = 3;
     var MODEL_COMPARE_DAILY_VARS = 'temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max,weathercode';
     var MODEL_COMPARE_HOURLY_VARS = 'temperature_2m,precipitation,precipitation_probability,windspeed_10m,weathercode';
@@ -19641,9 +19649,9 @@ function toggleForecastMaps() {
         }, seconds * 1000);
     }
 
-    function modelCompareFetchData(key, lat, lon) {
+    function modelCompareFetchData(key, lat, lon, force) {
         var hit = modelCompareCache[key];
-        if (hit && (Date.now() - hit.ts) < MODEL_COMPARE_TTL_MS) {
+        if (hit && !force) {
             modelCompareStats.cacheHits++;
             return Promise.resolve({ rec: hit, cached: true });
         }
@@ -19695,7 +19703,16 @@ function toggleForecastMaps() {
         return p;
     }
 
-    async function fetchModelComparison(lat, lon) {
+    // 1.2.4.59 - aggiornamento MANUALE del pannello confronto: svuota la chiave
+    // corrente e rifa' le richieste. E' l'unico modo per avere dati piu' freschi.
+    function refreshModelComparison() {
+        if (modelCompareLat === null || modelCompareLon === null) return;
+        var key = modelCompareKey(modelCompareLat, modelCompareLon);
+        delete modelCompareCache[key];
+        fetchModelComparison(modelCompareLat, modelCompareLon, true);
+    }
+
+    async function fetchModelComparison(lat, lon, force) {
         // Open-Meteo disabilitata in questa edizione: nessuna richiesta di rete.
         if (!isFeatureEnabled('openMeteo')) {
             const tbodyNo = document.getElementById('model-compare-body');
@@ -19715,11 +19732,11 @@ function toggleForecastMaps() {
         // FIX: generation counter, invalida i callback di chiamate precedenti ancora pendenti
         var myGen = ++modelCompareGen;
         var cachedRec = modelCompareCache[key];
-        var isCached = !!(cachedRec && (Date.now() - cachedRec.ts) < MODEL_COMPARE_TTL_MS);
+        var isCached = !!(cachedRec && !force);
         if (!isCached && tbody) tbody.innerHTML = `<tr><td colspan="5" style="color:#38bdf8;">Caricamento ECMWF vs GFS...</td></tr>`;
         var out = null;
         try {
-            out = await modelCompareFetchData(key, lat, lon);
+            out = await modelCompareFetchData(key, lat, lon, force);
         } catch (e) {
             console.warn('[Compare] richiesta fallita: ' + (e && e.message));
             out = null;
@@ -19781,6 +19798,7 @@ function toggleForecastMaps() {
             note = 'GFS dall\'API diretta: non e\' nel dataset locale.';
             noteColor = '#f59e0b';
         }
+        if (out.cached) note += ' · in cache: premi ↻ Aggiorna per ricaricare';
         modelCompareSetNote(note, noteColor);
         renderModelComparison();
         // Se il grafico usa un modello NWP, aggiorna con i nuovi dati
