@@ -18703,7 +18703,7 @@ function toggleForecastMaps() {
     // refreshZonePreview() e la vista continua (sfumatura) funzionano durante il fetch.
     async function fetchDualModel(realSamplePoints, gen) {
         var statusEl = document.getElementById('status-msg');
-        statusEl.innerText = 'Dual Model: fetch Best Match + ECMWF punto per punto...';
+        statusEl.innerText = ((typeof window !== 'undefined' && window.__liveSourceLabel) ? window.__liveSourceLabel : '') + 'Dual Model: fetch Best Match + ECMWF punto per punto...';
         var hourlyParams = getModelHourlyParams();
         var forecastDays = getModelForecastDays();
         var dualModelParam = '&models=best_match,ecmwf_ifs';
@@ -18764,7 +18764,7 @@ function toggleForecastMaps() {
             else updateMapColors();
             var leftPts = total - (k + 1);
             var clabel = (r.coordIdx === 0) ? 'capoluogo' : ('punto interno ' + r.coordIdx);
-            statusEl.innerText = 'Dual Model: punto ' + (k + 1) + '/' + total + ' (' + (r.sigla || '') + ' · ' + clabel + ') caricato · restano ' + leftPts + ' punti...';
+            statusEl.innerText = ((typeof window !== 'undefined' && window.__liveSourceLabel) ? window.__liveSourceLabel : '') + 'Dual Model: punto ' + (k + 1) + '/' + total + ' (' + (r.sigla || '') + ' · ' + clabel + ') caricato · restano ' + leftPts + ' punti...';
             var el = Date.now() - cadStart;
             if (el < MIN_POINT_INTERVAL) await sleepMs(MIN_POINT_INTERVAL - el);
             cadStart = Date.now();
@@ -18874,6 +18874,25 @@ function toggleForecastMaps() {
         }
         const total = realSamplePoints.length;
 
+        // 1.2.4.57 - PESO DICHIARATO del percorso live, calcolato con la stessa formula
+        // di apiWeightFromUrl (fattore modelli incluso: il dual scarica best_match +
+        // ecmwf_ifs). Va calcolato QUI perche' il ramo DUAL esce prima del budget.
+        var liveSourceLabel = '';
+        if (liveSubset === 'capoluoghi') {
+            var _mf = 1;
+            var _mm = String(getModelParam() || '').match(/models=([^&]+)/);
+            if (_mm) _mf = Math.max(1, _mm[1].split(',').length);
+            // il percorso DUAL costruisce da se' models=best_match,ecmwf_ifs: due modelli
+            // per richiesta anche se getModelParam() non li espone.
+            if (typeof isDualModelMode === 'function' && isDualModelMode()) _mf = Math.max(_mf, 2);
+            var _nVarsLive = getModelHourlyParams().split(',').length + DAILY_PARAMS.split(',').length;
+            var _fdLive = String(getModelForecastDays() || '').match(/forecast_days=(\d+)/);
+            var _dayFLive = _fdLive ? Math.max(1, parseInt(_fdLive[1], 10) / 7) : 1;
+            var _lwLive = Math.max(1, _nVarsLive / 10) * _dayFLive;
+            liveSourceLabel = 'API diretta (dati locali non disponibili): ' + total + ' capoluoghi, peso ~' + Math.round(total * _lwLive * _mf) + ' su 560/min. Per tutti i punti: secondo click su Aggiorna. ';
+        }
+        try { window.__liveSourceLabel = liveSourceLabel; } catch (e) { }
+
         // Se la fonte API e openmeteo_key, leggi la chiave dall'input
         if (apiSource === 'openmeteo_key') {
             var keyInput = document.getElementById('api-key-input');
@@ -18954,10 +18973,6 @@ function toggleForecastMaps() {
         // strictSingles (cambio modello) forza SEMPRE la modalità "una coordinata alla
         // volta" con resting time, anche se l'utente ha selezionato la strategia 'batch'
         // nella tendina di sviluppo.
-        var liveSourceLabel = '';
-        if (liveSubset === 'capoluoghi') {
-            liveSourceLabel = 'API diretta (dati locali non disponibili): ' + total + ' capoluoghi, peso ~' + Math.round(total * locWeight) + ' su 560/min. Per tutti i punti: secondo click su Aggiorna. ';
-        }
         var usePaced = (strictSingles || fetchStrategy === 'paced') && !forceBatch;
         if (usePaced) {
             // 1 punto per richiesta, cadenza fissa 400ms (≈150 req/min → ~540 peso/min,
@@ -19106,9 +19121,9 @@ function toggleForecastMaps() {
                 if (typeof renderContinuousOverlay === 'function') renderContinuousOverlay();
             }
             // Didascalia di caricamento: quante coordinate REALI scaricate e quante VIRTUALI create
-            statusEl.innerText = (DENSIFY && DENSIFY._status && DENSIFY._status.enabled)
+            statusEl.innerText = ((typeof window !== 'undefined' && window.__liveSourceLabel) ? window.__liveSourceLabel : '') + ((DENSIFY && DENSIFY._status && DENSIFY._status.enabled)
                 ? 'Dati meteo aggiornati ✓ · ' + provincesOk + ' province · ' + (provinceSamplePoints.length - virtualsAdded) + ' coordinate reali scaricate + ' + virtualsAdded + ' coordinate virtuali (IDW) create'
-                : 'Dati meteo aggiornati ✓ (' + provincesOk + ' province)';
+                : 'Dati meteo aggiornati ✓ (' + provincesOk + ' province)');
         } else {
             // Fetch STALE sul fallimento: non toccare lo store, lascia i dati attuali
             if (myGen !== weatherFetchGeneration) {
