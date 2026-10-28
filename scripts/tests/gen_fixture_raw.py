@@ -140,13 +140,10 @@ def synth_point(lat, lon, elev):
         "precipitation_probability_max": [max(hourly["precipitation_probability"][d * 24: (d + 1) * 24]) for d in range(3)],
     }
 
-    def model_rec(jitter, null_fields=()):
+    def model_rec(jitter):
         h2 = {}
         for f, arr in hourly.items():
-            if f in null_fields:
-                h2[f] = [None] * len(arr)
-            else:
-                h2[f] = [round(v + rnd.uniform(-jitter, jitter), 2) for v in arr]
+            h2[f] = [round(v + rnd.uniform(-jitter, jitter), 2) for v in arr]
         d2 = {k: [round(v + rnd.uniform(-jitter, jitter), 2) for v in arr] for k, arr in daily.items()}
         d2["weathercode"] = list(daily["weathercode"])
         return {"daily": d2, "hourly": h2}
@@ -192,7 +189,7 @@ def main():
     points = common.generate_real_points()
     out = {"fetched_at": "2026-01-01T00:00:00Z", "forecast_days": 3, "timezone": "Europe/Rome",
            "driver_model": "ecmwf_ifs",
-           "models": list(common.SOURCE_MODELS),
+           "models": ["best_match", "ecmwf_ifs"],
            "points": []}
     # elevation fake deterministica (gradiente orografico sintetico)
     for p in points:

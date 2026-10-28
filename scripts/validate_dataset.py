@@ -80,12 +80,8 @@ def main():
           not any(w in att.lower() for w in ("affiliated", "endorsed", "by open-meteo", "supported by")))
     check("forecast_days=3", meta.get("forecast_days") == common.FORECAST_DAYS)
     check("timezone Europe/Rome", meta.get("timezone") == common.TIMEZONE)
-    check("models_covered = modelli del percorso Pro (dual + 2 scaricati)",
-          sorted(meta.get("models_covered") or []) == sorted(common.MODEL_MENU),
-          "got %s" % (meta.get("models_covered"),))
-    check("models_derived dichiara i modelli derivati (dual_best_ecmwf)",
-          sorted(meta.get("models_derived") or []) == sorted(common.MODELS_DERIVED),
-          "got %s" % (meta.get("models_derived"),))
+    check("models_covered = best_match,ecmwf_ifs",
+          sorted(meta.get("models_covered") or []) == ["best_match", "ecmwf_ifs"])
 
     live = meta.get("status") == "live"
     if not live:
@@ -143,7 +139,7 @@ def main():
         if e.get("coordIdx") != 0:
             pass  # integrità territoriale verificata in aggregato sotto
         s_prov.add(e.get("provinceIdx"))
-        for model_key in common.SOURCE_MODELS:
+        for model_key in ("best_match", "ecmwf_ifs"):
             mod = (e.get("models") or {}).get(model_key)
             check("modello %s presente" % model_key, bool(mod and mod.get("hourly") and mod.get("daily")))
             if not mod:

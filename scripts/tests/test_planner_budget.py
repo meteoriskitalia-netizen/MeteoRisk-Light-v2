@@ -44,18 +44,14 @@ class PlannerTest(unittest.TestCase):
         sys.path.insert(0, str(ROOT))
         import request_planner  # noqa: E402
         plan = request_planner.build_plan(pts, batch_size=4)
-        n_models = len(common.SOURCE_MODELS)
         self.assertEqual(plan["points"], 12)
         self.assertEqual(plan["unique_coordinates"], 10)
         self.assertEqual(plan["duplicate_observations"], 2)
-        self.assertEqual(plan["n_model_legs"], n_models)
+        self.assertGreaterEqual(plan["naive_requests"], plan["optimized_requests"])
         self.assertEqual(len(plan["batches"]), 3)
-        self.assertEqual(plan["optimized_requests"], 3 * n_models)
-        # Con 4 leg e 10 coordinate il batching costa PIU' del per-punto
-        # (3x4=12 > 10): e' un fatto, non un errore. In produzione le coordinate
-        # sono 257 -> 3x4=12 contro 257 (risparmio reale). Qui si verifica solo
-        # che il conto sia esatto, non che il risparmio ci sia sempre.
-        self.assertEqual(plan["requests_saved"], 10 - 3 * n_models)
+        self.assertEqual(plan["optimized_requests"], 6)
+        self.assertEqual(plan["requests_saved"], 4)
+        self.assertAlmostEqual(plan["efficiency_gain_pct"], 40.0, places=2)
         self.assertEqual(plan["estimated_locations_total"], 10)
 
 
