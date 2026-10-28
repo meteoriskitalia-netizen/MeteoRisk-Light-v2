@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// TEST 1.2.4.56 - POLICY DEL SERVICE WORKER (sw.js).
+// TEST 1.2.4.57 - POLICY DEL SERVICE WORKER (sw.js).
 //
 // COSA COPRE DAVVERO: sw.js viene ESEGUITO in un contesto vm con Cache API, self,
 // clients e fetch SIMULATI in memoria. Il test guida gli handler reali
@@ -83,7 +83,7 @@ function buildContext() {
   const flags = { skipWaiting: false, claim: false };
   const listeners = {};
   const fetchCalls = [];
-  const messages = [];   // 1.2.4.56: postMessage ai client (avviso di build nuova)
+  const messages = [];   // 1.2.4.57: postMessage ai client (avviso di build nuova)
   const ctx = {
     console,
     URL,
@@ -131,13 +131,13 @@ const APP_VER = (() => {
 
 // ---------- A. STATICHE DI SICUREZZA (prima di eseguire) ----------
 ok('A1: CACHE_NAME e\' la costante del modulo', /var CACHE_NAME = '[^']+';/.test(swSrc));
-ok('A2: CACHE_NAME versionata con la versione della release', /var CACHE_NAME = 'mri-1.2.4.56';/.test(swSrc), 'app=' + APP_VER);
+ok('A2: CACHE_NAME versionata con la versione della release', /var CACHE_NAME = 'mri-1.2.4.57';/.test(swSrc), 'app=' + APP_VER);
 ok('A2b: CACHE_NAME corrisponde a VERSION (MAJOR.MINOR.PATCH.BUILD)', swSrc.indexOf("'mri-" + APP_VER + "'") >= 0);
 ok('A3: nessun precache pesante (nessun addAll / cache.add)', !/\.addAll\s*\(/.test(swSrc) && !/cache\.add\s*\(/.test(swSrc));
 ok('A4: limite di voci dichiarato a 1200', /var MAX_ENTRIES = 1200;/.test(swSrc));
 ok('A5: il commento dichiara la LRU approssimata e il limite sul numero di voci',
   /LRU APPROSSIMATA/.test(swSrc) && /NUMERO di voci/.test(swSrc));
-ok('A6: timeout della navigazione a 10000 ms (1.2.4.56: era 3000)', /var NETWORK_TIMEOUT_MS = 10000;/.test(swSrc));
+ok('A6: timeout della navigazione a 10000 ms (1.2.4.57: era 3000)', /var NETWORK_TIMEOUT_MS = 10000;/.test(swSrc));
 ok('A6b: timeout degli indici a 2000 ms (network-first)', /var INDEX_TIMEOUT_MS = 2000;/.test(swSrc));
 ok('A7: il marker di stale e\' dichiarato una volta sola', /var STALE_HEADER = 'X-MRI-Cache';/.test(swSrc));
 ok('A8: gli indici sono riconosciuti da RE_INDEX_JSON (index|timeline) e RE_COLOR_SCALES_JSON',
@@ -158,7 +158,7 @@ ok('A11: la fetch tardiva della navigazione e\' tenuta viva da event.waitUntil',
   ok('B2: skipWaiting eseguito e nessuna cache creata all\'install',
     h.flags.skipWaiting === true && h.caches._stores.size === 0);
 
-  h.caches._map('mri-1.2.4.56').set('https://x/y', new Response('cur', { status: 200 }));
+  h.caches._map('mri-1.2.4.57').set('https://x/y', new Response('cur', { status: 200 }));
   h.caches._map('mri-1.2.4.14').set('https://x/y', new Response('old', { status: 200 }));
   h.caches._map('altro-prefisso').set('https://x/z', new Response('old', { status: 200 }));
   const activateEvent = { waitUntil: (p) => { activateEvent.pending = p; } };
@@ -166,7 +166,7 @@ ok('A11: la fetch tardiva della navigazione e\' tenuta viva da event.waitUntil',
   await activateEvent.pending;
   const names = Array.from(h.caches._stores.keys());
   ok('B3: activate elimina le cache con nome diverso da CACHE_NAME e tiene la corrente',
-    names.length === 1 && names[0] === 'mri-1.2.4.56', JSON.stringify(names));
+    names.length === 1 && names[0] === 'mri-1.2.4.57', JSON.stringify(names));
   ok('B4: activate chiama clients.claim', h.flags.claim === true);
 }
 
@@ -186,7 +186,7 @@ ok('A11: la fetch tardiva della navigazione e\' tenuta viva da event.waitUntil',
 }
 
 // ---------- D. NETWORK-FIRST CON TIMEOUT (indici aggregati) ----------
-const CACHE = 'mri-1.2.4.56';
+const CACHE = 'mri-1.2.4.57';
 const IDX = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/refs/heads/fm2-rendered/data/fm2-rendered/north/index.json';
 const IDX_JSON = { 'content-type': 'application/json' };
 const bodyOfCache = async (h, url) => {
@@ -204,7 +204,7 @@ const rejects = async (p) => { try { await p; return false; } catch (e) { return
   await new Promise((r) => setTimeout(r, 10));
   ok('D1b: la risposta di rete finisce in cache', (await bodyOfCache(h, IDX)) === '{"v":1}');
 
-  // IL CUORE DELLA 1.2.4.56: con una copia in cache la seconda richiesta NON deve
+  // IL CUORE DELLA 1.2.4.57: con una copia in cache la seconda richiesta NON deve
   // servire la copia vecchia (era lo stale-while-revalidate della 1.2.4.55).
   h.ctx._respond = async () => new Response('{"v":2}', { status: 200, headers: IDX_JSON });
   const e2 = await h.dispatchFetch(new Request(IDX));
@@ -334,12 +334,12 @@ const rejects = async (p) => { try { await p; return false; } catch (e) { return
   h.ctx._respond = async () => new Response('nope', { status: 404 });
   await (await h.dispatchFetch(new Request(url))).responded;
   await new Promise((r) => setTimeout(r, 10));
-  ok('G1: una 404 non viene messa in cache', h.caches._map('mri-1.2.4.56').size === 0);
+  ok('G1: una 404 non viene messa in cache', h.caches._map('mri-1.2.4.57').size === 0);
   const webp = 'https://x.test/data/fm2-rendered/north/ncep_gfs025/temperature_2m/2026102300.webp';
   h.ctx._respond = async () => new Response('partial', { status: 206 });
   await (await h.dispatchFetch(new Request(webp))).responded;
   await new Promise((r) => setTimeout(r, 10));
-  ok('G2: una 206 non viene messa in cache', h.caches._map('mri-1.2.4.56').size === 0);
+  ok('G2: una 206 non viene messa in cache', h.caches._map('mri-1.2.4.57').size === 0);
 }
 
 // ---------- H. LIMITE DI VOCI (potatura delle piu' vecchie) ----------
@@ -352,7 +352,7 @@ const rejects = async (p) => { try { await p; return false; } catch (e) { return
     await e.responded;
     await new Promise((r) => setTimeout(r, 5));
   }
-  const keys = Array.from(h.caches._map('mri-1.2.4.56').keys());
+  const keys = Array.from(h.caches._map('mri-1.2.4.57').keys());
   ok('H1: oltre MAX_ENTRIES le voci piu\' vecchie vengono eliminate', keys.length === 3, `keys=${keys.length}`);
   ok('H2: restano le 3 piu\' recenti (ordine di inserimento)', keys.every((k) => /2026102[234]\.webp$/.test(k)), JSON.stringify(keys));
 }
@@ -372,7 +372,7 @@ ok('I6: l\'avviso ascolta updatefound + statechange activated',
   /addEventListener\('updatefound'/.test(htmlSrc) && /worker\.state === 'activated'/.test(htmlSrc));
 ok('I7: la prima installazione non mostra il banner (guardia sul primo worker)',
   /fmFirstWorker = reg\.active \|\| reg\.installing/.test(htmlSrc) && /if \(worker && worker === fmFirstWorker\) return;/.test(htmlSrc));
-// 1.2.4.56: il client deve accorgersi della risposta marcata stale e ricaricare i frame
+// 1.2.4.57: il client deve accorgersi della risposta marcata stale e ricaricare i frame
 // SOLO quando generated_at cambia. Sono controlli STATICI sul sorgente: il comportamento
 // nel browser (run richiesta, tempo, rebuild) e' misurato con CDP, non qui.
 ok('I8: il client legge il marker X-MRI-Cache: stale',
@@ -385,7 +385,7 @@ ok('I11: il polling dei 5 minuti usa la stessa rivalidazione',
   /await fmRevalidateRendered\(\{ allowCold: true, reason: 'poll' \}\)/.test(htmlSrc));
 ok('I12: la rivalidazione da stale e\' a 2 s con tetto di 3 giri',
   /var FM_STALE_RECHECK_MS = 2000;/.test(htmlSrc) && /var FM_STALE_RECHECK_MAX = 3;/.test(htmlSrc));
-// 1.2.4.56 - causa 2 e causa 3 lato client.
+// 1.2.4.57 - causa 2 e causa 3 lato client.
 ok('I13: il retry dei WebP distingue 404 (definitivo) da errore transitorio (backoff)',
   /function fmWebpFailure\(url, cb, opts\)/.test(htmlSrc) &&
   /FM_WEBP_RETRY_DELAYS = \[1000, 3000, 9000\]/.test(htmlSrc) &&

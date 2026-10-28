@@ -6,14 +6,48 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.56
+## Versione attiva: 1.2.4.57
 
-- File applicativo: `mri-light-1.2.4.56.html` (`APP_VERSION = '1.2.4.56'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.56', date: '2026-10-28' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.56'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.57.html` (`APP_VERSION = '1.2.4.57'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.57', date: '2026-10-28' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.57'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
-- Contenuto della 1.2.4.56 (release sopra la 1.2.4.55) - **tre cause di cache, misurate**:
+- Contenuto della 1.2.4.57 (release sopra la 1.2.4.56) - **dataset prima dell'API in ogni
+  pannello, confronto modelli in cache, slider con debounce**. Solo client: nessuna modifica a
+  `scripts/` (motore, renderer, `build_meteorisk_dataset.py`), ai workflow dei dati o a
+  `color_scales.json`; i workflow toccano solo le 3 righe `cp` del nome del file.
+  - **Confronto modelli: da 4 richieste per azione a 1-2, e 0 a parita' di chiave.** Misure
+    della 1.2.4.56 (Edge headless, cache disabilitata): 4 richieste per **ogni** `updateUI()`
+    (apertura, cambio giorno, un passo di slider, click provincia) — ECMWF daily, GFS daily,
+    ECMWF hourly, GFS hourly — tutte a `forecast_days=7` mentre il pannello ne mostra 3; le
+    stesse 4 URL partite **5 volte in 11 minuti = 20 richieste, 4 uniche** (80% sprecate); un
+    drag completo dello slider `0->24` = **96 richieste**. Ora `daily` e `hourly` viaggiano
+    nella **stessa** chiamata, **una richiesta per modello**, `forecast_days=3`, **cache** per
+    chiave `(lat, lon, giorno, modelli)` con TTL **10 minuti** e **promise condivisa** se la
+    stessa chiave e' gia' in volo.
+  - **Gerarchia dataset -> API, dichiarata.** Prima il dataset gia' pubblicato su GitHub
+    (`data/latest`, 9.294.452 B, `models_covered` = `best_match` + `ecmwf_ifs`,
+    `forecast_days` = 3, 257 punti): il pannello prende **ECMWF dal payload gia' scaricato**
+    (0 richieste) e sulla rete resta solo **GFS**, che il dataset **non copre** (lacuna
+    dichiarata nel pannello, non errore). La **run operativa GFS** dell'Ensemble (deterministica
+    `gfs_seamless`, duplicato di `best_match`) legge il payload; resta API solo `ensemble-api`,
+    che non ha equivalente locale. Il grafico orario usa il payload per le province e l'API solo
+    per le localita' fuori dataset (es. La Caletta). I **5 campi daily** e i **5 hourly** del
+    pannello sono verificati contro il payload (chiave mancante -> record scartato e ricaduta
+    sull'API), non assunti.
+  - **Niente percorso live quando il dataset esiste, e 429 con attesa.** Un errore transitorio
+    (rete, timeout, 5xx, payload incompleto) ritenta **una volta dopo 1 s** e **non** fa partire
+    le 257 richieste (misurato sulla 1.2.4.56: pulsante Aggiorna -> **257 richieste, peso 2.808,
+    406 s**); si passa all'API solo con **404** o **status != live**, e allora il percorso live
+    parte con i **soli 107 capoluoghi** (peso dichiarato nel messaggio) invece di 257, con tutti
+    i punti solo su un secondo click esplicito. Sul **429** il pannello rispetta l'attesa letta
+    dal `reason` dell'API (fallback 60 s) e mostra «Limite API raggiunto, riprovo tra Ns»
+    invece di ripartire al successivo `updateUI` (1 tentativo, nessun backoff: misurato).
+  - **Slider orario: debounce 300 ms su `input`, commit immediato su `change`.** Un drag
+    completo non chiama piu' `updateUI()` a ogni passo; a parita' di chiave il confronto
+    modelli non fa richieste.
+- Contenuto della 1.2.4.56 (storico, release sopra la 1.2.4.55) - **tre cause di cache, misurate**:
   - **CAUSA 1 - il Service Worker ignorava `request.cache`.** Il client chiede la timeline con
     `cache: 'no-store'` e l'index con `cache: 'no-cache'`, ma `staleWhileRevalidate` rispondeva
     `if (hit) return hit;` **prima** della rete: con un `index.json` vecchio in CacheStorage il
