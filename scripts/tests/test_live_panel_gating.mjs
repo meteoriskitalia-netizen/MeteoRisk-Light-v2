@@ -20,7 +20,7 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.59.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.60.html');
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -358,7 +358,7 @@ ok('LAYER: flashLightningStrike non crea layer con flag OFF', layerCalls === 0 &
     /querySelectorAll\('#sc-list \.sc-item, #live-sc-list \.sc-item'\)/.test(src));
 }
 
-// ---------- 7g. SECONDO TOGGLE "CENTRALINE" (1.2.4.59), ORTOGONALE AL SELETTORE ----------
+// ---------- 7g. SECONDO TOGGLE "CENTRALINE" (1.2.4.60), ORTOGONALE AL SELETTORE ----------
 {
   ok('LIVE-ST: #live-toggle-stations presente una volta, classe .sc-toggle, handler toggleLiveStations()',
     (src.match(/id="live-toggle-stations"/g) || []).length === 1 &&

@@ -160,6 +160,11 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .fm-legend-tick-edd { transform: translateX(-100%); }
         .fm-legend-labels { display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; margin-top: 2px; }
         .fm-legend-overlay { font-size: 11px; color: #cbd5e1; margin-top: 3px; }
+/* 1.2.4.60 - NOTA DELLA NORMA sulle mappe di anomalia: UNA riga sola, mai a capo.
+   Se la legenda e' piu' stretta del testo (viewport 390 px) la riga scorre in
+   orizzontale dentro il proprio riquadro: niente ellissi, che nasconderebbero la
+   fonte, e nessun allargamento del pannello. */
+.fm-legend-note { font-size: 10px; color: #94a3b8; margin-top: 3px; white-space: nowrap; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
         /* 1.2.4.32 - CAMPIONE della trama neve nella legenda di precipitazione.
            Non e' una decorazione: la mappa ha due trame DIVERSE (una famiglia di
            tratti per 50-80%, incrocio oltre 80%) e la legenda deve mostrarle, non
@@ -2029,9 +2034,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.59';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-10-28';
+    const APP_VERSION = '1.2.4.60';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-10-31';
     const APP_CHANGELOG = [
+        { version: '1.2.4.60', date: '2026-10-31', changes: [
+  'MAPPE= TRE MAPPE DI ANOMALIA NEL MENU: "Anomalia T 850 hPa", "Anomalia geopotenziale 500 hPa", "Anomalia pressione (MSL)". I WebP li pubblicava gia\' il renderer su Europa e sull\'emisfero nord (ANOMALY_REGIONS), ma il client non conosceva ne\' le etichette ne\' le scale: il menu non le mostrava e i WebP restavano invisibili. Ora le tre voci compaiono nel gruppo "Anomalie" SOLO se l\'index.json della regione servita pubblica quella variabile per il dominio corrente: su Italia e dominio la voce NON compare (non resta disabilitata, perche\' non c\'e\' nessun WebP da disegnare). Nessuna delle tre entra in FM_CURATED_VARS: le 28 voci curate restano identiche.',
+  'MAPPE= LA LEGENDA DICHIARA LA NORMA: "Anomalia rispetto alla norma 1991-2020 (NCEP/NCAR Reanalysis 1, griglia 5°)". Le tre scale sono copiate identiche da color_scales.json, non riscritte a mano: T850 15 bande da -12 a +12 °C, Z500 13 bande da -24 a +24 dam, MSL 15 bande da -20 a +20 hPa, con la banda dello zero in BIANCO PURO. Lo Z500 e\' in DECAMETRI come la scala con cui il renderer colora il WebP (palette_scale 0,1 applicato PRIMA di indicizzare la palette), non in metri: il client non applica palette_scale perche\' sui WebP non mappa valori in colori, disegna solo la legenda, e l\'unico punto in cui servirebbe la conversione sarebbero le isolinee, che qui non ci sono.',
+  'MAPPE= NESSUNA ISOLINEA SULLE ANOMALIE. Il renderer non le disegna e il client non le chiede: fmContourInterval restituisce 0 per le tre variabili e il parametro intervals non viene mandato. Senza questa uscita il match per prefisso avrebbe chiesto 40 su Z500 e 5 su MSL, cioe\' un\'isolinea ogni 40 dam su un campo che il renderer pubblica senza isolinee.',
+        ] },
         { version: '1.2.4.59', date: '2026-10-28', changes: [
   'CONFRONTO MODELLI= NIENTE PIU\' SCADENZA AUTOMATICA, AGGIORNAMENTO A RICHIESTA. La cache del pannello non scade piu\' ogni 10 minuti: il record resta valido finche\' non premi il pulsante "Aggiorna" accanto ai selettori. Prima, ogni 10 minuti, un semplice updateUI rifaceva 2 richieste (GFS) senza che nessuno le avesse chieste; ora dopo il primo caricamento le richieste sono 0 finche\' non decidi tu.',
   'PULSANTE "Aggiorna" NEL PANNELLO. Svuota la chiave della localita\' corrente e rifa\' le richieste dichiarando la fonte; quando i dati vengono dalla cache la nota lo scrive ("in cache: premi ↻ Aggiorna per ricaricare"). Verificato: cambio giorno 0 richieste, slider 0 richieste, solo il pulsante fa partire le 2 richieste del confronto.',
@@ -13769,7 +13779,31 @@ var FM_T500_COLOR_SCALE = { type: 'breakpoint', unit: '°C', min: null, max: nul
 var FM_TEMP2M_BREAKPOINTS = [-80, -65, -50, -40, -32, -28, -24, -20, -17.5, -15, -12.5, -10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50];
 var FM_TEMP2M_COLORS = [[74, 13, 0, 1], [130, 1, 29, 1], [185, 4, 114, 1], [221, 6, 193, 1], [207, 6, 241, 1], [163, 5, 243, 1], [118, 4, 246, 1], [71, 3, 249, 1], [41, 2, 250, 1], [11, 1, 252, 1], [1, 22, 253, 1], [0, 52, 255, 1], [35, 99, 251, 1], [69, 139, 247, 1], [102, 171, 245, 1], [134, 197, 245, 1], [114, 232, 165, 1], [78, 232, 133, 1], [40, 233, 96, 1], [17, 220, 61, 1], [9, 191, 36, 1], [4, 160, 15, 1], [0, 128, 0, 1], [40, 160, 0, 1], [96, 192, 0, 1], [167, 223, 0, 1], [255, 255, 0, 1], [255, 237, 0, 1], [255, 219, 0, 1], [255, 201, 0, 1], [255, 183, 0, 1], [255, 165, 0, 1], [255, 138, 0, 1], [255, 110, 0, 1], [255, 83, 0, 1], [255, 55, 0, 1], [255, 27, 0, 1], [255, 0, 0, 1], [228, 0, 10, 1], [201, 0, 18, 1], [174, 0, 23, 1], [147, 0, 26, 1]];
 var FM_TEMP2M_COLOR_SCALE = { type: 'breakpoint', unit: '°C', min: null, max: null, breakpoints: FM_TEMP2M_BREAKPOINTS, colors: { light: FM_TEMP2M_COLORS, dark: FM_TEMP2M_COLORS } };
-var FM_COLOR_SCALE_OVERRIDES = { temperature_2m: FM_TEMP2M_COLOR_SCALE, precipitation_cum: FM_PRECUM_COLOR_SCALE, precipitation: FM_PRECIP_COLOR_SCALE, rain: FM_PRECIP_COLOR_SCALE, showers: FM_PRECIP_COLOR_SCALE, geopotential_height_500hPa: FM_GEOP_500_COLOR_SCALE, geopotential_height_850hPa: FM_GEOP_850_COLOR_SCALE, geopotential_height_1000hPa: FM_GEOP_1000_COLOR_SCALE, pressure_msl: FM_MSL_COLOR_SCALE, wind_speed_10m: FM_WIND_COLOR_SCALE, wind_speed_850hPa: FM_WIND_COLOR_SCALE, wind_speed_300hPa: FM_JET_COLOR_SCALE, temperature_10hPa: FM_T10_COLOR_SCALE, temperature_850hPa: FM_T850_COLOR_SCALE, temperature_500hPa: FM_T500_COLOR_SCALE, geopotential_height_10hPa: FM_GEOP_10_COLOR_SCALE, wind_speed_10hPa: FM_JET10_COLOR_SCALE, snowfall_water_equivalent: FM_SNOWWE_COLOR_SCALE, snow_fraction: FM_SNOWFRAC_COLOR_SCALE, weather_code: FM_WCODE_COLOR_SCALE, precipitation_6h: FM_PRECIP6H_COLOR_SCALE, snow_fraction_6h: FM_SNOWFRAC6H_COLOR_SCALE };
+// 1.2.4.60 - MAPPE DI ANOMALIA RISPETTO ALLA NORMA 1991-2020: TRE SCALE.
+// Sorgente unica: scripts/forecast_v2/color_scales.json (scales.<var>), la STESSA copia
+// che il renderer usa per colorare il WebP. Breakpoints, colori e unita' qui sotto sono
+// GENERATI da quel file (nessun valore digitato a mano): se divergono, mappa (renderer) e
+// legenda (client) si contraddicono e scripts/tests/test_fm_webp_palette_sync.mjs lo vede.
+// Le tre scale sono divergenti su zero: la banda [0, +passo) e' BIANCO PURO (255,255,255),
+// quindi il valore 0 si legge come bianco sulla mappa e sulla legenda.
+// UNITA' Z500 = DECAMETRI: il campo del frame e' in metri e il renderer applica
+// `palette_scale: 0.1` PRIMA di indicizzare la palette. Il client NON applica
+// `palette_scale` (la stringa non esiste in questo file) e non deve: sui WebP non mappa
+// valori->colori, disegna solo la legenda, che quindi deve mostrare l'unita' della scala
+// (dam) e non quella del dato (m). L'unico punto in cui servirebbe la conversione sarebbe
+// il colore delle isolinee, che su queste mappe non esiste (vedi fmContourInterval).
+// temperature_850hPa_anomaly: scales.temperature_850hPa_anomaly di scripts/forecast_v2/color_scales.json (light == dark)
+var FM_ANOM_T850 = [[11, 30, 107, 1], [42, 65, 138, 1], [61, 97, 165, 1], [77, 126, 190, 1], [98, 158, 215, 1], [155, 191, 231, 1], [207, 227, 247, 1], [255, 255, 255, 1], [247, 220, 220, 1], [239, 185, 185, 1], [227, 147, 147, 1], [203, 113, 109, 1], [180, 84, 78, 1], [153, 54, 46, 1], [122, 11, 11, 1]];
+var FM_ANOM_T850_COLOR_SCALE = { type: 'breakpoint', unit: '°C (anomalia)', min: null, max: null, breakpoints: [-12, -9, -7, -5, -3, -2, -1, 0, 1, 2, 3, 5, 7, 9, 12], colors: { light: FM_ANOM_T850, dark: FM_ANOM_T850 } };
+
+// geopotential_height_500hPa_anomaly: scales.geopotential_height_500hPa_anomaly di scripts/forecast_v2/color_scales.json (light == dark)
+var FM_ANOM_Z500 = [[11, 30, 107, 1], [46, 72, 143, 1], [68, 109, 175, 1], [85, 144, 204, 1], [144, 184, 227, 1], [207, 227, 247, 1], [255, 255, 255, 1], [247, 220, 220, 1], [237, 178, 177, 1], [219, 132, 131, 1], [189, 96, 90, 1], [159, 61, 53, 1], [122, 11, 11, 1]];
+var FM_ANOM_Z500_COLOR_SCALE = { type: 'breakpoint', unit: 'dam (anomalia)', min: null, max: null, breakpoints: [-24, -18, -14, -10, -6, -3, 0, 3, 6, 10, 14, 18, 24], colors: { light: FM_ANOM_Z500, dark: FM_ANOM_Z500 } };
+
+// pressure_msl_anomaly: scales.pressure_msl_anomaly di scripts/forecast_v2/color_scales.json (light == dark)
+var FM_ANOM_MSL = [[11, 30, 107, 1], [42, 65, 138, 1], [61, 97, 165, 1], [77, 126, 190, 1], [98, 158, 215, 1], [155, 191, 231, 1], [207, 227, 247, 1], [255, 255, 255, 1], [247, 220, 220, 1], [239, 185, 185, 1], [227, 147, 147, 1], [203, 113, 109, 1], [180, 84, 78, 1], [153, 54, 46, 1], [122, 11, 11, 1]];
+var FM_ANOM_MSL_COLOR_SCALE = { type: 'breakpoint', unit: 'hPa (anomalia)', min: null, max: null, breakpoints: [-20, -15, -11, -8, -5, -3, -1, 0, 1, 3, 5, 8, 11, 15, 20], colors: { light: FM_ANOM_MSL, dark: FM_ANOM_MSL } };
+var FM_COLOR_SCALE_OVERRIDES = { temperature_2m: FM_TEMP2M_COLOR_SCALE, precipitation_cum: FM_PRECUM_COLOR_SCALE, precipitation: FM_PRECIP_COLOR_SCALE, rain: FM_PRECIP_COLOR_SCALE, showers: FM_PRECIP_COLOR_SCALE, geopotential_height_500hPa: FM_GEOP_500_COLOR_SCALE, geopotential_height_850hPa: FM_GEOP_850_COLOR_SCALE, geopotential_height_1000hPa: FM_GEOP_1000_COLOR_SCALE, pressure_msl: FM_MSL_COLOR_SCALE, wind_speed_10m: FM_WIND_COLOR_SCALE, wind_speed_850hPa: FM_WIND_COLOR_SCALE, wind_speed_300hPa: FM_JET_COLOR_SCALE, temperature_10hPa: FM_T10_COLOR_SCALE, temperature_850hPa: FM_T850_COLOR_SCALE, temperature_500hPa: FM_T500_COLOR_SCALE, geopotential_height_10hPa: FM_GEOP_10_COLOR_SCALE, wind_speed_10hPa: FM_JET10_COLOR_SCALE, snowfall_water_equivalent: FM_SNOWWE_COLOR_SCALE, snow_fraction: FM_SNOWFRAC_COLOR_SCALE, weather_code: FM_WCODE_COLOR_SCALE, precipitation_6h: FM_PRECIP6H_COLOR_SCALE, snow_fraction_6h: FM_SNOWFRAC6H_COLOR_SCALE, temperature_850hPa_anomaly: FM_ANOM_T850_COLOR_SCALE, geopotential_height_500hPa_anomaly: FM_ANOM_Z500_COLOR_SCALE, pressure_msl_anomaly: FM_ANOM_MSL_COLOR_SCALE };
 var FM_VAR_LABELS = {
     temperature_2m: 'Temperatura 2 m',
     dew_point_2m: 'Punto di rugiada 2 m',
@@ -13799,6 +13833,14 @@ var FM_VAR_LABELS = {
     snow_fraction: 'Frazione neve',
     precipitation_6h: 'Precipitazioni 6 ore',
     snow_fraction_6h: 'Rischio neve (6 ore)',
+    // 1.2.4.60 - ANOMALIE RISPETTO ALLA NORMA 1991-2020. Le tre voci NON entrano in
+    // FM_CURATED_VARS (il conteggio 28 e' bloccato dal test): la visibilita' nel menu
+    // passa dal filtro in OR su FM_VAR_LABELS PIU' il gate sull'index.json del
+    // renderer (fmAnomalyVarsHere). Etichette FISSE, senza il nome del livello
+    // ricostruito da fmVarLabel perche' '_anomaly' romperebbe il suffisso hPa.
+    temperature_850hPa_anomaly: 'Anomalia T 850 hPa',
+    geopotential_height_500hPa_anomaly: 'Anomalia geopotenziale 500 hPa',
+    pressure_msl_anomaly: 'Anomalia pressione (MSL)',
     cloud_cover: 'Nuvolosita totale',
     cloud_cover_low: 'Nuvolosita bassa',
     cloud_cover_mid: 'Nuvolosita media',
@@ -13842,6 +13884,78 @@ var FM_VAR_LABELS = {
     freezing_rain: 'Pioggia sopraffusa',
     graupel: 'Grandine piccola/graupel'
 };
+// 1.2.4.60 - ANOMALIE RISPETTO ALLA NORMA 1991-2020 (NCEP/NCAR Reanalysis 1, griglia 5°).
+// Sono tre variabili DERIVATE dal renderer (campo del frame meno la norma del mese): NON
+// esistono nel manifest `.om`, quindi non passano dal filtro di visibilita' sul manifest e
+// non hanno ne' isobare ne' isolinee. La regola e' UNA: la voce di menu esiste se e solo se
+// l'index.json della regione servita pubblica quella variabile per il dominio corrente.
+//   - regioni: il renderer le produce SOLO su europa e north (ANOMALY_REGIONS in
+//     scripts/forecast_v2/render_fm_webp.py); su italia e domain la voce NON compare
+//     (non resta disabilitata: una voce che non puo' disegnare nulla e' peggio di una voce
+//     assente, e il selettore non deve contenere voci morte).
+//   - senza index.json caricato non si inventa niente: nessuna voce, nessun errore.
+var FM_ANOMALY_VARS = ['temperature_850hPa_anomaly', 'geopotential_height_500hPa_anomaly', 'pressure_msl_anomaly'];
+var FM_ANOMALY_REGIONS = { europa: 1, north: 1 };
+var FM_ANOMALY_NOTE = 'Anomalia rispetto alla norma 1991-2020 (NCEP/NCAR Reanalysis 1, griglia 5°)';
+var fmVarListBase = null;     // ultima lista del manifest `.om` letta da fmPopulateVariables
+var fmAnomalyMenuKey = null;  // firma delle anomalie visibili: evita rebuild del menu inutili
+
+function fmAnomalyAvailable(serverRegion, v) {
+    // true se l'index.json di QUESTA regione pubblica `v` per il dominio corrente con
+    // almeno un frame (o almeno una directory). Nessun ottimismo: index assente = false.
+    if (!fmWebpIndex || fmWebpIndexRegion !== serverRegion || !fmWebpIndex.domains) return false;
+    var dom = fmWebpIndex.domains[fmDomain];
+    if (!dom) return false;
+    var rec = (dom.variables && dom.variables[v]) || null;
+    if (!rec) {
+        var run = fmSelectedRun();
+        rec = (run && run.variables) ? (run.variables[v] || null) : null;
+    }
+    if (!rec) return false;
+    var th = (rec.themes && rec.themes[fmWebpTheme()]) || null;
+    if (th && Array.isArray(th.valid_times) && th.valid_times.length) return true;
+    return !!((th && th.dir) || rec.dir);
+}
+function fmAnomalyVarsHere() {
+    // Le anomalie disponibili ADESSO (regione servita + dominio corrente). Fuori da
+    // europa/north la lista e' vuota per costruzione, senza guardare la rete.
+    var out = [];
+    var rr = fmRenderRegionId();
+    if (!rr || !FM_ANOMALY_REGIONS[rr]) return out;
+    for (var i = 0; i < FM_ANOMALY_VARS.length; i++) {
+        if (fmAnomalyAvailable(rr, FM_ANOMALY_VARS[i])) out.push(FM_ANOMALY_VARS[i]);
+    }
+    return out;
+}
+function fmRefreshAnomalyMenu() {
+    // Ricostruisce il menu SOLO quando l'insieme delle anomalie visibili cambia (arrivo
+    // dell'index.json, cambio regione/dominio): un innerHTML a ogni giro chiuderebbe la
+    // tendina mentre l'utente la sta usando.
+    if (!fmVarListBase || !fmVarListBase.length) return;
+    var key = fmAnomalyVarsHere().join(',');
+    if (key === fmAnomalyMenuKey) return;
+    fmAnomalyMenuKey = key;
+    fmPopulateVariables(fmVarListBase);
+}
+function fmAnomalyFallbackForView() {
+    // Se la variabile corrente e' un'anomalia che QUESTA vista non pubblica, si torna a
+    // una variabile del manifest invece di lasciare il pannello su una mappa vuota.
+    // Dentro europa/north non si decide finche' l'index della regione non e' arrivato:
+    // passare europa -> north non deve buttare fuori dalla variabile.
+    if (FM_ANOMALY_VARS.indexOf(fmVariable) < 0) return false;
+    var rr = fmRenderRegionId();
+    if (rr && FM_ANOMALY_REGIONS[rr]) {
+        if (!(fmWebpIndex && fmWebpIndexRegion === rr)) return false;
+        if (fmAnomalyVarsHere().indexOf(fmVariable) >= 0) return false;
+    }
+    var base = (fmVarListBase || []).filter(function (vv) { return FM_ANOMALY_VARS.indexOf(vv) < 0; });
+    var repl = fmPickDefaultVar(base);
+    if (!repl) return false;
+    fmVariable = repl;
+    fmIdx = 0;
+    fmPopulateVariables(fmVarListBase || []);
+    return true;
+}
 var FM_LEVEL_KIND_LABELS = {
     geopotential_height: 'Geopotenziale',
     temperature: 'Temperatura',
@@ -14890,6 +15004,9 @@ function fmBeginRegionWait(serverRegion) {
     return true;
 }
 function fmApplyRegion(refit) {
+    // 1.2.4.60 - un'anomalia selezionata che questa vista non pubblica (italia, domain)
+    // non deve restare selezionata su una mappa che non ha il WebP.
+    fmAnomalyFallbackForView();
     var domB = fmDomainBounds();
     var region = fmRegionDef(fmRegion);
     var clip = null;
@@ -15294,6 +15411,12 @@ function fmPopulateDomains() {
 function fmPopulateVariables(vars) {
     var sel = fmEl('fm-variable-select');
     if (!sel) return;
+    // 1.2.4.60 - lista BASE del manifest: la tiene fmRefreshAnomalyMenu per ricostruire
+    // il menu quando arriva l'index.json della regione.
+    fmVarListBase = vars.slice();
+    // Le anomalie hanno un gruppo PROPRIO ('Anomalie', in fondo): si tolgono dal
+    // raggruppamento normale per non finire sparse fra Temperatura/Pressione/Altro.
+    vars = vars.filter(function (vv) { return FM_ANOMALY_VARS.indexOf(vv) < 0; });
     var byCat = {};
     for (var i = 0; i < vars.length; i++) {
         var c = fmCategory(vars[i]);
@@ -15305,6 +15428,11 @@ function fmPopulateVariables(vars) {
         if (!byCat['Pressione']) byCat['Pressione'] = [];
         if (byCat['Pressione'].indexOf(FM_SYNTH_PRESSURE_GEOPOT) < 0) byCat['Pressione'].push(FM_SYNTH_PRESSURE_GEOPOT);
     }
+    // 1.2.4.60 - ANOMALIE: gruppo in fondo (non e' in FM_CAT_ORDER, che resta invariato),
+    // con le SOLE variabili che il renderer ha davvero pubblicato per questa regione e
+    // questo dominio. Vuoto = nessun gruppo, nessuna voce.
+    var fmAnomHere = fmAnomalyVarsHere();
+    if (fmAnomHere.length) byCat['Anomalie'] = fmAnomHere.slice();
     // 1.2.4.32 - Nel gruppo 'Precipitazione e neve' la voce PRINCIPALE e' il
     // composito a 6 ore: e' l'unico passo in cui il numero significa sempre la stessa
     // cosa. La precipitazione oraria, oltre il primo tratto del modello, vale 3 o 6 ore
@@ -15410,6 +15538,11 @@ function fmCurrentOmUrl() {
 }
 function fmContourInterval(v) {
     var base = 2;
+    // 1.2.4.60 - ANOMALIE: NESSUNA ISOLINEA. Il renderer non le disegna (ANOMALY_VARS
+    // non compare in CONTOUR_INTERVALS) e il client non deve chiederle: senza questa
+    // uscita il match per prefisso restituirebbe 40 su Z500 e 5 su MSL, cioe' un
+    // `intervals=` su un WebP che non ha isolinee. 0 = nessun intervallo.
+    if (FM_ANOMALY_VARS.indexOf(v) >= 0) return 0;
     if (/temperature_2m|apparent_temperature|wet_bulb_temperature_2m/.test(v)) base = 1;
     else if (/geopotential_height_/.test(v)) base = 40;
     else if (/cloud_cover/.test(v)) base = 10;
@@ -15491,7 +15624,9 @@ function fmVectorUrl(baseUrl, contourVar, forceContours, intervalsOverride) {
     if (intervalsOverride !== undefined && intervalsOverride !== null) {
         q.push('intervals=' + intervalsOverride);
     } else if (FM_OPTS.density && FM_OPTS.density !== 'auto') {
-        q.push('intervals=' + fmContourInterval(cv));
+        // 1.2.4.60: 0 = nessuna isolinea (anomalie) -> il parametro non si manda.
+        var fmIv = fmContourInterval(cv);
+        if (fmIv) q.push('intervals=' + fmIv);
     }
     q.push('arrows=true');
     q.push('arrow_style=' + FM_OPTS.arrowStyle);
@@ -15523,7 +15658,11 @@ function fmFetchRenderedIndex(serverRegion, cb) {
     // Carica <FM_RENDERED_BASE>/<serverRegion>/index.json in fmWebpIndex (una volta per regione).
     if (!serverRegion) return;
     fmFetchTimeline(serverRegion);   // 1.2.4.22: la timeline non aspetta index.json
-    if (fmWebpIndex && fmWebpIndexRegion === serverRegion) { if (cb) cb(null, fmWebpIndex); return; }
+    if (fmWebpIndex && fmWebpIndexRegion === serverRegion) {
+        fmRefreshAnomalyMenu();   // 1.2.4.60: index gia' in memoria (ritorno su una regione)
+        if (cb) cb(null, fmWebpIndex);
+        return;
+    }
     if (fmWebpIndexLoading === serverRegion) {
         // 1.2.4.45: fetch gia' in volo -> il callback va ACCODATA, non persa (prima si tornava
         // senza avvisare e un chiamante in attesa restava appeso fino al proprio timeout).
@@ -15554,6 +15693,7 @@ function fmFetchRenderedIndex(serverRegion, cb) {
         fmWebpIndexRegion = serverRegion;
         fmWebpFailedUrl = null;                       // nuovo index -> azzera il blacklist WebP
         fmPopulateRunSelector();
+        fmRefreshAnomalyMenu();   // 1.2.4.60: nuovo index -> le anomalie possono comparire
         if (fmActive && fmRenderRegionId() === serverRegion) {
             // 1.2.4.23: con la timeline attiva l'URL del frame non dipende da index.json:
             // non si invalida la chiave (evita di riscaricare lo stesso frame). Se i bounds
@@ -16152,6 +16292,12 @@ function fmUpdateLegend() {
         if (fmVariable === FM_SYNTH_PRESSURE_GEOPOT && fmOverlayVariable === 'pressure_msl') isoNote += ' \u00b7 disegnate dal client';
         el.innerHTML += '<div class="fm-legend-overlay">' + isoNote + '</div>';
     }
+    // 1.2.4.60 - NOTA DELLA NORMA (solo sulle tre anomalie): una riga sola sotto la
+    // barra. Il testo completo e' anche nel `title`, cosi' non si perde nulla se la
+    // legenda e' piu' stretta del testo (viewport 390 px).
+    if (FM_ANOMALY_VARS.indexOf(fmVariable) >= 0) {
+        el.innerHTML += '<div class="fm-legend-note" title="' + FM_ANOMALY_NOTE + '">' + FM_ANOMALY_NOTE + '</div>';
+    }
 }
 function fmDomainChanged() {
     var s = fmEl('fm-domain-select');
@@ -16234,7 +16380,10 @@ function fmLoadDomain(dom) {
         // 1.2.4.33: il composito NON e' nel manifest `.om` (lo pubblica il renderer):
         // resta selezionato se il dominio ha il raster Z500, altrimenti si ricade.
         var fmVarKnown = vars.indexOf(fmVariable) >= 0
-            || (fmVariable === FM_SYNTH_PRESSURE_GEOPOT && vars.indexOf(FM_SYNTH_GEOPOT_RASTER) >= 0);
+            || (fmVariable === FM_SYNTH_PRESSURE_GEOPOT && vars.indexOf(FM_SYNTH_GEOPOT_RASTER) >= 0)
+            // 1.2.4.60: le anomalie non sono nel manifest `.om`; la disponibilita' vera
+            // la decide fmAnomalyFallbackForView sull'index.json (qui non si azzera).
+            || FM_ANOMALY_VARS.indexOf(fmVariable) >= 0;
         if (!fmVarKnown) { fmVariable = fmPickDefaultVar(vars); fmOverlayVariable = null; varChanged = true; }
         fmPopulateVariables(vars);
         // 1.2.4.26 - RIANCORAGGIO DOPO LA RISOLUZIONE DELLA VARIABILE.

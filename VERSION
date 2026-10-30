@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.2.4.60 - TRE MAPPE DI ANOMALIA NEL MENU DEL PANNELLO (T 850 hPa, GEOPOTENZIALE 500 hPa, PRESSIONE MSL), NORMA 1991-2020 NCEP DICHIARATA IN LEGENDA, Z500 IN DAM, NESSUNA ISOLINEA (bump da 1.2.4.59)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=60
+RELEASE_TYPE=release
+DATE=2026-10-31
+NOTE=Release 1.2.4.60 (bump da 1.2.4.59) - SOLO CLIENT: LE TRE MAPPE DI ANOMALIA DIVENTANO VISIBILI. (1) MENU: nuove etichette FM_VAR_LABELS 'Anomalia T 850 hPa', 'Anomalia geopotenziale 500 hPa', 'Anomalia pressione (MSL)'; i WebP li pubblicava gia' il renderer (commit 58d98740, ANOMALY_VARS + ANOMALY_REGIONS = europa/north) ma senza etichette ne' scale il menu non le mostrava. La voce compare se e solo se l'index.json della regione servita pubblica la variabile per il dominio corrente: su italia e domain la voce non compare (non disabilitata). Nessuna delle tre entra in FM_CURATED_VARS (28 invariate). (2) SCALE: le tre scale sono generate da scripts/forecast_v2/color_scales.json, non digitate a mano: T850 15 bande -12..+12 gradi C, Z500 13 bande -24..+24 dam, MSL 15 bande -20..+20 hPa, banda dello zero in bianco puro (255,255,255). Lo Z500 resta in DECAMETRI: il campo e' in metri e il renderer applica palette_scale 0.1 prima di indicizzare la palette; il client non applica palette_scale (la stringa non esiste nel file) e non deve, perche' sui WebP disegna solo la legenda. (3) LEGENDA: nota su una riga 'Anomalia rispetto alla norma 1991-2020 (NCEP/NCAR Reanalysis 1, griglia 5 gradi)'. (4) ISOLINEE: nessuna, fmContourInterval restituisce 0 per le tre variabili e intervals non viene mandato (senza, il match per prefisso chiedeva 40 su Z500 e 5 su MSL). BUMP: html mri-light-1.2.4.60.html (APP_VERSION, APP_RELEASE_DATE 2026-10-31, 3 voci di changelog), VERSION (BUILD=60, DATE=2026-10-31, APP_FILE=mri-light-1.2.4.60.html), sw.js (CACHE_NAME mri-1.2.4.60), README.md, i 26 test .mjs che citano il nome del file e le 3 righe cp dei workflow. La 1.2.4.59 va RIMOSSA dal repo. NON toccati: scripts/*, color_scales.json, i workflow dei dati, data/*.
+APP_FILE=mri-light-1.2.4.60.html
+
 MeteoRisk Light - 1.2.4.59 - CONFRONTO MODELLI SENZA SCADENZA AUTOMATICA: IL PANNELLO RESTA IN CACHE FINCHE' NON PREMI "AGGIORNA" (NIENTE PIU' 2 RICHIESTE OGNI 10 MINUTI SENZA CHE NESSUNO LE CHIEDA) (bump da 1.2.4.58)
 MAJOR=1
 MINOR=2
