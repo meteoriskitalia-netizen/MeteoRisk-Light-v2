@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-30T07:00:58Z",
+  "generated_at": "2026-10-30T07:03:00Z",
   "source": "MeteoHub (Agenzia ItaliaMeteo / CINECA), osservazioni di stazione",
   "source_url": "https://meteohub.agenziaitaliameteo.it/api/observations",
   "licence": "CC BY 4.0",
@@ -10,7 +10,7 @@
   "max_age_minutes": 180,
   "omitted_fields": {"pressure_msl":"la sorgente espone solo pressione di stazione (B10004, livello 1,0,0,0), non riducibile al livello del mare senza la quota; nel campione reale 585,9-1638,2 hPa, con valori fuori da ogni range fisico","visibility":"non esposta dalla sorgente"},
   "derived_fields": {"dew_point_2m":"Magnus, gamma=ln(RH/100)+17.625*T/(243.04+T), Td=243.04*gamma/(17.625-gamma) (Alduchov & Eskridge 1996)","id":"sintetico `<rete>:<lat>,<lon>` a 5 decimali (la sorgente non ha un id di stazione)"},
-  "counts": {"stations":4202,"networks_used":27,"stations_excluded_no_data":780,"stations_excluded_unknown_network":1,"values_out_of_range":3,"values_dropped_too_old":13074,"stations_with_duplicate_record":0,"stations_fallback_trange":0,"id_collisions_at_4_decimals":0},
+  "counts": {"stations":4202,"networks_used":27,"stations_excluded_no_data":693,"stations_excluded_unknown_network":1,"values_out_of_range":3,"values_dropped_too_old":0,"stations_with_duplicate_record":0,"stations_fallback_trange":0,"id_collisions_at_4_decimals":0},
   "excluded_networks": {"ofa-01-cmcc":1},
   "stations": [
     {"id":"agrmet:43.92610,12.71139","lat":43.9261,"lon":12.71139,"name":"Morciano","network":"agrmet","obs_time":"2026-10-30T06:45:00Z","temperature_2m":12.6,"relative_humidity_2m":82,"precipitation":0,"precipitation_period_s":900,"dew_point_2m":9.6},
