@@ -20,6 +20,11 @@ temp/
 cache/
 data/radar/*.tmp
 
+# ---- Climatologia di riferimento: la cache delle fonti non va committata ----
+# 3 subset NCEP da ~525 KB; con --source era5 anche una cella per file
+# (~50 MB). Si rigenera con `python scripts/climate/build_climatology.py --refresh`.
+data/climate/_cache/
+
 # ---- Python ----
 __pycache__/
 *.pyc
