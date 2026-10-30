@@ -72,6 +72,34 @@ derived value makes it 1.000 on both by construction.
 ``italia``, ``north`` and ``domain`` are not in the table and keep the historical
 bytes.
 
+Anomalies against the 1991-2020 climatology
+-------------------------------------------
+Three DERIVED variables are published next to the raw fields:
+``temperature_850hPa_anomaly``, ``geopotential_height_500hPa_anomaly`` and
+``pressure_msl_anomaly``. They are ``field - normals(month)`` computed on the
+SOURCE grid, before any crop/resample, from ``data/climate/normals_1991_2020.json``
+(bilinear on the 5-degree grid, ``None`` outside it -> transparent pixels: a
+colour there would be invented). They exist only for ``europa`` and ``north``
+and carry no isolines. The normals file is read and validated ONCE per domain;
+if it is missing or malformed the anomalies are skipped with a clear log and the
+rest of the frame renders exactly as before.
+
+Temperature is at 850 hPa, not 2 m, on purpose: the NCEP climatology carries its
+own orography (770 m at 45N/10E against ~40 m of the model), which at 2 m turns
+into a fake anomaly over every plain. At 850 hPa the level is above the terrain
+and the orography does not enter. Measured on the file: 0.1 C at 850 hPa vs
+1.9 C at 2 m (January, 45N/10E); in 22-111 cells per month the two fields differ
+by more than +10 K (Greenland, relief), which is exactly the defect the 2 m
+anomaly would inherit.
+
+Palette fingerprint PER VARIABLE
+--------------------------------
+``palette_sha256`` (whole file) stays, for information. The incremental path now
+compares ``palette_var_sha256`` -- the digest of the ONE scale that paints the
+variable (``scale_sha256``) -- so changing a single scale re-renders only the
+variables that use it instead of everything. Manifests written before this field
+existed carry only the file digest and are compared the historical way.
+
 Design notes (empirically confirmed against the live engine output):
   * ``OmFileReader.read_array`` returns values already in real units
     (precip mm, temperaure degC, cloud %) -- no manual scale/offset.
@@ -183,11 +211,13 @@ Five things MUST agree, or the published tree silently loses files:
     and the frames just rendered (the client reads ``valid_times`` from it);
   * ``expected_frames`` stays the HORIZON (``len(manifest.valid_times)``), never
     the delta, or ``completion_pct`` in the region index would be invented;
-  * every manifest carries ``palette_sha256``: when it differs from the value
-    found on disk the variable is RE-RENDERED instead of skipped, because the
-    published pixels would otherwise keep the old colors with nothing saying so.
-    Declared cost: a palette (or ``WEBP_VERSION``) change makes ONE cycle cost
-    the full render again.
+  * every manifest carries ``palette_sha256`` (whole file) and
+    ``palette_var_sha256`` (that variable's own scale): when the per-variable
+    digest differs from the value found on disk the variable is RE-RENDERED
+    instead of skipped, because the published pixels would otherwise keep the
+    old colors with nothing saying so. Declared cost: a change to ONE scale now
+    costs only the variables that use it; a ``WEBP_VERSION`` change still makes
+    ONE cycle cost the full render again.
 
 Without ``--existing-list`` (or with an EMPTY list) nothing changes: every frame
 is rendered and the prune keeps exactly what this run wrote. The skip is gated on
@@ -406,6 +436,29 @@ def palette_sha256(path: str | None = None) -> str:
     return h.hexdigest()
 
 
+def scale_sha256(scales: dict, var: str, theme: str = "light"):
+    """sha256 of the ONE scale that paints ``var`` (its ``theme`` block).
+
+    ``palette_sha256`` digests the whole file, so touching any scale says
+    "palette changed" for EVERY variable of EVERY domain and the incremental
+    path re-renders everything: a full cycle for a colour nobody asked for.
+    This digest is computed on the canonical JSON of the variable's own block
+    (``palette_var`` resolves composites to their raster's scale), so a change
+    to ``temperature_850hPa_anomaly`` cannot invalidate ``pressure_msl_anomaly``
+    and an unchanged scale keeps being reused.
+
+    The theme NAME is part of the digest: switching theme can never produce the
+    same digest as the current one, so the pixels can never be silently reused
+    with a scale of another theme.
+    """
+    variant = _scale_variant(scales, palette_var(var), theme)
+    if variant is None:
+        return None
+    text = json.dumps({"theme": theme, "scale": variant}, sort_keys=True,
+                      separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def _clean_palette_sha(value) -> str | None:
     """Normalise ``--existing-palette-sha`` (lowercase hex) or return None."""
     if not value:
@@ -525,6 +578,249 @@ def contour_interval_for(var: str, region: str | None = None):
     if region is not None and region in table:
         return table[region]
     return table.get("default")
+
+
+# --------------------------------------------------------------------------- #
+# Anomalie rispetto alla climatologia 1991-2020
+#
+# Tre variabili DERIVATE, come i compositi: non sono campi del frame, sono il
+# campo del frame meno la norma del mese a cui il frame appartiene. Si calcolano
+# sulla griglia SORGENTE, prima di ogni crop/resample, cosi' isolinee ed
+# etichette (che qui non ci sono, vedi sotto) e pixels restano coerenti con il
+# dato; il resample lavora su un'anomalia, non su due campi diversi.
+#
+# PERCHE' A 850 hPa E NON A 2 m (deciso, non ridiscutibile): a 2 m la
+# climatologia eredita l'orografia del modello che l'ha prodotta (nodo NCEP a
+# 45N/10E a ~770 m contro ~40 m del modello), e confrontare due temperature a 2
+# m misura la differenza di quota. A 850 hPa il livello e' sopra il terreno in
+# tutto il dominio e l'orografia non entra. MISURATO sul file: a 45N/10E
+# gennaio 0,1 C a 850 hPa contro 1,9 C a 2 m; in 22-111 celle per mese i due
+# campi differiscono di oltre +10 K (Groenlandia, rilievi), che e' esattamente
+# il difetto che l'anomalia a 2 m erediterebbe.
+#
+# NIENTE ISOLINEE su queste mappe: le bande della scala divergente raccontano
+# gia' la struttura (dove sta lo zero, quanto e' forte il lato caldo/freddo) e
+# un'isolinea ogni N unita' su un campo rumoroso come l'anomalia a 850 hPa
+# aggiunge inchiostro senza aggiungere informazione. ``ANOMALY_VARS`` non
+# compare in ``CONTOUR_INTERVALS``, quindi il percorso delle isolinee non parte.
+#
+# SOLO ``europa`` e ``north``: la climatologia copre 20..90N / 70W..45E, che e'
+# esattamente il bbox di ``europa`` e una parte di ``north``. Su ``italia`` e
+# ``domain`` l'anomalia non si produce; se una regione fuori elenco la chiede,
+# viene saltata senza errore (una riga di log per dominio, non per frame).
+# Fuori dalla griglia della norma ``norm()`` restituisce None/NaN: quei pixel
+# restano TRASPARENTI, perche' un colore li' sarebbe inventato.
+# --------------------------------------------------------------------------- #
+NORMALS_PATH = os.path.normpath(os.path.join(
+    HERE, os.pardir, os.pardir, "data", "climate", "normals_1991_2020.json"))
+NORMALS_SCHEMA = "meteorisk.climate.normals/1"
+NORMALS_PERIOD = "1991-2020"
+
+# ``palette_scale``: fattore applicato al valore SOLO per indicizzare la palette.
+# L'anomalia di Z500 si calcola in METRI (il campo del frame e' in m) ma la scala
+# ``geopotential_height_500hPa_anomaly`` e' in DAM (-24..+24): senza il fattore
+# 0,1 tutte le anomalie oltre +-24 m finirebbero nell'ultima banda.
+ANOMALY_VARS = {
+    "temperature_850hPa_anomaly": {
+        "source": "temperature_850hPa",
+        "normals": "temperature_850hPa",
+        "units": "degC",
+        "palette_scale": 1.0,
+    },
+    "geopotential_height_500hPa_anomaly": {
+        "source": "geopotential_height_500hPa",
+        "normals": "geopotential_height_500hPa",
+        "units": "m",
+        "palette_scale": 0.1,
+    },
+    "pressure_msl_anomaly": {
+        "source": "pressure_msl",
+        "normals": "pressure_msl",
+        "units": "hPa",
+        "palette_scale": 1.0,
+    },
+}
+
+# Regioni in cui l'anomalia si produce. ``italia`` e ``domain`` sono escluse per
+# decisione di prodotto: la climatologia e' a 5 gradi, e a quella scala una
+# mappa sull'Italia mostra piu' il rumore dell'interpolazione che il segnale.
+ANOMALY_REGIONS = frozenset({"europa", "north"})
+
+
+def anomaly_def(var):
+    """Definition of an anomaly variable (``ANOMALY_VARS`` entry) or None."""
+    try:
+        return ANOMALY_VARS.get(var)
+    except NameError:            # pragma: no cover - modulo incompleto
+        return None
+
+
+def anomaly_ready(var, present) -> bool:
+    """True when the anomaly can be computed: its SOURCE field is in the frame.
+
+    The anomaly variable is never a child of the frame (it is the frame's field
+    minus the climatology), so a plain ``name in present`` test would drop it.
+    """
+    d = anomaly_def(var)
+    if not d:
+        return False
+    try:
+        names = set(present)
+    except TypeError:
+        return False
+    return d["source"] in names
+
+
+def load_normals(path: str | None = None) -> dict:
+    """Read and VALIDATE ``normals_1991_2020.json`` once; return a spec dict.
+
+    The spec is picklable on purpose (plain floats + numpy arrays): a worker
+    process rebuilds the closure from it, exactly like ``_crop_spec`` does for
+    the resamplers. Raises ``ValueError`` on anything that would make the norm
+    meaningless (wrong schema, wrong cell count, a row that is not 12 months, a
+    field with no values at all); a single ``null`` is NOT fatal -- it becomes
+    NaN, i.e. that cell produces no anomaly (``null_reason`` in spirit) and the
+    pixel stays transparent, which is the honest rendering of a missing norm.
+    """
+    p = path or NORMALS_PATH
+    with open(p, "r", encoding="utf-8-sig") as fh:
+        doc = json.load(fh)
+    if not isinstance(doc, dict):
+        raise ValueError("normals: radice non e' un oggetto")
+    if doc.get("schema") != NORMALS_SCHEMA:
+        raise ValueError("normals: schema %r (atteso %r)"
+                         % (doc.get("schema"), NORMALS_SCHEMA))
+    if doc.get("monthly") is not True or int(doc.get("months") or 0) != 12:
+        raise ValueError("normals: attese 12 medie mensili (monthly=true, months=12)")
+    grid = doc.get("grid")
+    if not isinstance(grid, dict):
+        raise ValueError("normals: blocco 'grid' mancante")
+    try:
+        lat0 = float(grid["lat0"])
+        lon0 = float(grid["lon0"])
+        step = float(grid["step"])
+        n_lat = int(grid["n_lat"])
+        n_lon = int(grid["n_lon"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("normals: griglia incompleta (%s)" % exc)
+    if step <= 0.0 or n_lat < 2 or n_lon < 2:
+        raise ValueError("normals: griglia non interpolabile (step=%r, %dx%d)"
+                         % (step, n_lat, n_lon))
+    n_cells = n_lat * n_lon
+    if int(grid.get("n_cells", n_cells)) != n_cells:
+        raise ValueError("normals: n_cells %r != %dx%d"
+                         % (grid.get("n_cells"), n_lat, n_lon))
+    fields = doc.get("fields")
+    if not isinstance(fields, dict) or not fields:
+        raise ValueError("normals: 'fields' mancante o vuoto")
+    out = {}
+    holes = 0
+    for name, entry in fields.items():
+        rows = entry.get("values") if isinstance(entry, dict) else None
+        if not isinstance(rows, list) or len(rows) != n_cells:
+            raise ValueError("normals: %r ha %r righe (attese %d)"
+                             % (name, len(rows) if isinstance(rows, list)
+                                else type(rows).__name__, n_cells))
+        arr = np.full((n_lat, n_lon, 12), np.nan, dtype=np.float64)
+        for idx, row in enumerate(rows):
+            if not isinstance(row, list) or len(row) != 12:
+                raise ValueError("normals: %r cella %d non ha 12 mesi"
+                                 % (name, idx))
+            i_lat, i_lon = divmod(idx, n_lon)
+            for month, value in enumerate(row):
+                if value is None:
+                    holes += 1
+                    continue
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    raise ValueError("normals: %r cella %d mese %d = %r"
+                                     % (name, idx, month + 1, value))
+                arr[i_lat, i_lon, month] = float(value)
+        if not np.isfinite(arr).any():
+            raise ValueError("normals: %r non ha nessun valore" % name)
+        out[name] = arr
+    return {
+        "path": p,
+        "schema": doc["schema"],
+        "period": doc.get("period") or NORMALS_PERIOD,
+        "lat0": lat0,
+        "lon0": lon0,
+        "step": step,
+        "n_lat": n_lat,
+        "n_lon": n_lon,
+        "fields": out,
+        "holes": holes,
+    }
+
+
+def normals_norm(spec: dict, field: str):
+    """Bilinear ``norm(lat, lon, month)`` over the 5-degree climatology grid.
+
+    Returns a callable: scalars in -> ``float`` (``None`` outside the grid),
+    arrays in -> ``ndarray`` broadcast to the input shape with NaN outside.
+    Outside the grid the answer is NOT extrapolated: the norm does not exist
+    there, and a nearest-neighbour fill would paint a climatology the file does
+    not contain.
+    """
+    values = spec["fields"][field]
+    lat0, lon0, step = spec["lat0"], spec["lon0"], spec["step"]
+    n_lat, n_lon = values.shape[0], values.shape[1]
+
+    def norm(lat, lon, month):
+        m = int(month) - 1
+        if not 0 <= m < 12:
+            raise ValueError("mese fuori 1..12: %r" % (month,))
+        lat_arr = np.asarray(lat, dtype=np.float64)
+        lon_arr = np.asarray(lon, dtype=np.float64)
+        fy = (lat_arr - lat0) / step
+        fx = (lon_arr - lon0) / step
+        inside = ((fy >= 0.0) & (fy <= n_lat - 1)
+                  & (fx >= 0.0) & (fx <= n_lon - 1))
+        # [-2] perche' all'ultima riga l'interpolazione usa (i, i+1): sul bordo
+        # alto ty=0 e il peso della riga fuori griglia e' nullo.
+        iy = np.clip(np.floor(fy).astype(np.int64), 0, n_lat - 2)
+        ix = np.clip(np.floor(fx).astype(np.int64), 0, n_lon - 2)
+        ty = fy - iy
+        tx = fx - ix
+        out = ((1.0 - ty) * (1.0 - tx) * values[iy, ix, m]
+               + ty * (1.0 - tx) * values[iy + 1, ix, m]
+               + (1.0 - ty) * tx * values[iy, ix + 1, m]
+               + ty * tx * values[iy + 1, ix + 1, m])
+        out = np.where(inside, out, np.nan)
+        if np.ndim(out) == 0:
+            value = float(out)
+            return value if np.isfinite(value) else None
+        return out
+
+    return norm
+
+
+def anomaly_grid(arr, norm, grid: dict, month: int):
+    """``field - climatology`` cell by cell on the SOURCE grid.
+
+    ``grid`` is the engine ``out_grid`` of the frame (``latMin``/``lonMin`` are
+    the CENTRES of the first row/column, row 0 = south), so the norm is
+    evaluated exactly where the array's pixels are -- no half-cell shift.
+    Returns float32 with NaN where the field or the norm is missing.
+    """
+    ny = int(grid["ny"])
+    nx = int(grid["nx"])
+    lats = float(grid["latMin"]) + np.arange(ny, dtype=np.float64) * float(grid["dy"])
+    lons = float(grid["lonMin"]) + np.arange(nx, dtype=np.float64) * float(grid["dx"])
+    base = norm(lats[:, None], lons[None, :], month)
+    field = np.asarray(arr, dtype=np.float64)
+    return (field - base).astype(np.float32)
+
+
+def valid_time_month(valid_time) -> int:
+    """Calendar month (1..12) of an ISO valid time ``YYYY-MM-DDTHH:MMZ``."""
+    text = str(valid_time)
+    try:
+        month = int(text[5:7])
+    except (TypeError, ValueError):
+        raise ValueError("valid_time non interpretabile: %r" % (valid_time,))
+    if not 1 <= month <= 12:
+        raise ValueError("mese fuori 1..12 in valid_time %r" % (valid_time,))
+    return month
 
 
 # --------------------------------------------------------------------------- #
@@ -2904,7 +3200,8 @@ def merge_frame_records(seed_records, fresh_records):
 
 def var_publish_state(vdir: str, known_files, palette_sha: str,
                       declared_palette: str | None = None,
-                      expected_version: str = WEBP_VERSION) -> dict:
+                      expected_version: str = WEBP_VERSION,
+                      scale_sha: str | None = None) -> dict:
     """What of one published ``<region>/<domain>/runs/<run>/<var>`` dir is reusable.
 
     ``known_files`` are the names the branch list says are published in that
@@ -2925,6 +3222,12 @@ def var_publish_state(vdir: str, known_files, palette_sha: str,
         produced by THIS ``WEBP_VERSION`` and THIS palette. A missing manifest, a
         version change and a palette change all mean "render the whole variable":
         the list alone cannot prove which colours the published pixels have.
+
+    ``scale_sha`` is the digest of the variable's OWN scale (``scale_sha256``).
+    When the manifest carries ``palette_var_sha256`` that is the proof used, so a
+    colour change in one scale re-renders only that variable; manifests written
+    before that field existed carry only the whole-file ``palette_sha256`` and
+    are compared the historical way.
     """
     files = set(known_files or ())
     state = {"files": files, "listed": set(files), "frames": [], "reuse": False,
@@ -2941,14 +3244,26 @@ def var_publish_state(vdir: str, known_files, palette_sha: str,
         if manifest.get("version") != expected_version:
             state["reason"] = "version_changed"
         else:
-            proof = manifest.get("palette_sha256") or declared_palette
-            if not proof:
-                state["reason"] = "palette_unknown"
-            elif proof != palette_sha:
-                state["reason"] = "palette_changed"
+            # Impronta PER VARIABILE: quando il manifest la porta si confronta
+            # SOLO quella (una scala cambiata non invalida le altre variabili).
+            var_proof = _clean_palette_sha(manifest.get("palette_var_sha256"))
+            if var_proof is not None:
+                if not scale_sha:
+                    state["reason"] = "scale_unknown"
+                elif var_proof != scale_sha:
+                    state["reason"] = "scale_changed"
+                else:
+                    state["reuse"] = True
+                    state["reason"] = "manifest"
             else:
-                state["reuse"] = True
-                state["reason"] = "manifest"
+                proof = manifest.get("palette_sha256") or declared_palette
+                if not proof:
+                    state["reason"] = "palette_unknown"
+                elif proof != palette_sha:
+                    state["reason"] = "palette_changed"
+                else:
+                    state["reuse"] = True
+                    state["reason"] = "manifest"
     elif declared_palette and files:
         # Nessun manifest (shard senza checkout): l'unica prova disponibile e'
         # l'asserzione esplicita dell'operatore sulla palette gia' pubblicata.
@@ -3080,8 +3395,14 @@ _WORKER_STATE: dict = {}
 
 
 def _worker_state_init(scales, out_root, domain, run_id, crops, quality,
-                       lossless, method):
-    """Populate the per-process render state (pool initializer or serial path)."""
+                       lossless, method, grid=None, normals=None):
+    """Populate the per-process render state (pool initializer or serial path).
+
+    ``grid`` is the frame's engine ``out_grid`` and ``normals`` the validated
+    climatology spec (``load_normals``): both are needed to build an anomaly on
+    the SOURCE grid inside the worker. ``None`` disables the anomaly path, so a
+    call without them behaves exactly like before.
+    """
     _WORKER_STATE.clear()
     _WORKER_STATE.update({
         "scales": scales,
@@ -3094,6 +3415,11 @@ def _worker_state_init(scales, out_root, domain, run_id, crops, quality,
         "method": method,
         "lookups": {},
         "variants": {},
+        "grid": grid,
+        "normals": normals,
+        # var -> norm(clat, clon, month), built once per worker process: the
+        # closure is not picklable, the spec it comes from is.
+        "anom_norms": {},
     })
 
 
@@ -3103,10 +3429,11 @@ def _worker_pid(_ignored=None):
 
 
 def _worker_state_init_spec(scales, out_root, domain, run_id, crop_spec,
-                            quality, lossless, method):
+                            quality, lossless, method, grid=None, normals=None):
     """Pool initializer: rebuild the (unpicklable) resamplers in the worker."""
     _worker_state_init(scales, out_root, domain, run_id,
-                       _crops_from_spec(crop_spec), quality, lossless, method)
+                       _crops_from_spec(crop_spec), quality, lossless, method,
+                       grid=grid, normals=normals)
 
 
 def _render_var_task(payload) -> dict:
@@ -3128,11 +3455,19 @@ def _render_var_task(payload) -> dict:
     else — crop, resampler, font, output path — is the same code, so a composite
     lands in the same per-variable directory and the incremental path sees it as
     one more (region, variable, frame) cell.
+
+    An ANOMALY variable (``ANOMALY_VARS``) reads ONE array (its ``source``) and
+    subtracts the normals of the frame's month ON THE SOURCE GRID, right after
+    the read: every crop below is then a crop of the anomaly, never a crop of a
+    field whose normal is applied later (which would shift the isoline grid).
+    They are rendered only for ``ANOMALY_REGIONS`` (the parent already restricts
+    the region list; the guard here is the second lock).
     """
     frame_path, var, valid_time, base_name, regions = payload
     st = _WORKER_STATE
     scales = st["scales"]
     comp = composite_def(var)
+    anom = anomaly_def(var)
     palette = palette_var(var)
 
     if var not in st["lookups"]:
@@ -3169,7 +3504,8 @@ def _render_var_task(payload) -> dict:
                 "error": "cannot open %s: %s" % (frame_path, exc)}
     try:
         try:
-            arr = read_frame_array(reader, palette if comp else var)
+            arr = read_frame_array(reader, anom["source"] if anom
+                                   else (palette if comp else var))
         except Exception as exc:
             return {"var": var, "valid_time": valid_time,
                     "error": "%s/%s read failed: %s" % (valid_time, var, exc)}
@@ -3211,10 +3547,38 @@ def _render_var_task(payload) -> dict:
         except Exception:
             pass
 
+    # Anomalia: campo - norma del mese, calcolata SULLA GRIGLIA SORGENTE e prima
+    # di ogni crop/resample, cosi' il resample lavora gia' su un'anomalia (non su
+    # due campi con griglie e norme diverse).
+    palette_scale = 1.0
+    if anom:
+        spec = st.get("normals")
+        grid = st.get("grid")
+        if not spec or not isinstance(grid, dict):
+            return {"var": var, "valid_time": valid_time,
+                    "error": "%s/%s: climatologia non caricata" % (valid_time, var)}
+        if anom["normals"] not in spec["fields"]:
+            return {"var": var, "valid_time": valid_time,
+                    "error": "%s/%s: la climatologia non ha il campo %r"
+                             % (valid_time, var, anom["normals"])}
+        if var not in st["anom_norms"]:
+            st["anom_norms"][var] = normals_norm(spec, anom["normals"])
+        try:
+            month = valid_time_month(valid_time)
+            arr = anomaly_grid(arr, st["anom_norms"][var], grid, month)
+        except Exception as exc:
+            return {"var": var, "valid_time": valid_time,
+                    "error": "%s/%s: anomalia non calcolabile (%s)"
+                             % (valid_time, var, exc)}
+        palette_scale = float(anom.get("palette_scale") or 1.0)
+
     files = []
     for rname, crop in st["crops"].items():
         if regions is not None and rname not in regions:
             continue          # cella gia' pubblicata: ne' encode ne' scrittura
+        if anom and rname not in ANOMALY_REGIONS:
+            # Seconda serratura: le anomalie esistono solo su europa/north.
+            continue
         sub = arr[crop["row0"]:crop["row1"], crop["col0"]:crop["col1"]]
         polar = crop.get("kind") == "polar"
         mask = None
@@ -3228,7 +3592,7 @@ def _render_var_task(payload) -> dict:
             overlay_grid = crop["grid"]
             overlay_scale = crop["scale"]
             clip_circle = None
-        rgba = lk(arr_out)
+        rgba = lk(arr_out if palette_scale == 1.0 else arr_out * palette_scale)
         if mask is not None:
             # Polar disc: HARD circular alpha mask (0 outside the 20N circle).
             rgba = mask_rgba_to_disc(rgba, mask)
@@ -3513,12 +3877,32 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
     print("  [upsample] %s"
           % ", ".join(_crop_label(r) for r in crops))
 
+    # Anomalie: la climatologia si carica UNA volta per dominio, e solo se c'e'
+    # almeno una regione consentita (europa/north). Un file mancante o invalido
+    # NON fa fallire il render: le anomalie si saltano con un log chiaro e tutto
+    # il resto del frame si rende come sempre.
+    anom_regions = [r for r in crops if r in ANOMALY_REGIONS]
+    normals_spec = None
+    if anom_regions:
+        try:
+            normals_spec = load_normals()
+            print("  [normals] %s: %s %s, griglia %g gradi (%dx%d), %d valori "
+                  "nulli" % (domain, os.path.basename(normals_spec["path"]),
+                             normals_spec["period"], normals_spec["step"],
+                             normals_spec["n_lat"], normals_spec["n_lon"],
+                             normals_spec["holes"]))
+        except Exception as exc:
+            normals_spec = None
+            print("  ! %s: climatologia non utilizzabile (%s): anomalie saltate"
+                  % (domain, exc), file=sys.stderr)
+
     # Worker pool (processes). The state is initialised in the parent too so
     # the serial path and the BrokenProcessPool fallback can run the EXACT
     # same task function; the initializer builds it once per worker process.
     workers = max(1, int(getattr(args, "workers", 1) or 1))
     _worker_state_init(scales, out_root, domain, run_id, crops,
-                       args.quality, args.lossless, args.method)
+                       args.quality, args.lossless, args.method,
+                       grid=grid, normals=normals_spec)
     executor = None
     if workers > 1:
         try:
@@ -3528,7 +3912,8 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                 mp_context=mp_ctx,
                 initializer=_worker_state_init_spec,
                 initargs=(scales, out_root, domain, run_id, _crop_spec(crops),
-                          args.quality, args.lossless, args.method),
+                          args.quality, args.lossless, args.method,
+                          grid, normals_spec),
             )
             # Probe NOW: a host that forbids process creation must degrade to
             # serial here, not blow up at the first frame with work half-done.
@@ -3548,6 +3933,37 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
     # Decide variable set: CLI filter, else manifest var_order print-safe.
     var_order = [v for v in (manifest.get("var_order") or []) if isinstance(v, str)]
     requested = args.vars if args.vars else var_order
+
+    # Anomalie producibili QUI: serve una regione consentita, la climatologia
+    # caricata e il campo della norma presente nel file. Il set e' per DOMINIO;
+    # la disponibilita' della fonte si controlla frame per frame con
+    # ``anomaly_ready``.
+    anom_here = {}
+    if normals_spec is not None and anom_regions:
+        for _av, _ad in ANOMALY_VARS.items():
+            if _ad["normals"] in normals_spec["fields"]:
+                anom_here[_av] = _ad
+    for _av in ANOMALY_VARS:
+        if requested and _av in requested and _av not in anom_here:
+            # UNA riga per dominio (mai per frame) e nessun errore: la variabile
+            # e' richiesta dove non si produce.
+            print("  ~ %s: %s non prodotta (regioni consentite: %s; qui: %s; "
+                  "climatologia: %s)"
+                  % (domain, _av, ",".join(sorted(ANOMALY_REGIONS)),
+                     ",".join(sorted(crops)) or "-",
+                     "caricata" if normals_spec else "non disponibile"),
+                  file=sys.stderr)
+
+    def _allowed_regions(var, missing=None):
+        """Regions where ``var`` may be published (anomalies: europe/north only).
+
+        ``missing`` is the caller's own subset (the incremental delta); ``None``
+        means "the whole region set of this domain".
+        """
+        base = list(crops) if missing is None else list(missing)
+        if var not in ANOMALY_VARS:
+            return missing if missing is not None else base
+        return [r for r in base if r in ANOMALY_REGIONS]
 
     # Fingerprint of the palette the pixels are computed with. It goes into EVERY
     # per-variable manifest (so a colour change can never be silent again) and it
@@ -3605,10 +4021,13 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
             for var in vars_here:
                 if _scale_variant(scales, palette_var(var), "light") is None:
                     continue  # nessuna scala: la variabile non e' mai resa
+                if var in ANOMALY_VARS and var not in anom_here:
+                    continue  # qui l'anomalia non si produce: niente stato
                 stt = var_publish_state(
                     _theme_var_dir(out_root, rname, domain, var, "light", run_id),
                     existing_map.get((rname, domain, run_id, var)),
-                    palette_sha, declared_palette)
+                    palette_sha, declared_palette,
+                    scale_sha=scale_sha256(scales, var, "light"))
                 if not stt["files"] and not stt["frames"]:
                     continue
                 var_state[(rname, var)] = stt
@@ -3652,8 +4071,9 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
         ``(region, variable, valid_time)``. A variable published in two regions
         of three is written ONLY in the third: the missing part is what costs
         files, not the frame. The returned list is empty when the variable is
-        published everywhere (the task is skipped) and equal to ``crops`` when
-        nothing is published (new variable on a published frame).
+        published everywhere (the task is skipped) and equal to the variable's
+        OWN region set (``_allowed_regions``: for an anomaly, europe/north only)
+        when nothing is published.
 
         "Published" is proven by the BRANCH LIST (``listed``) or by the file
         already on disk; a per-variable manifest is NOT proof, because it can
@@ -3664,7 +4084,7 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
         """
         name = base_name + ".webp"
         done = []
-        for _rname in crops:
+        for _rname in _allowed_regions(var):
             stt = var_state.get((_rname, var))
             if not stt or not stt.get("reuse"):
                 continue
@@ -3736,18 +4156,26 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                     pass
 
             names = [v for v in requested
-                     if v in present or composite_ready(v, present)] if requested else present
+                     if (v in present or composite_ready(v, present)
+                         or (v in anom_here and anomaly_ready(v, present)))] \
+                if requested else present
             # I compositi NON esistono nel frame: sono il prodotto di due campi
             # dello stesso frame. Quando `--vars` non e' passato (la pipeline
             # reale non lo passa: i nomi vengono da `present` o da `var_order`)
             # senza questa riga `__pressure_geopot` non sarebbe MAI pubblicato.
             # Con `--vars` esplicito resta opt-in, come una variabile normale:
             # un re-render mirato non deve produrre altri 3 file per frame.
+            # Le ANOMALIE seguono la stessa regola, ma in piu' devono avere una
+            # regione consentita (`anom_here`, che vale vuoto se qui non si
+            # produce): cosi' non finiscono mai su italia/domain.
             names = list(names)
             if not args.vars:
                 for _cid in COMPOSITE_VARS:
                     if _cid not in names and composite_ready(_cid, present):
                         names.append(_cid)
+                for _aid in anom_here:
+                    if _aid not in names and anomaly_ready(_aid, present):
+                        names.append(_aid)
             # Tratteggio neve: se la sorgente (frazione neve) non e' in QUESTO
             # dominio, la variabile si rende SENZA tratteggio. Una riga per
             # (dominio, variabile) - non una per frame (100 volte).
@@ -3759,7 +4187,8 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                           % (domain, _hv, _hsrc), file=sys.stderr)
             if args.vars:
                 missing = [v for v in requested
-                           if v not in present and not composite_ready(v, present)]
+                           if v not in present and not composite_ready(v, present)
+                           and not (v in anom_here and anomaly_ready(v, present))]
                 if missing:
                     print("  ~ %s: vars absent in frame: %s"
                           % (valid_time, ",".join(missing)), file=sys.stderr)
@@ -3777,19 +4206,32 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                 for _v in names:
                     if not _has_scale(_v):
                         continue          # nessuna scala: non produce file
+                    _regions_v = _allowed_regions(_v)
+                    if not _regions_v:
+                        continue          # qui la variabile non si produce
                     _done = _published_regions(_v, base_name)
-                    cell_total += len(crops)
+                    cell_total += len(_regions_v)
                     cell_done += len(_done)
-                    if len(_done) < len(crops):
+                    if len(_done) < len(_regions_v):
                         todo.append(_v)
-                        todo_regions[_v] = [r for r in crops if r not in _done]
+                        todo_regions[_v] = [r for r in _regions_v if r not in _done]
                 if not todo:
                     already += 1
                     continue
                 var_tasks += len(todo)
-            payloads = [(frame_path, var, valid_time, base_name,
-                         None if todo_regions is None else todo_regions[var])
-                        for var in todo]
+            payloads = []
+            for var in todo:
+                if todo_regions is not None:
+                    var_regions = todo_regions[var]
+                elif var in ANOMALY_VARS:
+                    # Anche a render completo l'anomalia esiste solo qui: passare
+                    # None ("tutte le regioni") la farebbe scrivere su italia e
+                    # domain, che e' esattamente cio' che la decisione vieta.
+                    var_regions = _allowed_regions(var)
+                else:
+                    var_regions = None
+                payloads.append((frame_path, var, valid_time, base_name,
+                                 var_regions))
             # One frame at a time (arrival order preserved in --watch-manifest
             # mode); the variables of THAT frame are rendered in parallel.
             results, executor = _run_var_tasks(executor, payloads)
@@ -3809,12 +4251,18 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                 for rec in res["files"]:
                     rendered += 1
                     bytes_written += rec["bytes"]
+                    record = {
+                        "file": rec["file"],
+                        "valid_time": valid_time,
+                        "bytes": rec["bytes"],
+                    }
+                    if var in ANOMALY_VARS:
+                        # Il mese usato per la norma e' parte del dato: senza
+                        # questo campo chi legge il manifest non sa CONTRO COSA
+                        # e' stata calcolata l'anomalia di quel frame.
+                        record["month"] = valid_time_month(valid_time)
                     var_frames[rec["region"]].setdefault(var, {}).setdefault(
-                        "light", []).append({
-                            "file": rec["file"],
-                            "valid_time": valid_time,
-                            "bytes": rec["bytes"],
-                        })
+                        "light", []).append(record)
             frames_done += 1
 
         if watch_complete:
@@ -3875,6 +4323,10 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                 vmanifest = {
                     "version": WEBP_VERSION,
                     "palette_sha256": palette_sha,
+                    # Impronta della SINGOLA scala: e' quella che il percorso
+                    # incrementale confronta, cosi' cambiare una scala ri-renderizza
+                    # solo le variabili che la usano (vedi scale_sha256).
+                    "palette_var_sha256": scale_sha256(scales, var, theme),
                     "generated_at": generated_at,
                     "reference_time": reference_time,
                     "run_id": run_id,
@@ -3911,6 +4363,29 @@ def render_domain(domain_dir: str, out_root: str, scales: dict, args, regions: d
                     vmanifest["projection"] = projection
                 if projection_meta:
                     vmanifest["projection_meta"] = projection_meta
+                _anom = anomaly_def(var)
+                if _anom:
+                    # L'anomalia dichiara contro cosa e' stata calcolata: fonte,
+                    # campo e periodo della norma, unita' del valore e unita'
+                    # della PALETTE (diverse per Z500: m -> dam), e il fatto che
+                    # i pixel fuori dalla griglia della norma restano trasparenti.
+                    _anom_variant = _scale_variant(scales, palette_var(var), theme)
+                    vmanifest["anomaly"] = {
+                        "source": _anom["source"],
+                        "normals_field": _anom["normals"],
+                        "normals_schema": NORMALS_SCHEMA,
+                        "normals_period": NORMALS_PERIOD,
+                        "normals_grid_deg": (float(normals_spec["step"])
+                                             if normals_spec else None),
+                        "interpolation": "bilineare",
+                        "units": _anom["units"],
+                        "palette_units": (_anom_variant.get("unit")
+                                          if _anom_variant else None),
+                        "palette_scale": _anom["palette_scale"],
+                        "outside_normals": "trasparente (colore non inventato)",
+                        "isolines": False,
+                        "regions": sorted(ANOMALY_REGIONS),
+                    }
                 write_json(os.path.join(vdir, "latest.json"), vmanifest)
                 sub = "%s/runs/%s/%s" % (domain, run_id, var)
                 entry["themes"][theme] = {

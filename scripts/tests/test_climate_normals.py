@@ -22,12 +22,14 @@ NORMALS = os.path.join(ROOT, "data", "climate", "normals_1991_2020.json")
 CLIMATE_DIR = os.path.join(ROOT, "scripts", "climate")
 
 BUDGET_GZIP = 400 * 1024
-FIELDS = ("temperature_2m", "geopotential_height_500hPa", "pressure_msl")
+FIELDS = ("temperature_2m", "temperature_850hPa",
+          "geopotential_height_500hPa", "pressure_msl")
 
 # intervalli fisici ampi: servono a intercettare un campo scalato male o
 # unita' sbagliate, non a validare il clima.
 PHYSICAL = {
     "temperature_2m": (-60.0, 50.0),
+    "temperature_850hPa": (-70.0, 45.0),
     "geopotential_height_500hPa": (4700.0, 6100.0),
     "pressure_msl": (960.0, 1060.0),
 }
@@ -68,6 +70,7 @@ def test_fields_shape_units_decimals():
     assert set(doc["fields"]) == set(FIELDS)
     units = {
         "temperature_2m": "degC",
+        "temperature_850hPa": "degC",
         "geopotential_height_500hPa": "m",
         "pressure_msl": "hPa",
     }
@@ -135,6 +138,39 @@ def test_physical_structure_of_the_seasonal_cycle():
     # gradiente annuale monotono scendendo verso nord
     annual = {lat: sum(zonal[lat]) / 12 for lat in zonal}
     assert annual[30] > annual[45] > annual[70] > annual[80]
+
+
+def test_850hpa_is_a_free_atmosphere_field():
+    """T850 e' sotto T2m in ogni mese (media di griglia), ma non cella per cella.
+
+    Perche' conta: le mappe di anomalia di temperatura si fanno a 850 hPa per
+    non ereditare l'orografia del modello che ha prodotto la climatologia. Il
+    campo a 850 hPa deve quindi essere un campo VERO a quel livello, non una
+    copia del 2 m: la media di griglia sale sopra T2m se i due campi coincidono.
+
+    Cella per cella la disuguaglianza NON vale, ed e' misurato: in 22-111 celle
+    (a seconda del mese) T850 e' piu' caldo di T2m fino a +12,9 K, perche' su
+    Groenlandia e rilievi il nodo a 2 m sta a migliaia di metri mentre gli
+    850 hPa sono sopra. E' esattamente il difetto che l'anomalia a 2 m
+    erediterebbe, e che il livello 850 hPa evita.
+    """
+    doc = _load()
+    t2 = doc["fields"]["temperature_2m"]["values"]
+    t8 = doc["fields"]["temperature_850hPa"]["values"]
+    n = len(t2)
+    for month in range(12):
+        mean2 = sum(row[month] for row in t2) / n
+        mean8 = sum(row[month] for row in t8) / n
+        assert mean8 < mean2, (
+            "mese %d: media di griglia T850 (%.2f) non sotto T2m (%.2f)"
+            % (month + 1, mean8, mean2))
+        assert mean2 - mean8 < 25.0, (
+            "mese %d: T2m - T850 = %.2f K, troppo per 850 hPa"
+            % (month + 1, mean2 - mean8))
+        diffs = [row8[month] - row2[month] for row2, row8 in zip(t2, t8)]
+        assert min(diffs) > -15.0 and max(diffs) < 15.0, (
+            "mese %d: dT fuori da +-15 K (min %.2f, max %.2f)"
+            % (month + 1, min(diffs), max(diffs)))
 
 
 def test_gzip_budget():

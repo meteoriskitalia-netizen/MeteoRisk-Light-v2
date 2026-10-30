@@ -33,7 +33,7 @@ SCALES_PATH = os.path.join(ROOT, "scripts", "forecast_v2", "color_scales.json")
 # contrasto e di luminanza, non da una tabella copiata: qui si fissa il
 # SIGNIFICATO della scala (dove sta lo zero e quanto e' fitta).
 EXPECTED = {
-    "temperature_2m_anomaly": (
+    "temperature_850hPa_anomaly": (
         "\u00b0C (anomalia)",
         [-12, -9, -7, -5, -3, -2, -1, 0, 1, 2, 3, 5, 7, 9, 12],
     ),

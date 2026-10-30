@@ -3,9 +3,21 @@
 """Climatologia di riferimento 1991-2020 per le mappe di anomalia.
 
 Produce `data/climate/normals_1991_2020.json`: medie mensili (12 valori per
-cella) di temperatura a 2 m, geopotenziale a 500 hPa e pressione al livello
-del mare, su una griglia di 5 gradi che copre 20..90 N / -70..45 E
+cella) di temperatura a 2 m e a 850 hPa, geopotenziale a 500 hPa e pressione al
+livello del mare, su una griglia di 5 gradi che copre 20..90 N / -70..45 E
 (15 x 24 = 360 celle).
+
+PERCHE' ANCHE 850 hPa
+---------------------
+Il campo `temperature_850hPa` esiste perche' le mappe di anomalia di temperatura
+si fanno a 850 hPa, non a 2 m. A 2 m la climatologia eredita l'OROGRAFIA del
+modello che l'ha prodotta: il nodo NCEP a 45N/10E sta a 924 hPa di pressione
+media (~770 m) mentre il modello in quel punto ha ~40 m, e confrontare le due
+temperature a 2 m significa misurare la differenza di quota, non il tempo.
+A 850 hPa il livello e' sopra il terreno in tutto il dominio e la differenza
+di orografia non entra: MISURATO sul file, a 45N/10E gennaio vale 0,06 C a
+850 hPa contro 1,9 C a 2 m, cioe' 1,8 K di differenza stagionale reale e non
+i ~4,7 K che darebbe una estrapolazione con gradiente 6,5 K/km.
 
 PERCHE' QUESTA FONTE (MISURATO il 2026-10-30)
 --------------------------------------------
@@ -26,13 +38,13 @@ Il piano e' stato eseguito e ha prodotto due muri misurati:
    exceeded". Il blocco dura un'ora: la griglia completa richiederebbe ~9 ore.
 
 Quindi il file e' costruito da UNA sola rianalisi, NCEP/NCAR Reanalysis 1
-(medie mensili, NOAA PSL), identica per tutti e tre i campi: nessuna
+(medie mensili, NOAA PSL), identica per tutti e quattro i campi: nessuna
 discontinuita' fra i campi, nessuna dipendenza da una quota. Il ramo ERA5
 resta nel codice (`--source era5`): e' quello che ha prodotto 40 celle, e
 quando la quota lo consente si puo' rigenerare il file con quella fonte.
 
   * NCEP/NCAR R1: `hgt.mon.mean.nc` (500 hPa), `air.mon.mean.nc` (0.995
-    sigma, 2 m), `pres.mon.mean.nc` (MSL). Subset via NCSS in NetCDF-3
+    sigma, 2 m, e 850 hPa), `pres.mon.mean.nc` (MSL). Subset via NCSS in NetCDF-3
     classico, parsato qui con la sola stdlib. Nodi 2.5 gradi: i punti della
     griglia 5 gradi cadono ESATTAMENTE sui nodi (5 e' multiplo di 2.5),
     nessuna interpolazione.
@@ -80,14 +92,17 @@ N_LAT = 15
 N_LON = 24
 N_CELLS = N_LAT * N_LON
 
-FIELDS = ("temperature_2m", "geopotential_height_500hPa", "pressure_msl")
+FIELDS = ("temperature_2m", "temperature_850hPa",
+          "geopotential_height_500hPa", "pressure_msl")
 UNITS = {
     "temperature_2m": "degC",
+    "temperature_850hPa": "degC",
     "geopotential_height_500hPa": "m",
     "pressure_msl": "hPa",
 }
 DECIMALS = {
     "temperature_2m": 1,
+    "temperature_850hPa": 1,
     "geopotential_height_500hPa": 1,
     "pressure_msl": 1,
 }
@@ -101,6 +116,14 @@ NCEP_FIELDS = {
         "file": "surface/air.mon.mean.nc",
         "var": "air",
         "query": "&vertCoord=0.995",
+        "units": "degC",
+        "scale": 1.0,
+        "offset": 0.0,
+    },
+    "temperature_850hPa": {
+        "file": "pressure/air.mon.mean.nc",
+        "var": "air",
+        "query": "&vertCoord=850",
         "units": "degC",
         "scale": 1.0,
         "offset": 0.0,
@@ -137,7 +160,8 @@ LICENCE = (
 ATTRIBUTION = (
     "NCEP/NCAR Reanalysis 1 fornita da NOAA PSL, Boulder, Colorado, USA, "
     "https://psl.noaa.gov (medie mensili 1991-2020, hgt a 500 hPa, air a "
-    "0.995 sigma, pres al livello del mare). Il ramo Open-Meteo/ERA5 previsto "
+    "0.995 sigma e a 850 hPa, pres al livello del mare). Il ramo "
+    "Open-Meteo/ERA5 previsto "
     "dalla specifica e' stato provato e scartato per i motivi misurati "
     "riportati in sources.open_meteo_era5."
 )
@@ -713,6 +737,11 @@ def build(root, refresh=False, limit=None, sleep_s=2.0, out_path=None,
             "0.3 hPa.",
             "Z500: NCEP 2022-2025 meno GFS 2022-2025 sulla stessa finestra = "
             "+2.6 m a 45N/10E e +3.1 m a 40N/60W.",
+            "temperature_850hPa: e' il campo che serve alle mappe di anomalia di "
+            "temperatura. A 850 hPa il livello e' sopra il terreno in tutto il "
+            "dominio, quindi la differenza di orografia fra NCEP (~770 m a "
+            "45N/10E) e modello (~40 m) NON entra nell'anomalia; a 2 m entrerebbe "
+            "per intero e valerebbe ~4,7 K a 6,5 K/km.",
         ]
         source_mode = "ncep"
     else:
@@ -724,6 +753,9 @@ def build(root, refresh=False, limit=None, sleep_s=2.0, out_path=None,
             "Rigenerare con --source era5 richiede una quota Open-Meteo "
             "sufficiente: misurato, il limite orario si esaurisce dopo 40 celle "
             "su 360 con 30 anni di dati per cella.",
+            "temperature_850hPa resta null su questo ramo: la Archive API non "
+            "serve i livelli di pressione (0 valori su tutte le date provate), "
+            "quindi il campo esiste solo con --source ncep.",
         ]
         source_mode = "era5+ncep"
 
@@ -753,21 +785,29 @@ def build(root, refresh=False, limit=None, sleep_s=2.0, out_path=None,
         "method": (
             "Medie mensili: per ogni (anno, mese) la media dei valori validi, "
             "poi la media dei 30 valori mensili dello stesso mese di calendario "
-            "(ogni anno pesa uguale). Unica fonte per tutti e tre i campi: "
+            "(ogni anno pesa uguale). Unica fonte per tutti e quattro i campi: "
             "NCEP/NCAR Reanalysis 1, medie mensili, campionate esattamente sui "
             "nodi della griglia 5 gradi (i nodi NCEP da 2.5 gradi coincidono con "
             "quelli da 5: 5 e' multiplo di 2.5, nessuna interpolazione). "
-            "temperature_2m: air a 0.995 sigma. pressure_msl: pres al livello "
-            "del mare (Pa convertiti in hPa). geopotential_height_500hPa: hgt a "
-            "500 hPa. La Archive API di Open-Meteo (ERA5) e' stata provata e "
-            "scartata per due motivi MISURATI: non serve i livelli di pressione "
-            "e la sua quota oraria si esaurisce dopo 40 celle su 360."
+            "temperature_2m: air a 0.995 sigma. temperature_850hPa: air a 850 "
+            "hPa. pressure_msl: pres al livello del mare (Pa convertiti in hPa). "
+            "geopotential_height_500hPa: hgt a 500 hPa. La Archive API di "
+            "Open-Meteo (ERA5) e' stata provata e scartata per due motivi "
+            "MISURATI: non serve i livelli di pressione e la sua quota oraria si "
+            "esaurisce dopo 40 celle su 360."
         ),
         "sources": {
             "temperature_2m": {
                 "provider": "NOAA PSL NCEP/NCAR Reanalysis 1, monthly mean (air 0.995 sigma)",
                 "endpoint": NCEP_BASE + NCEP_FIELDS["temperature_2m"]["file"],
                 "request": "var=air&vertCoord=0.995&horizStride=2",
+                "grid_deg": 2.5,
+                "cells": N_CELLS if limit is None else n_cells,
+            },
+            "temperature_850hPa": {
+                "provider": "NOAA PSL NCEP/NCAR Reanalysis 1, monthly mean (air 850 hPa)",
+                "endpoint": NCEP_BASE + NCEP_FIELDS["temperature_850hPa"]["file"],
+                "request": "var=air&vertCoord=850&horizStride=2",
                 "grid_deg": 2.5,
                 "cells": N_CELLS if limit is None else n_cells,
             },
