@@ -117,6 +117,7 @@ jobs:
           filter: blob:none
           sparse-checkout: |
             scripts/forecast_v2
+            data/climate
             data/fm2/${{ matrix.domain }}
           sparse-checkout-cone-mode: true
 
