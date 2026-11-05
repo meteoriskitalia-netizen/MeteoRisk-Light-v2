@@ -6,13 +6,16 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.60
+## Versione attiva: 1.2.4.61
 
-- File applicativo: `mri-light-1.2.4.60.html` (`APP_VERSION = '1.2.4.60'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.60', date: '2026-10-28' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.60'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.61.html` (`APP_VERSION = '1.2.4.61'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.61', date: '2026-11-05' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.61'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
+- Contenuto della 1.2.4.61 (release sopra la 1.2.4.60) - **chiusura LIVE senza etichette residue e mobile misurato**. Solo client: nessuna modifica a `scripts/` (motore, renderer, `build_meteorisk_dataset.py`), ai workflow dei dati o a `color_scales.json`; i workflow toccano solo le righe `cp` del nome del file.
+  - **Difetto 1: chiusura del pannello LIVE.** Sulla 1.2.4.60 il ramo else di `toggleLivePanel()` chiamava `stopLivePanel()` ma non `stationsSetActive(false)`: `liveShowStations` restava `true`, il canvas delle centraline (pane z 560) restava sulla mappa (696x946, 52.200 pixel dipinti) e `stationsAgeTimer` continuava a girare. Ora la chiusura azzera lo stato, toglie la classe `on` da `#live-toggle-stations` e chiama `stationsSetActive(false)`: misurati **0 pixel dipinti**, canvas assente dal pane, **0 richieste** a `data/stations/*` nei 30 s, select `#mnw-source-select` invariato. Alla riapertura lo stato e' OFF (default di sessione).
+  - **Difetto 2: mobile.** Misure CDP a 390x844 DPR 2 e 360x640 DPR 1: la mappa partiva a **y=497** (h 473/358) per 232 px di toolbar in 3 righe; il pannello LIVE in flusso la spingeva a **y=813**; tap target <32 px **5/23** (chiuso) e **15/33** (polare, zoom 26x26 a y=934 fuori viewport); testo <11 px **54/95**. Dopo: toolbar in una riga scorrevole da 44 px (232 -> **114**), mappa a **y=369** (bottom 842 a 390x844), LIVE fisso in basso con `overflow-y:auto` che non sposta la mappa, tap target <32 px **0/23** e **0/33** (zoom 32x32 a y=798), testo <11 px **8/95**. Disco polare invariato: diametro **334,1 px CSS = 0,96*348**. Desktop 1440x900 identico (mappa 135,201 754x640; toolbar 120,82 1200x42; tap 15/23; testo 28/95).
 - Contenuto della 1.2.4.60 (release sopra la 1.2.4.57) - **modelli coperti letti dal dataset, perimetro Pro dichiarato, cache del confronto per localita'**. Solo client: nessuna modifica a `scripts/` (motore, renderer, `build_meteorisk_dataset.py`), ai workflow dei dati o a `color_scales.json`; i workflow toccano solo le righe `cp` del nome del file.
   - **La lista dei modelli coperti non e' piu' cablata.** Si legge da `metadata.json` -> `models_covered` + `models_derived` a ogni caricamento (fallback all'array statico solo se il campo manca) e si usa in `initWeatherData`, `loadStaticDataset`, `applyStaticDataset`, nel cambio modello, nel pannello confronto, nell'Ensemble e nel grafico. Lo store di provincia di ogni modello coperto si costruisce dal payload gia' scaricato: `points[].models[modello]` nel payload a punti, `series`/`daily` + `model_series[modello]`/`model_daily[modello]` nel payload compatto (stessa forma, nessuna trasformazione dei valori); `dual_best_ecmwf` resta il merge client-side di `best_match` + `ecmwf_ifs`.
   - **Perimetro Pro dichiarato.** Il dataset pubblica `best_match`, `ecmwf_ifs` e il dual derivato; `gfs_seamless` e `italia_meteo_arpae_icon_2i` restano sul percorso API per scelta di perimetro, non per un guasto, e il pannello lo scrive ("disponibile solo in Sviluppo: il dato non e' nel dataset") con richieste stimate e peso. Il primo 429 apre un **gate unico** con countdown a schermo che ferma i cicli live: nessuna attesa silenziosa di 60 s per coordinata e nessun retry a raffica.

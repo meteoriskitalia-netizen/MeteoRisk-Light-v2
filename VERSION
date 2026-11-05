@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.2.4.61 - CHIUSURA DEL PANNELLO LIVE SENZA ETICHETTE RESIDUE (STATO CENTRALINE OFF, 0 PIXEL, 0 RICHIESTE) E MOBILE MISURATO: MAPPA DA y=497 A y=369, LIVE A FOGLIO FISSO, TAP TARGET 0 SOTTO 32 px, TESTO INFORMATIVO A 11 px (bump da 1.2.4.60)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=61
+RELEASE_TYPE=release
+DATE=2026-11-05
+NOTE=Release 1.2.4.61 (bump da 1.2.4.60) - SOLO CLIENT. (1) DIFETTO 1 CHIUSO: chiudendo il pannello LIVE il ramo else chiamava stopLivePanel() ma NON stationsSetActive(false), quindi liveShowStations restava true, il canvas delle centraline (pane z 560) restava sulla mappa con 52.200 pixel dipinti e stationsAgeTimer continuava a girare. Ora la chiusura azzera liveShowStations, toglie la classe on da #live-toggle-stations e chiama stationsSetActive(false): misurati 0 pixel dipinti, canvas assente dal pane, 0 richieste a data/stations/* nei 30 s, select #mnw-source-select invariato (valore 'live'). Alla riapertura lo stato e' OFF. (2) DIFETTO 2 MOBILE: misure Edge headless CDP a 390x844 DPR 2 e 360x640 DPR 1. Prima la mappa partiva a y=497 (h 473/358) per 232 px di toolbar in 3 righe e il pannello LIVE in flusso la spingeva a y=813; tap target <32 px 5/23 (chiuso) e 15/33 (polare, zoom 26x26 a y=934 fuori viewport); testo <11 px 54/95. Dopo: toolbar in una riga scorrevole da 44 px (232 -> 114), mappa a y=369 (bottom 842 a 390x844), LIVE fisso in basso con overflow-y auto che non sposta la mappa, tap target <32 px 0/23 e 0/33 (zoom 32x32 a y=798), testo <11 px 8/95. Disco polare invariato: diametro 334,1 px CSS = 0,96*348. Desktop 1440x900 identico (mappa 135,201 754x640, toolbar 120,82 1200x42). Solo CSS dentro @media (max-width:767px) + fix JS di chiusura: nessuna modifica a colori, contenuti, formule, mappe, renderer, workflow dei dati o dataset. BUMP: html mri-light-1.2.4.61.html, VERSION (BUILD=61, DATE=2026-11-05), sw.js (CACHE_NAME mri-1.2.4.61), README.md, i 26 test .mjs che citano il nome del file, le righe cp dei workflow. La 1.2.4.60 va RIMOSSA dal repo.
+APP_FILE=mri-light-1.2.4.61.html
+
 MeteoRisk Light - 1.2.4.60 - TRE MAPPE DI ANOMALIA NEL MENU DEL PANNELLO (T 850 hPa, GEOPOTENZIALE 500 hPa, PRESSIONE MSL), NORMA 1991-2020 NCEP DICHIARATA IN LEGENDA, Z500 IN DAM, NESSUNA ISOLINEA (bump da 1.2.4.59)
 MAJOR=1
 MINOR=2

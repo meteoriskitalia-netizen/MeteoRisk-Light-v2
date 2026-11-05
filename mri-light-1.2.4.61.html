@@ -1173,6 +1173,68 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             .bl-tip { max-width: calc(100vw - 24px); }
             .leaflet-popup, .leaflet-popup-content-wrapper, .leaflet-popup-content { max-width: calc(100vw - 24px) !important; }
             .leaflet-popup-content { font-size: 12px; font-family: system-ui, sans-serif; }
+
+            /* ============================================================
+               1.2.4.61 - DIFETTO 2 (mobile "orribile"): le misure sulla
+               1.2.4.60 a 390x844 danno la mappa a y=497 (h=473), cioe' il
+               primo schermo e' header+toolbar+tab e la mappa parte a meta'
+               pagina; a 360x640 la mappa (y=497, h=358) e' interamente
+               sotto la piega. La toolbar da sola occupa 232 px: 3 righe di
+               pulsanti (164 px) + la riga del selettore indice (58 px).
+               Qui: toolbar in UNA riga scorrevole da 44 px (stesso pattern
+               .map-toolbar-scroll gia' usato), margini ridotti; il pannello
+               LIVE diventa un foglio ancorato in basso e scrollabile, cosi'
+               non sposta la mappa (prima la portava da y=497 a y=813).
+               Solo <=767px: il desktop non cambia.
+               ============================================================ */
+            .toolbar { margin-bottom: 6px; }
+            .toolbar-row { display: flex !important; flex-wrap: nowrap !important; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+            .toolbar-row .tool-btn { flex: 0 0 auto; min-width: 150px; }
+            .metric-tabs { margin-bottom: 6px; }
+
+            /* Pannello LIVE: foglio in basso, non sposta la mappa; scroll col dito.
+               z-index 10050 > #stale-badge (fixed, z 10000) che altrimenti copre
+               le ultime 58 px del pannello; #risk-summary (1200) resta sotto. */
+            #live-panel {
+                position: fixed;
+                left: 8px;
+                right: 8px;
+                bottom: calc(8px + var(--safe-bottom));
+                margin: 0;
+                max-height: 48dvh;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior: contain;
+                z-index: 10050;
+                box-shadow: 0 -8px 24px rgba(0, 0, 0, .45);
+            }
+
+            /* Tap target: la misura conta <32 px. Erano 5/23 a pannello chiuso
+               (legenda badge 24, Aggiorna 20-25, select 24) e 15/33 nella vista
+               polare (zoom 26x26, play/preload/speed 23-28). */
+            #badge-legend-toggle, .btn-timeline, #sync-speed, .hour-select,
+            #model-compare-refresh, #model-compare-mode, .fm-btn, .fm-select,
+            #fm-preload-btn, button.tool-btn[onclick*="requestWeatherData"],
+            .sc-toggle { min-height: 32px; }
+            .fm-btn { min-width: 32px; }
+            .mri-polar-zoom button { width: 32px; height: 32px; }
+
+            /* Testo informativo: la misura dava 54 elementi <11 px a pannello
+               chiuso (8 a 9 px + 46 a 10 px). Qui i label di interfaccia e i
+               valori delle legende passano a 11 px; restano dichiarati sotto
+               gli 11 solo i crediti legali (.attribution-small) e le tacche
+               numeriche delle scale (.fm-legend-tick), che a 11 px si
+               sovrapporrebbero. */
+            .metric-title, #hour-slider-label, #hour-slider-disp, .mp-label,
+            #badge-legend-toggle, .legend, .live-legend, .live-hint,
+            #live-subtitle, #tile-load-box, #sync-caption,
+            #sync-preload-status, #zone-risk-origin, .fm-legend,
+            .fm-legend-note, .fm-legend-cat-row, .fm-timeline-run,
+            #model-compare-note, .bl-note, .model-table, #model-compare-refresh,
+            #ens-head-meta, #footer-version, .dev-label, .live-tag
+            { font-size: 11px !important; }
+            .model-tag { font-size: 10px !important; }
+            .attribution-small { font-size: 10px !important; }
         }
 
         /* ---- 320px (entry-level) ---- */
@@ -2034,9 +2096,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.60';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-10-31';
+    const APP_VERSION = '1.2.4.61';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-11-05';
     const APP_CHANGELOG = [
+        { version: '1.2.4.61', date: '2026-11-05', changes: [
+  'DIFETTO 1 - CHIUDENDO IL PANNELLO LIVE LE ETICHETTE DELLE CENTRALINE RESTAVANO SULLA MAPPA. Misurato sulla 1.2.4.60 (390x844, DPR 2): dopo toggleLivePanel() di chiusura liveShowStations=true, stationsActive=true, stationsLayerObj presente, canvas 696x946 con 52.200 pixel dipinti, classe on su #live-toggle-stations e stationsAgeTimer attivo. Ora il ramo else chiama stationsSetActive(false), azzera liveShowStations, toglie la classe on e nasconde #live-stations-box. Alla riapertura lo stato e\' OFF (default di sessione). #mnw-source-select resta invariato: valore "live" prima e dopo, 0 richieste a data/stations/* nei 30 s successivi alla chiusura, 0 pixel dipinti (canvas rimosso dal pane).',
+  'DIFETTO 2 - MOBILE MISURATO PRIMA/DOPO (390x844 DPR 2 e 360x640 DPR 1). Prima: #leaflet-map a y=497 (h=473 a 390, 358 a 360) con 497 px di testata+toolbar+tab davanti; a 360x640 la mappa era interamente sotto la piega (bottom 855). La toolbar occupava 232 px (3 righe di pulsanti + riga indice). Il pannello LIVE, in flusso, spostava la mappa da y=497 a y=813. Tap target <32 px: 5/23 a pannello chiuso e 15/33 nella vista polare (zoom 26x26 a y=934, fuori dal viewport 844). Testo <11 px: 54/95. Dopo: toolbar in una riga scorrevole da 44 px (232 -> 114), mappa a y=369 (bottom 842 a 390x844, 271 px visibili a 360x640); pannello LIVE fisso in basso (max-height 48dvh, overflow-y auto, top 514 h 322) che NON sposta la mappa (y resta 369); tap target <32 px: 0/23 e 0/33 (zoom 32x32 a y=798, dentro il viewport); testo <11 px: 8/95 (restano 6 tag modello a 10 px, 1 attribuzione a 10 px e 1 intestazione ECMWF vs GFS a 9 px). Disco polare: canvas 522x709 px interni, R=250,6, diametro 334,1 px CSS = 0,96*348, rapporto invariato e leggibile. Desktop 1440x900 invariato: mappa 135,201 754x640, toolbar 120,82 1200x42, tap 15/23, testo 28/95, legende identiche. Nessuna modifica a colori, contenuti, formule, mappe, renderer, workflow o dataset: solo CSS dentro @media (max-width:767px) e il fix JS di chiusura.',
+        ] },
         { version: '1.2.4.60', date: '2026-10-31', changes: [
   'MAPPE= TRE MAPPE DI ANOMALIA NEL MENU: "Anomalia T 850 hPa", "Anomalia geopotenziale 500 hPa", "Anomalia pressione (MSL)". I WebP li pubblicava gia\' il renderer su Europa e sull\'emisfero nord (ANOMALY_REGIONS), ma il client non conosceva ne\' le etichette ne\' le scale: il menu non le mostrava e i WebP restavano invisibili. Ora le tre voci compaiono nel gruppo "Anomalie" SOLO se l\'index.json della regione servita pubblica quella variabile per il dominio corrente: su Italia e dominio la voce NON compare (non resta disabilitata, perche\' non c\'e\' nessun WebP da disegnare). Nessuna delle tre entra in FM_CURATED_VARS: le 28 voci curate restano identiche.',
   'MAPPE= LA LEGENDA DICHIARA LA NORMA: "Anomalia rispetto alla norma 1991-2020 (NCEP/NCAR Reanalysis 1, griglia 5°)". Le tre scale sono copiate identiche da color_scales.json, non riscritte a mano: T850 15 bande da -12 a +12 °C, Z500 13 bande da -24 a +24 dam, MSL 15 bande da -20 a +20 hPa, con la banda dello zero in BIANCO PURO. Lo Z500 e\' in DECAMETRI come la scala con cui il renderer colora il WebP (palette_scale 0,1 applicato PRIMA di indicizzare la palette), non in metri: il client non applica palette_scale perche\' sui WebP non mappa valori in colori, disegna solo la legenda, e l\'unico punto in cui servirebbe la conversione sarebbero le isolinee, che qui non ci sono.',
@@ -8639,6 +8705,16 @@ removeLightningTile();
             btn.style.background = '';
             btn.style.color = '';
             stopLivePanel();
+            // 1.2.4.61 - DIFETTO 1: chiudendo il pannello lo strato delle centraline
+            // restava acceso. Misura sulla 1.2.4.60 (390x844, DPR 2): dopo la chiusura
+            // liveShowStations=true, stationsActive=true, stationsLayerObj presente,
+            // canvas 696x946 con 52.200 pixel dipinti e stationsAgeTimer attivo.
+            // Ora: stato OFF, layer rimosso, legenda nascosta. Alla riapertura riparte
+            // OFF (default di sessione). #mnw-source-select NON viene toccato.
+            liveShowStations = false;
+            var liveStationsBtn = document.getElementById('live-toggle-stations');
+            if (liveStationsBtn) liveStationsBtn.classList.remove('on');
+            stationsSetActive(false);
             var livePanelEl = document.getElementById('live-panel');
             if (livePanelEl) livePanelEl.classList.remove('active');
             // Se i livelli timeline sono ancora attivi, riapri il player
