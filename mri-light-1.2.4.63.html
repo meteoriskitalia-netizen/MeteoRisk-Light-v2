@@ -2107,9 +2107,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.62';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.63';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-06';
     const APP_CHANGELOG = [
+        { version: '1.2.4.63', date: '2026-11-06', changes: [
+  'CITYSEARCHQUERY: LA PARENTESI FINALE NON VIENE PIU\' CERCATA. Dopo una selezione il campo contiene "Nome (Regione)" e la geocoding API non risolve la parentesi. Una funzione unica citySearchQuery(raw), usata da TUTTI i percorsi (oninput dentro handleSearch, Invio, pulsante Cerca, evento nativo search dentro runCitySearch), toglie SOLO un gruppo finale tra parentesi, comprime i doppi spazi e trimma. Le parentesi NON finali restano. Tabella verificata (input -> query inviata, richiesta reale): "Roma (Lazio)" -> "Roma" (1 richiesta, 1 risultato); "Milano (Lombardia)" -> "Milano" (1 richiesta, 2 risultati); "Reggio nell\'Emilia (Emilia-Romagna)" -> "Reggio nell\'Emilia" (1 richiesta, 1 risultato); "Rocca (TE) Centro" -> invariato (1 richiesta, 0 risultati); "  Roma  " -> "Roma" (1 richiesta, 1 risultato); "()" -> "" (0 richieste, nessun errore).',
+  'CASO REALE CHIUSO. 1.2.4.62 (pagina servita): campo precompilato con "Roma (Lazio)" SENZA eventi + Invio -> 1 richiesta con name=Roma (Lazio) e lista block con "Nessun comune trovato per Roma (Lazio)". 1.2.4.63: stessa azione -> 1 richiesta con name=Roma e lista block con 1 risultato "Roma (Lazio)" selezionabile. Identico col click sul pulsante: 1 richiesta name=Roma, lista block 1 risultato, focus che resta su #city-search. I 6 casi della 1.2.4.62 restano verdi: vuoto 0 richieste; digito Roma 3+1; NumpadEnter 1; autofill+Invio 1; autofill+click 1; doppio Invio 2; zzzz 1 con messaggio esplicito. Mobile 390x844 DPR 2: riga 344 px (input 294 + gap 6 + pulsante 44x44), scrollWidth 390, #leaflet-map y=369 h=473 bottom=841 invariata. Nessuna modifica a colori, mappe, renderer, workflow dei dati o dataset: solo la normalizzazione della query e il bump.',
+        ] },
         { version: '1.2.4.62', date: '2026-11-06', changes: [
   'TASTO CERCA AFFIANCATO AL CAMPO COMUNI. Prima non esisteva alcun gesto esplicito: #city-search aveva solo oninput e nessun pulsante. Ora c\'e\' un pulsante con aria-label "Cerca comune o provincia" e icona lente nella STESSA riga, a destra. Misurato con Edge headless CDP 390x844 DPR 2: riga 344 px (input 294 + gap 6 + pulsante 44x44), scrollWidth 390 = zero overflow, #leaflet-map resta a y=369 h=473 bottom=841 esattamente come nella 1.2.4.61; desktop 1440x900: riga 362 px (input 314 + gap 8 + pulsante 40x38), mappa 135,201 754x640 identica. Click REALE (Input.dispatchMouseEvent sulla pagina locale): 1 richiesta a geocoding-api.open-meteo.com, lista block, e il focus RESTA su #city-search (mousedown preventDefault), quindi si puo\' continuare a digitare.',
   'INVIO = RICERCA ESPLICITA, ANCHE SUL VALORE RIPRISTINATO. handleSearch() non ha mai avuto una guardia lastQuery === query: il difetto era che, senza un evento input, nessun percorso partiva. Ora keydown su Enter e NumpadEnter legge SEMPRE el.value a runtime, chiama preventDefault e rilancia handleSearch con explicit:true; nessun early-return se il valore e\' identico (due Invii = due richieste). MISURATO: sulla 1.2.4.61 il campo precompilato con "Roma (Lazio)" senza eventi (come fa l\'autofill) e Invio -> 0 richieste, lista display none; sulla 1.2.4.62 -> 1 richiesta, lista block (messaggio esplicito perche\' il geocoding non risolve la parentesi). Doppio Invio sullo stesso valore: 1 + 1 = 2 richieste. NumpadEnter: 1. Evento nativo search: 1, soppresso se arriva entro 350 ms dal keydown (keydown+search = 1 sola richiesta, verificato). Campo vuoto + Invio: 0 richieste e nessuna eccezione. "zzzz": 1 richiesta e messaggio Nessun comune trovato per zzzz. Al DOMContentLoaded nessuna ricerca automatica se il campo ha gia\' un valore: la prima Invio o il primo click funzionano comunque.',
@@ -25651,12 +25655,26 @@ function renderContinuousOverlay() {
         showSearchMessage('Ricerca non disponibile (rete o limite API). Riprova tra poco.');
     }
 
+    // 1.2.4.63 - NORMALIZZAZIONE UNICA DELLA QUERY.
+    // Dopo una selezione il campo contiene "Nome (Regione)" e la geocoding API
+    // non risolve la parentesi: "Roma (Lazio)" tornava 0 risultati. Questa
+    // funzione toglie SOLO un gruppo finale tra parentesi, comprime gli spazi
+    // e trimma. Le parentesi NON finali restano (es. "Rocca (TE) Centro").
+    // E' usata da TUTTI i percorsi: oninput (dentro handleSearch), Invio,
+    // pulsante Cerca ed evento nativo 'search' (dentro runCitySearch).
+    function citySearchQuery(raw) {
+        var s = String(raw == null ? '' : raw);
+        s = s.replace(/\s+/g, ' ').trim();
+        s = s.replace(/\s*\([^()]*\)\s*$/, '').trim();
+        return s;
+    }
+
     var citySearchNativeSearchGuard = false;   // dedup SOLO fra keydown Enter e l'evento nativo 'search'
 
     function runCitySearch() {
         var el = document.getElementById('city-search');
         if (!el) return;
-        var query = (el.value || '').trim();
+        var query = citySearchQuery(el.value);
         if (!query) return;          // campo vuoto: nessuna azione, nessun errore
         handleSearch(query, { explicit: true });
     }
@@ -25676,6 +25694,7 @@ function renderContinuousOverlay() {
         clearTimeout(searchTimeout);
         const resultsBox = document.getElementById('search-results');
         var explicit = !!(options && options.explicit);
+        query = citySearchQuery(query);   // 1.2.4.63: "Roma (Lazio)" -> "Roma" anche dal percorso oninput
         if (query.length < 2) {
             // Annulla la richiesta in corso e nascondi i risultati
             if (searchController) { searchController.abort(); searchController = null; }

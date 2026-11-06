@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.2.4.63 - LA RICERCA COMUNI NORMALIZZA LA QUERY: "Roma (Lazio)" DIVENTA name=Roma (1 RICHIESTA, 1 RISULTATO; PRIMA name=Roma (Lazio) E 0 RISULTATI), PARENTESI NON FINALI INTATTE (bump da 1.2.4.62)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=63
+RELEASE_TYPE=release
+DATE=2026-11-06
+NOTE=Release 1.2.4.63 (bump da 1.2.4.62) - SOLO CLIENT, un difetto: il campo comuni, dopo una selezione, contiene "Nome (Regione)" e la geocoding API non risolve la parentesi. Sulla 1.2.4.62 il caso precompilato "Roma (Lazio)" + Invio faceva 1 richiesta con name=Roma (Lazio) e tornava "Nessun comune trovato". Ora una funzione unica citySearchQuery(raw), usata da oninput (dentro handleSearch), Invio, pulsante Cerca ed evento nativo search (dentro runCitySearch), toglie SOLO un gruppo finale tra parentesi, comprime i doppi spazi e trimma; le parentesi non finali restano. Tabella verificata con richiesta reale: "Roma (Lazio)" -> "Roma"; "Milano (Lombardia)" -> "Milano"; "Reggio nell'Emilia (Emilia-Romagna)" -> "Reggio nell'Emilia"; "Rocca (TE) Centro" -> invariato; "  Roma  " -> "Roma"; "()" -> "" con 0 richieste. Caso reale: 1.2.4.62 servita, prefill senza eventi + Invio = 1 richiesta name=Roma (Lazio), 0 risultati; 1.2.4.63 = 1 richiesta name=Roma, 1 risultato "Roma (Lazio)"; identico col click. I 6 casi della 1.2.4.62 restano verdi (vuoto 0, digito Roma 3+1, NumpadEnter 1, autofill+Invio 1, autofill+click 1, doppio Invio 2, zzzz 1 con messaggio). Mobile 390x844 DPR 2: riga 344 px (input 294 + gap 6 + pulsante 44x44), scrollWidth 390, mappa y=369 h=473 bottom=841 invariata. BUMP: html mri-light-1.2.4.63.html, VERSION (BUILD=63, DATE=2026-11-06), sw.js (CACHE_NAME mri-1.2.4.63), README.md, i 26 test .mjs, le righe cp dei 3 workflow. La 1.2.4.62 va RIMOSSA dal repo. NON toccati: scripts/, workflow dei dati, color_scales.json.
+APP_FILE=mri-light-1.2.4.63.html
+
 MeteoRisk Light - 1.2.4.62 - RICERCA COMUNI CON GESTO ESPLICITO: PULSANTE CERCA 44x44 NELLA STESSA RIGA E INVIO CHE LEGGE el.value A RUNTIME (AUTOFILL "Roma (Lazio)": 0 -> 1 RICHIESTA, DOPPIO INVIO = 2 RICHIESTE) (bump da 1.2.4.61)
 MAJOR=1
 MINOR=2

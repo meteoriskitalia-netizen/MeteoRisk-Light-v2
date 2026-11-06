@@ -6,13 +6,17 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.62
+## Versione attiva: 1.2.4.63
 
-- File applicativo: `mri-light-1.2.4.62.html` (`APP_VERSION = '1.2.4.62'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.62', date: '2026-11-06' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.62'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.63.html` (`APP_VERSION = '1.2.4.63'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.63', date: '2026-11-06' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.63'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
+- Contenuto della 1.2.4.63 (release sopra la 1.2.4.62) - **la ricerca comuni normalizza la query**. Solo client: nessuna modifica a `scripts/` (motore, renderer, dataset), ai workflow dei dati o a `color_scales.json`; i workflow toccano solo le righe `cp` del nome del file.
+  - **Difetto.** Dopo una selezione il campo contiene `Nome (Regione)` e la geocoding API non risolve la parentesi: sulla 1.2.4.62 il campo precompilato `Roma (Lazio)` + Invio faceva **1 richiesta con `name=Roma (Lazio)`** e tornava «Nessun comune trovato».
+  - **Fix.** Una funzione unica `citySearchQuery(raw)`, usata da **tutti** i percorsi (`oninput` dentro `handleSearch`, Invio, pulsante Cerca, evento nativo `search` dentro `runCitySearch`), toglie **solo un gruppo finale tra parentesi**, comprime i doppi spazi e trimma. Le parentesi non finali restano. Tabella verificata con richiesta reale: `Roma (Lazio)` -> `Roma` (1 richiesta, 1 risultato); `Milano (Lombardia)` -> `Milano` (1 richiesta, 2 risultati); `Reggio nell'Emilia (Emilia-Romagna)` -> `Reggio nell'Emilia` (1 richiesta, 1 risultato); `Rocca (TE) Centro` -> invariato (1 richiesta, 0 risultati); `  Roma  ` -> `Roma` (1 richiesta, 1 risultato); `()` -> stringa vuota (**0 richieste**, nessun errore).
+  - **Caso reale.** 1.2.4.62 servita: prefill senza eventi + Invio -> **1 richiesta `name=Roma (Lazio)`, 0 risultati**. 1.2.4.63: **1 richiesta `name=Roma`, 1 risultato `Roma (Lazio)` selezionabile**; identico col click sul pulsante (focus che resta su `#city-search`). I 6 casi della 1.2.4.62 restano verdi. Mobile 390x844 DPR 2: riga **344 px** (input 294 + gap 6 + pulsante **44x44**), `scrollWidth` **390**, mappa **y=369 h=473 bottom=841 invariata**.
 - Contenuto della 1.2.4.62 (release sopra la 1.2.4.61) - **ricerca comuni con gesto esplicito: pulsante Cerca e Invio**. Solo client: nessuna modifica a `scripts/` (motore, renderer, dataset), ai workflow dei dati o a `color_scales.json`; i workflow toccano solo le righe `cp` del nome del file.
   - **Pulsante Cerca.** `#city-search` aveva solo `oninput`: nessun pulsante, nessun gesto esplicito. Ora c'e' un pulsante con `aria-label="Cerca comune o provincia"` e icona lente nella stessa riga, a destra, `mousedown` con `preventDefault()` per non rubare il focus all'input. Misure CDP: **390x844 DPR 2** riga **344 px** (input 294 + gap 6 + pulsante **44x44**), `scrollWidth` **390** (zero overflow), `#leaflet-map` **y=369, h=473, bottom=841 invariata**; **1440x900** riga **362 px** (input 314 + gap 8 + pulsante **40x38**), mappa **135,201 754x640 invariata**. Click reale: **1 richiesta**, focus che resta su `#city-search`.
   - **Invio esplicito.** `keydown` su `Enter` e `NumpadEnter` legge `el.value` a runtime, chiama `preventDefault()` e rilancia `handleSearch(query,{explicit:true})`; **nessuna guardia `lastQuery === query`** (verificata assente nel codice), quindi due Invii fanno due richieste. Caso del difetto misurato: sulla 1.2.4.61 campo precompilato `Roma (Lazio)` senza eventi (autofill) + Invio -> **0 richieste, lista none**; sulla 1.2.4.62 -> **1 richiesta, lista block**. Doppio Invio = **2**, `NumpadEnter` = **1**, evento nativo `search` = **1** (soppresso entro 350 ms dal keydown: keydown+search = **1**), campo vuoto = **0 richieste e nessuna eccezione**, `zzzz` = **1 richiesta con messaggio esplicito**. Al `DOMContentLoaded` nessuna ricerca automatica con valore gia' presente.
