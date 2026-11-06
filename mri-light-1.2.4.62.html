@@ -323,6 +323,12 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .search-box { position: relative; }
         .search-input { width: 100%; background: #0f172a; border: 1px solid #334155; padding: 10px 12px; border-radius: 8px; color: #fff; font-size: 14px; outline: none; }
         .search-input:focus { border-color: #38bdf8; }
+        .search-row { display: flex; align-items: stretch; gap: 8px; }
+        .search-row .search-input { flex: 1 1 auto; min-width: 0; }
+        .search-btn { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 40px; min-width: 40px; padding: 0; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #e2e8f0; font-size: 16px; line-height: 1; cursor: pointer; }
+        .search-btn:hover, .search-btn:focus-visible { border-color: #38bdf8; color: #38bdf8; }
+        .search-btn:active { background: #1e293b; }
+        .search-empty, .search-empty:hover { color: #94a3b8; cursor: default; background: transparent; }
         .search-results { position: absolute; top: 100%; left: 0; right: 0; background: #0f172a; border: 1px solid #334155; border-radius: 8px; max-height: 180px; overflow-y: auto; z-index: 500; margin-top: 4px; display: none; }
         .search-item { padding: 8px 12px; cursor: pointer; font-size: 13px; border-bottom: 1px solid #1e293b; }
         .search-item:hover { background: #1e293b; color: #38bdf8; }
@@ -1119,6 +1125,8 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             .legend-swatch { width: 14px; height: 14px; }
             .caletta-toggle button { padding: 10px 16px; }
             .search-input { font-size: 16px; min-height: var(--touch-min); }
+            .search-row { gap: 6px; }
+            .search-btn { width: var(--touch-min); min-width: var(--touch-min); min-height: var(--touch-min); font-size: 18px; }
             .search-item { min-height: 44px; display: flex; align-items: center; }
             .hour-slider { flex-wrap: wrap; gap: 8px; }
             .hour-slider input[type="range"] { flex: 1; min-width: 160px; width: auto; }
@@ -1933,7 +1941,10 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 
     <div class="details-card">
         <div class="search-box">
-            <input type="text" id="city-search" class="search-input" placeholder="🔍 Cerca comune o provincia..." oninput="handleSearch(this.value)">
+            <div class="search-row">
+                <input type="text" id="city-search" class="search-input" placeholder="🔍 Cerca comune o provincia..." oninput="handleSearch(this.value)" onkeydown="handleCitySearchKeydown(event)">
+                <button type="button" id="city-search-btn" class="search-btn" aria-label="Cerca comune o provincia" title="Cerca" onmousedown="event.preventDefault()" onclick="runCitySearch()">🔍</button>
+            </div>
             <div id="search-results" class="search-results"></div>
 
         </div>
@@ -2096,9 +2107,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.61';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-11-05';
+    const APP_VERSION = '1.2.4.62';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-11-06';
     const APP_CHANGELOG = [
+        { version: '1.2.4.62', date: '2026-11-06', changes: [
+  'TASTO CERCA AFFIANCATO AL CAMPO COMUNI. Prima non esisteva alcun gesto esplicito: #city-search aveva solo oninput e nessun pulsante. Ora c\'e\' un pulsante con aria-label "Cerca comune o provincia" e icona lente nella STESSA riga, a destra. Misurato con Edge headless CDP 390x844 DPR 2: riga 344 px (input 294 + gap 6 + pulsante 44x44), scrollWidth 390 = zero overflow, #leaflet-map resta a y=369 h=473 bottom=841 esattamente come nella 1.2.4.61; desktop 1440x900: riga 362 px (input 314 + gap 8 + pulsante 40x38), mappa 135,201 754x640 identica. Click REALE (Input.dispatchMouseEvent sulla pagina locale): 1 richiesta a geocoding-api.open-meteo.com, lista block, e il focus RESTA su #city-search (mousedown preventDefault), quindi si puo\' continuare a digitare.',
+  'INVIO = RICERCA ESPLICITA, ANCHE SUL VALORE RIPRISTINATO. handleSearch() non ha mai avuto una guardia lastQuery === query: il difetto era che, senza un evento input, nessun percorso partiva. Ora keydown su Enter e NumpadEnter legge SEMPRE el.value a runtime, chiama preventDefault e rilancia handleSearch con explicit:true; nessun early-return se il valore e\' identico (due Invii = due richieste). MISURATO: sulla 1.2.4.61 il campo precompilato con "Roma (Lazio)" senza eventi (come fa l\'autofill) e Invio -> 0 richieste, lista display none; sulla 1.2.4.62 -> 1 richiesta, lista block (messaggio esplicito perche\' il geocoding non risolve la parentesi). Doppio Invio sullo stesso valore: 1 + 1 = 2 richieste. NumpadEnter: 1. Evento nativo search: 1, soppresso se arriva entro 350 ms dal keydown (keydown+search = 1 sola richiesta, verificato). Campo vuoto + Invio: 0 richieste e nessuna eccezione. "zzzz": 1 richiesta e messaggio Nessun comune trovato per zzzz. Al DOMContentLoaded nessuna ricerca automatica se il campo ha gia\' un valore: la prima Invio o il primo click funzionano comunque.',
+        ] },
         { version: '1.2.4.61', date: '2026-11-05', changes: [
   'DIFETTO 1 - CHIUDENDO IL PANNELLO LIVE LE ETICHETTE DELLE CENTRALINE RESTAVANO SULLA MAPPA. Misurato sulla 1.2.4.60 (390x844, DPR 2): dopo toggleLivePanel() di chiusura liveShowStations=true, stationsActive=true, stationsLayerObj presente, canvas 696x946 con 52.200 pixel dipinti, classe on su #live-toggle-stations e stationsAgeTimer attivo. Ora il ramo else chiama stationsSetActive(false), azzera liveShowStations, toglie la classe on e nasconde #live-stations-box. Alla riapertura lo stato e\' OFF (default di sessione). #mnw-source-select resta invariato: valore "live" prima e dopo, 0 richieste a data/stations/* nei 30 s successivi alla chiusura, 0 pixel dipinti (canvas rimosso dal pane).',
   'DIFETTO 2 - MOBILE MISURATO PRIMA/DOPO (390x844 DPR 2 e 360x640 DPR 1). Prima: #leaflet-map a y=497 (h=473 a 390, 358 a 360) con 497 px di testata+toolbar+tab davanti; a 360x640 la mappa era interamente sotto la piega (bottom 855). La toolbar occupava 232 px (3 righe di pulsanti + riga indice). Il pannello LIVE, in flusso, spostava la mappa da y=497 a y=813. Tap target <32 px: 5/23 a pannello chiuso e 15/33 nella vista polare (zoom 26x26 a y=934, fuori dal viewport 844). Testo <11 px: 54/95. Dopo: toolbar in una riga scorrevole da 44 px (232 -> 114), mappa a y=369 (bottom 842 a 390x844, 271 px visibili a 360x640); pannello LIVE fisso in basso (max-height 48dvh, overflow-y auto, top 514 h 322) che NON sposta la mappa (y resta 369); tap target <32 px: 0/23 e 0/33 (zoom 32x32 a y=798, dentro il viewport); testo <11 px: 8/95 (restano 6 tag modello a 10 px, 1 attribuzione a 10 px e 1 intestazione ECMWF vs GFS a 9 px). Disco polare: canvas 522x709 px interni, R=250,6, diametro 334,1 px CSS = 0,96*348, rapporto invariato e leggibile. Desktop 1440x900 invariato: mappa 135,201 754x640, toolbar 120,82 1200x42, tap 15/23, testo 28/95, legende identiche. Nessuna modifica a colori, contenuti, formule, mappe, renderer, workflow o dataset: solo CSS dentro @media (max-width:767px) e il fix JS di chiusura.',
@@ -25611,9 +25626,56 @@ function renderContinuousOverlay() {
         }).join('');
     }
 
-    function handleSearch(query) {
+    // 1.2.4.62 - RICERCA ESPLICITA (pulsante Cerca + Invio).
+    // handleSearch() parte SOLO dall'evento input: con il campo gia' valorizzato
+    // (autofill, ripristino del browser, comune scelto in precedenza) il testo non
+    // cambia, nessun evento input viene emesso e Invio non faceva nulla.
+    // Questi helper leggono SEMPRE el.value a runtime e rifanno la ricerca anche
+    // se il valore e' identico all'ultima query: nessun early-return.
+    function showSearchMessage(text) {
+        var box = document.getElementById('search-results');
+        if (!box) return;
+        box.innerHTML = '';
+        var div = document.createElement('div');
+        div.className = 'search-item search-empty';
+        div.innerText = text;
+        box.appendChild(div);
+        box.style.display = 'block';
+    }
+
+    function showSearchEmpty(query) {
+        showSearchMessage('Nessun comune trovato per \u201C' + query + '\u201D.');
+    }
+
+    function showSearchError() {
+        showSearchMessage('Ricerca non disponibile (rete o limite API). Riprova tra poco.');
+    }
+
+    var citySearchNativeSearchGuard = false;   // dedup SOLO fra keydown Enter e l'evento nativo 'search'
+
+    function runCitySearch() {
+        var el = document.getElementById('city-search');
+        if (!el) return;
+        var query = (el.value || '').trim();
+        if (!query) return;          // campo vuoto: nessuna azione, nessun errore
+        handleSearch(query, { explicit: true });
+    }
+
+    function handleCitySearchKeydown(event) {
+        if (!event) return;
+        var isEnter = event.key === 'Enter' || event.key === 'NumpadEnter' ||
+                      event.keyCode === 13 || event.which === 13;
+        if (!isEnter) return;
+        event.preventDefault();      // nessun invio del form
+        citySearchNativeSearchGuard = true;
+        setTimeout(function() { citySearchNativeSearchGuard = false; }, 350);
+        runCitySearch();
+    }
+
+    function handleSearch(query, options) {
         clearTimeout(searchTimeout);
         const resultsBox = document.getElementById('search-results');
+        var explicit = !!(options && options.explicit);
         if (query.length < 2) {
             // Annulla la richiesta in corso e nascondi i risultati
             if (searchController) { searchController.abort(); searchController = null; }
@@ -25643,7 +25705,10 @@ function renderContinuousOverlay() {
                     mNo.push(itNo);
                 }
             }
-            if (mNo.length === 0) { resultsBox.style.display = 'none'; return; }
+            if (mNo.length === 0) {
+                if (explicit) { showSearchEmpty(query); } else { resultsBox.style.display = 'none'; }
+                return;
+            }
             mNo.forEach(function(it) {
                 const div = document.createElement('div');
                 div.className = 'search-item';
@@ -25666,7 +25731,10 @@ function renderContinuousOverlay() {
             if (thisSignal.aborted) return;   // esito di una richiesta superata da una più recente
             resultsBox.innerHTML = '';
             const filtered = (data.results || []).filter(item => item.country_code === 'IT');
-            if (filtered.length === 0) { resultsBox.style.display = 'none'; return; }
+            if (filtered.length === 0) {
+                if (explicit) { showSearchEmpty(query); } else { resultsBox.style.display = 'none'; }
+                return;
+            }
             filtered.forEach(city => {
                 const div = document.createElement('div');
                 div.className = 'search-item';
@@ -25677,6 +25745,7 @@ function renderContinuousOverlay() {
             resultsBox.style.display = 'block';
         }).catch(function() {
             if (thisSignal.aborted) return;   // errore da richiesta abbandonata: ignora
+            if (explicit) { showSearchError(); }  // 1.2.4.62: l'utente ha chiesto la ricerca, non resta muto
         });
     }
 
@@ -26625,7 +26694,28 @@ function start() {
 }
 
 window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: THRESHOLDS_MIN };
-start();
+  start();
+
+  // 1.2.4.62 - TERZA VIA ESPLICITA: evento nativo 'search' (alcuni browser lo
+  // emettono con Invio). E' idempotente rispetto al keydown: se il gesto e'
+  // gia' stato servito dal keydown, il flag lo sopprime per 350 ms; due Invii
+  // voluti restano due ricerche perche' il keydown chiama SEMPRE runCitySearch.
+  // Al DOMContentLoaded NON parte nessuna ricerca automatica se #city-search ha
+  // gia' un valore (autofill/ripristino): la prima Invio o il primo click
+  // leggono el.value a runtime e funzionano.
+  (function bindCitySearchExplicit() {
+    function bind() {
+      var el = document.getElementById('city-search');
+      if (!el || el.getAttribute('data-search-explicit') === '1') return;
+      el.setAttribute('data-search-explicit', '1');
+      el.addEventListener('search', function() {
+        if (citySearchNativeSearchGuard) return;
+        runCitySearch();
+      });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind, { once: true });
+    else bind();
+  })();
 </script>
 <script>
 // 1.2.4.15 - SERVICE WORKER (cache applicativa, vedi sw.js nella root del sito).

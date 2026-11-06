@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.2.4.62 - RICERCA COMUNI CON GESTO ESPLICITO: PULSANTE CERCA 44x44 NELLA STESSA RIGA E INVIO CHE LEGGE el.value A RUNTIME (AUTOFILL "Roma (Lazio)": 0 -> 1 RICHIESTA, DOPPIO INVIO = 2 RICHIESTE) (bump da 1.2.4.61)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=62
+RELEASE_TYPE=release
+DATE=2026-11-06
+NOTE=Release 1.2.4.62 (bump da 1.2.4.61) - SOLO CLIENT, un difetto e una funzione: la ricerca comuni non aveva alcun gesto esplicito. (1) PULSANTE CERCA: #city-search aveva solo oninput; ora c'e' un pulsante con aria-label e icona lente nella stessa riga a destra, 44x44 su mobile (40x38 desktop), mousedown preventDefault per non rubare il focus all'input. Misure CDP: 390x844 DPR 2 riga 344 px (input 294 + gap 6 + pulsante 44), scrollWidth 390, #leaflet-map y=369 h=473 bottom=841 invariata; 1440x900 riga 362 px (input 314 + gap 8 + pulsante 40), mappa 135,201 754x640 invariata. Click reale: 1 richiesta, focus su #city-search. (2) INVIO ESPLICITO: keydown Enter/NumpadEnter legge el.value a runtime, preventDefault, handleSearch(query,{explicit:true}); nessuna guardia lastQuery (verificato: nel codice non esiste), quindi due Invii fanno due richieste. Caso del difetto MISURATO: sulla 1.2.4.61 campo precompilato "Roma (Lazio)" senza eventi + Invio = 0 richieste e lista none; sulla 1.2.4.62 = 1 richiesta e lista block. Doppio Invio = 2, NumpadEnter = 1, evento nativo search = 1 (soppresso entro 350 ms dal keydown: keydown+search = 1), campo vuoto = 0 richieste e nessuna eccezione, zzzz = 1 richiesta con messaggio esplicito. Nessuna ricerca automatica al DOMContentLoaded con valore gia' presente. BUMP: html mri-light-1.2.4.62.html, VERSION (BUILD=62, DATE=2026-11-06), sw.js (CACHE_NAME mri-1.2.4.62), README.md, i 26 test .mjs, le righe cp dei 3 workflow. La 1.2.4.61 va RIMOSSA dal repo. NON toccati: scripts/ (motore, renderer, dataset), workflow dei dati, color_scales.json.
+APP_FILE=mri-light-1.2.4.62.html
+
 MeteoRisk Light - 1.2.4.61 - CHIUSURA DEL PANNELLO LIVE SENZA ETICHETTE RESIDUE (STATO CENTRALINE OFF, 0 PIXEL, 0 RICHIESTE) E MOBILE MISURATO: MAPPA DA y=497 A y=369, LIVE A FOGLIO FISSO, TAP TARGET 0 SOTTO 32 px, TESTO INFORMATIVO A 11 px (bump da 1.2.4.60)
 MAJOR=1
 MINOR=2
