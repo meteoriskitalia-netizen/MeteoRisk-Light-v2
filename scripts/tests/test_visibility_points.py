@@ -57,19 +57,24 @@ def _hourly_payload(**over):
 # 1. Dichiarazione del parametro
 # ---------------------------------------------------------------------------
 def test_visibility_e_in_coda_e_non_obbligatoria():
-    assert common.HOURLY_FIELDS[-1] == "visibility"
-    assert common.HOURLY_PARAMS.rstrip().endswith("visibility")
-    assert common.HOURLY_OPTIONAL_PARAMS == ("visibility",)
+    # `visibility` e' il PRIMO degli opzionali in coda (dal 2026-11-10 la coda
+    # opzionale contiene anche cloud_cover e snowfall_water_equivalent): resta
+    # fuori dai campi obbligatori, quindi la stringa storica della richiesta
+    # obbligatoria non cambia.
+    assert common.HOURLY_FIELDS[-3] == "visibility"
+    assert "visibility" in common.HOURLY_PARAMS.rstrip().split(",")[-3:]
+    assert common.HOURLY_OPTIONAL_PARAMS[:1] == ("visibility",)
     assert "visibility" not in common.HOURLY_FIELDS_REQUIRED
     assert "visibility" not in common.HOURLY_PARAMS_REQUIRED
 
 
 def test_ordine_storico_dei_campi_obbligatori_preservato():
     # I primi campi (misurati sul main prima di questa modifica) restano nella
-    # stessa posizione: l'opzionale e' l'ULTIMO, non sposta nulla.
+    # stessa posizione: gli opzionali sono l'ULTIMO blocco, non spostano nulla.
     assert common.HOURLY_FIELDS[:len(STORICO)] == STORICO
-    assert common.HOURLY_FIELDS_REQUIRED == common.HOURLY_FIELDS[:-1]
-    assert common.HOURLY_PARAMS_REQUIRED == ",".join(common.HOURLY_FIELDS[:-1])
+    n_opt = len(common.HOURLY_OPTIONAL_PARAMS)
+    assert common.HOURLY_FIELDS_REQUIRED == common.HOURLY_FIELDS[:-n_opt]
+    assert common.HOURLY_PARAMS_REQUIRED == ",".join(common.HOURLY_FIELDS[:-n_opt])
 
 
 def test_unita_ammessa_dichiarata_in_metri():
@@ -177,7 +182,11 @@ def test_riconoscimento_del_parametro_nel_messaggio():
         "Cannot initialize Parameter 'visibility' from invalid String value") \
         == ("visibility",)
     assert common._optional_params_in_error(
-        "hourly: invalid parameter combination") == ("visibility",)
+        "Cannot initialize Parameter 'cloud_cover' from invalid String value") \
+        == ("cloud_cover",)
+    # messaggio generico su `hourly`: responsabili TUTTI gli opzionali
+    assert common._optional_params_in_error(
+        "hourly: invalid parameter combination") == common.HOURLY_OPTIONAL_PARAMS
     assert common._optional_params_in_error("Parameter 'foo' is not available") == ()
 
 

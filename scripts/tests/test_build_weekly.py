@@ -161,8 +161,8 @@ def test_gzip_budget_and_encoding():
 
 
 def test_no_hourly_fields_of_points_dataset():
-    """GUARDIA incidente: weekly.json non deve contenere i 49 campi orari."""
-    assert len(common.HOURLY_FIELDS) == 49
+    """GUARDIA incidente: weekly.json non deve contenere i 51 campi orari."""
+    assert len(common.HOURLY_FIELDS) == 51
     forbidden = set(common.HOURLY_FIELDS)
     _regions_, payload = _payload()
     keys = build_weekly._all_keys(payload, set())

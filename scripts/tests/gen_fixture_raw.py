@@ -114,6 +114,31 @@ def synth_point(lat, lon, elev):
                     base = min(base, 180.0 + 60.0 * abs(hour - 4))
                 arr.append(round(max(30.0, base + rnd.uniform(-800, 800) * (0.05 + conv)), 1))
             hourly[f] = arr
+        elif f == "cloud_cover":
+            # PERCENTUALE 0-100 (Open-Meteo dichiara unit "%"). Fixture: coperto
+            # nella cella convettiva, poco nuvoloso in pianura, piu' nuvoloso
+            # di notte. Serve a esercitare la sintesi "cielo" del bollettino.
+            arr = []
+            for h in range(72):
+                hour = h % 24
+                base = 12.0 + 70.0 * conv
+                if hour < 7 or hour > 20:
+                    base += 12.0
+                arr.append(round(_clip(base + rnd.uniform(-15, 15), 0, 100), 0))
+            hourly[f] = arr
+        elif f == "snowfall_water_equivalent":
+            # MILLIMETRI di acqua equivalente (Open-Meteo dichiara unit "mm").
+            # Fixture: neve solo in quota (>= 1200 m) e con temperatura <= 1 C.
+            # Fuori da quelle condizioni il valore reale e' 0.0, non null.
+            arr = []
+            for h in range(72):
+                temp = hourly["temperature_2m"][h]
+                snow = 0.0
+                if (elev or 0) >= 1200 and temp <= 1.0:
+                    snow = round(max(0.0, (1.0 - temp) * 0.6 * (0.3 + conv))
+                                 * rnd.uniform(0.4, 1.2), 2)
+                arr.append(snow)
+            hourly[f] = arr
         elif f.startswith("temperature_850hPa") or f == "temperature_850hPa":
             hourly[f] = [round(t - (elev or 0) * 0.006 - 8, 2) for t in hourly["temperature_2m"]]
         elif f == "temperature_700hPa":

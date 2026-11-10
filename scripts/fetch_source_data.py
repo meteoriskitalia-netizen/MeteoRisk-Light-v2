@@ -310,27 +310,34 @@ def main():
     leg_ts = {"best_match_fetched_at": fetched_ts, "ecmwf_fetched_at": fetched_ts}
     cycle_mode = "coordinated"
 
-    # COPERTURA DEI PARAMETRI OPZIONALI (`visibility`): conteggiata sui record
-    # FINALI, quindi indipendente da retry e batch. `with_data` dice quante
-    # localita' hanno davvero il campo (almeno un valore non nullo, unita'
-    # "m"): e' il numero che autorizza il badge nebbia, non il fatto che la
-    # chiave sia stata chiesta.
+    # COPERTURA DEI PARAMETRI OPZIONALI (`visibility`, `cloud_cover`,
+    # `snowfall_water_equivalent`): conteggiata sui record FINALI, quindi
+    # indipendente da retry e batch. `by_param[f]` dice quante localita' hanno
+    # davvero QUEL campo (almeno un valore non nullo, unita' ammessa): e' il
+    # numero che autorizza un badge o una sintesi, non il fatto che la chiave
+    # sia stata chiesta. `with_data` resta il conteggio storico "almeno un
+    # opzionale popolato" (finche' l'opzionale era UNO coincideva con quel
+    # campo; con tre campi il numero per singolo campo e' `by_param`).
     hourly_optional = {
         "params": list(common.HOURLY_OPTIONAL_PARAMS),
         "units": {k: list(v) for k, v in common.HOURLY_OPTIONAL_UNITS.items()},
         "coverage": {},
     }
     for model in common.DUAL_MODELS.split(","):
-        st = {"locations": 0, "with_data": 0}
+        st = {"locations": 0, "with_data": 0,
+              "by_param": {p: 0 for p in common.HOURLY_OPTIONAL_PARAMS}}
         for _pidx, rec in results.items():
             h = ((rec.get(model) or {}).get("hourly") or {})
             st["locations"] += 1
             if any(h.get(p) for p in common.HOURLY_OPTIONAL_PARAMS):
                 st["with_data"] += 1
+            for pname in common.HOURLY_OPTIONAL_PARAMS:
+                if h.get(pname):
+                    st["by_param"][pname] += 1
         hourly_optional["coverage"][model] = st
-        print("[fetch_source_data] copertura %s: %d/%d localita' con dato (%s)"
+        print("[fetch_source_data] copertura %s: %d/%d localita' con almeno un opzionale (%s)"
               % (model, st["with_data"], st["locations"],
-                 "/".join(common.HOURLY_OPTIONAL_PARAMS)))
+                 ", ".join("%s=%d" % (p, n) for p, n in st["by_param"].items())))
 
     payload = {
         "fetched_at": fetched_ts,

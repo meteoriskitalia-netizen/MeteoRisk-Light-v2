@@ -138,7 +138,17 @@ HOURLY_PARAMS = (
     #                  (NON un 400: l'API accetta il nome e riempie di null).
     # Percio' il campo va tenuto solo dove ha ALMENO un valore non nullo e
     # unita' "m" (hourly_record_fields): niente serie di 72 null nel JSON.
-    "visibility"
+    # --- OPZIONALI: sintesi in stile bollettino (cielo e neve caduta) -------
+    # MISURATO il 2026-11-10 sull'API Forecast (Roma/Bolzano/Milano, 72 h,
+    # best_match ed ecmwf_ifs): HTTP 200, hourly_units.cloud_cover = "%",
+    # hourly_units.snowfall_water_equivalent = "mm", 72/72 valori su 3/3
+    # localita' per entrambi i leg. Stesso contratto di `visibility`: se l'API
+    # risponde 400 sul nome, la richiesta viene ripetuta senza opzionali; se il
+    # campo torna tutto null (o con unita' non ammessa) viene OMESSO dal record
+    # e dichiarato in `hourly_optional` (`dropped` di hourly_record_fields).
+    # IN CODA: i 49 campi pubblicati prima di questa modifica restano nelle
+    # stesse posizioni 0..48 (nessun campo rimosso, rinominato o riordinato).
+    "visibility,cloud_cover,snowfall_water_equivalent"
 )
 DAILY_PARAMS = (
     "weathercode,temperature_2m_max,temperature_2m_min,"
@@ -170,13 +180,16 @@ DAILY_FIELDS = DAILY_PARAMS.split(",")
 # [null x72] con hourly_units.visibility = "undefined". Il ramo 400 resta come
 # difesa (una versione futura dell'API puo' rifiutare il nome) ed e' coperto dal
 # test dedicato.
-HOURLY_OPTIONAL_PARAMS = ("visibility",)
+HOURLY_OPTIONAL_PARAMS = ("visibility", "cloud_cover", "snowfall_water_equivalent")
 HOURLY_OPTIONAL_SET = frozenset(HOURLY_OPTIONAL_PARAMS)
-# Unita' ammesse per un parametro opzionale (Open-Meteo dichiara "m";
-# per i modelli che non hanno il campo dichiara la stringa "undefined").
-HOURLY_OPTIONAL_UNITS = {"visibility": ("m",)}
+# Unita' ammesse per un parametro opzionale (Open-Meteo dichiara "m", "%" e
+# "mm"; per i modelli che non hanno il campo dichiara la stringa "undefined").
+HOURLY_OPTIONAL_UNITS = {"visibility": ("m",),
+                         "cloud_cover": ("%",),
+                         "snowfall_water_equivalent": ("mm",)}
 # Campi OBBLIGATORI (tutti tranne gli opzionali) e stringa `hourly` ridotta:
-# l'ordine storico dei campi e' PRESERVATO, l'opzionale e' in coda.
+# l'ordine storico dei campi e' PRESERVATO, gli opzionali sono IN CODA
+# (visibility, cloud_cover, snowfall_water_equivalent: 49 storici + 2 nuovi).
 HOURLY_FIELDS_REQUIRED = [f for f in HOURLY_FIELDS
                           if f not in HOURLY_OPTIONAL_SET]
 HOURLY_PARAMS_REQUIRED = ",".join(HOURLY_FIELDS_REQUIRED)
