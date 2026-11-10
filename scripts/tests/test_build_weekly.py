@@ -181,10 +181,11 @@ def test_at_most_three_batches_for_107_provinces():
     regions = _regions()
     batches = build_weekly.plan_batches(regions, 100)
     assert len(batches) == 2
-    assert [len(b) for b in batches] == [100, 7]
+    assert [len(b) for b in batches] == [54, 53]
+    assert all(50 <= len(b) <= 100 for b in batches)
     batches50 = build_weekly.plan_batches(regions, 50)
     assert len(batches50) == 3
-    assert [len(b) for b in batches50] == [50, 50, 7]
+    assert [len(b) for b in batches50] == [36, 36, 35]
     assert [r for b in batches50 for r in b] == regions
     assert build_weekly.MAX_REQUESTS == 3
     with pytest.raises(ValueError):

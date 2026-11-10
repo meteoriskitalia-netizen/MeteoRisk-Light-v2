@@ -42,10 +42,10 @@ dall'elenco `fields`.
 RICHIESTE (budget: al massimo 3 per le 107 province)
 ----------------------------------------------------
 Open-Meteo accetta `latitude=a,b,c&longitude=...` con risposta in array.
-Batch da 50-100 coordinate (default 100): 107 province = 2 richieste
-(100 + 7), con 50 = 3 richieste (50 + 50 + 7). Oltre 3 batch il modulo rifiuta
-di partire. Timeout esplicito e retry limitati (429/5xx/timeout) con attesa;
-se i retry si esauriscono il file NON viene toccato e il processo esce 2
+Batch BILANCIATI con massimo 100 coordinate (default): 107 province = 2
+richieste da 54 + 53, entrambe nel range 50-100. Oltre 3 richieste il modulo
+rifiuta di partire. Timeout esplicito e retry limitati (429/5xx/timeout) con
+attesa; se i retry si esauriscono il file NON viene toccato e il processo esce 2
 (il workflow ha `continue-on-error: true`, quindi resta verde).
 
 SOLO campi DAILY: nessuna variabile oraria viene richiesta, salvata o esposta.
@@ -138,7 +138,12 @@ def _num(value, decimals):
 
 
 def plan_batches(regions, batch_size=DEFAULT_BATCH_SIZE):
-    """Divide le province in batch da 50-100; rifiuta piani oltre 3 richieste."""
+    """Divide le province in batch BILANCIATI (max `batch_size`), <=3 richieste.
+
+    Con il default 100 e 107 province: 2 richieste da 54+53, entrambe nel range
+    50-100 dichiarato. Il partizionamento bilanciato evita l'ultima richiesta
+    da pochi punti (100+7) senza aumentare il numero di richieste.
+    """
     if not isinstance(batch_size, int) or not (MIN_BATCH_SIZE <= batch_size <= MAX_BATCH_SIZE):
         raise ValueError("batch_size deve stare fra %d e %d (ricevuto %r)"
                          % (MIN_BATCH_SIZE, MAX_BATCH_SIZE, batch_size))
@@ -149,7 +154,14 @@ def plan_batches(regions, batch_size=DEFAULT_BATCH_SIZE):
     if count > MAX_REQUESTS:
         raise ValueError("%d province con batch %d richiederebbero %d richieste (> %d)"
                          % (n, batch_size, count, MAX_REQUESTS))
-    return [regions[i * batch_size:(i + 1) * batch_size] for i in range(count)]
+    base, extra = divmod(n, count)
+    sizes = [base + (1 if i < extra else 0) for i in range(count)]
+    out = []
+    start = 0
+    for size in sizes:
+        out.append(regions[start:start + size])
+        start += size
+    return out
 
 
 def build_url(batch, model=DEFAULT_MODEL, days=FORECAST_DAYS, include_et0=True):
