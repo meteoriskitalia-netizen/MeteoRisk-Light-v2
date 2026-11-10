@@ -13,7 +13,7 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.70.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.71.html');
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -53,8 +53,16 @@ const ctx = {
   convCategory: 'no',
   currentMetric: 'risk',
   HAZARD_COLORS: ['#334155', '#22c55e', '#eab308', '#f97316', '#ef4444', '#7c1d6f'],
+  // 1.2.4.71: classe NEUTRA del potenziale convettivo (0 < value < 0,75), non una
+  // fascia di severita: sta fuori da RISK_BAND_COLORS ed e' definita nell'html.
+  CONV_POTENTIAL_COLOR: '#7d93a8',
   getRiskProfile() { return RPROFILE; },
   getRiskProfileNew() { return RPROFILE; },
+  // 1.2.4.71: getMetricValue('risk') delega a computeZoneRiskSummary (livello per modello,
+  // stessa ora). Qui il livello resta controllato da RPROFILE, come per getRiskProfileNew:
+  // questo test misura la coerenza valore -> colore, non il calcolo R2 (verificato in browser
+  // sulla pagina servita e dai fixture del patch rischi).
+  computeZoneRiskSummary() { return RPROFILE; },
   computeThermalRisk() { return TPROFILE; },
   computeThunderProb() { return CPROFILE; },
   computeMesocycloneProb() { return CPROFILE; },
@@ -119,25 +127,32 @@ vm.runInNewContext(pure, ctx);
   ok('B: poligono provincia critica = #ef4444 (liv4)', ctx.colorForMetric('risk', worstAgg) === '#ef4444');
   // Surface pura sul punto critico (ancora) = stesso colore ufficiale
   ok('B: surfaceColor nel punto critico = #ef4444', ctx.surfaceColor(vWorst, 0) === '#ef4444');
-  // Media dei VALORI degli indici (2*0 + 1*3)/3 = 1 -> fascia ufficiale #a3e635
+  // Media dei VALORI degli indici (2*1 + 1*4)/3 = 2 -> fascia ufficiale #eab308.
+  // La 1.2.4.71 ha 6 bande (0 Basso .. 5 conv. organizzata) e il livello e' l'indice:
+  // prima il vecchio percorso restituiva level-1, ora restituisce il livello R2.
   const mix = (2 * vMild + 1 * vWorst) / 3;
   const colMix = ctx.colorForMetricValue('risk', mix);
   ok('B: mix valori quantizzato su palette ufficiale (mai RGB blending)',
-    ctx.RISK_BAND_COLORS.includes(colMix) && colMix === '#a3e635', `mix=${mix} color=${colMix}`);
+    ctx.RISK_BAND_COLORS.includes(colMix) && colMix === '#eab308', `mix=${mix} color=${colMix}`);
   ok('B: il mix NON resta sul verde puro dei punti liv1', colMix !== '#22c55e' && colMix !== '#ef4444');
 }
 
 // ---------- 4. CASO C: confine tra province (monotonia della scala) ----------
 {
   let prev = -1, mono = true;
-  for (let v = 0; v <= 5.001; v += 0.25) {
+  // 1.2.4.71: la severita' parte dal livello 1 (Lieve) perche' 0 = Basso e
+  // 0 < v < 0,75 = potenziale convettivo neutro (classe a parte, non una banda).
+  for (let v = 1; v <= 5.001; v += 0.25) {
     const col = ctx.colorForMetricValue('risk', v);
     const idx = ctx.indexOfColorIn(ctx.RISK_BAND_COLORS, col);
     if (idx < prev) mono = false;
     if (idx < 0) mono = false;
     prev = idx;
   }
-  ok('C: quantizzazione monotona sulla scala RISK (any value -> palette ufficiale)', mono);
+  ok('C: quantizzazione monotona sulla scala RISK (1..5 -> palette ufficiale)', mono);
+  const pot = ctx.colorForMetricValue('risk', 0.4);
+  ok('C: 0,4 = potenziale convettivo neutro #7d93a8, fuori dalle bande di severita',
+    pot === '#7d93a8' && !ctx.RISK_BAND_COLORS.includes(pot));
 }
 
 // ---------- 5. CASO D: dual model (merged) poligono ≡ surface ----------

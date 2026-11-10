@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.2.4.71 - CLASSI DI RISCHIO RICALIBRATE (SCALA R2 CON RAFICHE, MERGE PER MODELLO, POTENZIALE != EVENTO) E PANNELLI A TAB DELLA 1.2.4.70 MANTENUTI (bump da 1.2.4.70)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=71
+RELEASE_TYPE=release
+DATE=2026-11-10
+NOTE=Release 1.2.4.71 (bump da 1.2.4.70) - SOLO CLIENT. (1) SCALA DI RISCHIO R2 RICALIBRATA: 4 = pioggia >45 mm oppure raffiche >100 km/h oppure (codice >=95 e pioggia >=10 mm e CAPE >=300 J/kg); 3 = pioggia >15 mm oppure raffiche >75 km/h oppure (codice >=95 e pioggia >=3 mm e CAPE >=150 J/kg) oppure (codice 80-90 e pioggia >=8 mm); 2 = probabilita >60% oppure pioggia >1 mm oppure raffiche >50 km/h; 1 = probabilita >20% oppure pioggia >0,2 mm. Le congiunte convettive sono valutate ORA PER ORA sullo STESSO modello. La classe 5 resta il mesociclone con innesco. (2) VENTO SULLE RAFICHE: la vecchia condizione wind >60 km/h non scattava mai (media massima in Italia 24,6 km/h contro raffiche 89 km/h); ora usa windgusts_10m con soglie 50/75/100 km/h. Misurato il 2026-11-10: 3,9% delle province-giorno sopra 75 km/h, 0,3% sopra 100 km/h. (3) MERGE PER MODELLO: i livelli si calcolano per modello e poi si prende il massimo; prima il CAPE poteva venire da ECMWF e shear/SRH da best_match a ore diverse. Delle 5 province viola di oggi, 4 su 4 avevano il CAPE di un modello/ora senza shear e lo shear di un altro; con la coerenza il viola scende da 5 a 0. ECMWF escluso dalla dinamica: 0 valori non-null su 7.704 ore-punto di vento ai livelli di pressione (0 su 18.504 in 3 giorni). (4) POTENZIALE NON E EVENTO: la convezione organizzata e una classe distinta (grigio-blu #7d93a8); viola e rosso solo con innesco alla stessa ora; rimossi i gate senza fonte (WMS3 >=500), EHI >=1,0 declassato a display, CAPE saturato a 800 J/kg, veto RH <50% alle quote medie con motivo nel tooltip. (5) TOOLTIP: riga 'Colore dovuto a: ... Altri rischi: ...'. Misurato oggi: viola 5 -> 0, rosso 19 -> 3, arancione o superiore 63 -> 32 (29,9%), badge temporali organizzati 8 -> 1; le tre rosse rimaste sono LU, MS e PT con pioggia >45 mm. (6) MANTIENE I PANNELLI A TAB della 1.2.4.70 (#forecast-details, 3 tab, summary, frasi senza toponimi, raffiche p50-p90). BUMP: html mri-light-1.2.4.71.html, VERSION (BUILD=71, DATE=2026-11-10), sw.js (CACHE_NAME mri-1.2.4.71), README.md, i 26 test .mjs, le 5 righe cp dei 3 workflow. La 1.2.4.70 va RIMOSSA dal repo. NON toccati: scripts/, workflow dei dati, color_scales.json, formule e calcoli.
+APP_FILE=mri-light-1.2.4.71.html
+
 MeteoRisk Light - 1.2.4.70 - UN SOLO PANNELLO PREVISIONE CON 3 TAB (PROVINCIA / AREE / 7 GIORNI), FRASI SENZA TOPONIMI E RAFFICHE p50-p90 (bump da 1.2.4.69)
 MAJOR=1
 MINOR=2

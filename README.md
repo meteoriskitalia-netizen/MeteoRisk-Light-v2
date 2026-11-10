@@ -6,13 +6,20 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.70
+## Versione attiva: 1.2.4.71
 
-- File applicativo: `mri-light-1.2.4.70.html` (`APP_VERSION = '1.2.4.70'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.70', date: '2026-11-10' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.70'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.71.html` (`APP_VERSION = '1.2.4.71'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.71', date: '2026-11-10' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.71'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
+- Contenuto della 1.2.4.71 (release sopra la 1.2.4.70) - **classi di rischio ricalibrate: scala R2 con le raffiche, merge per modello, potenziale distinto dall'evento; mantiene i pannelli a tab della 1.2.4.70**. Solo client: nessuna modifica a `scripts/`, ai workflow dei dati, a `color_scales.json`, alle formule o ai calcoli; i workflow toccano solo le 5 righe `cp` del nome del file.
+  - **Scala R2**: 4 = pioggia >45 mm o raffiche >100 km/h o (codice >=95 e pioggia >=10 mm e CAPE >=300 J/kg); 3 = pioggia >15 mm o raffiche >75 km/h o (codice >=95 e pioggia >=3 mm e CAPE >=150 J/kg) o (codice 80-90 e pioggia >=8 mm); 2 = probabilita >60% o pioggia >1 mm o raffiche >50 km/h; 1 = probabilita >20% o pioggia >0,2 mm. Le congiunte convettive sono valutate ora per ora sullo stesso modello; la classe 5 resta il mesociclone con innesco.
+  - **Vento sulle raffiche**: `windgusts_10m` con soglie 50/75/100 km/h. La vecchia `wind >60` non scattava mai (media massima 24,6 km/h contro raffiche 89 km/h). Misurato il 2026-11-10: 3,9% delle province-giorno sopra 75 km/h, 0,3% sopra 100 km/h.
+  - **Merge per modello**: livello calcolato per modello e poi massimo; prima il CAPE poteva venire da ECMWF e shear/SRH da `best_match` a ore diverse (4 delle 5 viola di oggi avevano questa incoerenza). ECMWF escluso dalla dinamica: 0 valori non-null su 7.704 ore-punto di vento ai livelli di pressione (0 su 18.504 in 3 giorni).
+  - **Potenziale non e evento**: convezione organizzata come classe distinta `#7d93a8`; viola e rosso solo con innesco alla stessa ora; rimossi i gate senza fonte (WMS3 >=500), EHI >=1,0 declassato a display, CAPE saturato a 800 J/kg, veto RH <50% alle quote medie con motivo nel tooltip. Etichette organizzati/celle organizzate solo se il gate passa.
+  - **Tooltip e misure**: riga `Colore dovuto a: ... Altri rischi: ...`. Sul dataset 2026-11-10: viola 5 -> 0, rosso 19 -> 3, arancione o superiore 63 -> 32 (29,9%), badge temporali organizzati 8 -> 1; le tre rosse rimaste sono LU, MS e PT con pioggia >45 mm.
+  - **Pannelli a tab**: restano `#forecast-details` con le 3 tab, il summary di una riga, le frasi senza toponimi e le raffiche p50-p90 della 1.2.4.70.
 - Contenuto della 1.2.4.70 (release sopra la 1.2.4.69) - **un solo pannello previsione con 3 tab (Provincia / Aree / 7 giorni), chiuso di default; frasi senza toponimi e senza conteggi; raffiche p50-p90 per modello; cloud_cover e snowfall_water_equivalent reali**. Solo client: nessuna modifica a `scripts/`, ai workflow dei dati, a `color_scales.json`, alle formule o ai calcoli; i workflow toccano solo le 5 righe `cp` del nome del file.
   - **Pannello unico**: `#forecast-details` chiuso di default, summary di una riga con i 3 giorni della provincia selezionata (es. `oggi pioggia 14 mm, max 18 °C · domani pioggia 0,4 mm, max 20 °C · dopodomani pioggia 9 mm, max 20 °C`), 3 tab con `role=tab`/`aria-selected`, frecce sinistra-destra/Home/End, persistenza in `localStorage` (`mri.forecast.tab.v1`, try/catch). Una sola pane visibile: Provincia (3-giorni invariato), Aree (5 macro-aree), 7 giorni (7 celle + 5 frasi). Le 7 celle e le frasi stanno dentro la pane, quindi il pannello chiuso non riserva altezza.
   - **Frasi senza toponimi**: le 15 frasi giornaliere e le 5 settimanali non citano province, regioni o località; i nomi e i conteggi restano solo nei `title`. Rimossi "sulle province interessate" e "con il massimo di X a Y"; il "dove" è un settore generico ("settore tirrenico", "pianura padana", "settore occidentale"). Le frasi sono autosufficienti (cielo e temperature ogni giorno) e misurano 27-50 parole (max 60).
