@@ -316,6 +316,32 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         }
 
         .details-card { background: #1e293b; border-radius: 12px; padding: 18px; border: 1px solid #334155; display: flex; flex-direction: column; gap: 14px; }
+
+        /* === 1.2.4.67 — Sintesi nazionale Italia (client-side, una volta per dataset) ===
+           Card a larghezza piena come seconda riga della grid .container: le posizioni
+           di toolbar, map-card, #leaflet-map e details-card non cambiano. */
+        .italia-synth { grid-column: 1 / -1; min-width: 0; background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 14px 16px; }
+        .italia-synth .is-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+        .italia-synth .is-title { font-size: 15px; font-weight: 700; color: #e2e8f0; }
+        .italia-synth .is-badge { font-size: 11px; color: #94a3b8; }
+        .italia-synth .is-sentence { margin: 7px 0 10px 0; padding: 7px 10px; background: #0f172a; border-left: 3px solid #38bdf8; border-radius: 6px; font-size: 12px; line-height: 1.45; color: #cbd5e1; }
+        .italia-synth .is-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+        .italia-synth .is-col { min-width: 0; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 9px 10px; }
+        .italia-synth .is-col-head { font-size: 13px; font-weight: 700; color: #7dd3fc; margin-bottom: 7px; }
+        .italia-synth .is-col-head span { font-size: 11px; font-weight: 400; color: #94a3b8; margin-left: 5px; }
+        .italia-synth .is-metric { margin-bottom: 6px; }
+        .italia-synth .is-metric:last-child { margin-bottom: 0; }
+        .italia-synth .is-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.02em; line-height: 1.3; }
+        .italia-synth .is-val { font-size: 12px; line-height: 1.35; color: #e2e8f0; overflow-wrap: anywhere; }
+        .italia-synth .is-val b { color: #f8fafc; }
+        .italia-synth .is-note { margin: 10px 0 0 0; font-size: 11px; line-height: 1.4; color: #94a3b8; }
+        @media (max-width: 600px) {
+            .italia-synth { padding: 10px; border-radius: 10px; }
+            .italia-synth .is-cols { gap: 6px; }
+            .italia-synth .is-col { padding: 7px 6px; }
+            .italia-synth .is-val { font-size: 11px; }
+            .italia-synth .is-sentence { font-size: 11px; }
+        }
         /* 1.2.4.66 - SINTESI DETERMINISTICA A 3 GIORNI (sotto la riga del rischio).
           3 colonne a desktop; a <=600px diventano 3 righe (una card per giorno) con
           i valori su due colonne interne, mai schiacciati in 3 colonne da ~100px. */
@@ -2332,6 +2358,20 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             Fai clic su un marker sulla mappa o cerca un comune specifico per valutare il rischio meteorologico.
         </div>
     </div>
+
+    <!-- 1.2.4.67 — SINTESI NAZIONALE ITALIA: blocco di sola lettura calcolato nel client
+         dai punti provincia del dataset derivato UNA volta per dataset (nessun modello AI,
+         nessuna richiesta di rete, nessun file nuovo). Seconda riga della grid .container:
+         non sposta toolbar, map-card, #leaflet-map e details-card. -->
+    <div class="italia-synth" id="italia-synth" role="region" aria-label="Italia, sintesi nazionale dalle province">
+        <div class="is-head">
+            <span class="is-title">Italia — sintesi nazionale</span>
+            <span class="is-badge" id="italia-synth-badge">in attesa del dataset…</span>
+        </div>
+        <p class="is-sentence" id="italia-synth-sentence">Sintesi non ancora calcolata: il blocco usa il dataset derivato (punti provincia), non il percorso live.</p>
+        <div class="is-cols" id="italia-synth-cols"></div>
+        <p class="is-note"><b>Sintesi dei punti provincia del dataset, non di un campo continuo.</b> Per ogni provincia si usa il valore massimo fra i suoi punti (minimo per le minime); le province senza dato sono escluse e il numero usato è scritto come “N su M con dato”. Arrotondamenti: pioggia, temperature e raffiche a 1 decimale; CAPE a numero intero. A parità di valore massimo si cita la provincia che viene prima nell'elenco del dataset. CAPE = potenziale del modello, non un temporale osservato (soglia 200 J/kg = 75° percentile pooled misurato sulle 321 province-giorno: valore grezzo 190, arrotondato). Neve: province con almeno un'ora a codice neve; l'accumulo non è nel dataset (n/d). Ripartizione per regione amministrativa (il Sud include le Isole).</p>
+    </div>
 </div>
 
 <script>
@@ -2374,9 +2414,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.66';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.67';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-10';
     const APP_CHANGELOG = [
+        { version: '1.2.4.67', date: '2026-11-10', changes: [
+  'SINTESI NAZIONALE ITALIA= Nuovo blocco #italia-synth a larghezza piena come seconda riga della grid .container (toolbar, map-card, #leaflet-map e details-card non si spostano): 3 colonne Oggi / Domani / Dopodomani aggregate dalle 107 province del dataset derivato, calcolate UNA volta per dataset dentro applyStaticDataset (0 richieste di rete, nessun modello AI, nessun file nuovo). Per ogni giorno: province con pioggia >1 mm e >10 mm e massimo con provincia; massima e minima nazionale con provincia; raffica massima con provincia; province con CAPE sopra 200 J/kg (soglia = 75° percentile pooled misurato sulle 321 province-giorno, valore grezzo 190 arrotondato) con massimo; province con neve per codice (71/73/75/77/85/86) e accumulo n/d; ripartizione Nord/Centro/Sud da regionsData.region (47/22/38 province su 107). La frase sopra le colonne segue il giorno selezionato: selectDay aggiorna solo la frase, non ricalcola i punti del dataset. Ogni metrica dichiara "N su M con dato" ed esclude le province senza dato: nessun valore inventato.',
+  'BUMP: html mri-light-1.2.4.67.html, VERSION (BUILD=67, DATE=2026-11-10), sw.js (CACHE_NAME mri-1.2.4.67), README.md, i 26 test .mjs, le righe cp dei 3 workflow. La 1.2.4.66 va RIMOSSA dal repo. NON toccati: scripts/, workflow dei dati, color_scales.json, formule e calcoli.',
+        ] },
         { version: '1.2.4.66', date: '2026-11-10', changes: [
   'SINTESI DETERMINISTICA A 3 GIORNI= Nuovo blocco #three-day-summary nel pannello destro, sotto la riga del rischio: 3 colonne Oggi / Domani / Dopodomani (a <=600px 3 righe, una card per giorno) con temperatura massima e minima e ora del picco, pioggia totale con probabilità massima e fascia contigua > 0,1 mm, raffica massima e vento medio massimo con ora, CAPE massimo con ore sopra soglia, quota zero termico media e neve. Tutto calcolato nel client dai campi già presenti in data/latest/meteorisk-points.json (0 richieste di rete, nessun modello AI, nessun testo generato): le frasi sono template deterministici. Ogni valore è arrotondato in modo dichiarato (0,1 °C, 1 mm, 1 km/h, 1 J/kg, 100 m per la quota, 0,1 mm per la neve); un campo null su tutte le ore mostra n/d, mai 0. Il calcolo è cachato per (località, dataset): non viene rifatto a ogni frame dello slider.',
   'SOGLIA CAPE MISURATA, NON INVENTATA= 300 J/kg, scelta sulla distribuzione del dataset del 2026-11-10 (257 punti x 72 h = 18.504 ore-punto, best_match): mediana 0, p95 170, p98 330, p99 440 J/kg; le ore con CAPE >= 300 sono 413 (2,23%) e i punti-giorno con almeno 1 ora sopra sono 104 su 771 (13,5%). La nota fissa del blocco dichiara che è CAPE previsto dal modello NWP, non un temporale osservato.',
@@ -25852,6 +25896,9 @@ function renderContinuousOverlay() {
         }
         // Rende coerente la barra riepilogo sticky con il nuovo giorno
         refreshRiskSummary();
+        // 1.2.4.67 — la sintesi nazionale e' gia' calcolata: si aggiorna solo la frase
+        // del giorno selezionato (nessun ricalcolo dei 107 punti).
+        if (typeof renderItaliaSentence === 'function') renderItaliaSentence();
     }
 
     //#pure# BEGIN dayMapping
@@ -27098,6 +27145,228 @@ syncSelect('lightning-source-select', [
         };
     }
 
+    // ================= SINTESI NAZIONALE ITALIA (1.2.4.67) =================
+    // Calcolo UNA volta per dataset dentro applyStaticDataset (nessun ricalcolo quando
+    // si muove lo slider orario: cambia solo la frase del giorno). Nessun modello AI,
+    // nessuna richiesta di rete, nessun file nuovo: legge i punti del payload.
+    var italiaSynthesis = null;
+    // Soglia CAPE MISURATA sulla distribuzione reale di questo dataset, non inventata:
+    // 75° percentile pooled delle 321 province-giorno = 190 J/kg, arrotondato a 200.
+    var ITALIA_CAPE_THRESHOLD = 200;
+    var ITALIA_SYNTH_DAY_LABELS = ['Oggi', 'Domani', 'Dopodomani'];
+    var ITALIA_SNOW_CODES = { 71: 1, 73: 1, 75: 1, 77: 1, 85: 1, 86: 1 };
+
+    function italiaNum(v, decimals) {
+        if (v === null || v === undefined || !isFinite(v)) return 'n/d';
+        var s = Number(v).toFixed(decimals).replace('.', ',');
+        if (s.charAt(0) === '-') s = '\u2212' + s.slice(1);
+        return s;
+    }
+
+    function italiaBandOfRegion(region) {
+        var nord = { "Valle d'Aosta": 1, "Piemonte": 1, "Lombardia": 1, "Trentino-Alto Adige": 1, "Veneto": 1, "Friuli-Venezia Giulia": 1, "Liguria": 1, "Emilia-Romagna": 1 };
+        var centro = { "Toscana": 1, "Umbria": 1, "Marche": 1, "Lazio": 1 };
+        if (nord[region]) return 'Nord';
+        if (centro[region]) return 'Centro';
+        return 'Sud';
+    }
+
+    function italiaProvinceName(idx) {
+        if (typeof regionsData !== 'undefined' && regionsData && regionsData[idx]) {
+            if (regionsData[idx].prov) return regionsData[idx].prov;
+            if (regionsData[idx].sigla) return regionsData[idx].sigla;
+        }
+        return 'provincia ' + idx;
+    }
+
+    function italiaDayLabel(day0Iso, offset) {
+        // dd/mm deterministico: mezzanotte UTC, nessuna dipendenza dal fuso del browser.
+        var base = Date.parse(String(day0Iso || '') + 'T00:00:00Z');
+        if (!isFinite(base)) return '';
+        var dt = new Date(base + offset * 86400000);
+        var dd = dt.getUTCDate(), mm = dt.getUTCMonth() + 1;
+        return (dd < 10 ? '0' : '') + dd + '/' + (mm < 10 ? '0' : '') + mm;
+    }
+
+    // Aggrega i punti per provincia: MASSIMO fra i punti per pioggia/tmax/raffica/CAPE,
+    // MINIMO per le minime; la neve e' il massimo numero di ore a codice neve fra i punti.
+    function buildItaliaSynthesis(points, primaryModel) {
+        var t0 = (typeof performance !== 'undefined' && performance && performance.now) ? performance.now() : Date.now();
+        var list = points || [];
+        var accByProv = {};
+        var usedPoints = 0;
+        for (var i = 0; i < list.length; i++) {
+            var pt = list[i];
+            if (!pt || pt.provinceIdx === undefined || pt.provinceIdx === null) continue;
+            var rec = pt.models ? pt.models[primaryModel] : null;
+            if (!rec || !rec.daily || !rec.hourly) continue;
+            usedPoints++;
+            var acc = accByProv[pt.provinceIdx];
+            if (!acc) {
+                acc = [];
+                for (var z = 0; z < 3; z++) acc.push({ precip: [], tmax: [], tmin: [], gust: [], cape: [], snowH: [] });
+                accByProv[pt.provinceIdx] = acc;
+            }
+            var daily = rec.daily, hourly = rec.hourly;
+            for (var d = 0; d < 3; d++) {
+                var a = d * 24, b = a + 24;
+                var pv = daily.precipitation_sum ? daily.precipitation_sum[d] : null;
+                if (pv !== null && pv !== undefined && isFinite(pv)) acc[d].precip.push(Number(pv));
+                var tx = daily.temperature_2m_max ? daily.temperature_2m_max[d] : null;
+                if (tx !== null && tx !== undefined && isFinite(tx)) acc[d].tmax.push(Number(tx));
+                var tn = daily.temperature_2m_min ? daily.temperature_2m_min[d] : null;
+                if (tn !== null && tn !== undefined && isFinite(tn)) acc[d].tmin.push(Number(tn));
+                var snowCount = 0;
+                var hg = hourly.windgusts_10m || [];
+                var hc = hourly.cape || [];
+                var hw = hourly.weathercode || [];
+                for (var h = a; h < b; h++) {
+                    var g = hg[h];
+                    if (g !== null && g !== undefined && isFinite(g)) acc[d].gust.push(Number(g));
+                    var c = hc[h];
+                    if (c !== null && c !== undefined && isFinite(c)) acc[d].cape.push(Number(c));
+                    var wc = hw[h];
+                    if (wc !== null && wc !== undefined && ITALIA_SNOW_CODES[wc]) snowCount++;
+                }
+                acc[d].snowH.push(snowCount);
+            }
+        }
+        var day0 = (typeof datasetState !== 'undefined' && datasetState) ? datasetState.day0 : null;
+        var days = [];
+        for (var d2 = 0; d2 < 3; d2++) {
+            var m = {
+                precip: { n: 0, gt1: 0, gt10: 0, max: null, maxIdx: -1 },
+                tmax: { n: 0, max: null, maxIdx: -1 },
+                tmin: { n: 0, min: null, minIdx: -1 },
+                gust: { n: 0, max: null, maxIdx: -1 },
+                cape: { n: 0, gt: 0, max: null, maxIdx: -1 },
+                snow: { n: 0, maxH: 0 },
+                bands: { Nord: { n: 0, gt1: 0 }, Centro: { n: 0, gt1: 0 }, Sud: { n: 0, gt1: 0 } }
+            };
+            for (var pi in accByProv) {
+                if (!Object.prototype.hasOwnProperty.call(accByProv, pi)) continue;
+                var dayAcc = accByProv[pi][d2];
+                var idx = Number(pi);
+                if (dayAcc.precip.length) {
+                    var pmax = Math.max.apply(null, dayAcc.precip);
+                    m.precip.n++;
+                    if (pmax > 1) m.precip.gt1++;
+                    if (pmax > 10) m.precip.gt10++;
+                    if (m.precip.max === null || pmax > m.precip.max) { m.precip.max = pmax; m.precip.maxIdx = idx; }
+                    var region = (typeof regionsData !== 'undefined' && regionsData && regionsData[idx]) ? regionsData[idx].region : '';
+                    var band = italiaBandOfRegion(region);
+                    m.bands[band].n++;
+                    if (pmax > 1) m.bands[band].gt1++;
+                }
+                if (dayAcc.tmax.length) {
+                    var tmax = Math.max.apply(null, dayAcc.tmax);
+                    m.tmax.n++;
+                    if (m.tmax.max === null || tmax > m.tmax.max) { m.tmax.max = tmax; m.tmax.maxIdx = idx; }
+                }
+                if (dayAcc.tmin.length) {
+                    var tmin = Math.min.apply(null, dayAcc.tmin);
+                    m.tmin.n++;
+                    if (m.tmin.min === null || tmin < m.tmin.min) { m.tmin.min = tmin; m.tmin.minIdx = idx; }
+                }
+                if (dayAcc.gust.length) {
+                    var gmax = Math.max.apply(null, dayAcc.gust);
+                    m.gust.n++;
+                    if (m.gust.max === null || gmax > m.gust.max) { m.gust.max = gmax; m.gust.maxIdx = idx; }
+                }
+                if (dayAcc.cape.length) {
+                    var cmax = Math.max.apply(null, dayAcc.cape);
+                    m.cape.n++;
+                    if (cmax > ITALIA_CAPE_THRESHOLD) m.cape.gt++;
+                    if (m.cape.max === null || cmax > m.cape.max) { m.cape.max = cmax; m.cape.maxIdx = idx; }
+                }
+                if (dayAcc.snowH.length) {
+                    var snowMax = Math.max.apply(null, dayAcc.snowH);
+                    if (snowMax > m.snow.maxH) m.snow.maxH = snowMax;
+                    if (snowMax > 0) m.snow.n++;
+                }
+            }
+            days.push({
+                index: d2,
+                label: ITALIA_SYNTH_DAY_LABELS[d2],
+                ddmm: italiaDayLabel(day0, d2),
+                nProv: Object.keys(accByProv).length,
+                precip: m.precip, tmax: m.tmax, tmin: m.tmin, gust: m.gust, cape: m.cape,
+                snow: m.snow, bands: m.bands
+            });
+        }
+        var ms = ((typeof performance !== 'undefined' && performance && performance.now) ? performance.now() : Date.now()) - t0;
+        return {
+            computeMs: Math.round(ms * 100) / 100,
+            usedPoints: usedPoints,
+            provinceCount: Object.keys(accByProv).length,
+            capeThreshold: ITALIA_CAPE_THRESHOLD,
+            days: days
+        };
+    }
+
+    function italiaMetricHtml(label, valueHtml) {
+        return '<div class="is-metric"><div class="is-label">' + label + '</div><div class="is-val">' + valueHtml + '</div></div>';
+    }
+
+    function renderItaliaSynthesis() {
+        var cols = document.getElementById('italia-synth-cols');
+        var badge = document.getElementById('italia-synth-badge');
+        if (!cols) return;
+        if (!italiaSynthesis || !italiaSynthesis.days || !italiaSynthesis.days.length) {
+            cols.innerHTML = '';
+            if (badge) badge.textContent = 'nessun dato';
+            renderItaliaSentence();
+            return;
+        }
+        if (badge) {
+            badge.textContent = italiaSynthesis.provinceCount + ' province · ' + italiaSynthesis.usedPoints +
+                ' punti reali · soglia CAPE ' + italiaSynthesis.capeThreshold + ' J/kg';
+        }
+        var html = '';
+        for (var i = 0; i < italiaSynthesis.days.length; i++) {
+            var dd = italiaSynthesis.days[i];
+            var precip = dd.precip, tmax = dd.tmax, tmin = dd.tmin, gust = dd.gust, cape = dd.cape, snow = dd.snow, bands = dd.bands;
+            html += '<div class="is-col">';
+            html += '<div class="is-col-head">' + dd.label + (dd.ddmm ? '<span> ' + dd.ddmm + '</span>' : '') + '</div>';
+            html += italiaMetricHtml('Pioggia', '&gt;1 mm: <b>' + precip.gt1 + '</b> su ' + precip.n + ' con dato · &gt;10 mm: <b>' + precip.gt10 + '</b><br>max <b>' + italiaNum(precip.max, 1) + ' mm</b>' + (precip.maxIdx >= 0 ? ' — ' + italiaProvinceName(precip.maxIdx) : ''));
+            html += italiaMetricHtml('Temperature', 'max <b>' + italiaNum(tmax.max, 1) + ' °C</b>' + (tmax.maxIdx >= 0 ? ' — ' + italiaProvinceName(tmax.maxIdx) : '') + '<br>min <b>' + italiaNum(tmin.min, 1) + ' °C</b>' + (tmin.minIdx >= 0 ? ' — ' + italiaProvinceName(tmin.minIdx) : ''));
+            html += italiaMetricHtml('Vento', 'raffica max <b>' + italiaNum(gust.max, 1) + ' km/h</b>' + (gust.maxIdx >= 0 ? '<br>— ' + italiaProvinceName(gust.maxIdx) : ''));
+            html += italiaMetricHtml('Instabilità (CAPE)', '&gt;' + ITALIA_CAPE_THRESHOLD + ' J/kg: <b>' + cape.gt + '</b> su ' + cape.n + ' con dato<br>max <b>' + italiaNum(cape.max, 0) + ' J/kg</b>' + (cape.maxIdx >= 0 ? ' — ' + italiaProvinceName(cape.maxIdx) : ''));
+            html += italiaMetricHtml('Neve', snow.n + ' province con neve<br>accumulo <b>n/d</b>');
+            html += italiaMetricHtml('Maltempo &gt;1 mm', 'Nord <b>' + bands.Nord.gt1 + '</b> · Centro <b>' + bands.Centro.gt1 + '</b> · Sud <b>' + bands.Sud.gt1 + '</b>');
+            html += '</div>';
+        }
+        cols.innerHTML = html;
+        renderItaliaSentence();
+    }
+
+    function renderItaliaSentence() {
+        var el = document.getElementById('italia-synth-sentence');
+        if (!el) return;
+        if (!italiaSynthesis || !italiaSynthesis.days || !italiaSynthesis.days.length) {
+            el.textContent = 'Sintesi non ancora calcolata: il blocco usa il dataset derivato (punti provincia), non il percorso live.';
+            return;
+        }
+        var di = (typeof currentDay === 'number' && currentDay >= 0 && currentDay < italiaSynthesis.days.length) ? currentDay : 0;
+        var dd = italiaSynthesis.days[di];
+        var s = (dd.label || 'Giorno') + (dd.ddmm ? ' (' + dd.ddmm + ')' : '') + ': pioggia >1 mm in ' + dd.precip.gt1 + ' province su ' + dd.precip.n + ' con dato';
+        if (dd.precip.max !== null && dd.precip.maxIdx >= 0) {
+            s += ', massima ' + italiaNum(dd.precip.max, 1) + ' mm a ' + italiaProvinceName(dd.precip.maxIdx);
+        }
+        s += '.';
+        var hasTmax = (dd.tmax.max !== null && dd.tmax.maxIdx >= 0);
+        var hasTmin = (dd.tmin.min !== null && dd.tmin.minIdx >= 0);
+        if (hasTmax && hasTmin) {
+            s += ' Massima nazionale ' + italiaNum(dd.tmax.max, 1) + ' °C a ' + italiaProvinceName(dd.tmax.maxIdx) +
+                ', minima ' + italiaNum(dd.tmin.min, 1) + ' °C a ' + italiaProvinceName(dd.tmin.minIdx) + '.';
+        } else if (hasTmax) {
+            s += ' Massima nazionale ' + italiaNum(dd.tmax.max, 1) + ' °C a ' + italiaProvinceName(dd.tmax.maxIdx) + '.';
+        } else if (hasTmin) {
+            s += ' Minima nazionale ' + italiaNum(dd.tmin.min, 1) + ' °C a ' + italiaProvinceName(dd.tmin.minIdx) + '.';
+        }
+        el.textContent = s;
+    }
+
     function applyStaticDataset(meta, payload) {
         // 1.2.4.58 - i modelli coperti arrivano dai METADATI (fallback all'array statico
         // se il campo manca). applyDatasetModelCoverage puo' non esistere nel sandbox dei
@@ -27243,6 +27512,19 @@ syncSelect('lightning-source-select', [
         // Europe/Rome al dataset.day0). MAI assumere dayIndex===0 come sinonimo di "Oggi".
         var initIdx = datasetIndexForDayLabel(0);
         currentDay = (initIdx === null || initIdx === undefined) ? 0 : initIdx;
+        // 1.2.4.67 — sintesi nazionale: UNA volta per dataset, subito dopo day0/currentDay.
+        try {
+            // 1.2.4.67 - i test estraggono SOLO applyStaticDataset in una vm: le funzioni
+            // della sintesi possono non esistere nel sandbox, quindi si controlla typeof.
+            if (typeof buildItaliaSynthesis === 'function') {
+                italiaSynthesis = buildItaliaSynthesis(points, primaryModel);
+            }
+            if (typeof renderItaliaSynthesis === 'function') renderItaliaSynthesis();
+        } catch (eIt) {
+            console.warn('[Italia] sintesi nazionale non calcolata: ' + String((eIt && eIt.message) || eIt));
+            italiaSynthesis = null;
+            if (typeof renderItaliaSynthesis === 'function') renderItaliaSynthesis();
+        }
         updateUI();
         updateDayButtonLabels();
         if (typeof syncDayButtons === 'function') syncDayButtons();

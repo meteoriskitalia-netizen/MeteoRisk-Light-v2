@@ -6,13 +6,18 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.66
+## Versione attiva: 1.2.4.67
 
-- File applicativo: `mri-light-1.2.4.66.html` (`APP_VERSION = '1.2.4.66'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.66', date: '2026-11-10' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.66'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.67.html` (`APP_VERSION = '1.2.4.67'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.67', date: '2026-11-10' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.67'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
+- Contenuto della 1.2.4.67 (release sopra la 1.2.4.66) - **sintesi nazionale Italia a larghezza piena, calcolata una volta per dataset**. Solo client: nessuna modifica a `scripts/` (motore, renderer, dataset), ai workflow dei dati, a `color_scales.json`, alle formule o ai calcoli; i workflow toccano solo le righe `cp` del nome del file.
+  - **Blocco `#italia-synth`.** Card a larghezza piena (`grid-column: 1 / -1`) come seconda riga della grid `.container`, dopo `details-card`: toolbar, `map-card`, `#leaflet-map` e il pannello destro non si spostano. Tre colonne **Oggi / Domani / Dopodomani** (a <=600 px restano tre colonne piu' compatte, con font ridotto) aggregate dalle **107 province** del dataset derivato.
+  - **Cosa mostra ogni colonna.** Province con pioggia **>1 mm** e **>10 mm** e massimo con la provincia; massima e minima nazionale con la provincia; raffica massima con la provincia; province con **CAPE sopra 200 J/kg** (soglia = **75° percentile pooled** misurato sulle 321 province-giorno, valore grezzo 190 arrotondato) con il massimo; province con **neve** per codice (71/73/75/77/85/86) con accumulo **n/d** (non e' nel dataset); ripartizione **Nord / Centro / Sud** da `regionsData.region` (**47 / 22 / 38** province su 107, il Sud include le Isole).
+  - **Solo dati reali, zero rete.** Il calcolo usa i punti di `data/latest/meteorisk-points.json` (257 punti, `best_match`) dentro `applyStaticDataset`: **una volta per dataset**, nessuna richiesta aggiuntiva, nessun modello AI, nessun file nuovo. Ogni metrica dichiara **"N su M con dato"** ed esclude le province senza dato; nessun valore inventato.
+  - **Frase legata al giorno selezionato.** La frase sopra le colonne segue il giorno scelto: `selectDay` chiama solo `renderItaliaSentence()`, senza ricalcolare i punti del dataset.
 - Contenuto della 1.2.4.66 (release sopra la 1.2.4.65) - **sintesi deterministica a 3 giorni nel pannello destro**. Solo client: nessuna modifica a `scripts/` (motore, renderer, dataset), ai workflow dei dati, a `color_scales.json`, alle formule o ai calcoli; i workflow toccano solo le righe `cp` del nome del file.
   - **Blocco `#three-day-summary`.** Sotto la riga del rischio, tre colonne **Oggi / Domani / Dopodomani** (a <=600px tre righe, una card per giorno con i valori su due colonne interne, mai schiacciate in tre colonne da ~100 px). Per ogni giorno: temperatura massima e minima con l'ora del picco, pioggia totale con probabilità massima e fascia contigua con precipitazione > 0,1 mm (o "assente"), raffica massima e vento medio massimo con l'ora della raffica, CAPE massimo con il numero di ore sopra soglia, quota zero termico media e neve (equivalente acqua) se il campo esiste nel dataset.
   - **Solo dati reali, zero rete.** Il calcolo usa i campi già presenti in `data/latest/meteorisk-points.json` (72 ore x 257 punti, `forecast_days=3`): nessuna richiesta aggiuntiva, nessun modello AI, nessun testo generato. Le frasi di sintesi sono template deterministici. Un campo null su tutte le ore mostra **n/d**, mai 0; se è null solo in alcune ore si usano le ore valide e, sotto 18/24, il dettaglio dichiara quante ore sono state usate.

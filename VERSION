@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.2.4.67 - SINTESI NAZIONALE ITALIA IN UNA CARD A LARGHEZZA PIENA (3 COLONNE OGGI / DOMANI / DOPODOMANI DALLE 107 PROVINCE: PIOGGIA >1 E >10 MM CON MASSIMO E PROVINCIA, MASSIMA E MINIMA NAZIONALE CON PROVINCIA, RAFFICA MASSIMA, CAPE SOPRA 200 J/KG, NEVE PER CODICE, RIPARTIZIONE NORD/CENTRO/SUD 47/22/38), CALCOLATA UNA VOLTA PER DATASET NEL CLIENT (bump da 1.2.4.66)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=67
+RELEASE_TYPE=release
+DATE=2026-11-10
+NOTE=Release 1.2.4.67 (bump da 1.2.4.66) - SOLO CLIENT. Nuovo blocco #italia-synth a larghezza piena come seconda riga della grid .container: 3 colonne Oggi / Domani / Dopodomani aggregate dalle 107 province del dataset derivato e calcolate UNA volta per dataset dentro applyStaticDataset (0 richieste di rete, nessun modello AI, nessun file nuovo). Per ogni giorno: province con pioggia >1 mm e >10 mm e massimo con provincia; massima e minima nazionale con provincia; raffica massima con provincia; province con CAPE sopra 200 J/kg (soglia = 75° percentile pooled misurato sulle 321 province-giorno, valore grezzo 190 arrotondato) con massimo; province con neve per codice (71/73/75/77/85/86) e accumulo n/d; ripartizione Nord/Centro/Sud da regionsData.region (47/22/38 province su 107). La frase sopra le colonne segue il giorno selezionato: selectDay aggiorna solo la frase, non ricalcola i punti. Ogni metrica dichiara N su M con dato ed esclude le province senza dato. BUMP: html mri-light-1.2.4.67.html, VERSION (BUILD=67, DATE=2026-11-10), sw.js (CACHE_NAME mri-1.2.4.67), README.md, i 26 test .mjs, le righe cp dei 3 workflow. La 1.2.4.66 va RIMOSSA dal repo. NON toccati: scripts/, workflow dei dati, color_scales.json, formule e calcoli.
+APP_FILE=mri-light-1.2.4.67.html
+
 MeteoRisk Light - 1.2.4.66 - SINTESI DETERMINISTICA A 3 GIORNI NEL PANNELLO DESTRO (OGGI / DOMANI / DOPODOMANI, TEMPERATURE E ORE, PIOGGIA CON FASCIA, RAFFICHE, CAPE CON SOGLIA MISURATA 300 J/KG, QUOTA ZERO TERMICO E NEVE ND) E FRASI TEMPLATE, TUTTO CALCOLATO NEL CLIENT SUI CAMPI GIA SCARICATI (bump da 1.2.4.65)
 MAJOR=1
 MINOR=2
