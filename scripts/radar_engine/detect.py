@@ -98,17 +98,25 @@ def _compactness(mask):
     return float(perim * perim / (4.0 * np.pi * area))
 
 
-def detect_cells(raster, cfg_detect):
+def detect_cells(raster, cfg_detect, exclude_mask=None):
     """Rileva le celle convettive su un RasterData valido.
 
     cfg_detect: blocco CONFIG['detect']. Ritorna lista [DetectedCell] ordinata
     per area decrescente. Nessun riferimento a coordinate geografiche dubbie:
-    le conversioni usano la geo_transform del raster (pyproj)."""
-    if not np.any(raster.valid_mask):
+    le conversioni usano la geo_transform del raster (pyproj).
+
+    `exclude_mask` (1.2.4.27): pixel esclusi dal rilevamento (fascia di seam
+    del mosaico multi-sorgente). Restano dato valido nel raster pubblicato, ma
+    non formano celle e non entrano in area/media: una cella a cavallo di due
+    sorgenti non e' una cella osservata da una sola sorgente."""
+    valid = np.asarray(raster.valid_mask, dtype=bool)
+    if exclude_mask is not None:
+        valid = valid & ~np.asarray(exclude_mask, dtype=bool)
+    if not np.any(valid):
         return []
 
     threshold = float(cfg_detect["dbz_threshold"])
-    binary = raster.valid_mask & (raster.data >= threshold)
+    binary = valid & (raster.data >= threshold)
 
     radius = int(cfg_detect.get("morph_radius_px", 0))
     if radius > 0:
@@ -134,7 +142,7 @@ def detect_cells(raster, cfg_detect):
         # governa intensita', area e conteggio pixel. Un pixel con sentinella
         # (-9999/-9998/NaN/nodata dichiarato) non e' un'eco: escluderlo e'
         # l'unico modo per non pubblicare una media dBZ negativa.
-        stats = mask & raster.valid_mask[slc]
+        stats = mask & valid[slc]
         pixel_area = float(stats.sum())
         if pixel_area <= 0.0:
             continue                      # solo no-data: nessuna cella

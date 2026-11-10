@@ -1,0 +1,104 @@
+name: Radar - Doppler coverage e collimazione OPERA
+
+# 1.2.4.27 — Harness MANUALE (workflow_dispatch), nessun cron.
+# Produce:
+#   data/radar/doppler_coverage.geojson  (confine della copertura VRADH)
+#   data/radar/collimation.json          (confronto DPC <-> OPERA per anello)
+# e li pubblica come artifact. Il commit su main e' OPZIONALE (input
+# `commit`, default false): main riceve gia' commit automatici dai workflow
+# dati e un push concorrente va evitato se non richiesto.
+
+on:
+  workflow_dispatch:
+    inputs:
+      day:
+        description: "Giorno UTC delle scansioni Doppler (YYYY-MM-DD)"
+        required: false
+        default: ""
+      frames:
+        description: "Istanti UTC per la collimazione, separati da virgola"
+        required: false
+        default: ""
+      commit:
+        description: "Committa i due file su main"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: radar-collimation
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Dipendenze
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r scripts/radar_engine/requirements.txt
+
+      - name: Copertura Doppler (VRADH)
+        working-directory: scripts
+        run: |
+          DAY="${{ inputs.day }}"
+          if [ -z "$DAY" ]; then
+            DAY="$(date -u +%Y-%m-%d)"
+          fi
+          python -m radar_engine.doppler_coverage \
+            --day "$DAY" \
+            --out ../data/radar/doppler_coverage.geojson
+
+      - name: Collimazione DPC <-> OPERA
+        working-directory: scripts
+        run: |
+          FRAMES="${{ inputs.frames }}"
+          if [ -z "$FRAMES" ]; then
+            echo "input 'frames' vuoto: collimazione saltata"
+            exit 0
+          fi
+          python -m radar_engine.collimation \
+            --frames "$FRAMES" \
+            --out ../data/radar/collimation.json
+
+      - name: Riepilogo
+        run: |
+          ls -l data/radar/doppler_coverage.geojson data/radar/collimation.json || true
+          python -c "import json,os; p='data/radar/doppler_coverage.geojson'; print('doppler counts:', json.load(open(p,encoding='utf-8')).get('counts')) if os.path.exists(p) else None"
+          python -c "import json,os; p='data/radar/collimation.json'; d=json.load(open(p,encoding='utf-8')) if os.path.exists(p) else None; print('collimation:', {k:d.get(k) for k in ('generated_at','n_frames','n_pairs')}) if d else None"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: radar-opera-report
+          path: |
+            data/radar/doppler_coverage.geojson
+            data/radar/collimation.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Commit su main (solo se richiesto)
+        if: ${{ inputs.commit }}
+        run: |
+          git config user.name "meteorisk-bot"
+          git config user.email "meteorisk-bot@users.noreply.github.com"
+          git add data/radar/doppler_coverage.geojson data/radar/collimation.json
+          if git diff --cached --quiet; then
+            echo "nessuna modifica da committare"
+            exit 0
+          fi
+          git commit -m "chore(radar): copertura Doppler e collimazione OPERA"
+          git pull --rebase --autostash origin main
+          git push origin HEAD:main

@@ -154,9 +154,14 @@ class DetectedCell:
         self.compactness = compactness
         self.pixel_count = int(pixel_count)
         self.frame_index = int(frame_index) if frame_index is not None else -1
+        # 1.2.4.27 — MIXED: la cella attraversa il seam fra due sorgenti del
+        # mosaico (mosaic.mark_cells_mixed). Default False; la chiave compare
+        # nell'output SOLO quando e' True, cosi' il run a sola sorgente DPC
+        # resta byte-identico.
+        self.mixed = False
 
     def to_dict(self):
-        return {
+        out = {
             "cell_id": self.cell_id,
             "timestamp": self.timestamp_iso,
             "timestamp_ms": self.timestamp_ms,
@@ -174,6 +179,9 @@ class DetectedCell:
             "compactness": round(self.compactness, 4),
             "pixel_count": self.pixel_count,
         }
+        if getattr(self, "mixed", False):
+            out["mixed"] = True
+        return out
 
 
 # ---------------------------------------------------------------------------
@@ -479,6 +487,14 @@ class EngineBundle:
         # 1.2.4.20: riepilogo del replay (--as-of). None in modalita' live:
         # nessuna chiave nuova nell'output operativo.
         self.as_of_mode = None
+        # 1.2.4.27 — MOSAICO MULTI-SORGENTE (DPC + OPERA CIRRUS).
+        # `sources` = elenco pubblicato in latest.json (id/nome/licenza/
+        # attribuzione/pixel/pct/valid_time); `opera_status` = esito della
+        # sorgente OPERA (anche "unavailable" con motivo, senza degradare il
+        # run); `mosaic_summary` = dettaglio per frame (provenienza + seam).
+        self.sources = []
+        self.opera_status = None
+        self.mosaic_summary = None
         self.warnings = []
         self.engine = {}
 

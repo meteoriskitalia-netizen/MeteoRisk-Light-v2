@@ -117,6 +117,35 @@ def build_latest(bundle, engine_meta=None):
     fetch_mode = getattr(bundle, "fetch_mode", None)
     if isinstance(fetch_mode, dict) and fetch_mode:
         payload["fetch_mode"] = fetch_mode
+    # 1.2.4.27 — MOSAICO MULTI-SORGENTE: `sources[]` (provenienza e
+    # attribuzione per sorgente effettivamente usata sul frame pubblicato) e
+    # `opera` (esito della sorgente OPERA, anche "unavailable" con motivo).
+    # Presenti SOLO quando il merge e' stato eseguito: un run a sola sorgente
+    # DPC resta byte-identico.
+    sources = getattr(bundle, "sources", None)
+    if sources:
+        payload["sources"] = sources
+    opera = getattr(bundle, "opera_status", None)
+    if isinstance(opera, dict) and opera:
+        payload["opera"] = opera
+    mosaic = getattr(bundle, "mosaic_summary", None)
+    if isinstance(mosaic, dict) and mosaic:
+        payload["mosaic"] = {
+            "status": mosaic.get("status"),
+            "reason": mosaic.get("reason"),
+            "slots_resolved": mosaic.get("slots_resolved"),
+            "frames_merged": mosaic.get("frames_merged"),
+            "seconds": mosaic.get("seconds"),
+            "bytes_read": mosaic.get("bytes_read"),
+            "bytes_file": mosaic.get("bytes_file"),
+            "range_requests": mosaic.get("range_requests"),
+            "mixed_cells": getattr(bundle, "mosaic_mixed_cells", None),
+            "frames": [{k: f.get(k) for k in (
+                "time_iso", "pixels_dpc", "pixels_opera", "pct_dpc",
+                "pct_opera", "seam_pixels", "substituted",
+                "substitute_reason", "opera_time_iso")}
+                for f in (mosaic.get("frames") or [])],
+        }
     return payload
 
 

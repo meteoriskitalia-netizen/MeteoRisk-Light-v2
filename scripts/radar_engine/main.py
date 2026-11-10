@@ -1431,6 +1431,61 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
     except Exception:
         bundle.data_latency_minutes = None
 
+    # ---- MOSAICO MULTI-SORGENTE (OPERA CIRRUS, additivo) --------------------
+    # 1.2.4.27: la VMI DPC resta la sorgente primaria; OPERA entra dove la VMI
+    # non ha un eco (mare/Adriatico/Tirreno e oltre confine) con provenienza
+    # per pixel e una fascia di seam esclusa da detect/tracking.
+    # DEGRADO PULITO: se OPERA non risponde il run CONTINUA col solo DPC e lo
+    # status resta "ok" (l'assenza della seconda sorgente non e' un guasto del
+    # motore); il motivo finisce in bundle.opera_status -> latest.json["opera"].
+    seam_by_ms = {}
+    mosaic_mod = None
+    ocfg = config.get("opera") or {}
+    if ocfg.get("enabled"):
+        try:
+            from radar_engine import mosaic as mosaic_mod
+            mosaic = mosaic_mod.apply(
+                frames, config, now_ms=clock.now_ms(),
+                measure_bytes=bool(ocfg.get("measure_bytes", False)))
+            bundle.mosaic_summary = mosaic.summary()
+            bundle.sources = mosaic_mod.source_summary(mosaic)
+            bundle.opera_status = {
+                "status": mosaic.status,
+                "reason": mosaic.reason,
+                "slots_resolved": mosaic.meta.get("slots_resolved"),
+                "frames_merged": mosaic.meta.get("frames_merged"),
+                "seconds": mosaic.meta.get("seconds"),
+                "bytes_read": mosaic.meta.get("bytes_read"),
+                "bytes_file": mosaic.meta.get("bytes_file"),
+                "range_requests": mosaic.meta.get("range_requests"),
+                "license": "CC BY 4.0",
+                "attribution": ("OPERA CIRRUS composite - (c) EUMETNET OPERA, "
+                                "CC BY 4.0 (via Open Radar Data / MeteoGate)"),
+            }
+            if mosaic.frames:
+                seam_by_ms = dict(mosaic.seam_by_time_ms)
+                frames = [mf.raster for mf in mosaic.frames]
+                bundle.frames = frames
+                prov = ocfg.get("provenance_out")
+                if prov:
+                    try:
+                        mosaic_mod.write_provenance(prov, mosaic)
+                    except Exception as exc:
+                        bundle.warnings.append(
+                            f"provenance write failed: {exc}")
+            else:
+                # degrado: OPERA non disponibile, il dataset resta a sola
+                # sorgente DPC ma la provenienza va dichiarata lo stesso.
+                bundle.sources = mosaic_mod.dpc_only_summary(frames)
+        except Exception as exc:
+            # nessuna eccezione propagata: il run resta a sola sorgente DPC
+            bundle.opera_status = {"status": "unavailable",
+                                   "reason": f"{exc.__class__.__name__}:{exc}"}
+            try:
+                bundle.sources = mosaic_mod.dpc_only_summary(frames)
+            except Exception:
+                bundle.sources = []
+
     # ---- DETECTION ----------------------------------------------------------
     # La TIMELINE e' l'unione dei timestamp reali dei frame scaricati e degli
     # slot ricostruiti dall'archivio. I frame scaricati usano il timestamp
@@ -1442,7 +1497,9 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
     entries = {}
     for raster in frames:
         try:
-            cells = detect_mod.detect_cells(raster, cfg_detect)
+            cells = detect_mod.detect_cells(
+                raster, cfg_detect,
+                exclude_mask=seam_by_ms.get(raster.time_ms))
         except Exception as exc:
             bundle.warnings.append(f"detect@{raster.time_iso} failed: {exc}")
             cells = []
@@ -1469,6 +1526,22 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
             "reconstructed_frames": len(reused),
             "timeline_slots": len(bundle.cells_by_frame),
         }
+
+    # 1.2.4.27 — CELLE "MIXED": una cella il cui footprint attraversa il seam
+    # fra due sorgenti viene marcata (mixed=true) e resta nel dataset: il
+    # consumatore sa che la sua intensita' viene da due calibrazioni diverse.
+    if mosaic_mod is not None and seam_by_ms:
+        n_mixed = 0
+        for idx, cells in enumerate(bundle.cells_by_frame):
+            raster = bundle.raster_by_frame_index.get(idx)
+            if raster is None or not cells:
+                continue
+            seam = seam_by_ms.get(raster.time_ms)
+            if seam is None:
+                continue
+            n_mixed += mosaic_mod.mark_cells_mixed(
+                cells, seam, raster, cfg_detect)
+        bundle.mosaic_mixed_cells = n_mixed
 
     # ---- TRACKING (>=2 frame validi; altrimenti solo detection) -------------
     tracker = track_mod.Tracker(config["tracking"],

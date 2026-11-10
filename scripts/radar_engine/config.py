@@ -63,6 +63,56 @@ CONFIG = {
         "cache_dir": None,          # None -> scripts/radar_engine/temp
         "keep_raw_frames": False,   # esclude sempre il raw dal repo (gitignore)
     },
+    # -----------------------------------------------------------------
+    # 1.2.4.27 — MOSAICO MULTI-SORGENTE: OPERA CIRRUS (EUMETNET) come
+    # SECONDA fonte accanto alla VMI Radar-DPC. Merge con provenienza per
+    # pixel, nessun blend (v. mosaic.py). `enabled=false` = percorso storico
+    # a sola sorgente DPC, byte-identico alla 1.2.4.26.
+    # COSTO MISURATO il 2026-11-10 su 6 frame (slot reali 00Z..12Z):
+    # vedi docs/OPERA_MOSAIC.md — 5 richieste Range e ~771 kB per frame,
+    # ~1,6 s di apertura+lettura, ~0,15 s di riproiezione.
+    "opera": {
+        "enabled": True,
+        "s3_base": "https://s3.waw3-1.cloudferro.com/openradar-24h/",
+        "product": "DBZH",
+        "extension": "tiff",
+        # Finestra letta dal COG (Italia + Adriatico + Tirreno): 1.294x1.486
+        # px su 3.800x4.400 invece del file intero.
+        "bbox_wgs84": [6.0, 35.0, 20.0, 48.0],
+        # Priorita' STATICA: numero piu' basso = vince. DPC dove ha un eco,
+        # OPERA altrove.
+        "priority": {"dpc": 10, "opera": 20},
+        # Freschezza: oltre questa eta' il vincitore viene sostituito
+        # dall'altro se fresco (substituted=true + motivo).
+        "max_age_min": 20,
+        # Tolleranza fra slot VMI e slot composito (entrambi a 5 minuti).
+        "slot_tolerance_s": 300,
+        "lookback_days": 2,
+        "timeout_s": 60,
+        # Fascia di confine fra sorgenti esclusa da detect/tracking.
+        "seam_width_px": 2,
+        # Clamp fisico dBZ (OPERA dichiara -31,5..95,5).
+        "clamp_dbz": [-32.0, 95.0],
+        # Lettura COG via /vsicurl/ (Range). False = download integrale.
+        "use_vsicurl": True,
+        # Misura dei byte Range (CPL_CURL_VERBOSE su fd 2). Costo ~0.
+        # ATTENZIONE: su Windows la cattura in-process non funziona (CRT
+        # diverso) e la misura richiede un SOTTOPROCESSO che RIPETE la
+        # lettura: ~3,4 s per frame. In produzione OFF (default).
+        "measure_bytes": False,
+        # Dump opzionale degli array di provenienza (.npz, ~15 MB/frame):
+        # None = non scritto (il dettaglio aggregato va in latest.json).
+        "provenance_out": None,
+    },
+    # Collimazione DPC <-> OPERA (harness, non UI): disattivata in produzione,
+    # si esegue dal workflow radar-collimation.yml o da CLI.
+    "collimation": {
+        "enabled": False,
+        "out": "data/radar/collimation.json",
+        "presence_threshold_dbz": 20.0,
+        "ring_edges_km": [0.0, 50.0, 100.0, 150.0, 200.0, None],
+        "sites_file": None,
+    },
     "preprocess": {
         # DATA VALIDITY (nodata/espliciti) — distinta dalla soglia meteorologica.
         "nodata_values": [-9999.0, -9998.0],
