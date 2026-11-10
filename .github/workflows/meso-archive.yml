@@ -1,0 +1,114 @@
+name: DWD Mesocyclone Archive (MCD XML)
+
+# Archivio dei mesocicloni DWD (prodotto MCD, un XML ogni 5 minuti).
+#
+# PERCHE' ESISTE
+#   https://opendata.dwd.de/weather/radar/mesocyclones/ conserva solo ~46 ore
+#   di file: senza questo workflow il dato sparisce per sempre. Ogni run
+#   scarica i soli file non ancora visti (ledger in
+#   data/validation/dwd_mesocyclones_seen.json), estrae una riga per detection
+#   e accoda a data/validation/dwd_mesocyclones.jsonl. Dedup per
+#   (time, lat, lon), quindi un file gia' archiviato non produce doppioni.
+#
+# IDEMPOTENZA / NO-OP
+#   Il ledger marca come "visto" anche un file senza detection (173 byte):
+#   senza ledger verrebbe riscaricato a ogni run. Se non cambia nulla il
+#   commit non parte (nessun churn).
+#
+# RETE
+#   Fonte pubblica anonima, CC BY 4.0. Mai piu' di 4 download in parallelo
+#   (tetto imposto dallo script). Se il listing non risponde lo script esce 0:
+#   un guasto del server DWD non deve far fallire il workflow.
+#
+# CONCORRENZA
+#   Gruppo PROPRIO "meso-archive": due run dell'archivio non si sovrappongono
+#   e non entrano in coda con radar-engine / phenomena / Pages.
+#
+# COMMIT
+#   Solo data/validation/dwd_mesocyclones*.json* (JSONL + meta + ledger).
+#   main riceve molti commit da altri workflow: pull --rebase con retry.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/10 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: meso-archive
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            scripts/validation
+            data/validation
+          sparse-checkout-cone-mode: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # Solo standard library (urllib/ElementTree): nessun pip install.
+      - name: Archive DWD mesocyclones (incremental)
+        run: |
+          python -u scripts/validation/archive_dwd_meso.py
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## DWD mesocyclones (MCD)"
+            echo ""
+            if [ -f data/validation/dwd_mesocyclones_meta.json ]; then
+              python -c "import json; m=json.load(open('data/validation/dwd_mesocyclones_meta.json',encoding='utf-8')); print('- file_scanned: %s' % m.get('files_scanned')); print('- files_with_detections: %s' % m.get('files_with_detections')); print('- detections: %s' % m.get('detections')); print('- first_time: %s' % m.get('first_time')); print('- last_time: %s' % m.get('last_time'))"
+            else
+              echo "meta non disponibile (run fallita prima dello script)."
+            fi
+            echo ""
+            echo "Archivio: \`data/validation/dwd_mesocyclones.jsonl\` (dedup su time+lat+lon)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit archive (only if changed)
+        if: success()
+        run: |
+          git config user.name "meteorisk-bot"
+          git config user.email "actions@users.noreply.github.com"
+          if [ -z "$(git status --porcelain -- data/validation/dwd_mesocyclones.jsonl data/validation/dwd_mesocyclones_meta.json data/validation/dwd_mesocyclones_seen.json)" ]; then
+            echo "[INFO] Nessuna modifica all'archivio mesocicloni."
+            exit 0
+          fi
+          git add data/validation/dwd_mesocyclones.jsonl \
+                  data/validation/dwd_mesocyclones_meta.json \
+                  data/validation/dwd_mesocyclones_seen.json
+          if git diff --cached --quiet; then
+            echo "[INFO] Nessun diff da committare."
+            exit 0
+          fi
+          DETECTIONS=$(python -c "import json;print(json.load(open('data/validation/dwd_mesocyclones_meta.json',encoding='utf-8')).get('detections'))")
+          git commit -m "data(meso): archivio mesocicloni DWD (${DETECTIONS} detection)"
+          # main riceve commit da radar-engine, update-weather-data, satellite,
+          # phenomena e dalle mappe: senza rebase il push fallisce.
+          for attempt in 1 2 3 4 5; do
+            if git pull --rebase --autostash origin main && git push origin main; then
+              echo "[INFO] Push archivio mesocicloni riuscito."
+              exit 0
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "[ERRORE] Push archivio mesocicloni fallito dopo 5 tentativi."
+              exit 1
+            fi
+            echo "[WARN] Push fallito (tentativo $attempt/5): riprovo."
+            sleep $((attempt * 5))
+          done
