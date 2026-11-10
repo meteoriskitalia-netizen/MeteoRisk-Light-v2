@@ -213,6 +213,48 @@ jobs:
             fi
           fi
 
+      # TENDENZA 7 GIORNI (file AGGIUNTIVO e SEPARATO): solo campi daily di
+      # Open-Meteo, 107 province, data/latest/weekly.json. NON tocca
+      # meteorisk-points.json ne' i 49 campi orari.
+      # continue-on-error: un 429 di Open-Meteo non deve far fallire il
+      # workflow; il file precedente resta valido. Il passo sta DOPO il publish
+      # (data/latest esiste) e PRIMA dell'artifact: quando c'e' un deploy il
+      # weekly.json appena scritto entra in _site/data/latest.
+      - name: Build tendenza 7 giorni (weekly, 107 province)
+        id: weekly
+        continue-on-error: true
+        run: |
+          rc=0
+          python scripts/build_weekly.py || rc=$?
+          exit $rc
+
+      # Commit SEPARATO: solo il nuovo file. Stesso retry del commit dataset
+      # per la race su main (radar-engine pusha ogni ~5 min).
+      - name: Commit tendenza 7 giorni (solo data/latest/weekly.json)
+        if: steps.weekly.outcome == 'success'
+        run: |
+          git config user.name "meteorisk-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/latest/weekly.json
+          if git diff --cached --quiet; then
+            echo "[INFO] weekly.json invariato."
+          else
+            git commit -m "chore(data): tendenza 7 giorni per provincia (weekly.json)"
+            push_ok=0
+            for i in 1 2 3 4 5; do
+              if git pull --rebase --autostash origin main && git push origin main; then
+                push_ok=1
+                break
+              fi
+              echo "[WARN] Push weekly rifiutato (race su main) - tentativo $i/5"
+              if [ "$i" -lt 5 ]; then sleep 5; fi
+            done
+            if [ "$push_ok" -ne 1 ]; then
+              echo "[ERROR] Push weekly non riuscito dopo 5 tentativi (race con altri workflow su main)"
+              exit 1
+            fi
+          fi
+
       # L'ARTEFATTO di deploy contiene SOLO: app, dataset derivati, geografie
       # richieste, derivati radar, gli eventi phenomena (data/phenomena: prodotti
       # da phenomena-verify, qui SOLO copiati in _site) e la
