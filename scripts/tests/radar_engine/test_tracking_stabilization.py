@@ -90,13 +90,16 @@ def test_finalize_accepts_scoring_override():
 # Improved formula + motion prediction (NON Kalman)
 # ---------------------------------------------------------------------------
 def _linear_motion_frames():
-    # velocita' costante ~151 km/h verso est (passo 10 min ~25.2 km)
+    # velocita' costante ~75.6 km/h verso est (passo 10 min ~12.6 km), sotto
+    # il gate di continuita' (~110 km/h): il salto a 151 km/h del vecchio
+    # scenario ora aprirebbe una nuova track e il test non misurerebbe piu'
+    # la preferenza della predizione.
     f0 = make_cell(12.00, 41.0, T0, cell_id="seed", area_km2=150, max_dbz=42)
-    f1 = make_cell(12.30, 41.0, T0 + 600000, cell_id="mid", area_km2=150, max_dbz=42)
-    cont = make_cell(12.60, 41.0, T0 + 1200000, cell_id="continue",
+    f1 = make_cell(12.15, 41.0, T0 + 600000, cell_id="mid", area_km2=150, max_dbz=42)
+    cont = make_cell(12.30, 41.0, T0 + 1200000, cell_id="continue",
                      area_km2=150, max_dbz=42)   # sul punto previsto
-    lag = make_cell(12.295, 41.0, T0 + 1200000, cell_id="lag",
-                    area_km2=150, max_dbz=42)    # "blob" stazionario ~0 km
+    lag = make_cell(12.16, 41.0, T0 + 1200000, cell_id="lag",
+                    area_km2=150, max_dbz=42)    # "blob" quasi stazionario
     return [f0, f1], [cont, lag]
 
 

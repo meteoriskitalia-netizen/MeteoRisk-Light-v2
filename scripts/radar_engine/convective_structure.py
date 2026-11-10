@@ -352,12 +352,14 @@ def _candidate_dict(bundle, track, track_type, latest_frame_index, cfg, soi,
         },
         "motion": {
             "velocity_kmh": track.motion.get("velocity_kmh"),
-            # Qualita' del moto (1.2.4.64): "reliable" | "unreliable". Quando
-            # `velocity_kmh` e' null il motivo e' in `motion_null_reason`
-            # (path_speed_out_of_range / net_speed_out_of_range /
-            # non_positive_duration). Nessun valore sostitutivo.
+            # Qualita' del moto (2026-11-10): "reliable" | "unreliable".
+            # Quando `velocity_kmh` e' null il motivo e' in
+            # `motion_null_reason` (fit_residual_too_high / fit_not_used /
+            # non_positive_duration / insufficient_points). `motion_source`
+            # dice se il valore viene dal fit pesato o e' un fallback.
             "motion_quality": track.motion.get("motion_quality"),
             "motion_null_reason": track.motion.get("motion_null_reason"),
+            "motion_source": track.motion.get("motion_source"),
             "direction_toward_deg": track.motion.get("direction_toward_deg"),
             "distance_km": track.motion.get("distance_km"),
             "duration_min": track.motion.get("duration_min"),

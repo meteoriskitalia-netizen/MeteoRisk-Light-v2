@@ -33,8 +33,14 @@ _OUTLIER_SPEED_KMH = 50.0     # segmento > 50 km/h equiv. -> candidato outlier
 _ENDPOINT_MAD_K = 2.5         # soglia estremi: max(50, k*mediana, mediana+k*MAD)
 _ENDPOINT_MIN_KEEP = 5        # potatura estremi solo se restano >=4 punti
 _CONE_MIN_KM = 6.0            # floor del cono di incertezza
-_CONE_DEFAULT_KM = 8.0        # cone_0 senza fit (residui non calcolabili)
-_CONE_GROWTH_KM_MIN = 0.08    # ~4.8 km/h di espansione del cono
+# Cono ricalibrato il 2026-11-10 sui percentili MISURATI degli errori reali
+# (due campioni indipendenti, R^2 0.999 e 0.985): 15 km a 30 min + 1 km/min.
+# Il vecchio 8 km + 0.08 km/min copriva solo il 44% degli errori a 30 min e il
+# 27% a 90 min; questa forma copre l'88-94%. Non e' piu' una scelta
+# ingegneristica: il campo `cone_basis` lo dichiara nel record pubblicato.
+_CONE_DEFAULT_KM = 15.0       # intercetta fissa (p90 misurato)
+_CONE_GROWTH_KM_MIN = 1.0     # crescita per minuto di offset (p90 misurato)
+_CONE_BASIS = "p90_measured_15km_1km_per_min"
 _YOUNG_MINUTES = 20.0         # durata < 20 min -> cella giovane
 _INTENSITY_LAMBDA_MIN = 30.0  # tau del decadimento esponenziale dBZ
 _TREND_SLOPE_MIN = -2.5       # dBZ/scansione, gate trend decadimento
@@ -358,7 +364,8 @@ def _build(candidate_ctx, bundle):
         i_dec = mean_max + (i0 - mean_max) * decay
         max_dbz = _clamp(i_dec + trend * (offset_min / 5.0), *_DBZ_RANGE)
         mean_dbz = _clamp(mean_mean + (m0 - mean_mean) * decay, *_MEAN_DBZ_RANGE)
-        cone = max(_CONE_MIN_KM, fit["cone0_km"] + growth * offset_min)
+        cone = max(_CONE_MIN_KM, _CONE_DEFAULT_KM,
+                   fit["cone0_km"]) + growth * offset_min
         steps.append({
             "offset_min": offset_min,
             "at": _iso_from_ms(anchor_ms + offset_min * 60000),
@@ -374,6 +381,7 @@ def _build(candidate_ctx, bundle):
         "step_min": STEP_MIN,
         "generated_at": generated_at,
         "method": METHOD,
+        "cone_basis": _CONE_BASIS,
         "basis_frames": int(fit["basis_frames"]),
         "confidence": _confidence(fit, young),
         "fit_used": bool(fit["fit_used"]),

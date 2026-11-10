@@ -5,17 +5,18 @@
 1) detect.py — le sentinelle no-data (-9999 fuori copertura, -9998 in
    copertura senza eco) assorbite dal closing morfologico NON entrano in
    max/mean/p90 dBZ ne' in `pixel_count`/`area_km2`.
-2) tracking.py — `velocity_kmh` fuori dal range plausibile di forecast.py
-   (path-speed grezza su un ID-switch) NON viene pubblicata: `null` +
-   `motion_quality="unreliable"` + `motion_null_reason`; la direzione resta
-   solo se e' plausibile la velocita' dello spostamento NETTO.
+2) tracking.py — NESSUNA velocity impossibile pubblicata (contratto
+   2026-11-10): il gate di continuita' rifiuta l'associazione oltre ~110 km/h
+   (la detection apre una nuova track) e `finalize` pubblica la velocity solo
+   dal fit pesato con residuo < 6 km; altrimenti `null` +
+   `motion_quality="unreliable"` + `motion_null_reason` e `motion_source`.
 
 I casi sintetici sono costruiti per FALLIRE sul codice precedente:
   - T1 due rettangoli con fessura di 1 px a -9999: il closing fa da ponte e
     la sentinella entrava nella media -> mean_dbz = -80.952 con max 40.0;
   - T3 blocco uniforme con UN pixel interno a -9999: la media restava
     "plausibile" ma sbagliata (37.211 invece di 40.000, -2.79 dBZ);
-  - T2 track con salto: velocity_kmh = 1008 km/h invece di null.
+  - T2 track con salto: una path-speed di ~1200 km/h veniva pubblicata.
 Nessun dato radar reale: solo raster sintetici (stessa griglia VMI dei test
 esistenti) e celle sintetiche.
 """
@@ -105,7 +106,7 @@ def test_sentinel_pixel_hole_excluded_and_healthy_cell_unchanged(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# DIFETTO A — velocity_kmh pubblicata fuori range
+# DIFETTO A — nessuna velocity impossibile pubblicata (contratto 2026-11-10)
 # ---------------------------------------------------------------------------
 def _run(cells, over=None):
     tracker = Tracker(_cfg(**(over or {})))
@@ -113,68 +114,63 @@ def _run(cells, over=None):
         tracker.update([cell], i)
     tracker.complete_cycles()
     tracker.finalize()
-    return tracker.tracks[0]
+    return tracker.tracks
 
 
-def test_velocity_out_of_plausible_range_published_as_null():
-    """Track con un salto di ~160 km in 5 min (ID-switch): la path-speed e'
-    1008 km/h. Non si pubblica un numero aggiustato: null + motivo, e la
-    direzione cade con lei perche' anche lo spostamento netto e' impossibile."""
-    track = _run([
+def test_id_switch_is_split_by_continuity_gate():
+    """Track con salto di ~200 km in 10 min (ID-switch): il gate di
+    continuita' rifiuta l'associazione e la detection apre una NUOVA track.
+    La vecchia path-speed di ~1200 km/h non entra piu' nel dataset."""
+    tracks = _run([
         make_cell(12.0, 41.0, T0, cell_id="a"),
         make_cell(12.1, 41.0, T0 + 300000, cell_id="b"),
-        make_cell(14.0, 41.0, T0 + 600000, cell_id="c"),   # salto ~160 km
+        make_cell(14.4, 41.0, T0 + 900000, cell_id="c"),   # ~200 km in 10 min
     ])
-    m = track.motion
-    assert m["velocity_kmh"] is None
-    assert m["motion_quality"] == "unreliable"
-    assert m["motion_null_reason"] == "path_speed_out_of_range"
-    assert m["direction_toward_deg"] is None
-    assert m["direction_from_deg"] is None
-    # l'audit resta misurabile: distanza e durata NON vengono toccate
-    assert m["distance_km"] > 150.0
-    assert m["duration_min"] == pytest.approx(10.0, abs=0.1)
-    # il null arriva fino al file pubblicato (tracks.json)
-    d = track.to_dict()
-    assert d["velocity_kmh"] is None
-    assert d["motion_quality"] == "unreliable"
-    assert d["motion_null_reason"] == "path_speed_out_of_range"
-    assert d["direction_toward_deg"] is None
+    assert len(tracks) == 2
+    old, new = tracks
+    assert [p.cell_id for p in old.points] == ["a", "b"]
+    assert [p.cell_id for p in new.points] == ["c"]
+    assert models.EVENT_DEATH in old.events
+    for trk in tracks:
+        vel = trk.motion.get("velocity_kmh")
+        assert vel is None or 1.0 <= vel <= 110.0
+        assert trk.motion.get("motion_source") in (
+            "weighted_fit", "fallback", "none")
 
 
-def test_direction_kept_only_when_net_displacement_is_plausible():
-    """La direzione e' il bearing dello spostamento NETTO: si pubblica solo se
-    QUEL vettore e' plausibile. Andata e ritorno -> velocita' di percorso ok
-    (~101 km/h) ma netto nullo -> direzione null con motivo proprio."""
-    back_and_forth = _run([
-        make_cell(12.0, 41.0, T0, cell_id="p0"),
-        make_cell(12.1, 41.0, T0 + 300000, cell_id="p1"),
-        make_cell(12.2, 41.0, T0 + 600000, cell_id="p2"),
-        make_cell(12.1, 41.0, T0 + 900000, cell_id="p3"),
-        make_cell(12.0, 41.0, T0 + 1200000, cell_id="p4"),
-    ])
-    m = back_and_forth.motion
-    assert m["velocity_kmh"] is not None            # percorso: ~101 km/h
-    assert 70.0 <= m["velocity_kmh"] <= 110.0
+def test_regular_track_publishes_weighted_fit_motion():
+    """Track regolare (5 punti, 60 km/h): velocity e direzione vengono dal
+    fit pesato, non dalla path-speed; `motion_source` lo dichiara anche nel
+    record pubblicato (tracks.json)."""
+    km_per_deg_lon = 111.1949 * np.cos(np.radians(41.0))
+    dlon = (60.0 * 300 / 3600.0) / km_per_deg_lon   # 5 km ogni 5 min
+    cells = [make_cell(12.0 + i * dlon, 41.0, T0 + i * 300000,
+                       cell_id=f"r{i}") for i in range(5)]
+    tracks = _run(cells)
+    assert len(tracks) == 1
+    m = tracks[0].motion
+    assert m["motion_source"] == "weighted_fit"
     assert m["motion_quality"] == "reliable"
-    assert m["direction_toward_deg"] is None        # netto ~0 km
-    assert m["direction_from_deg"] is None
-    assert m["motion_null_reason"] == "net_speed_out_of_range"
+    assert m["motion_null_reason"] is None
+    assert m["velocity_kmh"] == pytest.approx(60.0, abs=1.0)
+    assert m["direction_toward_deg"] == pytest.approx(90.0, abs=2.0)
+    d = tracks[0].to_dict()
+    assert d["motion_source"] == "weighted_fit"
 
-    # caso opposto: percorso impossibile (204 km/h) ma netto plausibile (~68):
-    # la velocita' e' null, la DIREZIONE resta (descrive il vettore netto)
-    zigzag = _run([
-        make_cell(12.0, 41.0, T0, cell_id="z0"),
-        make_cell(12.2, 41.0, T0 + 300000, cell_id="z1"),
-        make_cell(12.0, 41.0, T0 + 600000, cell_id="z2"),
-        make_cell(12.2, 41.0, T0 + 900000, cell_id="z3"),
+
+def test_short_track_has_declared_motion_null_reason():
+    """3 punti: il fit richiede >=4 punti -> null con motivo esplicito,
+    nessun valore sostitutivo."""
+    tracks = _run([
+        make_cell(12.0, 41.0, T0, cell_id="s0"),
+        make_cell(12.1, 41.0, T0 + 300000, cell_id="s1"),
+        make_cell(12.2, 41.0, T0 + 600000, cell_id="s2"),
     ])
-    m2 = zigzag.motion
-    assert m2["velocity_kmh"] is None
-    assert m2["motion_quality"] == "unreliable"
-    assert m2["motion_null_reason"] == "path_speed_out_of_range"
-    assert m2["direction_toward_deg"] == pytest.approx(90.0, abs=1.0)  # verso E
-    assert m2["direction_from_deg"] == pytest.approx(270.0, abs=1.0)
+    m = tracks[0].motion
+    assert m["velocity_kmh"] is None
+    assert m["direction_toward_deg"] is None
+    assert m["motion_null_reason"] == "fit_not_used"
+    assert m["motion_source"] == "fallback"
 
 
 def test_non_positive_duration_has_declared_reason():
@@ -189,4 +185,5 @@ def test_non_positive_duration_has_declared_reason():
     assert m["velocity_kmh"] is None
     assert m["motion_quality"] == "unreliable"
     assert m["motion_null_reason"] == "non_positive_duration"
+    assert m["motion_source"] == "none"
     assert m["duration_min"] == 0.0

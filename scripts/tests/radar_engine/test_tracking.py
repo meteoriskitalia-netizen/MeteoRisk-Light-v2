@@ -48,10 +48,12 @@ def test_simple_track_id_persists_and_motion():
     assert len(track.points) == 3
     assert track.track_id == 1
     assert track.events == [models.EVENT_BIRTH]
-    # distanza ~0.10 deg lon a 41°N ~8.5 km per 5 minuto -> ~102 km/h
-    vel = track.motion["velocity_kmh"]
-    assert 70 <= vel <= 130
-    assert 70 <= track.motion["direction_toward_deg"] <= 110
+    # 3 punti: il fit pesato richiede >=4 punti -> nessuna velocity inventata
+    # (contratto 2026-11-10: fit_used e residuo < 6 km, altrimenti null)
+    assert track.motion["velocity_kmh"] is None
+    assert track.motion["direction_toward_deg"] is None
+    assert track.motion["motion_null_reason"] == "fit_not_used"
+    assert track.motion["motion_source"] == "fallback"
     assert track.motion["duration_min"] == pytest.approx(10.0, abs=0.1)
     assert track.motion["distance_km"] > 10.0
     assert track.tracking_confidence == "low"   # 3 frame < 5

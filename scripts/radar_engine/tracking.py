@@ -63,6 +63,9 @@ from scipy.optimize import linear_sum_assignment
 from . import models
 
 _EPS = 1e-12
+# Soglia di residuo per PUBBLICARE il moto del fit pesato (finalize): sopra
+# 6 km il fit non descrive i centroidi e il valore resta null (motivo esplicito).
+_MOTION_MAX_RESID_KM = 6.0
 
 # ---------------------------------------------------------------------------
 # Geografia / distanza
@@ -307,7 +310,19 @@ class Tracker:
         (comportamento Fase 1 invariato). Con un valore N>0 una track attiva
         sopravvive fino a N frame consecutivi privi di celle (riga diagnostica
         assignment_status='coasting'); se una cella torna assegnabile la track
-        la riprende e il contatore si azzera."""
+        la riprende e il contatore si azzera.
+
+        GATE DI CONTINUITA' (2026-11-10): un'associazione e' RIFIUTATA se la
+        velocita' implicita (distanza dall'ultima osservazione / dt) supera
+        `SPEED_RANGE_KMH[1]` (~110 km/h), la stessa fonte unica di forecast.py
+        usata dal clamp a valle. Prima un ID-switch o un centroid jump veniva
+        assorbito nella stessa track e la path-speed impossibile era solo
+        azzerata a valle (misurato: `velocity_kmh: null` nel 61% dei track).
+        Ora il salto apre una NUOVA track: l'effetto atteso e' meno track
+        spurie fuse insieme e piu' track corte ma fisicamente coerenti. Il
+        gate e' indipendente da `max_storm_speed_kmh` (che resta configurabile,
+        None=off) e si applica solo con dt > 0: a dt nullo la velocita' non e'
+        definita e vale il comportamento storico."""
         self._last_frame_index = int(frame_index)
         active = [t for t in self.tracks if t.status == models.STATUS_ACTIVE]
         if not active or not cells:
@@ -336,6 +351,7 @@ class Tracker:
             self._record(frame_index, rows)
             return
 
+        _, max_cont_kmh = _speed_range_kmh()   # fonte unica: forecast.py
         features_list = [self._features(t, self.cfg) for t in active]
         cost = np.full((len(active), len(cells)), np.inf, dtype=float)
         cand_meta = {}   # (i,j) -> {distance_km, area_ratio, int_diff, iou, pred_err}
@@ -343,6 +359,11 @@ class Tracker:
             for j, cell in enumerate(cells):
                 sg, pg = self._gate_limits(feats, cell, self.cfg)
                 d = haversine_km(feats["last_lonlat"], cell.centroid_lonlat)
+                dt_h = (cell.timestamp_ms - feats["last_ts_ms"]) / 3600000.0
+                if dt_h > 0.0 and d / dt_h > max_cont_kmh:
+                    # GATE DI CONTINUITA': salto > ~110 km/h -> nessuna
+                    # associazione (INF). La detection aprira' una nuova track.
+                    continue
                 if sg is not None and d > sg:
                     continue  # fuori gate -> INF (rejected)
                 pred_target = None
@@ -458,33 +479,42 @@ class Tracker:
         """Calcola motion per ogni track (timestamp reali) + Organization Score
         con la configurazione scoring INIETTATA (P0 fix) + score_confidence.
 
-        VELOCITA' PUBBLICATA (fix 1.2.4.64). `velocity_kmh` storica era
-        distanza TOTALE del percorso / durata (path-speed): su un ID-switch o
-        un centroid jump vale centinaia o migliaia di km/h (misurato il
-        2026-11-10: 34 track su 60 oltre 110 km/h, massimo 1408.4). Il valore
-        pubblicato passa ora dal range di plausibilita' di `forecast.py`
-        (`SPEED_RANGE_KMH`, riusato: nessuna seconda costante). Fuori range ->
-        `velocity_kmh: null`, `motion_quality: "unreliable"` e
-        `motion_null_reason: "path_speed_out_of_range"`: nessun numero
-        aggiustato o clampato. `distance_km` resta la lunghezza MISURATA del
-        percorso (audit), non una velocita'.
-
-        DIREZIONE. `direction_toward_deg` e' il bearing dello spostamento
-        NETTO primo->ultimo punto, quindi si pubblica solo se e' plausibile la
-        velocita' di QUEL vettore (net speed nello stesso range): su una track
-        che torna indietro il bearing non descrive alcun moto. Quando cade, il
-        motivo e' `net_speed_out_of_range` e anche `direction_from_deg`
-        (stesso angolo +180) diventa null.
+        MOTO PUBBLICATO (2026-11-10). `velocity_kmh` storica era distanza
+        TOTALE del percorso / durata (path-speed): su un ID-switch o un
+        centroid jump vale centinaia o migliaia di km/h (misurato: l'11,0% dei
+        passi oltre 110 km/h, massimo 299,7; il clamp a valle produceva `null`
+        nel 61% dei track). Il valore pubblicato viene ora dal FIT PESATO di
+        `forecast.fit_motion` (la stessa regressione usata dal forecast), SOLO
+        quando `fit_used` e `resid_std_km < 6 km`: in quel caso
+        `motion_source="weighted_fit"`, qualita' `reliable`, direzione
+        `direction_toward_deg` del fit. Altrimenti nulla viene inventato:
+        `velocity_kmh`/`direction_*` sono `null`, `motion_quality="unreliable"`,
+        `motion_source="fallback"` e `motion_null_reason` vale
+        `fit_residual_too_high` (fit calcolato ma non rappresentativo) o
+        `fit_not_used` (< 4 punti / velocita' fuori range). Con meno di 2 punti
+        il record e' `motion_source="none"` / `insufficient_points`.
+        `distance_km` resta la lunghezza MISURATA del percorso (audit), non
+        una velocita'.
         """
         from . import scoring
+        from . import forecast as _forecast
         full_frames = int(self.cfg.get("full_confidence_frames", 5))
         scfg = cfg_scoring or self.cfg_scoring or scoring._fallback_scoring()
-        lo, hi = _speed_range_kmh()
         for track in self.tracks:
             pts = track.points
             if len(pts) < 2:
                 track.tracking_confidence = "insufficient"
                 track.score_confidence = "low"
+                track.motion = {
+                    "distance_km": 0.0,
+                    "velocity_kmh": None,
+                    "direction_toward_deg": None,
+                    "direction_from_deg": None,
+                    "motion_quality": "unreliable",
+                    "motion_null_reason": "insufficient_points",
+                    "motion_source": "none",
+                    "duration_min": 0.0,
+                }
                 continue
             n = len(pts)
             track.tracking_confidence = ("full" if n >= full_frames else "low")
@@ -508,33 +538,40 @@ class Tracker:
                     "direction_from_deg": None,
                     "motion_quality": "unreliable",
                     "motion_null_reason": "non_positive_duration",
+                    "motion_source": "none",
                     "duration_min": round(duration_min, 1),
                 }
                 continue
-            hours = duration_min / 60.0
-            vel = dist / hours
-            net_vel = haversine_km(pts[0].lonlat, pts[-1].lonlat) / hours
-            toward = bearing_deg(pts[0].lonlat, pts[-1].lonlat)
-            from_deg = (toward + 180.0) % 360.0
-            velocity_ok = bool(lo <= vel <= hi)
-            direction_ok = bool(lo <= net_vel <= hi)
-            if not velocity_ok:
-                null_reason = "path_speed_out_of_range"
-            elif not direction_ok:
-                null_reason = "net_speed_out_of_range"
-            else:
+            fit = _forecast.fit_motion(pts)
+            use_fit = bool(fit["fit_used"]) and \
+                float(fit["resid_std_km"]) < _MOTION_MAX_RESID_KM
+            if use_fit:
+                velocity = float(fit["velocity_kmh"])
+                toward = float(fit["direction_toward_deg"])
+                from_deg = (toward + 180.0) % 360.0
                 null_reason = None
+                motion_quality = "reliable"
+                motion_source = "weighted_fit"
+            else:
+                velocity = None
+                toward = None
+                from_deg = None
+                null_reason = ("fit_residual_too_high" if fit["fit_used"]
+                               else "fit_not_used")
+                motion_quality = "unreliable"
+                motion_source = "fallback"
             growth = 0.0
             if pts[0].area_km2 > 0:
                 growth = (pts[-1].area_km2 - pts[0].area_km2) / pts[0].area_km2 * 100.0
             idelta = pts[-1].max_dbz - pts[0].max_dbz
             track.motion = {
                 "distance_km": round(dist, 2),
-                "velocity_kmh": round(vel, 1) if velocity_ok else None,
-                "direction_toward_deg": round(toward, 1) if direction_ok else None,
-                "direction_from_deg": round(from_deg, 1) if direction_ok else None,
-                "motion_quality": "reliable" if velocity_ok else "unreliable",
+                "velocity_kmh": round(velocity, 1) if velocity is not None else None,
+                "direction_toward_deg": round(toward, 1) if toward is not None else None,
+                "direction_from_deg": round(from_deg, 1) if from_deg is not None else None,
+                "motion_quality": motion_quality,
                 "motion_null_reason": null_reason,
+                "motion_source": motion_source,
                 "duration_min": round(duration_min, 1),
                 "area_growth_pct": round(growth, 1),
                 "intensity_delta_dbz": round(idelta, 2),

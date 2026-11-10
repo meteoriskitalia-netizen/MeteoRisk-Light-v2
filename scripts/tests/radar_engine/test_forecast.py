@@ -345,7 +345,7 @@ def test_schema_steps_esattamente_4():
     bundle = _bundle([track])
     block = forecast.build_forecast(_ctx(track), bundle)
     assert set(block) == {"horizon_min", "step_min", "generated_at", "method",
-                          "basis_frames", "confidence", "steps",
+                          "cone_basis", "basis_frames", "confidence", "steps",
                           "direction_toward_deg", "velocity_kmh",
                           "fit_used", "clamped"}
     assert block["horizon_min"] == 120

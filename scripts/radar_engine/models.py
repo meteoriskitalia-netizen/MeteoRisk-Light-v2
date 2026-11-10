@@ -260,6 +260,7 @@ class Track:
             "velocity_kmh": self.motion.get("velocity_kmh"),
             "motion_quality": self.motion.get("motion_quality"),
             "motion_null_reason": self.motion.get("motion_null_reason"),
+            "motion_source": self.motion.get("motion_source"),
             "direction_toward_deg": self.motion.get("direction_toward_deg"),
             "direction_from_deg": self.motion.get("direction_from_deg"),
             "distance_km": self.motion.get("distance_km"),
