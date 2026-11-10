@@ -316,6 +316,34 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         }
 
         .details-card { background: #1e293b; border-radius: 12px; padding: 18px; border: 1px solid #334155; display: flex; flex-direction: column; gap: 14px; }
+        /* 1.2.4.66 - SINTESI DETERMINISTICA A 3 GIORNI (sotto la riga del rischio).
+          3 colonne a desktop; a <=600px diventano 3 righe (una card per giorno) con
+          i valori su due colonne interne, mai schiacciati in 3 colonne da ~100px. */
+        .tds-card { background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+        .tds-head { display: flex; flex-direction: column; gap: 2px; }
+        .tds-title { font-size: 12px; font-weight: 700; color: #e2e8f0; }
+        .tds-note { font-size: 11px; line-height: 1.3; color: #94a3b8; }
+        .tds-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+        .tds-day { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 6px; min-width: 0; cursor: pointer; }
+        .tds-day.is-selected { border-color: #38bdf8; box-shadow: inset 0 0 0 1px #38bdf8; }
+        .tds-day:focus-visible { outline: 2px solid #38bdf8; outline-offset: 1px; }
+        .tds-day-head { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; border-bottom: 1px solid #334155; padding-bottom: 4px; margin-bottom: 4px; }
+        .tds-day-name { font-size: 11px; font-weight: 700; color: #e2e8f0; }
+        .tds-day-date { font-size: 11px; color: #94a3b8; }
+        .tds-rows { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+        .tds-metric { display: flex; flex-direction: column; min-width: 0; }
+        .tds-k { font-size: 11px; color: #94a3b8; line-height: 1.2; }
+        .tds-v { font-size: 12px; color: #f1f5f9; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+        .tds-d { font-size: 11px; color: #94a3b8; line-height: 1.25; overflow-wrap: anywhere; }
+        .tds-phrase { font-size: 11px; line-height: 1.4; color: #cbd5e1; border-top: 1px solid #334155; padding-top: 6px; }
+        .tds-empty { font-size: 11px; color: #94a3b8; padding: 6px; }
+        @media (max-width: 600px) {
+            .tds-grid { grid-template-columns: 1fr; }
+            .tds-day { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 8px; align-items: start; padding: 8px; }
+            .tds-day-head { flex-direction: column; justify-content: flex-start; border-bottom: 0; padding-bottom: 0; margin-bottom: 0; border-right: 1px solid #334155; padding-right: 8px; }
+            .tds-rows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 8px; }
+            .tds-v { font-size: 13px; }
+        }
         .details-header { border-bottom: 1px solid #334155; padding-bottom: 10px; display: flex; justify-content: space-between; align-items: flex-start; }
         .details-header h2 { color: #f1f5f9; font-size: 17px; margin-bottom: 4px; }
         .zone-type-tag { font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #38bdf8; }
@@ -2198,6 +2226,21 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <button class="export-btn" onclick="exportDataCSV()">📥 CSV</button>
         </div>
 
+        <!-- 1.2.4.66 - Sintesi deterministica a 3 giorni: 3 colonne (Oggi / Domani /
+             Dopodomani) calcolate nel client dai campi del dataset gia' scaricato.
+             Nessuna richiesta di rete aggiuntiva e nessun testo generato da AI:
+             le frasi sono template deterministici. -->
+        <div class="tds-card" id="three-day-summary" aria-label="Sintesi previsionale a tre giorni">
+            <div class="tds-head">
+                <span class="tds-title">Sintesi 3 giorni</span>
+                <span class="tds-note">CAPE = potenziale previsto dal modello NWP, non un temporale osservato.</span>
+            </div>
+            <div class="tds-grid" id="tds-grid">
+                <div class="tds-empty">Seleziona una località sulla mappa o cerca un comune.</div>
+            </div>
+            <div class="tds-phrase" id="tds-phrase" role="status"></div>
+        </div>
+
         <div class="metric-grid">
             <div class="metric"><div class="metric-title">Temperatura</div><div class="metric-value" id="val-temp">-- / -- °C</div></div>
             <div class="metric"><div class="metric-title">Umidità Media</div><div class="metric-value" id="val-humidity">-- %</div></div>
@@ -2331,9 +2374,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.65';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.66';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-10';
     const APP_CHANGELOG = [
+        { version: '1.2.4.66', date: '2026-11-10', changes: [
+  'SINTESI DETERMINISTICA A 3 GIORNI= Nuovo blocco #three-day-summary nel pannello destro, sotto la riga del rischio: 3 colonne Oggi / Domani / Dopodomani (a <=600px 3 righe, una card per giorno) con temperatura massima e minima e ora del picco, pioggia totale con probabilità massima e fascia contigua > 0,1 mm, raffica massima e vento medio massimo con ora, CAPE massimo con ore sopra soglia, quota zero termico media e neve. Tutto calcolato nel client dai campi già presenti in data/latest/meteorisk-points.json (0 richieste di rete, nessun modello AI, nessun testo generato): le frasi sono template deterministici. Ogni valore è arrotondato in modo dichiarato (0,1 °C, 1 mm, 1 km/h, 1 J/kg, 100 m per la quota, 0,1 mm per la neve); un campo null su tutte le ore mostra n/d, mai 0. Il calcolo è cachato per (località, dataset): non viene rifatto a ogni frame dello slider.',
+  'SOGLIA CAPE MISURATA, NON INVENTATA= 300 J/kg, scelta sulla distribuzione del dataset del 2026-11-10 (257 punti x 72 h = 18.504 ore-punto, best_match): mediana 0, p95 170, p98 330, p99 440 J/kg; le ore con CAPE >= 300 sono 413 (2,23%) e i punti-giorno con almeno 1 ora sopra sono 104 su 771 (13,5%). La nota fissa del blocco dichiara che è CAPE previsto dal modello NWP, non un temporale osservato.',
+  'BUMP: html mri-light-1.2.4.66.html, VERSION (BUILD=66, DATE=2026-11-10), sw.js (CACHE_NAME mri-1.2.4.66), README.md, i 26 test .mjs, le righe cp dei 3 workflow. La 1.2.4.65 va RIMOSSA dal repo. NON toccati: scripts/, workflow dei dati, color_scales.json, formule e calcoli.'
+        ] },
         { version: '1.2.4.65', date: '2026-11-10', changes: [
   'DOPPLER= NUOVO TOGGLE "Doppler" NEL PLAYER RADAR, SPENTO DI DEFAULT E VISIBILE SOLO CON IL RADAR ATTIVO. Il confine viene letto da data/radar/doppler_coverage.geojson (134 poligoni, 17.051 punti, 397.313 byte) e disegnato su un pane dedicato con zIndex 405, sopra il raster radar (400) e sotto i confini amministrativi (410): 134 path SVG con stroke #ff3b30, weight 1.4, opacity 0.9, dashArray "6 4", fillOpacity 0.035 e interactive false. Il pulsante #btn-doppler mostra "Doppler: ON" oppure "Doppler: OFF" e lo stato resta al reload in localStorage (chiave meteorisk.dopplerCoverage.v1, valori "1" e "0"). Spegnendo il radar il layer sparisce e il pulsante torna nascosto. MISURE (Edge headless CDP, pagina servita in locale): 134 path con stroke-dasharray e 134 con stroke #ff3b30 a radar acceso, 0 a radar spento; ON -> OFF -> ON = 134 -> 0 -> 134; reload con preferenza OFF = 0 path, reload con preferenza ON = 134; 0 eccezioni JS e 0 console.error. Costo del primo disegno, una tantum: mediana 28,5 ms e peggior caso 53,1 ms a 1440x900, 41,1 ms a 390x844; nessun costo per frame.',
   'FONTI RADAR= LEGENDA DELLE FONTI E BADGE SORGENTE. Sotto la mappa compare #radar-legend con le fonti effettive: DPC (Italia) e OPERA CIRRUS / EUMETNET (fuori copertura DPC, CC BY 4.0), la percentuale di dominio con eco per ciascuna, il layer visibile e lo stato della fusione. La riga del MAE mediano dichiara il valore e il metodo: mediana degli MAE per anello di distanza (11 anelli con coppie su 3 frame, 85.569 coppie totali), con la nota "Differenza fra prodotti, non un errore". Il badge #sc-source-badge nel pannello Struttura convettiva mostra la sorgente del record: "DPC + OPERA CIRRUS" (classe ok) quando latest.json ha opera.status "ok", "Solo DPC: OPERA non raggiungibile" (classe warn) quando lo stato e unavailable, con uno stato partial dedicato. MISURE: con il latest.json reale del run 2026-11-10T15:05:39Z il badge e ok e la legenda mostra DPC 4.84% e OPERA 11.33% del dominio con eco; con la fixture unavailable il badge passa a warn e la legenda dichiara solo DPC. La legenda si aggiorna al cambio frame senza richieste aggiuntive.',
@@ -25151,6 +25199,369 @@ function renderContinuousOverlay() {
     // updateSpaghettiPlot — e' stato rimosso nella 1.0.0.15: sostituito dal
     // modulo Ensemble Open-Meteo sopra definito.)
 
+    // ================================================================
+    // 1.2.4.66 - SINTESI DETERMINISTICA A 3 GIORNI (solo client)
+    // ================================================================
+    // Calcolo sui campi GIA' presenti nel dataset scaricato: 0 richieste di rete,
+    // nessun modello AI, nessun testo generato. Il risultato e' cachato sullo store
+    // della localita' e viene ricalcolato SOLO quando cambia il dataset
+    // (datasetState.generatedAt) o la localita' (store diverso): mai a ogni frame
+    // dello slider orario.
+    //
+    // Arrotondamenti DICHIARATI: temperatura 0,1 C; pioggia 1 mm (0,1 mm sotto 1 mm,
+    // per non azzerare i valori piccoli); vento 1 km/h; CAPE 1 J/kg; quota zero
+    // termico = media del giorno arrotondata a 100 m; neve (equivalente acqua) 0,1 mm.
+    //
+    // Soglia CAPE = 300 J/kg, MISURATA sul dataset del 2026-11-10 (257 punti x 72 h
+    // = 18.504 ore-punto, best_match): mediana 0, p95 170, p98 330, p99 440 J/kg;
+    // le ore con CAPE >= 300 sono 413 (2,23%) e i punti-giorno con almeno un'ora
+    // sopra sono 104 su 771 (13,5%). E' una soglia DESCRITTIVA di instabilita'
+    // marginale, non un'allerta: il campo e' CAPE previsto dal modello NWP.
+    //
+    // Se un campo e' null su TUTTE le ore del giorno il valore mostrato e' "n/d",
+    // mai 0. Se e' null solo in alcune ore, si usano le ore valide e, quando sono
+    // meno di 18 su 24, il dettaglio dichiara quante ore sono state usate.
+    var TDS_CAPE_THRESHOLD = 300;
+    var TDS_DAY_NAMES = ['Oggi', 'Domani', 'Dopodomani'];
+    var tdsSelectedDay = 0;
+    var tdsState = { days: [], day0: '' };
+
+    function tdsFinite(v) {
+        return (v !== null && v !== undefined && typeof v === 'number' && isFinite(v));
+    }
+
+    function tdsFmtTemp(v) {
+        return (typeof fmtNum === 'function') ? fmtNum(v, 1) : String(Math.round(v * 10) / 10);
+    }
+
+    function tdsHour(h) {
+        return (h < 10 ? '0' : '') + h;
+    }
+
+    // Ora di fine intervallo: 24 resta "24:00" (non 00:00 del giorno dopo).
+    function tdsClock(h) {
+        return (h >= 24 ? '24' : tdsHour(h)) + ':00';
+    }
+
+    function tdsStats(arr, start, end) {
+        var out = { vals: [], idx: [], used: 0 };
+        if (!Array.isArray(arr)) return out;
+        for (var i = start; i < end && i < arr.length; i++) {
+            var v = arr[i];
+            if (tdsFinite(v)) { out.vals.push(v); out.idx.push(i); out.used++; }
+        }
+        return out;
+    }
+
+    function tdsExtreme(arr, start, end, mode) {
+        var s = tdsStats(arr, start, end);
+        if (!s.used) return null;
+        var best = s.vals[0], bestI = s.idx[0];
+        for (var i = 1; i < s.vals.length; i++) {
+            if ((mode === 'max' && s.vals[i] > best) || (mode === 'min' && s.vals[i] < best)) {
+                best = s.vals[i];
+                bestI = s.idx[i];
+            }
+        }
+        return { v: best, idx: bestI, hour: bestI % 24, used: s.used };
+    }
+
+    function tdsSum(arr, start, end) {
+        var s = tdsStats(arr, start, end);
+        if (!s.used) return null;
+        var sum = 0;
+        for (var i = 0; i < s.vals.length; i++) sum += s.vals[i];
+        return { v: sum, used: s.used };
+    }
+
+    function tdsMean(arr, start, end) {
+        var s = tdsStats(arr, start, end);
+        if (!s.used) return null;
+        var sum = 0;
+        for (var i = 0; i < s.vals.length; i++) sum += s.vals[i];
+        return { v: sum / s.used, used: s.used };
+    }
+
+    // Fascia oraria CONTIGUA con precipitazione > 0,1 mm. Se il giorno ha piu'
+    // episodi si mostra quello con la somma piu' alta (a parita' il primo); le ore
+    // piovose fuori da quell'episodio sono dichiarate come "+N h". "to" e' l'ora di
+    // FINE dell'intervallo (ultima ora piovosa + 1): 09-12 = dalle 09:00 alle 12:00.
+    function tdsRainBand(arr, start, end) {
+        if (!Array.isArray(arr)) return null;
+        var runs = [], cur = null;
+        for (var i = start; i < end && i < arr.length; i++) {
+            var v = arr[i];
+            if (tdsFinite(v) && v > 0.1) {
+                if (!cur) cur = { from: i, to: i, total: 0, hours: 0 };
+                cur.to = i;
+                cur.total += v;
+                cur.hours++;
+            } else if (cur) {
+                runs.push(cur);
+                cur = null;
+            }
+        }
+        if (cur) runs.push(cur);
+        if (!runs.length) return null;
+        var best = runs[0];
+        for (var r = 1; r < runs.length; r++) if (runs[r].total > best.total) best = runs[r];
+        var extra = 0, wetHours = 0;
+        for (var k = 0; k < runs.length; k++) {
+            wetHours += runs[k].hours;
+            if (runs[k] !== best) extra += runs[k].hours;
+        }
+        return {
+            from: best.from % 24,
+            to: (best.to % 24) + 1,
+            total: best.total,
+            hours: best.hours,
+            extra: extra,
+            wetHours: wetHours
+        };
+    }
+
+    function tdsDayLabel(day0, d) {
+        if (!day0) return '';
+        var t = Date.parse(day0 + 'T12:00:00Z');
+        if (!isFinite(t)) return '';
+        var dt = new Date(t + d * 86400000);
+        return String(dt.getUTCDate()).padStart(2, '0') + '/' + String(dt.getUTCMonth() + 1).padStart(2, '0');
+    }
+
+    function tdsPeriod(hour) {
+        if (hour < 6) return 'di notte';
+        if (hour < 12) return 'in mattinata';
+        if (hour < 18) return 'nel pomeriggio';
+        return 'in serata';
+    }
+
+    function tdsBuildDay(h, d, day0) {
+        var start = d * 24, end = start + 24;
+        var tMax = tdsExtreme(h.temperature_2m, start, end, 'max');
+        var tMin = tdsExtreme(h.temperature_2m, start, end, 'min');
+        var pSum = tdsSum(h.precipitation, start, end);
+        var pMax = tdsExtreme(h.precipitation_probability, start, end, 'max');
+        var band = tdsRainBand(h.precipitation, start, end);
+        var gust = tdsExtreme(h.windgusts_10m, start, end, 'max');
+        var wind = tdsExtreme(h.windspeed_10m, start, end, 'max');
+        var cape = tdsExtreme(h.cape, start, end, 'max');
+        var capeHours = 0, capeUsed = 0;
+        if (Array.isArray(h.cape)) {
+            for (var i = start; i < end && i < h.cape.length; i++) {
+                var cv = h.cape[i];
+                if (tdsFinite(cv)) {
+                    capeUsed++;
+                    if (cv >= TDS_CAPE_THRESHOLD) capeHours++;
+                }
+            }
+        }
+        var zf = tdsMean(h.freezing_level_height, start, end);
+        var snowArr = h.snowfall_water_equivalent;
+        var snow = Array.isArray(snowArr) ? tdsSum(snowArr, start, end) : null;
+        return {
+            index: d,
+            date: tdsDayLabel(day0, d),
+            tMax: tMax,
+            tMin: tMin,
+            precip: { sum: pSum, probMax: pMax, band: band },
+            gust: gust,
+            wind: wind,
+            cape: cape,
+            capeHours: capeHours,
+            capeUsed: capeUsed,
+            zf: zf,
+            snow: snow,
+            hasSnowField: Array.isArray(snowArr)
+        };
+    }
+
+    function computeThreeDaySummary(store) {
+        if (!store || !store.hourly) return { days: [], day0: '' };
+        var day0 = (typeof datasetState !== 'undefined' && datasetState && datasetState.day0) ? datasetState.day0 : '';
+        var days = [];
+        for (var d = 0; d < 3; d++) days.push(tdsBuildDay(store.hourly, d, day0));
+        return { days: days, day0: day0 };
+    }
+
+    function tdsRainText(sum) {
+        if (sum === null) return 'n/d';
+        return (sum > 0 && sum < 1) ? tdsFmtTemp(sum) + ' mm' : Math.round(sum) + ' mm';
+    }
+
+    function tdsMetricHtml(label, value, detail) {
+        return '<div class="tds-metric"><span class="tds-k">' + label + '</span>' +
+            '<span class="tds-v">' + value + '</span>' +
+            (detail ? '<span class="tds-d">' + detail + '</span>' : '') + '</div>';
+    }
+
+    function tdsDayHtml(day, idx) {
+        var tMax = day.tMax ? tdsFmtTemp(day.tMax.v) + ' °C' : 'n/d';
+        var tMin = day.tMin ? tdsFmtTemp(day.tMin.v) + ' °C' : 'n/d';
+        var tDetail = [];
+        if (day.tMax) tDetail.push('max ' + tdsClock(day.tMax.hour));
+        if (day.tMin) tDetail.push('min ' + tdsClock(day.tMin.hour));
+        if (!tDetail.length) tDetail.push('nessuna ora valida');
+
+        var pVal = tdsRainText(day.precip.sum === null ? null : day.precip.sum.v);
+        var pDetail = [];
+        if (day.precip.probMax) pDetail.push('prob. max ' + Math.round(day.precip.probMax.v) + '%');
+        if (day.precip.band) {
+            pDetail.push('dalle ' + tdsClock(day.precip.band.from) + ' alle ' + tdsClock(day.precip.band.to));
+            if (day.precip.band.extra > 0) pDetail.push('+' + day.precip.band.extra + ' h');
+        } else if (day.precip.sum !== null) {
+            pDetail.push(day.precip.sum.v > 0 ? 'nessuna fascia > 0,1 mm' : 'assente');
+        }
+        if (day.precip.sum && day.precip.sum.used < 18) pDetail.push(day.precip.sum.used + '/24 h');
+
+        var gustDetail = [];
+        if (day.gust) gustDetail.push('raff. ' + tdsClock(day.gust.hour));
+        if (day.wind) gustDetail.push('medio ' + Math.round(day.wind.v) + ' km/h');
+        if (!gustDetail.length) gustDetail.push('nessuna ora valida');
+
+        var capeVal = day.cape ? Math.round(day.cape.v) + ' J/kg' : 'n/d';
+        var capeDetail = [];
+        if (day.cape) capeDetail.push('max ' + tdsClock(day.cape.hour));
+        if (day.capeUsed) capeDetail.push(day.capeHours + ' h ≥ ' + TDS_CAPE_THRESHOLD);
+        if (day.capeUsed && day.capeUsed < 18) capeDetail.push(day.capeUsed + '/24 h');
+
+        var zfVal = day.zf ? (Math.round(day.zf.v / 100) * 100) + ' m' : 'n/d';
+        var zfDetail = 'media 24 h';
+        if (day.zf && day.zf.used < 18) zfDetail += ' · ' + day.zf.used + '/24 h';
+
+        var snowVal, snowDetail;
+        if (!day.hasSnowField) {
+            snowVal = 'n/d';
+            snowDetail = 'campo non nel dataset';
+        } else if (day.snow === null) {
+            snowVal = 'n/d';
+            snowDetail = 'nessuna ora valida';
+        } else if (day.snow.v > 0) {
+            snowVal = tdsFmtTemp(day.snow.v) + ' mm';
+            snowDetail = 'equivalente acqua';
+        } else {
+            snowVal = 'assente';
+            snowDetail = 'equivalente acqua';
+        }
+
+        var rows = tdsMetricHtml('Temp', tMax + ' / ' + tMin, tDetail.join(' · ')) +
+            tdsMetricHtml('Pioggia', pVal, pDetail.join(' · ')) +
+            tdsMetricHtml('Raffica', day.gust ? Math.round(day.gust.v) + ' km/h' : 'n/d', gustDetail.join(' · ')) +
+            tdsMetricHtml('CAPE', capeVal, capeDetail.join(' · ')) +
+            tdsMetricHtml('Zero termico', zfVal, zfDetail) +
+            tdsMetricHtml('Neve', snowVal, snowDetail);
+
+        return '<div class="tds-day' + (idx === tdsSelectedDay ? ' is-selected' : '') +
+            '" data-tds-day="' + idx + '" role="button" tabindex="0" aria-pressed="' +
+            (idx === tdsSelectedDay ? 'true' : 'false') + '">' +
+            '<div class="tds-day-head"><span class="tds-day-name">' + TDS_DAY_NAMES[idx] + '</span>' +
+            '<span class="tds-day-date">' + (day.date || '') + '</span></div>' +
+            '<div class="tds-rows">' + rows + '</div></div>';
+    }
+
+    function tdsPhrase(day, idx) {
+        var s = TDS_DAY_NAMES[idx] + ': ';
+        s += day.tMax ? ('massima ' + tdsFmtTemp(day.tMax.v) + ' °C alle ' + tdsClock(day.tMax.hour)) : 'massima n/d';
+        if (day.precip.sum === null) {
+            s += ', pioggia n/d';
+        } else if (day.precip.sum.v <= 0) {
+            s += ', pioggia assente';
+        } else if (!day.precip.band) {
+            s += ', pioggia ' + tdsRainText(day.precip.sum.v) + ' senza fascia contigua';
+        } else {
+            s += ', pioggia ' + tdsRainText(day.precip.sum.v) + ' tra le ' +
+                tdsClock(day.precip.band.from) + ' e le ' + tdsClock(day.precip.band.to);
+            if (day.precip.band.extra > 0) s += ' (+' + day.precip.band.extra + ' h fuori fascia)';
+        }
+        s += '. ';
+        s += day.gust ? ('Raffiche fino a ' + Math.round(day.gust.v) + ' km/h ' + tdsPeriod(day.gust.hour) + '.') : 'Raffiche n/d.';
+        return s;
+    }
+
+    function tdsRenderPhrase() {
+        var phrase = document.getElementById('tds-phrase');
+        var grid = document.getElementById('tds-grid');
+        if (!phrase) return;
+        var day = tdsState.days[tdsSelectedDay];
+        phrase.textContent = day ? tdsPhrase(day, tdsSelectedDay) : '';
+        if (!grid) return;
+        var cards = grid.querySelectorAll('[data-tds-day]');
+        for (var i = 0; i < cards.length; i++) {
+            var on = parseInt(cards[i].getAttribute('data-tds-day'), 10) === tdsSelectedDay;
+            cards[i].classList.toggle('is-selected', on);
+            cards[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+    }
+
+    function tdsSelectDay(idx) {
+        if (!(idx >= 0 && idx < tdsState.days.length)) return;
+        tdsSelectedDay = idx;
+        tdsRenderPhrase();
+    }
+
+    function tdsDayFromEvent(ev, grid) {
+        var el = ev.target;
+        while (el && el !== grid) {
+            if (el.getAttribute && el.getAttribute('data-tds-day') !== null) {
+                return parseInt(el.getAttribute('data-tds-day'), 10);
+            }
+            el = el.parentNode;
+        }
+        return -1;
+    }
+
+    function tdsBindGrid(grid) {
+        if (!grid || grid.__tdsBound) return;
+        grid.addEventListener('click', function (ev) {
+            var idx = tdsDayFromEvent(ev, grid);
+            if (idx >= 0) tdsSelectDay(idx);
+        });
+        grid.addEventListener('keydown', function (ev) {
+            if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+            var idx = tdsDayFromEvent(ev, grid);
+            if (idx >= 0) {
+                ev.preventDefault();
+                tdsSelectDay(idx);
+            }
+        });
+        grid.__tdsBound = true;
+    }
+
+    function renderThreeDaySummary(store) {
+        var grid = document.getElementById('tds-grid');
+        if (!grid) return;
+        var gen = (typeof datasetState !== 'undefined' && datasetState) ? (datasetState.generatedAt || '') : '';
+        if (!store || !store.hourly) {
+            if (grid.__tdsStore !== null) {
+                grid.innerHTML = '<div class="tds-empty">Seleziona una località sulla mappa o cerca un comune.</div>';
+                grid.__tdsStore = null;
+                grid.__tdsGen = '';
+                var phrase = document.getElementById('tds-phrase');
+                if (phrase) phrase.textContent = '';
+            }
+            return;
+        }
+        var cache = store.__tdsCache;
+        if (!cache || cache.gen !== gen || !cache.data) {
+            cache = { gen: gen, data: computeThreeDaySummary(store) };
+            store.__tdsCache = cache;
+        }
+        // Stessa localita' e stesso dataset: il DOM e' gia' corretto, si aggiorna
+        // solo la frase selezionata. Il ricalcolo avviene solo al cambio di store/gen.
+        if (grid.__tdsStore === store && grid.__tdsGen === gen) {
+            tdsRenderPhrase();
+            return;
+        }
+        grid.__tdsStore = store;
+        grid.__tdsGen = gen;
+        tdsState = cache.data;
+        if (tdsSelectedDay >= tdsState.days.length) tdsSelectedDay = 0;
+        var html = '';
+        for (var d = 0; d < tdsState.days.length; d++) html += tdsDayHtml(tdsState.days[d], d);
+        grid.innerHTML = html;
+        tdsBindGrid(grid);
+        tdsRenderPhrase();
+    }
+
     function updateUI() {
         updateMapColors();
         // Aggiorna i marker previsioni se la modalità è attiva
@@ -25287,6 +25698,10 @@ function renderContinuousOverlay() {
         document.getElementById('val-rain').innerText = (currentHour === 'all' ? fmtNum(daily.precipitation_sum[currentDay] ?? 0,1) + " mm" : (hourData.precip !== null ? fmtNum(hourData.precip,1) + " mm" : "N/D"));
 
         document.getElementById('val-summary').innerText = profile.summary;
+
+        // 1.2.4.66 - sintesi a 3 giorni: calcolo cachato per (localita', dataset),
+        // NON ricalcolato a ogni frame dello slider (vedi renderThreeDaySummary).
+        if (typeof renderThreeDaySummary === 'function') renderThreeDaySummary(dataSource);
 
         const badge = document.getElementById('zone-badge');
         badge.className = `badge ${profile.badgeClass}`;

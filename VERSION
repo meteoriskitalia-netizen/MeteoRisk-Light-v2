@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.2.4.66 - SINTESI DETERMINISTICA A 3 GIORNI NEL PANNELLO DESTRO (OGGI / DOMANI / DOPODOMANI, TEMPERATURE E ORE, PIOGGIA CON FASCIA, RAFFICHE, CAPE CON SOGLIA MISURATA 300 J/KG, QUOTA ZERO TERMICO E NEVE ND) E FRASI TEMPLATE, TUTTO CALCOLATO NEL CLIENT SUI CAMPI GIA SCARICATI (bump da 1.2.4.65)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=66
+RELEASE_TYPE=release
+DATE=2026-11-10
+NOTE=Release 1.2.4.66 (bump da 1.2.4.65) - SOLO CLIENT. Nuovo blocco #three-day-summary nel pannello destro, sotto la riga del rischio: 3 colonne Oggi / Domani / Dopodomani (a <=600px 3 righe, una card per giorno) con temperatura massima e minima e ora del picco, pioggia totale con probabilita massima e fascia contigua > 0,1 mm, raffica massima e vento medio massimo con ora, CAPE massimo con ore sopra soglia, quota zero termico media e neve. Tutto calcolato nel client dai campi gia presenti in data/latest/meteorisk-points.json (0 richieste di rete, nessun modello AI, nessun testo generato): le frasi sono template deterministici. Ogni valore e arrotondato in modo dichiarato (0,1 C, 1 mm, 1 km/h, 1 J/kg, 100 m per la quota, 0,1 mm per la neve); un campo null su tutte le ore mostra n/d, mai 0. Il calcolo e cachato per (localita, dataset): non viene rifatto a ogni frame dello slider. SOGLIA CAPE = 300 J/kg, MISURATA sul dataset del 2026-11-10 (257 punti x 72 h = 18.504 ore-punto, best_match): mediana 0, p95 170, p98 330, p99 440 J/kg; ore con CAPE >= 300 = 413 (2,23%), punti-giorno con almeno un'ora sopra = 104 su 771 (13,5%). La nota fissa dichiara che e CAPE previsto dal modello NWP, non un temporale osservato. BUMP: html mri-light-1.2.4.66.html, VERSION (BUILD=66, DATE=2026-11-10), sw.js (CACHE_NAME mri-1.2.4.66), README.md, i 26 test .mjs, le righe cp dei 3 workflow. La 1.2.4.65 va RIMOSSA dal repo. NON toccati: scripts/, workflow dei dati, color_scales.json, formule e calcoli.
+APP_FILE=mri-light-1.2.4.66.html
+
 MeteoRisk Light - 1.2.4.65 - CONFINE DI COPERTURA DOPPLER (134 POLIGONI TRATTEGGIATI, TOGGLE CON PERSISTENZA, SOLO CON RADAR ATTIVO) E LEGENDA DELLE FONTI RADAR (DPC / OPERA CIRRUS, MAE MEDIANO, BADGE SORGENTE CON CASO UNAVAILABLE) (bump da 1.2.4.64)
 MAJOR=1
 MINOR=2
