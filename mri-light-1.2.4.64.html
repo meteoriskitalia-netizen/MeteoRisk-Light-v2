@@ -1264,6 +1264,182 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             .app-header { margin-bottom: 6px; }
         }
 
+
+        /* ============================================================
+           1.2.4.64 - GUIDA "?" SEMPRE VISIBILE, LEGENDE COLLASSABILI, TOOLTIP
+           Il pulsante e' FUORI dal flusso: nessun contenitore si sposta.
+           Posizione MISURATA (prima della patch): a 1440x900 il margine
+           destro e' vuoto (header 120..1320, giorno 909..1245, ultimo
+           glifo 822); a 390x844 e 360x640 l'ultimo glifo della riga 2 del
+           titolo finisce a x=243 e il paragrafo inizia a y=60, quindi
+           (348..382, 8..42) e (318..352, 8..42) sono liberi. Fra 768 e
+           1279 px l'header arriva a 8 px dal bordo: li' il pulsante scende
+           a y=86, fascia libera a destra della toolbar (i suoi bottoni
+           finiscono a x=1036).
+           z-index: sopra #stale-badge (10000), #live-panel (10050) e
+           #risk-summary (1200); sotto #app-update (12000) e il modale.
+           ============================================================ */
+        #help-btn {
+            position: fixed;
+            top: 8px;
+            right: 8px;
+            width: 34px;
+            height: 34px;
+            padding: 0;
+            border-radius: 50%;
+            z-index: 11500;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #0b1220;
+            color: #38bdf8;
+            border: 1px solid #38bdf8;
+            font: 700 16px/1 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            cursor: pointer;
+            box-shadow: 0 2px 10px rgba(0,0,0,.5);
+        }
+        #help-btn:hover, #help-btn:focus-visible {
+            background: #0e1b2f;
+            color: #7dd3fc;
+            border-color: #7dd3fc;
+            outline: none;
+        }
+        #help-btn[aria-expanded="true"] { background: #0284c7; color: #fff; border-color: #0284c7; }
+        @media (min-width: 768px) and (max-width: 1279px) {
+            #help-btn { top: 86px; }
+        }
+
+        /* ---- Modale della guida ---- */
+        .help-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 13000;
+            background: rgba(2,6,23,.72);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px;
+        }
+        .help-overlay[hidden] { display: none !important; }
+        .help-card {
+            width: min(680px, 100%);
+            max-height: calc(100vh - 24px);
+            max-height: calc(100dvh - 24px);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            background: #0f172a;
+            color: #e2e8f0;
+            border: 1px solid #38bdf8;
+            border-radius: 12px;
+            box-shadow: 0 18px 50px rgba(0,0,0,.6);
+        }
+        .help-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            border-bottom: 1px solid #1e293b;
+            background: #0b1220;
+        }
+        .help-head h2 { font-size: 15px; color: #38bdf8; margin: 0; flex: 1; line-height: 1.25; }
+        .help-close {
+            flex: 0 0 auto;
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            background: #1e293b;
+            color: #e2e8f0;
+            border: 1px solid #334155;
+            font-size: 15px;
+            line-height: 1;
+            cursor: pointer;
+        }
+        .help-close:hover, .help-close:focus-visible { background: #334155; outline: none; border-color: #38bdf8; }
+        .help-body { padding: 8px 10px 2px 10px; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+        .help-sec { margin-bottom: 7px; }
+        .help-sec h3 { font-size: 12.5px; color: #7dd3fc; margin: 0 0 4px 0; }
+        .help-sec p { font-size: 11px; line-height: 1.38; color: #cbd5e1; margin: 0 0 3px 0; }
+        .help-sec b { color: #f1f5f9; }
+        .help-scale, .help-order { list-style: none; margin: 4px 0; padding: 0; }
+        .help-scale li { display: flex; align-items: flex-start; gap: 6px; font-size: 11px; line-height: 1.35; color: #cbd5e1; padding: 0; }
+        .help-scale .hs-dot { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 50%; margin-top: 4px; border: 1px solid rgba(15,23,42,.6); }
+        .help-order { counter-reset: ho; }
+        .help-order li { position: relative; counter-increment: ho; padding: 0 0 0 19px; font-size: 11px; line-height: 1.35; color: #cbd5e1; }
+        .help-order li::before {
+            content: counter(ho);
+            position: absolute;
+            left: 0;
+            top: 1px;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: #1e293b;
+            border: 1px solid #38bdf8;
+            color: #7dd3fc;
+            font-size: 9px;
+            font-weight: 700;
+            line-height: 14px;
+            text-align: center;
+        }
+        .help-note { font-size: 10.5px !important; color: #94a3b8 !important; font-style: italic; }
+        .help-example { border-left: 2px solid #334155; padding-left: 8px; color: #94a3b8 !important; }
+        .help-key {
+            margin-top: 6px !important;
+            padding: 6px 8px;
+            background: rgba(239,68,68,.12);
+            border: 1px solid #ef4444;
+            border-radius: 6px;
+            color: #fecaca !important;
+            font-weight: 700;
+            text-align: center;
+        }
+        .help-foot {
+            padding: 6px 10px;
+            border-top: 1px solid #1e293b;
+            font-size: 10px;
+            color: #94a3b8;
+            background: #0b1220;
+        }
+
+        /* ---- Legende collassabili: il titolo resta sempre visibile ---- */
+        .legend-collapse-head {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            width: 100%;
+            margin: 0 0 4px 0;
+            padding: 2px 0;
+            background: none;
+            border: 0;
+            color: #94a3b8;
+            font: 600 11px/1.3 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            text-align: left;
+            cursor: pointer;
+            min-height: 32px;
+        }
+        .legend-collapse-head:hover { color: #e2e8f0; }
+        .legend-collapse-head:focus-visible { outline: 2px solid #38bdf8; outline-offset: 2px; border-radius: 4px; }
+        .legend-collapse-head .lc-chev { display: inline-block; font-size: 10px; transition: transform .15s; color: #38bdf8; }
+        .legend-collapse-head.is-collapsed .lc-chev { transform: rotate(-90deg); }
+        .legend-collapsed { display: none !important; }
+        .legend-head-dup > .legend-title:first-child { display: none; }
+
+        /* ---- Popover al tocco (mobile) ---- */
+        .mri-tip-pop {
+            position: fixed;
+            z-index: 11400;
+            max-width: min(340px, calc(100vw - 24px));
+            background: #0b1220;
+            color: #e2e8f0;
+            border: 1px solid #38bdf8;
+            border-radius: 8px;
+            padding: 8px 10px;
+            font: 11px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            box-shadow: 0 8px 24px rgba(0,0,0,.55);
+        }
+        .mri-tip-pop[hidden] { display: none !important; }
+        .mri-tap-tip { cursor: pointer; }
     </style>
 <!-- ================================================================
      VERSION SYSTEM — AI INSTRUCTIONS (READ BEFORE MODIFYING)
@@ -1317,6 +1493,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
      i dati nuovi. Hidden di default; compare SOLO quando un SW nuovo e' `activated` e
      la pagina era gia' controllata (vedi il blocco in fondo all'html). -->
 <button type="button" id="app-update" class="fm-newrun app-update" hidden onclick="location.reload()" title="La pagina sta girando con il JavaScript di una versione precedente: ricarica per usare la nuova">Nuova versione disponibile — ricarica</button>
+<button type="button" id="help-btn" aria-haspopup="dialog" aria-controls="help-modal" aria-expanded="false" title="Come leggere la mappa in 30 secondi: colori delle province, differenza fra potenziale del modello ed eventi radar, pannello di destra" aria-label="Apri la guida: come leggere la mappa">?</button>
 
 <div class="app-header">
     <div class="app-title">
@@ -2107,9 +2284,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.63';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-11-06';
+    const APP_VERSION = '1.2.4.64';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-11-10';
     const APP_CHANGELOG = [
+        { version: '1.2.4.64', date: '2026-11-10', changes: [
+  'GUIDA IN 30 SECONDI: PULSANTE "?" FISSO (34x34, z-index 11500, top/right 8 px) CHE APRE UN MODALE CON TRE SEZIONI. Contenuto preso dai valori del codice: sei gradini del colore province (Basso #22c55e; Lieve #a3e635 con prob. oltre 20% o 0,2-1 mm; Moderato #eab308 con prob. oltre 60% o 1-15 mm o vento oltre 25 km/h; Moderato-Alto #f97316 con 15-45 mm o vento 40-60 km/h o rovescio/temporale; Alto #ef4444 con oltre 45 mm o vento oltre 60 km/h o temporale; Convezione organizzata #a855f7 con energia e vento in quota), la distinzione fra potenziale NWP e radar osservato con la frase "Potenziale alto non significa temporale in corso", e l ordine di lettura del pannello destro in 5 passi. Chiusura con Esc, click sullo sfondo e X; focus trap; aria-modal=true. MISURE: pulsante in viewport con elementFromPoint = help-btn a 1440x900 (1398,8 34x34), 390x844 (348,8 34x34) e 360x640; zero sovrapposizioni con controlli e con i glifi dell header. Modale: 1440x900 card 680x552 senza scroll; 390x844 card 366x804, corpo 710/710 SENZA scroll e zero scroll orizzontale (364/364); 360x640 card 336x616 con 221 px di scroll interno dichiarato.',
+  'TOOLTIP IN PAROLE E LEGENDE COLLASSABILI CON MEMORIA. Ogni title spiega il valore invece del nome tecnico (SOI 71 -> struttura organizzata: 71/100 su nucleo forma e persistenza, da 65 il record viene pubblicato; CAPE 140 -> energia disponibile per i temporali, fascia debole sotto 1000 J/kg). MISURE: 65 title informativi nel DOM su 78 totali, 14 chip SOI e 3 badge mappa con livello e significato, badge di rischio con livello 4 di 5 piu l origine del dato. Legende: 3 intestazioni generate (struttura convettiva, fulmini, mappe previsionali) piu le 2 esistenti (badge di rischio, previsioni/fonti), stato persistente in localStorage chiave meteorisk.legendCollapse.v1; collassata -> reload -> ancora collassata, titolo sempre visibile (32 px). Al tocco i title non esistono: tap sul badge apre un popover (340x66) con lo stesso testo e NON il modale. 0 eccezioni JS (unico 404: favicon).',
+        ] },
         { version: '1.2.4.63', date: '2026-11-06', changes: [
   'CITYSEARCHQUERY: LA PARENTESI FINALE NON VIENE PIU\' CERCATA. Dopo una selezione il campo contiene "Nome (Regione)" e la geocoding API non risolve la parentesi. Una funzione unica citySearchQuery(raw), usata da TUTTI i percorsi (oninput dentro handleSearch, Invio, pulsante Cerca, evento nativo search dentro runCitySearch), toglie SOLO un gruppo finale tra parentesi, comprime i doppi spazi e trimma. Le parentesi NON finali restano. Tabella verificata (input -> query inviata, richiesta reale): "Roma (Lazio)" -> "Roma" (1 richiesta, 1 risultato); "Milano (Lombardia)" -> "Milano" (1 richiesta, 2 risultati); "Reggio nell\'Emilia (Emilia-Romagna)" -> "Reggio nell\'Emilia" (1 richiesta, 1 risultato); "Rocca (TE) Centro" -> invariato (1 richiesta, 0 risultati); "  Roma  " -> "Roma" (1 richiesta, 1 risultato); "()" -> "" (0 richieste, nessun errore).',
   'CASO REALE CHIUSO. 1.2.4.62 (pagina servita): campo precompilato con "Roma (Lazio)" SENZA eventi + Invio -> 1 richiesta con name=Roma (Lazio) e lista block con "Nessun comune trovato per Roma (Lazio)". 1.2.4.63: stessa azione -> 1 richiesta con name=Roma e lista block con 1 risultato "Roma (Lazio)" selezionabile. Identico col click sul pulsante: 1 richiesta name=Roma, lista block 1 risultato, focus che resta su #city-search. I 6 casi della 1.2.4.62 restano verdi: vuoto 0 richieste; digito Roma 3+1; NumpadEnter 1; autofill+Invio 1; autofill+click 1; doppio Invio 2; zzzz 1 con messaggio esplicito. Mobile 390x844 DPR 2: riga 344 px (input 294 + gap 6 + pulsante 44x44), scrollWidth 390, #leaflet-map y=369 h=473 bottom=841 invariata. Nessuna modifica a colori, mappe, renderer, workflow dei dati o dataset: solo la normalizzazione della query e il bump.',
@@ -9440,7 +9621,8 @@ removeLightningTile();
                 txt = label + ' ' + v;
             }
         }
-        return '<span class="' + cls + '">' + txt + '</span>';
+        var tip = (typeof SC_METRIC_TIPS !== 'undefined' && SC_METRIC_TIPS[label]) ? SC_METRIC_TIPS[label] : '';
+        return '<span class="' + cls + '"' + (tip ? ' title="' + tip + '"' : '') + '>' + txt + '</span>';
     }
 
     // HTML del riepilogo candidati. Estratto da renderScRadar per riusarlo
@@ -9469,6 +9651,8 @@ removeLightningTile();
         if (rowKey === scSelectedTrackKey) row.classList.add('sc-selected');
         var levelChip = '<span class="sc-chip ' + (c.level === 'intense' ? 'sc-chip-marked' : 'sc-chip-possible') + '">' +
             scLevelLabel(c.level) + ' · SOI ' + c.soi + '</span>';
+        levelChip = levelChip.replace('<span class="sc-chip', '<span title="' +
+            (typeof scSoiTip === 'function' ? scSoiTip(c.soi) : '') + '" class="sc-chip');
         var phaseChip = c.phase === 'birth'
             ? '<span class="sc-chip sc-chip-birth">Nascita</span>'
             : '<span class="sc-chip sc-chip-sustained">Attiva</span>';
@@ -17279,6 +17463,11 @@ function toggleForecastMaps() {
             var color = r.info ? '#94a3b8' : (levelColor || def.color);
             var badgeTitle = (RISK_DEFS[r.id] ? RISK_DEFS[r.id].label : r.id);
             if (r.id === 'fog') badgeTitle = fogWindowLabelC(r);
+            // 1.2.4.64 - livello e significato in parole, non solo il nome del badge
+            if (r.level >= 1 && r.level <= 4 && typeof BADGE_LEVEL_NAME !== 'undefined') {
+                badgeTitle += ' — ' + BADGE_LEVEL_NAME[r.level] + ': ' + (BADGE_LEVEL_DESC[r.level] || '');
+            }
+            badgeTitle += ' (potenziale del modello NWP, non un evento osservato)';
             return '<span class="map-risk-badge" style="background:' + color + '" title="' + badgeTitle + '">' +
                 '<svg width="13" height="13" viewBox="0 0 48 48" aria-hidden="true">' + riskIconSvg(r.id) + '</svg></span>';
         };
@@ -22635,6 +22824,50 @@ function renderContinuousOverlay() {
         'Fenomeni intensi, cautela elevata',
         'Potenziali fenomeni pericolosi'
     ];
+
+    // 1.2.4.64 - TESTO IN PAROLE dei badge e degli indici (nessuna soglia nuova:
+    // i numeri vengono da BADGE_LEVEL_NAME/BADGE_LEVEL_DESC e dai commenti delle
+    // formule gia' presenti in questo file).
+    var ORIGIN_NWP = 'Potenziale ambientale del modello (NWP): condizioni favorevoli previste, non un evento osservato.';
+    function riskBadgeTip(profile) {
+        if (!profile) return ORIGIN_NWP;
+        var lv = profile.level;
+        var name = (lv >= 1 && lv <= 4 && BADGE_LEVEL_NAME) ? BADGE_LEVEL_NAME[lv] : (lv === 5 ? 'Convezione organizzata' : '');
+        var desc = (lv >= 1 && lv <= 4 && BADGE_LEVEL_DESC) ? BADGE_LEVEL_DESC[lv] : 'Energia e vento in quota da cella organizzata.';
+        var t = profile.riskText + (name ? ' ' + '\u2014' + ' livello ' + lv + ' di 5 (' + name + '): ' + desc : '.');
+        return t + '. ' + ORIGIN_NWP;
+    }
+    function capeBand(c) {
+        if (c === null || c === undefined || !isFinite(c)) return '';
+        if (c < 1000) return ' (fascia debole, sotto 1000 J/kg)';
+        if (c < 2500) return ' (fascia moderata, 1000-2500 J/kg)';
+        if (c < 4000) return ' (fascia forte, 2500-4000 J/kg)';
+        return ' (fascia estrema, oltre 4000 J/kg)';
+    }
+    function hailDetailTip(hm, isNew, cape) {
+        var out = [];
+        var c = (hm && hm.cape !== undefined && hm.cape !== null) ? hm.cape : cape;
+        out.push('CAPE: energia disponibile per i temporali in J/kg' + capeBand(c) + '.');
+        if (isNew && hm) {
+            out.push('WMAXSHEAR: energia per i temporali moltiplicata per il vento in quota; sopra ~800 entra nella fascia alta europea.');
+            if (hm.ship > 0) out.push('SHIP: stima della grandine da energia, umidità, gradiente termico e vento; da circa 1 diventa un segnale.');
+            if (hm.dls > 0) out.push('Shear: differenza di velocità del vento fra il suolo e 6 km (m/s).');
+        }
+        out.push('Tutti valori previsti dal modello: potenziale, non una misura osservata.');
+        return out.join(' ');
+    }
+    // Titoli delle voci degli indici convettivi (riga candidato del pannello SOI).
+    var SC_METRIC_TIPS = {
+        'SOI v2': 'SOI versione 2 (0-100): struttura 60%, uncino 15%, struttura verticale 10%, ambiente 8%, cima satellite 4%, fulmini 3%. Non è una probabilità.',
+        'Hook': 'Forma a uncino del nucleo più intenso (0-100): è morfologia vista dal radar, non rotazione.',
+        'Strutt.V': 'Struttura verticale dai prodotti radar (liquido in colonna, quota della cima, probabilità di grandine, eco alta): 0-100.',
+        'OT': 'Overshooting top (0-100): la cima del temporale buca l\'incudine nel satellite infrarosso. Indica una corrente ascensionale forte, non la rotazione.',
+        'Fulmini': 'Fulmini nel raggio di 30 km nell\'ultimo intervallo di 5 minuti (100 = 100 scariche) più la tendenza: 0-100.',
+        'Env': 'Ambiente previsto dal modello attorno alla cella (0-100): è potenziale previsto, non un evento osservato.'
+    };
+    function scSoiTip(soi) {
+        return 'Struttura organizzata della cella: SOI ' + soi + '/100 (nucleo, forma e persistenza). Da 65 il record viene pubblicato; non è una probabilità.';
+    }
     // Livelli RAGGIUNGIBILI da ciascun badge (da computeActiveRisks):
     // cella organizzata 3-4 (è di per sé severa), neve 1-3, generico 2-3, gli altri 1-4.
     var BADGE_LEVEL_RANGE = {
@@ -22651,6 +22884,10 @@ function renderContinuousOverlay() {
         if (!bar) return;
         var open = bar.style.display !== 'none';
         bar.style.display = open ? 'none' : 'grid';
+        // 1.2.4.64 - lo stato della legenda sopravvive al reload
+        if (window.mriLegendPref) window.mriLegendPref.set('badge', !!open);
+        var _blBtn = document.getElementById('badge-legend-toggle');
+        if (_blBtn) _blBtn.setAttribute('aria-expanded', open ? 'false' : 'true');
         var btn = document.getElementById('badge-legend-toggle');
         if (btn) btn.classList.toggle('active', !open);
         hideBadgeLegendTip();
@@ -24651,6 +24888,8 @@ function renderContinuousOverlay() {
         const badge = document.getElementById('zone-badge');
         badge.className = `badge ${profile.badgeClass}`;
         badge.innerText = profile.riskText;
+        // 1.2.4.64 - spiegazione in parole + origine del dato (non il nome tecnico)
+        badge.title = (typeof riskBadgeTip === 'function') ? riskBadgeTip(profile) : profile.riskText;
 
         // === INDICATORE GRANDINE ===
         const hailDiv = document.getElementById('hail-indicator');
@@ -24687,6 +24926,9 @@ function renderContinuousOverlay() {
         // diametro misurato): etichettata "stima" per non implicare una misura reale.
         hailBadge.innerText = `❄️ Grandine: ${hailText === 'Assente' ? 'Assente' : hailText + ' (stima)'}`;
         hailDetail.innerText = hailDetailText;
+        // 1.2.4.64 - cosa vogliono dire CAPE / WMAXSHEAR / SHIP / shear
+        hailDetail.title = (typeof hailDetailTip === 'function')
+            ? hailDetailTip(hailMetrics, isNewIndicesActive, cape) : hailDetailText;
 
         chartLat = lat; chartLon = lon;
         updateChart(dataSource.hourly);
@@ -25511,6 +25753,8 @@ function renderContinuousOverlay() {
     function toggleForecastLegend() {
         var panel = document.getElementById('forecast-legend-panel');
         if (panel) panel.classList.toggle('collapsed');
+        // 1.2.4.64 - stato persistente
+        if (panel && window.mriLegendPref) window.mriLegendPref.set('forecast', panel.classList.contains('collapsed'));
     }
 
     // ====== PANNELLO FONTI & METODOLOGIE — apri/chiudi e collassa ======
@@ -25523,7 +25767,12 @@ function renderContinuousOverlay() {
             if (btn) btn.innerHTML = '📚 Fonti &amp; Metodologie';
         } else {
             panel.classList.add('active');
-            panel.classList.add('collapsed'); // chiuso di default
+            // 1.2.4.64 - la preferenza salvata vince sul default 'chiuso'
+            if (window.mriLegendPref && window.mriLegendPref.get('sources', true) === false) {
+                panel.classList.remove('collapsed');
+            } else {
+                panel.classList.add('collapsed');
+            }
             if (btn) btn.innerHTML = '📚 Fonti &amp; Metodologie (ON)';
         }
     }
@@ -25531,6 +25780,10 @@ function renderContinuousOverlay() {
     function toggleSourcesPanelCollapse() {
         var panel = document.getElementById('sources-panel');
         if (panel && panel.classList.contains('active')) panel.classList.toggle('collapsed');
+        // 1.2.4.64 - stato persistente
+        if (panel && panel.classList.contains('active') && window.mriLegendPref) {
+            window.mriLegendPref.set('sources', panel.classList.contains('collapsed'));
+        }
     }
 
     function buildForecastLegend() {
@@ -26736,6 +26989,53 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
     else bind();
   })();
 </script>
+
+<!-- 1.2.4.64 - Guida "?" (modale accessibile, contenuto statico: nessuna richiesta).
+     Tre sezioni: colori delle province, potenziale NWP vs radar osservato,
+     ordine di lettura del pannello di destra. -->
+<div id="help-modal" class="help-overlay" role="dialog" aria-modal="true" aria-labelledby="help-title" hidden>
+    <div class="help-card">
+        <div class="help-head">
+            <h2 id="help-title">Come leggere questa mappa in 30 secondi</h2>
+            <button type="button" id="help-close" class="help-close" aria-label="Chiudi la guida">✕</button>
+        </div>
+        <div class="help-body" id="help-body">
+            <div class="help-sec">
+                <h3>1. Cosa significa il colore delle province</h3>
+                <p>Ogni provincia prende il colore del <b>rischio previsto dal modello</b>, non di un temporale in corso. Sei gradini, con le soglie usate dal codice:</p>
+                <ul class="help-scale">
+                    <li><span class="hs-dot" style="background:#22c55e;"></span><span><b>Verde — Basso</b>: condizioni stabili, nessun fenomeno rilevante.</span></li>
+                    <li><span class="hs-dot" style="background:#a3e635;"></span><span><b>Verde chiaro — Lieve</b>: pioggia debole (probabilit&agrave; oltre il 20% o 0,2-1 mm).</span></li>
+                    <li><span class="hs-dot" style="background:#eab308;"></span><span><b>Giallo — Moderato</b>: pioggia oltre il 60%, 1-15 mm oppure vento oltre 25 km/h.</span></li>
+                    <li><span class="hs-dot" style="background:#f97316;"></span><span><b>Arancione — Moderato-Alto</b>: 15-45 mm, vento 40-60 km/h o rovescio/temporale.</span></li>
+                    <li><span class="hs-dot" style="background:#ef4444;"></span><span><b>Rosso — Alto</b>: oltre 45 mm, vento oltre 60 km/h oppure temporale.</span></li>
+                    <li><span class="hs-dot" style="background:#a855f7;"></span><span><b>Viola — Convezione organizzata</b>: energia e vento in quota da cella organizzata.</span></li>
+                </ul>
+                <p class="help-note">Il livello sale solo se il modello vede anche una causa concreta (pioggia o temporale): con il cielo pulito resta basso anche quando l'energia in quota &egrave; alta.</p>
+            </div>
+            <div class="help-sec">
+                <h3>2. Potenziale del modello o evento osservato?</h3>
+                <p><b>Colore delle province = potenziale del modello.</b> Viene da grandezze previste: CAPE (energia disponibile per i temporali, in J/kg), vento in quota, pioggia e vento al suolo.</p>
+                <p><b>Celle, grandine e struttura convettiva = radar osservato.</b> Vengono dal radar della Protezione Civile: fenomeni visti, con ora e posizione, nel pannello &laquo;Struttura convettiva&raquo;.</p>
+                <p class="help-example">Esempio: una provincia arancione con CAPE 1.800 J/kg pu&ograve; non avere nessuna cella radar sopra; e viceversa celle forti con la provincia gialla.</p>
+                <p class="help-key">Potenziale alto non significa temporale in corso.</p>
+            </div>
+            <div class="help-sec">
+                <h3>3. Il pannello di destra, nell'ordine giusto</h3>
+                <ol class="help-order">
+                    <li><b>Zona e badge di rischio</b>: il riassunto in una parola del punto che hai scelto.</li>
+                    <li><b>Riga del potenziale e grandine</b>: dice che il livello viene dal modello (NWP) e mostra l'energia disponibile (CAPE) con gli altri indici.</li>
+                    <li><b>Le sei metriche</b>: temperatura, umidit&agrave;, pressione, raffiche, probabilit&agrave; di pioggia, millimetri previsti.</li>
+                    <li><b>Grafico e confronto modelli</b>: come cambia nelle prossime ore e quanto i due modelli concordano.</li>
+                    <li><b>Riepilogo finale</b>: la stessa cosa detta in parole, con i fenomeni attesi.</li>
+                </ol>
+                <p class="help-note">Prima il livello, poi i numeri che lo giustificano. Se un valore manca (n/d) il livello non lo usa.</p>
+            </div>
+        </div>
+        <div class="help-foot">Chiudi con <b>Esc</b>, con la <b>✕</b> o toccando lo sfondo. Dati sperimentali: non sostituiscono i bollettini ufficiali.</div>
+    </div>
+</div>
+<div id="mri-tip-pop" class="mri-tip-pop" role="tooltip" hidden></div>
 <script>
 // 1.2.4.15 - SERVICE WORKER (cache applicativa, vedi sw.js nella root del sito).
 // Registrato DOPO `load` per non contendere banda al primo paint. URL RELATIVO: deve
@@ -26804,6 +27104,188 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
   }
   if (document.readyState === 'complete') fmRegisterServiceWorker();
   else window.addEventListener('load', fmRegisterServiceWorker, { once: true });
+})();
+</script>
+
+<script>
+/* ============================================================
+   1.2.4.64 - INIZIALIZZAZIONE (blocco isolato).
+   Se qualcosa qui dentro fallisce l'app resta quella di prima: nessuna
+   funzione dell'applicazione viene sostituita, solo aggiunta.
+   Contiene: modale della guida con focus trap, legende collassabili con
+   stato in localStorage, popover al tocco per i badge su mobile.
+   ============================================================ */
+(function () {
+    'use strict';
+
+    /* ---------- legende: preferenza persistente ---------- */
+    var LS_KEY = 'meteorisk.legendCollapse.v1';
+    var prefs = {};
+    try {
+        var raw = window.localStorage.getItem(LS_KEY);
+        if (raw) prefs = JSON.parse(raw) || {};
+    } catch (e) { prefs = {}; }
+    function prefGet(key, dflt) {
+        return Object.prototype.hasOwnProperty.call(prefs, key) ? !!prefs[key] : !!dflt;
+    }
+    function prefSet(key, val) {
+        prefs[key] = !!val;
+        try { window.localStorage.setItem(LS_KEY, JSON.stringify(prefs)); } catch (e) { /* storage negato */ }
+    }
+    window.mriLegendPref = { key: LS_KEY, get: prefGet, set: prefSet };
+
+    function applyLegend(body, head, collapsed) {
+        body.classList.toggle('legend-collapsed', collapsed);
+        head.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        head.classList.toggle('is-collapsed', collapsed);
+    }
+
+    function bindLegend(cfg) {
+        var body = document.querySelector(cfg.sel);
+        if (!body) return null;
+        var head = cfg.head ? document.querySelector(cfg.head) : null;
+        if (!head) {
+            head = document.createElement('button');
+            head.type = 'button';
+            head.className = 'legend-collapse-head';
+            head.setAttribute('data-legend-key', cfg.key);
+            head.innerHTML = '<span class="lc-chev" aria-hidden="true">\u25be</span><span class="lc-txt"></span>';
+            head.querySelector('.lc-txt').textContent = cfg.title;
+            body.parentNode.insertBefore(head, body);
+            body.classList.add('legend-head-dup');
+        }
+        applyLegend(body, head, prefGet(cfg.key, cfg.dflt));
+        head.addEventListener('click', function (ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            var next = !body.classList.contains('legend-collapsed');
+            applyLegend(body, head, next);
+            prefSet(cfg.key, next);
+        });
+        return { head: head, body: body };
+    }
+
+    // 1.2.4.64 - la legenda colori mappa (#legend-container) NON e collassabile: una sua
+    // intestazione dentro .map-card spostava di 32 px legenda, pannello destro e footer a
+    // 1440x900 (32 px il pannello destro a 390x844). Le tre legende richieste (badge di
+    // rischio, indici convettivi, mappe previsionali) stanno in pannelli chiusi di default
+    // oppure usano un pulsante gia esistente, quindi li il layout non cambia.
+    var LEGENDS = [
+        { key: 'sc',   sel: '#sc-legend',        title: 'Legenda struttura convettiva (radar)', dflt: false },
+        { key: 'live', sel: '#live-legend',      title: 'Legenda fulmini (eta delle scariche)', dflt: false },
+        { key: 'fm',   sel: '#fm-legend',        title: 'Legenda mappe previsionali', dflt: false }
+    ];
+    var bound = 0;
+    LEGENDS.forEach(function (cfg) { if (bindLegend(cfg)) bound++; });
+
+    // legenda badge: il titolo esiste gia' (#badge-legend-toggle), si ripristina lo stato
+    (function () {
+        var bar = document.getElementById('badge-legend-bar');
+        var btn = document.getElementById('badge-legend-toggle');
+        if (!bar || !btn) return;
+        var open = !prefGet('badge', true);
+        bar.style.display = open ? 'grid' : 'none';
+        btn.classList.toggle('active', open);
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        bound++;
+    })();
+
+    // legenda Previsioni e pannello Fonti: class .collapsed + preferenza
+    [['forecast', '#forecast-legend-panel'], ['sources', '#sources-panel']].forEach(function (p) {
+        var panel = document.querySelector(p[1]);
+        if (!panel) return;
+        if (prefGet(p[0], true)) panel.classList.add('collapsed');
+        else panel.classList.remove('collapsed');
+        bound++;
+    });
+    window.mriLegendBound = bound;
+
+    /* ---------- guida: apertura, chiusura, focus trap ---------- */
+    var helpBtn = document.getElementById('help-btn');
+    var modal = document.getElementById('help-modal');
+    var closeBtn = document.getElementById('help-close');
+    var lastFocus = null;
+
+    function focusables() {
+        if (!modal) return [];
+        return [].slice.call(modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+            .filter(function (el) { return !el.disabled && el.offsetParent !== null; });
+    }
+    function openHelp() {
+        if (!modal || !modal.hidden) return;
+        lastFocus = document.activeElement;
+        modal.hidden = false;
+        if (helpBtn) helpBtn.setAttribute('aria-expanded', 'true');
+        if (closeBtn) closeBtn.focus();
+    }
+    function closeHelp() {
+        if (!modal || modal.hidden) return;
+        modal.hidden = true;
+        if (helpBtn) {
+            helpBtn.setAttribute('aria-expanded', 'false');
+            helpBtn.focus();
+        } else if (lastFocus && lastFocus.focus) {
+            lastFocus.focus();
+        }
+    }
+    if (helpBtn && modal) {
+        helpBtn.addEventListener('click', function (ev) { ev.preventDefault(); openHelp(); });
+        if (closeBtn) closeBtn.addEventListener('click', function (ev) { ev.preventDefault(); closeHelp(); });
+        modal.addEventListener('click', function (ev) { if (ev.target === modal) closeHelp(); });
+        document.addEventListener('keydown', function (ev) {
+            if (modal.hidden) return;
+            if (ev.key === 'Escape' || ev.key === 'Esc') { ev.preventDefault(); closeHelp(); return; }
+            if (ev.key !== 'Tab') return;
+            var f = focusables();
+            if (!f.length) return;
+            var first = f[0], last = f[f.length - 1];
+            if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+            else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+        });
+    }
+
+    /* ---------- popover al tocco (i title non esistono al tocco) ---------- */
+    var pop = document.getElementById('mri-tip-pop');
+    function hidePop() { if (pop) pop.hidden = true; }
+    function showPop(anchor, text) {
+        if (!pop || !text) return;
+        pop.textContent = text;
+        pop.hidden = false;
+        var r = anchor.getBoundingClientRect();
+        var w = pop.offsetWidth, h = pop.offsetHeight;
+        var x = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8);
+        var y = r.bottom + 8;
+        if (y + h > window.innerHeight - 8) y = Math.max(8, r.top - h - 8);
+        pop.style.left = Math.round(x) + 'px';
+        pop.style.top = Math.round(y) + 'px';
+    }
+    function bindTapTip(el, getText) {
+        if (!el) return;
+        el.classList.add('mri-tap-tip');
+        el.addEventListener('click', function (ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (pop && !pop.hidden) { hidePop(); return; }
+            showPop(el, getText());
+        });
+    }
+    bindTapTip(document.getElementById('zone-badge'), function () {
+        var b = document.getElementById('zone-badge');
+        return b ? (b.getAttribute('title') || b.textContent) : '';
+    });
+    bindTapTip(document.getElementById('hail-indicator'), function () {
+        var d = document.getElementById('hail-detail');
+        var b = document.querySelector('#hail-indicator .hail-badge');
+        return ((b ? b.textContent : '') + ' ' + (d ? (d.getAttribute('title') || d.textContent) : '')).trim();
+    });
+    document.addEventListener('click', function (ev) {
+        if (!pop || pop.hidden) return;
+        if (ev.target === pop || pop.contains(ev.target)) return;
+        hidePop();
+    });
+    document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') hidePop(); });
+    window.addEventListener('resize', hidePop);
+    window.addEventListener('scroll', hidePop, { passive: true });
 })();
 </script>
 </body>

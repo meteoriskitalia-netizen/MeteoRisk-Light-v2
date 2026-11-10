@@ -6,13 +6,20 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.63
+## Versione attiva: 1.2.4.64
 
-- File applicativo: `mri-light-1.2.4.63.html` (`APP_VERSION = '1.2.4.63'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.63', date: '2026-11-06' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.63'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.64.html` (`APP_VERSION = '1.2.4.64'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.64', date: '2026-11-10' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.64'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
+- Contenuto della 1.2.4.64 (release sopra la 1.2.4.63) - **guida "?" sempre visibile, tooltip in parole, legende collassabili con memoria**. Solo client: nessuna modifica a `scripts/` (motore, renderer, dataset), ai workflow dei dati, a `color_scales.json`, alle formule o ai calcoli; i workflow toccano solo le righe `cp` del nome del file.
+  - **Pulsante "?".** `#help-btn` fisso in alto a destra (34x34, `z-index: 11500`, `top/right: 8px`), fuori dal flusso: nessun contenitore si sposta. Misure CDP: in viewport con `elementFromPoint` = `help-btn` a **1440x900** (1398,8 34x34), **390x844** (348,8 34x34) e **360x640**; **zero** sovrapposizioni con controlli interattivi e con i glifi dell'header (ultimo glifo della riga 2 del titolo a x=243, paragrafo da y=60). Fra 768 e 1279 px scende a `top: 86px`, dove la toolbar finisce a x=1036.
+  - **Modale.** Tre sezioni in italiano semplice: (1) i sei gradini del colore province con le soglie del codice; (2) potenziale del modello NWP vs radar osservato, con la frase **"Potenziale alto non significa temporale in corso"** e un esempio con CAPE 1.800 J/kg; (3) ordine di lettura del pannello destro in 5 passi. Chiusura con **Esc**, click sullo sfondo e **X**; focus trap elementare; `role="dialog"`, `aria-modal="true"`. Misure: **1440x900** card 680x552 senza scroll; **390x844** card 366x804, corpo **710/710 senza scroll** e zero scroll orizzontale (364/364); **360x640** card 336x616 con **221 px** di scroll interno dichiarato.
+  - **Tooltip.** `title` che spiegano il valore in parole: badge di rischio (`Rischio Alto / Estremo — livello 4 di 5 (Estremo): Potenziali fenomeni pericolosi. Potenziale ambientale del modello (NWP): ...`), indicatore grandine (CAPE con la fascia, WMAXSHEAR, SHIP, shear), chip SOI (`SOI 71/100 (nucleo, forma e persistenza); da 65 il record viene pubblicato; non e una probabilita`), badge sulla mappa (livello + significato + origine). Misurati **65 title informativi su 78**, **14 chip SOI** e **3 badge mappa** nel DOM.
+  - **Legende collassabili.** Tre intestazioni generate (`#sc-legend`, `#live-legend`, `#fm-legend`) più le due esistenti (`#badge-legend-toggle`, previsioni/fonti): click per comprimere, titolo sempre visibile (head 32 px), stato in `localStorage` chiave **`meteorisk.legendCollapse.v1`**. Verificato: collassata -> reload -> ancora collassata; riespansa -> reload -> espansa.
+  - **Tap su mobile.** I `title` non esistono al tocco: tap su `#zone-badge` (o `#hail-indicator`) apre un popover (**340x66**) con lo stesso testo, il modale resta chiuso (`modalHidden: true`) e si chiude toccando fuori.
+  - **Eccezioni.** 0 eccezioni JS; unico 404 di rete `favicon.ico`. Suite `.mjs` 26 PASS / 2 FAIL (stessi due nomi della baseline) e `test_html_js_syntax.py` verde.
 - Contenuto della 1.2.4.63 (release sopra la 1.2.4.62) - **la ricerca comuni normalizza la query**. Solo client: nessuna modifica a `scripts/` (motore, renderer, dataset), ai workflow dei dati o a `color_scales.json`; i workflow toccano solo le righe `cp` del nome del file.
   - **Difetto.** Dopo una selezione il campo contiene `Nome (Regione)` e la geocoding API non risolve la parentesi: sulla 1.2.4.62 il campo precompilato `Roma (Lazio)` + Invio faceva **1 richiesta con `name=Roma (Lazio)`** e tornava «Nessun comune trovato».
   - **Fix.** Una funzione unica `citySearchQuery(raw)`, usata da **tutti** i percorsi (`oninput` dentro `handleSearch`, Invio, pulsante Cerca, evento nativo `search` dentro `runCitySearch`), toglie **solo un gruppo finale tra parentesi**, comprime i doppi spazi e trimma. Le parentesi non finali restano. Tabella verificata con richiesta reale: `Roma (Lazio)` -> `Roma` (1 richiesta, 1 risultato); `Milano (Lombardia)` -> `Milano` (1 richiesta, 2 risultati); `Reggio nell'Emilia (Emilia-Romagna)` -> `Reggio nell'Emilia` (1 richiesta, 1 risultato); `Rocca (TE) Centro` -> invariato (1 richiesta, 0 risultati); `  Roma  ` -> `Roma` (1 richiesta, 1 risultato); `()` -> stringa vuota (**0 richieste**, nessun errore).

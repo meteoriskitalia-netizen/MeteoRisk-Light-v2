@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.2.4.64 - GUIDA "?" SEMPRE VISIBILE (34x34 FISSO, MODALE A TRE SEZIONI CON I SEI LIVELLI DI COLORE, POTENZIALE NWP VS RADAR OSSERVATO, ORDINE DI LETTURA DEL PANNELLO DESTRO) E LEGENDE COLLASSABILI CON STATO IN LOCALSTORAGE (70 TITLE IN PAROLE, 14 CHIP SOI, POPOVER AL TOCCO) (bump da 1.2.4.63)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=64
+RELEASE_TYPE=release
+DATE=2026-11-10
+NOTE=Release 1.2.4.64 (bump da 1.2.4.63) - SOLO CLIENT. (1) GUIDA: nuovo pulsante "?" fisso in alto a destra (34x34, z 11500) che apre un modale con tre sezioni in italiano semplice: cosa significa il colore delle province (i sei gradini del codice con le soglie reali), la differenza fra potenziale ambientale del modello NWP e eventi radar osservati (con la frase "Potenziale alto non significa temporale in corso"), e l ordine di lettura del pannello di destra in 5 passi. Chiusura con Esc, click sullo sfondo e X, focus trap, aria-modal=true. Misure: pulsante in viewport e elementFromPoint = help-btn a 1440x900 (1398,8 34x34), 390x844 (348,8 34x34) e 360x640, zero sovrapposizioni con controlli o glifi; modale 680x552 senza scroll a 1440x900, 366x804 con corpo 710/710 senza scroll e zero scroll orizzontale a 390x844, 336x616 con 221 px di scroll interno a 360x640. (2) TOOLTIP E LEGENDE: title che spiegano il valore in parole su badge di rischio, indicatore grandine (CAPE, WMAXSHEAR, SHIP, shear) e chip SOI (65 title informativi nel DOM, 14 chip, 3 badge mappa); tre intestazioni di legenda generate (struttura convettiva, fulmini, mappe previsionali) piu le due esistenti (badge di rischio, previsioni/fonti) collassabili con stato persistente in localStorage (chiave meteorisk.legendCollapse.v1) e titolo sempre visibile; al tocco il badge apre un popover con lo stesso testo e non il modale. 0 eccezioni JS. BUMP: html mri-light-1.2.4.64.html, VERSION (BUILD=64, DATE=2026-11-10), sw.js (CACHE_NAME mri-1.2.4.64), README.md, i 26 test .mjs, le righe cp dei 3 workflow. La 1.2.4.63 va RIMOSSA dal repo. NON toccati: scripts/, workflow dei dati, color_scales.json, formule e calcoli.
+APP_FILE=mri-light-1.2.4.64.html
+
 MeteoRisk Light - 1.2.4.63 - LA RICERCA COMUNI NORMALIZZA LA QUERY: "Roma (Lazio)" DIVENTA name=Roma (1 RICHIESTA, 1 RISULTATO; PRIMA name=Roma (Lazio) E 0 RISULTATI), PARENTESI NON FINALI INTATTE (bump da 1.2.4.62)
 MAJOR=1
 MINOR=2
