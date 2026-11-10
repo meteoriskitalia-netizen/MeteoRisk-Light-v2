@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.2.4.68 - SINTESI NAZIONALE PER MACRO-AREE (5 AREE X 3 GIORNI, SOGLIE MISURATE SULLA DISTRIBUZIONE) E RIEPILOGO SETTIMANALE NEL PANNELLO DESTRO (7 MINI-CELLE DA weekly.json + FRASE DETERMINISTICA, CARICAMENTO PIGRO UNA VOLTA, 404 TOLLERATO) (bump da 1.2.4.67)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=68
+RELEASE_TYPE=release
+DATE=2026-11-10
+NOTE=Release 1.2.4.68 (bump da 1.2.4.67) - SOLO CLIENT. (1) #italia-synth non elenca piu estremi provinciali: 5 macro-aree (Nord 47, Centro Tirreno 17, Centro Adriatico 11, Sud 18, Isole maggiori 14) con una frase per area e per giorno, carattere (asciutto / pioggia debole / pioggia diffusa / rovesci / pioggia intensa), province interessate su quelle con dato, neve, raffiche e range delle massime. Soglie misurate sulle 321 province-giorno del dataset 2026-11-10: debole <=14,5 mm (p75), diffusa <=39,3 mm (p90), intensa oltre; rovesci con >=50% delle province bagnate e un'ora 80-82/95-96/99; vento >=65 km/h (p75); caldo >=25,0 C (p95), freddo <=10,8 C (p10). (2) Nuova riga Prossimi 7 giorni nel pannello destro: 7 mini-celle non cliccabili (giorno, icona wmoToSvg, max/min, prcp) e frase nazionale deterministica; data/latest/weekly.json scaricato UNA volta per sessione solo a pannello visibile, 404 o malformato -> tendenza non disponibile senza eccezioni; nessun overflow di pagina su mobile (scroll interno .wk-scroll). BUMP: html mri-light-1.2.4.68.html, VERSION (BUILD=68, DATE=2026-11-10), sw.js (CACHE_NAME mri-1.2.4.68), README.md, i 26 test .mjs, le 5 righe cp dei 3 workflow. La 1.2.4.67 va RIMOSSA dal repo. NON toccati: scripts/, workflow dei dati, color_scales.json, formule e calcoli.
+APP_FILE=mri-light-1.2.4.68.html
+
 MeteoRisk Light - 1.2.4.67 - SINTESI NAZIONALE ITALIA IN UNA CARD A LARGHEZZA PIENA (3 COLONNE OGGI / DOMANI / DOPODOMANI DALLE 107 PROVINCE: PIOGGIA >1 E >10 MM CON MASSIMO E PROVINCIA, MASSIMA E MINIMA NAZIONALE CON PROVINCIA, RAFFICA MASSIMA, CAPE SOPRA 200 J/KG, NEVE PER CODICE, RIPARTIZIONE NORD/CENTRO/SUD 47/22/38), CALCOLATA UNA VOLTA PER DATASET NEL CLIENT (bump da 1.2.4.66)
 MAJOR=1
 MINOR=2

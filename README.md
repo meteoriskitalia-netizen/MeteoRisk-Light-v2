@@ -6,13 +6,17 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.67
+## Versione attiva: 1.2.4.68
 
-- File applicativo: `mri-light-1.2.4.67.html` (`APP_VERSION = '1.2.4.67'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.67', date: '2026-11-10' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.67'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.68.html` (`APP_VERSION = '1.2.4.68'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.68', date: '2026-11-10' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.68'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
+- Contenuto della 1.2.4.68 (release sopra la 1.2.4.67) - **sintesi nazionale per macro-aree e riepilogo settimanale nel pannello destro**. Solo client: nessuna modifica a `scripts/` (motore, renderer, dataset), ai workflow dei dati, a `color_scales.json`, alle formule o ai calcoli; i workflow toccano solo le righe `cp` del nome del file.
+  - **`#italia-synth` per macro-aree.** Niente piu' estremi provinciali: per Oggi / Domani / Dopodomani una frase per ognuna delle 5 aree (Nord 47 province, Centro Tirreno 17, Centro Adriatico 11, Sud 18, Isole maggiori 14), con carattere (asciutto / pioggia debole / pioggia diffusa / rovesci / pioggia intensa), numero di province interessate su quelle con dato, neve, raffiche e range delle massime. Soglie dichiarate e misurate sulle 321 province-giorno del dataset 2026-11-10: debole <= 14,5 mm (p75), diffusa <= 39,3 mm (p90), intensa oltre; rovesci con >= 50% delle province bagnate e un'ora 80-82/95-96/99; vento >= 65 km/h (p75); caldo >= 25,0 C (p95), freddo <= 10,8 C (p10). La nota "sintesi dei punti provincia, non di un campo continuo" resta.
+  - **`Prossimi 7 giorni`.** Nel pannello destro, dopo la sintesi a 3 giorni: 7 mini-celle NON cliccabili (giorno, icona WMO da `wmoToSvg`, max/min, prcp mm) e una frase nazionale deterministica (giorno piu' piovoso con numero di province, calo o risalita delle massime con i due valori). Fonte `data/latest/weekly.json` (schema `meteorisk.weekly/1`), scaricata UNA volta per sessione solo quando il pannello della provincia e' visibile e in modo non bloccante; 404 o payload malformato -> "tendenza non disponibile" senza eccezioni. Su mobile la riga scorre dentro `.wk-scroll` (`-webkit-overflow-scrolling: touch`), senza overflow della pagina.
+  - **Cache invariata.** La sintesi a 3 giorni resta cachata per (dataset, provincia) e non viene ricalcolata a ogni frame dello slider; il weekly e' statico per sessione.
 - Contenuto della 1.2.4.67 (release sopra la 1.2.4.66) - **sintesi nazionale Italia a larghezza piena, calcolata una volta per dataset**. Solo client: nessuna modifica a `scripts/` (motore, renderer, dataset), ai workflow dei dati, a `color_scales.json`, alle formule o ai calcoli; i workflow toccano solo le righe `cp` del nome del file.
   - **Blocco `#italia-synth`.** Card a larghezza piena (`grid-column: 1 / -1`) come seconda riga della grid `.container`, dopo `details-card`: toolbar, `map-card`, `#leaflet-map` e il pannello destro non si spostano. Tre colonne **Oggi / Domani / Dopodomani** (a <=600 px restano tre colonne piu' compatte, con font ridotto) aggregate dalle **107 province** del dataset derivato.
   - **Cosa mostra ogni colonna.** Province con pioggia **>1 mm** e **>10 mm** e massimo con la provincia; massima e minima nazionale con la provincia; raffica massima con la provincia; province con **CAPE sopra 200 J/kg** (soglia = **75° percentile pooled** misurato sulle 321 province-giorno, valore grezzo 190 arrotondato) con il massimo; province con **neve** per codice (71/73/75/77/85/86) con accumulo **n/d** (non e' nel dataset); ripartizione **Nord / Centro / Sud** da `regionsData.region` (**47 / 22 / 38** province su 107, il Sud include le Isole).
