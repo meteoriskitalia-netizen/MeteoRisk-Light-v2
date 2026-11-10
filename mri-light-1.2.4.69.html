@@ -358,6 +358,9 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .wk-t { font-size: 11px; font-weight: 600; color: #f1f5f9; line-height: 1.25; white-space: nowrap; }
         .wk-p { font-size: 11px; color: #7dd3fc; line-height: 1.25; white-space: nowrap; }
         .wk-phrase { font-size: 11px; line-height: 1.35; color: #cbd5e1; border-top: 1px solid #334155; padding-top: 5px; }
+        .wk-area { margin: 0 0 5px 0; }
+        .wk-area:last-child { margin-bottom: 0; }
+        .wk-area b { color: #7dd3fc; }
         .wk-empty { font-size: 11px; color: #94a3b8; padding: 4px 2px; }
         /* 1.2.4.66 - SINTESI DETERMINISTICA A 3 GIORNI (sotto la riga del rischio).
           3 colonne a desktop; a <=600px diventano 3 righe (una card per giorno) con
@@ -2296,7 +2299,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <div class="wk-scroll" id="wk-scroll">
                 <div class="wk-row" id="wk-row"><div class="wk-empty">tendenza in caricamento…</div></div>
             </div>
-            <p class="wk-phrase" id="wk-phrase" role="status"></p>
+            <div class="wk-phrase" id="wk-phrase" role="status"></div>
         </div>
 
         <div class="metric-grid">
@@ -2402,7 +2405,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         </div>
         <p class="is-sentence" id="italia-synth-sentence">Sintesi non ancora calcolata: il blocco usa il dataset derivato (punti provincia), non il percorso live.</p>
         <div class="is-cols" id="italia-synth-cols"></div>
-        <p class="is-note"><b>Sintesi dei punti provincia del dataset, non di un campo continuo.</b> Per ogni provincia si usa il valore massimo fra i suoi punti (minimo per le minime); le province senza dato sono escluse e il numero usato è scritto come “N su M con dato”. Macro-aree dalle regioni amministrative: Nord 47, Centro Tirreno 17, Centro Adriatico 11, Sud 18, Isole maggiori 14. Soglie dichiarate e misurate sulle 321 province-giorno del dataset del 2026-11-10: provincia bagnata = somma giornaliera &gt; 1 mm; pioggia debole ≤ 14,5 mm (75° percentile), diffusa ≤ 39,3 mm (90°), intensa oltre; rovesci quando almeno metà delle province bagnate ha un'ora con codice 80-82/95-96/99 e il massimo supera 14,5 mm; vento con raffica massima dell'area ≥ 65 km/h (75°); caldo con massima ≥ 25,0 °C (95°), freddo con la minima delle massime ≤ 10,8 °C (10°). Nessun nome di provincia e nessun estremo nazionale: solo il carattere dell'area, il numero di province interessate su quelle con dato e il range delle massime.</p>
+        <p class="is-note"><b>Sintesi dei punti provincia del dataset, non di un campo continuo.</b> Per ogni provincia si usa il valore massimo fra i suoi punti (minimo per le minime); le province senza dato sono escluse. Macro-aree dalle regioni amministrative. Soglie dichiarate e misurate sul dataset del 2026-11-10: provincia bagnata = somma giornaliera &gt; 1 mm; pioggia debole &le; 14,5 mm (75&deg; percentile), diffusa &le; 39,3 mm (90&deg;), intensa oltre; rovesci quando almeno met&agrave; delle province bagnate ha un&rsquo;ora con codice 80-82/95-96/99 e il massimo supera 14,5 mm; raffiche deboli &lt; 28,6 km/h (50&deg;), moderate fino a 52,9 (90&deg;), tese fino a 94,1 (99&deg;), forti oltre; quota neve = freezing level &minus; 500 m, con scarto dichiarato &plusmn;300 m. Il cielo &egrave; ricavato dal codice meteo (0 sereno, 1 poco nuvoloso, 2 nuvoloso, 3 coperto) perch&eacute; il dataset non contiene cloud_cover: &egrave; un fallback meno preciso di una copertura nuvolosa vera. Nessun conteggio di province nel testo: i conteggi restano nei tooltip.</p>
     </div>
 </div>
 
@@ -2446,9 +2449,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.68';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.69';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-10';
     const APP_CHANGELOG = [
+        { version: '1.2.4.69', date: '2026-11-10', changes: [
+  "SINTESI GIORNALIERA IN STILE BOLLETTINO= Le 15 frasi (5 macro-aree x 3 giorni) non contano piu le province: dicono cielo, fenomeno con range p25-p75 delle province bagnate e massimo con provincia e regione, fascia piu piovosa con ora di picco, temperature con minima e massima dell'area e trend di massime/minime rispetto a ieri, vento con direzione dominante (media vettoriale pesata su wind_speed_10m), classe sulle raffiche (soglie misurate 28,6/52,9/94,1 km/h), range e provincia del massimo, quota neve (freezing_level_height - 500 m, scarto +/-300 m) solo con precipitazione o sotto i 2.000 m. Il cielo e derivato dal weathercode (0/1/2/3) perche cloud_cover non e nel dataset: fallback dichiarato nella nota. I conteggi restano solo nei title.",
+  "TENDENZA SETTIMANALE PER MACRO-AREE= La frase nazionale unica e sostituita da 5 frasi, una per area, calcolate dai 7 giorni di weekly.json: giorni che cambiano (run asciutti/piovosi), picco con range p25-p75 e massimo con provincia, massime in calo/rialzo tra due giorni (mediana delle massime dell'area), raffiche tese solo se superano 52,9 km/h. 25-45 parole per frase. Nessun conteggio di province nel testo visibile: i conteggi restano nel title del badge.",
+  "BUMP: html mri-light-1.2.4.69.html, VERSION (BUILD=69, DATE=2026-11-10), sw.js (CACHE_NAME mri-1.2.4.69), README.md, i 26 test .mjs, le 5 righe cp dei 3 workflow. La 1.2.4.68 va RIMOSSA dal repo. NON toccati: scripts/, workflow dei dati, color_scales.json, formule e calcoli."
+        ]},
         { version: '1.2.4.68', date: '2026-11-10', changes: [
   "SINTESI NAZIONALE PER MACRO-AREE= Il blocco #italia-synth non elenca piu estremi provinciali: per ciascuno dei 3 giorni mostra UNA frase per ognuna delle 5 macro-aree (Nord 47 province, Centro Tirreno 17, Centro Adriatico 11, Sud 18, Isole maggiori 14), con il carattere dell'area (asciutto / pioggia debole / pioggia diffusa / rovesci / pioggia intensa), il numero di province interessate su quelle con dato, neve e raffiche quando presenti, e il range delle massime. Soglie DICHIARATE e misurate sulla distribuzione delle 321 province-giorno del dataset 2026-11-10: debole <=14,5 mm (p75), diffusa <=39,3 mm (p90), intensa oltre; rovesci con >=50% delle province bagnate e un'ora 80-82/95-96/99; vento >=65 km/h (p75); caldo >=25,0 C (p95), freddo <=10,8 C (p10). La nota 'sintesi dei punti provincia, non di un campo continuo' resta. 0 richieste di rete, calcolo una volta per dataset.",
   "RIEPILOGO SETTIMANALE= Nuova riga 'Prossimi 7 giorni' nel pannello destro: 7 mini-celle NON cliccabili (giorno, icona WMO dalla mappatura wmoToSvg esistente, max/min, prcp mm) e una frase nazionale deterministica (giorno piu piovoso con numero di province, calo o risalita delle massime con i due valori). Fonte data/latest/weekly.json (schema meteorisk.weekly/1), scaricata UNA volta per sessione solo quando il pannello della provincia e visibile, in modo non bloccante; 404 o payload malformato -> 'tendenza non disponibile' senza eccezioni. Su mobile la riga scorre in orizzontale dentro .wk-scroll, nessun overflow di pagina. Il 3 giorni resta cachato per (dataset, provincia) e non viene ricalcolato a ogni frame dello slider.",
@@ -25731,58 +25739,182 @@ function renderContinuousOverlay() {
         }
     }
 
-    function weeklyNationalPhrase(doc) {
-        var days = doc.days || [];
-        var provinces = doc.provinces || [];
-        var total = (typeof doc.count === 'number' && doc.count > 0) ? doc.count : provinces.length;
-        var wet = [], tmaxMax = [];
-        for (var d = 0; d < days.length; d++) {
-            var nWet = 0, mx = null;
-            for (var i = 0; i < provinces.length; i++) {
-                var recs = wkRecords(provinces[i]);
-                if (!recs || !recs[d]) continue;
-                var p = Number(recs[d].prcp);
-                if (isFinite(p) && p > ITALIA_RAIN_WET_MM) nWet++;
-                var t = Number(recs[d].tmax);
-                if (isFinite(t) && (mx === null || t > mx)) mx = t;
-            }
-            wet.push(nWet);
-            tmaxMax.push(mx);
-        }
-        var best = 0;
-        for (var k = 1; k < wet.length; k++) {
-            if (wet[k] > wet[best]) best = k;
-        }
-        var s = 'Settimana: ';
-        if (wet.length && wet[best] > 0) {
-            s += 'pioggia più intensa ' + wkDow(days[best], true) + ' (' + wet[best] + '/' + total + ' province).';
-        } else {
-            s += 'asciutto in tutte le ' + total + ' province.';
-        }
-        var dropIdx = -1, dropVal = 0, riseIdx = -1, riseVal = 0;
-        for (var q = 1; q < tmaxMax.length; q++) {
-            if (tmaxMax[q - 1] === null || tmaxMax[q] === null) continue;
-            var delta = tmaxMax[q] - tmaxMax[q - 1];
-            if (delta <= -2 && delta < dropVal) { dropVal = delta; dropIdx = q; }
-            if (delta >= 2 && delta > riseVal) { riseVal = delta; riseIdx = q; }
-        }
-        if (dropIdx > 0) {
-            s += ' Temperature in calo da ' + wkDow(days[dropIdx], true) + ' (' +
-                Math.round(tmaxMax[dropIdx - 1]) + ' → ' + Math.round(tmaxMax[dropIdx]) + ' °C).';
-        } else if (riseIdx > 0) {
-            s += ' Temperature in risalita da ' + wkDow(days[riseIdx], true) + ' (' +
-                Math.round(tmaxMax[riseIdx - 1]) + ' → ' + Math.round(tmaxMax[riseIdx]) + ' °C).';
-        } else {
-            var vals = [];
-            for (var v = 0; v < tmaxMax.length; v++) {
-                if (tmaxMax[v] !== null && isFinite(tmaxMax[v])) vals.push(tmaxMax[v]);
-            }
-            if (vals.length) {
-                s += ' Temperature stabili (max nazionale ' + Math.round(Math.min.apply(null, vals)) +
-                    '-' + Math.round(Math.max.apply(null, vals)) + ' °C).';
+    // ================= TENDENZA 7 GIORNI PER MACRO-AREE (1.2.4.69) =================
+    // weekly.json (meteorisk.weekly/1): 107 province x 7 giorni di campi daily.
+    // UNA frase per macro-area, 25-45 parole. NESSUN CONTEGGIO DI PROVINCE nel
+    // testo: i conteggi restano nel title del badge e nei tooltip. Se un campo
+    // manca su tutte le province dell'area, la parte si omette.
+    var WK_SIGLA_PROV = null;
+
+    function wkProvName(sigla) {
+        if (!WK_SIGLA_PROV) {
+            WK_SIGLA_PROV = {};
+            if (typeof regionsData !== 'undefined' && regionsData) {
+                for (var r = 0; r < regionsData.length; r++) {
+                    if (regionsData[r] && regionsData[r].sigla) WK_SIGLA_PROV[regionsData[r].sigla] = italiaProvName(r);
+                }
             }
         }
-        return s;
+        return WK_SIGLA_PROV[sigla] || sigla;
+    }
+
+    function wkRunLabel(days, run) {
+        var a = run.a, b = run.b;
+        if (a === b) return wkDow(days[a], true);
+        if (b === a + 1) return wkDow(days[a], true) + ' e ' + wkDow(days[b], true);
+        return 'da ' + wkDow(days[a], true) + ' a ' + wkDow(days[b], true);
+    }
+
+    function wkAreaPhrases(doc) {
+        var days = (doc && doc.days) || [];
+        var rows = (doc && doc.provinces) || [];
+        var out = [];
+        var siglaRegion = {};
+        if (typeof regionsData !== 'undefined' && regionsData) {
+            for (var r = 0; r < regionsData.length; r++) {
+                if (regionsData[r] && regionsData[r].sigla) siglaRegion[regionsData[r].sigla] = regionsData[r].region;
+            }
+        }
+        var byArea = {};
+        for (var ai = 0; ai < ITALIA_AREAS.length; ai++) byArea[ITALIA_AREAS[ai].name] = [];
+        for (var i = 0; i < rows.length; i++) {
+            var row = rows[i];
+            if (!Array.isArray(row) || !row[0]) continue;
+            var recs = wkRecords(row);
+            if (!recs) continue;
+            var region = siglaRegion[row[0]] || '';
+            var areaName = null;
+            for (var aj = 0; aj < ITALIA_AREAS.length; aj++) {
+                if (ITALIA_AREAS[aj].regions[region]) { areaName = ITALIA_AREAS[aj].name; break; }
+            }
+            if (areaName) byArea[areaName].push({ sigla: row[0], recs: recs });
+        }
+        for (var ak = 0; ak < ITALIA_AREAS.length; ak++) {
+            var name = ITALIA_AREAS[ak].name;
+            var provs = byArea[name];
+            if (!provs.length) { out.push({ name: name, text: 'dati non disponibili per questa area.' }); continue; }
+            var stats = [];
+            for (var d = 0; d < days.length; d++) {
+                var prcp = [], tmax = [], gust = [];
+                var maxP = null, maxProv = null, maxG = null, maxGProv = null, nWet = 0;
+                for (var p = 0; p < provs.length; p++) {
+                    var rec = provs[p].recs[d];
+                    if (!rec) continue;
+                    var pv = rec.prcp;
+                    if (pv !== null && pv !== undefined && isFinite(pv)) {
+                        prcp.push(Number(pv));
+                        if (Number(pv) > ITALIA_RAIN_WET_MM) nWet++;
+                        if (maxP === null || Number(pv) > maxP) { maxP = Number(pv); maxProv = provs[p].sigla; }
+                    }
+                    var tv = rec.tmax;
+                    if (tv !== null && tv !== undefined && isFinite(tv)) tmax.push(Number(tv));
+                    var gv = rec.gust;
+                    if (gv !== null && gv !== undefined && isFinite(gv)) {
+                        gust.push(Number(gv));
+                        if (maxG === null || Number(gv) > maxG) { maxG = Number(gv); maxGProv = provs[p].sigla; }
+                    }
+                }
+                stats.push({
+                    p25: italiaPercentile(prcp, 0.25), p75: italiaPercentile(prcp, 0.75),
+                    maxP: maxP, maxProv: maxProv,
+                    medT: italiaPercentile(tmax, 0.5),
+                    maxG: maxG, maxGProv: maxGProv,
+                    nWet: nWet, n: prcp.length
+                });
+            }
+            var flags = [];
+            for (var f = 0; f < stats.length; f++) {
+                var s = stats[f];
+                flags.push(s.n >= 2 && s.nWet >= 2 && (s.nWet / s.n >= 0.25 || (s.p75 !== null && s.p75 >= 2) || (s.maxP !== null && s.maxP >= 5)));
+            }
+            var wetIdx = [];
+            for (var wi = 0; wi < flags.length; wi++) if (flags[wi]) wetIdx.push(wi);
+            var parts = [];
+            if (!wetIdx.length) {
+                var tvals0 = [];
+                for (var tv0 = 0; tv0 < stats.length; tv0++) if (stats[tv0].medT !== null && isFinite(stats[tv0].medT)) tvals0.push(stats[tv0].medT);
+                var dryTxt = 'Settimana asciutta';
+                if (tvals0.length) dryTxt += ', massime ' + italiaFmtRange(Math.min.apply(null, tvals0), Math.max.apply(null, tvals0), ' \u00B0C', 0);
+                parts.push(dryTxt + '.');
+            } else {
+                var runs = [];
+                var start = 0;
+                for (var q = 1; q <= flags.length; q++) {
+                    if (q === flags.length || flags[q] !== flags[start]) { runs.push({ wet: flags[start], a: start, b: q - 1 }); start = q; }
+                }
+                var seq = [];
+                for (var rr = 0; rr < runs.length; rr++) {
+                    var run = runs[rr];
+                    if (run.wet) {
+                        if (rr === 0) {
+                            if (run.a === 0) {
+                                if (run.b === flags.length - 1) seq.push('Piogge tutta la settimana');
+                                else seq.push(run.b === 0 ? 'Piogge oggi' : 'Piogge fino a ' + wkDow(days[run.b], true));
+                            } else seq.push('Piogge ' + wkRunLabel(days, run));
+                        } else {
+                            var wkLabel;
+                            if (run.b === flags.length - 1 && run.b > run.a) wkLabel = 'da ' + wkDow(days[run.a], true);
+                            else wkLabel = wkRunLabel(days, run);
+                            seq.push((rr === 1 ? 'pioggia ' : (rr === 2 ? 'poi pioggia ' : 'pioggia ')) + wkLabel);
+                        }
+                    } else {
+                        if (rr === 0) seq.push('Asciutto fino a ' + wkDow(days[run.b], true));
+                        else seq.push('pausa ' + wkRunLabel(days, run));
+                    }
+                }
+                parts.push(seq.join(', ') + '.');
+                var peak = wetIdx[0];
+                for (var pk = 1; pk < wetIdx.length; pk++) {
+                    if (stats[wetIdx[pk]].maxP > stats[peak].maxP) peak = wetIdx[pk];
+                }
+                var peakS = stats[peak];
+                var peakRange = italiaFmtRange(peakS.p25, peakS.p75, ' mm', 0);
+                var peakMax = 'max ' + italiaNum(peakS.maxP, peakS.maxP >= 10 ? 0 : 1) + ' mm ' + italiaA(wkProvName(peakS.maxProv));
+                if (peakS.p25 !== null && peakS.p25 < 1 && peakS.maxP >= 25) {
+                    parts.push('Localizzati ' + wkDow(days[peak], true) + ': ' + peakRange + ' (' + peakMax + ').');
+                } else {
+                    parts.push('Picco ' + wkDow(days[peak], true) + ': ' + peakRange + ' (' + peakMax + ').');
+                }
+                var globalMax = peak;
+                for (var gm = 0; gm < wetIdx.length; gm++) {
+                    if (stats[wetIdx[gm]].maxP > stats[globalMax].maxP) globalMax = wetIdx[gm];
+                }
+                if (globalMax !== peak && stats[globalMax].maxP > stats[peak].maxP * 1.2 && stats[globalMax].maxP >= 40) {
+                    parts.push('Nucleo pi\u00F9 intenso ' + wkDow(days[globalMax], true) + ': max ' +
+                        italiaNum(stats[globalMax].maxP, 0) + ' mm ' + italiaA(wkProvName(stats[globalMax].maxProv)) + '.');
+                }
+            }
+            var step = null;
+            for (var stp = 1; stp < stats.length; stp++) {
+                var prevT = stats[stp - 1].medT, curT = stats[stp].medT;
+                if (prevT === null || curT === null || !isFinite(prevT) || !isFinite(curT)) continue;
+                var delta = curT - prevT;
+                if (Math.abs(delta) >= 1.5 && (step === null || Math.abs(delta) > Math.abs(step.delta))) step = { i: stp, delta: delta };
+            }
+            if (step) {
+                parts.push('Massime in ' + (step.delta < 0 ? 'calo' : 'rialzo') + ' di ' + Math.round(Math.abs(step.delta)) +
+                    ' \u00B0C tra ' + wkDow(days[step.i - 1], true) + ' e ' + wkDow(days[step.i], true) + '.');
+            }
+            var above = [];
+            for (var gw = 0; gw < stats.length; gw++) if (stats[gw].maxG !== null && stats[gw].maxG > ITALIA_GUST_MODERATE_KMH) above.push(gw);
+            if (above.length) {
+                var strongest = above[0];
+                for (var sw = 1; sw < above.length; sw++) if (stats[above[sw]].maxG > stats[strongest].maxG) strongest = above[sw];
+                var runTxt;
+                if (above.length === days.length) runTxt = 'per tutta la settimana';
+                else if (above.length === 1) runTxt = 'solo ' + wkDow(days[above[0]], true);
+                else {
+                    var contiguous = true;
+                    for (var cc = 1; cc < above.length; cc++) if (above[cc] !== above[cc - 1] + 1) contiguous = false;
+                    if (contiguous) runTxt = 'da ' + wkDow(days[above[0]], true) + ' a ' + wkDow(days[above[above.length - 1]], true);
+                    else if (above.length >= 5) runTxt = 'quasi tutta la settimana';
+                    else runTxt = 'tra ' + wkDow(days[above[0]], true) + ' e ' + wkDow(days[above[above.length - 1]], true);
+                }
+                parts.push('Raffiche tese ' + runTxt + ' (' + Math.round(stats[strongest].maxG) + ' km/h ' + italiaA(wkProvName(stats[strongest].maxGProv)) + ').');
+            }
+            out.push({ name: name, text: parts.join(' ') });
+        }
+        return out;
     }
 
     function weeklyRender() {
@@ -25841,8 +25973,19 @@ function renderContinuousOverlay() {
                 '<div class="wk-p">' + wkNum(rec.prcp, 1) + 'mm</div></div>';
         }
         row.innerHTML = cells;
-        badge.textContent = (WK_STATE.data.count || 107) + ' province · 7 giorni';
-        phrase.textContent = weeklyNationalPhrase(WK_STATE.data);
+        badge.textContent = '7 giorni';
+        badge.title = (WK_STATE.data.count || 107) + ' province nel file weekly.json';
+        var areaPhrases = [];
+        try { areaPhrases = wkAreaPhrases(WK_STATE.data); } catch (eWkA) { areaPhrases = []; }
+        if (!areaPhrases.length) {
+            phrase.textContent = 'tendenza non disponibile';
+        } else {
+            var wkHtml = '';
+            for (var wa = 0; wa < areaPhrases.length; wa++) {
+                wkHtml += '<p class="wk-area"><b>' + areaPhrases[wa].name + ':</b> ' + areaPhrases[wa].text + '</p>';
+            }
+            phrase.innerHTML = wkHtml;
+        }
     }
 
     function updateUI() {
@@ -27388,33 +27531,41 @@ syncSelect('lightning-source-select', [
         };
     }
 
-    // ================= SINTESI NAZIONALE ITALIA PER MACRO-AREE (1.2.4.68) =================
+    // ================= SINTESI NAZIONALE ITALIA PER MACRO-AREE (1.2.4.69) =================
     // Calcolo UNA volta per dataset dentro applyStaticDataset (nessun ricalcolo quando
     // si muove lo slider orario: cambia solo la frase del giorno). Nessun modello AI,
     // nessuna richiesta di rete, nessun file nuovo: legge i punti del payload.
     //
-    // SOGLIE MISURATE, non inventate. Distribuzione delle 321 province-giorno del
-    // dataset pubblicato il 2026-11-10 (107 province x 3 giorni, massimo per provincia
-    // sui punti del payload): pioggia giornaliera p50=2,2 mm, p75=14,5 mm, p90=39,3 mm,
-    // p95=48,5 mm; massime provinciali p10=10,8 C, p95=25,0 C; raffiche p75=65,0 km/h.
-    // Classi d'area (decide il massimo provinciale dell'area):
+    // CLOUD_COVER NON ESISTE nel dataset (49 campi orari, verificati il 2026-11-10):
+    // il cielo e' quindi derivato dal weathercode con la mappatura 0 sereno, 1 poco
+    // nuvoloso, 2 nuvoloso, 3 coperto (45/48 nebbia, 51-67 pioggia, 71-77 neve,
+    // 80-82 rovesci, 95-99 temporale -> coperto). E' un FALLBACK MENO PRECISO di una
+    // copertura nuvolosa vera: la percentuale e' (media degli indici / 3) * 100.
+    //
+    // SOGLIE MISURATE, non inventate (dataset pubblicato il 2026-11-10, 321
+    // province-giorno = 107 province x 3 giorni, massimo per provincia sui punti):
+    // pioggia giornaliera p25=0,5 p50=2,2 p75=14,5 p90=39,3 p95=48,5 mm;
+    // raffiche p50=12,1 p75=28,6 p90=52,9 p99=94,1 km/h.
     //   pioggia debole  : 1 < max <= 14,5 mm
     //   pioggia diffusa : 14,5 < max <= 39,3 mm
     //   rovesci         : >= 50% delle province bagnate con un'ora 80-82/95-96/99
     //                     e max > 14,5 mm
     //   pioggia intensa : max > 39,3 mm (se i rovesci non sono soddisfatti)
-    //   vento           : raffica massima dell'area >= 65 km/h
-    //   caldo / freddo  : massima dell'area >= 25,0 C / minima delle massime <= 10,8 C
+    //   vento           : raffica massima dell'area < 28,6 debole, <= 52,9 moderato,
+    //                     <= 94,1 teso, oltre forte
+    //   temperatura     : stazionarie se |delta massima dell'area| < 1,5 C
+    //   neve            : quota = freezing_level_height - 500 m, arrotondata a 100,
+    //                     scarto dichiarato +/-300 m nella nota del blocco.
+    // NESSUN CONTEGGIO DI PROVINCE nel testo: i conteggi restano nei title/tooltip.
     var italiaSynthesis = null;
     var ITALIA_SYNTH_DAY_LABELS = ['Oggi', 'Domani', 'Dopodomani'];
-    var ITALIA_SNOW_CODES = { 71: 1, 73: 1, 75: 1, 77: 1, 85: 1, 86: 1 };
     var ITALIA_CONV_CODES = { 80: 1, 81: 1, 82: 1, 95: 1, 96: 1, 99: 1 };
     var ITALIA_RAIN_WET_MM = 1;
     var ITALIA_RAIN_DIFFUSE_MM = 14.5;
     var ITALIA_RAIN_INTENSE_MM = 39.3;
-    var ITALIA_GUST_STRONG_KMH = 65;
-    var ITALIA_TMAX_HOT_C = 25.0;
-    var ITALIA_TMAX_COLD_C = 10.8;
+    var ITALIA_GUST_WEAK_KMH = 28.6;
+    var ITALIA_GUST_MODERATE_KMH = 52.9;
+    var ITALIA_GUST_STRONG_KMH = 94.1;
     var ITALIA_AREAS = [
         { name: 'Nord', regions: { "Valle d'Aosta": 1, 'Piemonte': 1, 'Lombardia': 1, 'Trentino-Alto Adige': 1, 'Veneto': 1, 'Friuli-Venezia Giulia': 1, 'Liguria': 1, 'Emilia-Romagna': 1 } },
         { name: 'Centro Tirreno', regions: { 'Toscana': 1, 'Umbria': 1, 'Lazio': 1 } },
@@ -27422,6 +27573,7 @@ syncSelect('lightning-source-select', [
         { name: 'Sud', regions: { 'Campania': 1, 'Puglia': 1, 'Basilicata': 1, 'Calabria': 1 } },
         { name: 'Isole maggiori', regions: { 'Sicilia': 1, 'Sardegna': 1 } }
     ];
+    var ITALIA_COMPASS = ['nord', 'nord-est', 'est', 'sud-est', 'sud', 'sud-ovest', 'ovest', 'nord-ovest'];
 
     function italiaNum(v, decimals) {
         if (v === null || v === undefined || !isFinite(v)) return 'n/d';
@@ -27439,14 +27591,116 @@ syncSelect('lightning-source-select', [
         return (dd < 10 ? '0' : '') + dd + '/' + (mm < 10 ? '0' : '') + mm;
     }
 
-    // Aggrega i punti per provincia: MASSIMO fra i punti per pioggia/tmax/raffica/CAPE,
-    // MINIMO per le minime; neve e convezione sono il massimo numero di ore fra i punti.
+    function italiaProvName(idx) {
+        if (typeof regionsData === 'undefined' || !regionsData || !regionsData[idx]) return '';
+        var s = String(regionsData[idx].prov || '');
+        return s.replace(/\s*\([A-Z]{2}\)\s*$/, '');
+    }
+
+    function italiaProvRegion(idx) {
+        if (typeof regionsData === 'undefined' || !regionsData || !regionsData[idx]) return '';
+        return String(regionsData[idx].region || '');
+    }
+
+    function italiaLower(s) {
+        s = String(s || '');
+        return s ? s.charAt(0).toLowerCase() + s.slice(1) : s;
+    }
+
+    function italiaA(prov) {
+        return (/^[AEIOU]/i.test(String(prov || '')) ? 'ad ' : 'a ') + prov;
+    }
+
+    function italiaCompass(deg) {
+        return ITALIA_COMPASS[Math.round((((Number(deg) % 360) + 360) % 360) / 45) % 8];
+    }
+
+    // 0 sereno, 1 poco nuvoloso, 2 nuvoloso, 3 coperto. Fallback dichiarato:
+    // il dataset non ha cloud_cover, quindi la percentuale e' un indice, non una copertura.
+    function italiaSkyIndex(wc) {
+        if (wc === null || wc === undefined || !isFinite(wc)) return null;
+        var c = Number(wc);
+        if (c >= 51) return 3;       // pioggia, neve, rovesci, temporale, nebbia
+        if (c === 45 || c === 48) return 3;
+        if (c === 3) return 3;
+        if (c === 2) return 2;
+        if (c === 1) return 1;
+        return 0;
+    }
+
+    function italiaSkyText(pct) {
+        if (pct === null || pct === undefined || !isFinite(pct)) return '';
+        if (pct < 20) return 'Sereno';
+        if (pct < 40) return 'Poco nuvoloso';
+        if (pct < 70) return 'Nuvoloso con ampie schiarite';
+        if (pct <= 90) return 'Molto nuvoloso';
+        return 'Coperto';
+    }
+
+    function italiaGustText(g) {
+        if (g === null || g === undefined || !isFinite(g)) return '';
+        if (g < ITALIA_GUST_WEAK_KMH) return 'debole';
+        if (g <= ITALIA_GUST_MODERATE_KMH) return 'moderato';
+        if (g <= ITALIA_GUST_STRONG_KMH) return 'teso';
+        return 'forte';
+    }
+
+    // Trend sulla MASSIMA dell'area (stesso calcolo del giorno precedente).
+    // Oggi non ha il giorno prima nel payload (3 giorni da oggi): il trend si omette.
+    function italiaTrendText(delta) {
+        if (delta === null || delta === undefined || !isFinite(delta)) return '';
+        if (Math.abs(delta) < 1.5) return 'stazionarie';
+        var n = Math.round(Math.abs(delta));
+        return delta < 0 ? ('in calo di ' + n + ' \u00B0C') : ('in rialzo di ' + n + ' \u00B0C');
+    }
+
+    function italiaPercentile(values, p) {
+        var a = [];
+        for (var i = 0; i < values.length; i++) {
+            var v = values[i];
+            if (v !== null && v !== undefined && isFinite(v)) a.push(Number(v));
+        }
+        if (!a.length) return null;
+        a.sort(function (x, y) { return x - y; });
+        var pos = (a.length - 1) * p;
+        var lo = Math.floor(pos), hi = Math.ceil(pos);
+        if (lo === hi) return a[lo];
+        return a[lo] + (a[hi] - a[lo]) * (pos - lo);
+    }
+
+    function italiaFmtRange(a, b, unit, decimals) {
+        if (a === null || a === undefined || !isFinite(a)) return '';
+        if (b === null || b === undefined || !isFinite(b)) b = a;
+        var lo = Math.min(a, b), hi = Math.max(a, b);
+        if (Math.round(lo * 10) === Math.round(hi * 10)) return italiaNum(hi, decimals || 0) + unit;
+        return italiaNum(lo, decimals || 0) + '-' + italiaNum(hi, decimals || 0) + unit;
+    }
+
+    function italiaFmtTemp(lo, hi) {
+        var a = Math.round(lo), b = Math.round(hi);
+        if (a === b) return b + ' \u00B0C';
+        if (a < 0) return 'da \u2212' + Math.abs(a) + ' a ' + b + ' \u00B0C';
+        return a + '-' + b + ' \u00B0C';
+    }
+
+    function italiaHourText(h) {
+        if (h === 0) return 'a mezzanotte';
+        if (h === 1) return "all'una";
+        return 'alle ' + h;
+    }
+
+    // Aggrega i punti per provincia: MASSIMO fra i punti per pioggia/tmax/raffica,
+    // MINIMO per le minime; cielo, quota neve e vento sono medie/somme vettoriali su
+    // TUTTI i punti dell'area. Fasce e ora di picco usano, per ogni provincia, il punto
+    // con la somma oraria di pioggia piu' alta (dichiarato: un punto rappresentativo,
+    // non un campo continuo).
     function buildItaliaSynthesis(points, primaryModel) {
         var t0 = (typeof performance !== 'undefined' && performance && performance.now) ? performance.now() : Date.now();
         var list = points || [];
         var accByProv = {};
         var usedPoints = 0;
-        for (var i = 0; i < list.length; i++) {
+        var i, d, h;
+        for (i = 0; i < list.length; i++) {
             var pt = list[i];
             if (!pt || pt.provinceIdx === undefined || pt.provinceIdx === null) continue;
             var rec = pt.models ? pt.models[primaryModel] : null;
@@ -27455,72 +27709,164 @@ syncSelect('lightning-source-select', [
             var acc = accByProv[pt.provinceIdx];
             if (!acc) {
                 acc = [];
-                for (var z = 0; z < 3; z++) acc.push({ precip: null, tmax: null, tmin: null, gust: null, snow: 0, conv: 0 });
+                for (var z = 0; z < 3; z++) acc.push({
+                    precip: null, tmax: null, tmin: null, gust: null,
+                    conv: 0, cloudSum: 0, cloudN: 0,
+                    cloudBandSum: [0, 0, 0, 0], cloudBandN: [0, 0, 0, 0],
+                    freezeMin: null, freezeMax: null,
+                    windU: 0, windV: 0, windW: 0,
+                    hourly: null, hourlySum: null
+                });
                 accByProv[pt.provinceIdx] = acc;
             }
-            var daily = rec.daily, hourly = rec.hourly;
-            for (var d = 0; d < 3; d++) {
+            for (d = 0; d < 3; d++) {
                 var a = d * 24, b = a + 24;
+                var daily = rec.daily, hourly = rec.hourly;
                 var pv = daily.precipitation_sum ? daily.precipitation_sum[d] : null;
                 if (pv !== null && pv !== undefined && isFinite(pv) && (acc[d].precip === null || Number(pv) > acc[d].precip)) acc[d].precip = Number(pv);
                 var tx = daily.temperature_2m_max ? daily.temperature_2m_max[d] : null;
                 if (tx !== null && tx !== undefined && isFinite(tx) && (acc[d].tmax === null || Number(tx) > acc[d].tmax)) acc[d].tmax = Number(tx);
                 var tn = daily.temperature_2m_min ? daily.temperature_2m_min[d] : null;
                 if (tn !== null && tn !== undefined && isFinite(tn) && (acc[d].tmin === null || Number(tn) < acc[d].tmin)) acc[d].tmin = Number(tn);
-                var snowH = 0, convH = 0;
-                var hg = hourly.windgusts_10m || [];
-                var hw = hourly.weathercode || [];
-                for (var h = a; h < b; h++) {
+                var convH = 0, hourSum = 0, hourSeen = false;
+                var hg = hourly.windgusts_10m || [], hw = hourly.weathercode || [];
+                for (h = a; h < b; h++) {
                     var g = hg[h];
                     if (g !== null && g !== undefined && isFinite(g) && (acc[d].gust === null || Number(g) > acc[d].gust)) acc[d].gust = Number(g);
                     var wc = hw[h];
-                    if (wc !== null && wc !== undefined) {
-                        if (ITALIA_SNOW_CODES[wc]) snowH++;
-                        if (ITALIA_CONV_CODES[wc]) convH++;
+                    var ci = italiaSkyIndex(wc);
+                    if (ci !== null) {
+                        acc[d].cloudSum += ci;
+                        acc[d].cloudN++;
+                        var bandIdx = Math.floor((h - a) / 6);
+                        if (bandIdx >= 0 && bandIdx < 4) { acc[d].cloudBandSum[bandIdx] += ci; acc[d].cloudBandN[bandIdx]++; }
+                    }
+                    if (wc !== null && wc !== undefined && ITALIA_CONV_CODES[wc]) convH++;
+                    var pr = hourly.precipitation ? hourly.precipitation[h] : null;
+                    if (pr !== null && pr !== undefined && isFinite(pr)) { hourSum += Number(pr); hourSeen = true; }
+                    var fl = hourly.freezing_level_height ? hourly.freezing_level_height[h] : null;
+                    if (fl !== null && fl !== undefined && isFinite(fl)) {
+                        if (acc[d].freezeMin === null || Number(fl) < acc[d].freezeMin) acc[d].freezeMin = Number(fl);
+                        if (acc[d].freezeMax === null || Number(fl) > acc[d].freezeMax) acc[d].freezeMax = Number(fl);
+                    }
+                    var ws = hourly.windspeed_10m ? hourly.windspeed_10m[h] : null;
+                    var wd = hourly.winddirection_10m ? hourly.winddirection_10m[h] : null;
+                    if (ws !== null && ws !== undefined && isFinite(ws) && wd !== null && wd !== undefined && isFinite(wd)) {
+                        var rad = Number(wd) * Math.PI / 180;
+                        acc[d].windU += Number(ws) * Math.sin(rad);
+                        acc[d].windV += Number(ws) * Math.cos(rad);
+                        acc[d].windW += Number(ws);
                     }
                 }
-                if (snowH > acc[d].snow) acc[d].snow = snowH;
                 if (convH > acc[d].conv) acc[d].conv = convH;
+                if (hourSeen && (acc[d].hourlySum === null || hourSum > acc[d].hourlySum)) {
+                    acc[d].hourlySum = hourSum;
+                    var series = [];
+                    for (h = a; h < b; h++) {
+                        var vv = hourly.precipitation ? hourly.precipitation[h] : null;
+                        series.push((vv !== null && vv !== undefined && isFinite(vv)) ? Number(vv) : 0);
+                    }
+                    acc[d].hourly = series;
+                }
             }
         }
         var day0 = (typeof datasetState !== 'undefined' && datasetState) ? datasetState.day0 : null;
         var days = [];
-        for (var d2 = 0; d2 < 3; d2++) {
+        var prevAreaTmax = {};
+        var prevAreaTmin = {};
+        for (d = 0; d < 3; d++) {
             var areas = [];
             for (var ai = 0; ai < ITALIA_AREAS.length; ai++) {
                 var area = ITALIA_AREAS[ai];
-                var st = { name: area.name, nData: 0, nWet: 0, nConvWet: 0, nSnow: 0, maxP: null, maxPRegion: '', maxGust: null, txMin: null, txMax: null };
+                var st = {
+                    name: area.name, nData: 0, nWet: 0, nConvWet: 0,
+                    maxP: null, maxProvIdx: null,
+                    gustMin: null, gustMax: null, gustProvIdx: null,
+                    tmin: null, tmax: null, tminProvIdx: null, tmaxProvIdx: null,
+                    cloudSum: 0, cloudN: 0, cloudBandSum: [0, 0, 0, 0], cloudBandN: [0, 0, 0, 0],
+                    freezeMin: null, freezeMax: null,
+                    windU: 0, windV: 0, windW: 0,
+                    hourly: null, bands: [0, 0, 0, 0], peakHour: null, peakVal: null,
+                    trendMax: '', trendMin: ''
+                };
+                var areaHour = null;
+                var wetP = [];
                 for (var pi in accByProv) {
                     if (!Object.prototype.hasOwnProperty.call(accByProv, pi)) continue;
                     var idx = Number(pi);
                     var region = (typeof regionsData !== 'undefined' && regionsData && regionsData[idx]) ? regionsData[idx].region : '';
                     if (!area.regions[region]) continue;
-                    var dayAcc = accByProv[pi][d2];
+                    var dayAcc = accByProv[pi][d];
                     if (dayAcc.precip !== null) {
                         st.nData++;
-                        if (st.maxP === null || dayAcc.precip > st.maxP) {
-                            st.maxP = dayAcc.precip;
-                            st.maxPRegion = region;
-                        }
+                        if (st.maxP === null || dayAcc.precip > st.maxP) { st.maxP = dayAcc.precip; st.maxProvIdx = idx; }
                         if (dayAcc.precip > ITALIA_RAIN_WET_MM) {
                             st.nWet++;
+                            wetP.push(dayAcc.precip);
                             if (dayAcc.conv > 0) st.nConvWet++;
                         }
                     }
-                    if (dayAcc.snow > 0) st.nSnow++;
-                    if (dayAcc.tmax !== null) {
-                        if (st.txMin === null || dayAcc.tmax < st.txMin) st.txMin = dayAcc.tmax;
-                        if (st.txMax === null || dayAcc.tmax > st.txMax) st.txMax = dayAcc.tmax;
+                    if (dayAcc.tmin !== null) {
+                        if (st.tmin === null || dayAcc.tmin < st.tmin) { st.tmin = dayAcc.tmin; st.tminProvIdx = idx; }
                     }
-                    if (dayAcc.gust !== null && (st.maxGust === null || dayAcc.gust > st.maxGust)) st.maxGust = dayAcc.gust;
+                    if (dayAcc.tmax !== null) {
+                        if (st.tmax === null || dayAcc.tmax > st.tmax) { st.tmax = dayAcc.tmax; st.tmaxProvIdx = idx; }
+                    }
+                    if (dayAcc.gust !== null) {
+                        if (st.gustMin === null || dayAcc.gust < st.gustMin) st.gustMin = dayAcc.gust;
+                        if (st.gustMax === null || dayAcc.gust > st.gustMax) { st.gustMax = dayAcc.gust; st.gustProvIdx = idx; }
+                    }
+                    st.cloudSum += dayAcc.cloudSum;
+                    st.cloudN += dayAcc.cloudN;
+                    for (var bb = 0; bb < 4; bb++) { st.cloudBandSum[bb] += dayAcc.cloudBandSum[bb]; st.cloudBandN[bb] += dayAcc.cloudBandN[bb]; }
+                    if (dayAcc.freezeMin !== null && (st.freezeMin === null || dayAcc.freezeMin < st.freezeMin)) st.freezeMin = dayAcc.freezeMin;
+                    if (dayAcc.freezeMax !== null && (st.freezeMax === null || dayAcc.freezeMax > st.freezeMax)) st.freezeMax = dayAcc.freezeMax;
+                    st.windU += dayAcc.windU; st.windV += dayAcc.windV; st.windW += dayAcc.windW;
+                    if (dayAcc.hourly) {
+                        if (!areaHour) { areaHour = []; for (h = 0; h < 24; h++) areaHour.push(0); }
+                        for (h = 0; h < 24; h++) areaHour[h] += dayAcc.hourly[h];
+                    }
                 }
+                st.p25Wet = italiaPercentile(wetP, 0.25);
+                st.p75Wet = italiaPercentile(wetP, 0.75);
+                st.cloudPct = st.cloudN ? (st.cloudSum / st.cloudN) * 100 / 3 : null;
+                st.skyPhrase = '';
+                if (st.cloudPct !== null) {
+                    var morningPct = st.cloudBandN[1] ? (st.cloudBandSum[1] / st.cloudBandN[1]) * 100 / 3 : null;
+                    var afternoonPct = st.cloudBandN[2] ? (st.cloudBandSum[2] / st.cloudBandN[2]) * 100 / 3 : null;
+                    if (morningPct !== null && afternoonPct !== null && morningPct - afternoonPct >= 20 && afternoonPct < 75) {
+                        st.skyPhrase = 'Cielo ' + italiaLower(italiaSkyText(morningPct)) + ' al mattino, con ampie schiarite dal pomeriggio.';
+                    } else if (morningPct !== null && afternoonPct !== null && afternoonPct - morningPct >= 20) {
+                        st.skyPhrase = 'Cielo ' + italiaLower(italiaSkyText(morningPct)) + ' al mattino, in peggioramento dal pomeriggio.';
+                    } else {
+                        st.skyPhrase = 'Cielo ' + italiaLower(italiaSkyText(st.cloudPct)) + (st.nWet === 0 ? " per l'intera giornata" : '') + '.';
+                    }
+                }
+                st.windDir = st.windW > 0 ? italiaCompass(Math.atan2(st.windU, st.windV) * 180 / Math.PI) : null;
+                st.snowMin = st.freezeMin !== null ? Math.max(0, Math.round((st.freezeMin - 500) / 100) * 100) : null;
+                st.snowMax = st.freezeMax !== null ? Math.max(0, Math.round((st.freezeMax - 500) / 100) * 100) : null;
+                if (areaHour) {
+                    for (var q = 0; q < 24; q++) {
+                        var band = Math.floor(q / 6);
+                        st.bands[band] += areaHour[q];
+                        if (st.peakVal === null || areaHour[q] > st.peakVal) { st.peakVal = areaHour[q]; st.peakHour = q; }
+                    }
+                }
+                if (prevAreaTmax[area.name] !== undefined && st.tmax !== null && prevAreaTmax[area.name] !== null) {
+                    st.trendMax = italiaTrendText(st.tmax - prevAreaTmax[area.name]);
+                }
+                if (prevAreaTmin[area.name] !== undefined && st.tmin !== null && prevAreaTmin[area.name] !== null) {
+                    st.trendMin = italiaTrendText(st.tmin - prevAreaTmin[area.name]);
+                }
+                prevAreaTmax[area.name] = st.tmax;
+                prevAreaTmin[area.name] = st.tmin;
                 st.text = italiaAreaSentence(st);
                 areas.push(st);
             }
             days.push({
-                index: d2,
-                label: ITALIA_SYNTH_DAY_LABELS[d2],
-                ddmm: italiaDayLabel(day0, d2),
+                index: d,
+                label: ITALIA_SYNTH_DAY_LABELS[d],
+                ddmm: italiaDayLabel(day0, d),
                 nProv: Object.keys(accByProv).length,
                 areas: areas
             });
@@ -27536,33 +27882,58 @@ syncSelect('lightning-source-select', [
 
     function italiaAreaSentence(st) {
         if (!st.nData || st.maxP === null) return 'dato non disponibile';
-        var s = '';
+        var parts = [];
+        if (st.skyPhrase) parts.push(st.skyPhrase);
         if (st.nWet === 0) {
-            s = 'asciutto';
+            parts.push('Nessuna precipitazione prevista.');
         } else {
-            var convShare = st.nConvWet / st.nWet;
+            var convShare = st.nWet ? st.nConvWet / st.nWet : 0;
             var kind;
-            if (convShare >= 0.5 && st.maxP > ITALIA_RAIN_DIFFUSE_MM) kind = 'rovesci';
-            else if (st.maxP > ITALIA_RAIN_INTENSE_MM) kind = 'pioggia intensa';
-            else if (st.maxP > ITALIA_RAIN_DIFFUSE_MM) kind = 'pioggia diffusa';
-            else kind = 'pioggia debole';
-            s = kind + ' in ' + st.nWet + (st.nWet === 1 ? ' provincia' : ' province') + ' su ' + st.nData;
-            if (st.maxPRegion) {
-                if (st.nWet === 1) s += ' (' + st.maxPRegion + ')';
-                else s += (kind === 'rovesci' ? ', più intensi in ' : ', più intensa in ') + st.maxPRegion;
+            if (convShare >= 0.5 && st.maxP > ITALIA_RAIN_DIFFUSE_MM) kind = 'Rovesci';
+            else if (st.maxP > ITALIA_RAIN_INTENSE_MM) kind = 'Pioggia intensa';
+            else if (st.maxP > ITALIA_RAIN_DIFFUSE_MM) kind = 'Pioggia diffusa';
+            else kind = 'Pioggia debole';
+            var dec = st.maxP >= 10 ? 0 : 1;
+            var maxPlace = italiaProvName(st.maxProvIdx);
+            var maxRegion = italiaProvRegion(st.maxProvIdx);
+            var maxTxt = 'con il massimo di ' + italiaNum(st.maxP, st.maxP >= 10 ? 0 : 1) + ' mm ' +
+                italiaA(maxPlace) + (maxRegion ? ' (' + maxRegion + ')' : '');
+            if (st.nWet === 1) {
+                parts.push(kind + ', ' + maxTxt + '.');
+            } else {
+                var range = italiaFmtRange(st.p25Wet, st.p75Wet, ' mm', dec);
+                if (range) parts.push(kind + ' ' + range + ' sulle province interessate, ' + maxTxt + '.');
+                else parts.push(kind + ', ' + maxTxt + '.');
             }
+            var bestBand = 0;
+            for (var b = 1; b < 4; b++) if (st.bands[b] > st.bands[bestBand]) bestBand = b;
+            var bandLabels = ['nella notte (0-6)', 'al mattino (6-12)', 'nel pomeriggio (12-18)', 'in serata (18-24)'];
+            parts.push('Fascia pi\u00F9 piovosa ' + bandLabels[bestBand] + ', picco ' + italiaHourText(st.peakHour) + '.');
         }
-        if (st.nSnow > 0) s += '; neve in ' + st.nSnow + (st.nSnow === 1 ? ' provincia' : ' province') + ' su ' + st.nData;
-        if (st.maxGust !== null && st.maxGust >= ITALIA_GUST_STRONG_KMH) s += '; raffiche fino a ' + Math.round(st.maxGust) + ' km/h';
-        s += '.';
-        if (st.txMin !== null && st.txMax !== null) {
-            var lo = Math.round(st.txMin), hi = Math.round(st.txMax);
-            s += ' Massime ' + (lo === hi ? hi + ' °C' : lo + '-' + hi + ' °C');
-            if (st.txMax >= ITALIA_TMAX_HOT_C) s += ', area calda';
-            else if (st.txMin <= ITALIA_TMAX_COLD_C) s += ', area fredda';
-            s += '.';
+        if (st.tmin !== null && st.tmax !== null) {
+            var t = 'Temperature ' + italiaFmtTemp(st.tmin, st.tmax);
+            if (st.nWet === 0 && st.tminProvIdx !== null && st.tmaxProvIdx !== null) {
+                t += ', con minima ' + italiaA(italiaProvName(st.tminProvIdx)) + ' e massima ' + italiaA(italiaProvName(st.tmaxProvIdx));
+            }
+            if (st.trendMax || st.trendMin) {
+                var tm = st.trendMax || 'stazionarie';
+                var tn2 = st.trendMin || 'stazionarie';
+                if (tm === 'stazionarie' && tn2 === 'stazionarie') t += ', stazionarie';
+                else t += ', massime ' + tm + ' e minime ' + tn2 + ' rispetto a ieri';
+            }
+            parts.push(t + '.');
         }
-        return s;
+        if (st.gustMax !== null) {
+            var w = 'Vento';
+            if (st.windDir) w += ' da ' + st.windDir;
+            w += ' ' + italiaGustText(st.gustMax) + ', con raffiche ' + italiaFmtRange(st.gustMin, st.gustMax, ' km/h', 0) +
+                ' e il massimo ' + italiaA(italiaProvName(st.gustProvIdx));
+            parts.push(w + '.');
+        }
+        if (st.snowMin !== null && (st.nWet > 0 || st.snowMin < 2000)) {
+            parts.push('Quota neve oltre ' + italiaFmtRange(st.snowMin, st.snowMax, ' m', 0) + '.');
+        }
+        return parts.join(' ');
     }
 
     function renderItaliaSynthesis() {
@@ -27576,7 +27947,8 @@ syncSelect('lightning-source-select', [
             return;
         }
         if (badge) {
-            badge.textContent = italiaSynthesis.provinceCount + ' province · ' + italiaSynthesis.usedPoints + ' punti reali · 5 macro-aree';
+            badge.textContent = '5 macro-aree \u00B7 punti provincia del dataset';
+            badge.title = italiaSynthesis.provinceCount + ' province, ' + italiaSynthesis.usedPoints + ' punti del payload';
         }
         var html = '';
         for (var i = 0; i < italiaSynthesis.days.length; i++) {
@@ -27584,7 +27956,9 @@ syncSelect('lightning-source-select', [
             html += '<div class="is-col">';
             html += '<div class="is-col-head">' + dd.label + (dd.ddmm ? '<span> ' + dd.ddmm + '</span>' : '') + '</div>';
             for (var j = 0; j < dd.areas.length; j++) {
-                html += '<p class="is-area"><b>' + dd.areas[j].name + ':</b> ' + dd.areas[j].text + '</p>';
+                var ar = dd.areas[j];
+                var tip = ar.nData + ' province con dato; ' + ar.nWet + ' bagnate; ' + ar.nConvWet + ' con ora convettiva; ' + ar.maxP + ' mm massimo';
+                html += '<p class="is-area" title="' + tip.replace(/"/g, '&quot;') + '"><b>' + ar.name + ':</b> ' + ar.text + '</p>';
             }
             html += '</div>';
         }
@@ -27601,17 +27975,15 @@ syncSelect('lightning-source-select', [
         }
         var di = (typeof currentDay === 'number' && currentDay >= 0 && currentDay < italiaSynthesis.days.length) ? currentDay : 0;
         var dd = italiaSynthesis.days[di];
-        var dry = [], wet = 0, total = 0;
+        var wet = [], dry = [];
         for (var i = 0; i < dd.areas.length; i++) {
-            total++;
-            if (dd.areas[i].nWet > 0) wet++;
+            if (dd.areas[i].nWet > 0) wet.push(dd.areas[i].name);
             else dry.push(dd.areas[i].name);
         }
         var s = (dd.label || 'Giorno') + (dd.ddmm ? ' (' + dd.ddmm + ')' : '') + ': ';
-        if (!total) s += 'dato non disponibile.';
-        else if (wet === 0) s += 'asciutto in tutte e ' + total + ' le aree.';
-        else if (!dry.length) s += 'pioggia in tutte e ' + total + ' le aree.';
-        else s += 'pioggia in ' + wet + ' aree su ' + total + '; aree asciutte: ' + dry.join(', ') + '.';
+        if (!wet.length) s += 'asciutto su tutte le aree.';
+        else if (!dry.length) s += 'pioggia su tutte le aree.';
+        else s += 'pioggia su ' + wet.join(', ') + '; asciutto su ' + dry.join(', ') + '.';
         el.textContent = s;
     }
 
