@@ -406,6 +406,24 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .legend-item { display: flex; align-items: center; gap: 4px; }
         .legend-color { width: 10px; height: 10px; border-radius: 50%; }
 
+        /* 1.2.4.64+Doppler - legenda radar compatta sotto la mappa.
+           Visibile SOLO quando il layer radar e' attivo (isRadarActive): il
+           display viene forzato a flex da updateRadarDopplerUI(). Nessuna
+           larghezza minima: il testo va a capo e non genera overflow. */
+        .radar-legend { display: none; flex-direction: column; align-items: flex-start; gap: 3px;
+            margin-top: 8px; padding: 8px 10px; background: rgba(15,23,42,0.78);
+            border: 1px solid #334155; border-radius: 8px; font-size: 10px;
+            line-height: 1.4; color: #cbd5e1; max-width: 100%; overflow-wrap: anywhere; }
+        .radar-legend .legend-title { font-size: 10px; font-weight: 700; color: #e2e8f0; margin-bottom: 2px; }
+        .radar-legend .legend-row { display: flex; align-items: flex-start; gap: 6px; flex-wrap: wrap; }
+        .radar-legend .doppler-swatch { flex: 0 0 24px; height: 0; margin-top: 5px;
+            border-top: 2px dashed #ff3b30; }
+        .sc-source-badge { font-size: 10px; font-weight: 700; border: 1px solid #334155;
+            border-radius: 10px; padding: 1px 8px; color: #94a3b8; white-space: nowrap; }
+        .sc-source-badge.ok { color: #86efac; border-color: #22c55e; background: rgba(34,197,94,.12); }
+        .sc-source-badge.warn { color: #fca5a5; border-color: #ef4444; background: rgba(239,68,68,.12); }
+        .sc-source-badge.partial { color: #fcd34d; border-color: #f59e0b; background: rgba(245,158,11,.12); }
+
         .hour-slider { display: flex; align-items: center; gap: 10px; justify-content: center; margin-top: 8px; font-size: 10px; color: #94a3b8; }
         .hour-slider-label { white-space: nowrap; color: #64748b; }
         .hour-slider input[type="range"] { width: 240px; accent-color: #10b981; cursor: pointer; }
@@ -1171,7 +1189,16 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             .slider-timeline { min-width: 100%; order: 6; }
             .fm-timeline-run { order: 7; flex: 1 1 100%; white-space: normal; }
             #tile-load-box { min-width: 0; }
-            #sync-caption { white-space: normal; }
+            /* 1.2.4.64+Doppler - l'inline white-space:nowrap di #sync-caption
+               (markup storico) batteva questa regola: con il player radar
+               aperto la didascalia larga 505 px portava lo scrollWidth della
+               pagina a 1073 px a 390 px di viewport. !important ripristina
+               il comportamento mobile previsto. */
+            #sync-caption { white-space: normal !important; }
+            /* Stessa classe di difetto per la riga dei selettori radar: senza
+               min-width:0 il flex item non si restringe e la riga (1063 px)
+               allarga la pagina invece di scorrere dentro se stessa. */
+            .map-toolbar-scroll { min-width: 0; max-width: 100%; width: 100%; }
 
             /* Barra riepilogo sticky: dentro la safe-area inferiore */
             #risk-summary { padding-bottom: calc(10px + var(--safe-bottom)); }
@@ -1531,6 +1558,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <option value="librewxr">LibreWXR (DPC+OPERA)</option>
             <option value="dpc">DPC Italia (WebP)</option>
         </select>
+        <button type="button" id="btn-doppler" class="tool-btn" onclick="toggleDopplerCoverage()" style="display:none; font-size:11px; flex-shrink:0;" title="Mostra o nascondi il confine della copertura Doppler (linea tratteggiata rossa): dentro il tratteggio il radar dispone di velocità radiale, fuori no">Doppler: ON</button>
         <select id="dpc-product-select" class="tool-btn" onchange="changeDpcProduct(this.value)" style="font-size:11px; display:none; flex-shrink:0">
             <option value="VMI" selected>VMI — Riflettività Max</option>
             <option value="SRI">SRI — Pioggia al Suolo</option>
@@ -1667,6 +1695,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     <div class="live-header" style="border-color:#a855f7;">
         <span style="color:#a855f7; font-size:14px;">🌀</span> <strong>STRUTTURA CONVETTIVA</strong>
         <span style="font-size:10px;color:#22c55e;font-weight:700;">EVENTI OSSERVATI (RADAR)</span>
+        <span id="sc-source-badge" class="sc-source-badge" title="Sorgente del dato radar usata dal motore">Sorgente: —</span>
         <span style="font-size:10px;color:#94a3b8;">Descrittore SOI in quasi-realtime · rotazione NON misurabile (nessun Doppler)</span>
     </div>
     <div class="live-legend" id="sc-legend">
@@ -1860,6 +1889,24 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <div id="caletta-live" style="margin-top:8px;display:none;"></div>
         </div>
         <div class="legend" id="legend-container"></div>
+        <!-- 1.2.4.64+Doppler - legenda delle fonti radar e del confine Doppler.
+             Vive sotto la mappa, nello stesso punto della legenda colori; viene
+             mostrata/nascosta da updateRadarDopplerUI() insieme al layer radar.
+             I testi delle fonti sono riempiti da renderRadarLegend() con i dati
+             reali di data/radar/latest.json e data/radar/collimation.json. -->
+        <div class="legend radar-legend" id="radar-legend" aria-live="polite">
+            <div class="legend-title">Radar — copertura Doppler e fonti</div>
+            <div class="legend-row">
+                <span class="doppler-swatch" aria-hidden="true"></span>
+                <span><b>Dentro il tratteggio rosso: Doppler disponibile</b> · fuori: solo riflettività, nessuna velocità radiale.</span>
+            </div>
+            <div class="legend-row" id="radar-legend-sources">
+                <span>Fonti: <b>DPC (Italia)</b> · <b>OPERA CIRRUS / EUMETNET</b> (fuori copertura DPC, CC BY 4.0).</span>
+            </div>
+            <div class="legend-row" id="radar-legend-opera" style="display:none;"></div>
+            <div class="legend-row" id="radar-legend-collimation" style="display:none;"></div>
+            <div class="legend-row" id="radar-legend-doppler-state" style="display:none;color:#94a3b8;"></div>
+        </div>
         <!-- Selettore ORARIO a slider sotto la mappa (sostituisce la tendina) -->
         <div class="hour-slider" id="hour-slider-wrap" style="display:none;">
             <label class="hour-slider-label" id="hour-slider-label">Scegli l'ora</label>
@@ -2284,9 +2331,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.64';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.65';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-10';
     const APP_CHANGELOG = [
+        { version: '1.2.4.65', date: '2026-11-10', changes: [
+  'DOPPLER= NUOVO TOGGLE "Doppler" NEL PLAYER RADAR, SPENTO DI DEFAULT E VISIBILE SOLO CON IL RADAR ATTIVO. Il confine viene letto da data/radar/doppler_coverage.geojson (134 poligoni, 17.051 punti, 397.313 byte) e disegnato su un pane dedicato con zIndex 405, sopra il raster radar (400) e sotto i confini amministrativi (410): 134 path SVG con stroke #ff3b30, weight 1.4, opacity 0.9, dashArray "6 4", fillOpacity 0.035 e interactive false. Il pulsante #btn-doppler mostra "Doppler: ON" oppure "Doppler: OFF" e lo stato resta al reload in localStorage (chiave meteorisk.dopplerCoverage.v1, valori "1" e "0"). Spegnendo il radar il layer sparisce e il pulsante torna nascosto. MISURE (Edge headless CDP, pagina servita in locale): 134 path con stroke-dasharray e 134 con stroke #ff3b30 a radar acceso, 0 a radar spento; ON -> OFF -> ON = 134 -> 0 -> 134; reload con preferenza OFF = 0 path, reload con preferenza ON = 134; 0 eccezioni JS e 0 console.error. Costo del primo disegno, una tantum: mediana 28,5 ms e peggior caso 53,1 ms a 1440x900, 41,1 ms a 390x844; nessun costo per frame.',
+  'FONTI RADAR= LEGENDA DELLE FONTI E BADGE SORGENTE. Sotto la mappa compare #radar-legend con le fonti effettive: DPC (Italia) e OPERA CIRRUS / EUMETNET (fuori copertura DPC, CC BY 4.0), la percentuale di dominio con eco per ciascuna, il layer visibile e lo stato della fusione. La riga del MAE mediano dichiara il valore e il metodo: mediana degli MAE per anello di distanza (11 anelli con coppie su 3 frame, 85.569 coppie totali), con la nota "Differenza fra prodotti, non un errore". Il badge #sc-source-badge nel pannello Struttura convettiva mostra la sorgente del record: "DPC + OPERA CIRRUS" (classe ok) quando latest.json ha opera.status "ok", "Solo DPC: OPERA non raggiungibile" (classe warn) quando lo stato e unavailable, con uno stato partial dedicato. MISURE: con il latest.json reale del run 2026-11-10T15:05:39Z il badge e ok e la legenda mostra DPC 4.84% e OPERA 11.33% del dominio con eco; con la fixture unavailable il badge passa a warn e la legenda dichiara solo DPC. La legenda si aggiorna al cambio frame senza richieste aggiuntive.',
+        ] },
         { version: '1.2.4.64', date: '2026-11-10', changes: [
   'GUIDA IN 30 SECONDI: PULSANTE "?" FISSO (34x34, z-index 11500, top/right 8 px) CHE APRE UN MODALE CON TRE SEZIONI. Contenuto preso dai valori del codice: sei gradini del colore province (Basso #22c55e; Lieve #a3e635 con prob. oltre 20% o 0,2-1 mm; Moderato #eab308 con prob. oltre 60% o 1-15 mm o vento oltre 25 km/h; Moderato-Alto #f97316 con 15-45 mm o vento 40-60 km/h o rovescio/temporale; Alto #ef4444 con oltre 45 mm o vento oltre 60 km/h o temporale; Convezione organizzata #a855f7 con energia e vento in quota), la distinzione fra potenziale NWP e radar osservato con la frase "Potenziale alto non significa temporale in corso", e l ordine di lettura del pannello destro in 5 passi. Chiusura con Esc, click sullo sfondo e X; focus trap; aria-modal=true. MISURE: pulsante in viewport con elementFromPoint = help-btn a 1440x900 (1398,8 34x34), 390x844 (348,8 34x34) e 360x640; zero sovrapposizioni con controlli e con i glifi dell header. Modale: 1440x900 card 680x552 senza scroll; 390x844 card 366x804, corpo 710/710 SENZA scroll e zero scroll orizzontale (364/364); 360x640 card 336x616 con 221 px di scroll interno dichiarato.',
   'TOOLTIP IN PAROLE E LEGENDE COLLASSABILI CON MEMORIA. Ogni title spiega il valore invece del nome tecnico (SOI 71 -> struttura organizzata: 71/100 su nucleo forma e persistenza, da 65 il record viene pubblicato; CAPE 140 -> energia disponibile per i temporali, fascia debole sotto 1000 J/kg). MISURE: 65 title informativi nel DOM su 78 totali, 14 chip SOI e 3 badge mappa con livello e significato, badge di rischio con livello 4 di 5 piu l origine del dato. Legende: 3 intestazioni generate (struttura convettiva, fulmini, mappe previsionali) piu le 2 esistenti (badge di rischio, previsioni/fonti), stato persistente in localStorage chiave meteorisk.legendCollapse.v1; collassata -> reload -> ancora collassata, titolo sempre visibile (32 px). Al tocco i title non esistono: tap sul badge apre un popover (340x66) con lo stesso testo e NON il modale. 0 eccezioni JS (unico 404: favicon).',
@@ -7342,6 +7393,7 @@ satSource = (_sOk.indexOf('eumetsat_italy') !== -1) ? 'eumetsat_italy'
                 btnRadar.innerText = '📡 Radar (Errore)';
                 btnRadar.style.borderColor = '#ef4444';
             }
+            updateRadarDopplerUI();
 
             // Attiva fulmini del primo source (in questa edizione disabilitato)
             isLightningActive = true;
@@ -7403,6 +7455,7 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
                 if (dpcSel2) dpcSel2.style.display = 'none';
                 toggleRadarEmbed('off');
             }
+            updateRadarDopplerUI();
 
             // Spegni fulmini
             if (isLightningActive) {
@@ -7537,6 +7590,7 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
         var dpcSel = document.getElementById('dpc-product-select');
         if (dpcSel) dpcSel.style.display = (radarProvider === 'dpc') ? '' : 'none';
         updateDpcBlend();
+        updateRadarDopplerUI();
     }
 
     // Cambia provider radar a livello di stato + dropdown (usato dal fallback).
@@ -7623,6 +7677,7 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
             if (dpcSel) dpcSel.style.display = 'none';
             toggleRadarEmbed('off');
         }
+        updateRadarDopplerUI();
         showSyncPanelIfNeeded();
         updateSyncCaption();
     }
@@ -7675,6 +7730,351 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
         });
         allRadarLayers = [];
     }
+
+    // ============ COPERTURA DOPPLER + FONTI RADAR (1.2.4.64+Doppler) ============
+    // Perche' esiste: il motore fonde DPC (dentro l'Italia) e OPERA CIRRUS
+    // (fuori), ma il client non lo diceva. Qui:
+    //  - si disegna il confine MISURATO della copertura Doppler (poligoni
+    //    data/radar/doppler_coverage.geojson) come linea tratteggiata rossa
+    //    SOLO quando il layer radar e' attivo (isRadarActive);
+    //  - la legenda dichiara le fonti effettive e, se collimation.json c'e',
+    //    il MAE mediano fra DPC e OPERA (differenza fra prodotti, non errore);
+    //  - il pannello Struttura convettiva mostra un badge con lo stato OPERA.
+    // Il layer sta su un pane dedicato z 405: sopra il radar (400), sotto i
+    // bordi amministrativi (410), quindi non nasconde confini ne' marker.
+    var DOPPLER_PREF_KEY = "meteorisk.dopplerCoverage.v1";
+    var dopplerCoverageEnabled = true;
+    try {
+        var _dopPref = localStorage.getItem(DOPPLER_PREF_KEY);
+        if (_dopPref === "0") dopplerCoverageEnabled = false;
+        else if (_dopPref === "1") dopplerCoverageEnabled = true;
+    } catch (e) { /* localStorage non disponibile: default ON */ }
+    var dopplerCoverageData = null;
+    var dopplerCoverageLayer = null;
+    var dopplerCoverageLoading = false;
+    var dopplerCoverageError = null;
+    var dopplerCoverageStats = null;
+    var radarLatestInfo = null;
+    var radarCollimation = null;
+    var radarSourcesLoading = false;
+    var radarSourcesLoadedAt = 0;
+
+    function radarDopplerActive() {
+        return (typeof isRadarActive !== "undefined") && !!isRadarActive;
+    }
+
+    function ensureDopplerPane() {
+        if (!map || typeof map.getPane !== "function") return;
+        if (!map.getPane("dopplerPane")) {
+            map.createPane("dopplerPane");
+            var pane = map.getPane("dopplerPane");
+            if (pane) {
+                pane.style.zIndex = 405;
+                pane.style.pointerEvents = "none";
+            }
+        }
+    }
+
+    function countGeoJsonPoints(geojson) {
+        var n = 0;
+        var feats = (geojson && geojson.features) || [];
+        for (var i = 0; i < feats.length; i++) {
+            var geom = feats[i] && feats[i].geometry;
+            var rings = (geom && geom.coordinates) || [];
+            for (var j = 0; j < rings.length; j++) {
+                var ring = rings[j];
+                if (ring && typeof ring.length === "number") n += ring.length;
+            }
+        }
+        return n;
+    }
+
+    function addDopplerCoverageLayer() {
+        if (!radarDopplerActive() || !dopplerCoverageEnabled) return;
+        if (!dopplerCoverageData || !map) return;
+        ensureDopplerPane();
+        var t0 = performance.now();
+        if (!dopplerCoverageLayer) {
+            dopplerCoverageLayer = L.geoJSON(dopplerCoverageData, {
+                pane: "dopplerPane",
+                interactive: false,
+                smoothFactor: 1.2,
+                style: function() {
+                    return {
+                        color: "#ff3b30",
+                        weight: 1.4,
+                        opacity: 0.9,
+                        dashArray: "6 4",
+                        lineCap: "butt",
+                        lineJoin: "round",
+                        fillColor: "#ff3b30",
+                        fillOpacity: 0.035
+                    };
+                },
+                onEachFeature: function(feature, layer) {
+                    // Difesa esplicita: il pane e l'interattivita' valgono anche
+                    // se una futura versione di Leaflet non li propagasse dal
+                    // gruppo GeoJSON ai singoli poligoni.
+                    if (layer && layer.options) {
+                        layer.options.pane = "dopplerPane";
+                        layer.options.interactive = false;
+                    }
+                }
+            });
+        }
+        var t1 = performance.now();
+        if (!map.hasLayer(dopplerCoverageLayer)) dopplerCoverageLayer.addTo(map);
+        var t2 = performance.now();
+        dopplerCoverageStats = {
+            features: (dopplerCoverageData.features || []).length,
+            points: countGeoJsonPoints(dopplerCoverageData),
+            build_ms: Math.round((t1 - t0) * 10) / 10,
+            add_ms: Math.round((t2 - t1) * 10) / 10,
+            total_ms: Math.round((t2 - t0) * 10) / 10,
+            zoom: (map.getZoom ? map.getZoom() : null),
+            at: new Date().toISOString()
+        };
+        console.log("[Doppler] confine disegnato: " + dopplerCoverageStats.features + " poligoni, " +
+            dopplerCoverageStats.points + " punti, " + dopplerCoverageStats.total_ms + " ms (build " +
+            dopplerCoverageStats.build_ms + " + add " + dopplerCoverageStats.add_ms + ")");
+        // Il layer e' a posto: toglie la riga "Caricamento..." dalla legenda
+        // (renderRadarLegend era stata chiamata quando i dati non c'erano).
+        renderRadarLegend();
+    }
+
+    function removeDopplerCoverageLayer() {
+        if (dopplerCoverageLayer && map && map.hasLayer(dopplerCoverageLayer)) {
+            try { map.removeLayer(dopplerCoverageLayer); } catch (e) {}
+        }
+    }
+
+    function ensureDopplerCoverage() {
+        if (!radarDopplerActive() || !dopplerCoverageEnabled) return;
+        if (dopplerCoverageData) {
+            addDopplerCoverageLayer();
+            return;
+        }
+        if (dopplerCoverageLoading) return;
+        dopplerCoverageLoading = true;
+        dopplerCoverageError = null;
+        fetchWithTimeout("data/radar/doppler_coverage.geojson", 15000, null)
+            .then(function(res) {
+                if (!res.ok) throw new Error("HTTP " + res.status);
+                return res.json();
+            })
+            .then(function(data) {
+                dopplerCoverageLoading = false;
+                dopplerCoverageData = data;
+                if (radarDopplerActive() && dopplerCoverageEnabled) addDopplerCoverageLayer();
+            })
+            .catch(function(e) {
+                dopplerCoverageLoading = false;
+                dopplerCoverageError = String((e && e.message) || e);
+                console.warn("[Doppler] copertura non disponibile: " + dopplerCoverageError);
+                renderRadarLegend();
+            });
+    }
+
+    function toggleDopplerCoverage() {
+        dopplerCoverageEnabled = !dopplerCoverageEnabled;
+        try { localStorage.setItem(DOPPLER_PREF_KEY, dopplerCoverageEnabled ? "1" : "0"); } catch (e) {}
+        if (dopplerCoverageEnabled) {
+            ensureDopplerCoverage();
+        } else {
+            removeDopplerCoverageLayer();
+        }
+        updateRadarDopplerUI();
+        console.log("[Doppler] confine " + (dopplerCoverageEnabled ? "ON" : "OFF") + " (preferenza salvata)");
+    }
+
+    function medianOf(values) {
+        var a = [];
+        for (var i = 0; i < values.length; i++) {
+            var v = values[i];
+            if (typeof v === "number" && isFinite(v)) a.push(v);
+        }
+        if (!a.length) return null;
+        a.sort(function(x, y) { return x - y; });
+        var mid = Math.floor(a.length / 2);
+        return (a.length % 2) ? a[mid] : (a[mid - 1] + a[mid]) / 2;
+    }
+
+    function collimationMedianMae(c) {
+        var vals = [];
+        var frames = 0;
+        var fs = (c && c.frames) || [];
+        for (var i = 0; i < fs.length; i++) {
+            frames++;
+            var rings = fs[i].rings || [];
+            for (var j = 0; j < rings.length; j++) {
+                var mae = rings[j].mae_dbz;
+                if (typeof mae === "number" && isFinite(mae)) vals.push(mae);
+            }
+        }
+        return { value: medianOf(vals), rings: vals.length, frames: frames, pairs: (c && c.n_pairs) || null };
+    }
+
+    function findRadarSource(latest, id) {
+        var arr = (latest && latest.sources) || [];
+        for (var i = 0; i < arr.length; i++) {
+            if (arr[i] && String(arr[i].id) === id) return arr[i];
+        }
+        return null;
+    }
+
+    function fmtPct(v) {
+        return (typeof v === "number" && isFinite(v)) ? (Math.round(v * 100) / 100).toFixed(2) + "%" : null;
+    }
+
+    function renderRadarLegend() {
+        var srcEl = document.getElementById("radar-legend-sources");
+        var opEl = document.getElementById("radar-legend-opera");
+        var colEl = document.getElementById("radar-legend-collimation");
+        var stateEl = document.getElementById("radar-legend-doppler-state");
+        if (!srcEl || !opEl || !colEl) return;
+        var latest = radarLatestInfo;
+        var providerLabel = "—";
+        try {
+            if (typeof RADAR_PROVIDERS !== "undefined" && RADAR_PROVIDERS[radarProvider]) {
+                providerLabel = RADAR_PROVIDERS[radarProvider].label || radarProvider;
+            }
+        } catch (e) {}
+        var srcHtml = "Fonti: <b>DPC (Italia)</b> · <b>OPERA CIRRUS / EUMETNET</b> (fuori copertura DPC, CC BY 4.0).";
+        var opHtml = "";
+        var opera = latest && latest.opera;
+        if (opera && opera.status) {
+            var st = String(opera.status);
+            if (st === "unavailable") {
+                srcHtml = "Fonti effettive: <b>solo DPC (Italia)</b> — OPERA CIRRUS non disponibile.";
+                opHtml = "<span style=\"color:#fca5a5;font-weight:700;\">Solo DPC: OPERA non raggiungibile</span>";
+                if (opera.reason) opHtml += " <span style=\"color:#94a3b8;\">(" + escapeHtml(String(opera.reason).substring(0, 140)) + ")</span>";
+            } else {
+                var dpc = findRadarSource(latest, "dpc");
+                var operaSrc = findRadarSource(latest, "opera");
+                var dpcTxt = "<b>DPC (Italia)</b>";
+                var dpcPct = dpc ? fmtPct(dpc.pct) : null;
+                if (dpcPct) dpcTxt += " — " + dpcPct + " del dominio con eco";
+                var opTxt = "<b>OPERA CIRRUS / EUMETNET</b> (fuori copertura DPC, CC BY 4.0)";
+                var opPct = operaSrc ? fmtPct(operaSrc.pct) : null;
+                if (opPct) opTxt += " — " + opPct + " del dominio con eco";
+                srcHtml = "Fonti effettive: " + dpcTxt + " · " + opTxt + ".";
+                if (st === "partial") {
+                    opHtml = "<span style=\"color:#fcd34d;font-weight:700;\">OPERA CIRRUS parziale</span> <span style=\"color:#94a3b8;\">(fusione solo su una parte dei frame)</span>";
+                } else {
+                    opHtml = "<span style=\"color:#86efac;font-weight:700;\">DPC + OPERA CIRRUS</span> <span style=\"color:#94a3b8;\">(fusione attiva)</span>";
+                }
+            }
+        } else {
+            opHtml = "<span style=\"color:#94a3b8;\">Stato OPERA non dichiarato dal dataset corrente.</span>";
+        }
+        srcEl.innerHTML = srcHtml + " <span style=\"color:#64748b;\">Layer visibile: " + escapeHtml(providerLabel) + ".</span>";
+        opEl.innerHTML = opHtml;
+        opEl.style.display = "";
+        if (radarCollimation) {
+            var m = collimationMedianMae(radarCollimation);
+            if (m.value !== null) {
+                var pairsTxt = (typeof m.pairs === "number") ? (" · " + m.pairs.toLocaleString("it-IT") + " coppie totali") : "";
+                colEl.innerHTML = "MAE mediano DPC–OPERA: <b>" + m.value.toFixed(2) + " dBZ</b> · " +
+                    "mediana degli MAE per anello di distanza (" + m.rings + " anelli con coppie su " + m.frames + " frame" + pairsTxt + "). " +
+                    "<b>Differenza fra prodotti, non un errore.</b>";
+                var lim = (radarCollimation.limits && radarCollimation.limits.length) ? radarCollimation.limits.join(" ") : "";
+                colEl.title = lim;
+                colEl.style.display = "";
+            } else {
+                colEl.style.display = "none";
+            }
+        } else {
+            colEl.style.display = "none";
+        }
+        if (stateEl) {
+            if (!dopplerCoverageEnabled) {
+                stateEl.innerText = "Confine Doppler spento (toggle \"Doppler\"): le fonti restano quelle dichiarate.";
+                stateEl.style.display = "";
+            } else if (dopplerCoverageError) {
+                stateEl.innerText = "Confine Doppler non disponibile: " + dopplerCoverageError;
+                stateEl.style.display = "";
+            } else if (!dopplerCoverageData && dopplerCoverageLoading) {
+                stateEl.innerText = "Caricamento del confine Doppler...";
+                stateEl.style.display = "";
+            } else {
+                stateEl.style.display = "none";
+            }
+        }
+    }
+
+    function updateRadarDopplerUI() {
+        var on = radarDopplerActive();
+        var btn = document.getElementById("btn-doppler");
+        if (btn) {
+            btn.style.display = on ? "" : "none";
+            btn.innerText = dopplerCoverageEnabled ? "Doppler: ON" : "Doppler: OFF";
+            btn.style.borderColor = dopplerCoverageEnabled ? "#ef4444" : "#334155";
+            btn.style.color = dopplerCoverageEnabled ? "#fca5a5" : "";
+            btn.setAttribute("aria-pressed", dopplerCoverageEnabled ? "true" : "false");
+        }
+        var legend = document.getElementById("radar-legend");
+        if (legend) legend.style.display = on ? "flex" : "none";
+        if (on) {
+            ensureRadarSourcesInfo();
+            if (dopplerCoverageEnabled) ensureDopplerCoverage();
+            else removeDopplerCoverageLayer();
+            renderRadarLegend();
+        } else {
+            removeDopplerCoverageLayer();
+        }
+    }
+
+    function updateScSourceBadge(latest) {
+        var el = document.getElementById("sc-source-badge");
+        if (!el) return;
+        var opera = latest && latest.opera;
+        if (!opera || !opera.status) {
+            el.className = "sc-source-badge";
+            el.innerText = "Sorgente: DPC (OPERA non dichiarata)";
+            el.title = "Il dataset latest.json non contiene il blocco opera: run precedente al merge DPC+OPERA.";
+            return;
+        }
+        var st = String(opera.status);
+        if (st === "unavailable") {
+            el.className = "sc-source-badge warn";
+            el.innerText = "Solo DPC: OPERA non raggiungibile";
+            el.title = "OPERA CIRRUS non disponibile" + (opera.reason ? ": " + opera.reason : "") +
+                ". Il run resta valido con la sola sorgente DPC (degrado dichiarato, non un guasto del motore).";
+        } else if (st === "partial") {
+            el.className = "sc-source-badge partial";
+            el.innerText = "DPC + OPERA CIRRUS (parziale)";
+            el.title = "Fusione DPC+OPERA eseguita solo su una parte dei frame" + (opera.reason ? ": " + opera.reason : "") + ".";
+        } else {
+            el.className = "sc-source-badge ok";
+            el.innerText = "DPC + OPERA CIRRUS";
+            el.title = "Fonti: DPC (Italia) + OPERA CIRRUS / EUMETNET (CC BY 4.0). " +
+                "Pixel fusi: " + (opera.frames_merged || 0) + " frame, " + (opera.slots_resolved || 0) + " slot risolti.";
+        }
+    }
+
+    function ensureRadarSourcesInfo() {
+        if (radarSourcesLoading) return;
+        if (radarSourcesLoadedAt && (Date.now() - radarSourcesLoadedAt) < 120000) return;
+        radarSourcesLoading = true;
+        var pLatest = fetchWithTimeout("data/radar/latest.json", 10000, null)
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .catch(function() { return null; });
+        var pColl = fetchWithTimeout("data/radar/collimation.json", 10000, null)
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .catch(function() { return null; });
+        Promise.all([pLatest, pColl]).then(function(res) {
+            radarSourcesLoading = false;
+            radarSourcesLoadedAt = Date.now();
+            if (res[0]) radarLatestInfo = res[0];
+            if (res[1]) radarCollimation = res[1];
+            renderRadarLegend();
+            updateScSourceBadge(radarLatestInfo);
+        }).catch(function() {
+            radarSourcesLoading = false;
+            radarSourcesLoadedAt = Date.now();
+        });
+    }
+
     // === Tile layer Canvas per il radar DPC: ricolorazione a SOGLIE ===
     // Il WebP VMI (e gli altri prodotti DPC) codifica l'intensità della
     // precipitazione con livelli discreti di ROSSO (canale R ~64..192, G=B=0)
@@ -9687,6 +10087,9 @@ removeLightningTile();
     function renderScRadar(payload, latest) {
         var cands = payload && Array.isArray(payload.structures) ? payload.structures : [];
         var cards = payload && payload.summary || {};
+        radarLatestInfo = latest || radarLatestInfo;
+        renderRadarLegend();
+        updateScSourceBadge(latest);
         var st = scRadarEl('sc-status');
         if (st) {
             var ts = payload.radar_timestamp || '';

@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.2.4.65 - CONFINE DI COPERTURA DOPPLER (134 POLIGONI TRATTEGGIATI, TOGGLE CON PERSISTENZA, SOLO CON RADAR ATTIVO) E LEGENDA DELLE FONTI RADAR (DPC / OPERA CIRRUS, MAE MEDIANO, BADGE SORGENTE CON CASO UNAVAILABLE) (bump da 1.2.4.64)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=65
+RELEASE_TYPE=release
+DATE=2026-11-10
+NOTE=Release 1.2.4.65 (bump da 1.2.4.64) - SOLO CLIENT. (1) CONFINE DOPPLER: nuovo pulsante #btn-doppler nel player radar, spento di default e visibile solo con il radar attivo. Il confine viene letto da data/radar/doppler_coverage.geojson (134 poligoni, 17.051 punti) e disegnato con 134 path SVG tratteggiati rossi (#ff3b30, weight 1.4, dashArray 6 4, fillOpacity 0.035, interactive false) su un pane dedicato con zIndex 405, sopra il raster radar (400) e sotto i confini amministrativi (410). Lo stato resta al reload in localStorage (chiave meteorisk.dopplerCoverage.v1, valori 1 e 0); spegnendo il radar il layer sparisce e il pulsante torna nascosto. Misure CDP: 134 path a radar acceso, 0 a radar spento, ON -> OFF -> ON = 134 -> 0 -> 134, reload con preferenza OFF = 0 e con preferenza ON = 134, 0 eccezioni JS e 0 console.error; primo disegno una tantum, mediana 28,5 ms e peggior caso 53,1 ms a 1440x900. (2) FONTI RADAR: legenda #radar-legend sotto la mappa con DPC e OPERA CIRRUS / EUMETNET (CC BY 4.0), percentuale di dominio con eco, layer visibile, stato della fusione, MAE mediano (mediana degli MAE per anello: 11 anelli, 85.569 coppie su 3 frame, valore 3.44 dBZ) con la nota che e una differenza fra prodotti e non un errore; badge #sc-source-badge nel pannello Struttura convettiva con i casi ok, partial, warn e unavailable (Solo DPC: OPERA non raggiungibile). La legenda si aggiorna al cambio frame senza richieste aggiuntive. BUMP: html mri-light-1.2.4.65.html, VERSION (BUILD=65, DATE=2026-11-10), sw.js (CACHE_NAME mri-1.2.4.65), README.md, i 26 test .mjs, le righe cp dei 3 workflow. La 1.2.4.64 va RIMOSSA dal repo. NON toccati: scripts/, workflow dei dati, color_scales.json, formule e calcoli.
+APP_FILE=mri-light-1.2.4.65.html
+
 MeteoRisk Light - 1.2.4.64 - GUIDA "?" SEMPRE VISIBILE (34x34 FISSO, MODALE A TRE SEZIONI CON I SEI LIVELLI DI COLORE, POTENZIALE NWP VS RADAR OSSERVATO, ORDINE DI LETTURA DEL PANNELLO DESTRO) E LEGENDE COLLASSABILI CON STATO IN LOCALSTORAGE (70 TITLE IN PAROLE, 14 CHIP SOI, POPOVER AL TOCCO) (bump da 1.2.4.63)
 MAJOR=1
 MINOR=2
