@@ -250,6 +250,8 @@ class Track:
             "organization_score": self.motion.get("organization_score"),
             "class_probs": self.motion.get("class_probs"),
             "velocity_kmh": self.motion.get("velocity_kmh"),
+            "motion_quality": self.motion.get("motion_quality"),
+            "motion_null_reason": self.motion.get("motion_null_reason"),
             "direction_toward_deg": self.motion.get("direction_toward_deg"),
             "direction_from_deg": self.motion.get("direction_from_deg"),
             "distance_km": self.motion.get("distance_km"),
@@ -436,6 +438,7 @@ class StormTrack:
             "median_segment_velocity_kmh":
                 self.motion.get("median_segment_velocity_kmh"),
             "velocity_valid": self.motion.get("velocity_valid"),
+            "motion_quality": self.motion.get("motion_quality"),
             "motion_status": self.motion.get("motion_status"),
             "motion_rejection_reason": self.motion.get("motion_rejection_reason"),
             "rejected_segments": self.motion.get("rejected_segments"),

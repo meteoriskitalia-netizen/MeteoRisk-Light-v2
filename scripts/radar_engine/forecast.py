@@ -42,6 +42,9 @@ _TREND_SLOPE_MAX = 1.5        # dBZ/scansione, gate trend crescita
 _DBZ_RANGE = (20.0, 75.0)     # clamp intensita' proiettata
 _MEAN_DBZ_RANGE = (10.0, 60.0)
 _SPEED_RANGE_KMH = (1.0, 110.0)  # velocita' di fit plausibile
+# Nome PUBBLICO della stessa tupla (una sola fonte, nessuna copia del valore):
+# la usa tracking.finalize per NON pubblicare una velocity_kmh fuori range.
+SPEED_RANGE_KMH = _SPEED_RANGE_KMH
 _REGION_DEFAULT_DBZ = 30.0    # media regionale se nessun punto nel bundle
 _KM_PER_DEG = 111.1949        # km per grado (sfera media IUGG)
 _ISO_FMT = "%Y-%m-%dT%H:%M:%SZ"

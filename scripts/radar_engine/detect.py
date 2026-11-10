@@ -16,6 +16,18 @@ Convective Cell Detection (Fase 1):
 Le metriche per cella sono DESCRITTORI GEOMETRICI (area, centroide, bbox, max/
 mean/p90 dBZ, eccentricità, solidity, compactness): NON vengono interpretate
 come firma di struttura in Fase 1 (niente hook-echo/mesociclone).
+
+PIXEL NON VALIDI (fix 1.2.4.64). Il closing morfologico PUO' aggiungere al
+componente pixel che non sono dato radar: le sentinelle del mosaico
+(-9999 = fuori copertura, -9998 = in copertura senza eco, v. preprocess.py)
+e, piu' raramente, valori finiti. Ogni statistica pubblicata (max/mean/p90
+dBZ) e il conteggio `pixel_count`/`area_km2` sono quindi calcolati
+sull'INTERSEZIONE fra il componente etichettato e `raster.valid_mask`: un
+pixel non valido non entra in nessuna media e non e' area della cella. Prima
+del fix una singola sentinella assorbita dal closing (1 pixel su 124)
+produceva `mean_dbz = -698.28` con `max_dbz = 44.0` (misurato il 2026-11-10
+sul frame 12:10Z). I pixel validi sotto soglia restano nel componente: sono
+dato reale e il closing li include per scelta (anti-frammentazione).
 """
 
 import numpy as np
@@ -117,12 +129,20 @@ def detect_cells(raster, cfg_detect):
     for idx in range(1, nlabels + 1):
         slc = slices[idx - 1]
         mask = lab[slc] == idx
-        pixel_area = float(mask.sum())
+        # `mask` e' la forma morfologica (serve a centroide/bbox/solidity/
+        # compactness/eccentricita'); `stats` e' la sua parte di DATO VALIDO e
+        # governa intensita', area e conteggio pixel. Un pixel con sentinella
+        # (-9999/-9998/NaN/nodata dichiarato) non e' un'eco: escluderlo e'
+        # l'unico modo per non pubblicare una media dBZ negativa.
+        stats = mask & raster.valid_mask[slc]
+        pixel_area = float(stats.sum())
+        if pixel_area <= 0.0:
+            continue                      # solo no-data: nessuna cella
         area_km2 = pixel_area * raster.pixel_area_km2
         if area_km2 < min_area or area_km2 > max_area:
             continue
 
-        values = raster.data[slc][mask]
+        values = raster.data[slc][stats]
         row_slc, col_slc = slc
         rows, cols = np.nonzero(mask)
         raster_rows = rows + row_slc.start

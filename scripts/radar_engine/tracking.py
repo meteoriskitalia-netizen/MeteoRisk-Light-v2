@@ -201,6 +201,17 @@ def _plonlat(obj):
     return getattr(obj, "centroid_lonlat", None) or obj.lonlat
 
 
+def _speed_range_kmh():
+    """(lo, hi) della velocita' PLAUSIBILE — FONTE UNICA: forecast.py.
+
+    Import locale: forecast importa questo modulo (bearing_deg/dest_from/
+    haversine_km), quindi un import a livello di modulo sarebbe circolare.
+    Nessun valore duplicato qui: se il range cambia, cambia in un posto solo.
+    """
+    from . import forecast as _forecast
+    return _forecast.SPEED_RANGE_KMH
+
+
 class Tracker:
     """Aggrega celle in track multi-frame (Hungarian per frame).
 
@@ -445,10 +456,30 @@ class Tracker:
     # -----------------------------------------------------------------------
     def finalize(self, cfg_scoring=None):
         """Calcola motion per ogni track (timestamp reali) + Organization Score
-        con la configurazione scoring INIETTATA (P0 fix) + score_confidence."""
+        con la configurazione scoring INIETTATA (P0 fix) + score_confidence.
+
+        VELOCITA' PUBBLICATA (fix 1.2.4.64). `velocity_kmh` storica era
+        distanza TOTALE del percorso / durata (path-speed): su un ID-switch o
+        un centroid jump vale centinaia o migliaia di km/h (misurato il
+        2026-11-10: 34 track su 60 oltre 110 km/h, massimo 1408.4). Il valore
+        pubblicato passa ora dal range di plausibilita' di `forecast.py`
+        (`SPEED_RANGE_KMH`, riusato: nessuna seconda costante). Fuori range ->
+        `velocity_kmh: null`, `motion_quality: "unreliable"` e
+        `motion_null_reason: "path_speed_out_of_range"`: nessun numero
+        aggiustato o clampato. `distance_km` resta la lunghezza MISURATA del
+        percorso (audit), non una velocita'.
+
+        DIREZIONE. `direction_toward_deg` e' il bearing dello spostamento
+        NETTO primo->ultimo punto, quindi si pubblica solo se e' plausibile la
+        velocita' di QUEL vettore (net speed nello stesso range): su una track
+        che torna indietro il bearing non descrive alcun moto. Quando cade, il
+        motivo e' `net_speed_out_of_range` e anche `direction_from_deg`
+        (stesso angolo +180) diventa null.
+        """
         from . import scoring
         full_frames = int(self.cfg.get("full_confidence_frames", 5))
         scfg = cfg_scoring or self.cfg_scoring or scoring._fallback_scoring()
+        lo, hi = _speed_range_kmh()
         for track in self.tracks:
             pts = track.points
             if len(pts) < 2:
@@ -463,23 +494,47 @@ class Tracker:
             t0 = pts[0].timestamp_ms
             t1 = pts[-1].timestamp_ms
             duration_min = (t1 - t0) / 60000.0
-            if duration_min <= 0:
-                continue
             dist = 0.0
             for a, b in zip(pts, pts[1:]):
                 dist += haversine_km(a.lonlat, b.lonlat)
-            vel = dist / (duration_min / 60.0)
+            if duration_min <= 0:
+                # Nessuna durata -> nessuna velocita' e nessuna direzione
+                # (la divisione per zero non si fa). La distanza geometrica
+                # resta MISURATA: non si pubblica uno zero inventato.
+                track.motion = {
+                    "distance_km": round(dist, 2),
+                    "velocity_kmh": None,
+                    "direction_toward_deg": None,
+                    "direction_from_deg": None,
+                    "motion_quality": "unreliable",
+                    "motion_null_reason": "non_positive_duration",
+                    "duration_min": round(duration_min, 1),
+                }
+                continue
+            hours = duration_min / 60.0
+            vel = dist / hours
+            net_vel = haversine_km(pts[0].lonlat, pts[-1].lonlat) / hours
             toward = bearing_deg(pts[0].lonlat, pts[-1].lonlat)
             from_deg = (toward + 180.0) % 360.0
+            velocity_ok = bool(lo <= vel <= hi)
+            direction_ok = bool(lo <= net_vel <= hi)
+            if not velocity_ok:
+                null_reason = "path_speed_out_of_range"
+            elif not direction_ok:
+                null_reason = "net_speed_out_of_range"
+            else:
+                null_reason = None
             growth = 0.0
             if pts[0].area_km2 > 0:
                 growth = (pts[-1].area_km2 - pts[0].area_km2) / pts[0].area_km2 * 100.0
             idelta = pts[-1].max_dbz - pts[0].max_dbz
             track.motion = {
                 "distance_km": round(dist, 2),
-                "velocity_kmh": round(vel, 1),
-                "direction_toward_deg": round(toward, 1),
-                "direction_from_deg": round(from_deg, 1),
+                "velocity_kmh": round(vel, 1) if velocity_ok else None,
+                "direction_toward_deg": round(toward, 1) if direction_ok else None,
+                "direction_from_deg": round(from_deg, 1) if direction_ok else None,
+                "motion_quality": "reliable" if velocity_ok else "unreliable",
+                "motion_null_reason": null_reason,
                 "duration_min": round(duration_min, 1),
                 "area_growth_pct": round(growth, 1),
                 "intensity_delta_dbz": round(idelta, 2),

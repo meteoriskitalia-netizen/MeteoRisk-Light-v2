@@ -436,6 +436,7 @@ class StormObjectTracker:
                     "net_velocity_kmh": None,
                     "median_segment_velocity_kmh": None,
                     "velocity_valid": False,
+                    "motion_quality": "unreliable",
                     "motion_status": MOTION_STATUS_NOT_ESTIMABLE,
                     "motion_rejection_reason": REASON_INSUFFICIENT_OBS,
                     "rejected_segments": 0,
@@ -472,6 +473,16 @@ class StormObjectTracker:
                     round(kin["median_segment_velocity_kmh"], 1)
                     if kin["median_segment_velocity_kmh"] is not None else None,
                 "velocity_valid": bool(assess["velocity_valid"]),
+                # Qualita' del moto PUBBLICATO, allineata alla cella layer
+                # (stesso nome di campo). Qui `velocity_kmh` e' la MEDIANA
+                # segmentale gia' filtrata dal gate cinematico calibrato
+                # (storm.motion.max_validated_velocity_kmh, 200 km/h in
+                # config, vedi validation/run_phase19.py): `motion_quality`
+                # rispecchia `velocity_valid` e NON riapplica il range di
+                # forecast.py, che vale per la path-speed grezza del layer
+                # cella (tracking.py).
+                "motion_quality": ("reliable" if assess["velocity_valid"]
+                                   else "unreliable"),
                 "motion_status": assess["motion_status"],
                 "motion_rejection_reason": assess["motion_rejection_reason"],
                 "rejected_segments": int(assess["rejected_segments"]),
