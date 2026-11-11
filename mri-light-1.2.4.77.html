@@ -1949,7 +1949,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <div class="legend-row"><span><b>Hook</b> — 0-100: quanto il nucleo ≥45 dBZ ha forma di uncino. È morfologia radar, non una diagnosi.</span></div>
         <div class="legend-row"><span><b>Strutt.V</b> — 0-100: struttura verticale dai prodotti DPC (VIL 35%, ETM 25%, POH 25%, overhang 15%).</span></div>
         <div class="legend-row"><span><b>OT</b> — 0-100: overshooting top da satellite IR_108: area di pixel a ≤ 215 K (-58 °C) che sono almeno 6,5 °C più freddi dell'anvillo a ~8 km. Indica una corrente ascensionale forte.</span></div>
-        <div class="legend-row"><span><b>Fulmini</b> — 0-100: 70% dal rate dell'ultimo slot da 5 minuti nel raggio 30 km (satura a 100 fulmini) + 30% dal salto di tendenza. "n/d" se il dato manca, con il numero di tentativi falliti.</span></div>
+        <div class="legend-row"><span><b>Fulmini</b> — area con scariche accumulate (AFA) del Lightning Imager di MTG-I (EUMETSAT) nel raggio di 30 km: «area attiva» se il frame campionato ha almeno un pixel AFA acceso, «nessuna scarica» se non ne ha. <b>Non</b> è un conteggio di fulmini: l'AFA misura l'area dell'emissione ottica. Il punteggio 0-100 resta solo quando è disponibile il vecchio feed DPC (rate dell'ultimo slot da 5 minuti, satura a 100, più la tendenza); "n/d" se nessuna delle due sorgenti risponde.</span></div>
         <div class="legend-row"><span><b>Env</b> — 0-100: ambiente previsto dal modello NWP (100·tanh(SCP/3), corretto per la completezza). È potenziale previsto dal modello.</span></div>
         <div class="legend-row"><span><b>Track</b> — identificativo del track: <b>cella #N</b> (cella convettiva) o <b>sistema #N</b> (storm object = celle vicine raggruppate dal tracking).</span></div>
         <div class="legend-row"><span><b>Pos</b> — ultima posizione del centro (latitudine/longitudine).</span></div>
@@ -2255,6 +2255,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                     • <b>MTG-I (Meteosat Third Generation)</b>: canale infrarosso termico ad alta risoluzione <code>mtg_fd:ir105_hrfi</code> (IR 10.5 μm) e Geo Colour RGB <code>mtg_fd:rgb_geocolour</code> (composito realistico giorno/notte).<br>
                     • <b>MSG (Meteosat Second Generation)</b>: Airmass RGB <code>msg_fes:rgb_airmass</code> (discriminazione masse d'aria, umidità in alta troposfera e vorticità potenziale).<br>
                     Integrazione con vista sinottica e crop ad alta definizione sull'Italia; caricamento lazy e pre-buffering. © EUMETSAT / EUMETView.</div>
+                    <div class="src-item"><b>EUMETSAT MTG Lightning Imager — AFA</b> — <a href="https://view.eumetsat.int/geoserver/wms" target="_blank" rel="noopener">EUMETView WMS</a>, layer <code>mtg_fd:li_afa</code><br>Accumulated Flash Area: area coperta dall'emissione ottica delle scariche accumulate (finestra di 30 s, passo 5 minuti, archivio dal 2025-05-30). Alimenta il campo «fulmini nell'area» di ogni cella/candidato: <b>non</b> è un conteggio di scariche (la legenda del layer non riporta valori numerici). © EUMETSAT / EUMETView — <code>AccessConstraints: none</code> dichiarato dal servizio WMS.</div>
                 </div>
             </div>
             <div class="fl-section">
@@ -10844,6 +10845,17 @@ removeLightningTile();
         return n > 0 ? (n + ' tentativi 403') : 'motivo non disponibile';
     }
 
+    // 2026-11-11: l'AFA di MTG-I (EUMETSAT) e' l'unica sorgente fulmini viva.
+    // `lightning_afa.value` e' BOOLEANO (area con scariche accumulate nel
+    // raggio), NON un conteggio: il pannello dice "area attiva"/"nessuna
+    // scarica" e non "N fulmini". null -> il motivo sta in null_reason.
+    function scLightningAfa(c) {
+        var a = c && c.lightning_afa;
+        if (!a || typeof a !== 'object') return null;
+        if (a.value !== true && a.value !== false) return null;
+        return a;
+    }
+
     // Riga moto: dichiara SEMPRE se il numero e' osservato o forecast. Se il track
     // non e' coerente non si stampa una velocita' che il cono contraddirebbe.
     // Riga moto: dichiara SEMPRE se il numero e' osservato o forecast. Se il track
@@ -10942,9 +10954,19 @@ removeLightningTile();
         var struct = scNum(c.structure);
         var ot = scNum(c.ot);
         var ltg = scNum(c.lightning);
-        var lightningTxt = (ltg !== null)
-            ? ('Fulmini ' + scFmtInt(ltg) + '/100')
-            : ('Fulmini n/d (' + scLightningAttemptsTxt() + ')');
+        var afa = scLightningAfa(c);
+        var lightningTxt;
+        if (ltg !== null) {
+            lightningTxt = 'Fulmini ' + scFmtInt(ltg) + '/100';
+        } else if (afa && afa.value === true) {
+            lightningTxt = 'Fulmini: area attiva (' + scFmtInt(afa.active_pixels) +
+                ' px AFA, ' + scFmtInt(afa.area_km2) + ' km² nel raggio ' +
+                scFmtInt(afa.radius_km) + ' km)';
+        } else if (afa) {
+            lightningTxt = 'Fulmini: nessuna scarica';
+        } else {
+            lightningTxt = 'Fulmini n/d (' + scLightningAttemptsTxt() + ')';
+        }
         var hookTxt = (hook === null) ? 'Hook n/d'
             : ('Hook ' + scFmtInt(hook) + (hook === 0 ? ' (nessun hook)' : ' (morfologia a uncino)'));
         var structTxt = (struct === null) ? 'Strutt.V n/d'
@@ -25139,7 +25161,7 @@ function renderContinuousOverlay() {
         'Hook': 'Forma a uncino del nucleo più forte (0-100): è morfologia vista dal radar.',
         'Strutt.V': 'Struttura verticale dai prodotti radar (liquido in colonna, quota della cima, probabilità di grandine, eco alta): 0-100.',
         'OT': 'Overshooting top (0-100): la cima del temporale buca l\'incudine nel satellite infrarosso. Indica una corrente ascensionale forte.',
-        'Fulmini': 'Fulmini nel raggio di 30 km nell\'ultimo intervallo di 5 minuti (100 = 100 scariche) più la tendenza: 0-100.',
+        'Fulmini': 'Area con scariche accumulate (AFA, MTG-I EUMETSAT) nel raggio di 30 km: «area attiva» o «nessuna scarica». Non è un conteggio di fulmini. Quando è disponibile il vecchio feed DPC il valore 0-100 è il rate dell\'ultimo slot da 5 minuti (100 = 100 scariche) più la tendenza.',
         'Env': 'Ambiente previsto dal modello attorno alla cella (0-100): è potenziale previsto dal modello.'
     };
     function scSoiTip(soi) {

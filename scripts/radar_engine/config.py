@@ -391,6 +391,13 @@ CONFIG = {
             "cache_grid_deg": 0.1,     # bucket = (round(lat,1), round(lon,1))
         },
         "lightning": {
+            # ATTENZIONE (2026-11-11): il vecchio feed Blitz v2 DPC e' MORTO
+            # (403 su 12/12 slot). La sorgente primaria e' il blocco "afa"
+            # qui sotto; le chiavi window_slots / max_backoff_steps /
+            # max_failed_attempts / max_unexpected_failures /
+            # publication_grace_steps / max_consecutive_failures restano solo
+            # come documentazione storica e per config esterne: main.py non le
+            # legge piu' (il vecchio feed fa UNA sonda, senza backoff).
             # Blitz v2 S3 DPC: finestra del rate in slot da 5 minuti.
             # B2: conteggio spaziale PER CANDIDATO entro radius_km (haversine)
             # con fetch dello slot in cache condiviso fra i candidati.
@@ -425,6 +432,25 @@ CONFIG = {
             # (resta come documentazione storica, non piu' letto da main.py).
             "publication_grace_steps": 9,  # = lightning.LTG_PUBLICATION_DELAY_STEPS
             "max_consecutive_failures": 3, # stop dopo 3 errori consecutivi
+            # 2026-11-11 - SORGENTE PRIMARIA: AFA di MTG-I (EUMETSAT EUMETView
+            # WMS, layer mtg_fd:li_afa). HTTP 200 senza token, archivio dal
+            # 2025-05-30, passo 5 minuti, griglia 0,01 gradi. Il vecchio feed
+            # DPC risponde 403 su 12/12 slot: resta SOLO come sonda singola
+            # (legacy_fallback) quando l'AFA non e' disponibile.
+            # MISURA: 1 richiesta per run (28 KB, decodifica 0,3 s) contro le
+            # 12 richieste 403 del vecchio percorso.
+            "afa": {
+                "enabled": True,
+                "wms_url": "https://view.eumetsat.int/geoserver/wms",
+                "layer": "mtg_fd:li_afa",
+                "bbox": [6.0, 35.0, 19.0, 48.0],   # Italia (lon/lat, CRS:84)
+                "grid_px": 1300,                   # 0,01 gradi
+                "max_backoff_steps": 3,            # 15 min indietro
+                "throttle_s": 3.0,                 # >= 3 s fra richieste
+                "timeout_s": 30,
+                "cache_dir": "data/cache/lightning_afa",
+                "legacy_fallback": True,           # vecchio feed: 1 sonda
+            },
         },
         "severe_stack": {
             # 1.2.4.17 — S1 (ambiente) + S2 (grandine) + S3 (overshooting top)

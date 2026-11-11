@@ -37,6 +37,7 @@ import radar_engine.models as models              # noqa: E402
 import radar_engine.output as eng_out             # noqa: E402
 import radar_engine.phase2.hook as hook_mod       # noqa: E402
 import radar_engine.phase2.lightning as ltg_mod   # noqa: E402
+import radar_engine.phase2.lightning_afa as afa_mod  # noqa: E402
 import radar_engine.phase2.vertical_structure as vs_mod  # noqa: E402
 
 # Griglia sintetica: lon 8..18, lat 36..46 (100 px da 0.1 gradi).
@@ -94,6 +95,17 @@ def _bundle():
     cfg = copy.deepcopy(eng.load_config())
     cfg["phase2"]["environment"]["enabled"] = False   # nessuna rete in test
     return bundle, cfg
+
+
+@pytest.fixture(autouse=True)
+def _no_afa_network(monkeypatch):
+    """2026-11-11: l'AFA EUMETSAT non esce MAI in rete nei test.
+
+    Default = sorgente non disponibile (come un guasto reale): i test che
+    vogliono il frame AFA ripatchano etch_afa con un frame sintetico."""
+    def _down(**kw):
+        raise afa_mod.AfaFetchError("afa_disabled_in_test", slot_missing=True)
+    monkeypatch.setattr("radar_engine.phase2.lightning_afa.fetch_afa", _down)
 
 
 @pytest.fixture(autouse=True)
@@ -254,7 +266,9 @@ def test_phase2_evaluate_per_candidate_no_network(monkeypatch):
     # 1.2.4.18: i CAPPI NON passano piu' da `fetch_frames` (timestamp diverso
     # dalla VMI): li scarica `fetch_cappi_set`, sostituito dal fixture autouse.
     assert fetch_calls == ["VIL", "ETM", "POH", "IR_108"]
-    assert len(ltg_calls) == 4
+    # 2026-11-11: AFA giu' (fixture autouse) -> UNA sonda sul vecchio feed,
+    # non piu' la finestra di 4 slot con backoff.
+    assert len(ltg_calls) == 1
 
     c1, c2, c3 = bundle.convective_structures
     # candidato 1 in griglia: hook + fulmini presenti, struttura/env/OT no
@@ -442,177 +456,152 @@ def test_phase2_summary_best_candidate_and_status():
     assert best["lightning"] == 70.0
 
 
-def test_lightning_backoff_stops_after_three_failed_attempts(monkeypatch):
-    """Il tetto e' configurabile: con `max_failed_attempts=3` si ferma a 3.
+# ---------------------------------------------------------------------------
+# 2026-11-11 - FULMINI: AFA EUMETSAT primaria, vecchio feed come SONDA
+# MISURA: LGT/lgt_5min_*.bin -> 403 su 12/12 slot; il vecchio percorso con
+# backoff costava fino a 12 richieste 403 per run. Con l'AFA viva il vecchio
+# endpoint non viene chiamato (0 richieste); se l'AFA e' giu' si fa UNA sonda.
+# ---------------------------------------------------------------------------
 
-    Il DEFAULT non e' 3 (dal 1.2.4.26 e' 12: la misura sulle 72h mostra che
-    43 delle 58 run con dato avevano >=3 fallimenti iniziali e con un tetto a
-    3 avrebbero perso il layer). Questo test copre la leva, non il default."""
+def _fake_afa_frame(lon=13.0, lat=41.0, active=True):
+    """Frame AFA sintetico con UN pixel attivo sul candidato (o nessuno)."""
+    n = 1 if active else 0
+    return {
+        "requested_iso": "2026-10-07T00:00:00Z",
+        "served_iso": "2026-10-07T00:00:00Z",
+        "slot_offset_min": 0,
+        "bbox": [6.0, 35.0, 19.0, 48.0], "width": 1300, "height": 1300,
+        "active_pixels": n, "area_km2": 0.9 * n, "cells_0p1": n,
+        "lon": np.array([lon] if active else []),
+        "lat": np.array([lat] if active else []),
+        "area": np.array([0.9] * n),
+        "bytes": 28, "sha256": "x" * 64, "cache_hit": False,
+        "attempts": 1,
+    }
+
+
+def test_afa_working_means_zero_calls_to_the_old_feed(monkeypatch):
+    """Sorgente nuova viva -> ZERO richieste al vecchio endpoint 403."""
     ltg_calls = []
+    afa_calls = []
 
-    def fake_fetch_frames(config, product=None, max_frames=None):
-        return [], [], None
+    def fake_afa(**kw):
+        afa_calls.append(kw)
+        return _fake_afa_frame()
 
     def fake_fetch_ltg(epoch_ms=None, **kw):
         ltg_calls.append(epoch_ms)
-        raise ltg_mod.LightningFetchError("http_403")
+        return {"strikes": [(13.0, 41.0)] * 100}
 
-    monkeypatch.setattr("radar_engine.fetch.fetch_frames", fake_fetch_frames)
+    monkeypatch.setattr("radar_engine.fetch.fetch_frames",
+                        lambda config, product=None, max_frames=None: ([], [], None))
     monkeypatch.setattr("radar_engine.phase2.lightning.fetch_ltg", fake_fetch_ltg)
+    monkeypatch.setattr("radar_engine.phase2.lightning_afa.fetch_afa", fake_afa)
 
     bundle, cfg = _bundle()
-    cfg["phase2"]["lightning"]["max_backoff_steps"] = 36
-    cfg["phase2"]["lightning"]["max_failed_attempts"] = 3
     eng._phase2_evaluate(bundle, cfg)
 
-    assert len(ltg_calls) == 3                     # 12 -> 3 richieste
-    assert any("tentativi falliti" in w and "max_failed_attempts=3" in w
-               for w in bundle.warnings)
-    assert all(c["lightning"] is None for c in bundle.convective_structures)
+    assert len(afa_calls) == 1          # UNA richiesta per run, non per cella
+    assert ltg_calls == []              # vecchio feed MAI chiamato
+    c1 = bundle.convective_structures[0]
+    assert c1["lightning"] is None      # nessun punteggio 0-100 inventato
+    assert c1["lightning_afa"]["value"] is True
+    assert c1["lightning_afa"]["active_pixels"] == 1
+    assert c1["lightning_afa"]["radius_km"] == 30.0
+    assert c1["lightning_afa"]["source"].startswith("EUMETSAT")
+    assert c1["lightning_afa"]["null_reason"] is None
+    # candidato fuori dal pixel AFA -> False (non None)
+    assert bundle.convective_structures[1]["lightning_afa"]["value"] is False
+    # candidato senza posizione -> None con motivo
+    assert bundle.convective_structures[2]["lightning_afa"]["value"] is None
+    summary = bundle.phase2["lightning_afa"]
+    assert summary["candidates_total"] == 3
+    assert summary["candidates_known"] == 2
+    assert summary["candidates_active"] == 1
+    assert summary["legacy_probe"] is None
 
 
-def test_lightning_backoff_cap_is_configurable(monkeypatch):
-    """Il tetto e' un parametro (leva di rollback), non una costante sparsa."""
+def test_afa_absent_costs_one_legacy_probe_not_twelve(monkeypatch):
+    """AFA giu' -> UNA sonda sul vecchio feed: il costo 403 va a 0 o 1."""
     ltg_calls = []
-
-    def fake_fetch_frames(config, product=None, max_frames=None):
-        return [], [], None
-
-    def fake_fetch_ltg(epoch_ms=None, **kw):
-        ltg_calls.append(epoch_ms)
-        raise ltg_mod.LightningFetchError("http_403")
-
-    monkeypatch.setattr("radar_engine.fetch.fetch_frames", fake_fetch_frames)
-    monkeypatch.setattr("radar_engine.phase2.lightning.fetch_ltg", fake_fetch_ltg)
-
-    bundle, cfg = _bundle()
-    cfg["phase2"]["lightning"]["max_failed_attempts"] = 1
-    eng._phase2_evaluate(bundle, cfg)
-    assert len(ltg_calls) == 1
-
-
-def test_lightning_backoff_finds_slot_within_the_cap(monkeypatch):
-    """Il tetto NON taglia il percorso che funziona: slot a k=2 trovato e
-    finestra di trend (4 slot) riempita; il conteggio errori si azzera a ogni
-    successo. Con il tetto a 3 uno slot a k>=3 non verrebbe cercato: e' il
-    caso coperto da test_lightning_backoff_finds_slot_at_k9."""
-    ltg_calls = []
-
-    def fake_fetch_frames(config, product=None, max_frames=None):
-        return [], [], None
-
-    def fake_fetch_ltg(epoch_ms=None, **kw):
-        ltg_calls.append(epoch_ms)
-        # i primi 2 passi non sono ancora pubblicati, dal terzo si
-        if len(ltg_calls) <= 2:
-            raise ltg_mod.LightningFetchError("http_403")
-        return {"strikes": [(13.0, 41.0)] * 10}
-
-    monkeypatch.setattr("radar_engine.fetch.fetch_frames", fake_fetch_frames)
-    monkeypatch.setattr("radar_engine.phase2.lightning.fetch_ltg", fake_fetch_ltg)
-
-    bundle, cfg = _bundle()
-    cfg["phase2"]["lightning"]["max_backoff_steps"] = 12
-    cfg["phase2"]["lightning"]["max_failed_attempts"] = 3
-    eng._phase2_evaluate(bundle, cfg)
-
-    assert len(ltg_calls) == 6       # 2 falliti + 4 slot per la finestra
-    assert any(c["lightning"] is not None
-               for c in bundle.convective_structures)
-
-
-def test_lightning_backoff_finds_slot_at_k9(monkeypatch):
-    """1.2.4.26 — lo slot pubblicato a k=9 DEVE essere trovato.
-
-    Il valore 12 di `max_failed_attempts` esiste per questo caso: la misura
-    del 2026-10-07 diede il primo slot disponibile a 9 passi (45 min di
-    ritardo di pubblicazione). Con un tetto a 3 il layer sarebbe azzerato.
-    8 risposte 403 + successo al 9o tentativo (k=8) + i 3 slot successivi per
-    completare la finestra di trend (4) = 12 richieste."""
-    ltg_calls = []
-
-    def fake_fetch_frames(config, product=None, max_frames=None):
-        return [], [], None
-
-    def fake_fetch_ltg(epoch_ms=None, **kw):
-        ltg_calls.append(epoch_ms)
-        if len(ltg_calls) <= 8:
-            exc = ltg_mod.LightningFetchError(
-                "ltg_unavailable:not_published_403", not_published=True)
-            raise exc
-        return {"strikes": [(13.0, 41.0)] * 10}
-
-    monkeypatch.setattr("radar_engine.fetch.fetch_frames", fake_fetch_frames)
-    monkeypatch.setattr("radar_engine.phase2.lightning.fetch_ltg", fake_fetch_ltg)
-
-    bundle, cfg = _bundle()
-    cfg["phase2"]["lightning"]["max_backoff_steps"] = 12
-    cfg["phase2"]["lightning"]["max_failed_attempts"] = 12
-    eng._phase2_evaluate(bundle, cfg)
-
-    assert len(ltg_calls) == 12      # 8 in 403 + 1 trovato + 3 per la finestra
-    assert not any("stop dopo" in w for w in bundle.warnings)
-    scored = [c for c in bundle.convective_structures
-              if c["lightning"] is not None]
-    assert scored, "lo slot a k=9 deve dare un punteggio ai candidati"
-
-
-def test_lightning_backoff_stops_early_on_non_403(monkeypatch):
-    """1.2.4.26 — tetto ADATTIVO: un guasto diverso da 403 ferma prima.
-
-    Un 403 significa "non ancora pubblicato" e va ritentato (fino a 12); una
-    rete rotta o un 5xx non migliora ritentando 12 volte, quindi si ferma a
-    `max_unexpected_failures` (3)."""
-    ltg_calls = []
-
-    def fake_fetch_frames(config, product=None, max_frames=None):
-        return [], [], None
-
-    def fake_fetch_ltg(epoch_ms=None, **kw):
-        ltg_calls.append(epoch_ms)
-        raise ltg_mod.LightningFetchError(
-            "ltg_unavailable:network:URLError", not_published=False)
-
-    monkeypatch.setattr("radar_engine.fetch.fetch_frames", fake_fetch_frames)
-    monkeypatch.setattr("radar_engine.phase2.lightning.fetch_ltg", fake_fetch_ltg)
-
-    bundle, cfg = _bundle()
-    cfg["phase2"]["lightning"]["max_backoff_steps"] = 12
-    cfg["phase2"]["lightning"]["max_failed_attempts"] = 12
-    cfg["phase2"]["lightning"]["max_unexpected_failures"] = 3
-    eng._phase2_evaluate(bundle, cfg)
-
-    assert len(ltg_calls) == 3
-    assert any("guasti_non_403=3" in w for w in bundle.warnings)
-    assert all(c["lightning"] is None for c in bundle.convective_structures)
-
-
-def test_lightning_all_403_costs_max_failed_requests(monkeypatch):
-    """Costo DICHIARATO della scelta: sorgente muta -> 12 richieste 403/run.
-
-    Con la sorgente viva lo scan si ferma prima (4 slot trovati). Il caso
-    tutto-403 e' il tetto, non la norma: 12 richieste piccole per non perdere
-    uno slot pubblicato in ritardo."""
-    ltg_calls = []
-
-    def fake_fetch_frames(config, product=None, max_frames=None):
-        return [], [], None
 
     def fake_fetch_ltg(epoch_ms=None, **kw):
         ltg_calls.append(epoch_ms)
         raise ltg_mod.LightningFetchError(
             "ltg_unavailable:not_published_403", not_published=True)
 
-    monkeypatch.setattr("radar_engine.fetch.fetch_frames", fake_fetch_frames)
+    monkeypatch.setattr("radar_engine.fetch.fetch_frames",
+                        lambda config, product=None, max_frames=None: ([], [], None))
     monkeypatch.setattr("radar_engine.phase2.lightning.fetch_ltg", fake_fetch_ltg)
 
     bundle, cfg = _bundle()
-    cfg["phase2"]["lightning"]["max_backoff_steps"] = 36   # clamp -> 12
-    cfg["phase2"]["lightning"]["max_failed_attempts"] = 12
     eng._phase2_evaluate(bundle, cfg)
 
-    assert len(ltg_calls) == 12
-    assert any("max_failed_attempts=12" in w for w in bundle.warnings)
+    assert len(ltg_calls) == 1          # NON 12, NON 37
+    assert any("sonda" in w and "1 richiesta" in w for w in bundle.warnings)
+    assert all(c["lightning"] is None for c in bundle.convective_structures)
+    assert all(c["lightning_afa"]["value"] is None
+               for c in bundle.convective_structures)
+    summary = bundle.phase2["lightning_afa"]
+    assert summary["candidates_active"] == 0
+    assert summary["legacy_probe"] and "not_published_403" in summary["legacy_probe"]
+    assert summary["null_reason"] == "afa_disabled_in_test"
+
+
+def test_legacy_fallback_can_be_disabled(monkeypatch):
+    """Con legacy_fallback: false il vecchio feed non viene chiamato mai."""
+    ltg_calls = []
+    monkeypatch.setattr("radar_engine.fetch.fetch_frames",
+                        lambda config, product=None, max_frames=None: ([], [], None))
+    monkeypatch.setattr("radar_engine.phase2.lightning.fetch_ltg",
+                        lambda epoch_ms=None, **kw: ltg_calls.append(epoch_ms))
+
+    bundle, cfg = _bundle()
+    cfg["phase2"]["lightning"]["afa"]["legacy_fallback"] = False
+    eng._phase2_evaluate(bundle, cfg)
+
+    assert ltg_calls == []
+    assert bundle.phase2["lightning_afa"]["legacy_probe"] is None
+
+
+def test_afa_unexpected_error_does_not_fail_the_run(monkeypatch):
+    """Guasto imprevisto della sorgente -> campo null con motivo, run vivo."""
+    def boom(**kw):
+        raise RuntimeError("servizio giu'")
+
+    monkeypatch.setattr("radar_engine.fetch.fetch_frames",
+                        lambda config, product=None, max_frames=None: ([], [], None))
+    monkeypatch.setattr("radar_engine.phase2.lightning_afa.fetch_afa", boom)
+    monkeypatch.setattr("radar_engine.phase2.lightning.fetch_ltg",
+                        lambda epoch_ms=None, **kw: {"strikes": []})
+
+    bundle, cfg = _bundle()
+    eng._phase2_evaluate(bundle, cfg)
+
+    assert bundle.phase2["lightning_afa"]["null_reason"] == \
+        "afa_failed:RuntimeError"
+    assert all(c["lightning_afa"]["value"] is None
+               for c in bundle.convective_structures)
+    assert any("AFA failed" in w for w in bundle.warnings)
+
+
+def test_afa_calm_frame_gives_false_not_null(monkeypatch):
+    """Frame senza pixel attivi -> value False ("nessuna scarica"), non null."""
+    monkeypatch.setattr("radar_engine.fetch.fetch_frames",
+                        lambda config, product=None, max_frames=None: ([], [], None))
+    monkeypatch.setattr("radar_engine.phase2.lightning.fetch_ltg",
+                        lambda epoch_ms=None, **kw: {"strikes": []})
+    monkeypatch.setattr("radar_engine.phase2.lightning_afa.fetch_afa",
+                        lambda **kw: _fake_afa_frame(active=False))
+
+    bundle, cfg = _bundle()
+    eng._phase2_evaluate(bundle, cfg)
+
+    c1 = bundle.convective_structures[0]
+    assert c1["lightning_afa"]["value"] is False
+    assert c1["lightning_afa"]["active_pixels"] == 0
+    assert bundle.phase2["lightning_afa"]["candidates_active"] == 0
+    assert bundle.phase2["lightning_afa"]["candidates_known"] == 2
 
 
 def test_severe_stack_wiring_two_cappi_levels():

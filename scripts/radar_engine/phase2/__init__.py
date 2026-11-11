@@ -13,7 +13,11 @@ Moduli:
   hook              - detection uncino (hook echo) da campo riflettivita'
   vertical_structure- strutture verticali (VIL, echo top, POH, overhang)
   environment       - indici ambientali NWP (SCP/STP/SHIP, SRH, CAPE/CIN)
-  lightning         - frame fulmini via WMS DPC + trend Gatlin
+  lightning         - vecchio feed Blitz v2 DPC (LEGACY, 403 su 12/12 slot:
+                      resta come sonda singola/fallback dichiarato)
+  lightning_afa     - fulmini da EUMETSAT MTG-I AFA (mtg_fd:li_afa): area con
+                      scariche accumulate nel raggio del candidato, NON un
+                      conteggio di scariche (sorgente primaria dal 2026-11-11)
   overshoot         - overshooting top da BTD WV-IR (WV non disponibile DPC)
   satellite_ot      - overshooting top da IR_108 DPC (proxy IRW-texture)
   aggregate         - indice v2 = combinazione pesata dei layer Fase 2

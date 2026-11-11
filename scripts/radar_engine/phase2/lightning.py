@@ -1,13 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Meteorisk Phase 2 — lightning.py (FULMINI / LTG, EXPERIMENTAL)
+Meteorisk Phase 2 — lightning.py (FULMINI / LTG — VECCHIO FEED DPC, LEGACY)
 
-Fonte fulmini DPC (lettera A0, 00_ricerca/lettera_a0.md, EVIDENZA):
+STATO 2026-11-11 — questo feed NON e' piu' la sorgente primaria.
+MISURA: `LGT/lgt_5min_*.bin` risponde **HTTP 403 AccessDenied su 12 slot su
+12**, `findLastProductByType?type=LGT` -> **404**, `downloadProduct` con
+`productType: LGT` -> **400**. In produzione `lightning` era null su 4/4
+strutture (`ltg_unavailable:not_published_403`). La sorgente primaria e' ora
+`lightning_afa.py` (EUMETSAT MTG LI "Accumulated Flash Area", HTTP 200 senza
+token, archivio dal 2025-05-30). Questo modulo resta:
+  - come DECODER del Blitz v2 (funzioni pure, test verificati);
+  - come FALLBACK dichiarato: `main._phase2_evaluate` lo interroga con UNA
+    sola sonda per run (nessun backoff) e solo se l'AFA non e' disponibile.
+Il vecchio percorso con backoff costava fino a 12 richieste 403 per run.
+
+Fonte storica DPC (lettera A0, 00_ricerca/lettera_a0.md, EVIDENZA):
   - il layer `radar:ltg*` NON ESISTE sul WMS/WMTS GeoWebCache DPC (caps =
     12 layer radar:<prodotto> senza LTG; GetMap `radar:ltg` -> HTTP 400
     "Unknown layer"): NON configurare alcun layer fulmini WMS;
-  - la fonte reale e' il file binario Blitz v2 su S3, aggiornamento 5 minuti
+  - la fonte storica e' il file binario Blitz v2 su S3, aggiornamento 5 minuti
     (documentazione DPC: LTG ogni 10 min, oggetti ogni 5 min):
         https://s3-prod-dpc-radar-webp-cache.s3.eu-south-1.amazonaws.com/
             LGT/lgt_5min_<epoch_ms>.bin
@@ -248,14 +260,13 @@ def _unfilter(raw, height, stride, bpp):
     return out
 
 
-def count_png_nontransparent(content):
-    """Conta i pixel NON trasparenti di un PNG 8-bit non interlacciato.
+def _png_parse(content):
+    """Estrae (IHDR, scanline decompresse, PLTE, tRNS) da un PNG 8-bit.
 
-    Supporta color type 0 (gray), 2 (RGB), 3 (palette), 4 (gray+alpha),
-    6 (RGBA) con eventuale tRNS. Ritorna intero >= 0. ValueError per PNG non
-    validi o non supportati (bit depth != 8, Adam7, deflate corrotto):
-    nessun conteggio inventato. Verificato sui PNG reali in 00_ricerca
-    (EUMETSAT 512x384 RGBA 8 bit; DPC 256x256 RGBA e gray+alpha 8 bit)."""
+    ValueError per PNG non validi o non supportati (firma, IHDR mancante,
+    bit depth != 8, Adam7, color type ignoto, IDAT mancante, deflate
+    corrotto): nessun pixel inventato. Parser unico condiviso da
+    count_png_nontransparent e png_alpha_mask."""
     if not isinstance(content, (bytes, bytearray)) or \
             content[:8] != _PNG_SIG:
         raise ValueError("not_a_png")
@@ -290,59 +301,109 @@ def count_png_nontransparent(content):
             break
     if ihdr is None:
         raise ValueError("png_missing_ihdr")
-    if ihdr["bit_depth"] != 8:
+    if ihdr["bit_depth"] not in (1, 2, 4, 8):
         raise ValueError(f"png_bit_depth_unsupported:{ihdr['bit_depth']}")
     if ihdr["interlace"] != 0:
         raise ValueError("png_interlaced_unsupported")
-    ct = ihdr["color_type"]
-    channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}.get(ct)
-    if channels is None:
-        raise ValueError(f"png_color_type_unsupported:{ct}")
+    if ihdr["color_type"] not in (0, 2, 3, 4, 6):
+        raise ValueError(f"png_color_type_unsupported:{ihdr['color_type']}")
+    # Sub-byte (1/2/4 bit) esistono solo a 1 canale (palette o gray): il
+    # servizio AFA restituisce cosi' il frame completamente trasparente
+    # (misurato 2026-11-11: 1-bit palette + tRNS [0,0], 2.070 byte).
+    if ihdr["bit_depth"] != 8 and ihdr["color_type"] not in (0, 3):
+        raise ValueError(
+            f"png_bit_depth_unsupported:{ihdr['bit_depth']}"
+            f"/ct{ihdr['color_type']}")
     if not idat:
         raise ValueError("png_missing_idat")
+    if ihdr["color_type"] == 3 and plte is None:
+        raise ValueError("png_missing_plte")
     try:
         raw = zlib.decompress(b"".join(idat))
     except zlib.error as exc:
         raise ValueError(f"png_zlib_error:{exc}") from exc
+    return ihdr, raw, plte, trns
 
+
+def _expand_subbyte(packed, width, height, bit_depth):
+    """Espande un canale 1/2/4 bit a 1 byte per pixel (valori grezzi).
+
+    bit_depth = 1/2/4; i pixel sono impacchettati MSB-first nella scanline.
+    Usato per i PNG a palette sub-byte (il frame AFA completamente
+    trasparente arriva cosi': 1 bit, 2 voci di palette, tRNS [0,0])."""
+    stride = (width * bit_depth + 7) // 8
+    out = bytearray(width * height)
+    maxv = (1 << bit_depth) - 1
+    for r in range(height):
+        row = packed[r * stride:(r + 1) * stride]
+        base = r * width
+        for c in range(width):
+            bitpos = c * bit_depth
+            byte = row[bitpos >> 3]
+            shift = 8 - bit_depth - (bitpos & 7)
+            out[base + c] = (byte >> shift) & maxv
+    return out
+
+
+def png_alpha_mask(content):
+    """Canale ALFA di un PNG 8-bit non interlacciato (1 byte per pixel).
+
+    Ritorna (width, height, alpha) con alpha di lunghezza width*height in
+    ordine row-major: 0 = trasparente, >0 = opaco/semitrasparente. Supporta
+    gli stessi color type di count_png_nontransparent (0, 2, 3, 4, 6 con
+    tRNS). E' la base del decoder AFA di lightning_afa (maschera dei pixel
+    con area di scariche), che ha bisogno del canale e non del solo totale."""
+    ihdr, raw, plte, trns = _png_parse(content)
     width, height = ihdr["width"], ihdr["height"]
-    stride = width * channels
-    pixels = _unfilter(raw, height, stride, channels)
-
-    count = 0
+    ct = ihdr["color_type"]
+    bd = ihdr["bit_depth"]
+    channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[ct]
+    if bd == 8:
+        stride = width * channels
+        pixels = _unfilter(raw, height, stride, channels)
+    else:
+        # 1/2/4 bit, 1 canale: bpp di filtro = 1 byte (spec PNG), poi
+        # espansione a un byte per pixel (indice di palette o gray grezzo).
+        stride = (width * bd + 7) // 8
+        packed = _unfilter(raw, height, stride, 1)
+        pixels = _expand_subbyte(packed, width, height, bd)
+    npix = width * height
     if ct == 6:                              # RGBA
-        for i in range(3, len(pixels), 4):
-            if pixels[i] != 0:
-                count += 1
-    elif ct == 4:                            # Gray + alpha
-        for i in range(1, len(pixels), 2):
-            if pixels[i] != 0:
-                count += 1
-    elif ct == 3:                            # Palette (+ tRNS)
-        if plte is None:
-            raise ValueError("png_missing_plte")
+        return width, height, bytes(pixels[3::4])
+    if ct == 4:                              # Gray + alpha
+        return width, height, bytes(pixels[1::2])
+    if ct == 3:                              # Palette (+ tRNS)
         alpha = list(trns) if trns else []
-        for idx in pixels:
-            a = alpha[idx] if idx < len(alpha) else 255
-            if a != 0:
-                count += 1
-    elif ct == 2:                            # RGB (+ tRNS colore)
-        trans = tuple(trns[:3]) if trns and len(trns) >= 3 else None
-        if trans is None:
-            count = width * height
-        else:
-            for i in range(0, len(pixels), 3):
-                if (pixels[i], pixels[i + 1], pixels[i + 2]) != trans:
-                    count += 1
-    else:                                    # ct == 0, gray (+ tRNS)
-        if trns and len(trns) >= 2:
-            trans = int.from_bytes(trns[:2], "big")
-            for g in pixels:
-                if g != trans:
-                    count += 1
-        else:
-            count = width * height
-    return int(count)
+        lut = bytes((alpha[i] if i < len(alpha) else 255) for i in range(256))
+        return width, height, bytes(pixels).translate(lut)
+    if ct == 2:                              # RGB (+ tRNS colore)
+        if trns and len(trns) >= 3:
+            trans = tuple(trns[:3])
+            out = bytearray(npix)
+            for i in range(npix):
+                j = i * 3
+                if (pixels[j], pixels[j + 1], pixels[j + 2]) != trans:
+                    out[i] = 255
+            return width, height, bytes(out)
+        return width, height, b"\xff" * npix
+    if trns and len(trns) >= 2:              # gray + tRNS
+        trans = int.from_bytes(trns[:2], "big")
+        return width, height, bytes(255 if g != trans else 0 for g in pixels)
+    return width, height, b"\xff" * npix
+
+
+def count_png_nontransparent(content):
+    """Conta i pixel NON trasparenti di un PNG 8-bit non interlacciato.
+
+    Supporta color type 0 (gray), 2 (RGB), 3 (palette), 4 (gray+alpha),
+    6 (RGBA) con eventuale tRNS. Ritorna intero >= 0. ValueError per PNG non
+    validi o non supportati (bit depth != 8, Adam7, deflate corrotto):
+    nessun conteggio inventato. Verificato sui PNG reali in 00_ricerca
+    (EUMETSAT 512x384 RGBA 8 bit; DPC 256x256 RGBA e gray+alpha 8 bit).
+    Dal 2026-11-11 e' un wrapper di png_alpha_mask (stesso parser, stessa
+    semantica: alpha > 0 = pixel non trasparente)."""
+    _w, _h, alpha = png_alpha_mask(content)
+    return int(sum(1 for a in alpha if a))
 
 
 # ---------------------------------------------------------------------------
