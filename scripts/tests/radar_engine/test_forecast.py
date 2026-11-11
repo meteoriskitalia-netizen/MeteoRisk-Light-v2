@@ -365,7 +365,9 @@ def test_schema_steps_esattamente_4():
                           "motion_blend_components", "ensemble",
                           "ensemble_basis", "ensemble_null_reason",
                           "ensemble_members", "ensemble_mean",
-                          "ensemble_spread_km"}
+                          "ensemble_spread_km",
+                          "ensemble_hypotheses",
+                          "ensemble_member_hypothesis"}
     assert block["horizon_min"] == 120
     assert block["step_min"] == 30
     assert block["method"] == "linear_weighted_haversine_decay"

@@ -582,6 +582,9 @@ _MOTION_FIELDS = (
     "motion_blend", "motion_weights", "motion_blend_components",
     "ensemble", "ensemble_basis", "ensemble_null_reason",
     "ensemble_members", "ensemble_mean", "ensemble_spread_km",
+    # Mistura di ipotesi (2026-11-11): composizione verificabile a livello
+    # record, come gli altri campi dell'ensemble.
+    "ensemble_hypotheses", "ensemble_member_hypothesis",
 )
 
 

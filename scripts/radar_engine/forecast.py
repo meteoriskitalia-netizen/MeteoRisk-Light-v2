@@ -1041,6 +1041,11 @@ def _build_with_reason(candidate_ctx, bundle):
             "motion_weights": None,
             "motion_blend_components": None,
             "ensemble": None,
+            "ensemble_members": None,
+            "ensemble_mean": None,
+            "ensemble_spread_km": None,
+            "ensemble_hypotheses": None,
+            "ensemble_member_hypothesis": None,
             "ensemble_basis": None,
             "ensemble_null_reason": "build_error",
         }
@@ -1227,7 +1232,11 @@ def build_motion(candidate_ctx, bundle):
             return {"nwp_motion": None, "nwp_motion_null_reason": "no_track",
                     "nwp_motion_detail": None, "motion_blend": None,
                     "motion_weights": None, "motion_blend_components": None,
-                    "ensemble": None, "ensemble_basis": None,
+                    "ensemble": None, "ensemble_members": None,
+                    "ensemble_mean": None, "ensemble_spread_km": None,
+                    "ensemble_hypotheses": None,
+                    "ensemble_member_hypothesis": None,
+                    "ensemble_basis": None,
                     "ensemble_null_reason": "no_track"}
         points = sorted(track.points, key=lambda p: p.timestamp_ms)
         fit = fit_motion(points)
@@ -1238,7 +1247,11 @@ def build_motion(candidate_ctx, bundle):
         return {"nwp_motion": None, "nwp_motion_null_reason": "build_error",
                 "nwp_motion_detail": None, "motion_blend": None,
                 "motion_weights": None, "motion_blend_components": None,
-                "ensemble": None, "ensemble_basis": None,
+                "ensemble": None, "ensemble_members": None,
+                "ensemble_mean": None, "ensemble_spread_km": None,
+                "ensemble_hypotheses": None,
+                "ensemble_member_hypothesis": None,
+                "ensemble_basis": None,
                 "ensemble_null_reason": "build_error"}
 
 

@@ -18,20 +18,35 @@ sui pair reali se e quanto la fusione batte l'estrapolazione pura. Il modulo:
     punti piu' vicini entro 80 km, media pesata per massa 850/700/600/500 hPa;
   * fonde osservato e NWP in ``motion_blend`` con un peso ``w`` legato
     all'affidabilita' del fit (``motion_weights``);
-  * costruisce un ENSEMBLE di 200 traiettorie perturbando velocita' e
-    direzione di ``motion_blend`` con la dispersione MISURATA (divergenza
-    osservato-NWP + errore storico del tracker) e ne pubblica 24 percorsi
-    (``ensemble_members``) in 12 coppie speculari rispetto all'asse del moto,
-    ai quantili di densita', la traiettoria media (``ensemble_mean``) e la
-    larghezza del fascio a 60/120 min
-    (``ensemble_spread_km``, std lungo/trasverso + p90 trasverso). Le
-    isolinee KDE sono state rimosse nella 1.2.4.81: il client non le ha mai
-    disegnate e pesavano ~190 KB su 4 strutture.
+  * costruisce un ENSEMBLE di 200 traiettorie come MISTURA di ipotesi
+    indipendenti sul moto (2026-11-11): ``observed`` (fit del tracker),
+    ``nwp_mean_0_6``, ``nwp_500``, ``nwp_700``, ``bunkers_rm``. Ogni ipotesi
+    ha un peso MISURATO (invarianza inversa sull'errore a 60 min) e una
+    dispersione propria (errore residuo = sqrt(errore^2 - disaccordo^2)); i
+    membri si distribuiscono fra le ipotesi in proporzione al peso (minimo 2
+    per ipotesi attiva). Pubblica 24 percorsi (``ensemble_members``), la
+    traiettoria media (``ensemble_mean``), la larghezza del fascio a 60/120
+    min (``ensemble_spread_km``) e la COMPOSIZIONE (``ensemble_hypotheses``,
+    ``ensemble_member_hypothesis``). Le isolinee KDE sono state rimosse nella
+    1.2.4.81: il client non le ha mai disegnate e pesavano ~190 KB su 4
+    strutture.
+
+PERCHE' LA MISTURA (2026-11-11). Fino alla 1.2.4.82 l'ensemble perturbava
+UNA sola ipotesi con una gaussiana isotropa su velocita' e direzione: la
+densita' era un ELLISSE per costruzione. Se le ipotesi indipendenti sono
+piu' d'una la forma deve nascere dal loro DISACCORDO. Il peso non e' scelto
+a mano: ``w_i = (1/e_i^2)`` normalizzato, con ``e_i`` l'errore RMS a 60 min
+misurato sui track reali (``HYPOTHESIS_ERROR_KM_60``, riproducibile con
+``scripts/validation/motion_mixture_bench.py``). Un'ipotesi senza misura NON
+entra nella mistura: peso 0 e motivo in ``ensemble_hypotheses``.
 
 ONESTA'. Il fascio NON e' una probabilita' calibrata: non esiste un dataset
 di verifiche etichettate per questa grandezza. ``probability_calibrated`` vale
-sempre ``false`` con motivo. La densita' delle linee e' la densita'
-dell'ensemble (200 membri gaussiani), non una frequenza osservata.
+sempre ``false`` con motivo. La densita' delle linee e' la densita' della
+MISTURA (200 membri da 5 ipotesi con peso misurato), non una frequenza
+osservata. La forma e' verificabile dai numeri pubblicati in
+``ensemble_basis.shape_60min``: rapporto area 50/90, asimmetria picco-vs-banda
+e numero di massimi locali della densita' a 60 min.
 
 DIPENDENZE. Solo stdlib + numpy (il motore ha gia' numpy). Nessun import da
 ``tracking``/``forecast`` a livello di modulo: distanza e proiezione sono
@@ -50,13 +65,19 @@ CAMPI PUBBLICATI (per record di struttura):
   ensemble_members        24 traiettorie [[lon,lat] x 5] (t=0/30/60/90/120)
   ensemble_mean           traiettoria del blend [[lon,lat] x 5]
   ensemble_spread_km      {"60": {along_std_km, cross_std_km, cross_p90_km},
-                           "120": {...}} sui 200 membri
-  ensemble_basis          distribuzione, sigma, provenienza, N, seed,
-                          selezione dei 24 membri
+                           "120": {...}} sui 200 membri della mistura
+  ensemble_hypotheses     [{name, weight, n_members, n_members_published,
+                           sigma_km_60, measured_error_km_60, active,
+                           null_reason}] - composizione verificabile
+  ensemble_member_hypothesis  24 stringhe allineate a ensemble_members
+  ensemble_basis          distribuzione, pesi, residui, forma a 60 min,
+                           provenienza, N, seed, selezione dei 24 membri
   ensemble_null_reason    motivo se l'ensemble non c'e'
 
-FILE DI COMPETENZA. Questo modulo e' nuovo e autonomo; il wiring in
-``forecast.py`` e' consegnato come patch separata (il file e' conteso).
+WIRING. `forecast.build_motion` e `forecast.build_motion_block` (dentro
+`_build`) chiamano `build_motion_block`: i campi arrivano a livello
+RECORD tramite `convective_structure._copy_motion` (chiavi in
+`_MOTION_FIELDS`) oppure restano nel blocco `forecast`.
 """
 
 import datetime as _dt
@@ -141,7 +162,99 @@ VALIDATION_REFERENCE = {
 }
 
 METHOD = "idw4_massweighted_850_500_blend_ensemble200"
-ENSEMBLE_METHOD = "gaussian_antithetic_speed_dir_members24"
+ENSEMBLE_METHOD = "mixture_hypotheses_members24"
+
+# ---------------------------------------------------------------------------
+# MISTURA DI IPOTESI DI MOTO (2026-11-11)
+# ---------------------------------------------------------------------------
+# PERCHE'. Fino alla 1.2.4.82 l'ensemble perturbava UNA sola ipotesi (il blend
+# osservato-NWP) con una gaussiana isotropa su velocita' e direzione: la
+# densita' risultante era un ELLISSE per COSTRUZIONE, non un'informazione
+# fisica. Se le ipotesi indipendenti sul moto sono piu' d'una, la forma deve
+# nascere dal loro DISACCORDO, non da una gaussiana imposta.
+#
+# Ogni ipotesi ha un centro (velocita'/direzione) e una dispersione misurata
+# a 60 min sui track storici. I membri si distribuiscono fra le ipotesi in
+# proporzione al peso; dentro ogni ipotesi si perturba con l'errore RESIDUO
+# (quello che il disaccordo fra ipotesi non spiega), non con l'errore totale.
+#
+# La scomposizione usata e' elementare e dichiarata:
+#     errore_totale_i^2 = disaccordo_i^2 + residuo_i^2
+# dove disaccordo_i = |centro_i - centro_pesato|. Se il residuo scende sotto
+# il floor, si usa il floor (altrimenti i membri di un'ipotesi coinciderebbero).
+#
+# Se una ipotesi non e' calcolabile per una struttura (NWP assente, profilo
+# incompleto, shear nullo) viene DISATTIVATA con motivo e i pesi si
+# RINORMALIZZANO sulle altre: `ensemble_hypotheses` pubblica anche le
+# ipotesi spente, cosi' la composizione e' verificabile.
+
+PROFILE_LEVELS_HPA = (1000, 975, 950, 925, 900, 850, 800, 700, 600, 500)
+LAYER_BOTTOM_HPA = 1000
+LAYER_TOP_HPA = 500
+# Bunkers et al. (2000): deviazione 7.5 m/s sulla perpendicolare allo shear.
+# Qui il modulo lavora in km/h: 7.5 m/s = 27 km/h.
+BUNKERS_DEVIATION_KMH = 27.0
+BUNKERS_MIN_SHEAR_KMH = 1.0        # shear sotto 1 km/h -> RM non definito
+
+HYPOTHESIS_ORDER = ("observed", "nwp_mean_0_6", "nwp_500", "nwp_700",
+                    "bunkers_rm")
+
+HYPOTHESIS_LABELS = {
+    "observed": "estrapolazione del fit cinematico del tracker",
+    "nwp_mean_0_6": "vento medio pesato per massa 1000-500 hPa (proxy 0-6 km)",
+    "nwp_500": "vento a 500 hPa",
+    "nwp_700": "vento a 700 hPa",
+    "bunkers_rm": "Bunkers right-moving (Bunkers et al. 2000)",
+}
+
+# Errore RMS a 60 min per ipotesi, km. RIEMPITO DALLA MISURA:
+# scripts/validation/motion_mixture_bench.py sui track reali dell'archivio
+# radar (radar-history) dentro la finestra del dataset NWP. `None` = ipotesi
+# non misurabile su questo campione -> NON usata (dichiarato).
+HYPOTHESIS_ERROR_KM_60 = {
+    "observed": 39.85,
+    "nwp_mean_0_6": 39.77,
+    "nwp_500": 49.42,
+    "nwp_700": 44.94,
+    "bunkers_rm": 43.93,
+}
+# Errore scomposto (RMS lungo e trasverso al moto vero), km a 60 min.
+HYPOTHESIS_ERROR_ALONG_KM_60 = {
+    "observed": 34.94,
+    "nwp_mean_0_6": 34.77,
+    "nwp_500": 39.45,
+    "nwp_700": 37.25,
+    "bunkers_rm": 32.71,
+}
+HYPOTHESIS_ERROR_CROSS_KM_60 = {
+    "observed": 19.18,
+    "nwp_mean_0_6": 19.30,
+    "nwp_500": 29.76,
+    "nwp_700": 25.14,
+    "bunkers_rm": 29.33,
+}
+HYPOTHESIS_MEASUREMENT = {
+    "measured_on": "2026-11-11",
+    "cases_60min": 82,
+    "source": ("radar-history (branch dati: slot 17:35-21:55Z del 2026-11-11 "
+               "con uid persistente + celle 19:40-21:45Z) incrociati con "
+               "data/latest/meteorisk-points.json (Open-Meteo, "
+               "time_base 2026-11-10T23:00Z, 72 h)"),
+    "method": ("scripts/validation/motion_mixture_bench.py: fit_motion sui "
+               "soli punti passati, 5 ipotesi alla posizione/istante "
+               "dell'origine, confronto con la posizione osservata a +60 min "
+               "(tolleranza 6 min); RMS per ipotesi sullo STESSO campione "
+               "(n=82 casi in cui tutte e 5 le ipotesi sono calcolabili)"),
+    "caveats": ("campione di UNA giornata (un pomeriggio) su 82 casi, non una "
+                "climatologia; l'archivio Open-Meteo non fornisce i livelli "
+                "di pressione (0/24 valori), quindi non esiste NWP storico "
+                "fuori dalla finestra del dataset operativo"),
+    "note": ("pesi = 1/errore^2 normalizzati (invarianza inversa); "
+             "nessun peso scelto a mano"),
+}
+HYPOTHESIS_ERROR_FLOOR_KM = 1.0    # errore 0 -> peso finito, mai infinito
+MIN_MEMBERS_PER_HYPOTHESIS = 2
+RESIDUAL_FLOOR_KM_60 = 2.0         # residuo minimo dentro una ipotesi
 
 # Cache del dataset (path, mtime, size) -> PointDataset. Una lettura per run.
 _DATASET_CACHE = {}
@@ -253,7 +366,7 @@ class PointDataset:
     """
 
     def __init__(self, path, generated_at, time_base_utc, lats, lons,
-                 wind, geo, model, n_hours, load_stats=None):
+                 wind, geo, model, n_hours, load_stats=None, profile=None):
         self.path = path
         self.generated_at = generated_at
         self.time_base_utc = time_base_utc
@@ -261,6 +374,10 @@ class PointDataset:
         self.lons = np.asarray(lons, dtype=float)
         self.wind = wind                  # livello -> (u (n,h), v (n,h))
         self.geo = geo                    # livello -> (n,h) geopotenziale
+        # Profilo completo 1000..500 hPa (2026-11-11): serve alla mistura di
+        # ipotesi (vento medio 0-6 km, 500/700 hPa, Bunkers). `wind` resta la
+        # vista 850/700/600/500 usata dallo steering storico.
+        self.profile = profile if profile is not None else dict(wind)
         self.model = model
         self.n_hours = int(n_hours)
         self.load_stats = load_stats or {}
@@ -373,23 +490,29 @@ def load_points(path=None, model="best_match", force=False):
         tzinfo=_dt.timezone.utc).timestamp()
 
     lats, lons = [], []
-    wind = {}
+    profile = {}
+    for lvl in PROFILE_LEVELS_HPA:
+        profile[lvl] = (np.full((len(points), n_hours), np.nan),
+                        np.full((len(points), n_hours), np.nan))
+    wind = {lvl: profile[lvl] for lvl, _w in LEVEL_MASS_WEIGHTS
+            if lvl in profile}
     for lvl, _w in LEVEL_MASS_WEIGHTS:
-        wind[lvl] = (np.full((len(points), n_hours), np.nan),
-                     np.full((len(points), n_hours), np.nan))
+        if lvl not in wind:
+            wind[lvl] = (np.full((len(points), n_hours), np.nan),
+                         np.full((len(points), n_hours), np.nan))
     geo = {lvl: np.full((len(points), n_hours), np.nan)
            for lvl in (850, 700, 500)}
     for i, p in enumerate(points):
         lats.append(float(p.get("lat")))
         lons.append(float(p.get("lon")))
         hourly = ((p.get("models") or {}).get(model) or {}).get("hourly") or {}
-        for lvl, _w in LEVEL_MASS_WEIGHTS:
+        for lvl in PROFILE_LEVELS_HPA:
             spd = hourly.get("wind_speed_%dhPa" % lvl)
             drc = hourly.get("wind_direction_%dhPa" % lvl)
             if not isinstance(spd, list) or not isinstance(drc, list):
                 continue
             n = min(len(spd), len(drc), n_hours)
-            u_arr, v_arr = wind[lvl]
+            u_arr, v_arr = profile[lvl]
             for h in range(n):
                 s, d = spd[h], drc[h]
                 if s is None or d is None:
@@ -420,7 +543,8 @@ def load_points(path=None, model="best_match", force=False):
         "timezone": tz,
     }
     ds = PointDataset(chosen, generated_at, time_base_utc, lats, lons, wind,
-                      geo, model, n_hours, dict(_LAST_LOAD_STATS))
+                      geo, model, n_hours, dict(_LAST_LOAD_STATS),
+                      profile=profile)
     _DATASET_CACHE[key] = ds
     return ds
 
@@ -658,6 +782,332 @@ def divergence(obs, nwp):
 
 
 # ---------------------------------------------------------------------------
+# Ipotesi indipendenti sul moto (mistura, 2026-11-11)
+# ---------------------------------------------------------------------------
+
+def _level_wind(dataset, near, idx_h, level):
+    """Vento IDW al livello (u, v) in km/h, oppure None.
+
+    Stessa formula di ``steering_for_position`` (1/(d^2+1)) ma su un solo
+    livello: serve alle ipotesi separate (500, 700) e alla media di strato.
+    """
+    entry = getattr(dataset, "profile", dataset.wind).get(level)
+    if entry is None:
+        return None
+    u_arr, v_arr = entry
+    u_acc = 0.0
+    v_acc = 0.0
+    w_sum = 0.0
+    for idx, dist in near:
+        u = u_arr[idx, idx_h]
+        v = v_arr[idx, idx_h]
+        if not np.isfinite(u) or not np.isfinite(v):
+            continue
+        w = 1.0 / (dist * dist + IDW_EPS_KM2)
+        u_acc += w * u
+        v_acc += w * v
+        w_sum += w
+    if w_sum <= 0.0:
+        return None
+    return u_acc / w_sum, v_acc / w_sum
+
+
+def layer_mean_wind(dataset, near, idx_h, bottom_hpa=LAYER_BOTTOM_HPA,
+                    top_hpa=LAYER_TOP_HPA):
+    """Vento medio pesato per MASSA fra due pressioni (trapezio su dp).
+
+    ``w_layer = p_k - p_{k+1}`` (proporzionale alla massa dello strato) e il
+    vento dello strato e' la media dei due livelli: e' la stessa formula
+    dell'integrale di massa, applicata ai livelli DICHIARATI dal dataset.
+    Ritorna (u, v, levels_used) oppure (None, None, []).
+    """
+    levels = [lvl for lvl in PROFILE_LEVELS_HPA
+              if bottom_hpa >= lvl >= top_hpa]
+    levels = sorted(levels, reverse=True)          # 1000 -> 500
+    winds = {}
+    for lvl in levels:
+        w = _level_wind(dataset, near, idx_h, lvl)
+        if w is not None:
+            winds[lvl] = w
+    if len(winds) < 2:
+        return None, None, []
+    used = sorted(winds.keys(), reverse=True)
+    u_acc = 0.0
+    v_acc = 0.0
+    w_acc = 0.0
+    for lo, hi in zip(used[:-1], used[1:]):
+        dp = float(lo - hi)
+        if dp <= 0.0:
+            continue
+        u_layer = 0.5 * (winds[lo][0] + winds[hi][0])
+        v_layer = 0.5 * (winds[lo][1] + winds[hi][1])
+        u_acc += dp * u_layer
+        v_acc += dp * v_layer
+        w_acc += dp
+    if w_acc <= 0.0:
+        return None, None, []
+    return u_acc / w_acc, v_acc / w_acc, used
+
+
+def bunkers_right_mover(mean_u, mean_v, shear_u, shear_v,
+                        deviation_kmh=BUNKERS_DEVIATION_KMH,
+                        min_shear_kmh=BUNKERS_MIN_SHEAR_KMH):
+    """Bunkers right-moving (Bunkers et al. 2000, WAF 15:61-66).
+
+    RM = V_medio + D * (shear ruotato di 90 gradi VERSO DESTRA)/|shear|,
+    D = 7.5 m/s = 27 km/h. Il vettore a destra di (su, sv) e' (sv, -su).
+    Ritorna (u, v, None) oppure (None, None, motivo).
+    """
+    shear = math.hypot(shear_u, shear_v)
+    if not math.isfinite(shear) or shear < float(min_shear_kmh):
+        return None, None, "shear_below_%g_kmh" % float(min_shear_kmh)
+    perp_u = shear_v / shear
+    perp_v = -shear_u / shear
+    return (mean_u + deviation_kmh * perp_u,
+            mean_v + deviation_kmh * perp_v, None)
+
+
+def hypothesis_motions(dataset, lon, lat, valid_ms, fit, obs=None,
+                       bunkers=None):
+    """Le ipotesi di moto calcolabili per una posizione e un istante.
+
+    Ritorna una lista di dict, UNA PER OGNI voce di HYPOTHESIS_ORDER, con
+    ``name``, ``speed_kmh``, ``direction_toward_deg``, ``source``,
+    ``reference`` e ``null_reason`` (None se l'ipotesi e' calcolabile).
+    Nessuna ipotesi inventata: se il dato manca, ``null_reason`` lo dichiara.
+    """
+    out = []
+
+    def _add(name, u, v, source, reference, null_reason=None, extra=None):
+        item = {
+            "name": name,
+            "label": HYPOTHESIS_LABELS.get(name, name),
+            "speed_kmh": None,
+            "direction_toward_deg": None,
+            "u_kmh": None,
+            "v_kmh": None,
+            "source": source,
+            "reference": reference,
+            "null_reason": null_reason,
+        }
+        if u is not None and v is not None and null_reason is None:
+            speed, direction = _speed_dir_from_uv(u, v)
+            item.update({"speed_kmh": round(speed, 3),
+                         "direction_toward_deg": round(direction, 2),
+                         "u_kmh": round(u, 3), "v_kmh": round(v, 3)})
+        if extra:
+            item.update(extra)
+        out.append(item)
+
+    # 1. observed: fit cinematico del tracker (o l'osservato passato dal
+    #    chiamante, che puo' gia' includere il gate di affidabilita').
+    src_obs = obs or {}
+    o_speed = src_obs.get("speed_kmh")
+    if o_speed is None:
+        o_speed = fit.get("velocity_kmh")
+    o_dir = src_obs.get("direction_toward_deg")
+    if o_dir is None:
+        o_dir = fit.get("direction_toward_deg")
+    o_ok = (o_speed is not None and float(o_speed) > 0.0
+            and o_dir is not None)
+    if o_ok:
+        u_o, v_o = _uv_from_speed_dir(float(o_speed), float(o_dir))
+        _add("observed", u_o, v_o,
+             "fit cinematico sui centroidi della track (forecast.fit_motion)",
+             "estrapolazione lineare pesata, TITAN/SCIT-style",
+             extra={"fit_used": bool(fit.get("fit_used")),
+                    "resid_std_km": (round(float(fit["resid_std_km"]), 2)
+                                     if fit.get("resid_std_km") is not None
+                                     else None)})
+    else:
+        _add("observed", None, None,
+             "fit cinematico sui centroidi della track",
+             "estrapolazione lineare pesata",
+             null_reason="observed_motion_missing")
+
+    # 2-4. NWP: media di strato e livelli singoli.
+    near = []
+    idx_h = None
+    if dataset is not None and valid_ms is not None:
+        near = dataset.nearest(lon, lat)
+        idx_h, _off = dataset.hour_index(valid_ms / 1000.0)
+        if idx_h is None:
+            near = []
+    if not near:
+        reason = ("dataset_unavailable" if dataset is None
+                  else "no_point_within_%dkm" % int(MAX_DIST_KM))
+        for name in ("nwp_mean_0_6", "nwp_500", "nwp_700"):
+            _add(name, None, None, "data/latest/meteorisk-points.json",
+                 "Open-Meteo, profilo di pressione", null_reason=reason)
+    else:
+        u_m, v_m, used = layer_mean_wind(dataset, near, idx_h)
+        if u_m is None:
+            _add("nwp_mean_0_6", None, None,
+                 "data/latest/meteorisk-points.json",
+                 "media pesata per massa %d-%d hPa" % (LAYER_BOTTOM_HPA,
+                                                       LAYER_TOP_HPA),
+                 null_reason="profile_incomplete_%d_%dhPa"
+                             % (LAYER_BOTTOM_HPA, LAYER_TOP_HPA))
+        else:
+            _add("nwp_mean_0_6", u_m, v_m,
+                 "data/latest/meteorisk-points.json",
+                 "media pesata per massa %d-%d hPa (livelli usati: %s)"
+                 % (LAYER_BOTTOM_HPA, LAYER_TOP_HPA,
+                    ",".join(str(x) for x in used)),
+                 extra={"levels_used_hpa": used})
+        for name, lvl in (("nwp_500", 500), ("nwp_700", 700)):
+            w = _level_wind(dataset, near, idx_h, lvl)
+            if w is None:
+                _add(name, None, None, "data/latest/meteorisk-points.json",
+                     "vento a %d hPa" % lvl,
+                     null_reason="level_%dhPa_missing" % lvl)
+            else:
+                _add(name, w[0], w[1], "data/latest/meteorisk-points.json",
+                     "vento a %d hPa, IDW %d punti" % (lvl, len(near)))
+
+    # 5. Bunkers RM. Se il chiamante ha gia' il RM della struttura
+    #    (severe_stack.bunkers) si usa QUELLO; altrimenti si deriva dal
+    #    profilo del point dataset con la formula del paper.
+    if bunkers and bunkers.get("u_kmh") is not None \
+            and bunkers.get("v_kmh") is not None:
+        _add("bunkers_rm", float(bunkers["u_kmh"]), float(bunkers["v_kmh"]),
+             "severe_stack.bunkers (right mover della struttura)",
+             "Bunkers et al. 2000, WAF 15:61-66",
+             extra={"origin": "severe_stack"})
+    elif near and idx_h is not None:
+        u_m, v_m, used = layer_mean_wind(dataset, near, idx_h)
+        low = _level_wind(dataset, near, idx_h, max(used) if used else 1000)
+        high = _level_wind(dataset, near, idx_h, min(used) if used else 500)
+        if u_m is None or low is None or high is None:
+            _add("bunkers_rm", None, None,
+                 "profilo meteorisk-points.json",
+                 "Bunkers et al. 2000", null_reason="profile_incomplete")
+        else:
+            u_rm, v_rm, why = bunkers_right_mover(
+                u_m, v_m, high[0] - low[0], high[1] - low[1])
+            _add("bunkers_rm", u_rm, v_rm,
+                 "profilo meteorisk-points.json",
+                 "Bunkers et al. 2000, WAF 15:61-66; shear V(%d)-V(%d) hPa, "
+                 "deviazione 7.5 m/s" % (min(used), max(used)),
+                 null_reason=why, extra={"origin": "profile"})
+    else:
+        _add("bunkers_rm", None, None, "profilo meteorisk-points.json",
+             "Bunkers et al. 2000", null_reason="profile_unavailable")
+    return out
+
+
+def hypothesis_weights(motions, fit_used=None, resid_std_km=None,
+                       errors=None, reliability=None):
+    """Pesi delle ipotesi ATTIVE, da errore misurato (invarianza inversa).
+
+    ``w_i = (1/e_i^2) * r_i`` normalizzato, con ``e_i`` l'errore RMS a 60 min
+    MISURATO (HYPOTHESIS_ERROR_KM_60) e ``r_i`` il fattore di affidabilita'
+    DICHIARATO dell'ipotesi ``observed`` (la regola 0.8/0.5/0.4/0.3 gia' in
+    uso). Le ipotesi senza misura NON entrano nella mistura: peso 0 e motivo.
+
+    Ritorna (weights dict name->float, detail dict con la spiegazione).
+    """
+    err = dict(HYPOTHESIS_ERROR_KM_60 if errors is None else errors)
+    if reliability is None:
+        rel, rule = weight_for_fit(fit_used, resid_std_km)
+        reliability = {"observed": rel}
+    else:
+        rule = "explicit"
+    raw = {}
+    inactive = {}
+    for m in motions:
+        name = m["name"]
+        if m.get("null_reason"):
+            inactive[name] = m["null_reason"]
+            continue
+        e = err.get(name)
+        if e is None or not math.isfinite(float(e)) or float(e) <= 0.0:
+            inactive[name] = "no_measured_error"
+            continue
+        e = max(float(e), HYPOTHESIS_ERROR_FLOOR_KM)
+        w = 1.0 / (e * e)
+        if name == "observed":
+            w *= float(reliability.get("observed", 1.0))
+        raw[name] = w
+    total = sum(raw.values())
+    weights = {k: (v / total if total > 0 else 0.0) for k, v in raw.items()}
+    detail = {
+        "rule": ("inverse_variance_1_over_error_sq, observed x fit "
+                 "reliability (%s)" % rule),
+        "errors_km_60": {k: err.get(k) for k in HYPOTHESIS_ORDER},
+        "reliability": {k: float(v) for k, v in reliability.items()},
+        "active": sorted(weights.keys()),
+        "inactive": inactive,
+        "renormalized": bool(inactive),
+        "total_raw": round(total, 6),
+    }
+    return weights, detail
+
+
+def hypothesis_residuals(motions, weights, errors_along=None,
+                         errors_cross=None):
+    """Dispersione RESIDUA dentro ogni ipotesi a 60 min (km).
+
+    ``residuo^2 = errore_totale^2 - disaccordo^2``: il disaccordo e' la
+    distanza del centro dell'ipotesi dal centro pesato della mistura a 60 min
+    (entrambi a 60 min, quindi il confronto e' diretto). Sotto
+    ``RESIDUAL_FLOOR_KM_60`` si usa il floor: un'ipotesi con errore pari al
+    solo disaccordo non ha dispersione propria misurabile.
+    """
+    ea = dict(HYPOTHESIS_ERROR_ALONG_KM_60 if errors_along is None
+              else errors_along)
+    ec = dict(HYPOTHESIS_ERROR_CROSS_KM_60 if errors_cross is None
+              else errors_cross)
+    active = [m for m in motions
+              if not m.get("null_reason") and weights.get(m["name"], 0.0) > 0]
+    if not active:
+        return {}
+    # Centro pesato della mistura a 60 min. u/v sono in km/h: a 60 min lo
+    # spostamento in km coincide numericamente con la velocita', quindi il
+    # confronto e' diretto senza conversioni.
+    cu = 0.0
+    cv = 0.0
+    for m in active:
+        w = weights[m["name"]]
+        cu += w * float(m["u_kmh"])
+        cv += w * float(m["v_kmh"])
+    out = {}
+    for m in active:
+        name = m["name"]
+        du = float(m["u_kmh"]) - cu
+        dv = float(m["v_kmh"]) - cv
+        # u/v sono km/h: a 60 min lo spostamento coincide numericamente.
+        brg = math.radians(float(m["direction_toward_deg"]))
+        ax_u, ax_v = math.sin(brg), math.cos(brg)      # asse lungo
+        cr_u, cr_v = ax_v, -ax_u                       # asse trasverso
+        dis_along = du * ax_u + dv * ax_v
+        dis_cross = du * cr_u + dv * cr_v
+        disagreement = math.hypot(du, dv)
+        e_tot = HYPOTHESIS_ERROR_KM_60.get(name)
+        e_al = ea.get(name) if ea.get(name) is not None else e_tot
+        e_cr = ec.get(name) if ec.get(name) is not None else e_tot
+        al = None
+        cr = None
+        if e_al is not None:
+            al = math.sqrt(max(float(e_al) ** 2 - dis_along ** 2,
+                               RESIDUAL_FLOOR_KM_60 ** 2))
+        if e_cr is not None:
+            cr = math.sqrt(max(float(e_cr) ** 2 - dis_cross ** 2,
+                               RESIDUAL_FLOOR_KM_60 ** 2))
+        out[name] = {
+            "disagreement_km_60": round(disagreement, 3),
+            "disagreement_along_km_60": round(dis_along, 3),
+            "disagreement_cross_km_60": round(dis_cross, 3),
+            "sigma_along_km_60": round(al, 3) if al is not None else None,
+            "sigma_cross_km_60": round(cr, 3) if cr is not None else None,
+            "sigma_km_60": (round(math.sqrt(al * al + cr * cr), 3)
+                            if al is not None and cr is not None else None),
+            "error_km_60": e_tot,
+        }
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Ensemble di traiettorie
 # ---------------------------------------------------------------------------
 
@@ -679,71 +1129,58 @@ def _ring_area_km2(ring):
     return abs(area) * 0.5
 
 
-def _select_member_indices(z1, z2, n_publish=MEMBERS_PUBLISHED):
-    """Indici dei membri ai quantili di densita', in coppie speculari.
-
-    La densita' di un membro nel piano delle perturbazioni e'
-    exp(-0.5*(z1^2+z2^2)): ordinare per r = sqrt(z1^2+z2^2) equivale a
-    ordinare per densita' decrescente.
-
-    Si prendono ``n_publish/2`` quantili uniformi del rango di r e per
-    ciascuno una COPPIA (i, j) con j il membro piu' vicino al riflesso di i
-    rispetto all'asse del moto, (z1, -z2). La coppia e' simmetrica per
-    costruzione, quindi il fascio non ha un lato piu' popolato dell'altro:
-    l'asse lungo resta la direzione del moto (misurato: delta <= 5,3 gradi
-    su 11 strutture reali) invece di inclinarsi per il campionamento di 24
-    punti. Sono membri REALI dell'ensemble da 200: nessuna traiettoria
-    inventata. Deterministico (seed dell'ensemble).
-    """
-    z1 = np.asarray(z1, dtype=float)
-    z2 = np.asarray(z2, dtype=float)
-    n = int(z1.size)
-    if n == 0:
+def _quantile_indices(values, k):
+    """``k`` indici ai quantili uniformi del rango di ``values`` (deterministico)."""
+    values = np.asarray(values, dtype=float)
+    n = int(values.size)
+    if n == 0 or k <= 0:
         return []
-    count = min(int(n_publish), n)
-    if count % 2 != 0 or count < 2:
-        # Fallback (non usato con 24): quantili semplici del rango di r.
-        r = np.hypot(z1, z2)
-        order = np.argsort(r, kind="stable")
-        out = []
-        for k in range(count):
-            pos = int(round(((k + 0.5) / count) * (n - 1)))
-            pos = max(0, min(n - 1, pos))
-            out.append(int(order[pos]))
-        return out
-
-    pts = np.column_stack([z1, z2])
-    target = np.column_stack([z1, -z2])
-    dist2 = ((pts[None, :, :] - target[:, None, :]) ** 2).sum(axis=2)
-    nearest = np.argmin(dist2, axis=1)
-    pairs = {}
-    for i in range(n):
-        j = int(nearest[i])
-        a, b = (i, j) if i <= j else (j, i)
-        if a == b:
-            continue
-        r = 0.5 * (math.hypot(z1[a], z2[a]) + math.hypot(z1[b], z2[b]))
-        key = (a, b)
-        if key not in pairs or r < pairs[key]:
-            pairs[key] = r
-    ordered = sorted(pairs.items(), key=lambda kv: (kv[1], kv[0]))
-    need = count // 2
-    if len(ordered) < need:
-        # Ensemble troppo piccolo per le coppie: quantili semplici.
-        r = np.hypot(z1, z2)
-        order = np.argsort(r, kind="stable")
-        out = []
-        for k in range(count):
-            pos = int(round(((k + 0.5) / count) * (n - 1)))
-            pos = max(0, min(n - 1, pos))
-            out.append(int(order[pos]))
-        return out
+    order = np.argsort(values, kind="stable")
     out = []
-    for k in range(need):
-        pos = int(round(((k + 0.5) / need) * (len(ordered) - 1)))
-        a, b = ordered[pos][0]
-        out.extend([int(a), int(b)])
-    return out
+    for j in range(int(k)):
+        pos = int(round(((j + 0.5) / float(k)) * (n - 1)))
+        pos = max(0, min(n - 1, pos))
+        idx = int(order[pos])
+        if idx not in out:
+            out.append(idx)
+    # Se i quantili cadono sullo stesso indice (k > n) completa in ordine.
+    for idx in order.tolist():
+        if len(out) >= min(k, n):
+            break
+        if idx not in out:
+            out.append(int(idx))
+    return out[:min(k, n)]
+
+
+def allocate_members(weights, total, minimum=MIN_MEMBERS_PER_HYPOTHESIS):
+    """Ripartizione intera dei membri in proporzione ai pesi.
+
+    ``minimum`` membri per OGNI ipotesi con peso > 0 (il brief: minimo 2 per
+    ipotesi attiva), poi il resto ai piu' grandi remainder. Se ``total`` non
+    basta per il minimo, il minimo scende a 1 e si dichiara (nessuna
+    allocazione impossibile).
+    """
+    items = [(k, float(v)) for k, v in weights.items() if float(v) > 0.0]
+    if not items or total <= 0:
+        return {}
+    items.sort(key=lambda kv: (-kv[1], kv[0]))
+    minimum = max(int(minimum), 1)
+    if total < minimum * len(items):
+        minimum = max(1, total // len(items))
+    alloc = {k: minimum for k, _ in items}
+    rest = int(total) - minimum * len(items)
+    if rest > 0:
+        tot_w = sum(v for _, v in items)
+        raw = {k: rest * (v / tot_w) for k, v in items}
+        for k in raw:
+            alloc[k] += int(math.floor(raw[k]))
+        short = int(total) - sum(alloc.values())
+        if short > 0:
+            order = sorted(raw.keys(),
+                           key=lambda k: (-(raw[k] - math.floor(raw[k])), k))
+            for k in order[:short]:
+                alloc[k] += 1
+    return alloc
 
 
 def _path(start_lonlat, speed_kmh, direction_deg, offsets=ENSEMBLE_OFFSETS_MIN):
@@ -756,6 +1193,128 @@ def _path(start_lonlat, speed_kmh, direction_deg, offsets=ENSEMBLE_OFFSETS_MIN):
         path.append([round(float(lon), MEMBER_DECIMALS),
                      round(float(lat), MEMBER_DECIMALS)])
     return path
+
+
+def mixture_density_grid(hypotheses, offset_min=60.0, cell_km=0.5,
+                         max_extent_km=300.0):
+    """Densita' ANALITICA della mistura su una griglia locale in km.
+
+    Ogni ipotesi e' una gaussiana 2D con centro ``velocita' * offset/60``
+    (km) e covarianza diagonale negli assi lungo/trasverso, con sigma che
+    cresce linearmente col tempo: ``sigma(offset) = sigma_km_60 * offset/60``.
+    La densita' della mistura e' la somma pesata delle gaussiane.
+
+    Serve a misurare la FORMA (area 50/90, asimmetria, multi-modalita') senza
+    il rumore di campionamento dei 24 membri pubblicati: e' il modello che i
+    membri rappresentano, non una sua stima.
+
+    Ritorna dict con ``grid`` (2D), ``x0``, ``y0``, ``cell_km`` oppure None.
+    """
+    act = [h for h in hypotheses
+           if not h.get("null_reason") and h.get("speed_kmh") is not None
+           and float(h.get("weight") or 0.0) > 0.0]
+    if not act:
+        return None
+    scale = float(offset_min) / 60.0
+    centres = []
+    sigmas = []
+    weights = []
+    for h in act:
+        brg = math.radians(float(h["direction_toward_deg"]))
+        d = float(h["speed_kmh"]) * scale
+        centres.append((d * math.sin(brg), d * math.cos(brg)))
+        sal = float(h.get("sigma_along_km_60") or 0.0) * scale
+        scr = float(h.get("sigma_cross_km_60") or 0.0) * scale
+        sigmas.append((max(sal, 0.5), max(scr, 0.5), brg))
+        weights.append(float(h["weight"]))
+    tot_w = sum(weights)
+    weights = [w / tot_w for w in weights]
+
+    xs = [c[0] for c in centres]
+    ys = [c[1] for c in centres]
+    max_sig = max(max(s[0], s[1]) for s in sigmas)
+    pad = max(3.0 * max_sig, 10.0)
+    x_lo = min(xs) - pad
+    x_hi = max(xs) + pad
+    y_lo = min(ys) - pad
+    y_hi = max(ys) + pad
+    # cap sull'estensione: la griglia non deve esplodere
+    x_lo = max(x_lo, -max_extent_km)
+    x_hi = min(x_hi, max_extent_km)
+    y_lo = max(y_lo, -max_extent_km)
+    y_hi = min(y_hi, max_extent_km)
+    nx = max(int(round((x_hi - x_lo) / cell_km)) + 1, 3)
+    ny = max(int(round((y_hi - y_lo) / cell_km)) + 1, 3)
+    if nx * ny > 4_000_000:
+        cell_km = cell_km * math.sqrt(nx * ny / 4_000_000.0)
+        nx = max(int(round((x_hi - x_lo) / cell_km)) + 1, 3)
+        ny = max(int(round((y_hi - y_lo) / cell_km)) + 1, 3)
+    gx = x_lo + np.arange(nx) * cell_km
+    gy = y_lo + np.arange(ny) * cell_km
+    grid = np.zeros((ny, nx))
+    for (cx, cy), (sal, scr, brg), w in zip(centres, sigmas, weights):
+        dx = gx[None, :] - cx
+        dy = gy[:, None] - cy
+        ax = math.sin(brg)
+        ay = math.cos(brg)
+        along = dx * ax + dy * ay
+        cross = dx * ay - dy * ax
+        grid += w * np.exp(-0.5 * ((along / sal) ** 2
+                                   + (cross / scr) ** 2)) / (
+            2.0 * math.pi * sal * scr)
+    return {"grid": grid, "x0": x_lo, "y0": y_lo, "cell_km": cell_km,
+            "centres": centres, "weights": weights}
+
+
+def density_shape_metrics(hypotheses, offset_min=60.0, cell_km=0.5):
+    """Forma della densita' della mistura a ``offset_min`` (numeri, non stime).
+
+    Ritorna:
+      ``area_ratio_50_90``  area del level set 50% / area del 90% (una
+                            gaussiana 2D isotropa vale ln2/ln10 = 0.301);
+      ``peak_km``           posizione del massimo di densita' (km dal punto di
+                            partenza, x est / y nord);
+      ``band90_centre_km``  centroide della regione 90%;
+      ``asymmetry_km``      distanza fra picco e centroide della banda 90%;
+      ``n_modes``           massimi locali della densita';
+      ``mass_fraction_off_axis`` quota di massa oltre 45 gradi dall'asse del
+                            moto pesato (0.5 = isotropa).
+    None se la mistura non e' costruibile.
+    """
+    from scipy import ndimage
+    d = mixture_density_grid(hypotheses, offset_min=offset_min,
+                             cell_km=cell_km)
+    if d is None:
+        return None
+    grid = d["grid"]
+    cell = d["cell_km"]
+    total = float(grid.sum())
+    if total <= 0.0:
+        return None
+    flat = np.sort(grid.ravel())[::-1]
+    cum = np.cumsum(flat) / total
+    a50 = int(np.searchsorted(cum, 0.50) + 1)
+    a90 = int(np.searchsorted(cum, 0.90) + 1)
+    iy, ix = np.unravel_index(int(np.argmax(grid)), grid.shape)
+    peak = (d["x0"] + ix * cell, d["y0"] + iy * cell)
+    thr90 = flat[max(a90 - 1, 0)]
+    mask90 = grid >= thr90
+    ys_idx, xs_idx = np.nonzero(mask90)
+    cx = d["x0"] + float(xs_idx.mean()) * cell
+    cy = d["y0"] + float(ys_idx.mean()) * cell
+    mx = ndimage.maximum_filter(grid, size=3)
+    peaks = (grid >= mx - 1e-15) & (grid > 0.05 * grid.max())
+    _lab, n_modes = ndimage.label(peaks)
+    return {
+        "offset_min": float(offset_min),
+        "cell_km": round(cell, 3),
+        "area_ratio_50_90": round(a50 / float(a90), 4),
+        "area_ratio_gaussian_reference": 0.3010,
+        "peak_km": [round(peak[0], 2), round(peak[1], 2)],
+        "band90_centre_km": [round(cx, 2), round(cy, 2)],
+        "asymmetry_km": round(math.hypot(peak[0] - cx, peak[1] - cy), 3),
+        "n_modes": int(n_modes),
+    }
 
 
 def _spread_km(lons, lats, center, direction_deg):
@@ -783,45 +1342,120 @@ def _spread_km(lons, lats, center, direction_deg):
     }
 
 
-def build_ensemble(motion_blend, sigma_speed_kmh, sigma_dir_deg,
-                   start_lonlat, anchor_ms, structure_id=None,
-                   offsets=ENSEMBLE_OFFSETS_MIN, n=N_MEMBERS):
-    """Ensemble di ``n`` traiettorie + fascio pubblicabile (24 percorsi).
+def _legacy_hypothesis(motion_blend, sigma_speed_kmh, sigma_dir_deg):
+    """Ipotesi singola equivalente alla perturbazione storica (compatibilita').
 
-    Velocita': v_i = max(1, v + sigma_speed * z1)
-    Direzione: dir_i = dir + sigma_dir * z2
-    z1/z2 ~ N(0,1), coppie (z, -z) -> il centroide dell'ensemble coincide con
-    il punto blend (nessuna deriva introdotta dal campionamento).
-
-    Pubblica:
-      ``members``    24 percorsi ai quantili di densita' (t=0/30/60/90/120);
-      ``mean``       traiettoria del blend (stessi 5 punti);
-      ``spread_km``  std lungo/trasverso + p90 trasverso a 60/120 min.
-
-    Le isolinee KDE (25/50/75/90%) sono state RIMOSSE nella 1.2.4.81: il
-    client non le ha mai disegnate e pesavano ~190 KB su 4 strutture.
+    Il vecchio ensemble perturbava velocita' (km/h) e direzione (gradi) con
+    due gaussiane indipendenti. Qui la stessa dispersione e' espressa a 60 min
+    in km lungo/trasverso, che e' l'unita' della mistura:
+        sigma_along_km_60 = sigma_speed_kmh * 1 h
+        sigma_cross_km_60 = sin(sigma_dir) * velocita' * 1 h
     """
     speed = float(motion_blend["speed_kmh"])
     direction = float(motion_blend["direction_toward_deg"])
-    rng = np.random.default_rng(_seed_for(structure_id, anchor_ms))
-    half = n // 2
-    z1 = rng.standard_normal(half)
-    z2 = rng.standard_normal(half)
-    z1 = np.concatenate([z1, -z1])
-    z2 = np.concatenate([z2, -z2])
-    speeds = np.maximum(1.0, speed + sigma_speed_kmh * z1)
-    directions = direction + sigma_dir_deg * z2
+    along = abs(float(sigma_speed_kmh)) * 1.0
+    cross = abs(math.sin(math.radians(min(abs(float(sigma_dir_deg)), 89.0)))) \
+        * max(speed, 1.0) * 1.0
+    return {
+        "name": "observed",
+        "label": HYPOTHESIS_LABELS["observed"],
+        "speed_kmh": speed,
+        "direction_toward_deg": direction,
+        "weight": 1.0,
+        "sigma_along_km_60": along,
+        "sigma_cross_km_60": cross,
+        "sigma_km_60": math.sqrt(along * along + cross * cross),
+        "measured_error_km_60": None,
+        "source": "motion_blend (singola ipotesi, compatibilita' 1.2.4.82)",
+        "reference": "gaussiana antithetica su velocita'/direzione",
+        "null_reason": None,
+    }
 
+
+def build_ensemble(motion_blend, sigma_speed_kmh, sigma_dir_deg,
+                   start_lonlat, anchor_ms, structure_id=None,
+                   offsets=ENSEMBLE_OFFSETS_MIN, n=N_MEMBERS,
+                   hypotheses=None, residuals=None):
+    """Ensemble di ``n`` traiettorie da una MISTURA di ipotesi + fascio (24).
+
+    Se ``hypotheses`` e' None si usa la singola ipotesi storica
+    (``_legacy_hypothesis``): la firma resta compatibile con la 1.2.4.82.
+
+    Con ``hypotheses`` (lista di dict con ``name``, ``speed_kmh``,
+    ``direction_toward_deg``, ``weight``, ``sigma_along_km_60``,
+    ``sigma_cross_km_60``) i membri sono distribuiti fra le ipotesi in
+    proporzione al peso (minimo ``MIN_MEMBERS_PER_HYPOTHESIS`` per ipotesi
+    attiva) e, DENTRO ogni ipotesi, perturbati con l'errore residuo di quella
+    ipotesi. La dispersione totale nasce quindi dal DISACCORDO fra ipotesi,
+    non da una gaussiana imposta.
+
+    Ogni membro porta l'ipotesi di appartenenza (``member_hypotheses``), cosi'
+    la composizione del fascio e' verificabile.
+    """
+    if hypotheses is None:
+        hypotheses = [_legacy_hypothesis(motion_blend, sigma_speed_kmh,
+                                        sigma_dir_deg)]
+    hyps = [h for h in hypotheses
+            if not h.get("null_reason") and h.get("speed_kmh") is not None
+            and float(h.get("weight") or 0.0) > 0.0]
+    if not hyps:
+        raise ValueError("nessuna ipotesi attiva: ensemble non costruibile")
+
+    speed = float(motion_blend["speed_kmh"]) if motion_blend else \
+        float(hyps[0]["speed_kmh"])
+    direction = float(motion_blend["direction_toward_deg"]) if motion_blend \
+        else float(hyps[0]["direction_toward_deg"])
+    rng = np.random.default_rng(_seed_for(structure_id, anchor_ms))
+
+    weights = {h["name"]: float(h["weight"]) for h in hyps}
+    alloc = allocate_members(weights, int(n))
+    # Ogni ipotesi: coppie antitetiche (z, -z) -> il centroide dell'ipotesi
+    # resta sul suo centro, la perturbazione non introduce deriva.
+    z_by_hyp = {}
+    speeds = []
+    directions = []
+    member_hyp = []
+    for h in hyps:
+        name = h["name"]
+        k = int(alloc.get(name, 0))
+        if k <= 0:
+            continue
+        half = max(k // 2, 1)
+        z1 = rng.standard_normal(half)
+        z2 = rng.standard_normal(half)
+        z1 = np.concatenate([z1, -z1])
+        z2 = np.concatenate([z2, -z2])
+        if k % 2 == 1:
+            # k dispari: coppie antitetiche + UN membro al centro esatto
+            # (z=0), cosi' il centroide dell'ipotesi resta sul suo centro e
+            # il numero di membri e' esattamente k.
+            z1 = np.concatenate([z1, [0.0]])
+            z2 = np.concatenate([z2, [0.0]])
+        z1 = z1[:k]
+        z2 = z2[:k]
+        z_by_hyp[name] = (z1, z2)
+        dist60 = float(h["speed_kmh"]) * 1.0
+        sal = float(h.get("sigma_along_km_60") or 0.0)
+        scr = float(h.get("sigma_cross_km_60") or 0.0)
+        for a, c in zip(z1, z2):
+            new_dist = max(1.0, dist60 + sal * float(a))
+            cross_off = scr * float(c)
+            new_dir = (float(h["direction_toward_deg"])
+                       + math.degrees(math.atan2(cross_off, new_dist))) % 360.0
+            speeds.append(new_dist)          # km/h == km a 60 min
+            directions.append(new_dir)
+            member_hyp.append(name)
+
+    n_members = len(speeds)
     lons_by_offset = {}
     lats_by_offset = {}
     steps = []
     for offset in offsets:
-        lons = np.empty(n)
-        lats = np.empty(n)
-        dist = speeds * (offset / 60.0)
-        for i in range(n):
+        lons = np.empty(n_members)
+        lats = np.empty(n_members)
+        for i in range(n_members):
             lon, lat = dest_from(start_lonlat, float(directions[i]),
-                                 float(dist[i]))
+                                 float(speeds[i]) * (float(offset) / 60.0))
             lons[i] = lon
             lats[i] = lat
         lons_by_offset[int(offset)] = lons
@@ -829,14 +1463,38 @@ def build_ensemble(motion_blend, sigma_speed_kmh, sigma_dir_deg,
         steps.append({
             "offset_min": int(offset),
             "at": _iso_from_ms(anchor_ms + offset * 60000),
-            "n": int(n),
+            "n": int(n_members),
             "centroid": [round(float(lons.mean()), 5),
                          round(float(lats.mean()), 5)],
         })
 
-    selected = _select_member_indices(z1, z2)
-    members = [_path(start_lonlat, float(speeds[i]), float(directions[i]),
-                     offsets) for i in selected]
+    # --- fascio pubblicabile: stessa composizione della mistura -------------
+    pub_alloc = allocate_members(weights, MEMBERS_PUBLISHED)
+    members = []
+    member_names = []
+    member_meta = []
+    for h in hyps:
+        name = h["name"]
+        k = int(pub_alloc.get(name, 0))
+        if k <= 0 or name not in z_by_hyp:
+            continue
+        z1, z2 = z_by_hyp[name]
+        # Indici dei membri di QUESTA ipotesi nell'array globale.
+        idx_all = [i for i, nm_ in enumerate(member_hyp) if nm_ == name]
+        r = np.hypot(z1, z2)
+        picks = _quantile_indices(r, k)
+        for rank, local in enumerate(picks):
+            gi = idx_all[local]
+            members.append(_path(start_lonlat, float(speeds[gi]),
+                                 float(directions[gi]), offsets))
+            member_names.append(name)
+            member_meta.append({
+                "index": len(members) - 1,
+                "hypothesis": name,
+                "rank_in_hypothesis": rank,
+                "n_in_hypothesis": len(idx_all),
+            })
+
     mean = _path(start_lonlat, speed, direction, offsets)
 
     spread = {}
@@ -849,19 +1507,69 @@ def build_ensemble(motion_blend, sigma_speed_kmh, sigma_dir_deg,
             lons_by_offset[int(offset)], lats_by_offset[int(offset)],
             (center_lon, center_lat), direction)
 
+    hyp_published = []
+    for h in hyps:
+        name = h["name"]
+        hyp_published.append({
+            "name": name,
+            "label": h.get("label") or HYPOTHESIS_LABELS.get(name, name),
+            "weight": round(float(h["weight"]), 4),
+            "n_members": int(alloc.get(name, 0)),
+            "n_members_published": int(pub_alloc.get(name, 0)),
+            "sigma_km_60": (round(float(h["sigma_km_60"]), 2)
+                            if h.get("sigma_km_60") is not None else None),
+            "sigma_along_km_60": (round(float(h["sigma_along_km_60"]), 2)
+                                  if h.get("sigma_along_km_60") is not None
+                                  else None),
+            "sigma_cross_km_60": (round(float(h["sigma_cross_km_60"]), 2)
+                                  if h.get("sigma_cross_km_60") is not None
+                                  else None),
+            "measured_error_km_60": h.get("measured_error_km_60"),
+            "speed_kmh": round(float(h["speed_kmh"]), 2),
+            "direction_toward_deg": round(
+                float(h["direction_toward_deg"]), 1),
+            "source": h.get("source"),
+            "reference": h.get("reference"),
+            "active": True,
+        })
+    for h in hypotheses:
+        if h in hyps:
+            continue
+        hyp_published.append({
+            "name": h.get("name"),
+            "label": h.get("label") or HYPOTHESIS_LABELS.get(h.get("name")),
+            "weight": 0.0,
+            "n_members": 0,
+            "n_members_published": 0,
+            "sigma_km_60": None,
+            "measured_error_km_60": h.get("measured_error_km_60"),
+            "source": h.get("source"),
+            "reference": h.get("reference"),
+            "active": False,
+            "null_reason": h.get("null_reason") or "not_active",
+        })
+
     ensemble = {
         "method": ENSEMBLE_METHOD,
-        "n": int(n),
+        "n": int(n_members),
         "steps": steps,
         "members": members,
+        "member_hypotheses": member_names,
+        "member_meta": member_meta,
         "mean": mean,
         "spread_km": spread,
+        "hypotheses": hyp_published,
     }
     basis = {
-        "n": int(n),
-        "distribution": "gaussian_antithetic_speed_direction",
-        "sigma_speed_kmh": round(sigma_speed_kmh, 2),
-        "sigma_dir_deg": round(sigma_dir_deg, 2),
+        "n": int(n_members),
+        "distribution": "mixture_of_hypotheses",
+        "hypotheses": hyp_published,
+        "hypotheses_requested": [h.get("name") for h in hypotheses],
+        "renormalized": any(h.get("null_reason") for h in hypotheses),
+        "sigma_speed_kmh": round(float(sigma_speed_kmh), 2)
+        if sigma_speed_kmh is not None else None,
+        "sigma_dir_deg": round(float(sigma_dir_deg), 2)
+        if sigma_dir_deg is not None else None,
         "sigma_source": {
             "tracker_history": {
                 "speed_kmh": TRACKER_SIGMA_SPEED_KMH,
@@ -869,19 +1577,19 @@ def build_ensemble(motion_blend, sigma_speed_kmh, sigma_dir_deg,
                 "source": ("misurato sui pair storici del validation script "
                            "(errore RMS dell'estrapolazione pura a 60 min)"),
             },
+            "hypothesis_measurement": dict(HYPOTHESIS_MEASUREMENT),
             "divergence_obs_nwp": "vedi sigma_components",
         },
         "sigma_components": {},
         "members_published": len(members),
-        "member_selection": ("%d coppie speculari rispetto all'asse del moto, "
-                             "ai quantili di densita' (rango di |z|) "
-                             "dell'ensemble da %d" % (
-                                 len(members) // 2, int(n))),
+        "member_selection": ("ripartizione proporzionale ai pesi (minimo %d "
+                             "per ipotesi), quantili di densita' dentro ogni "
+                             "ipotesi" % MIN_MEMBERS_PER_HYPOTHESIS),
         "member_offsets_min": list(offsets),
         "member_decimals": MEMBER_DECIMALS,
         "spread_offsets_min": list(SPREAD_OFFSETS_MIN),
         "spread_meaning": ("std lungo/trasverso e p90 trasverso dei membri "
-                           "rispetto al blend, in km"),
+                           "della mistura rispetto al blend, in km"),
         "probability_calibrated": False,
         "probability_null_reason": ("nessun dataset di verifiche etichettate "
                                     "per questa grandezza: il fascio misura "
@@ -890,12 +1598,43 @@ def build_ensemble(motion_blend, sigma_speed_kmh, sigma_dir_deg,
         "calibration_reference": dict(VALIDATION_REFERENCE),
         "seed": _seed_for(structure_id, anchor_ms),
     }
+    if residuals:
+        basis["residuals_km_60"] = residuals
     return ensemble, basis
 
 
 # ---------------------------------------------------------------------------
 # Blocco completo per un candidato
 # ---------------------------------------------------------------------------
+
+def _bunkers_motion_from_record(candidate_ctx):
+    """RM della struttura da ``severe_stack.bunkers`` (se gia' calcolato).
+
+    Accetta le forme {"u_kmh","v_kmh"}, {"u_ms","v_ms"} e il wrapper di
+    severe_stack ({"value": {"u_ms","v_ms"}, ...}). Ritorna
+    {"u_kmh","v_kmh"} oppure None. Nessun valore inventato: se il campo manca
+    o e' null con motivo, si ritorna None e l'ipotesi usa il profilo NWP.
+    """
+    if not isinstance(candidate_ctx, dict):
+        return None
+    stack = candidate_ctx.get("severe_stack")
+    if not isinstance(stack, dict):
+        return None
+    bunk = stack.get("bunkers")
+    if not isinstance(bunk, dict):
+        return None
+    rm = bunk.get("rm_ms")
+    if isinstance(rm, dict) and isinstance(rm.get("value"), dict):
+        rm = rm["value"]
+    if not isinstance(rm, dict):
+        return None
+    if rm.get("u_kmh") is not None and rm.get("v_kmh") is not None:
+        return {"u_kmh": float(rm["u_kmh"]), "v_kmh": float(rm["v_kmh"])}
+    if rm.get("u_ms") is not None and rm.get("v_ms") is not None:
+        return {"u_kmh": float(rm["u_ms"]) * 3.6,
+                "v_kmh": float(rm["v_ms"]) * 3.6}
+    return None
+
 
 def build_motion_block(candidate_ctx, bundle, fit, anchor_ms,
                        dataset=None, obs=None):
@@ -909,12 +1648,13 @@ def build_motion_block(candidate_ctx, bundle, fit, anchor_ms,
       nwp_motion, nwp_motion_null_reason, nwp_motion_detail,
       motion_blend, motion_weights, motion_blend_components,
       ensemble, ensemble_basis, ensemble_null_reason,
-      ensemble_members, ensemble_mean, ensemble_spread_km.
+      ensemble_members, ensemble_mean, ensemble_spread_km,
+      ensemble_hypotheses, ensemble_member_hypothesis.
 
-    Regola: l'ensemble esiste se esiste un ``motion_blend`` (osservato e/o
-    NWP). Se manca il NWP ma il fit e' valido, l'ensemble si costruisce SOLO
-    sull'osservato (dichiarato in ensemble_basis.sigma_source) e
-    ``motion_weights.nwp`` vale 0.
+    Regola: l'ensemble esiste se almeno UNA ipotesi di moto e' calcolabile.
+    Se manca il NWP ma il fit e' valido, la mistura si costruisce SOLO
+    sull'osservato (dichiarato in ensemble_hypotheses: le altre ipotesi hanno
+    peso 0, ``active: false`` e il motivo) e i pesi si rinormalizzano.
     """
     out = {
         "nwp_motion": None,
@@ -927,6 +1667,8 @@ def build_motion_block(candidate_ctx, bundle, fit, anchor_ms,
         "ensemble_members": None,
         "ensemble_mean": None,
         "ensemble_spread_km": None,
+        "ensemble_hypotheses": None,
+        "ensemble_member_hypothesis": None,
         "ensemble_basis": None,
         "ensemble_null_reason": None,
     }
@@ -984,6 +1726,26 @@ def build_motion_block(candidate_ctx, bundle, fit, anchor_ms,
     out["motion_weights"] = weights
     out["motion_blend_components"] = components
 
+    # --- MISTURA DI IPOTESI (2026-11-11) ----------------------------------
+    motions = hypothesis_motions(
+        dataset, float(pos[0]), float(pos[1]), anchor_ms, fit, obs=obs,
+        bunkers=_bunkers_motion_from_record(candidate_ctx))
+    hyp_weights, hyp_detail = hypothesis_weights(
+        motions, fit.get("fit_used"), fit.get("resid_std_km"))
+    if not hyp_weights:
+        out["ensemble_null_reason"] = "no_hypothesis_with_measured_error"
+        return out
+    for m in motions:
+        m["weight"] = round(float(hyp_weights.get(m["name"], 0.0)), 4)
+    residuals = hypothesis_residuals(motions, hyp_weights)
+    for m in motions:
+        r = residuals.get(m["name"]) or {}
+        m["sigma_along_km_60"] = r.get("sigma_along_km_60")
+        m["sigma_cross_km_60"] = r.get("sigma_cross_km_60")
+        m["sigma_km_60"] = r.get("sigma_km_60")
+        m["measured_error_km_60"] = r.get("error_km_60")
+        m["disagreement_km_60"] = r.get("disagreement_km_60")
+
     sigma_speed = math.sqrt(dspeed ** 2 + TRACKER_SIGMA_SPEED_KMH ** 2)
     sigma_dir = math.sqrt(ddir ** 2 + TRACKER_SIGMA_DIR_DEG ** 2)
     sigma_speed = min(max(sigma_speed, SIGMA_SPEED_FLOOR_KMH),
@@ -991,7 +1753,8 @@ def build_motion_block(candidate_ctx, bundle, fit, anchor_ms,
     sigma_dir = min(max(sigma_dir, SIGMA_DIR_FLOOR_DEG), SIGMA_DIR_CAP_DEG)
     ensemble, basis = build_ensemble(
         blend, sigma_speed, sigma_dir, (float(pos[0]), float(pos[1])),
-        anchor_ms, structure_id=candidate_ctx.get("structure_id"))
+        anchor_ms, structure_id=candidate_ctx.get("structure_id"),
+        hypotheses=motions, residuals=residuals)
     basis["sigma_components"] = {
         "divergence_speed_kmh": round(dspeed, 2),
         "divergence_dir_deg": round(ddir, 2),
@@ -1002,11 +1765,25 @@ def build_motion_block(candidate_ctx, bundle, fit, anchor_ms,
         "formula": "sqrt(divergence^2 + tracker^2), floor/cap dichiarati",
     }
     basis["motion_weights"] = weights
-    # Il fascio vive a livello RECORD (come `ensemble`): si estraggono i tre
-    # campi dal dict dell'ensemble per non duplicarli nel JSON.
+    basis["hypothesis_weights"] = hyp_detail
+    # Forma della densita' della mistura a 60 min: numeri, non stime. Sono la
+    # verifica che la forma NON e' un ellisse gaussiano imposto (area 50/90,
+    # asimmetria picco-vs-banda, massimi locali).
+    try:
+        basis["shape_60min"] = density_shape_metrics(motions, offset_min=60.0)
+    except Exception:
+        basis["shape_60min"] = None
+    # Il fascio vive a livello RECORD (come `ensemble`): si estraggono i campi
+    # dal dict dell'ensemble per non duplicarli nel JSON.
     out["ensemble_members"] = ensemble.pop("members", None)
+    # `member_hypotheses` resta DENTRO `ensemble` (che convective_structure
+    # sposta a livello record) e viene anche esposto piatto nel blocco
+    # forecast: due lettori, un solo dato.
+    out["ensemble_member_hypothesis"] = ensemble.get("member_hypotheses")
+    ensemble.pop("member_meta", None)
     out["ensemble_mean"] = ensemble.pop("mean", None)
     out["ensemble_spread_km"] = ensemble.pop("spread_km", None)
+    out["ensemble_hypotheses"] = ensemble.get("hypotheses")
     out["ensemble"] = ensemble
     out["ensemble_basis"] = basis
     return out
