@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.2.4.82 - RIMOSSO IL POLIGONO PIENO QUANDO E' DISPONIBILE IL FASCIO DI TRAIETTORIE: NEL PANE FORECAST RESTANO SOLO LE LINEE (bump da 1.2.4.81)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=82
+RELEASE_TYPE=release
+DATE=2026-11-11
+NOTE=Release 1.2.4.82 (bump da 1.2.4.81) - SOLO CLIENT. (1) RIMOSSO IL POLIGONO PIENO QUANDO E\' DISPONIBILE IL FASCIO: con `ensemble_members` il pane forecast mostra SOLO il fascio (24 linee sottili + media + frecce + etichette), nessun `cone_polygon` pieno, nessun nastro da `cone_km`, nessun `cone_bands` (gia\' assente). Il poligono pieno resta SOLO per le run vecchie senza `ensemble_members`. (2) IL DIFETTO: la regola era per-record; con un payload misto (3 strutture con fascio, 1 senza) la 1.2.4.81 disegnava 72 linee + 3 medie E 1 poligono `fill:#22c55e` `fill-opacity:0.35`: la struttura senza membri ricadeva nel fallback e la macchia tornava sotto le linee. (3) LA CORREZIONE: `scRadarEnsembleAvailable()` = almeno una struttura con forecast e `ensemble_members` non vuoto; se vero, `drawScForecast` non crea NESSUN `L.polygon` pieno, nemmeno per le strutture senza membri (restano path tratteggiato ed etichette +30/+60/+90). Nessun contorno dell\'anello 90%: meglio niente che una forma piena. Il fallback ora porta `className: \'sc-cone-fallback\'`. (4) MISURE (Edge headless CDP): payload 2026-11-11T14:05Z (4 strutture) -> 0 path con `fill-opacity > 0`, 96 linee membro (24x4), 4 medie; payload misto -> PRIMA 1 path con `fill-opacity` 0,35, DOPO 0 path con `fill-opacity > 0`, 72 linee + 3 medie; fallback run vecchia (2026-11-11T20:05Z, 11 strutture, 0 con membri) -> 5 poligoni pieni invariati; 1440x900 e 390x844 overflow 0, 0 eccezioni JS, rotazione/mesociclone/supercella 0. (5) TEST: node --check 8/8; test_html_js_syntax.py 1 passed; suite .mjs 28 file -> 26 PASS / 2 non-zero (stessi nomi della baseline 1.2.4.81: contract_dataset_loader, test_fm_webp_fastpath). BUMP: html mri-light-1.2.4.82.html, VERSION (BUILD=82, DATE=2026-11-11, APP_FILE=mri-light-1.2.4.82.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.82), README.md, i 26 test .mjs, le righe cp dei 3 workflow; la 1.2.4.81 va RIMOSSA dal repo. NON toccati: motore, scripts/, Top-N, confidence, mini timeline, allerta di prossimita\', area Doppler.
+APP_FILE=mri-light-1.2.4.82.html
+
 MeteoRisk Light - 1.2.4.81 - FASCIO DI 24 TRAIETTORIE AL POSTO DELLE BANDE ANNIDATE: IL CONO MOSTRA DOVE SI CONCENTRANO LE TRAIETTORIE (bump da 1.2.4.80)
 MAJOR=1
 MINOR=2

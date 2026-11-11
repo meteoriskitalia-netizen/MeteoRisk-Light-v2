@@ -6,14 +6,20 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.81
+## Versione attiva: 1.2.4.82
 
-- File applicativo: `mri-light-1.2.4.81.html` (`APP_VERSION = '1.2.4.81'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.81', date: '2026-11-11' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.81'`, `TILE_CACHE = 'mri-tiles-1.2.4.81'`,
-  `FRAME_CACHE = 'mri-frames-1.2.4.81'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.82.html` (`APP_VERSION = '1.2.4.82'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.82', date: '2026-11-11' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.82'`, `TILE_CACHE = 'mri-tiles-1.2.4.82'`,
+  `FRAME_CACHE = 'mri-frames-1.2.4.82'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
+- Contenuto della 1.2.4.82 (release sopra la 1.2.4.81) - **rimosso il poligono pieno quando e' disponibile il fascio di traiettorie**. Solo client: nessuna modifica a `scripts/` (motore radar, renderer, dataset, `color_scales.json`, classi di rischio), al fascio o al cono lato motore; `sw.js` tocca solo le 3 var di cache e i 3 commenti, i workflow solo le righe `cp`/commenti del nome del file.
+  - **Il difetto**: con un payload misto (alcune strutture con `ensemble_members`, altre no) la 1.2.4.81 disegnava il fascio per le prime e il `cone_polygon` PIENO per le seconde: **72 linee + 3 medie E 1 poligono** `fill:#22c55e` `fill-opacity:0.35` (o `#94a3b8` 0,18), cioe' la macchia tornava sotto le linee. La regola era per-record, non per-run.
+  - **La correzione**: nuovo `scRadarEnsembleAvailable()`: se ALMENO UNA struttura con forecast ha `ensemble_members` non vuoto (marcatore del motore 1.2.4.81+), `drawScForecast` non crea **NESSUN** `L.polygon` pieno, nemmeno per le strutture senza membri. Per quelle restano il path tratteggiato e le etichette `+30/+60/+90`. Nessun contorno dell'anello 90%: meglio niente che una forma piena.
+  - **Fallback invariato**: run < 1.2.4.81 (nessuna struttura con membri) -> `cone_polygon` pieno o nastro da `cone_km`, esattamente come prima; il poligono ora porta `className: 'sc-cone-fallback'` per contarlo nei test.
+  - **Misure (Edge headless CDP, payload 2026-11-11T14:05Z, 4 strutture)**: con il fascio **0 path con `fill-opacity > 0`**, **96 linee membro** (24x4), **4 medie**; payload misto (3 con fascio, 1 senza): **prima 1** path con `fill-opacity` 0,35, **dopo 0** path con `fill-opacity > 0`, 72 linee + 3 medie; fallback run vecchia (payload 2026-11-11T20:05Z, 11 strutture, 0 con `ensemble_members`): poligoni pieni **invariati** (5). 1440x900 e 390x844 overflow **0**, **0 eccezioni JS**, rotazione/mesociclone/supercella **0**.
+  - **Verifiche**: `node --check` **8/8**; `pytest scripts/tests/test_html_js_syntax.py` **1 passed**; suite `.mjs` **28 file -> 26 PASS / 2 non-zero**, gli stessi nomi della baseline 1.2.4.81 (`contract_dataset_loader`, `test_fm_webp_fastpath`).
 - Contenuto della 1.2.4.81 (release sopra la 1.2.4.80) - **fascio di 24 traiettorie al posto delle bande annidate**. Motore + client: `scripts/radar_engine/nwp_motion.py` (24 membri, media, spread), `scripts/radar_engine/forecast.py` (niente `cone_bands`, resta `cone_polygon`), `scripts/radar_engine/convective_structure.py` (3 campi nuovi sul record); client: 24 polilinee + media, nessun riempimento; `sw.js` tocca solo le 3 var di cache e i 3 commenti, i workflow solo le righe `cp`/commenti del nome del file.
   - **Il difetto**: le bande annidate 50/75/90% erano una macchia sfumata e non mostravano dove si concentrano le traiettorie. Il motore pubblicava `cone_bands` (3 anelli per step) e le isolinee KDE 25/50/75/90% dell'ensemble, che il client non ha mai disegnato.
   - **Il fascio**: `ensemble_members` = 24 percorsi `[[lon,lat] x 5]` (t=0/30/60/90/120 min, 3 decimali ~100 m) in **12 coppie speculari** rispetto all'asse del moto, ai quantili di densita' dell'ensemble da **200** membri (rango di |z|). `ensemble_mean` = traiettoria del blend (5 punti). `ensemble_spread_km` a 60/120 min = std lungo/trasverso + p90 trasverso sui 200 membri. Seed deterministico invariato (`_seed_for(structure_id, anchor_ms)`).

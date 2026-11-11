@@ -2647,9 +2647,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.81';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.82';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-11';
     const APP_CHANGELOG = [
+        { version: '1.2.4.82', date: '2026-11-11', changes: [
+  "RIMOSSO IL POLIGONO PIENO QUANDO E' DISPONIBILE IL FASCIO DI TRAIETTORIE= Con `ensemble_members` il pane forecast mostra SOLO il fascio (24 linee sottili + media + frecce + etichette): nessun `cone_polygon` pieno, nessun nastro da `cone_km`, nessun `cone_bands` (gia' assente dall'output). Il poligono pieno resta SOLO per le run vecchie senza `ensemble_members`. Il difetto misurato: con un payload misto (3 strutture con fascio, 1 senza) la 1.2.4.81 disegnava 72 linee + 3 medie E 1 poligono pieno `fill:#22c55e` `fill-opacity:0.35`: la struttura senza membri ricadeva nel fallback e la macchia tornava sotto le linee. Ora la regola e' a livello di RUN: se almeno una struttura con forecast ha i membri, il fallback pieno e' spento per TUTTE; per la struttura senza membri restano solo il path tratteggiato e le etichette +30/+60/+90. Nessun contorno dell'anello 90%: meglio niente che una forma piena.",
+  "MISURE= Pagina locale (Edge headless CDP) con il payload 2026-11-11T14:05Z (4 strutture): 0 path con `fill-opacity > 0` nel pane forecast, 96 linee membro (24x4), 4 medie. Payload misto (3 con fascio, 1 senza): PRIMA 1 path con `fill-opacity` 0,35, DOPO 0 path con `fill-opacity > 0`, 72 linee + 3 medie. Fallback run vecchia (payload 2026-11-11T20:05Z, 11 strutture, 0 con `ensemble_members`): i poligoni pieni restano (invariati). 1440x900 e 390x844: overflow 0, 0 eccezioni JS, rotazione/mesociclone/supercella 0.",
+  "BUMP= html mri-light-1.2.4.82.html, VERSION (BUILD=82, DATE=2026-11-11, APP_FILE=mri-light-1.2.4.82.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.82), README.md, i 26 test .mjs col nome del file html in entrambe le forme, le righe cp dei 3 workflow (deploy-pages, radar-engine, update-weather-data); la 1.2.4.81 va RIMOSSA dal repo (una sola app servita da Pages). NON toccati: motore, scripts/, Top-N, confidence, mini timeline, allerta di prossimita', area Doppler."
+        ] },
         { version: '1.2.4.81', date: '2026-11-11', changes: [
   "FASCIO DI TRAIETTORIE AL POSTO DELLE BANDE= Le bande annidate 50/75/90% erano una macchia sfumata e non mostravano dove si concentrano le traiettorie. Il motore ora pubblica `ensemble_members`: 24 percorsi [[lon,lat] x 5] (t=0/30/60/90/120 min, 3 decimali ~100 m) scelti ai quantili di densita' dell'ensemble da 200 membri (rango di |z|, 24 quantili uniformi: copre nucleo e code, non 24 a caso), piu' `ensemble_mean` (traiettoria del blend, 5 punti) e `ensemble_spread_km` a 60/120 min (std lungo/trasverso e p90 trasverso). Il client disegna 24 polilinee weight 1, opacity 0,12, colore unico del cono, e la media weight 2,5 opacity 0,9: NESSUN riempimento. `cone_bands` e' stato RIMOSSO dall'output e le isolinee KDE dell'ensemble (25/50/75/90%) non vengono piu' calcolate: il client non le ha mai disegnate e pesavano ~190 KB su 4 strutture. `cone_polygon` (anello 90%) resta SOLO per retrocompatibilita' e non viene disegnato quando il fascio c'e'.",
   "MISURE= Payload dello stesso run 2026-11-11T14:05Z (4 strutture, seed dell'ensemble verificato identico: 4/4): 366.662 B -> 145.383 B (-221.279 B, -60,3%), sotto il tetto di 200 KB con 24 membri (nessuna riduzione a 16). A 60 min: 4-12 membri su 24 entro 5 km dalla traiettoria media; larghezza trasversale p90 14,7-34,1 km (non e' una macchia: i membri sono distinti). PCA su tutti i punti del fascio: asse lungo 0,5-5,3 gradi dalla direzione del moto (limite 20), rapporto lunghezza/larghezza 1,54-2,53. Sulle 7 strutture live del run 2026-11-11T19:15Z: asse 0,4-1,9 gradi, L/W 1,16-2,45. Spread del motore a 60 min: cross std 13,2-26,2 km, along std 19,9-27,8 km; a 120 min cross std 26,3-52,4 km, along std 39,8-55,6 km.",
@@ -11947,6 +11952,22 @@ removeLightningTile();
         };
     }
 
+    // 1.2.4.82 - Il RUN pubblica il fascio? Vero se ALMENO UNA struttura con
+    // forecast ha `ensemble_members` non vuoto: e' il marcatore del motore
+    // 1.2.4.81+. In quel caso il client non disegna NESSUN poligono pieno,
+    // nemmeno per una struttura senza membri (niente macchia sotto le linee).
+    // Falso per le run < 1.2.4.81: il fallback pieno resta invariato.
+    function scRadarEnsembleAvailable() {
+        var cands = (typeof scRadarData !== 'undefined' && scRadarData && Array.isArray(scRadarData.structures)) ? scRadarData.structures : [];
+        for (var i = 0; i < cands.length; i++) {
+            var c = cands[i];
+            var fc = c && c.forecast;
+            var mem = c && c.ensemble_members;
+            if (fc && Array.isArray(fc.steps) && fc.steps.length && Array.isArray(mem) && mem.length) return true;
+        }
+        return false;
+    }
+
     // Contorno della cella a livello di RECORD: GeoJSON Polygon (anche con
     // buchi) -> array di anelli [[lat,lon],...]. null = niente contorno.
     function scBuildOutlineRings(record) {
@@ -12231,6 +12252,10 @@ removeLightningTile();
         var base = scForecastConfidenceOpacity(conf);
         var coneWeight = (conf === 'low') ? 2 : 1;
         var bundle = scBuildEnsembleBundle(candidate);
+        // 1.2.4.82: se il run pubblica il fascio, il poligono pieno non si
+        // disegna MAI (nemmeno per una struttura senza membri). Il fallback
+        // pieno resta SOLO per le run vecchie senza `ensemble_members`.
+        var ensembleRun = scRadarEnsembleAvailable();
         // suppressCone: candidato in conflitto con uno gia' disegnato -> si
         // omettono SOLO fascio/cono; path e label +NN restano.
         if (bundle && !suppressCone) {
@@ -12255,12 +12280,14 @@ removeLightningTile();
                 meanLine._scStructureKey = structureKey;
                 out.push(meanLine);
             }
-        } else {
+        } else if (!ensembleRun) {
             // Fallback run < 1.2.4.81: un solo anello dal `cone_polygon` (o dal
             // nastro `cone_km`), esattamente come prima. Nessuna banda.
+            // 1.2.4.82: MAI in un run che pubblica il fascio, nemmeno per una
+            // struttura senza membri: meglio nessun poligono che una macchia.
             var cone = scBuildForecastCone(fc, candidate.position);
             if (cone && cone.length >= 4 && !suppressCone) {
-                out.push(L.polygon(cone, { pane: 'forecastPane', color: color, weight: coneWeight, dashArray: '3,4', fillColor: color, fillOpacity: base, interactive: false }));
+                out.push(L.polygon(cone, { pane: 'forecastPane', color: color, weight: coneWeight, dashArray: '3,4', fillColor: color, fillOpacity: base, interactive: false, className: 'sc-cone-fallback' }));
             }
         }
         // Traiettoria di riferimento per le etichette +30/+60/+90: la media

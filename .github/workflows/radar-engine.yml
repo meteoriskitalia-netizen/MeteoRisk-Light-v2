@@ -234,7 +234,7 @@ jobs:
         if: success()
         run: |
           mkdir -p _site/data
-          cp mri-light-1.2.4.81.html _site/index.html
+          cp mri-light-1.2.4.82.html _site/index.html
           cp sw.js _site/sw.js                                      # 1.2.4.15: Service Worker (cache applicativa)
           cp manifest.webmanifest _site/manifest.webmanifest        # 1.2.4.77: PWA installabile
           cp offline.html _site/offline.html                        # 1.2.4.77: fallback offline
