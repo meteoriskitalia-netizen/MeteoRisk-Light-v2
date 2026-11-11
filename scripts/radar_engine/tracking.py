@@ -371,6 +371,7 @@ def tracking_metrics(tracks, track_type="cell", max_speed_kmh=None,
         "track_type": track_type,
         "n_tracks": n,
         "n_active_tracks": len(active),
+        "n_reliable": reliable,
         "pct_reliable": round(100.0 * reliable / n, 1) if n else None,
         "median_duration_min": (round(statistics.median(durations), 1)
                                 if durations else None),
@@ -414,14 +415,27 @@ def build_tracking_metrics(cell_tracks, storm_tracks, **kwargs):
     storm = tracking_metrics(storm_tracks, "storm_object", **kwargs)
     combined = tracking_metrics(list(cell_tracks or []) + list(storm_tracks or []),
                                 "combined", **kwargs)
+    # I re-ID NON si contano fra layer diversi: una cella che nasce vicino a
+    # uno storm object morto non e' un ID switch. L'aggregato somma i conteggi
+    # per layer e ricalcola il rate sul totale (bug corretto il 2026-11-11:
+    # prima il combined contava anche le coppie cross-layer).
+    combined["id_switch_jumps"] = (cell["id_switch_jumps"]
+                                   + storm["id_switch_jumps"])
+    combined["id_switch_reids"] = (cell["id_switch_reids"]
+                                   + storm["id_switch_reids"])
+    n_combined = combined["n_tracks"]
+    combined["id_switch_rate"] = (
+        round((combined["id_switch_jumps"] + combined["id_switch_reids"])
+              / n_combined, 3) if n_combined else None)
+    combined["n_reliable"] = cell["n_reliable"] + storm["n_reliable"]
     out = {"primary_layer": "combined"}
     for key in ("pct_reliable", "median_duration_min",
                 "median_duration_current_min", "id_switch_rate",
                 "lineage_split", "lineage_merge", "lineage_continuation",
                 "lineage_links", "id_switch_jumps", "id_switch_reids",
-                "n_tracks", "n_active_tracks", "n_frames_ge_3",
-                "n_frames_current_ge_3", "continued_from_history",
-                "thresholds"):
+                "n_tracks", "n_active_tracks", "n_reliable",
+                "n_frames_ge_3", "n_frames_current_ge_3",
+                "continued_from_history", "thresholds"):
         out[key] = combined[key]
     out["cell"] = cell
     out["storm_object"] = storm

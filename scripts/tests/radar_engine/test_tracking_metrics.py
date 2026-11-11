@@ -111,3 +111,20 @@ def test_build_tracking_metrics_flat_keys_are_combined():
     assert out["cell"]["n_tracks"] == 5
     assert out["storm_object"]["n_tracks"] == 0
     assert out["combined"]["n_tracks"] == 5
+
+
+def test_combined_does_not_count_cross_layer_reids():
+    """Un cell track morto non e' il genitore di uno storm track nato vicino."""
+    cell = _track([
+        make_cell(12.0, 41.0, T0, cell_id="x1"),
+        make_cell(12.0, 41.0, T0 + STEP_MS, cell_id="x2"),
+    ], 1, status=models.STATUS_DEAD)
+    storm = _track([
+        make_cell(12.05, 41.0, T0 + 2 * STEP_MS, cell_id="y1"),
+        make_cell(12.10, 41.0, T0 + 3 * STEP_MS, cell_id="y2"),
+    ], 2)
+    out = build_tracking_metrics([cell], [storm])
+    assert out["cell"]["id_switch_reids"] == 0
+    assert out["storm_object"]["id_switch_reids"] == 0
+    assert out["combined"]["id_switch_reids"] == 0
+    assert out["combined"]["id_switch_rate"] == 0.0
