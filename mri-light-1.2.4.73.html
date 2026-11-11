@@ -320,9 +320,10 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         /* === 1.2.4.68 — Sintesi nazionale Italia PER MACRO-AREE (client-side, una volta per dataset) ===
            Card a larghezza piena come seconda riga della grid .container: le posizioni
            di toolbar, map-card, #leaflet-map e details-card non cambiano.
-           5 macro-aree dalle regioni amministrative: Nord 47 province, Centro Tirreno 17,
-           Centro Adriatico 11, Sud 18, Isole maggiori 14 = 107. Una frase per area e per
-           giorno (Oggi/Domani/Dopodomani): nessun nome di provincia, nessun estremo nazionale. */
+           6 macro-aree dalle regioni amministrative: Nord 47 province, Centro Tirreno 17,
+           Centro Adriatico 11, Sud 18, Sicilia 9, Sardegna 5 = 107. Una frase per area e per
+           giorno (Oggi/Domani/Dopodomani): nessun nome di provincia, nessun estremo nazionale,
+           temperature per fascia altimetrica (pianura <300 m, collina 300-800 m, montagna >800 m). */
         .italia-synth { grid-column: 1 / -1; min-width: 0; background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 14px 16px; }
         .italia-synth .is-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
         .italia-synth .is-title { font-size: 15px; font-weight: 700; color: #e2e8f0; }
@@ -2313,7 +2314,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                             <span class="is-badge" id="italia-synth-badge">in attesa del dataset…</span>
                         </div>
                         <div class="is-cols" id="italia-synth-cols"></div>
-                        <p class="is-note"><b>Sintesi dei punti provincia del dataset, non di un campo continuo.</b> Cielo dalla copertura nuvolosa reale (cloud_cover); neve solo con equivalente acqua &gt; 0 nelle 24 h; raffiche p50-p90, punte oltre 100 km/h solo se p99 &ge; 100; nessun toponimo nel testo, i nomi restano nei tooltip. Soglie: pioggia debole &le; 14,5 mm (p75), diffusa &le; 39,3 (p90), intensa oltre; rovesci quando la maggioranza dei punti bagnati ha un&rsquo;ora 80-82/95-96/99 e il massimo supera 14,5 mm; quota neve = freezing level &minus; 500 m, &plusmn;300 m.</p>
+                        <p class="is-note"><b>Sintesi dei punti provincia del dataset, non di un campo continuo.</b> Temperature per fascia altimetrica: pianura &lt;300 m, collina 300-800 m, montagna &gt;800 m; le fasce con meno di tre province sono omesse; una provincia può contribuire a più fasce. Fasce orarie 0-6, 6-12, 12-18, 18-24; mm eq. = equivalente acqua. Cielo dalla copertura nuvolosa reale (cloud_cover); neve solo con equivalente acqua &gt; 0 nelle 24 h; raffiche p50-p90, punte oltre 100 km/h solo se p99 &ge; 100; nessun toponimo nel testo, i nomi restano nei tooltip. Soglie: pioggia debole &le; 14,5 mm (p75), diffusa &le; 39,3 (p90), intensa oltre; rovesci quando la maggioranza dei punti bagnati ha un&rsquo;ora 80-82/95-96/99 e il massimo supera 14,5 mm; quota neve = freezing level &minus; 500 m, &plusmn;300 m.</p>
                     </div>
                 </div>
                 <div class="fc-pane" id="fc-pane-settimana" role="tabpanel" aria-labelledby="fc-tab-settimana" hidden>
@@ -2465,9 +2466,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.72';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.73';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-11';
     const APP_CHANGELOG = [
+        { version: '1.2.4.73', date: '2026-11-11', changes: [
+  "SEI AREE AL POSTO DI CINQUE= La sintesi nazionale passa da 5 a 6 macro-aree: Nord, Centro Tirreno, Centro Adriatico, Sud, Sicilia e Sardegna; 'Isole maggiori' non esiste piu. Le frasi giornaliere diventano 18 (6 aree x 3 giorni) e quelle settimanali 6; badge e commenti aggiornati. Le due occorrenze storiche di 'Isole maggiori' restano solo nel changelog delle release 1.2.4.68 e 1.2.4.70.",
+  "TEMPERATURE PER FASCIA ALTIMETRICA= Minime e massime per pianura <300 m, collina 300-800 m e montagna >800 m, con il numero di province della fascia nel title (una provincia puo' stare in piu' fasce). Esempio Nord 2026-11-11: pianura 5-19 \u00B0C (37 province), collina 5-14 \u00B0C (15), montagna -1-13 \u00B0C (19); la montagna e' l'unica fascia sotto zero e la frase dice 'Gelate solo in montagna (minima -0,8 \u00B0C)'.",
+  "TREND DENTRO LA STESSA FASCIA= Il confronto con il giorno prima e' fatto dentro la stessa fascia (massima con massima, minima con minima), mai fra fasce diverse; si riporta una sola variazione per frase, la piu' forte, per restare sotto le 60 parole. Il summary della provincia usa la fascia dominante della provincia (piu' punti) e aggiunge il caveat della montagna solo se la minima e' sotto zero.",
+  "FIX 0-0 mm E BUMP= italiaFmtRange non produce piu' '0-0 mm' nel caso degenere: scrive '0 mm'. BUMP: html mri-light-1.2.4.73.html, VERSION (BUILD=73, DATE=2026-11-11), sw.js (CACHE_NAME mri-1.2.4.73), README.md, i 26 test .mjs, le 5 righe cp dei 3 workflow; la 1.2.4.72 va RIMOSSA dal repo. NON toccati: scripts/, workflow dei dati, color_scales.json, classi di rischio, dataset e renderer."
+        ]},
         { version: '1.2.4.72', date: '2026-11-11', changes: [
   "BADGE SENZA DISCLAIMER RIPETUTO= La riga 'Potenziale ambientale (modello NWP): condizioni favorevoli previste, non un evento osservato' e stata tolta dal corpo della scheda provincia (#zone-risk-origin) e da OGNI tooltip (badge della scheda, badge sulla mappa, dischi dei rischi, barra riepilogo). La distinzione potenziale/evento resta UNA volta: nella legenda badge e nel pulsante '?'. Nel tooltip resta la riga 'Colore dovuto a: [rischio] (livello N)'; 'osservato dal radar' compare solo se il livello deriva da una cella radar osservata (oggi il livello provincia e calcolato solo su NWP, quindi non compare).",
   "CONFINE DOPPLER SEMPRE VISIBILE= Il pulsante #btn-doppler era display:none e il confine si caricava solo col player radar attivo: con il provider di default (rainviewer) non si vedeva MAI. Ora il pulsante e sempre in toolbar, il confine (data/radar/doppler_coverage.geojson, 134 poligoni) si disegna di default all'apertura della mappa, la preferenza OFF resta salvata in localStorage (chiave meteorisk.dopplerCoverage.v1). Se il file da 404 o errore il pulsante e disabilitato con il motivo nel title, nessuna eccezione.",
@@ -26628,6 +26635,30 @@ function renderContinuousOverlay() {
 
     // Summary del pannello: 3 giorni della provincia selezionata, con il giorno
     // scelto nel 3-giorni in grassetto. Nessun toponimo, nessun conteggio.
+    // Fascia dominante della PROVINCIA selezionata: quella con piu' punti nel
+    // dataset (tipicamente pianura). Il summary resta una riga sola e usa la
+    // massima di quella fascia; la minima di montagna compare come caveat solo
+    // se e' sotto zero. Il conteggio dei punti resta nel title.
+    function fcSummaryBand(dayIdx) {
+        if (typeof italiaSynthesis === 'undefined' || !italiaSynthesis || !italiaSynthesis.provinceBands) return null;
+        if (typeof selectedIndex !== 'number' || selectedIndex < 0) return null;
+        if (typeof isCustomCity !== 'undefined' && isCustomCity) return null;
+        var days = italiaSynthesis.provinceBands[selectedIndex];
+        if (!days || !days[dayIdx]) return null;
+        var order = ['pianura', 'collina', 'montagna'];
+        var best = null;
+        for (var i = 0; i < order.length; i++) {
+            var b = days[dayIdx][order[i]];
+            if (b && b.n > 0 && b.tmax !== null && (best === null || b.n > best.n)) {
+                best = { band: order[i], n: b.n, tmax: b.tmax };
+            }
+        }
+        if (!best) return null;
+        var mtn = days[dayIdx].montagna;
+        var mountainMin = (mtn && mtn.n > 0 && mtn.tmin !== null) ? mtn.tmin : null;
+        return { band: best.band, n: best.n, tmax: best.tmax, mountainMin: mountainMin };
+    }
+
     function fcUpdateSummary() {
         var el = document.getElementById('fc-summary-text');
         if (!el) return;
@@ -26638,7 +26669,7 @@ function renderContinuousOverlay() {
             return;
         }
         var labels = ['oggi', 'domani', 'dopodomani'];
-        var segs = [], plain = [];
+        var segs = [], titles = [];
         for (var i = 0; i < days.length && i < 3; i++) {
             var day = days[i];
             var seg = labels[i];
@@ -26648,17 +26679,27 @@ function renderContinuousOverlay() {
                 if (day.precip.sum.v > 0) seg += ' pioggia ' + italiaNum(day.precip.sum.v, day.precip.sum.v < 1 ? 1 : 0) + ' mm';
                 else seg += ' asciutto';
             }
-            if (day.tMax && day.tMax.v !== null && day.tMax.v !== undefined && isFinite(day.tMax.v)) {
+            var bandInfo = fcSummaryBand(i);
+            var tmax = (day.tMax && day.tMax.v !== null && day.tMax.v !== undefined && isFinite(day.tMax.v)) ? day.tMax.v : null;
+            if (bandInfo && bandInfo.tmax !== null) tmax = bandInfo.tmax;
+            if (tmax !== null) {
                 hasData = true;
-                seg += (seg.length > labels[i].length ? ', ' : ' ') + 'max ' + Math.round(day.tMax.v) + ' \u00B0C';
+                seg += (seg.length > labels[i].length ? ', ' : ' ') + 'max ' + Math.round(tmax) + ' \u00B0C';
+                if (bandInfo && bandInfo.mountainMin !== null && bandInfo.mountainMin < 0) {
+                    seg += ' (montagna ' + italiaNum(bandInfo.mountainMin, Math.abs(bandInfo.mountainMin) < 1 ? 1 : 0) + ' \u00B0C)';
+                }
             }
             if (!hasData) seg += ' n/d';
             if (i === tdsSelectedDay) seg = '<b>' + seg + '</b>';
+            var titleSeg = seg.replace(/<[^>]+>/g, '');
+            if (bandInfo && bandInfo.tmax !== null) {
+                titleSeg += ' [' + bandInfo.band + ' max ' + Math.round(bandInfo.tmax) + ' \u00B0C, ' + bandInfo.n + ' punti]';
+            }
             segs.push(seg);
-            plain.push(seg.replace(/<[^>]+>/g, ''));
+            titles.push(titleSeg);
         }
         el.innerHTML = segs.join(' \u00B7 ');
-        el.title = plain.join(' \u00B7 ');
+        el.title = titles.join(' \u00B7 ');
     }
 
     if (typeof document !== 'undefined') {
@@ -28246,7 +28287,8 @@ syncSelect('lightning-source-select', [
         { name: 'Centro Tirreno', regions: { 'Toscana': 1, 'Umbria': 1, 'Lazio': 1 } },
         { name: 'Centro Adriatico', regions: { 'Marche': 1, 'Abruzzo': 1, 'Molise': 1 } },
         { name: 'Sud', regions: { 'Campania': 1, 'Puglia': 1, 'Basilicata': 1, 'Calabria': 1 } },
-        { name: 'Isole maggiori', regions: { 'Sicilia': 1, 'Sardegna': 1 } }
+        { name: 'Sicilia', regions: { 'Sicilia': 1 } },
+        { name: 'Sardegna', regions: { 'Sardegna': 1 } }
     ];
     var ITALIA_COMPASS = ['nord', 'nord-est', 'est', 'sud-est', 'sud', 'sud-ovest', 'ovest', 'nord-ovest'];
 
@@ -28329,6 +28371,36 @@ syncSelect('lightning-source-select', [
         return delta < 0 ? ('in calo di ' + n + ' \u00B0C') : ('in rialzo di ' + n + ' \u00B0C');
     }
 
+    // Trend DENTRO la stessa fascia: confronta la massima con la massima e la
+    // minima con la minima del giorno prima, mai fra fasce diverse. Si riporta
+    // la fascia con la variazione piu' forte per le massime e per le minime.
+    function italiaBandTrendText(cur, prev) {
+        var order = ['pianura', 'collina', 'montagna'];
+        var maxD = null, minD = null;
+        for (var i = 0; i < order.length; i++) {
+            var b = order[i];
+            var c = cur[b], p = prev[b];
+            if (!c || !p || c.n < 3 || p.n < 3) continue;
+            if (c.tmax !== null && p.tmax !== null) {
+                var dm = c.tmax - p.tmax;
+                if (Math.abs(dm) >= 1.5 && (maxD === null || Math.abs(dm) > Math.abs(maxD.delta))) maxD = { band: b, delta: dm };
+            }
+            if (c.tmin !== null && p.tmin !== null) {
+                var dn = c.tmin - p.tmin;
+                if (Math.abs(dn) >= 1.5 && (minD === null || Math.abs(dn) > Math.abs(minD.delta))) minD = { band: b, delta: dn };
+            }
+        }
+        if (!maxD && !minD) return 'Stazionarie.';
+        var mx = maxD ? (maxD.delta < 0 ? 'in calo di ' : 'in rialzo di ') + Math.round(Math.abs(maxD.delta)) + ' \u00B0C' : '';
+        var mn = minD ? (minD.delta < 0 ? 'in calo di ' : 'in rialzo di ') + Math.round(Math.abs(minD.delta)) + ' \u00B0C' : '';
+        if (mx && mn) {
+            if (Math.abs(maxD.delta) >= Math.abs(minD.delta)) return 'Massime ' + mx + ' in ' + maxD.band + '.';
+            return 'Minime ' + mn + ' in ' + minD.band + '.';
+        }
+        if (mx) return 'Massime ' + mx + ' in ' + maxD.band + '.';
+        return 'Minime ' + mn + ' in ' + minD.band + '.';
+    }
+
     function italiaPercentile(values, p) {
         var a = [];
         for (var i = 0; i < values.length; i++) {
@@ -28347,14 +28419,34 @@ syncSelect('lightning-source-select', [
         if (a === null || a === undefined || !isFinite(a)) return '';
         if (b === null || b === undefined || !isFinite(b)) b = a;
         var lo = Math.min(a, b), hi = Math.max(a, b);
-        if (Math.round(lo * 10) === Math.round(hi * 10)) return italiaNum(hi, decimals || 0) + unit;
-        return italiaNum(lo, decimals || 0) + '-' + italiaNum(hi, decimals || 0) + unit;
+        var d = decimals || 0;
+        var f = Math.pow(10, d);
+        if (Math.round(lo * f) === Math.round(hi * f)) return italiaNum(hi, d) + unit;
+        return italiaNum(lo, d) + '-' + italiaNum(hi, d) + unit;
     }
 
     function italiaFmtTemp(lo, hi) {
         var a = Math.round(lo), b = Math.round(hi);
         if (a === b) return b + ' \u00B0C';
         if (a < 0) return 'da \u2212' + Math.abs(a) + ' a ' + b + ' \u00B0C';
+        return a + '-' + b + ' \u00B0C';
+    }
+
+    // Fasce altimetriche dichiarate: pianura < 300 m, collina 300-800 m,
+    // montagna > 800 m. Un punto senza quota resta fuori dalle fasce.
+    function italiaElevBand(elev) {
+        if (elev === null || elev === undefined || !isFinite(elev)) return null;
+        var v = Number(elev);
+        if (v < 300) return 'pianura';
+        if (v <= 800) return 'collina';
+        return 'montagna';
+    }
+
+    function italiaBandTemp(lo, hi) {
+        if (lo === null || lo === undefined || !isFinite(lo)) return '';
+        if (hi === null || hi === undefined || !isFinite(hi)) hi = lo;
+        var a = italiaNum(lo, 0), b = italiaNum(hi, 0);
+        if (a === b) return b + ' \u00B0C';
         return a + '-' + b + ' \u00B0C';
     }
 
@@ -28410,10 +28502,16 @@ syncSelect('lightning-source-select', [
                     freezeMin: null, freezeMax: null,
                     snowSum: null, snowN: 0,
                     windU: 0, windV: 0, windW: 0,
-                    hourly: null, hourlySum: null
+                    hourly: null, hourlySum: null,
+                    bands: {
+                        pianura: { n: 0, tmin: null, tmax: null },
+                        collina: { n: 0, tmin: null, tmax: null },
+                        montagna: { n: 0, tmin: null, tmax: null }
+                    }
                 });
                 accByProv[pt.provinceIdx] = acc;
             }
+            var pointBand = italiaElevBand(pt.elevation);
             for (d = 0; d < 3; d++) {
                 var a = d * 24, b = a + 24;
                 var daily = rec.daily, hourly = rec.hourly;
@@ -28423,6 +28521,18 @@ syncSelect('lightning-source-select', [
                 if (tx !== null && tx !== undefined && isFinite(tx) && (acc[d].tmax === null || Number(tx) > acc[d].tmax)) acc[d].tmax = Number(tx);
                 var tn = daily.temperature_2m_min ? daily.temperature_2m_min[d] : null;
                 if (tn !== null && tn !== undefined && isFinite(tn) && (acc[d].tmin === null || Number(tn) < acc[d].tmin)) acc[d].tmin = Number(tn);
+                // Fascia altimetrica del punto: pianura < 300 m, collina 300-800 m,
+                // montagna > 800 m. La provincia puo' contribuire a piu' fasce.
+                if (pointBand) {
+                    var bAcc = acc[d].bands[pointBand];
+                    bAcc.n++;
+                    if (tn !== null && tn !== undefined && isFinite(tn)) {
+                        if (bAcc.tmin === null || Number(tn) < bAcc.tmin) bAcc.tmin = Number(tn);
+                    }
+                    if (tx !== null && tx !== undefined && isFinite(tx)) {
+                        if (bAcc.tmax === null || Number(tx) > bAcc.tmax) bAcc.tmax = Number(tx);
+                    }
+                }
                 var convH = 0, hourSum = 0, hourSeen = false, snowSum = 0, snowSeen = false;
                 var hg = hourly.windgusts_10m || [], hw = hourly.weathercode || [];
                 var hgEc = (recEc && recEc.hourly) ? (recEc.hourly.windgusts_10m || []) : [];
@@ -28486,6 +28596,7 @@ syncSelect('lightning-source-select', [
         var days = [];
         var prevAreaTmax = {};
         var prevAreaTmin = {};
+        var prevAreaBands = {};
         for (d = 0; d < 3; d++) {
             var areas = [];
             for (var ai = 0; ai < ITALIA_AREAS.length; ai++) {
@@ -28504,6 +28615,14 @@ syncSelect('lightning-source-select', [
                     snowAmountP25: null, snowAmountP75: null, snowMax: null, snowProvIdx: null,
                     windU: 0, windV: 0, windW: 0,
                     hourly: null, bands: [0, 0, 0, 0], peakHour: null, peakVal: null,
+                    tempBands: {
+                        pianura: { n: 0, tmin: null, tmax: null },
+                        collina: { n: 0, tmin: null, tmax: null },
+                        montagna: { n: 0, tmin: null, tmax: null }
+                    },
+                    bandShown: [], bandText: '', bandTrendText: '',
+                    gelateBand: null, gelateMin: null,
+                    lonSum: 0, lonN: 0, meanLon: null,
                     trendMax: '', trendMin: '', sector: '', tip: ''
                 };
                 var areaHour = null;
@@ -28513,6 +28632,8 @@ syncSelect('lightning-source-select', [
                     var idx = Number(pi);
                     var region = (typeof regionsData !== 'undefined' && regionsData && regionsData[idx]) ? regionsData[idx].region : '';
                     if (!area.regions[region]) continue;
+                    var provLon = (typeof regionsData !== 'undefined' && regionsData && regionsData[idx] && isFinite(regionsData[idx].lon)) ? Number(regionsData[idx].lon) : null;
+                    if (provLon !== null) { st.lonSum += provLon; st.lonN++; }
                     var dayAcc = accByProv[pi][d];
                     if (dayAcc.precip !== null) {
                         st.nData++;
@@ -28528,6 +28649,19 @@ syncSelect('lightning-source-select', [
                     }
                     if (dayAcc.tmax !== null) {
                         if (st.tmax === null || dayAcc.tmax > st.tmax) { st.tmax = dayAcc.tmax; st.tmaxProvIdx = idx; }
+                    }
+                    // Le fasce dell'area contano le PROVINCE che hanno almeno un punto
+                    // nella fascia; la provincia puo' comparire in piu' fasce.
+                    var db = dayAcc.bands || {};
+                    for (var bkey in db) {
+                        if (!Object.prototype.hasOwnProperty.call(db, bkey)) continue;
+                        var bsrc = db[bkey];
+                        if (!bsrc || !bsrc.n) continue;
+                        var bdst = st.tempBands[bkey];
+                        if (!bdst) continue;
+                        bdst.n++;
+                        if (bsrc.tmin !== null && (bdst.tmin === null || bsrc.tmin < bdst.tmin)) bdst.tmin = bsrc.tmin;
+                        if (bsrc.tmax !== null && (bdst.tmax === null || bsrc.tmax > bdst.tmax)) bdst.tmax = bsrc.tmax;
                     }
                     if (dayAcc.gustBM !== null) {
                         st.gustBMArr.push(dayAcc.gustBM);
@@ -28551,6 +28685,7 @@ syncSelect('lightning-source-select', [
                         for (h = 0; h < 24; h++) areaHour[h] += dayAcc.hourly[h];
                     }
                 }
+                st.meanLon = st.lonN ? st.lonSum / st.lonN : null;
                 st.p25Wet = italiaPercentile(wetP, 0.25);
                 st.p75Wet = italiaPercentile(wetP, 0.75);
                 st.p50Gust = italiaPercentile(st.gustBMArr, 0.50);
@@ -28594,6 +28729,24 @@ syncSelect('lightning-source-select', [
                     st.snowAmountP25 = italiaPercentile(amounts, 0.25);
                     st.snowAmountP75 = italiaPercentile(amounts, 0.75);
                 }
+                // Fasce mostrate: solo quelle con almeno 3 province dell'area.
+                var bandOrder = ['pianura', 'collina', 'montagna'];
+                var bandParts = [], subzero = [];
+                for (var bo = 0; bo < bandOrder.length; bo++) {
+                    var bkey2 = bandOrder[bo];
+                    var bval = st.tempBands[bkey2];
+                    if (!bval || bval.n <= 0) continue;
+                    if (bval.tmin !== null && bval.tmin < 0) subzero.push({ band: bkey2, tmin: bval.tmin });
+                    if (bval.n >= 3 && bval.tmin !== null && bval.tmax !== null) {
+                        st.bandShown.push(bkey2);
+                        bandParts.push(bkey2 + ' ' + italiaBandTemp(bval.tmin, bval.tmax));
+                    }
+                }
+                st.bandText = bandParts.length ? 'Temperature: ' + bandParts.join(', ') + '.' : '';
+                if (subzero.length === 1) { st.gelateBand = subzero[0].band; st.gelateMin = subzero[0].tmin; }
+                var prevBands = prevAreaBands[area.name];
+                if (prevBands) st.bandTrendText = italiaBandTrendText(st.tempBands, prevBands);
+                prevAreaBands[area.name] = st.tempBands;
                 // "Dove" senza toponimi: settore generico dalla regione del massimo.
                 if (st.maxProvIdx !== null) {
                     var maxRegion = italiaProvRegion(st.maxProvIdx);
@@ -28605,9 +28758,9 @@ syncSelect('lightning-source-select', [
                         if (maxRegion === 'Campania') st.sector = 'sul settore tirrenico';
                         else if (maxRegion === 'Puglia') st.sector = 'sul settore adriatico';
                         else st.sector = 'sul settore appenninico';
-                    } else if (area.name === 'Isole maggiori') {
-                        if (maxRegion === 'Sardegna') st.sector = 'sul settore occidentale';
-                        else if (maxRegion === 'Sicilia') st.sector = 'sul settore meridionale';
+                    } else if (area.name === 'Sicilia' || area.name === 'Sardegna') {
+                        var maxLon = (typeof regionsData !== 'undefined' && regionsData && regionsData[st.maxProvIdx] && isFinite(regionsData[st.maxProvIdx].lon)) ? Number(regionsData[st.maxProvIdx].lon) : null;
+                        if (st.meanLon !== null && maxLon !== null) st.sector = (maxLon >= st.meanLon) ? 'sul settore orientale' : 'sul settore occidentale';
                     }
                     // Il settore si cita solo se il massimo e' chiaramente concentrato.
                     if (st.p75Wet === null || st.maxP === null || st.maxP < st.p75Wet * 2) st.sector = '';
@@ -28633,7 +28786,15 @@ syncSelect('lightning-source-select', [
                 var tipGustBM = st.gustProvBMIdx !== null ? italiaProvName(st.gustProvBMIdx) : '';
                 var tipGustEC = st.gustProvECIdx !== null ? italiaProvName(st.gustProvECIdx) : '';
                 var tipSnow = st.snowProvIdx !== null ? italiaProvName(st.snowProvIdx) : '';
+                var bandTip = '';
+                for (var bti = 0; bti < bandOrder.length; bti++) {
+                    var btk = bandOrder[bti];
+                    var btv = st.tempBands[btk];
+                    bandTip += (bandTip ? '; ' : '') + btk + ' n=' + btv.n +
+                        (btv.tmin !== null ? ' (' + italiaBandTemp(btv.tmin, btv.tmax) + ')' : '');
+                }
                 st.tip = st.nData + ' province con dato; ' + st.nWet + ' bagnate; ' + st.nConvWet + ' con ora convettiva; ' +
+                    'fasce: ' + bandTip + '; ' +
                     'max ' + italiaNum(st.maxP, 1) + ' mm' + (tipProv ? ' (' + tipProv + ', ' + tipRegion + ')' : '') + '; ' +
                     'raffiche best_match p50 ' + italiaNum(st.p50Gust, 0) + ', p90 ' + italiaNum(st.p90Gust, 0) +
                     ', p99 ' + italiaNum(st.p99Gust, 0) + ', max ' + italiaNum(st.maxGust, 0) + ' km/h' + (tipGustBM ? ' (' + tipGustBM + ')' : '') + '; ' +
@@ -28652,11 +28813,26 @@ syncSelect('lightning-source-select', [
                 areas: areas
             });
         }
+        var provinceBands = {};
+        for (var pbi in accByProv) {
+            if (!Object.prototype.hasOwnProperty.call(accByProv, pbi)) continue;
+            var pbDays = [];
+            for (var pbd = 0; pbd < 3; pbd++) {
+                var pb = accByProv[pbi][pbd].bands;
+                pbDays.push({
+                    pianura: { n: pb.pianura.n, tmin: pb.pianura.tmin, tmax: pb.pianura.tmax },
+                    collina: { n: pb.collina.n, tmin: pb.collina.tmin, tmax: pb.collina.tmax },
+                    montagna: { n: pb.montagna.n, tmin: pb.montagna.tmin, tmax: pb.montagna.tmax }
+                });
+            }
+            provinceBands[pbi] = pbDays;
+        }
         var ms = ((typeof performance !== 'undefined' && performance && performance.now) ? performance.now() : Date.now()) - t0;
         return {
             computeMs: Math.round(ms * 100) / 100,
             usedPoints: usedPoints,
             provinceCount: Object.keys(accByProv).length,
+            provinceBands: provinceBands,
             days: days
         };
     }
@@ -28697,21 +28873,20 @@ syncSelect('lightning-source-select', [
                 if (st.peakHour !== null) {
                     var bestBand = 0;
                     for (var b = 1; b < 4; b++) if (st.bands[b] > st.bands[bestBand]) bestBand = b;
-                    var bandLabels = ['nella notte (0-6)', 'al mattino (6-12)', 'nel pomeriggio (12-18)', 'in serata (18-24)'];
-                    parts.push('Fascia pi\u00F9 piovosa ' + bandLabels[bestBand] + ', picco ' + italiaHourText(st.peakHour) + '.');
+                    var bandLabels = ['nella notte', 'al mattino', 'nel pomeriggio', 'in serata'];
+                    parts.push('Pi\u00F9 piovoso ' + bandLabels[bestBand] + ', picco ' + italiaHourText(st.peakHour) + '.');
                 }
             }
         }
-        if (st.tmin !== null && st.tmax !== null) {
-            var t = 'Temperature ' + italiaFmtTemp(st.tmin, st.tmax);
-            if (st.trendMax || st.trendMin) {
-                var tm = st.trendMax || 'stazionarie';
-                var tn2 = st.trendMin || 'stazionarie';
-                if (tm === 'stazionarie' && tn2 === 'stazionarie') t += ', stazionarie';
-                else if (tm === tn2) t += ', ' + tm;
-                else t += ', massime ' + tm + ' e minime ' + tn2;
-            }
-            parts.push(t + '.');
+        if (st.bandText) {
+            var t = st.bandText;
+            if (st.bandTrendText) t += ' ' + st.bandTrendText;
+            parts.push(t);
+        }
+        if (st.gelateBand !== null) {
+            var gm = st.gelateMin;
+            var gmTxt = italiaNum(gm, Math.abs(gm) < 1 ? 1 : 0);
+            parts.push('Gelate solo in ' + st.gelateBand + ' (minima ' + gmTxt + ' \u00B0C).');
         }
         if (st.p90Gust !== null) {
             var w = 'Vento';
@@ -28736,11 +28911,11 @@ syncSelect('lightning-source-select', [
             var sn = 'Neve oltre ' + italiaFmtRange(st.snowQuotaMin, st.snowQuotaMax, ' m', 0);
             if (st.snowAmountP25 !== null && st.snowAmountP75 !== null) {
                 var amt = italiaFmtRange(st.snowAmountP25, st.snowAmountP75, ' mm', 1);
-                if (amt) sn += ', ' + amt + ' equivalenti';
+                if (amt) sn += ', ' + amt + ' eq';
             }
             parts.push(sn + '.');
         } else if (st.snowAmountP25 !== null) {
-            parts.push('Neve, ' + italiaFmtRange(st.snowAmountP25, st.snowAmountP75, ' mm', 1) + ' equivalenti.');
+            parts.push('Neve, ' + italiaFmtRange(st.snowAmountP25, st.snowAmountP75, ' mm', 1) + ' eq.');
         }
         if (!parts.length) return 'dato non disponibile';
         return parts.join(' ');
@@ -28757,7 +28932,7 @@ syncSelect('lightning-source-select', [
             return;
         }
         if (badge) {
-            badge.textContent = '5 macro-aree \u00B7 punti provincia del dataset';
+            badge.textContent = '6 macro-aree \u00B7 punti provincia del dataset';
             badge.title = italiaSynthesis.provinceCount + ' province, ' + italiaSynthesis.usedPoints + ' punti del payload';
         }
         var html = '';

@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.2.4.73 - SEI MACRO-AREE (SICILIA E SARDEGNA SEPARATE) E TEMPERATURE PER FASCIA ALTIMETRICA (PIANURA <300 m, COLLINA 300-800 m, MONTAGNA >800 m), TREND DENTRO LA STESSA FASCIA, FIX 0-0 mm (bump da 1.2.4.72)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=73
+RELEASE_TYPE=release
+DATE=2026-11-11
+NOTE=Release 1.2.4.73 (bump da 1.2.4.72) - SOLO CLIENT. (1) SEI MACRO-AREE: la sintesi nazionale passa da 5 a 6 aree (Nord, Centro Tirreno, Centro Adriatico, Sud, Sicilia, Sardegna); 'Isole maggiori' non esiste piu. 18 frasi giornaliere (6 x 3) e 6 frasi settimanali. (2) FASCE ALTIMETRICHE: minime e massime per pianura <300 m, collina 300-800 m, montagna >800 m; n province nel title, una provincia puo' stare in piu' fasce, fasce con meno di 3 province omesse. Quando il sottozero c'e solo in montagna la frase lo dice ('Gelate solo in montagna (minima -0,8 C)'). Esempio Nord 2026-11-11: pianura 5-19 C (37 province), collina 5-14 C (15), montagna -1-13 C (19). (3) TREND DENTRO LA STESSA FASCIA: massima con massima e minima con minima, mai fra fasce; una sola variazione per frase (la piu' forte) per restare sotto le 60 parole. Il summary della provincia usa la fascia dominante della provincia e il caveat montagna solo se la minima e' sotto zero. (4) FIX: italiaFmtRange non produce piu' '0-0 mm' ma '0 mm'. BUMP: html mri-light-1.2.4.73.html, VERSION (BUILD=73, DATE=2026-11-11), sw.js (CACHE_NAME mri-1.2.4.73), README.md, i 26 test .mjs, le 5 righe cp dei 3 workflow. La 1.2.4.72 va RIMOSSA dal repo. NON toccati: scripts/, workflow dei dati, color_scales.json, classi di rischio, dataset e renderer.
+APP_FILE=mri-light-1.2.4.73.html
+
 MeteoRisk Light - 1.2.4.72 - DISCLAIMER POTENZIALE/NWP UNA VOLTA SOLA (SCHEDE E TOOLTIP PULITI), CONFINE DOPPLER SEMPRE VISIBILE E DISEGNATO DI DEFAULT, LEGENDA FULMINI MORTA RIMOSSA (bump da 1.2.4.71)
 MAJOR=1
 MINOR=2

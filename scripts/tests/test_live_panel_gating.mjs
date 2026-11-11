@@ -2,7 +2,7 @@
 // TEST 1.0.0.8 — PARTE D (FIX3): gating Live Panel / Blitzortung.
 // 1.2.3.1: il pannello #live-panel ospita la funzione interna "Supercelle radar"
 // (#live-toggle-supercells + #live-sc-summary/list/phenomena), quindi RESTA nel DOM
-// anche con PUBLIC_EDITION_FEATURES.lightningBlitzortung = false. Dalla 1.2.4.72 la
+// anche con PUBLIC_EDITION_FEATURES.lightningBlitzortung = false. Dalla 1.2.4.73 la
 // legenda eta dei fulmini (#live-legend) e il suo hint (#live-hint) NON ESISTONO PIU'
 // nel pannello (mostravano solo intestazioni senza dati), mentre i
 // layer fulmini restano gated nei rispettivi handler. Con flag OFF:
@@ -21,7 +21,7 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.72.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.73.html');
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -84,7 +84,7 @@ function makeDoc() {
     'status-msg': status,
     'sync-timeline-panel': { classList: { remove() {} } },
     'btn-live': { classList: { toggle() {} }, style: {} },
-    // 1.2.4.72: legenda eta dei fulmini e hint RIMOSSI dal pannello LIVE (non
+    // 1.2.4.73: legenda eta dei fulmini e hint RIMOSSI dal pannello LIVE (non
     // esistono piu' nel sorgente, quindi nessun elemento finto da popolare qui).
     'live-subtitle': { style: {} },
     // toggle interno "Supercelle radar" + id dedicati della vista LIVE (nessun
