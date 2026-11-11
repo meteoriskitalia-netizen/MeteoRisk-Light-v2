@@ -164,6 +164,21 @@ def test_coherent_track_without_velocity_propagates_null_reason():
     assert rec["motion_null_reason"] == "fit_residual_too_high"
 
 
+def test_short_track_is_not_coherent_even_if_slow():
+    """Meno di 4 punti: track_coherent False e moto non pubblicabile."""
+    track = _storm_track([10.0 + 0.06 * i for i in range(3)])
+    b = _bundle(track)
+    cs.evaluate(b, CONFIG["convective_structure"])
+    assert len(b.convective_structures) == 1
+    rec = b.convective_structures[0]
+    assert rec["track_points"] == 3
+    assert rec["track_coherent"] is False
+    assert rec["motion_reliable"] is False
+    assert rec["motion_null_reason"] == "track_not_coherent"
+    assert rec["motion"]["velocity_kmh"] is None
+    assert rec["motion"]["motion_quality"] == "unreliable"
+
+
 def test_storm_gate_value_is_the_forecast_speed_range():
     """Il gate 110 non e' una seconda costante: viene da forecast."""
     assert CONFIG["storm"]["tracking"]["max_storm_speed_kmh"] == \

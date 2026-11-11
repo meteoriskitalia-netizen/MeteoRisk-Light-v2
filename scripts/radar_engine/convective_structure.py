@@ -42,10 +42,11 @@ COMPOSIZIONE PUBBLICATA (2026-11-11): ogni record porta `cell_count` (celle
 della maschera dell'ultimo frame), `area_km2` (area dell'ultimo frame),
 `distance_km` (lunghezza del percorso), `track_points` (punti usati),
 `track_coherent`, `motion_reliable` (bool) e `motion_null_reason` (motivo
-esplicito quando il moto non e' pubblicabile). `track_coherent` usa lo stesso
-gate di continuita' delle celle (110 km/h, forecast.SPEED_RANGE_KMH[1]): se e'
-False il record NON puo' dichiarare `motion_quality="reliable"` -
-`velocity_kmh` e' null con `motion_null_reason="track_not_coherent"`.
+esplicito quando il moto non e' pubblicabile). `track_coherent` e' True solo
+con almeno 4 punti e nessun segmento oltre il gate di continuita' delle celle
+(110 km/h, forecast.SPEED_RANGE_KMH[1]): se e' False il record NON puo'
+dichiarare `motion_quality="reliable"` - `velocity_kmh` e' null con
+`motion_null_reason="track_not_coherent"`.
 """
 
 from . import forecast as forecast_mod
@@ -317,9 +318,13 @@ def _track_coherence(points):
 
     Fonte unica del valore: forecast.SPEED_RANGE_KMH[1], la stessa usata dal
     tracker delle celle. Un segmento con dt <= 0 rende il track NON coerente
-    (la velocita' implicita non e' definita, non si assume nulla)."""
-    max_speed = float(forecast_mod.SPEED_RANGE_KMH[1])
+    (la velocita' implicita non e' definita, non si assume nulla). Un track
+    con meno di 4 punti e' NON coerente: troppo corto per un moto
+    pubblicabile, anche se i suoi segmenti sono lenti."""
     worst = None
+    if len(points) < 4:
+        return False, worst
+    max_speed = float(forecast_mod.SPEED_RANGE_KMH[1])
     for a, b in zip(points, points[1:]):
         dt_h = (b.timestamp_ms - a.timestamp_ms) / 3600000.0
         if dt_h <= 0:
