@@ -225,6 +225,49 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 .sc-toggles { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px 10px 6px 10px; }
 .sc-toggle { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 9999px; border: 1px solid #334155; background: #1e293b; color: #94a3b8; cursor: pointer; }
 .sc-toggle.on { border-color: #a855f7; background: #2e1065; color: #e9d5ff; }
+/* 1.2.4.73 - STRUTTURA CONVETTIVA: DRAWER LATERALE (desktop) / BOTTOM-SHEET (mobile).
+   Il pannello non sta piu' SOPRA la mappa: a >=1280px e' un cassetto fisso a destra
+   (440px) che lascia scoperta la map-card; sotto i 1280px e' un foglio dal basso
+   alto al massimo 50vh. Nessun overlay: i marker restano
+   cliccabili mentre si legge la lista. */
+@media (min-width: 1280px) {
+  #sc-radar-panel.panel-sc {
+    position: fixed; top: 0; right: 0; bottom: 0; left: auto;
+    width: 440px; max-width: 440px; height: 100vh;
+    margin: 0; padding: 14px 16px 24px 16px;
+    border: 0; border-left: 1px solid #a855f7; border-radius: 0;
+    z-index: 1600; overflow-y: auto; overflow-x: hidden;
+    box-shadow: -10px 0 30px rgba(15,23,42,.45);
+  }
+}
+@media (max-width: 1279px) {
+  #sc-radar-panel.panel-sc {
+    position: fixed; left: 0; right: 0; bottom: 0; top: auto;
+    width: 100%; max-width: 100%; max-height: 44vh;
+    margin: 0; padding: 10px 12px calc(18px + env(safe-area-inset-bottom)) 12px;
+    border: 1px solid #a855f7; border-bottom: 0; border-radius: 14px 14px 0 0;
+    z-index: 1600; overflow-y: auto; overflow-x: hidden;
+    box-shadow: 0 -10px 30px rgba(15,23,42,.5);
+  }
+}
+.sc-drawer-close { margin-left: auto; flex: 0 0 auto; background: transparent; border: 1px solid #334155; color: #cbd5e1; border-radius: 6px; padding: 2px 8px; font-size: 13px; cursor: pointer; }
+.sc-drawer-close:hover { background: #334155; }
+.sc-row-line { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; line-height: 1.35; }
+.sc-row-title { font-size: 12px; font-weight: 700; color: #f1f5f9; }
+.sc-row-soi { color: #cbd5e1; }
+.sc-row-motion { color: #cbd5e1; }
+.sc-chip-neutral { background: #334155; color: #e2e8f0; }
+.sc-row-detail { flex-basis: 100%; margin-top: 2px; }
+.sc-row-detail > summary { cursor: pointer; color: #94a3b8; font-size: 10px; list-style: none; }
+.sc-row-detail > summary::-webkit-details-marker { display: none; }
+.sc-row-detail[open] > summary { color: #cbd5e1; }
+.sc-detail-lines { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; padding-left: 10px; border-left: 2px solid #334155; font-size: 11px; color: #cbd5e1; }
+.sc-tracked-details { border-top: 1px solid #334155; padding: 6px 10px 8px 10px; }
+.sc-tracked-details > summary { cursor: pointer; font-size: 11px; color: #cbd5e1; list-style: none; }
+.sc-tracked-details > summary::-webkit-details-marker { display: none; }
+.sc-tracked-list { max-height: 34vh; overflow-y: auto; margin-top: 4px; }
+.sc-tracked-row { display: flex; flex-wrap: wrap; gap: 2px 8px; padding: 4px 0; border-top: 1px solid #1f2937; font-size: 11px; color: #cbd5e1; }
+.sc-tracked-foot { margin-top: 4px; font-size: 10px; color: #94a3b8; }
 .sc-phenomena-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 10px; color: #e2e8f0; padding: 3px 10px; border-top: 1px solid #1f2937; cursor: pointer; }
 .sc-phenomena-glyph { display: inline-flex; width: 18px; height: 18px; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; line-height: 1; flex-shrink: 0; border: 1px solid currentColor; border-radius: 50%; background: rgba(15,23,42,.65); }
 .sc-phenomena-detail { flex-basis: 100%; display: none; margin-top: 2px; font-size: 11px; color: #94a3b8; line-height: 1.35; }
@@ -1774,19 +1817,20 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     <div id="live-sc-list" style="max-height:220px;overflow-y:auto;border-top:1px solid #334155;"></div>
 </div>
 
-<!-- Pannello Struttura convettiva (descrittore SOI dal Motion Engine; rotazione NON misurabile) -->
+<!-- Pannello Struttura convettiva (descrittore SOI dal Motion Engine; morfologia radar, senza Doppler) -->
 <div class="panel-live panel-sc" id="sc-radar-panel" style="display:none;">
-    <div class="live-header" style="border-color:#a855f7;">
+    <div class="live-header" style="border-color:#a855f7; flex-wrap:wrap;">
         <span style="color:#a855f7; font-size:14px;">🌀</span> <strong>STRUTTURA CONVETTIVA</strong>
         <span style="font-size:10px;color:#22c55e;font-weight:700;">EVENTI OSSERVATI (RADAR)</span>
         <span id="sc-source-badge" class="sc-source-badge" title="Sorgente del dato radar usata dal motore">Sorgente: —</span>
-        <span style="font-size:10px;color:#94a3b8;">Descrittore SOI in quasi-realtime · rotazione NON misurabile (nessun Doppler)</span>
+        <span style="font-size:10px;color:#94a3b8;">Descrittore SOI in quasi-realtime · morfologia radar, senza Doppler</span>
+        <button type="button" class="sc-drawer-close" onclick="toggleScRadar()" title="Chiudi il pannello" aria-label="Chiudi il pannello">✕</button>
     </div>
     <div class="live-legend" id="sc-legend">
         <div class="legend-title">Livello SOI — osservato (radar)</div>
         <div class="legend-row">
-            <span class="legend-swatch" style="background:#facc15;"></span><span>strong (65-79)</span>
-            <span class="legend-swatch" style="background:#ef4444;"></span><span>intense (80-100)</span>
+            <span class="legend-swatch" style="background:#facc15;"></span><span>organizzata (65-79)</span>
+            <span class="legend-swatch" style="background:#ef4444;"></span><span>molto organizzata (80-100)</span>
             <span class="legend-swatch" style="background:#a855f7;"></span><span>record emesso</span>
             <span class="legend-swatch" style="background:#fff; border:2px dashed #a855f7;"></span><span>non sull'ultimo frame</span>
         </div>
@@ -1805,11 +1849,11 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         </div>
     </div>
     <div class="live-hint">
-        Il rilevamento usa i dati radar DPC (riflettività/tracking/organizzazione) e un indice
-        composito (SOI, structural organization index). <strong>Non usa velocità Doppler</strong>: la
-        rotazione è <strong>non misurabile</strong> (manca la grandezza fisica da misurare, non la soglia),
-        quindi nessun record è una diagnosi di rotazione. La "nascita" indica un record appena
-        formato nella finestra.
+        Il rilevamento usa i dati radar DPC (riflettività, tracking, organizzazione) e un indice
+        composito (SOI, structural organization index). <strong>Senza velocità Doppler</strong> l'SOI
+        descrive la <strong>morfologia</strong> della cella: è un descrittore stimato, non una diagnosi
+        di circolazione interna e non una probabilità. La "nascita" indica un record appena formato
+        nella finestra.
         <br><strong style="color:#22c55e;">Eventi osservati (radar)</strong>: questi badge indicano un
         fenomeno <em>rilevato dal radar</em> e sono distinti dai badge di <em>rischio</em> sulla mappa,
         che esprimono solo il <strong>potenziale ambientale (modello NWP)</strong> — condizioni favorevoli
@@ -1818,7 +1862,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     <div id="sc-status" style="font-size:11px;color:#94a3b8;padding:2px 10px 6px 10px;">Caricamento...</div>
     <div class="sc-toggles">
         <button type="button" id="sc-toggle-trails" class="sc-toggle on" onclick="toggleScTrails()" title="Traccia 2h dei candidati attivi (archivio rolling radar-history)">Traccia 2h</button>
-        <button type="button" id="sc-toggle-forecast" class="sc-toggle on" onclick="toggleScForecast()" title="Cono di forecast cinematico ≤2h per candidato (opacità per confidence)">Forecast ≤2h</button>
+        <button type="button" id="sc-toggle-forecast" class="sc-toggle on" onclick="toggleScForecast()" title="Cono di forecast cinematico ≤2h, solo con fit usato e track coerente">Forecast ≤2h</button>
         <button type="button" id="sc-toggle-phenomena" class="sc-toggle on" onclick="toggleScPhenomena()" title="Badge grandine/struttura asimmetrica (proxy riflettività, senza Doppler)">Fenomeni</button>
         <button type="button" id="sc-toggle-hail" class="sc-toggle on" onclick="toggleScHail()" title="Badge grandine (proxy riflettività, senza Doppler)">Grandine</button>
     </div>
@@ -1833,28 +1877,33 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <div class="legend-row"><span><b>SOI</b> — 0-100: struttura della cella (nucleo, organizzazione, forma, persistenza, crescita). Da 65 il record viene pubblicato. <b>Non</b> è una probabilità.</span></div>
         <div class="legend-row"><span><b>SOI v2</b> — 0-100: SOI 60% + Hook 15% + Strutt.V 10% + Env 8% + OT 4% + Fulmini 3%; i pesi dei campi mancanti si ridistribuiscono sui presenti.</span></div>
         <div class="legend-row"><span><b>dBZ</b> — riflettività massima della cella (decibel). Il motore usa 45 dBZ come soglia di nucleo convettivo (gate del record e di Hook) e normalizza fra 35 e 55 dBZ. È il dato radar osservato, non Doppler.</span></div>
-        <div class="legend-row"><span><b>Hook</b> — 0-100: quanto il nucleo ≥45 dBZ ha forma di uncino. È morfologia, non rotazione; soglie sperimentali, non calibrate.</span></div>
+        <div class="legend-row"><span><b>Hook</b> — 0-100: quanto il nucleo ≥45 dBZ ha forma di uncino. È morfologia radar, non una diagnosi.</span></div>
         <div class="legend-row"><span><b>Strutt.V</b> — 0-100: struttura verticale dai prodotti DPC (VIL 35%, ETM 25%, POH 25%, overhang 15%).</span></div>
-        <div class="legend-row"><span><b>OT</b> — 0-100: overshooting top da satellite IR_108: area di pixel a ≤ 215 K (-58 °C) che sono almeno 6,5 °C più freddi dell'anvillo a ~8 km. Indica un updraft forte, non la rotazione.</span></div>
-        <div class="legend-row"><span><b>Fulmini</b> — 0-100: 70% dal rate dell'ultimo slot da 5 minuti nel raggio 30 km (satura a 100 fulmini) + 30% dal salto di tendenza. "n/d" se il dato manca.</span></div>
+        <div class="legend-row"><span><b>OT</b> — 0-100: overshooting top da satellite IR_108: area di pixel a ≤ 215 K (-58 °C) che sono almeno 6,5 °C più freddi dell'anvillo a ~8 km. Indica una corrente ascensionale forte.</span></div>
+        <div class="legend-row"><span><b>Fulmini</b> — 0-100: 70% dal rate dell'ultimo slot da 5 minuti nel raggio 30 km (satura a 100 fulmini) + 30% dal salto di tendenza. "n/d" se il dato manca, con il numero di tentativi falliti.</span></div>
         <div class="legend-row"><span><b>Env</b> — 0-100: ambiente previsto dal modello NWP (100·tanh(SCP/3), corretto per la completezza). È potenziale previsto dal modello.</span></div>
         <div class="legend-row"><span><b>Track</b> — identificativo del track: <b>cella #N</b> (cella convettiva) o <b>sistema #N</b> (storm object = celle vicine raggruppate dal tracking).</span></div>
         <div class="legend-row"><span><b>Pos</b> — ultima posizione del centro (latitudine/longitudine).</span></div>
-        <div class="legend-row"><span><b>km/h verso</b> — velocità e direzione del moto (fit del tracking quando è affidabile).</span></div>
+        <div class="legend-row"><span><b>Moto osservato</b> — velocità e direzione del centro ricavate dal tracking; "punti utili" = punti che superano il gate di continuità. Se il track non è coerente il moto non viene mostrato come numero.</span></div>
+        <div class="legend-row"><span><b>Forecast ≤2h</b> — proiezione cinematica del track. Compare solo con <b>fit usato</b>, non clampato e track coerente; altrimenti la riga dichiara perché non è disponibile.</span></div>
         <div class="legend-row"><span><b>Nascita / Attiva</b> — record nuovo nella finestra corrente (≤3 frame) o già sostenuto. "Nascita" non significa nuovo temporale.</span></div>
         <div class="legend-row"><span><b>non sull'ultimo frame</b> — il track non compare nell'ultima scansione radar: record più vecchio, non necessariamente esaurito.</span></div>
-        <div class="legend-row"><span><b>Record / Nascite / Strong / Intense / Sull'ultimo frame / SOI max</b> — conteggi della lista e SOI massimo; le fasce pubblicate sono strong 65-79 e intense 80-100.</span></div>
+        <div class="legend-row"><span><b>Record / Nascite / Organizzate / Molto organizzate / Sull'ultimo frame / SOI max</b> — conteggi della lista e SOI massimo; le fasce pubblicate sono organizzata 65-79 e molto organizzata 80-100.</span></div>
         <div class="legend-row"><span><b>Grandine ▲</b> — badge osservato dal radar: POH + struttura verticale + fulmini + zero termico + OT (proxy di riflettività).</span></div>
-        <div class="legend-row"><span><b>Struttura asimmetrica ↻</b> — morfologia asimmetrica/hook: proxy di riflettività, <b>non</b> rotazione.</span></div>
+        <div class="legend-row"><span><b>Struttura asimmetrica ↻</b> — morfologia asimmetrica/hook: proxy di riflettività.</span></div>
         <div class="legend-row"><span><b>Sospetto / Confermato</b> — un solo segnale (SUSPECT, tratteggiato) oppure più segnali concordi (CORROBORATED/VERIFIED, pieno).</span></div>
         <div class="legend-row"><span><b>POH</b> — probabilità di grandine del prodotto DPC (%); da 50% è segnale primario.</span></div>
         <div class="legend-row"><span><b>VIL</b> — liquido equivalente integrato nella colonna (kg/m²).</span></div>
         <div class="legend-row"><span><b>ETM</b> — quota della cima dell'eco (km).</span></div>
         <div class="legend-row"><span><b>overhang</b> — frazione di eco alta (≥40 dBZ a 6 km) senza eco corrispondente a 2 km (0-1).</span></div>
         <div class="legend-row"><span><b>H0</b> — quota dello zero termico (m); sotto 3000 m rafforza l'evidenza di grandine.</span></div>
-        <div class="live-hint" style="margin-top:6px;">Cosa <b>non</b> è calcolabile con questo dato: la <b>rotazione</b> (quindi mesociclone e supercella), perché il mosaico DPC è a sola riflettività 2D senza velocità radiale; una <b>probabilità calibrata</b> (POD/FAR), perché non esiste un archivio di etichette verificato. MESH, VIL density, SRH e Bunker sono nel file dati ma non in questo pannello, e possono essere assenti (MESH sotto 4 quote CAPPI, SRH sotto 4 livelli di vento).</div>
+        <div class="live-hint" style="margin-top:6px;">Cosa <b>non</b> è calcolabile con questo dato: la circolazione interna della cella, perché il mosaico DPC è a sola riflettività 2D senza velocità radiale; una <b>probabilità calibrata</b> (POD/FAR), perché non esiste un archivio di etichette verificato. MESH, VIL density, SRH e Bunker sono nel file dati ma non in questo pannello, e possono essere assenti (MESH sotto 4 quote CAPPI, SRH sotto 4 livelli di vento).</div>
     </div>
-    <div id="sc-list" style="max-height:220px;overflow-y:auto;border-top:1px solid #334155;"></div>
+    <div id="sc-list" style="border-top:1px solid #334155;"></div>
+    <details id="sc-tracked-details" class="sc-tracked-details">
+        <summary id="sc-tracked-summary">Celle tracciate</summary>
+        <div id="sc-tracked-list" class="sc-tracked-list"></div>
+    </details>
 </div>
 
 <div class="metric-tabs" id="metric-tabs">
@@ -2466,9 +2515,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.73';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.74';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-11';
     const APP_CHANGELOG = [
+        { version: '1.2.4.74', date: '2026-11-11', changes: [
+  "PANNELLO STRUTTURA CONVETTIVA RISCRITTO= La riga non dice piu' solo 'sistema #17': mostra la composizione (Sistema #17 \u00b7 7 celle \u00b7 32.025 km\u00b2, oppure Cella #43 \u00b7 1 cella \u00b7 305 km\u00b2), la posizione con la provincia piu' vicina (44,19\u00b0N 17,88\u00b0E \u00b7 277 km da Foggia \u00b7 fuori Italia oltre 50 km), il SOI come 'organizzazione stimata (morfologia, senza Doppler)', il moto osservato con i punti utili del fit (64 km/h verso S 180\u00b0 \u00b7 3/6 punti utili) oppure 'Moto non determinabile \u00b7 track non coerente', durata/frame/percorso e i descrittori con il contesto (Hook 0 (nessun hook), Strutt.V 0 (nessuna struttura verticale), OT 0 (nessun OT), Fulmini n/d con il motivo). Se cell_count o area_km2 mancano (run vecchie) la parte si OMETTE: nessun '0' e nessun 'n/d celle'. distance_km del motore e' la lunghezza del percorso, non la distanza da una provincia: la distanza e' calcolata sui capoluoghi di regionsData.",
+  "CONO FORECAST SOLO SE COERENTE, BADGE SOLO ENTRO 10 MINUTI= Il cono si disegna solo con fit_used=true, non clampato, track coerente, moto affidabile e direzione del fit concorde con il moto osservato entro 45 gradi; altrimenti la riga dichiara perche' non e' disponibile (fit non usato / track non coerente / direzione discorde). I badge di fenomeni compaiono solo se lo scan dei badge dista al massimo 10 minuti da quello delle strutture; oltre, la nota dice 'badge 06:25 (20 min dopo)' invece di accostare un altro istante. Via le parole che il dato non sostiene: rotazione, mesociclone, supercella, vortice e 'intenso' come severita' non compaiono nel pannello (misurato 0/0/0/0); il riepilogo dice 'N organizzate' / 'N molto organizzate'.",
+  "DRAWER LATERALE E CELLE TRACCIATE= A >=1280 px il pannello e' un cassetto fisso a destra di 440 px che non copre la mappa (640 px visibili a 1440x900, 0 marker sotto il pannello); sotto i 1280 px e' un bottom-sheet con altezza massima 44vh, scroll interno e mappa interamente visibile sopra il foglio (390x844: pannello 371 px = 44%, 0 marker coperti). Nuova lista separata e collassabile 'Celle tracciate' da data/radar/tracks.json: prime 10 celle per punteggio di organizzazione, nessun forecast e nessun colore di allerta, piede '91 celle tracciate \u00b7 35 con org. \u226550 \u00b7 56 sotto'. BUMP: html mri-light-1.2.4.74.html, VERSION (BUILD=74, DATE=2026-11-11), sw.js (CACHE_NAME mri-1.2.4.74), README.md, i 26 test .mjs, le 5 righe cp dei 3 workflow; la 1.2.4.73 va RIMOSSA dal repo. NON toccati: scripts/, workflow dei dati, dataset e renderer."
+        ] },
         { version: '1.2.4.73', date: '2026-11-11', changes: [
   "SEI AREE AL POSTO DI CINQUE= La sintesi nazionale passa da 5 a 6 macro-aree: Nord, Centro Tirreno, Centro Adriatico, Sud, Sicilia e Sardegna; 'Isole maggiori' non esiste piu. Le frasi giornaliere diventano 18 (6 aree x 3 giorni) e quelle settimanali 6; badge e commenti aggiornati. Le due occorrenze storiche di 'Isole maggiori' restano solo nel changelog delle release 1.2.4.68 e 1.2.4.70.",
   "TEMPERATURE PER FASCIA ALTIMETRICA= Minime e massime per pianura <300 m, collina 300-800 m e montagna >800 m, con il numero di province della fascia nel title (una provincia puo' stare in piu' fasce). Esempio Nord 2026-11-11: pianura 5-19 \u00B0C (37 province), collina 5-14 \u00B0C (15), montagna -1-13 \u00B0C (19); la montagna e' l'unica fascia sotto zero e la frase dice 'Gelate solo in montagna (minima -0,8 \u00B0C)'.",
@@ -9998,6 +10052,12 @@ removeLightningTile();
             box.innerHTML = '<div class="legend-title" style="padding:4px 10px 0 10px;">Fenomeni osservati (radar)</div>' + html;
             box.style.display = 'block';
             scEnsurePhenomenaClickHandler('live-sc-phenomena');
+        } else if (scPhenomenaData && Array.isArray(scPhenomenaData.badges) && scPhenomenaData.badges.length && !scPhenomenaCoherent()) {
+            box.innerHTML = '<div class="legend-title" style="padding:4px 10px 0 10px;">Fenomeni osservati (radar)</div>' +
+                '<div class="sc-phenomena-row"><span class="sc-phenomena-head">Badge non mostrati: ' +
+                scPhenomenaDeltaText() + ' \u2014 oltre 10 min dal frame delle strutture.</span></div>';
+            box.style.display = 'block';
+            scEnsurePhenomenaClickHandler('live-sc-phenomena');
         } else {
             box.innerHTML = '';
             box.style.display = 'none';
@@ -10045,11 +10105,13 @@ removeLightningTile();
     var scTrailsData = null;        // tracce assemblate { 'cell#id': [{lonlat,t,max_dbz}] }
     var scPhenomenaData = null;     // payload data/phenomena/badges.json
     var scSlotCache = {};           // slot name -> payload (archivio rolling immutabile)
+    var scTracksData = null;        // data/radar/tracks.json: elenco completo delle celle
     var scShowTrails = true;        // toggle UI (default ON)
     var scShowForecast = true;      // toggle UI (default ON, opacità per confidence)
     var scShowPhenomena = true;     // toggle UI (default ON)
     var scShowHail = true;          // toggle UI "Grandine" (default ON; ha effetto solo se scShowPhenomena)
     var scLastCands = [];           // ultimi candidati renderizzati (refresh pennant con badge)
+    var scLatestMeta = null;        // ultimo latest.json (warnings: tentativi fulmini 403)
     var scTrailUidMap = {};         // track_type#track_id -> 'u#uid' (dai slot history)
 
     // Sottosistema celle organizzate ATTIVO: pannello SC aperto OPPURE toggle
@@ -10097,6 +10159,15 @@ removeLightningTile();
             // chiuso pur con la classe attiva (visibile solo dopo un giro dello switch
             // Sviluppo, che azzerava l'inline). Ora toggleScRadar() lo apre DAVVERO.
             if (panel) { panel.classList.add('active'); panel.style.display = ''; }
+            // 1.2.4.73: su mobile il cassetto e' un bottom-sheet: porta la mappa
+            // all'inizio del viewport, cosi' i marker restano visibili sopra il foglio.
+            if (window.matchMedia && window.matchMedia('(max-width: 1279px)').matches) {
+                var mapHost = document.getElementById('leaflet-map');
+                if (mapHost && mapHost.scrollIntoView) {
+                    try { mapHost.scrollIntoView({ block: 'start', inline: 'nearest' }); }
+                    catch (e) { mapHost.scrollIntoView(true); }
+                }
+            }
             var st = scRadarEl('sc-status');
             if (st) st.innerText = 'Caricamento dati radar (data/radar/convective_structures.json)...';
             refreshScRadar();
@@ -10138,6 +10209,15 @@ removeLightningTile();
             var payload = await res.json();
             var resL = await fetchWithTimeout(latestUrl, 15000, null);
             var latest = resL.ok ? await resL.json() : null;
+            // 1.2.4.74: elenco COMPLETO delle celle tracciate (data/radar/tracks.json).
+            // Richiesta separata e non bloccante: se manca, la lista "Celle tracciate"
+            // scrive che l'elenco non e' disponibile, senza toccare il resto del pannello.
+            var tracksPayload = null;
+            try {
+                var resT = await fetchWithTimeout('data/radar/tracks.json', 15000, null);
+                if (resT.ok) tracksPayload = await resT.json();
+            } catch (eT) { tracksPayload = null; }
+            scTracksData = tracksPayload;
             scRadarData = payload;
             renderScRadar(payload, latest);
         } catch (e) {
@@ -10155,6 +10235,8 @@ removeLightningTile();
             if (liveList) liveList.innerHTML = '';
             if (scRadarLayer && map && map.hasLayer(scRadarLayer)) map.removeLayer(scRadarLayer);
             scRadarLayer = null;
+            scTracksData = null;
+            renderScTrackedCells(null);
             scRedrawDerived();
         }
     }
@@ -10166,9 +10248,9 @@ removeLightningTile();
     }
 
     function scLevelLabel(level) {
-        if (level === 'intense') return 'SOI intenso';
-        if (level === 'strong') return 'SOI forte';
-        if (level === 'organized') return 'SOI organizzato';
+        if (level === 'intense') return 'molto organizzata';
+        if (level === 'strong') return 'organizzata';
+        if (level === 'organized') return 'tracciata';
         return level;
     }
 
@@ -10235,7 +10317,9 @@ removeLightningTile();
         var color = scLevelColor(c.level);
         var accent = (phen && phen.type === 'HAIL') ? '#7dd3fc' : ((phen && phen.type === 'VORTEX') ? '#fb923c' : null);
             var glyph = phen ? scPhenomenaGlyph(phen) : '';
-            var dir = scCandidateDirectionDeg(c);
+            // 1.2.4.73: il pennant segue la direzione 'candidate' solo per track coerenti;
+            // track incoerente = fermo (niente freccia che contraddice la riga).
+            var dir = scTrackCoherent(c) ? scCandidateDirectionDeg(c) : null;
             var transform = (dir === null) ? '' : ' transform="rotate(' + dir + ' 17 17)"';
             var dash = onLatest ? '' : ' stroke-dasharray="3,3"';
             var svg =
@@ -10271,10 +10355,49 @@ removeLightningTile();
         return map;
     }
 
+    // 1.2.4.73 - COERENZA TEMPORALE DEI BADGE FENOMENI: si mostrano solo se il
+    // loro frame dista <= 10 minuti da quello delle strutture. Oltre quella soglia
+    // il badge descrive un altro istante e non va accostato alla riga: si scrive
+    // la differenza invece di disegnarlo.
+    function scIsoMs(v) {
+        if (!v) return null;
+        var t = Date.parse(v);
+        return isFinite(t) ? t : null;
+    }
+
+    function scPhenomenaDeltaMin() {
+        var s = scIsoMs(scRadarData && scRadarData.radar_timestamp);
+        var b = scIsoMs(scPhenomenaData && scPhenomenaData.radar_timestamp);
+        if (s === null || b === null) return null;
+        return Math.round((b - s) / 60000);
+    }
+
+    function scPhenomenaCoherent() {
+        var d = scPhenomenaDeltaMin();
+        return d !== null && Math.abs(d) <= 10;
+    }
+
+    function scPhenomenaBadgeClock() {
+        var ms = scIsoMs(scPhenomenaData && scPhenomenaData.radar_timestamp);
+        if (ms === null) return null;
+        var d = new Date(ms);
+        return ('0' + d.getUTCHours()).slice(-2) + ':' + ('0' + d.getUTCMinutes()).slice(-2);
+    }
+
+    function scPhenomenaDeltaText() {
+        var d = scPhenomenaDeltaMin();
+        var clock = scPhenomenaBadgeClock();
+        var head = clock ? ('badge ' + clock + ' ') : 'badge ';
+        if (d === null) return head + '(differenza non verificabile: timestamp mancante)';
+        if (d === 0) return head + '(stesso frame delle strutture)';
+        return head + '(' + Math.abs(d) + ' min ' + (d > 0 ? 'dopo' : 'prima') + ')';
+    }
+
     // Badge ATTIVI in base ai toggle: "Fenomeni" e' il master ON/OFF, "Grandine"
     // filtra solo i badge HAIL (i VORTEX restano sotto il master). Unico punto
     // di lettura di scPhenomenaData.badges per rendering/gating.
     function scActivePhenomenaBadges() {
+        if (!scPhenomenaCoherent()) return [];
         if (!scShowPhenomena || !scPhenomenaData || !Array.isArray(scPhenomenaData.badges)) return [];
         var b = scPhenomenaData.badges;
         if (!scShowHail) b = b.filter(function (x) { return x && x.type !== 'HAIL'; });
@@ -10295,11 +10418,13 @@ removeLightningTile();
             var m = L.marker([c.position[1], c.position[0]], {
                 icon: scPennantIcon(c, phen), pane: 'supercellPane', interactive: true
             });
-            var info = 'SOI ' + c.soi + ' — ' + scLevelLabel(c.level) + ' · rotazione non misurabile' +
+            var info = 'SOI ' + c.soi + '/100 — ' + scLevelLabel(c.level) + ' · organizzazione stimata (morfologia)' +
                 (c.phase === 'birth' ? ' (nascita)' : '') +
                 '<br>Track ' + (c.track_type === 'storm_object' ? 'sistema #' : 'cella #') + c.track_id +
                 '<br>' + c.position[1].toFixed(3) + '°N, ' + c.position[0].toFixed(3) + '°E' +
-                (scCandidateVelocityKmh(c) != null ? '<br>' + scCandidateVelocityKmh(c) + ' km/h verso ' + scCompass(scCandidateDirectionDeg(c)) : '');
+                (scForecastUsable(c) && c.forecast && typeof c.forecast.velocity_kmh === 'number' && isFinite(c.forecast.velocity_kmh) ? '<br>Forecast: ' + Math.round(c.forecast.velocity_kmh) + ' km/h verso ' + scCompass(c.forecast.direction_toward_deg) : '') +
+                '<br>' + (scPennantDirectionDeg(c) != null ? 'Indicatore: ' + scCompass(scCandidateDirectionDeg(c)) : 'Indicatore: fermo') +
+                '<br>' + scMotionLine(c);
             m.bindTooltip(info, { direction: 'top', opacity: 0.95 });
             markers.push(m);
         }
@@ -10338,6 +10463,222 @@ removeLightningTile();
         return '<span class="' + cls + '"' + (tip ? ' title="' + tip + '"' : '') + '>' + txt + '</span>';
     }
 
+    // ---- 1.2.4.73: lettura difensiva dei campi nuovi del motore ----
+    // cell_count / area_km2 / distance_km / track_points / track_coherent NON sono
+    // ancora in tutti i payload. Ogni lettore restituisce null e la riga scrive
+    // "n/d": nessun valore inventato e nessun crash se il campo manca.
+    function scNum(v) {
+        return (typeof v === 'number' && isFinite(v)) ? v : null;
+    }
+
+    function scFirstNum() {
+        for (var i = 0; i < arguments.length; i++) {
+            var n = scNum(arguments[i]);
+            if (n !== null) return n;
+        }
+        return null;
+    }
+
+    // Intero con separatore migliaia italiano (dot), indipendente dalla locale.
+    function scFmtInt(v) {
+        if (v === null || v === undefined || !isFinite(v)) return 'n/d';
+        var n = Math.round(Number(v));
+        var neg = n < 0;
+        var s = String(Math.abs(n));
+        var out = '';
+        for (var i = 0; i < s.length; i++) {
+            if (i > 0 && (s.length - i) % 3 === 0) out += '.';
+            out += s.charAt(i);
+        }
+        return (neg ? '-' : '') + out;
+    }
+
+    function scFmtDec(v, d) {
+        if (v === null || v === undefined || !isFinite(v)) return 'n/d';
+        var p = (d === undefined || d === null) ? 1 : d;
+        return Number(v).toFixed(p).replace('.', ',');
+    }
+
+    function scCompassShort(deg) {
+        if (deg === null || deg === undefined || isNaN(deg)) return '—';
+        var dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+        return dirs[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
+    }
+
+    // Affidabilita' del MOTO (non del track): il motore pubblica
+    // motion.motion_quality = 'reliable' | 'unreliable'; motion_reliable, quando
+    // presente, ha la precedenza. Una velocity null non e' mai "reliable".
+    function scMotionReliable(c) {
+        if (c && typeof c.motion_reliable === 'boolean') return c.motion_reliable;
+        var m = c && c.motion;
+        return !!(m && m.motion_quality === 'reliable' && scNum(m.velocity_kmh) !== null);
+    }
+
+    // Motivo leggibile del moto non determinabile (codici del motore).
+    function scMotionReasonTxt(c) {
+        var raw = (c && c.motion_null_reason) || (c && c.motion && c.motion.motion_null_reason) || null;
+        if (!raw) return null;
+        var labels = {
+            track_not_coherent: 'track non coerente',
+            fit_residual_too_high: 'fit poco affidabile',
+            fit_not_used: 'fit non usato',
+            insufficient_points: 'pochi punti',
+            non_positive_duration: 'durata non positiva',
+            velocity_unavailable: 'velocita non disponibile'
+        };
+        return labels[raw] || String(raw).replace(/_/g, ' ');
+    }
+
+    // Provincia piu' vicina alla posizione: capoluoghi da regionsData (la stessa
+    // tabella usata dal resto dell'app). Ritorna null se la tabella manca.
+    // Il campo distance_km del motore e' la LUNGHEZZA DEL PERCORSO, non la
+    // distanza da una provincia: non va usato per questa riga.
+    function scNearestProvince(lon, lat) {
+        if (typeof regionsData === 'undefined' || !Array.isArray(regionsData)) return null;
+        var x = scNum(lon), y = scNum(lat);
+        if (x === null || y === null) return null;
+        var best = null, bestKm = null;
+        for (var i = 0; i < regionsData.length; i++) {
+            var p = regionsData[i];
+            if (!p || !isFinite(p.lat) || !isFinite(p.lon)) continue;
+            var d = scHaversineKm([x, y], [p.lon, p.lat]);
+            if (d === null) continue;
+            if (bestKm === null || d < bestKm) { bestKm = d; best = p; }
+        }
+        if (!best) return null;
+        var name = String(best.prov || '').replace(/\s*\([A-Z]{2}\)\s*$/, '');
+        return { name: name || best.sigla || 'provincia', km: bestKm, sigla: best.sigla || null };
+    }
+
+    // Coerenza del track: vince il campo nuovo track_coherent; in sua assenza si
+    // usa motion_quality + il controllo della velocita' media della traccia, che
+    // smaschera i salti (es. 1.407 km in 25 min = 3.376 km/h) anche quando il fit
+    // locale dichiara "reliable". Fallback DICHIARATO, non una misura del motore.
+    function scTrackCoherent(c) {
+        if (c && typeof c.track_coherent === 'boolean') return c.track_coherent;
+        var m = c && c.motion;
+        if (!m) return false;
+        var vel = scNum(m.velocity_kmh);
+        if (vel === null || m.motion_quality !== 'reliable') return false;
+        var dur = scNum(m.duration_min);
+        var dist = scNum(m.distance_km);
+        if (dur !== null && dur > 0 && dist !== null) {
+            var avg = dist / (dur / 60);
+            if (avg > 200 || avg > (3 * vel + 50)) return false;
+        }
+        return true;
+    }
+
+    // Direzione del pennant: solo per track coerenti; usa la direzione "candidate"
+    // (forecast se trusted, altrimenti moto osservato). Track incoerente = fermo.
+    function scPennantDirectionDeg(c) {
+        if (!scTrackCoherent(c)) return null;
+        return scCandidateDirectionDeg(c);
+    }
+
+    function scTrackPoints(c) {
+        var tp = c && c.track_points;
+        var obj = (tp && typeof tp === 'object') ? tp : null;
+        var total = scFirstNum(c && c.n_points,
+            obj && obj.total, obj && obj.n, obj && obj.points,
+            (typeof tp === 'number' ? tp : null));
+        // Punti UTILI = punti entrati nel fit dopo la rimozione degli outlier
+        // (forecast.basis_frames). Se il motore non li pubblica si mostra il
+        // totale senza inventare una frazione.
+        var used = scFirstNum(c && c.forecast && c.forecast.basis_frames,
+            obj && obj.used, obj && obj.valid, obj && obj.points_used, obj && obj.fit_points);
+        return { used: used, total: total };
+    }
+
+    function scTrackArea(c) {
+        var end = scFirstNum(c && c.area_km2, c && c.area_current_km2);
+        var start = scFirstNum(c && c.area_start_km2);
+        var growth = scFirstNum(c && c.motion && c.motion.area_growth_pct);
+        if (start === null && end !== null && growth !== null && (1 + growth / 100) > 0) {
+            start = end / (1 + growth / 100);
+        }
+        return { start: start, end: end, growth: growth };
+    }
+
+    // Cono/riga forecast: solo con fit usato, non clampato e track coerente.
+    // Cono/riga forecast: solo con fit usato, non clampato, track coerente,
+    // moto affidabile e direzione del fit CONCORDE con il moto osservato entro
+    // 45 gradi. Se il cono contraddice la riga non si disegna.
+    function scForecastUsable(c) {
+        var f = c && c.forecast;
+        if (!f || !Array.isArray(f.steps) || !f.steps.length) return false;
+        if (f.fit_used !== true) return false;
+        if (f.clamped === true) return false;
+        if (!scTrackCoherent(c) || !scMotionReliable(c)) return false;
+        var fdir = scNum(f.direction_toward_deg);
+        var mdir = scNum(c.motion && c.motion.direction_toward_deg);
+        var delta = scAngularDeltaDeg(fdir, mdir);
+        if (delta === null || delta > 45) return false;
+        return true;
+    }
+
+    function scForecastLine(c) {
+        var f = c && c.forecast;
+        if (!f || !Array.isArray(f.steps) || !f.steps.length) return 'Forecast non disponibile (nessun forecast)';
+        if (f.fit_used !== true) return 'Forecast non disponibile (fit non usato)';
+        if (f.clamped === true) return 'Forecast non disponibile (fit clampato)';
+        if (!scTrackCoherent(c)) return 'Forecast non disponibile (track non coerente)';
+        if (!scMotionReliable(c)) return 'Forecast non disponibile (moto non affidabile)';
+        var fdir = scNum(f.direction_toward_deg);
+        var mdir = scNum(c.motion && c.motion.direction_toward_deg);
+        var delta = scAngularDeltaDeg(fdir, mdir);
+        if (delta === null || delta > 45) return 'Forecast non disponibile (direzione discorde dal moto)';
+        var vel = scNum(f.velocity_kmh);
+        if (vel === null || fdir === null) return 'Forecast non disponibile (dati incompleti)';
+        var h = scNum(f.horizon_min);
+        var hTxt = '';
+        if (h !== null && h > 0) {
+            hTxt = ((h % 60 === 0) ? String(h / 60) : scFmtDec(h / 60, 1)) + 'h: ';
+        }
+        var conf = f.confidence === 'high' ? 'alta confidenza'
+            : (f.confidence === 'medium' ? 'media confidenza' : 'bassa confidenza');
+        return 'Forecast ' + hTxt + scFmtInt(vel) + ' km/h verso ' + scCompassShort(fdir) + ' (' + conf + ')';
+    }
+
+    function scLightningAttempts() {
+        var w = (scLatestMeta && Array.isArray(scLatestMeta.warnings)) ? scLatestMeta.warnings : [];
+        var n = 0;
+        for (var i = 0; i < w.length; i++) {
+            if (String(w[i]).indexOf('not_published_403') !== -1) n++;
+        }
+        return n;
+    }
+
+    function scLightningAttemptsTxt() {
+        var n = scLightningAttempts();
+        return n > 0 ? (n + ' tentativi 403') : 'motivo non disponibile';
+    }
+
+    // Riga moto: dichiara SEMPRE se il numero e' osservato o forecast. Se il track
+    // non e' coerente non si stampa una velocita' che il cono contraddirebbe.
+    // Riga moto: dichiara SEMPRE se il numero e' osservato o forecast. Se il track
+    // non e' coerente o il moto non e' affidabile non si stampa una velocita' che
+    // il cono contraddirebbe. "punti utili" = punti entrati nel fit (basis_frames).
+    function scMotionLine(c) {
+        var m = c && c.motion;
+        var points = scTrackPoints(c);
+        var suffix = '';
+        if (points.used !== null && points.total !== null) {
+            suffix = ' · ' + scFmtInt(points.used) + '/' + scFmtInt(points.total) + ' punti utili';
+        } else if (points.total !== null) {
+            suffix = ' · ' + scFmtInt(points.total) + ' punti';
+        }
+        if (!scTrackCoherent(c)) {
+            return 'Moto non determinabile · track non coerente' + suffix;
+        }
+        var vel = scNum(m && m.velocity_kmh);
+        var dir = scNum(m && m.direction_toward_deg);
+        if (scMotionReliable(c) && vel !== null && dir !== null) {
+            return 'Moto osservato: ' + scFmtInt(vel) + ' km/h verso ' + scCompassShort(dir) + suffix;
+        }
+        return 'Moto non determinabile · ' + (scMotionReasonTxt(c) || 'motivo non disponibile') + suffix;
+    }
+
     // HTML del riepilogo candidati. Estratto da renderScRadar per riusarlo
     // anche nella vista compatta del pannello LIVE (nessuna duplicazione).
     function scCandidatesSummaryHtml(cands, cards) {
@@ -10346,61 +10687,184 @@ removeLightningTile();
         if (list.length === 0) {
             return '<span style="color:#22c55e;">✓ Nessun record di struttura convettiva allo scan corrente.</span>';
         }
-        return '<span class="sc-chip sc-chip-marked">Record: ' + list.length + '</span>' +
-            '<span class="sc-chip sc-chip-birth">Nascite: ' + (c.births || 0) + '</span>' +
-            '<span class="sc-chip sc-chip-possible">Strong: ' + (c.strong || 0) + '</span>' +
-            '<span class="sc-chip sc-chip-marked">Intense: ' + (c.intense || 0) + '</span>' +
-            '<span class="sc-chip sc-chip-sustained">Sull\'ultimo frame: ' + (c.on_latest_frame || 0) + '</span>' +
-            '<span class="sc-chip sc-chip-sustained">SOI max: ' + (c.soi_max !== null && c.soi_max !== undefined ? c.soi_max : '—') + '</span>';
+        return '<span class="sc-chip sc-chip-neutral">' + list.length + ' strutture</span>' +
+            '<span class="sc-chip sc-chip-neutral">' + (c.births || 0) + ' nascite</span>' +
+            '<span class="sc-chip sc-chip-neutral">' + (c.strong || 0) + ' organizzate</span>' +
+            '<span class="sc-chip sc-chip-neutral">' + (c.intense || 0) + ' molto organizzate</span>' +
+            '<span class="sc-chip sc-chip-neutral">' + (c.on_latest_frame || 0) + ' sull\'ultimo frame</span>' +
+            '<span class="sc-chip sc-chip-neutral">SOI max ' + ((c.soi_max !== null && c.soi_max !== undefined) ? c.soi_max : '—') + '/100</span>';
     }
 
-    // Elemento riga candidato. Estratto da renderScRadar per riusarlo nella
-    // lista compatta del pannello LIVE (stessa logica, un solo posto).
+    // Elemento riga candidato: 7 punti. 1-4 sempre visibili; 5-7 nel <details>
+    // per riga (traccia, descrittori con contesto, forecast disponibile/motivo).
+    // Elemento riga candidato: composizione, posizione con provincia, SOI,
+    // moto (osservato o motivo), dettaglio. La composizione (celle/area) DEGRADA
+    // omettendo la parte mancante: mai "0" o "n/d celle" al posto di un dato assente.
     function scCandidateRowEl(c) {
         var row = document.createElement('div');
         row.className = 'sc-item';
         var rowKey = scTrackKey(c);
         row.setAttribute('data-sc-key', rowKey);
         if (rowKey === scSelectedTrackKey) row.classList.add('sc-selected');
-        var levelChip = '<span class="sc-chip ' + (c.level === 'intense' ? 'sc-chip-marked' : 'sc-chip-possible') + '">' +
-            scLevelLabel(c.level) + ' · SOI ' + c.soi + '</span>';
-        levelChip = levelChip.replace('<span class="sc-chip', '<span title="' +
-            (typeof scSoiTip === 'function' ? scSoiTip(c.soi) : '') + '" class="sc-chip');
+        var name = (c.track_type === 'storm_object' ? 'Sistema #' : 'Cella #') + c.track_id;
+        var cells = scNum(c.cell_count);
+        var area = scTrackArea(c);
+        var titleParts = [name];
+        if (cells !== null) titleParts.push(cells === 1 ? '1 cella' : scFmtInt(cells) + ' celle');
+        if (area.end !== null) titleParts.push(scFmtInt(area.end) + ' km²');
         var phaseChip = c.phase === 'birth'
-            ? '<span class="sc-chip sc-chip-birth">Nascita</span>'
-            : '<span class="sc-chip sc-chip-sustained">Attiva</span>';
+            ? '<span class="sc-chip sc-chip-neutral">Nascita</span>'
+            : '<span class="sc-chip sc-chip-neutral">Attiva</span>';
+        var fresh = c.on_latest_frame ? '' : '<span class="sc-chip sc-chip-neutral">non sull\'ultimo frame</span>';
         var pos = (c.position && c.position.length === 2)
-            ? c.position[1].toFixed(2) + '°N , ' + c.position[0].toFixed(2) + '°E'
-            : '—';
-        var vkmh = scCandidateVelocityKmh(c);
-        var vel = vkmh != null
-            ? (vkmh + ' km/h verso ' + scCompass(scCandidateDirectionDeg(c)))
-            : 'vel. —';
-        var birth = c.first_seen ? ' prima segnalazione: ' + c.first_seen : '';
-        var fresh = c.on_latest_frame ? '' : ' <b style="color:#fbbf24;">(non sull\'ultimo frame)</b>';
-        var metricsRow =
-            '<span class="sc-row-break"></span>' +
-            scMetricChip('SOI v2', c.soi_v2) +
-            scMetricChip('Hook', c.hook) +
-            scMetricChip('Strutt.V', c.structure) +
-            scMetricChip('OT', c.ot) +
-            scMetricChip('Fulmini', c.lightning, true) +
-            scMetricChip('Env', c.env_scp);
+            ? scFmtDec(c.position[1], 2) + '°N ' + scFmtDec(c.position[0], 2) + '°E'
+            : 'posizione n/d';
+        var near = (c.position && c.position.length === 2)
+            ? scNearestProvince(c.position[0], c.position[1]) : null;
+        var inItaly = (typeof c.in_italy === 'boolean') ? c.in_italy : null;
+        var distTxt;
+        if (near && near.km !== null) {
+            distTxt = scFmtInt(near.km) + ' km da ' + near.name;
+            if (inItaly === false || near.km > 50) distTxt += ' · fuori Italia';
+        } else if (inItaly === false) {
+            distTxt = 'fuori Italia';
+        } else {
+            distTxt = 'distanza dalla provincia n/d';
+        }
+        var soi = scNum(c.soi);
+        var soiTxt = (soi === null) ? 'SOI n/d' : 'SOI ' + scFmtInt(soi) + '/100';
+        var dur = scNum(c.motion && c.motion.duration_min);
+        if (dur === null && c.first_seen && c.last_seen) {
+            var t0 = Date.parse(c.first_seen), t1 = Date.parse(c.last_seen);
+            if (isFinite(t0) && isFinite(t1) && t1 >= t0) dur = (t1 - t0) / 60000;
+        }
+        var distKm = scFirstNum(c.motion && c.motion.distance_km, c.distance_km);
+        var points = scTrackPoints(c);
+        var frames = points.total;
+        var areaTxt = '';
+        if (area.end !== null) {
+            areaTxt = (area.start !== null && area.start !== area.end)
+                ? scFmtInt(area.start) + ' → ' + scFmtInt(area.end) + ' km²'
+                : scFmtInt(area.end) + ' km²';
+            if (area.growth !== null) areaTxt += ' (' + (area.growth >= 0 ? '+' : '') + scFmtInt(area.growth) + '%)';
+        }
+        var hook = scNum(c.hook);
+        var struct = scNum(c.structure);
+        var ot = scNum(c.ot);
+        var ltg = scNum(c.lightning);
+        var lightningTxt = (ltg !== null)
+            ? ('Fulmini ' + scFmtInt(ltg) + '/100')
+            : ('Fulmini n/d (' + scLightningAttemptsTxt() + ')');
+        var hookTxt = (hook === null) ? 'Hook n/d'
+            : ('Hook ' + scFmtInt(hook) + (hook === 0 ? ' (nessun hook)' : ' (morfologia a uncino)'));
+        var structTxt = (struct === null) ? 'Strutt.V n/d'
+            : ('Strutt.V ' + scFmtInt(struct) + (struct === 0 ? ' (nessuna struttura verticale)' : ' (prodotti verticali DPC)'));
+        var otTxt = (ot === null) ? 'OT n/d'
+            : ('OT ' + scFmtInt(ot) + (ot === 0 ? ' (nessun OT)' : ' (cima satellite)'));
+        var env = scNum(c.env_scp);
+        var envTxt = (env === null) ? 'Env n/d'
+            : ('Env ' + scFmtInt(env) + '/100' + (env === 0 ? ' (nessun segnale NWP)' : ''));
+        var soiV2 = scNum(c.soi_v2);
+        var soiV2Txt = (soiV2 === null) ? '' : 'SOI v2 ' + scFmtInt(soiV2) + '/100 · ';
+        var trackTxt = 'traccia ' + (dur === null ? 'n/d' : scFmtInt(dur) + ' min') +
+            ' · ' + (frames === null ? 'n/d frame' : scFmtInt(frames) + ' frame') +
+            ' · percorso ' + (distKm === null ? 'n/d' : scFmtInt(distKm) + ' km') +
+            (areaTxt ? ' · ' + areaTxt : '');
         row.innerHTML =
-            levelChip + phaseChip + fresh +
-            '<span><b>Track</b> ' + (c.track_type === 'storm_object' ? 'sistema #' : 'cella #') + c.track_id + '</span>' +
-            '<span><b>Pos</b> ' + pos + '</span>' +
-            '<span><b>' + vel + '</b></span>' +
-            '<span><b>dBZ</b> ' + (c.intensity ? c.intensity.max_dbz : '—') + '</span>' +
-            '<span style="color:#94a3b8;font-size:10px;">' + birth + '</span>' +
-            metricsRow;
+            '<div class="sc-row-line sc-row-title">' + titleParts.join(' · ') + ' ' + phaseChip + fresh + '</div>' +
+            '<div class="sc-row-line">' + pos + ' · ' + distTxt + '</div>' +
+            '<div class="sc-row-line sc-row-soi">' + soiTxt + ' · organizzazione stimata (morfologia, senza Doppler)</div>' +
+            '<div class="sc-row-line sc-row-motion">' + scMotionLine(c) + '</div>' +
+            '<details class="sc-row-detail"><summary>Dettaglio traccia, descrittori e forecast</summary>' +
+            '<div class="sc-detail-lines">' +
+            '<span>' + trackTxt + '</span>' +
+            '<span>' + soiV2Txt + hookTxt + ' · ' + structTxt + ' · ' + otTxt + ' · ' + lightningTxt + ' · ' + envTxt + '</span>' +
+            '<span>' + scForecastLine(c) + '</span>' +
+            '</div></details>';
         return row;
+    }
+
+
+    // ---- 1.2.4.73: CELLE TRACCIATE (SOI 50-64) ----
+    // Lista separata e collassabile: nessun forecast, nessun colore di allerta.
+    // Fonte: payload.tracked_cells (campo nuovo del motore). Se non c'e', la lista
+    // scrive n/d e il conteggio usa summary.tracks_evaluated (dato gia' presente).
+    function scTrackedCellName(c) {
+        var id = (c && c.track_id !== undefined && c.track_id !== null) ? c.track_id : (c && c.id);
+        var type = (c && (c.track_type || c.type)) || 'cell';
+        return (type === 'storm_object' ? 'Sistema #' : 'Cella #') + (id !== undefined && id !== null ? id : 'n/d');
+    }
+
+    // Il motore pubblica in tracks.json organization_score (0-100) per cella.
+    // NON pubblica il SOI per ogni cella (il SOI esiste solo per le strutture
+    // candidate in convective_structures.json): la lista dichiara "org.".
+    function scTrackedOrg(c) {
+        return scFirstNum(c && c.organization_score, c && c.org_score, c && c.soi);
+    }
+
+    function scTrackedCellPos(c) {
+        var p = null;
+        if (c && Array.isArray(c.points) && c.points.length) {
+            var last = c.points[c.points.length - 1];
+            if (last && last.lonlat && last.lonlat.length === 2) p = last.lonlat;
+        }
+        if (!p && c && c.position && c.position.length === 2) p = c.position;
+        if (!p && c && c.lonlat && c.lonlat.length === 2) p = c.lonlat;
+        if (!p) return 'posizione n/d';
+        return scFmtDec(p[1], 2) + '°N ' + scFmtDec(p[0], 2) + '°E';
+    }
+
+    // Lista separata e collassabile "Celle tracciate": prima 10 per organization
+    // score, senza forecast e senza colori di allerta. Fonte tracks.json.
+    function renderScTrackedCells(payload) {
+        var box = document.getElementById('sc-tracked-list');
+        var sum = document.getElementById('sc-tracked-summary');
+        if (!box) return;
+        var raw = (payload && Array.isArray(payload.tracks)) ? payload.tracks.slice() : null;
+        if (!raw) {
+            box.innerHTML = '<div class="sc-tracked-row"><span>Elenco non disponibile (data/radar/tracks.json).</span></div>';
+            if (sum) sum.textContent = 'Celle tracciate';
+            return;
+        }
+        var cells = [];
+        for (var i = 0; i < raw.length; i++) {
+            var t = raw[i];
+            if (!t) continue;
+            if (t.track_type && t.track_type !== 'cell') continue;
+            cells.push(t);
+        }
+        var total = cells.length;
+        var count50 = 0;
+        for (var j = 0; j < cells.length; j++) {
+            var o = scTrackedOrg(cells[j]);
+            if (o !== null && o >= 50) count50++;
+        }
+        cells.sort(function(a, b) {
+            var sa = scTrackedOrg(a), sb = scTrackedOrg(b);
+            sa = (sa === null ? -1 : sa);
+            sb = (sb === null ? -1 : sb);
+            if (sb !== sa) return sb - sa;
+            return (a.track_id || 0) - (b.track_id || 0);
+        });
+        var html = '';
+        for (var k = 0; k < cells.length && k < 10; k++) {
+            var org = scTrackedOrg(cells[k]);
+            html += '<div class="sc-tracked-row"><span>' + scTrackedCellName(cells[k]) +
+                ' · org. ' + (org === null ? 'n/d' : scFmtInt(org) + '/100') + '</span><span>' +
+                scTrackedCellPos(cells[k]) + '</span></div>';
+        }
+        if (!html) html = '<div class="sc-tracked-row"><span>Nessuna cella tracciata nello scan corrente.</span></div>';
+        var below = total - count50;
+        box.innerHTML = html + '<div class="sc-tracked-foot" title="org. = punteggio di organizzazione del tracking (0-100) pubblicato in tracks.json; il SOI del motore esiste solo per le strutture candidate.">' +
+            scFmtInt(total) + ' celle tracciate · ' + scFmtInt(count50) + ' con org. ≥50 · ' + scFmtInt(below) + ' sotto</div>';
+        if (sum) sum.textContent = 'Celle tracciate (' + scFmtInt(total) + ')';
     }
 
     function renderScRadar(payload, latest) {
         var cands = payload && Array.isArray(payload.structures) ? payload.structures : [];
         var cards = payload && payload.summary || {};
         radarLatestInfo = latest || radarLatestInfo;
+        scLatestMeta = latest || null;
         renderRadarLegend();
         updateScSourceBadge(latest);
         var st = scRadarEl('sc-status');
@@ -10435,6 +10899,8 @@ removeLightningTile();
                 cands.forEach(function(c) { list.appendChild(scCandidateRowEl(c)); });
             }
         }
+        // 1.2.4.73: lista separata e collassabile delle celle con SOI 50-64.
+        renderScTrackedCells(payload);
         // Overlay mappa: pennant direzionale per candidato (solo candidati).
         scLastCands = cands;
         if (scRadarLayer && map && map.hasLayer(scRadarLayer)) map.removeLayer(scRadarLayer);
@@ -10444,6 +10910,8 @@ removeLightningTile();
             scRadarLayer = L.layerGroup(markers).addTo(map);
         }
         scRedrawDerived();
+        // Lista separata delle celle tracciate (tracks.json), collassabile.
+        renderScTrackedCells(scTracksData);
         // Vista compatta nel pannello LIVE (solo quando il toggle interno e' ON).
         if (liveShowSupercells) liveRenderScSummaryList(cands, cards);
     }
@@ -10460,6 +10928,8 @@ removeLightningTile();
         if (!list || list.getAttribute('data-sc-click-bound') === '1') return;
         list.setAttribute('data-sc-click-bound', '1');
         list.addEventListener('click', function(e) {
+            // 1.2.4.73: il <summary> del dettaglio per riga non deve anche selezionare/centrare.
+            if (e.target && e.target.closest && e.target.closest('summary, button, a')) return;
             var row = e.target && e.target.closest ? e.target.closest('.sc-item') : null;
             if (!row || !list.contains(row)) return;
             var key = row.getAttribute('data-sc-key');
@@ -10875,6 +11345,9 @@ removeLightningTile();
     // high/medium -> opacità/weight invariati.
     function drawScForecast(candidate, suppressCone) {
         var out = [];
+        // 1.2.4.73: niente cono se il fit non e' usato, e' clampato o il track non e'
+        // coerente. Il cono deve descrivere lo stesso moto della riga, non un altro.
+        if (!scForecastUsable(candidate)) return out;
         var fc = candidate && candidate.forecast;
         if (!fc || !Array.isArray(fc.steps) || !fc.steps.length) return out;
         if (!(candidate.position && candidate.position.length === 2)) return out;
@@ -10957,7 +11430,7 @@ removeLightningTile();
         var cands = scRadarData && Array.isArray(scRadarData.structures) ? scRadarData.structures : [];
         var ordered = [];
         for (var i = 0; i < cands.length; i++) {
-            if (cands[i] && cands[i].on_latest_frame) ordered.push(cands[i]);
+            if (cands[i] && cands[i].on_latest_frame && scForecastUsable(cands[i])) ordered.push(cands[i]);
         }
         // Ordine deterministico: SOI desc, poi chiave track (scTrackKey) asc.
         ordered.sort(function(a, b) {
@@ -11091,7 +11564,10 @@ removeLightningTile();
     function scRedrawPhenomena() {
         scClearPhenomena();
         var box = scRadarEl('sc-phenomena');
-        var badges = scDataActive() ? scActivePhenomenaBadges() : [];
+        var allBadges = (scDataActive() && scPhenomenaData && Array.isArray(scPhenomenaData.badges))
+            ? scPhenomenaData.badges : [];
+        var coherent = scPhenomenaCoherent();
+        var badges = coherent ? scActivePhenomenaBadges() : [];
         var cands = scRadarData && Array.isArray(scRadarData.structures) ? scRadarData.structures : [];
         var markers = [];
         var verified = [];
@@ -11138,22 +11614,27 @@ removeLightningTile();
                 for (var mi = 1; mi < cl.members.length; mi++) suspectRows += scPhenomenaRowHtml(cl.members[mi].badge, cands);
             }
             html += '<details class="sc-phenomena-suspects"><summary>' + suspects.length + ' sospetti (' +
-                vortexCount + ' rotazione, ' + hailCount + ' grandine)</summary>' + suspectRows + '</details>';
+                vortexCount + ' struttura asimmetrica, ' + hailCount + ' grandine)</summary>' + suspectRows + '</details>';
         }
-        if (badges.length && html && box) {
+        if (allBadges.length && !coherent && box) {
+            box.innerHTML = '<div class="legend-title" style="padding:4px 10px 0 10px;">Fenomeni osservati (radar)</div>' +
+                '<div class="sc-phenomena-row"><span class="sc-phenomena-head">Badge non mostrati: ' +
+                scPhenomenaDeltaText() + ' \u2014 oltre 10 min dal frame delle strutture.</span></div>';
+            box.style.display = 'block';
+        } else if (badges.length && html && box) {
             box.innerHTML = '<div class="legend-title" style="padding:4px 10px 0 10px;">Fenomeni osservati (radar)</div>' + html;
             box.style.display = 'block';
         }
-        scEnsurePhenomenaClickHandler();
         if (markers.length) scPhenomenaLayer = L.layerGroup(markers).addTo(map);
+        scRefreshMarkerIcons();
+        scEnsurePhenomenaClickHandler();
         var sum = scPhenomenaSummary(badges);
         // NON sovrascrivere #status-msg quando il pannello LIVE e' la vista attiva:
         // il testo live (fulmini/fonti) resterebbe cancellato dal conteggio fenomeni.
         if (sum.total > 0 && !liveShowSupercells) {
             var sm = scRadarEl('status-msg');
-            if (sm) sm.innerText = 'Fenomeni attivi: ' + sum.total + ' (' + sum.hail + ' grandine, ' + sum.vortex + ' rotazione)';
+            if (sm) sm.innerText = 'Fenomeni attivi: ' + sum.total + ' (' + sum.hail + ' grandine, ' + sum.vortex + ' struttura asimmetrica)';
         }
-        scRefreshMarkerIcons();
         // Vista compatta fenomeni nel pannello LIVE (solo con toggle interno ON).
         if (liveShowSupercells) liveRenderScPhenomena(badges, cands);
     }
@@ -23946,14 +24427,14 @@ function renderContinuousOverlay() {
     // Titoli delle voci degli indici convettivi (riga candidato del pannello SOI).
     var SC_METRIC_TIPS = {
         'SOI v2': 'SOI versione 2 (0-100): struttura 60%, uncino 15%, struttura verticale 10%, ambiente 8%, cima satellite 4%, fulmini 3%. Non è una probabilità.',
-        'Hook': 'Forma a uncino del nucleo più intenso (0-100): è morfologia vista dal radar, non rotazione.',
+        'Hook': 'Forma a uncino del nucleo più forte (0-100): è morfologia vista dal radar.',
         'Strutt.V': 'Struttura verticale dai prodotti radar (liquido in colonna, quota della cima, probabilità di grandine, eco alta): 0-100.',
-        'OT': 'Overshooting top (0-100): la cima del temporale buca l\'incudine nel satellite infrarosso. Indica una corrente ascensionale forte, non la rotazione.',
+        'OT': 'Overshooting top (0-100): la cima del temporale buca l\'incudine nel satellite infrarosso. Indica una corrente ascensionale forte.',
         'Fulmini': 'Fulmini nel raggio di 30 km nell\'ultimo intervallo di 5 minuti (100 = 100 scariche) più la tendenza: 0-100.',
         'Env': 'Ambiente previsto dal modello attorno alla cella (0-100): è potenziale previsto dal modello.'
     };
     function scSoiTip(soi) {
-        return 'Struttura organizzata della cella: SOI ' + soi + '/100 (nucleo, forma e persistenza). Da 65 il record viene pubblicato; non è una probabilità.';
+        return 'Organizzazione stimata della cella: SOI ' + soi + '/100 (nucleo, forma e persistenza). Da 65 il record viene pubblicato; non è una probabilità.';
     }
     // Livelli RAGGIUNGIBILI da ciascun badge (da computeActiveRisks):
     // cella organizzata 3-4 (è di per sé severa), neve 1-3, generico 2-3, gli altri 1-4.

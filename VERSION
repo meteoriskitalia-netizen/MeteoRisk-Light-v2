@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.2.4.74 - PANNELLO STRUTTURA CONVETTIVA RISCRITTO (COMPOSIZIONE, MOTO OSSERVATO, CONO SOLO SE COERENTE, DRAWER LATERALE) (bump da 1.2.4.73)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=74
+RELEASE_TYPE=release
+DATE=2026-11-11
+NOTE=Release 1.2.4.74 (bump da 1.2.4.73) - SOLO CLIENT. (1) RIGA RISCRITTA: composizione (celle/km2), posizione con provincia piu' vicina e 'fuori Italia' oltre 50 km, SOI come organizzazione stimata (morfologia, senza Doppler), moto osservato con i punti utili del fit oppure 'Moto non determinabile - track non coerente', durata/frame/percorso e descrittori con il contesto. Se cell_count o area_km2 mancano la parte si omette (nessun 0, nessun 'n/d celle'). distance_km del motore e' il percorso, non la distanza da una provincia: la distanza usa i capoluoghi di regionsData. (2) CONO FORECAST solo con fit_used=true, non clampato, track coerente, moto affidabile e direzione concorde entro 45 gradi; altrimenti la riga dichiara il motivo. (3) BADGE FENOMENI solo entro 10 minuti dallo scan delle strutture; oltre si scrive 'badge HH:MM (N min prima/dopo)'. (4) PAROLE NON SOSTENUTE DAL DATO: rotazione, mesociclone, supercella, vortice e 'intenso' come severita' non compaiono nel pannello (0/0/0/0 misurato); il riepilogo dice organizzate/molto organizzate. (5) LAYOUT: drawer laterale 440 px a >=1280 px (mappa 640 px visibile a 1440x900, 0 marker sotto il pannello); bottom-sheet max 44vh con scroll interno sotto 1280 px (390x844: pannello 371 px, 0 marker coperti). (6) CELLE TRACCIATE: lista separata e collassabile da data/radar/tracks.json (prime 10 per organization score, nessun forecast, nessun colore di allerta, piede 'N celle tracciate - M con org. >=50 - K sotto'). MISURE sul run reale 2026-11-11T06:45:43Z (4 strutture): 4/4 con track_coherent=true, 4/4 con composizione, 0 righe 'Moto non determinabile', 4 coni disegnati (4/4 coerenti), parole vietate 0/0/0/0. Sul run 22:55 (7 strutture, campi nuovi assenti): 6 righe 'Moto non determinabile', 1 cono (solo #5), composizione omessa senza 'n/d'. BUMP: html mri-light-1.2.4.74.html, VERSION (BUILD=74, DATE=2026-11-11), sw.js (CACHE_NAME mri-1.2.4.74), README.md, i 26 test .mjs, le 5 righe cp dei 3 workflow. La 1.2.4.73 va RIMOSSA dal repo. NON toccati: scripts/, workflow dei dati, color_scales.json, classi di rischio, dataset e renderer.
+APP_FILE=mri-light-1.2.4.74.html
+
 MeteoRisk Light - 1.2.4.73 - SEI MACRO-AREE (SICILIA E SARDEGNA SEPARATE) E TEMPERATURE PER FASCIA ALTIMETRICA (PIANURA <300 m, COLLINA 300-800 m, MONTAGNA >800 m), TREND DENTRO LA STESSA FASCIA, FIX 0-0 mm (bump da 1.2.4.72)
 MAJOR=1
 MINOR=2

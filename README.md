@@ -6,14 +6,14 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.73
+## Versione attiva: 1.2.4.74
 
-- File applicativo: `mri-light-1.2.4.73.html` (`APP_VERSION = '1.2.4.73'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.73', date: '2026-11-11' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.73'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.74.html` (`APP_VERSION = '1.2.4.74'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.74', date: '2026-11-11' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.74'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
-- Contenuto della 1.2.4.73 (release sopra la 1.2.4.72) - **sei macro-aree (Sicilia e Sardegna separate) e temperature per fascia altimetrica, trend dentro la stessa fascia, fix `0-0 mm`**. Solo client: nessuna modifica a `scripts/`, ai workflow dei dati, a `color_scales.json`, alle classi di rischio, al dataset o al renderer; i workflow toccano solo le 5 righe (`cp` + commenti) del nome del file.
+- Contenuto della 1.2.4.74 (release sopra la 1.2.4.72) - **sei macro-aree (Sicilia e Sardegna separate) e temperature per fascia altimetrica, trend dentro la stessa fascia, fix `0-0 mm`**. Solo client: nessuna modifica a `scripts/`, ai workflow dei dati, a `color_scales.json`, alle classi di rischio, al dataset o al renderer; i workflow toccano solo le 5 righe (`cp` + commenti) del nome del file.
   - **Sei aree**: `ITALIA_AREAS` passa da 5 a 6 (Nord, Centro Tirreno, Centro Adriatico, Sud, Sicilia, Sardegna); `Isole maggiori` non esiste piu. Le frasi giornaliere sono 18 (6 x 3) e le settimanali 6; badge `6 macro-aree`; le due occorrenze storiche di `Isole maggiori` restano solo nel changelog in-app delle release 1.2.4.68 e 1.2.4.70.
   - **Fasce altimetriche**: pianura <300 m, collina 300-800 m, montagna >800 m; minime e massime per fascia, `n` province nel `title`, fasce con meno di 3 province omesse, una provincia puo' stare in piu' fasce. Esempio Nord 2026-11-11: pianura 5-19 C (37), collina 5-14 C (15), montagna -1-13 C (19); la montagna e' l'unica fascia sotto zero e la frase dice `Gelate solo in montagna (minima -0,8 C)`.
   - **Trend**: confronto dentro la stessa fascia (massima con massima, minima con minima), una sola variazione per frase (la piu' forte) per restare sotto le 60 parole. Il summary della provincia usa la fascia dominante della provincia (piu' punti) e aggiunge `(montagna ...)` solo se la minima di montagna e' sotto zero.
