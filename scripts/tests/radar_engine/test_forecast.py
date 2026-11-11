@@ -358,7 +358,12 @@ def test_schema_steps_esattamente_4():
                           "decay_class", "decay_lambda_min",
                           "basis_frames", "confidence", "steps",
                           "direction_toward_deg", "velocity_kmh",
-                          "fit_used", "clamped"}
+                          "fit_used", "clamped",
+                          # triangolazione NWP (nwp_motion.py, 2026-11-11)
+                          "nwp_motion", "nwp_motion_null_reason",
+                          "nwp_motion_detail", "motion_blend", "motion_weights",
+                          "motion_blend_components", "ensemble",
+                          "ensemble_basis", "ensemble_null_reason"}
     assert block["horizon_min"] == 120
     assert block["step_min"] == 30
     assert block["method"] == "linear_weighted_haversine_decay"

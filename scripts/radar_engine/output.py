@@ -416,6 +416,30 @@ def _forecast_null_reason_counts(cells):
     return counts
 
 
+def _cone_shape_counts(cells):
+    """Conteggio delle strutture per `forecast.cone_shape` (PARTIZIONE esatta).
+
+    `cone_shape` vale "dilated_outline" (cono dilatato dal contorno, quello
+    emesso quando il contorno e' disponibile) oppure "ellipse" (fallback
+    ellittico). Il record senza cono (`forecast: null`) o con un blocco privo
+    del campo finisce in "missing": i quattro conteggi sommano SEMPRE al numero
+    di strutture pubblicate, anche quando il cono dilatato e' la forma di tutte
+    (con il solo conteggio di "ellipse" il summary pubblicava 0)."""
+    counts = {"dilated_outline": 0, "ellipse": 0, "other": 0, "missing": 0}
+    for cell in cells:
+        block = cell.get("forecast")
+        shape = block.get("cone_shape") if isinstance(block, dict) else None
+        if shape == "dilated_outline":
+            counts["dilated_outline"] += 1
+        elif shape == "ellipse":
+            counts["ellipse"] += 1
+        elif shape:
+            counts["other"] += 1
+        else:
+            counts["missing"] += 1
+    return counts
+
+
 def build_convective_structures(bundle, engine_meta=None):
     """convective_structures.json — record del descrittore SOI.
 
@@ -431,13 +455,19 @@ def build_convective_structures(bundle, engine_meta=None):
     dichiarato in `summary.skipped_incoherent`. Se tutte le strutture vengono
     scartate il payload resta valido con `structures: []` (mai un 404).
 
-    CONO (2026-11-11): `summary.cone_ellipse` conta le strutture con cono
-    ellittico pubblicato, `summary.forecast_null` quelle senza forecast e
-    `summary.forecast_null_reasons` il motivo per ciascuna: i tre numeri
-    rendono verificabile dal file pubblicato quante strutture hanno un cono e
-    quante no (e perche')."""
+    CONO (2026-11-11): i conteggi per forma sono una PARTIZIONE esatta delle
+    strutture pubblicate: `summary.cone_dilated_outline` (cono dilatato dal
+    contorno), `summary.cone_ellipse` (fallback ellittico, mantenuto per
+    retrocompatibilita' con i consumatori esistenti), `summary.cone_other`
+    (altra forma dichiarata) e `summary.cone_shape_missing` (record senza
+    `cone_shape`: forecast assente o blocco privo del campo). La somma dei
+    quattro e' SEMPRE `summary.structures`. `summary.forecast_null` conta
+    quelle senza forecast e `summary.forecast_null_reasons` il motivo per
+    ciascuna: dal file pubblicato si vede quante strutture hanno un cono, di
+    che forma, e perche' quelle che non ce l'hanno non ce l'hanno."""
     all_cells = getattr(bundle, "convective_structures", None) or []
     cells, skipped_incoherent = cs_mod.split_publishable(all_cells)
+    cone_shapes = _cone_shape_counts(cells)
     summary = {
         "tracks_evaluated": getattr(bundle, "structure_tracks_evaluated", 0),
         "structures": len(cells),
@@ -452,10 +482,10 @@ def build_convective_structures(bundle, engine_meta=None):
                            if c.get("soi_v2") is not None), default=None),
         "merged": sum(1 for c in cells
                       if len(c.get("merged_from") or []) > 1),
-        "cone_ellipse": sum(
-            1 for c in cells
-            if isinstance(c.get("forecast"), dict)
-            and c["forecast"].get("cone_shape") == "ellipse"),
+        "cone_dilated_outline": cone_shapes["dilated_outline"],
+        "cone_ellipse": cone_shapes["ellipse"],
+        "cone_other": cone_shapes["other"],
+        "cone_shape_missing": cone_shapes["missing"],
         "forecast_null": sum(1 for c in cells if c.get("forecast") is None),
         "forecast_null_reasons": _forecast_null_reason_counts(cells),
     }

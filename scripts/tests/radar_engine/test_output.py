@@ -236,3 +236,32 @@ def test_latest_serializes_cappi_gate_verdict(tmp_path):
     assert cf2["hail_gate"]["passed"] is False
     assert cf2["hail_gate"]["value_g_m3"] == 0.889
     assert cf2["cappi_levels"] == 2
+
+
+def test_summary_conta_le_forme_del_cono():
+    """Il summary pubblica una PARTIZIONE per forma del cono.
+
+    Prima esisteva solo `cone_ellipse`: con il cono dilatato (`cone_shape ==
+    "dilated_outline"`, quello emesso quando il contorno e' disponibile) il
+    summary pubblicava 0 e il file diceva "nessun cono" mentre i coni c'erano.
+    `cone_ellipse` resta per retrocompatibilita'; la somma dei quattro conteggi
+    deve dare SEMPRE `structures`."""
+    b = models.EngineBundle("ok", "2026-04-30T10:00:00Z", output.SOURCE_LABEL)
+    b.convective_structures = [
+        {"structure_id": "a", "track_coherent": True,
+         "forecast": {"cone_shape": "dilated_outline"}},
+        {"structure_id": "b", "track_coherent": True,
+         "forecast": {"cone_shape": "ellipse"}},
+        {"structure_id": "c", "track_coherent": True,
+         "forecast": {"cone_shape": "forma_futura"}},
+        {"structure_id": "d", "track_coherent": True, "forecast": None,
+         "forecast_null_reason": "not_on_latest_frame"},
+        {"structure_id": "e", "track_coherent": True, "forecast": {}},
+    ]
+    s = output.build_convective_structures(b)["summary"]
+    assert s["cone_dilated_outline"] == 1
+    assert s["cone_ellipse"] == 1
+    assert s["cone_other"] == 1
+    assert s["cone_shape_missing"] == 2
+    assert (s["cone_dilated_outline"] + s["cone_ellipse"] + s["cone_other"]
+            + s["cone_shape_missing"]) == s["structures"] == 5

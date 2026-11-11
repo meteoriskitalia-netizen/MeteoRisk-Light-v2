@@ -575,6 +575,30 @@ def _copy_outline(rec, block, meta):
         rec[rec_key] = (meta or {}).get(meta_key)
 
 
+# Campi della triangolazione NWP pubblicati a livello di RECORD (fuori dal
+# blocco `forecast`), come per il contorno: (chiave record).
+_MOTION_FIELDS = (
+    "nwp_motion", "nwp_motion_null_reason", "nwp_motion_detail",
+    "motion_blend", "motion_weights", "motion_blend_components",
+    "ensemble", "ensemble_basis", "ensemble_null_reason",
+)
+
+
+def _copy_motion(rec, block, meta):
+    """Sposta i campi NWP/ensemble dal blocco forecast al record.
+
+    `block` non None: le chiavi sono gia' nel blocco e vengono rimosse da li'
+    (una sola copia nel JSON). `block` None: i campi vengono dal meta di
+    forecast.build_motion (record senza cono, ensemble ancora possibile se
+    motion_nwp e' valido)."""
+    if block is not None:
+        for key in _MOTION_FIELDS:
+            rec[key] = block.pop(key, None)
+        return
+    for key in _MOTION_FIELDS:
+        rec[key] = (meta or {}).get(key)
+
+
 def evaluate(bundle, cfg=None):
     """Valuta tutte le track (cella + storm object) e popola
     bundle.convective_structures (solo candidati, DEDUP per sistema) e
@@ -611,6 +635,7 @@ def evaluate(bundle, cfg=None):
             rec["forecast"] = None
             rec["forecast_null_reason"] = "no_track"
             _copy_outline(rec, None, forecast_mod.build_outline(rec, bundle))
+            _copy_motion(rec, None, forecast_mod.build_motion(rec, bundle))
             continue
         # 2026-11-11: il forecast viene emesso SOLO su moto affidabile
         # (fit usato + velocity pubblicata + motion_quality "reliable").
@@ -626,6 +651,10 @@ def evaluate(bundle, cfg=None):
                 else forecast_mod.build_outline({**rec, "track": track},
                                                 bundle))
         _copy_outline(rec, block, meta)
+        motion_meta = (None if block is not None
+                       else forecast_mod.build_motion({**rec, "track": track},
+                                                      bundle))
+        _copy_motion(rec, block, motion_meta)
     bundle.convective_structures = records
     bundle.structure_tracks_evaluated = len(_evaluated_tracks(bundle))
     return records

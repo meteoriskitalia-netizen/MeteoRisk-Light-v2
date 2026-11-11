@@ -80,6 +80,7 @@ import numpy as np
 
 from . import footprint as footprint_mod
 from . import models
+from . import nwp_motion
 from .tracking import bearing_deg, dest_from, haversine_km
 
 HORIZON_MIN = 120
@@ -1049,6 +1050,24 @@ def _build_with_reason(candidate_ctx, bundle):
     young = duration_min < _YOUNG_MINUTES
     anchor_ms = _anchor_ms(bundle, last)
     generated_at = getattr(bundle, "generated_at_iso", None) or models.utcnow_iso()
+    # Triangolazione osservato + NWP (nwp_motion.py): campi ADDITIVI nel blocco
+    # forecast. Se il modulo non riesce a calcolare nulla, i campi restano
+    # None con motivo: il cono qui sotto non cambia di una virgola.
+    try:
+        motion_fields = nwp_motion.build_motion_block(
+            candidate_ctx, bundle, fit, anchor_ms)
+    except Exception:
+        motion_fields = {
+            "nwp_motion": None,
+            "nwp_motion_null_reason": "build_error",
+            "nwp_motion_detail": None,
+            "motion_blend": None,
+            "motion_weights": None,
+            "motion_blend_components": None,
+            "ensemble": None,
+            "ensemble_basis": None,
+            "ensemble_null_reason": "build_error",
+        }
     mean_max, mean_mean = _region_dbz_means(bundle)
     i0 = float(last.max_dbz)
     m0 = float(last.mean_dbz)
@@ -1186,6 +1205,7 @@ def _build_with_reason(candidate_ctx, bundle):
         "direction_toward_deg": round(float(fit["direction_toward_deg"]), 1),
         "velocity_kmh": round(float(fit["velocity_kmh"]), 1),
         "steps": steps,
+        **motion_fields,
     }, None
 
 
@@ -1239,3 +1259,52 @@ def attach_forecasts(bundle):
         if block is not None:
             count += 1
     return count
+
+
+def build_motion(candidate_ctx, bundle):
+    """Campi NWP/blend/ensemble per un record, INDIPENDENTI dal cono.
+
+    Stessa forma di `build_outline`: si puo' chiamare anche quando
+    `build_forecast_with_reason` restituisce None (moto non affidabile).
+    Se `motion_nwp` e' valido l'ensemble esiste lo stesso; se non lo e' e
+    nemmeno il fit e' utilizzabile, i campi sono None con motivo.
+    """
+    try:
+        track = _resolve_track(candidate_ctx, bundle)
+        if track is None:
+            return {"nwp_motion": None, "nwp_motion_null_reason": "no_track",
+                    "nwp_motion_detail": None, "motion_blend": None,
+                    "motion_weights": None, "motion_blend_components": None,
+                    "ensemble": None, "ensemble_basis": None,
+                    "ensemble_null_reason": "no_track"}
+        points = sorted(track.points, key=lambda p: p.timestamp_ms)
+        fit = fit_motion(points)
+        anchor_ms = _anchor_ms(bundle, points[-1])
+        return nwp_motion.build_motion_block(
+            candidate_ctx, bundle, fit, anchor_ms)
+    except Exception:
+        return {"nwp_motion": None, "nwp_motion_null_reason": "build_error",
+                "nwp_motion_detail": None, "motion_blend": None,
+                "motion_weights": None, "motion_blend_components": None,
+                "ensemble": None, "ensemble_basis": None,
+                "ensemble_null_reason": "build_error"}
+
+
+def attach_nwp_motion(bundle):
+    """Campi NWP/ensemble a LIVELLO RECORD per i record senza forecast.
+
+    `build_forecast_with_reason` mette gia' i campi DENTRO il blocco
+    `forecast`. Questa funzione copre il caso "cono assente ma motion_nwp
+    valido": senza questo giro l'ensemble non sarebbe pubblicato.
+
+    NON e' chiamata da convective_structure.evaluate: il file e' di un altro
+    agente. Il wiring e' una riga, subito dopo `_copy_outline`:
+
+        rec.update(forecast_mod.build_motion({**rec, "track": track}, bundle))
+
+    oppure, per tutti i record dopo il ciclo:
+
+        forecast_mod.attach_nwp_motion(bundle)
+    """
+    return nwp_motion.attach_motion_fields(
+        getattr(bundle, "convective_structures", None) or [], bundle)
