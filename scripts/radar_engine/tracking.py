@@ -385,8 +385,13 @@ def tracking_metrics(tracks, track_type="cell", max_speed_kmh=None,
         "lineage_merge": merge,
         "lineage_continuation": continuation,
         "lineage_links": links,
-        "n_frames_ge_3": sum(1 for t in published if len(t.points) >= 3),
-        # Audit: n_frames del solo ciclo corrente (esclude frame_index=-1).
+        # n_frames = frame del ciclo corrente (come models.to_dict): il punto
+        # di archivio frame_index=-1 NON conta. `n_frames_current_ge_3` resta
+        # come alias esplicito per l'audit.
+        "n_frames_ge_3": sum(
+            1 for t in published
+            if len([p for p in t.points
+                    if getattr(p, "frame_index", 0) >= 0]) >= 3),
         "n_frames_current_ge_3": sum(
             1 for t in published
             if len([p for p in t.points

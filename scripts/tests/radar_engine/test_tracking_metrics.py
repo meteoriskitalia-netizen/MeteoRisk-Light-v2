@@ -113,6 +113,21 @@ def test_build_tracking_metrics_flat_keys_are_combined():
     assert out["combined"]["n_tracks"] == 5
 
 
+def test_n_frames_ge_3_counts_current_frames_only():
+    """Il punto di archivio (frame_index=-1) non e' un frame del ciclo."""
+    track = _track([
+        make_cell(12.05, 41.0, T0 + STEP_MS, cell_id="s1"),
+        make_cell(12.10, 41.0, T0 + 2 * STEP_MS, cell_id="s2"),
+    ], 1)
+    prior = models.TrackPoint(1, -1, make_cell(12.0, 41.0, T0,
+                                               cell_id="history:1"))
+    track.points.insert(0, prior)
+    m = tracking_metrics([track], "cell")
+    assert m["n_frames_ge_3"] == 0
+    assert m["n_frames_current_ge_3"] == 0
+    assert track.to_dict()["n_frames"] == 2
+
+
 def test_combined_does_not_count_cross_layer_reids():
     """Un cell track morto non e' il genitore di uno storm track nato vicino."""
     cell = _track([
