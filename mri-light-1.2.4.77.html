@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MeteoRisk Italia – Light v1.2 - Educational / Public Edition</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
     <!-- ================================================================
          CONFIG CENTRALE EDIZIONE LIGHT / PUBBLICA — FEATURE FLAGS.
          Definita PRIMA del caricamento di Leaflet e delle altre fonti:
@@ -2578,9 +2580,16 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.76';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.77';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-11';
     const APP_CHANGELOG = [
+        { version: '1.2.4.77', date: '2026-11-11', changes: [
+  "PWA INSTALLABILE= Nuovi asset statici alla radice: manifest.webmanifest (JSON valido con name, short_name, start_url, display standalone, background/theme #0b1220, lang it e icone 192/512), offline.html e le due icone PNG reali (32.332 B e 147.100 B). L'html dichiara solo due righe nuove dopo il title: <link rel=manifest href=manifest.webmanifest> e <link rel=apple-touch-icon href=icons/icon-192.png>. Nessun'altra modifica alla 1.2.4.76: la fase 3 (scAlertEvaluate, coni, frecce) e l'area Doppler (#live-toggle-doppler) restano intatte.",
+  "TILE OFFLINE 7 GIORNI= Nuova cache mri-tiles-* per le tile di tile.openstreetmap.org/z/x/y.png: cache-first con scadenza 7 giorni e tetto 400 voci (~16 MB). Ogni copia porta x-mri-cached-at; se e' scaduta vince la rete, se la rete manca si serve la copia marcata X-MRI-Cache: stale. La cache dei tile e' separata da quella dell'app, quindi la sua potatura non puo' sfrattare i WebP previsionali.",
+  "ULTIMI FRAME 30 MINUTI= Nuova cache mri-frames-* per tile radar DPC (S3), tile RainViewer e frame satellite: cache-first con scadenza 30 minuti e massimo 6 slot per famiglia (tetto 2000 voci, ~6 MB). Per il satellite, se lo slot richiesto non e' in cache e la rete manca, si serve il frame piu' recente della stessa sorgente marcato X-MRI-Cache: stale e X-MRI-Frame: <slot servito>. Per le tile radar il fallback non c'e': mescolare istanti diversi nella stessa griglia produrrebbe una mappa chimera.",
+  "PAGINA OFFLINE= Navigazione senza rete e senza html in cache: si apre offline.html (precached all'install) marcato X-MRI-Cache: offline; se manca anche quello, risposta inline 503 con lo stesso testo italiano. Mai l'errore del browser. Il precache e' minimo (index.html + manifest + offline.html) e tollerante: un URL che fallisce non fa fallire l'install e non scarica WebP, tile o frame.",
+  "POLICY 1.2.4.56 INTATTA E BUMP= Restano indici network-first con timeout 2 s, WebP previsionali cache-first, request.cache rispettato (no-store solo rete; no-cache/reload rete con fallback marcato), navigazione network-first 10 s e X-MRI-Cache: stale; data/radar/** passa a stale-while-revalidate e data/stations/** resta fuori. Verifica: node --check 0, test_sw_cache_policy.mjs 124 PASS / 0 FAIL contro 83 della baseline. BUMP: html mri-light-1.2.4.77.html, VERSION (BUILD=77, DATE=2026-11-11), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.77), README.md, i 26 test .mjs, le righe cp dei 3 workflow; la 1.2.4.76 va RIMOSSA dal repo. NON toccati: scripts/ (tranne il test SW), motore radar, renderer, dataset e classi di rischio."
+        ] },
         { version: '1.2.4.76', date: '2026-11-11', changes: [
   "CONI CON GLI ORARI DI ARRIVO= Le etichette del cono forecast non sono piu' solo '+30': ogni vertice 30/60/90 min porta i minuti dallo scan e l'ORA UTC di arrivo prevista (es. '+30 min · 15:40Z'), calcolata su radar_timestamp + offset_min. Il vertice 120 resta senza etichetta per non impilare quattro testi su un cono corto; il lato e' alternato (pari a sinistra, dispari a destra) per non sovrapporre i testi lungo il percorso. Se radar_timestamp manca l'ora e' omessa e resta '+30 min'.",
   "FRECCE DI MOVIMENTO= Per ogni struttura sull'ultimo frame con moto affidabile (motion_reliable) e track coerente si disegna una freccia dal centroide nella direzione del moto (direction_toward_deg), lunga 30 minuti di tragitto alla velocita' osservata (km = v x 0,5), con etichetta '64 km/h → E'. Nessuna freccia se il moto non e' affidabile o il track non e' coerente: la freccia non contraddice la riga 'Moto non determinabile'. I vettori si disegnano dopo i coni, cosi' restano leggibili sopra il riempimento.",

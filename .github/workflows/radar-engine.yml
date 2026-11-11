@@ -234,8 +234,13 @@ jobs:
         if: success()
         run: |
           mkdir -p _site/data
-          cp mri-light-1.2.4.76.html _site/index.html
+          cp mri-light-1.2.4.77.html _site/index.html
           cp sw.js _site/sw.js                                      # 1.2.4.15: Service Worker (cache applicativa)
+          cp manifest.webmanifest _site/manifest.webmanifest        # 1.2.4.77: PWA installabile
+          cp offline.html _site/offline.html                        # 1.2.4.77: fallback offline
+          mkdir -p _site/icons
+          cp icons/icon-192.png _site/icons/icon-192.png            # 1.2.4.77: icone PWA
+          cp icons/icon-512.png _site/icons/icon-512.png
           if [ -d data/latest ]; then cp -R data/latest _site/data/latest; fi
           if [ -d data/geography ]; then cp -R data/geography _site/data/geography; fi
           if [ -d data/stations ]; then cp -R data/stations _site/data/stations; fi
