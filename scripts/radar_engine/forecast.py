@@ -592,11 +592,25 @@ def _resolve_outline(candidate_ctx, bundle):
     if not cells:
         meta["null_reason"] = source or "cell_not_found"
         return meta, None
+    # I frame RICOSTRUITI dall'archivio rolling hanno `cell.frame_index=None`
+    # (history._cell_from_payload -> -1): la maschera va risolta sul frame del
+    # record, non su un indice mancante. L'override e' temporaneo (ripristinato
+    # nel finally) e vale per tutte le celle del record, che sono allo stesso
+    # frame per costruzione (_cells_for_record).
+    saved = []
+    for cell in cells:
+        old = getattr(cell, "frame_index", None)
+        if old != frame_index:
+            saved.append((cell, old))
+            cell.frame_index = frame_index
     try:
         win, mask, _used, _skipped, _how = footprint_mod.masks_for_cells(
             cells, bundle, cfg_detect)
     except Exception:
         win, mask = None, None
+    finally:
+        for cell, old in saved:
+            cell.frame_index = old
     if win is None or mask is None:
         meta["null_reason"] = "cell_mask_not_resolved"
         return meta, None

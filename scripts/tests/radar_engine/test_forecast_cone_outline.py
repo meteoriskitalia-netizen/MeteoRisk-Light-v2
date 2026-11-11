@@ -21,8 +21,6 @@ Nessun dato reale: raster sintetici (stessa griglia DPC di conftest.py).
 import json
 import math
 
-import numpy as np
-
 from radar_engine import detect as detect_mod
 from radar_engine import forecast
 from radar_engine import models
@@ -213,7 +211,25 @@ def test_fallback_ellittico_dichiarato_con_tre_bande(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# (d) determinismo del payload
+# (d) frame ricostruito dall'archivio rolling (cell.frame_index mancante)
+# ---------------------------------------------------------------------------
+def test_frame_index_mancante_risolve_il_contorno(tmp_path):
+    """history._cell_from_payload crea le celle ricostruite con
+    frame_index=None (-1): la maschera deve essere risolta sul frame del
+    record, non su un indice mancante (bug visto nel run live 13:00Z)."""
+    bundle, small, _large = _bundle(tmp_path)
+    for cells in bundle.cells_by_frame:
+        for cell in cells:
+            cell.frame_index = -1
+    fc = forecast.build_forecast(_ctx(small, small.points[-1]), bundle)
+    assert fc["cone_shape"] == "dilated_outline"
+    assert fc["outline"] is not None
+    assert fc["outline_null_reason"] is None
+    assert fc["outline_area_km2"] > 200.0
+
+
+# ---------------------------------------------------------------------------
+# (e) determinismo del payload
 # ---------------------------------------------------------------------------
 def test_payload_deterministico(tmp_path):
     bundle, small, _large = _bundle(tmp_path)
