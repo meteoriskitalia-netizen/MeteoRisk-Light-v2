@@ -275,6 +275,31 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 .sc-phenomena-suspects > summary { cursor: pointer; color: #94a3b8; font-size: 10px; padding: 3px 10px; border-top: 1px solid #1f2937; list-style: none; }
 .sc-phenomena-suspects > summary::-webkit-details-marker { display: none; }
 .sc-phenomena-suspects[open] > summary { color: #cbd5e1; }
+        /* 1.2.4.76 - ALLERTA DI PROSSIMITA' (fase 3 nowcasting, solo client).
+           Pannello: riga di controllo + riga di stato (il motivo per cui un cono non
+           e' disegnabile sta li'). Banner: controllo Leaflet in basso a sinistra,
+           impilato dal motore FUORI dagli altri controlli (zoom in alto a sinistra,
+           attribution in basso a destra, switch a coriandolo in alto a destra):
+           solo testo, pointer-events:none, nessun suono. */
+        .sc-alert-box { padding: 0 10px 6px 10px; }
+        .sc-alert-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+        .sc-alert-title { font-size: 10px; font-weight: 700; color: #e2e8f0; letter-spacing: .03em; text-transform: uppercase; }
+        .sc-alert-thr { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: #94a3b8; }
+        .sc-alert-thr select { font-size: 10px; background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 2px 4px; }
+        .sc-alert-status { margin-top: 4px; font-size: 10px; line-height: 1.35; color: #94a3b8; }
+        .sc-alert-banner { pointer-events: none; max-width: 280px; padding: 5px 9px; border-radius: 8px; border: 1px solid #f59e0b; background: rgba(15,23,42,.92); color: #fde68a; font-size: 11px; line-height: 1.3; box-shadow: 0 4px 14px rgba(15,23,42,.45); }
+        .sc-alert-banner[hidden] { display: none; }
+        /* <1280px: il pannello e' un bottom-sheet e copre la mappa. Il banner sul
+           controllo Leaflet sarebbe dietro il foglio: si mostra lo STESSO testo
+           dentro il pannello (#sc-alert-inline) e si toglie il controllo mappa,
+           che cosi' non puo' coprire nessun controllo della mappa. */
+        .sc-alert-inline { display: none; }
+        @media (max-width: 1279px) {
+            .sc-alert-banner { max-width: calc(100vw - 150px); font-size: 10px; }
+            .leaflet-bottom .sc-alert-banner { display: none; }
+            .sc-alert-inline { display: block; margin-top: 6px; padding: 5px 9px; border-radius: 8px; border: 1px solid #f59e0b; background: rgba(15,23,42,.92); color: #fde68a; font-size: 11px; line-height: 1.3; }
+            .sc-alert-inline[hidden] { display: none; }
+        }
         .live-header { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #f1f5f9; }
         .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; animation: pulse-live 1.5s ease-in-out infinite; }
         @keyframes pulse-live { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
@@ -1859,6 +1884,12 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <span class="legend-swatch" style="background:rgba(148,163,184,.18); border-color:#94a3b8;"></span><span>low</span>
         </div>
         <div class="legend-row">
+            <span style="color:#e2e8f0; font-weight:700;">➜</span><span>vettore di movimento: freccia = <b>30 min di tragitto</b> alla velocità osservata (64 km/h → 32 km), etichetta «km/h → direzione»; nessuna freccia se il moto non è affidabile o il track non è coerente</span>
+        </div>
+        <div class="legend-row">
+            <span>Etichette del cono: <b>+30 min · 15:40Z</b> = minuti dallo scan e ora di arrivo prevista sul vertice (UTC, stessa base del radar)</span>
+        </div>
+        <div class="legend-row">
             <span style="color:#7dd3fc; font-weight:700;font-size:18px;vertical-align:middle;">▲</span><span>grandine (toggle Grandine · proxy riflettività, senza Doppler)</span>
             <span style="color:#fb923c; font-weight:700;font-size:18px;vertical-align:middle;">↻</span><span>struttura asimmetrica (toggle Fenomeni · proxy riflettività, senza Doppler)</span>
             <span style="color:#94a3b8;">○</span><span>SUSPECT (tratteggiato) · pieno = CORROBORATED/VERIFIED</span>
@@ -1882,6 +1913,26 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <button type="button" id="sc-toggle-phenomena" class="sc-toggle on" onclick="toggleScPhenomena()" title="Badge grandine/struttura asimmetrica (proxy riflettività, senza Doppler)">Fenomeni</button>
         <button type="button" id="sc-toggle-hail" class="sc-toggle on" onclick="toggleScHail()" title="Badge grandine (proxy riflettività, senza Doppler)">Grandine</button>
     </div>
+    <!-- 1.2.4.76 - ALLERTA DI PROSSIMITA' (fase 3 nowcasting, solo client): punto
+         scelto dall'utente (posizione del dispositivo o clic sulla mappa), soglia
+         10/25/50 km, distanza dal BORDO del cono. Punto e soglia in localStorage. -->
+    <div class="sc-alert-box" id="sc-alert-box">
+        <div class="sc-alert-row">
+            <span class="sc-alert-title">Allerta prossimità</span>
+            <button type="button" id="sc-alert-locate" class="sc-toggle" onclick="scAlertUseMyPosition()" title="Chiede la posizione al browser (timeout 10 s). Richiede HTTPS o localhost; se il contesto non è sicuro il messaggio lo dice e resta il punto cliccabile.">📍 La mia posizione</button>
+            <button type="button" id="sc-alert-pick" class="sc-toggle" onclick="scAlertPickMode()" title="Scegli il punto con un clic sulla mappa: il segnaposto è trascinabile">Punto sulla mappa</button>
+            <button type="button" id="sc-alert-clear" class="sc-toggle" onclick="scAlertClearPoint()" title="Rimuove il punto, il cerchio della soglia e l'allerta (la soglia resta)">Rimuovi punto</button>
+            <label class="sc-alert-thr" for="sc-alert-threshold">Soglia
+                <select id="sc-alert-threshold" onchange="scAlertSetThreshold(this.value)">
+                    <option value="10">10 km</option>
+                    <option value="25" selected>25 km</option>
+                    <option value="50">50 km</option>
+                </select>
+            </label>
+        </div>
+        <div id="sc-alert-status" class="sc-alert-status" role="status" aria-live="polite">Nessun punto impostato.</div>
+        <div id="sc-alert-inline" class="sc-alert-inline" hidden aria-live="polite"></div>
+    </div>
     <div id="sc-phenomena" style="display:none;"></div>
     <div id="sc-summary" style="display:none;gap:8px;flex-wrap:wrap;padding:0 10px 6px 10px;font-size:11px;color:#e2e8f0;"></div>
     <!-- Didascalia delle sigle: blocco collassabile, una riga per sigla. Riusa le classi
@@ -1902,6 +1953,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <div class="legend-row"><span><b>Pos</b> — ultima posizione del centro (latitudine/longitudine).</span></div>
         <div class="legend-row"><span><b>Moto osservato</b> — velocità e direzione del centro ricavate dal tracking; "punti utili" = punti che superano il gate di continuità. Se il track non è coerente il moto non viene mostrato come numero.</span></div>
         <div class="legend-row"><span><b>Forecast ≤2h</b> — proiezione cinematica del track. Compare solo con <b>fit usato</b>, non clampato e track coerente; altrimenti la riga dichiara perché non è disponibile.</span></div>
+        <div class="legend-row"><span><b>Allerta prossimità</b> — distanza fra il punto scelto (posizione del dispositivo o clic sulla mappa) e il <b>bordo del cono</b>, non dal centroide: il centroide non dice se il temporale arriva. «Arrivo stimato» = distanza / velocità del moto osservato a velocità costante: è una stima cinematica, <b>non</b> una probabilità.</span></div>
         <div class="legend-row"><span><b>Nascita / Attiva</b> — record nuovo nella finestra corrente (≤3 frame) o già sostenuto. "Nascita" non significa nuovo temporale.</span></div>
         <div class="legend-row"><span><b>non sull'ultimo frame</b> — il track non compare nell'ultima scansione radar: record più vecchio, non necessariamente esaurito.</span></div>
         <div class="legend-row"><span><b>Record / Nascite / Organizzate / Molto organizzate / Sull'ultimo frame / SOI max</b> — conteggi della lista e SOI massimo; le fasce pubblicate sono organizzata 65-79 e molto organizzata 80-100.</span></div>
@@ -2526,9 +2578,16 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.75';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.76';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-11';
     const APP_CHANGELOG = [
+        { version: '1.2.4.76', date: '2026-11-11', changes: [
+  "CONI CON GLI ORARI DI ARRIVO= Le etichette del cono forecast non sono piu' solo '+30': ogni vertice 30/60/90 min porta i minuti dallo scan e l'ORA UTC di arrivo prevista (es. '+30 min · 15:40Z'), calcolata su radar_timestamp + offset_min. Il vertice 120 resta senza etichetta per non impilare quattro testi su un cono corto; il lato e' alternato (pari a sinistra, dispari a destra) per non sovrapporre i testi lungo il percorso. Se radar_timestamp manca l'ora e' omessa e resta '+30 min'.",
+  "FRECCE DI MOVIMENTO= Per ogni struttura sull'ultimo frame con moto affidabile (motion_reliable) e track coerente si disegna una freccia dal centroide nella direzione del moto (direction_toward_deg), lunga 30 minuti di tragitto alla velocita' osservata (km = v x 0,5), con etichetta '64 km/h → E'. Nessuna freccia se il moto non e' affidabile o il track non e' coerente: la freccia non contraddice la riga 'Moto non determinabile'. I vettori si disegnano dopo i coni, cosi' restano leggibili sopra il riempimento.",
+  "ALLERTA DI PROSSIMITA'= Punto scelto dall'utente (posizione del dispositivo o clic sulla mappa, segnaposto trascinabile), soglia 10/25/50 km (default 25, in localStorage). La distanza e' punto <-> BORDO del cono, non dal centroide: il collaudo del progetto ha misurato 0 hit su 6 accoppiando i centroidi entro 10 km e 5 su 6 accoppiando il footprint. 'Arrivo stimato' = distanza / velocita' del moto osservato, arrotondato a 5 minuti: e' una stima cinematica, non una probabilita'. Banner su controllo Leaflet in basso a sinistra (pointer-events none, nessun suono) e, sotto 1280 px, lo stesso testo dentro il pannello (#sc-alert-inline) perche' il bottom-sheet coprirebbe il controllo mappa.",
+  "GEOLOCALIZZAZIONE= 'La mia posizione' usa navigator.geolocation.getCurrentPosition con timeout 10 s, enableHighAccuracy e maximumAge 60 s; i tre errori W3C (1 permesso negato, 2 posizione non disponibile, 3 timeout) hanno messaggi distinti e il codice sconosciuto un messaggio generico. Se il contesto non e' sicuro (serve HTTPS o localhost) il messaggio lo dice e resta il punto cliccabile. Nessuna eccezione: localStorage e geolocalizzazione sono protetti, un input invalido non imposta il punto.",
+  "BUMP= html mri-light-1.2.4.76.html, VERSION (BUILD=76, DATE=2026-11-11), sw.js (CACHE_NAME mri-1.2.4.76), README.md, i 26 test .mjs, le 5 righe cp dei 3 workflow; la 1.2.4.75 va RIMOSSA dal repo. NON toccati: scripts/, workflow dei dati, dataset e renderer. La release 1.2.4.75 (area Doppler) resta intatta: #live-toggle-doppler, canvas Doppler, 6 aree, fasce altimetriche e pannello a tab sono presenti."
+        ] },
         { version: '1.2.4.75', date: '2026-11-11', changes: [
   "AREA DOPPLER, NON PIU' CONTORNI= I 134 poligoni dei siti (data/radar/doppler_coverage.geojson) non sono piu' 134 path tratteggiati rossi con bordo per sito: sono una SUPERFICIE RIEMPITA unica, azzurra (#38bdf8) e senza alcun tratto. Tutti i poligoni si riempiono in BIANCO PIENO (opaco) su un canvas FUORI SCHERMO: le sovrapposizioni non contano e il risultato e' una maschera. La maschera si tinge una volta (source-in) e si compone UNA sola volta sulla mappa con globalAlpha 0.13: dove si sovrappongono tre siti (Francia/Svizzera/Alpi) l'opacita' e' la STESSA di un punto coperto da un solo sito, mentre riempire 134 poligoni direttamente a bassa opacita' avrebbe prodotto zone piu' scure e una mappa che sembra dire cose che non sono. Nessun bordo: un contorno esterno unico non e' ricavabile in modo pulito dalla maschera, e una linea sbagliata e' peggio di nessuna linea. Il canvas sta nel pane z 405 (sopra il raster radar 400, sotto i bordi 410 e i marker 600), non intercetta il mouse e si ridisegna a moveend/zoomend/resize.",
   "SPENTA DI DEFAULT, SI ACCENDE SOLO DAL PANNELLO LIVE= Il pulsante #btn-doppler e' stato RIMOSSO dalla toolbar (non nascosto: rimosso, con il suo CSS e il suo handler dedicato) e il controllo e' il terzo toggle del pannello LIVE: #live-toggle-doppler 'Area Doppler', accanto a 'Struttura convettiva' e 'Centraline'. Con la chiave meteorisk.dopplerCoverage.v1 assente il layer e' OFF: nessun poligono e nessun canvas Doppler al primo caricamento. Funziona con qualunque sorgente del selettore LIVE e non cambia la voce selezionata; chiudendo il pannello il layer si spegne (come le centraline) e la preferenza torna a '0'. La legenda nel pannello LIVE (#live-doppler-box) compare solo con il layer acceso e dice: 'Area in cui esiste un radar con velocita' radiale (Doppler). Fuori, solo riflettivita': la rotazione non e' misurabile.', con 'Fonti: EUMETNET/OPERA (CC BY 4.0)'.",
@@ -10196,6 +10255,9 @@ removeLightningTile();
             scClearTrails();
             scClearForecasts();
             scClearPhenomena();
+            // 1.2.4.76: con la vista celle organizzate spenta non resta sulla mappa
+            // ne' il banner ne' il segnaposto dell'allerta (il punto salvato resta).
+            scAlertResetView();
             scRadarData = null;
             scPhenomenaData = null;
             scTrailsData = null;
@@ -10288,6 +10350,9 @@ removeLightningTile();
             startScRefreshTimer();
             refreshScHistory();
             refreshScPhenomena();
+            // 1.2.4.76: disegna subito punto e cerchio della soglia (il punto puo'
+            // essere gia' salvato) e valuta l'allerta prima che arrivi il fetch.
+            scAlertEvaluate('pannello aperto');
         } else {
             setScButton(false);
             var panelOff = scRadarEl('sc-radar-panel');
@@ -10304,6 +10369,8 @@ removeLightningTile();
                 scClearTrails();
                 scClearForecasts();
                 scClearPhenomena();
+                // 1.2.4.76: banner e segnaposto dell'allerta non restano orfani.
+                scAlertResetView();
                 scTrailsData = null;
                 scPhenomenaData = null;
                 scSlotCache = {};
@@ -11483,18 +11550,42 @@ removeLightningTile();
         if (path.length >= 2) {
             out.push(L.polyline(path, { pane: 'forecastPane', color: color, weight: 1.5, dashArray: '2,5', opacity: Math.min(0.9, base + 0.25), interactive: false }));
         }
+        var labelled = 0;
         for (var si = 0; si < fc.steps.length; si++) {
             var st = fc.steps[si];
             if (!(st && st.position && st.position.length === 2)) continue;
-            var label = '+' + st.offset_min + (conf === 'low' ? ' low' : '');
+            var offMin = scNum(st.offset_min);
+            // 1.2.4.76: etichette sui vertici 30/60/90 con il tempo di arrivo previsto
+            // (minuti dallo scan + ora UTC). Il vertice 120 resta senza etichetta per
+            // non impilare quattro testi su un cono corto. Lato alternato: pari a
+            // sinistra, dispari a destra, cosi' i testi non si sovrappongono lungo il
+            // percorso.
+            if (offMin === null || offMin < 30 || offMin > 90) continue;
+            var arrival = scForecastArrivalClock(offMin);
+            var label = '+' + offMin + ' min' + (arrival ? ' · ' + arrival : '') + (conf === 'low' ? ' low' : '');
+            var anchorX = (labelled % 2 === 0) ? 104 : -6;
+            labelled++;
             out.push(L.marker([st.position[1], st.position[0]], {
                 pane: 'forecastPane', interactive: false,
-                icon: L.divIcon({ className: '', iconSize: [40, 12], iconAnchor: [20, 6],
-                    html: '<div style="opacity:' + Math.min(1, base + 0.45) + ';color:' + color +
-                          ';font:600 9px system-ui,sans-serif;text-shadow:0 0 3px #0f172a;">' + label + '</div>' })
+                icon: L.divIcon({ className: '', iconSize: [98, 12], iconAnchor: [anchorX, 8],
+                    html: '<div style="white-space:nowrap;opacity:' + Math.min(1, base + 0.45) + ';color:' + color +
+                          ';font:600 8px system-ui,sans-serif;text-shadow:0 0 3px #0f172a;">' + label + '</div>' })
             }));
         }
         return out;
+    }
+
+    // Ora UTC di arrivo prevista su un vertice del cono: radar_timestamp + offset_min.
+    // UTC esplicito (stessa base temporale del radar, nessuna conversione al fuso del
+    // browser: il dato e' UTC e l'etichetta lo dichiara con la "Z"). null se il
+    // timestamp del payload manca o l'offset non e' numerico.
+    function scForecastArrivalClock(offsetMin) {
+        var off = scNum(offsetMin);
+        if (off === null) return null;
+        var base = scIsoMs(scRadarData && scRadarData.radar_timestamp);
+        if (base === null) return null;
+        var d = new Date(base + off * 60000);
+        return ('0' + d.getUTCHours()).slice(-2) + ':' + ('0' + d.getUTCMinutes()).slice(-2) + 'Z';
     }
 
     function scClearForecasts() {
@@ -11538,6 +11629,52 @@ removeLightningTile();
         return delta <= ang;
     }
 
+    // Vettore di movimento: freccia dal centroide nella direzione del moto, lunghezza
+    // = 30 min di tragitto alla velocita' osservata (scala DICHIARATA: km = v * 0.5).
+    // Nessuna freccia se motion_reliable=false o se il track non e' coerente: la
+    // freccia non deve contraddire la riga "Moto non determinabile".
+    function scMotionArrowEligible(c) {
+        if (!c || !(c.position && c.position.length === 2)) return false;
+        if (!scMotionReliable(c) || !scTrackCoherent(c)) return false;
+        var vel = scNum(c.motion && c.motion.velocity_kmh);
+        var dir = scNum(c.motion && c.motion.direction_toward_deg);
+        return vel !== null && dir !== null && vel > 0;
+    }
+
+    // Layer della freccia: polilinea (lunghezza in km, coerente con la mappa) +
+    // punta e etichetta in coordinate schermo (divIcon ruotato): una punta in km
+    // sarebbe invisibile da lontano. Etichetta "64 km/h → E".
+    function scBuildMotionArrow(c) {
+        var out = [];
+        if (!scMotionArrowEligible(c)) return out;
+        var vel = scNum(c.motion.velocity_kmh);
+        var dir = scNum(c.motion.direction_toward_deg);
+        var lon = c.position[0], lat = c.position[1];
+        var lenKm = vel * 0.5;                       // 30 minuti di tragitto
+        var brg = dir * Math.PI / 180;
+        var cosLat = Math.max(0.01, Math.cos(lat * Math.PI / 180));
+        var endLat = lat + Math.cos(brg) * (lenKm / 111.32);
+        var endLon = lon + Math.sin(brg) * (lenKm / (111.32 * cosLat));
+        var color = scLevelColor(c.level);
+        out.push(L.polyline([[lat, lon], [endLat, endLon]], {
+            pane: 'forecastPane', color: color, weight: 3, opacity: 0.9,
+            interactive: false, lineCap: 'round'
+        }));
+        out.push(L.marker([endLat, endLon], {
+            pane: 'forecastPane', interactive: false,
+            icon: L.divIcon({ className: '', iconSize: [12, 12], iconAnchor: [6, 6],
+                html: '<svg width="12" height="12" viewBox="0 0 12 12" style="overflow:visible;transform:rotate(' + dir + 'deg);">' +
+                      '<path d="M6 0 L11 11 L6 8 L1 11 Z" fill="' + color + '" stroke="#0b1220" stroke-width="1.4" stroke-linejoin="round"/></svg>' })
+        }));
+        var label = scFmtInt(vel) + ' km/h → ' + scCompassShort(dir);
+        out.push(L.marker([endLat, endLon], {
+            pane: 'forecastPane', interactive: false,
+            icon: L.divIcon({ className: '', iconSize: [110, 12], iconAnchor: [-8, 12],
+                html: '<div style="white-space:nowrap;color:' + color + ';font:600 9px system-ui,sans-serif;text-shadow:0 0 3px #0f172a;">' + label + '</div>' })
+        }));
+        return out;
+    }
+
     function scRedrawForecasts() {
         scClearForecasts();
         if (!scDataActive() || !scShowForecast || !map) return;
@@ -11565,7 +11702,449 @@ removeLightningTile();
             layers = layers.concat(drawScForecast(c, conflict));
             if (!conflict) kept.push(c);
         }
+        // 1.2.4.76: vettori di movimento per TUTTE le strutture con moto affidabile e
+        // track coerente, anche senza forecast (il vettore descrive il moto osservato,
+        // non la proiezione). Disegnati DOPO i coni: restano leggibili sopra il fill.
+        for (var ai = 0; ai < cands.length; ai++) {
+            if (!(cands[ai] && cands[ai].on_latest_frame)) continue;
+            layers = layers.concat(scBuildMotionArrow(cands[ai]));
+        }
         if (layers.length) scForecastLayer = L.layerGroup(layers).addTo(map);
+    }
+
+    // ============ ALLERTA DI PROSSIMITA' (fase 3 nowcasting, solo client) ============
+    // Punto scelto dall'utente (posizione del dispositivo o clic sulla mappa) e soglia
+    // 10/25/50 km (default 25, in localStorage). La distanza e' punto <-> BORDO del
+    // cono, NON dal centroide: il collaudo del progetto ha misurato 0 hit su 6
+    // accoppiando i centroidi entro 10 km e 5 su 6 accoppiando il footprint
+    // (docs/VALIDAZIONE_RISULTATI.md). Nessuna richiesta di rete nuova (tutti i dati
+    // sono gia' nel payload scaricato) e nessun suono.
+    var SC_ALERT_THRESHOLDS_KM = [10, 25, 50];
+    var SC_ALERT_DEFAULT_KM = 25;
+    var SC_ALERT_KEY_POINT = 'mri.sc.alert.point.v1';
+    var SC_ALERT_KEY_THRESHOLD = 'mri.sc.alert.thresholdKm.v1';
+    var SC_ALERT_GEO_TIMEOUT_MS = 10000;
+    var scAlertPoint = null;          // { lon, lat } | null (stesso ordine di c.position)
+    var scAlertThresholdKm = SC_ALERT_DEFAULT_KM;
+    var scAlertPicking = false;
+    var scAlertClickHandler = null;
+    var scAlertLayer = null;          // L.layerGroup(cerchio soglia + marker trascinabile)
+    var scAlertMarker = null;
+    var scAlertCircle = null;
+    var scAlertBannerCtl = null;
+    var scAlertBannerEl = null;
+    var scAlertInitDone = false;
+
+    // localStorage puo' lanciare (Safari in navigazione privata, storage negato o
+    // pieno): ogni accesso e' protetto e degrada al default, mai un'eccezione.
+    function scAlertStoreGet(key) {
+        try {
+            if (typeof window === 'undefined' || !window.localStorage) return null;
+            return window.localStorage.getItem(key);
+        } catch (e) { return null; }
+    }
+
+    function scAlertStoreSet(key, value) {
+        try {
+            if (typeof window === 'undefined' || !window.localStorage) return false;
+            window.localStorage.setItem(key, value);
+            return true;
+        } catch (e) { return false; }
+    }
+
+    function scAlertStoreDel(key) {
+        try {
+            if (typeof window === 'undefined' || !window.localStorage) return false;
+            window.localStorage.removeItem(key);
+            return true;
+        } catch (e) { return false; }
+    }
+
+    function scAlertStatusText(txt) {
+        var st = document.getElementById('sc-alert-status');
+        if (st) st.textContent = txt;
+    }
+
+    // Coordinate valide -> { lon, lat } (numeri finiti dentro il range geografico),
+    // altrimenti null: un input invalido non imposta il punto.
+    function scAlertValidPoint(lon, lat) {
+        var x = scNum(lon), y = scNum(lat);
+        if (x === null || y === null) return null;
+        if (x < -180 || x > 180 || y < -90 || y > 90) return null;
+        return { lon: x, lat: y };
+    }
+
+    // Legge punto e soglia da localStorage. Soglia fuori da {10,25,50} -> default 25.
+    // Ritorna lo stato letto (per i test); non lancia mai.
+    function scAlertLoadPrefs() {
+        var th = parseInt(scAlertStoreGet(SC_ALERT_KEY_THRESHOLD), 10);
+        scAlertThresholdKm = (SC_ALERT_THRESHOLDS_KM.indexOf(th) !== -1) ? th : SC_ALERT_DEFAULT_KM;
+        var pt = null;
+        var raw = scAlertStoreGet(SC_ALERT_KEY_POINT);
+        if (raw) {
+            try {
+                var o = JSON.parse(raw);
+                pt = o ? scAlertValidPoint(o.lon, o.lat) : null;
+            } catch (e) { pt = null; }
+        }
+        scAlertPoint = pt;
+        var sel = document.getElementById('sc-alert-threshold');
+        if (sel) sel.value = String(scAlertThresholdKm);
+        return { point: scAlertPoint, threshold_km: scAlertThresholdKm };
+    }
+
+    // Distanza minima punto <-> poligono in km (0 se il punto e' DENTRO il poligono).
+    // Proiezione equirettangolare LOCALE centrata sul punto:
+    //   x = (lon - lon0) * 111.32 * cos(lat0),   y = (lat - lat0) * 111.32
+    // e' la stessa assunzione con cui scBuildForecastCone costruisce il cono
+    // (dLat = m/111.32, dLon = m/(111.32*cos lat)): la distanza e' coerente con il
+    // disegno. Scarto rispetto alla geodetica < 0.1% entro 100 km.
+    // p = [lon, lat]; ring = [[lat, lon], ...] (formato Leaflet del cono).
+    // Ritorna { km, inside } oppure null se l'input non e' valido.
+    function scPointToPolygonKm(p, ring) {
+        if (!(p && p.length === 2 && isFinite(p[0]) && isFinite(p[1]))) return null;
+        if (!Array.isArray(ring) || ring.length < 3) return null;
+        var lon0 = Number(p[0]), lat0 = Number(p[1]);
+        var kx = 111.32 * Math.max(0.01, Math.cos(lat0 * Math.PI / 180));
+        var ky = 111.32;
+        var n = ring.length;
+        var best = null;
+        var inside = false;
+        for (var i = 0; i < n; i++) {
+            var a = ring[i];
+            var b = ring[(i + 1) % n];
+            if (!(a && a.length === 2 && b && b.length === 2)) continue;
+            if (!isFinite(a[0]) || !isFinite(a[1]) || !isFinite(b[0]) || !isFinite(b[1])) continue;
+            var ax = (a[1] - lon0) * kx, ay = (a[0] - lat0) * ky;
+            var bx = (b[1] - lon0) * kx, by = (b[0] - lat0) * ky;
+            if (((ay > 0) !== (by > 0)) && (0 < (bx - ax) * (0 - ay) / (by - ay) + ax)) inside = !inside;
+            var dx = bx - ax, dy = by - ay;
+            var l2 = dx * dx + dy * dy;
+            var t = (l2 > 0) ? (-ax * dx - ay * dy) / l2 : 0;
+            t = Math.max(0, Math.min(1, t));
+            var cx = ax + t * dx, cy = ay + t * dy;
+            var d = Math.sqrt(cx * cx + cy * cy);
+            if (best === null || d < best) best = d;
+        }
+        if (best === null) return null;
+        return { km: inside ? 0 : best, inside: inside };
+    }
+
+    // "Arrivo stimato" = t = d / v * 60 minuti, con d = distanza minima punto<->bordo
+    // del cono in km e v = velocita' del moto OSSERVATO in km/h (la stessa della
+    // freccia), arrotondata a 5 minuti. E' una stima cinematica a velocita' costante:
+    // NON e' una probabilita' e non dice che il temporale colpira' il punto.
+    // null se la velocita' manca o non e' positiva -> la riga scrive "n/d".
+    function scAlertArrivalMin(c, distKm) {
+        var vel = scNum(c && c.motion && c.motion.velocity_kmh);
+        var d = scNum(distKm);
+        if (vel === null || vel <= 0 || d === null || d < 0) return null;
+        var t = d / vel * 60;
+        if (!isFinite(t)) return null;
+        return Math.round(t / 5) * 5;
+    }
+
+    function scAlertSafe(v) {
+        var s = (v === undefined || v === null) ? 'n/d' : String(v);
+        return s.replace(/[<>&"']/g, '');
+    }
+
+    // Testo dell'allerta: "Sistema #12 a 12 km · arrivo stimato 40 min".
+    // Distanza arrotondata al km; "dentro il cono" quando il punto e' nel poligono
+    // (distanza al bordo = 0). Nessuna probabilita': solo cinematica.
+    function scAlertEntryText(a) {
+        var c = a && a.candidate;
+        if (!c) return '';
+        var name = (c.track_type === 'storm_object' ? 'Sistema #' : 'Cella #') + scAlertSafe(c.track_id);
+        var km = scNum(a.km);
+        var dTxt;
+        if (km === null) dTxt = 'distanza n/d';
+        else if (km <= 0.5) dTxt = 'dentro il cono';
+        else dTxt = 'a ' + scFmtInt(Math.round(km)) + ' km';
+        var arr = scNum(a.arrival_min);
+        var aTxt = (arr === null) ? 'arrivo stimato n/d' : ('arrivo stimato ' + scFmtInt(arr) + ' min');
+        return name + ' ' + dTxt + ' · ' + aTxt;
+    }
+
+    // Motivo per cui una struttura non ha un cono disegnabile: si RIUSA la riga del
+    // pannello (scForecastLine) invece di duplicare la logica dei gate.
+    function scAlertNoConeReason(c) {
+        var line = scForecastLine(c);
+        var m = /\(([^)]+)\)/.exec(line);
+        return m ? m[1] : line;
+    }
+
+    // Banner = controllo Leaflet in basso a sinistra: il motore lo impila FUORI dagli
+    // altri controlli (zoom in alto a sinistra, attribution in basso a destra, switch
+    // a coriandolo in alto a destra) e non intercetta drag/click della mappa.
+    function scAlertEnsureBanner() {
+        if (scAlertBannerEl) return scAlertBannerEl;
+        if (typeof map === 'undefined' || !map || typeof L === 'undefined' || !L.control) return null;
+        scAlertBannerCtl = L.control({ position: 'bottomleft' });
+        scAlertBannerCtl.onAdd = function () {
+            var div = L.DomUtil.create('div', 'sc-alert-banner');
+            div.id = 'sc-alert-banner';
+            div.hidden = true;
+            div.setAttribute('aria-live', 'polite');
+            return div;
+        };
+        scAlertBannerCtl.addTo(map);
+        scAlertBannerEl = scAlertBannerCtl.getContainer();
+        return scAlertBannerEl;
+    }
+
+    function scAlertShowBanner(txt) {
+        var el = scAlertEnsureBanner();
+        var inline = document.getElementById('sc-alert-inline');
+        if (inline) {
+            inline.textContent = txt;
+            inline.hidden = false;
+        }
+        if (!el) return false;
+        el.textContent = txt;
+        el.hidden = false;
+        return true;
+    }
+
+    function scAlertHideBanner() {
+        if (scAlertBannerEl) {
+            scAlertBannerEl.hidden = true;
+            scAlertBannerEl.textContent = '';
+        }
+        var inline = document.getElementById('sc-alert-inline');
+        if (inline) {
+            inline.hidden = true;
+            inline.textContent = '';
+        }
+    }
+
+    function scAlertMarkerIcon() {
+        return L.divIcon({
+            className: '', iconSize: [18, 18], iconAnchor: [9, 9],
+            html: '<svg width="18" height="18" viewBox="0 0 18 18" style="overflow:visible;">' +
+                '<circle cx="9" cy="9" r="8" fill="none" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="2,2"/>' +
+                '<circle cx="9" cy="9" r="4.5" fill="#38bdf8" stroke="#0b1220" stroke-width="2"/></svg>'
+        });
+    }
+
+    function scAlertRemoveLayer() {
+        if (scAlertLayer && typeof map !== 'undefined' && map && map.hasLayer(scAlertLayer)) map.removeLayer(scAlertLayer);
+        scAlertLayer = null;
+        scAlertMarker = null;
+        scAlertCircle = null;
+    }
+
+    // Disegna/aggiorna punto e cerchio della soglia. Se il pannello non e' attivo il
+    // layer non si disegna (nessun punto "orfano" sulla mappa), ma il punto resta
+    // salvato e torna quando il pannello si riapre.
+    function scAlertSyncLayer() {
+        if (typeof map === 'undefined' || !map || typeof L === 'undefined') return;
+        if (!scAlertPoint || !scDataActive()) { scAlertRemoveLayer(); return; }
+        var lat = scAlertPoint.lat, lon = scAlertPoint.lon;
+        if (scAlertMarker && scAlertCircle) {
+            scAlertMarker.setLatLng([lat, lon]);
+            scAlertCircle.setLatLng([lat, lon]);
+            scAlertCircle.setRadius(scAlertThresholdKm * 1000);
+            if (!scAlertLayer || !map.hasLayer(scAlertLayer)) scAlertLayer.addTo(map);
+            return;
+        }
+        scAlertRemoveLayer();
+        var m = L.marker([lat, lon], {
+            draggable: true, icon: scAlertMarkerIcon(), zIndexOffset: 900,
+            title: 'Punto dell\'allerta (trascinabile)'
+        });
+        m.on('dragend', function () {
+            var ll = m.getLatLng();
+            scAlertSetPoint(ll.lng, ll.lat, 'punto trascinato');
+        });
+        var circ = L.circle([lat, lon], {
+            radius: scAlertThresholdKm * 1000,
+            color: '#38bdf8', weight: 1, dashArray: '4,4', opacity: 0.8,
+            fillColor: '#38bdf8', fillOpacity: 0.06, interactive: false
+        });
+        scAlertMarker = m;
+        scAlertCircle = circ;
+        scAlertLayer = L.layerGroup([circ, m]).addTo(map);
+    }
+
+    function scAlertSetPoint(lon, lat, sourceLabel) {
+        var p = scAlertValidPoint(lon, lat);
+        if (!p) { scAlertStatusText('Coordinate non valide: punto non impostato.'); return false; }
+        scAlertPoint = p;
+        scAlertStoreSet(SC_ALERT_KEY_POINT, JSON.stringify(p));
+        scAlertSyncLayer();
+        scAlertEvaluate(sourceLabel);
+        return true;
+    }
+
+    function scAlertClearPoint() {
+        scAlertPoint = null;
+        scAlertStoreDel(SC_ALERT_KEY_POINT);
+        scAlertRemoveLayer();
+        scAlertHideBanner();
+        scAlertStatusText('Punto rimosso. «La mia posizione» o «Punto sulla mappa» per riattivare l\'allerta (soglia ' + scAlertThresholdKm + ' km).');
+    }
+
+    function scAlertSetThreshold(v) {
+        var th = parseInt(v, 10);
+        if (SC_ALERT_THRESHOLDS_KM.indexOf(th) === -1) th = SC_ALERT_DEFAULT_KM;
+        scAlertThresholdKm = th;
+        scAlertStoreSet(SC_ALERT_KEY_THRESHOLD, String(th));
+        var sel = document.getElementById('sc-alert-threshold');
+        if (sel) sel.value = String(th);
+        scAlertSyncLayer();
+        scAlertEvaluate();
+    }
+
+    // Messaggi dei tre errori di geolocalizzazione (W3C Geolocation: 1 permesso
+    // negato, 2 posizione non disponibile, 3 timeout). Codice sconosciuto o assente:
+    // messaggio generico. Mai un'eccezione: si legge solo err.code.
+    function scAlertGeoErrorMessage(err) {
+        var code = (err && typeof err.code === 'number') ? err.code : null;
+        if (code === 1) return 'Permesso negato: il browser ha bloccato la posizione. Consenti la geolocalizzazione per questo sito, oppure scegli un punto con «Punto sulla mappa».';
+        if (code === 2) return 'Posizione non disponibile: il dispositivo non ha fornito una posizione (GPS/rete assenti). Scegli un punto con «Punto sulla mappa».';
+        if (code === 3) return 'Tempo scaduto (10 s): il dispositivo non ha risposto entro il timeout. Riprova o scegli un punto con «Punto sulla mappa».';
+        return 'Errore di geolocalizzazione' + (code === null ? '' : ' (codice ' + code + ')') + ': scegli un punto con «Punto sulla mappa».';
+    }
+
+    function scAlertUseMyPosition() {
+        var geo = (typeof navigator !== 'undefined' && navigator) ? navigator.geolocation : null;
+        if (!geo || typeof geo.getCurrentPosition !== 'function') {
+            scAlertStatusText('Geolocalizzazione non disponibile in questo contesto (serve HTTPS o localhost): scegli il punto con «Punto sulla mappa».');
+            return;
+        }
+        scAlertStatusText('Richiesta posizione al dispositivo (timeout ' + Math.round(SC_ALERT_GEO_TIMEOUT_MS / 1000) + ' s)...');
+        try {
+            geo.getCurrentPosition(function (pos) {
+                var co = pos && pos.coords;
+                if (!(co && scNum(co.longitude) !== null && scNum(co.latitude) !== null)) {
+                    scAlertStatusText('Posizione ricevuta senza coordinate valide: scegli il punto con «Punto sulla mappa».');
+                    return;
+                }
+                scAlertSetPoint(co.longitude, co.latitude, 'posizione del dispositivo');
+            }, function (err) {
+                scAlertStatusText(scAlertGeoErrorMessage(err));
+            }, { enableHighAccuracy: true, timeout: SC_ALERT_GEO_TIMEOUT_MS, maximumAge: 60000 });
+        } catch (e) {
+            scAlertStatusText('Geolocalizzazione non avviata (' + String((e && e.message) || e).substring(0, 80) + '): scegli il punto con «Punto sulla mappa».');
+        }
+    }
+
+    // Punto con un clic sulla mappa. Il marker resta trascinabile (dragend ->
+    // scAlertSetPoint). Un secondo click sul pulsante annulla la modalita'.
+    function scAlertPickMode() {
+        if (typeof map === 'undefined' || !map) {
+            scAlertStatusText('Mappa non pronta: impossibile scegliere il punto.');
+            return;
+        }
+        scAlertPicking = !scAlertPicking;
+        var btn = document.getElementById('sc-alert-pick');
+        if (btn) {
+            if (scAlertPicking) btn.classList.add('on');
+            else btn.classList.remove('on');
+        }
+        var host = (map.getContainer && map.getContainer()) || null;
+        if (host) host.style.cursor = scAlertPicking ? 'crosshair' : '';
+        if (scAlertPicking) {
+            if (scAlertClickHandler) { map.off('click', scAlertClickHandler); scAlertClickHandler = null; }
+            scAlertClickHandler = function (e) {
+                var ll = (e && e.latlng) ? { lon: e.latlng.lng, lat: e.latlng.lat } : null;
+                scAlertPickMode();
+                if (ll) scAlertSetPoint(ll.lon, ll.lat, 'punto scelto sulla mappa');
+            };
+            map.on('click', scAlertClickHandler);
+            scAlertStatusText('Clicca sulla mappa per scegliere il punto (ripremi «Punto sulla mappa» per annullare).');
+        } else if (scAlertClickHandler) {
+            map.off('click', scAlertClickHandler);
+            scAlertClickHandler = null;
+            scAlertStatusText('Selezione del punto annullata.');
+        }
+    }
+
+    // Valuta l'allerta per OGNI struttura sull'ultimo frame con cono disegnabile
+    // (stesso gate scForecastUsable del disegno). Nessun cono -> nessun allerta e
+    // il motivo in chiaro nella riga di stato. Ritorna { point, alerts, with_cone }
+    // per i test; non lancia mai.
+    function scAlertEvaluate(sourceLabel) {
+        var out = { point: scAlertPoint, alerts: [], with_cone: 0, without_cone: 0 };
+        if (!scAlertPoint) {
+            scAlertHideBanner();
+            scAlertRemoveLayer();
+            scAlertStatusText('Nessun punto impostato: «La mia posizione» oppure «Punto sulla mappa». Soglia ' + scAlertThresholdKm + ' km.');
+            return out;
+        }
+        var base = 'Punto ' + scFmtDec(scAlertPoint.lat, 2) + '°N ' + scFmtDec(scAlertPoint.lon, 2) + '°E · soglia ' + scAlertThresholdKm + ' km';
+        if (!scDataActive()) {
+            scAlertHideBanner();
+            scAlertRemoveLayer();
+            scAlertStatusText(base + ' · pannello struttura convettiva non attivo.');
+            return out;
+        }
+        scAlertSyncLayer();
+        var cands = (scRadarData && Array.isArray(scRadarData.structures)) ? scRadarData.structures : [];
+        var reasons = {};
+        var alerts = [];
+        for (var i = 0; i < cands.length; i++) {
+            var c = cands[i];
+            if (!c || !c.on_latest_frame) continue;
+            if (!scForecastUsable(c)) {
+                var why = scAlertNoConeReason(c);
+                reasons[why] = (reasons[why] || 0) + 1;
+                out.without_cone++;
+                continue;
+            }
+            var cone = scBuildForecastCone(c.forecast, c.position);
+            if (!cone || cone.length < 4) {
+                reasons['cono non disegnabile'] = (reasons['cono non disegnabile'] || 0) + 1;
+                out.without_cone++;
+                continue;
+            }
+            var d = scPointToPolygonKm([scAlertPoint.lon, scAlertPoint.lat], cone);
+            if (!d) continue;
+            out.with_cone++;
+            if (d.km <= scAlertThresholdKm) {
+                alerts.push({ candidate: c, km: d.km, inside: d.inside, arrival_min: scAlertArrivalMin(c, d.km) });
+            }
+        }
+        alerts.sort(function (x, y) { return x.km - y.km; });
+        out.alerts = alerts;
+        var parts = [base, scFmtInt(out.with_cone) + ' con cono'];
+        if (alerts.length) {
+            var txt = scAlertEntryText(alerts[0]);
+            var extra = (alerts.length > 1) ? (' · +' + (alerts.length - 1) + (alerts.length === 2 ? ' altra' : ' altre')) : '';
+            scAlertShowBanner('⚠ Prossimità · ' + txt + extra);
+            parts.push(scFmtInt(alerts.length) + ' nel raggio');
+            parts.push(txt);
+        } else {
+            scAlertHideBanner();
+            parts.push('nessuna entro la soglia');
+        }
+        var rk = Object.keys(reasons);
+        if (rk.length) {
+            rk.sort(function (x, y) { return reasons[y] - reasons[x]; });
+            var tot = 0;
+            for (var ri = 0; ri < rk.length; ri++) tot += reasons[rk[ri]];
+            parts.push(scFmtInt(tot) + ' senza cono (' + rk[0] + ')');
+        }
+        if (sourceLabel) parts.push(sourceLabel);
+        scAlertStatusText(parts.join(' · '));
+        return out;
+    }
+
+    // Chiusura del pannello o toggle OFF: il banner e il punto non restano orfani
+    // sulla mappa. Il punto salvato NON si perde (localStorage).
+    function scAlertResetView() {
+        scAlertHideBanner();
+        scAlertRemoveLayer();
+        if (scAlertPicking) scAlertPickMode();
+    }
+
+    function scAlertInit() {
+        if (scAlertInitDone) return;
+        scAlertInitDone = true;
+        scAlertLoadPrefs();
+        scAlertSyncLayer();
+        scAlertEvaluate('avvio');
     }
 
     function scPhenomenaMarkerHtml(badge) {
@@ -11757,6 +12336,9 @@ removeLightningTile();
         scRedrawTrails();
         scRedrawForecasts();
         scRedrawPhenomena();
+        // 1.2.4.76: l'allerta di prossimita' segue lo stesso ciclo dei layer derivati
+        // (dati nuovi o layer ridisegnati): distanza punto<->cono ricalcolata qui.
+        scAlertEvaluate();
     }
 
     // Aggiorna lo stato del bottone su ENTRAMBE le famiglie di id:
@@ -29988,6 +30570,9 @@ syncSelect('lightning-source-select', [
         if (typeof L !== 'undefined') {
             applyFeatureFlagConstraints();
 initMap();
+            // 1.2.4.76 - allerta di prossimita': carica punto e soglia da localStorage
+            // (default 25 km, storage negato -> default) e aggiorna la riga di stato.
+            scAlertInit();
             // 1.2.4.75 - nessuna area Doppler all'apertura della mappa: si accende
             // SOLO dal pannello LIVE (#live-toggle-doppler). updateRadarDopplerUI()
             // qui gestisce solo la legenda delle fonti del player radar.
