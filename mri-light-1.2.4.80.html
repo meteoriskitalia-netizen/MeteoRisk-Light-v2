@@ -1942,6 +1942,12 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <span class="legend-swatch" style="background:rgba(148,163,184,.18); border-color:#94a3b8;"></span><span>low</span>
         </div>
         <div class="legend-row">
+            <span class="legend-swatch" style="background:rgba(34,197,94,.08); border-color:rgba(34,197,94,.45);" title="banda 90%"></span>
+            <span class="legend-swatch" style="background:rgba(34,197,94,.14); border-color:rgba(34,197,94,.45);" title="banda 75%"></span>
+            <span class="legend-swatch" style="background:rgba(34,197,94,.22); border-color:rgba(34,197,94,.45);" title="banda 50%"></span>
+            <span>Bande di probabilità 50/75/90% — derivate dagli errori storici del tracker, non calibrate</span>
+        </div>
+        <div class="legend-row">
             <span style="color:#e2e8f0; font-weight:700;">➜</span><span>vettore di movimento: freccia = <b>30 min di tragitto</b> alla velocità osservata (64 km/h → 32 km), etichetta «km/h → direzione»; nessuna freccia se il moto non è affidabile o il track non è coerente</span>
         </div>
         <div class="legend-row">
@@ -2642,9 +2648,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.79';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.80';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-11';
     const APP_CHANGELOG = [
+        { version: '1.2.4.80', date: '2026-11-11', changes: [
+  "BANDE DI PROBABILITA' ANNIDATE= Il motore pubblica per ogni step del forecast `cone_bands` (3 anelli: 50%, 75%, 90%) e il client finalmente li disegna, al posto del riempimento unico che non diceva nulla sullo sviluppo del sistema. Ordine dall'esterno verso l'interno: 90% alpha 0,08, 75% 0,14, 50% 0,22, STESSA tinta del cono (verde #22c55e high, ambra #f59e0b medium, grigio #94a3b8 low), bordo 1 px a opacita' 0,25. Misura sul run servito 2026-11-11T13:35Z: 5 strutture, 4 con forecast, 16 step, 48 bande (3 per step: 16 da 90, 16 da 75, 16 da 50). Contenimento 50 dentro 75 dentro 90 su 803 vertici: 0 fuori. Z-order nel DOM del pane: ultima 90 all'indice 15, prima 75 al 16, prima 50 al 32, ultimo path = 50.",
+  "CONTORNO DELLA CELLA= Il record pubblica `outline` (GeoJSON Polygon, anche con buchi): il client lo disegna con una linea 1,2 px #0f172a a opacita' 0,55, NESSUN riempimento, in un pane dedicato (z 545) sopra il cono e sotto i marker. Misura: 5/5 strutture con outline, 5 path disegnati. Se `outline` e' null non si disegna nulla e non compare alcun messaggio invasivo.",
+  "FALLBACK E LEGENDA= Se `cone_bands` manca (run precedenti alla 1.2.4.80) si usa `cone_polygon` come prima; se manca anche quello, il nastro storico da `cone_km`. Verificato con due fixture sul payload reale: (A) senza `cone_bands` -> 0 bande, 4 poligoni singoli dash 3,4 con fill 0,35/0,22; (B) senza `cone_bands` e senza `cone_polygon` -> 0 bande, 4 poligoni dal nastro, 0 eccezioni. Legenda: nuova riga 'Bande di probabilità 50/75/90% — derivate dagli errori storici del tracker, non calibrate'; `probability_calibrated:false` rispettato (4/4 forecast).",
+  "MISURE E BUMP= Rapporto area cono 90% / area struttura: non piu' una costante, 4,2-1.370,6x sul run misurato (il brief indicava 5,6-207x: non riprodotto su questo campione; il rapporto dipende dalla dimensione della cella, da 44 km2 a 3.875 km2). Verifiche: node --check 8/8; pytest scripts/tests/test_html_js_syntax.py 1 passed; suite .mjs 28 file -> 26 PASS / 2 non-zero, gli STESSI nomi della baseline 1.2.4.79 (contract_dataset_loader, test_fm_webp_fastpath); 1440x900 e 390x844 overflow 0, 0 eccezioni JS, 0 console.error; elementFromPoint su un marker restituisce il marker; rotazione/mesociclone/supercella 0 nel pannello; Top-N 4 in evidenza, confidence, mini timeline, allerta di prossimita' e area Doppler (1 canvas nel pane 405) verificati. BUMP: html mri-light-1.2.4.80.html, VERSION (BUILD=80, DATE=2026-11-11, APP_FILE=mri-light-1.2.4.80.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.80), README.md, i 26 test .mjs col nome del file html in entrambe le forme, le righe cp dei 3 workflow (deploy-pages, radar-engine, update-weather-data); la 1.2.4.79 va RIMOSSA dal repo (una sola app servita da Pages). NON toccati: scripts/, motore radar, renderer, dataset, color_scales.json, classi di rischio; Top-N/confidence/timeline/allerta/area Doppler restano intatti."
+        ] },
         { version: '1.2.4.79', date: '2026-11-11', changes: [
   "R2 ORARIO COERENTE= computeR2ForStore passava a ogni ora la raffica massima e la probabilita massima del GIORNO, invece dei valori di quell'ora: un'ora calma con una raffica forte nel pomeriggio veniva classificata come se la raffica fosse in quell'ora. Misurato da un backtest indipendente su 3.360 celle-giorno: accensioni di R2 >= 3 da 75 a 173 (2,3x) e FAR da 0,787 a 0,896. Ora ogni ora usa SOLO gusts, precipitation_probability e precipitation di quell'ora; se un campo orario manca resta null e la condizione che lo usa non scatta (mai il massimo del giorno). La vista giornaliera continua a usare i massimi del giorno (pioggia cumulata, raffica massima, probabilita massima) ed e' corretta li'.",
   "SCALA INVARIATA= riskLevelR2, riskR2Reason, soglie 100/75/50 km/h, 45/15/1/0,2 mm, 60/20%, pesi, ordine dei livelli e meso (5) non cambiano: cambia solo QUALE valore entra. Nuovo helper r2HourlyInput(store, ix) per l'input di UNA ora.",
@@ -6456,6 +6468,11 @@ const DAILY_PARAMS = "weathercode,temperature_2m_max,temperature_2m_min,precipit
         map.createPane('forecastPane');
         map.getPane('forecastPane').style.zIndex = 540;
         map.getPane('forecastPane').style.pointerEvents = 'none';
+        // 1.2.4.80 - Pane del CONTORNO della cella: sopra il cono (540) e sotto
+        // i marker delle strutture (550). Linea sottile senza riempimento.
+        map.createPane('outlinePane');
+        map.getPane('outlinePane').style.zIndex = 545;
+        map.getPane('outlinePane').style.pointerEvents = 'none';
         // Pane dedicato per il radar (permette shift spaziale via CSS transform)
         map.createPane('radarPane');
         map.getPane('radarPane').style.zIndex = 400;
@@ -10336,6 +10353,7 @@ removeLightningTile();
             scLastCands = [];
             scClearTrails();
             scClearForecasts();
+            scClearOutlines();
             scClearPhenomena();
             // 1.2.4.76: con la vista celle organizzate spenta non resta sulla mappa
             // ne' il banner ne' il segnaposto dell'allerta (il punto salvato resta).
@@ -10370,6 +10388,7 @@ removeLightningTile();
     var scSelectedCandidate = null;   // ultimo candidato selezionato (mini timeline)
     var scTrailLayer = null;        // tracce 2h (L.layerGroup su trailPane)
     var scForecastLayer = null;     // coni/linee forecast ≤2h (forecastPane)
+    var scOutlineLayer = null;      // contorni delle celle (outlinePane, 1.2.4.80)
     var scPhenomenaLayer = null;    // glyph grandine/rotazione (supercellPane)
     var scTrailsData = null;        // tracce assemblate { 'cell#id': [{lonlat,t,max_dbz}] }
     var scPhenomenaData = null;     // payload data/phenomena/badges.json
@@ -10461,6 +10480,7 @@ removeLightningTile();
                 scSelectedTrackKey = null;
                 scClearTrails();
                 scClearForecasts();
+                scClearOutlines();
                 scClearPhenomena();
                 // 1.2.4.76: banner e segnaposto dell'allerta non restano orfani.
                 scAlertResetView();
@@ -11859,6 +11879,88 @@ removeLightningTile();
         return fallback;
     }
 
+    // 1.2.4.80 - BANDE DI PROBABILITA' ANNIDATE (client). Il motore pubblica,
+    // per ogni step del forecast, `cone_bands` = [{level: 0.5|0.75|0.9,
+    // polygon: [[lon,lat], ...]}], piu' `cone_polygon` = anello 90% per le run
+    // precedenti. Il client disegna i tre anelli con la STESSA tinta del cono e
+    // opacita' CRESCENTE verso l'interno (90% -> 0.08, 75% -> 0.14,
+    // 50% -> 0.22): la differenza la fa l'opacita', non il colore. Nessun bordo
+    // spesso: weight 1 a bassa opacita'. Se una run non ha `cone_bands` si usa
+    // il `cone_polygon` come prima; se manca anche quello, il nastro storico
+    // da `cone_km` (scBuildForecastCone).
+    var SC_CONE_BAND_ALPHA_90 = 0.08;
+    var SC_CONE_BAND_ALPHA_75 = 0.14;
+    var SC_CONE_BAND_ALPHA_50 = 0.22;
+
+    function scConeBandAlpha(level) {
+        var lv = Number(level);
+        if (!isFinite(lv)) return SC_CONE_BAND_ALPHA_50;
+        if (lv >= 0.85) return SC_CONE_BAND_ALPHA_90;
+        if (lv >= 0.65) return SC_CONE_BAND_ALPHA_75;
+        return SC_CONE_BAND_ALPHA_50;
+    }
+
+    function scConeBandClass(level) {
+        var lv = Number(level);
+        if (lv >= 0.85) return 'sc-cone-band sc-cone-band-90';
+        if (lv >= 0.65) return 'sc-cone-band sc-cone-band-75';
+        return 'sc-cone-band sc-cone-band-50';
+    }
+
+    // Anello GeoJSON ([lon,lat] array o Polygon) -> [[lat,lon],...] chiuso.
+    // null se il poligono non e' valido: nessun vertice inventato.
+    function scConeRingLonLat(raw) {
+        var ring = null;
+        if (Array.isArray(raw)) ring = raw;
+        else if (raw && Array.isArray(raw.coordinates) && Array.isArray(raw.coordinates[0])) ring = raw.coordinates[0];
+        if (!ring || ring.length < 4) return null;
+        var out = [];
+        for (var i = 0; i < ring.length; i++) {
+            var pt = ring[i];
+            if (!(pt && pt.length === 2)) return null;
+            var lon = Number(pt[0]), lat = Number(pt[1]);
+            if (!isFinite(lon) || !isFinite(lat)) return null;
+            if (lon < -180 || lon > 180 || lat < -90 || lat > 90) return null;
+            out.push([lat, lon]);
+        }
+        return out;
+    }
+
+    // Bande di TUTTI gli step: [{offset_min, level, ring}], oppure null se la
+    // run non le pubblica per OGNI step (fallback al cone_polygon storico).
+    function scBuildConeBands(forecast) {
+        var steps = forecast && Array.isArray(forecast.steps) ? forecast.steps : null;
+        if (!steps || !steps.length) return null;
+        var out = [];
+        for (var i = 0; i < steps.length; i++) {
+            var step = steps[i];
+            var raw = step && step.cone_bands;
+            if (!Array.isArray(raw) || !raw.length) return null;
+            for (var j = 0; j < raw.length; j++) {
+                var band = raw[j];
+                var ring = scConeRingLonLat(band && band.polygon);
+                var level = Number(band && band.level);
+                if (!ring || !isFinite(level)) return null;
+                out.push({ offset_min: step.offset_min, level: level, ring: ring });
+            }
+        }
+        return out.length ? out : null;
+    }
+
+    // Contorno della cella a livello di RECORD: GeoJSON Polygon (anche con
+    // buchi) -> array di anelli [[lat,lon],...]. null = niente contorno.
+    function scBuildOutlineRings(record) {
+        var geom = record && record.outline;
+        if (!geom || geom.type !== 'Polygon' || !Array.isArray(geom.coordinates) || !geom.coordinates.length) return null;
+        var rings = [];
+        for (var i = 0; i < geom.coordinates.length; i++) {
+            var ring = scConeRingLonLat(geom.coordinates[i]);
+            if (!ring) return null;
+            rings.push(ring);
+        }
+        return rings.length ? rings : null;
+    }
+
     // Cono di incertezza forecast. Dal 1.2.4.78 il motore pubblica per OGNI step
     // il poligono REALE del cono (`cone_polygon`: ellisse con semiasse lungo =
     // `cone_km_along` e trasverso = `cone_km_cross`, `cone_shape` "ellipse"). Se
@@ -12128,11 +12230,38 @@ removeLightningTile();
         var color = scForecastConfidenceColor(conf);
         var base = scForecastConfidenceOpacity(conf);
         var coneWeight = (conf === 'low') ? 2 : 1;
-        var cone = scBuildForecastCone(fc, candidate.position);
+        var bandData = scBuildConeBands(fc);
         // suppressCone: candidato in conflitto con uno gia' disegnato -> si omette
         // SOLO il poligono/riempimento del cono; path tratteggiato e label +NN restano.
-        if (cone && cone.length >= 4 && !suppressCone) {
-            out.push(L.polygon(cone, { pane: 'forecastPane', color: color, weight: coneWeight, dashArray: '3,4', fillColor: color, fillOpacity: base, interactive: false }));
+        if (bandData && !suppressCone) {
+            // 1.2.4.80 - bande annidate 50/75/90, dall'ESTERNO verso l'INTERNO
+            // (90 -> 75 -> 50): lo z-order del pane va nella stessa direzione
+            // dell'opacita' crescente. Colore UNICO (quello del cono), nessun
+            // bordo spesso: weight 1 a bassa opacita'.
+            var orderedBands = bandData.slice().sort(function (a, b) {
+                if (b.level !== a.level) return b.level - a.level;
+                return (Number(a.offset_min) || 0) - (Number(b.offset_min) || 0);
+            });
+            var structureKey = scTrackKey(candidate);
+            for (var bi = 0; bi < orderedBands.length; bi++) {
+                var band = orderedBands[bi];
+                var bandPoly = L.polygon(band.ring, {
+                    pane: 'forecastPane', color: color, weight: 1, opacity: 0.25,
+                    fillColor: color, fillOpacity: scConeBandAlpha(band.level),
+                    interactive: false, className: scConeBandClass(band.level)
+                });
+                bandPoly._scStructureKey = structureKey;
+                bandPoly._scBandLevel = band.level;
+                bandPoly._scStepOffset = band.offset_min;
+                out.push(bandPoly);
+            }
+        } else {
+            // Fallback run < 1.2.4.80: un solo anello dal `cone_polygon` (o dal
+            // nastro `cone_km`), esattamente come prima.
+            var cone = scBuildForecastCone(fc, candidate.position);
+            if (cone && cone.length >= 4 && !suppressCone) {
+                out.push(L.polygon(cone, { pane: 'forecastPane', color: color, weight: coneWeight, dashArray: '3,4', fillColor: color, fillOpacity: base, interactive: false }));
+            }
         }
         var path = [[candidate.position[1], candidate.position[0]]];
         for (var i = 0; i < fc.steps.length; i++) {
@@ -12301,7 +12430,50 @@ removeLightningTile();
             if (!(cands[ai] && cands[ai].on_latest_frame)) continue;
             layers = layers.concat(scBuildMotionArrow(cands[ai]));
         }
+        // 1.2.4.80 - z-order GLOBALE delle bande: tutte le 90 sotto, poi le 75,
+        // poi le 50, indipendentemente dalla struttura. Il resto (path del moto,
+        // etichette +30/+60/+90, frecce) resta DOPO, sopra le bande.
+        var bandRank = function (layer) {
+            var lv = layer && layer._scBandLevel;
+            if (lv === undefined || lv === null) return 3;
+            if (lv >= 0.85) return 0;
+            if (lv >= 0.65) return 1;
+            return 2;
+        };
+        layers = layers.map(function (layer, idx) {
+            return { layer: layer, idx: idx, rank: bandRank(layer) };
+        }).sort(function (a, b) {
+            return (a.rank - b.rank) || (a.idx - b.idx);
+        }).map(function (x) { return x.layer; });
         if (layers.length) scForecastLayer = L.layerGroup(layers).addTo(map);
+    }
+
+    // 1.2.4.80 - CONTORNO della cella (outline): linea sottile 1,2 px, colore
+    // distinto #0f172a a opacita' 0,55, NESSUN riempimento. Sta in un pane
+    // dedicato sopra il cono (545) e sotto i marker (550). Se `outline` e' null
+    // (o non valido) non si disegna nulla: nessun messaggio invasivo.
+    function scRedrawOutlines() {
+        if (scOutlineLayer && map && map.hasLayer(scOutlineLayer)) map.removeLayer(scOutlineLayer);
+        scOutlineLayer = null;
+        if (!scDataActive() || !map) return;
+        var cands = scRadarData && Array.isArray(scRadarData.structures) ? scRadarData.structures : [];
+        var layers = [];
+        for (var i = 0; i < cands.length; i++) {
+            var rings = scBuildOutlineRings(cands[i]);
+            if (!rings) continue;
+            var poly = L.polygon(rings, {
+                pane: 'outlinePane', color: '#0f172a', weight: 1.2, opacity: 0.55,
+                fill: false, interactive: false, className: 'sc-cell-outline'
+            });
+            poly._scStructureKey = scTrackKey(cands[i]);
+            layers.push(poly);
+        }
+        if (layers.length) scOutlineLayer = L.layerGroup(layers).addTo(map);
+    }
+
+    function scClearOutlines() {
+        if (scOutlineLayer && map && map.hasLayer(scOutlineLayer)) map.removeLayer(scOutlineLayer);
+        scOutlineLayer = null;
     }
 
     // ============ ALLERTA DI PROSSIMITA' (fase 3 nowcasting, solo client) ============
@@ -12949,6 +13121,9 @@ removeLightningTile();
     function scRedrawDerived() {
         scRedrawTrails();
         scRedrawForecasts();
+        // 1.2.4.80: il contorno della cella segue lo stesso ciclo dei layer
+        // derivati (dati nuovi o ridisegno); pane 545, sopra il cono.
+        scRedrawOutlines();
         scRedrawPhenomena();
         // 1.2.4.76: l'allerta di prossimita' segue lo stesso ciclo dei layer derivati
         // (dati nuovi o layer ridisegnati): distanza punto<->cono ricalcolata qui.

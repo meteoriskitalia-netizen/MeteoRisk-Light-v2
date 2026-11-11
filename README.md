@@ -6,14 +6,20 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.79
+## Versione attiva: 1.2.4.80
 
-- File applicativo: `mri-light-1.2.4.79.html` (`APP_VERSION = '1.2.4.79'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.79', date: '2026-11-11' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.79'`, `TILE_CACHE = 'mri-tiles-1.2.4.79'`,
-  `FRAME_CACHE = 'mri-frames-1.2.4.79'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.80.html` (`APP_VERSION = '1.2.4.80'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.80', date: '2026-11-11' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.80'`, `TILE_CACHE = 'mri-tiles-1.2.4.80'`,
+  `FRAME_CACHE = 'mri-frames-1.2.4.80'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
+- Contenuto della 1.2.4.80 (release sopra la 1.2.4.79) - **bande di probabilita annidate 50/75/90 e contorno della cella**. Solo client: nessuna modifica a `scripts/` (motore radar, renderer, dataset, `color_scales.json`, classi di rischio); `sw.js` tocca solo le 3 var di cache e i 3 commenti, i workflow solo le righe `cp`/commenti del nome del file.
+  - **Bande annidate**: il motore pubblica per ogni step `forecast.steps[].cone_bands` con 3 anelli (`level` 0.5/0.75/0.9, `polygon` `[[lon,lat],...]`). Il client li disegna dall'esterno verso l'interno: 90% alpha **0,08**, 75% **0,14**, 50% **0,22**, stessa tinta del cono (verde `#22c55e` high, ambra `#f59e0b` medium, grigio `#94a3b8` low), bordo **1 px** a opacita' 0,25. Z-order globale: tutte le 90 sotto, poi le 75, poi le 50; path, etichette `+30/+60/+90` e frecce restano sopra. Misura sul run `2026-11-11T13:35Z`: 5 strutture, 4 con forecast, **16 step**, **48 bande** (16 per livello); contenimento 50 dentro 75 dentro 90 su **803 vertici -> 0 fuori**; z-order DOM ultima 90 indice **15**, prima 75 **16**, prima 50 **32**, ultimo path **50**.
+  - **Contorno della cella**: il record pubblica `outline` (GeoJSON Polygon, anche con buchi), `outline_coverage_pct`, `outline_components_dropped`, `outline_null_reason`. Il client lo disegna con una linea **1,2 px** `#0f172a` a opacita' **0,55** e **nessun riempimento**, in un pane dedicato z **545** sopra il cono e sotto i marker (550). Misura: **5/5** strutture con outline, **5 path** disegnati. Se `outline` e' null non si disegna nulla e non compare alcun messaggio.
+  - **Fallback**: se `cone_bands` manca (run < 1.2.4.80) si usa `cone_polygon` come prima; se manca anche quello, il nastro storico da `cone_km`. Verificato con due fixture sul payload reale: (A) senza `cone_bands` -> 0 bande, 4 poligoni singoli dash `3,4` con fill 0,35/0,22; (B) senza `cone_bands` e senza `cone_polygon` -> 0 bande, 4 poligoni dal nastro, 0 eccezioni.
+  - **Legenda**: nuova riga `Bande di probabilità 50/75/90% — derivate dagli errori storici del tracker, non calibrate`; `probability_calibrated:false` rispettato (4/4 forecast).
+  - **Misure**: rapporto area cono 90% / area struttura non piu' una costante, **4,2-1.370,6x** sul run misurato (il brief indicava 5,6-207x, non riprodotto su questo campione; il rapporto dipende dalla dimensione della cella, da 44 km2 a 3.875 km2). Verifiche: `node --check` **8/8**; `pytest scripts/tests/test_html_js_syntax.py` **1 passed**; suite `.mjs` **28 file -> 26 PASS / 2 non-zero**, gli STESSI nomi della baseline 1.2.4.79 (`contract_dataset_loader`, `test_fm_webp_fastpath`); 1440x900 e 390x844 overflow **0**, **0 eccezioni JS**, **0 console.error**; `elementFromPoint` su un marker restituisce il marker; rotazione/mesociclone/supercella **0** nel pannello; Top-N 4 in evidenza, confidence, mini timeline, allerta di prossimita' e area Doppler (1 canvas nel pane 405) verificati.
 - Contenuto della 1.2.4.79 (release sopra la 1.2.4.78) - **R2 orario coerente: raffiche e probabilita dell'ora, non i massimi del giorno**. Solo client: nessuna modifica a `scripts/` (motore radar, renderer, dataset, `color_scales.json`, classi di rischio), al cono (dilatazione del poligono lato motore), a Top-N/confidence/timeline; `sw.js` tocca solo le 3 var di cache e i 3 commenti, i workflow solo le righe `cp`/commenti del nome del file.
   - **Il difetto**: `computeR2ForStore` passava a ogni ora la raffica massima e la probabilita massima del giorno. Un'ora calma con una raffica forte nel pomeriggio veniva classificata come se la raffica fosse in quell'ora. Misurato da un backtest indipendente su 3.360 celle-giorno: accensioni di R2 >= 3 da **75** a **173** (2,3x), FAR da **0,787** a **0,896**.
   - **La correzione**: nuovo `r2HourlyInput(store, ix)`; ogni ora usa SOLO `windgusts_10m`, `precipitation_probability` e `precipitation` di quell'ora. Campo orario mancante -> `null` (mai il massimo del giorno): la condizione che lo usa non scatta.
