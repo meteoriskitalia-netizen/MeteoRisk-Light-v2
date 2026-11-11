@@ -2642,9 +2642,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.78';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.79';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-11';
     const APP_CHANGELOG = [
+        { version: '1.2.4.79', date: '2026-11-11', changes: [
+  "R2 ORARIO COERENTE= computeR2ForStore passava a ogni ora la raffica massima e la probabilita massima del GIORNO, invece dei valori di quell'ora: un'ora calma con una raffica forte nel pomeriggio veniva classificata come se la raffica fosse in quell'ora. Misurato da un backtest indipendente su 3.360 celle-giorno: accensioni di R2 >= 3 da 75 a 173 (2,3x) e FAR da 0,787 a 0,896. Ora ogni ora usa SOLO gusts, precipitation_probability e precipitation di quell'ora; se un campo orario manca resta null e la condizione che lo usa non scatta (mai il massimo del giorno). La vista giornaliera continua a usare i massimi del giorno (pioggia cumulata, raffica massima, probabilita massima) ed e' corretta li'.",
+  "SCALA INVARIATA= riskLevelR2, riskR2Reason, soglie 100/75/50 km/h, 45/15/1/0,2 mm, 60/20%, pesi, ordine dei livelli e meso (5) non cambiano: cambia solo QUALE valore entra. Nuovo helper r2HourlyInput(store, ix) per l'input di UNA ora.",
+  "BUMP= html mri-light-1.2.4.79.html, VERSION (BUILD=79, DATE=2026-11-11, APP_FILE=mri-light-1.2.4.79.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.79), README.md, i 26 test .mjs col nome del file html in entrambe le forme, le righe cp dei 3 workflow (deploy-pages, radar-engine, update-weather-data); la 1.2.4.78 va RIMOSSA dal repo (una sola app servita da Pages). NON toccati: scripts/ (motore radar, renderer, dataset, color_scales.json, classi di rischio), il cono (dilatazione del poligono lato motore), Top-N/confidence/timeline. La 1.2.4.78 (Top-N, confidence, mini timeline, allerta con moto affidabile, cono ellittico) resta intatta."
+        ] },
         { version: '1.2.4.78', date: '2026-11-11', changes: [
   "TOP-N E GERARCHIA= La lista delle strutture non e' piu' piatta: le prime 4 per SOI (3 sotto 1280 px) stanno in evidenza con badge #1..#N, bordo viola e sfondo, le altre in un gruppo secondario chiuso <details> Altre strutture (N) - ordinate per SOI. L'ordinamento e' SOI decrescente con tie-break deterministico sulla chiave del track, e l'intestazione DICHIARA il criterio: organizzazione stimata dalla morfologia, senza Doppler. Sulla mappa i marker del Top-N sono piu' grandi (+10 px, peso +0,8, alone tratteggiato e pallino numerato) cosi' il numero della lista si ritrova sulla mappa. Con meno strutture del Top-N il gruppo secondario non esiste (nessun <details> vuoto).",
   "CONFIDENCE DEL TRACKING NEL LIVE= Nuovi indicatori #live-sc-confidence e #sc-confidence, riempiti dalla stessa funzione: Qualita' del tracking alta/media/bassa/n/d - N% delle track con moto affidabile - durata mediana N min, con la riga della FONTE. Fonte: tracking_metrics se il motore la pubblica, altrimenti il campo tracking_confidence, altrimenti un fallback DICHIARATO calcolato da tracks.json (gia' scaricato: track con motion_quality reliable e velocita' numerica, mediana di duration_min). Se manca anche quello si leggono le strutture pubblicate e lo si dichiara come campione biased (solo SOI >= 65). Se manca tutto la UI scrive n/d: nessun numero inventato.",
@@ -23187,8 +23192,29 @@ function toggleForecastMaps() {
         if (rain > 0.2) return 'pioggia oltre 0,2 mm';
         return 'nessun rischio rilevante';
     }
-    // R2 del GIORNO: termini aggregati (pioggia cumulata, vento medio, probabilita)
-    // + termini congiunti valutati ORA PER ORA con code/rain/cape della stessa ora.
+    // R2 del GIORNO: termini aggregati (pioggia cumulata, raffica massima,
+    // probabilita massima) per la vista giornaliera + termini congiunti valutati
+    // ORA PER ORA con code/rain/cape/gusts/prob della STESSA ora.
+    //
+    // 1.2.4.79 - COERENZA TEMPORALE (difetto riparato). Il loop orario passava a
+    // OGNI ora la raffica massima e la probabilita massima del GIORNO: un'ora
+    // calma con una raffica forte nel pomeriggio veniva classificata come se la
+    // raffica fosse in quell'ora. Misurato da un backtest indipendente su 3.360
+    // celle-giorno: accensioni di R2 >= 3 da 75 a 173 (2,3x) e FAR da 0,787 a
+    // 0,896. Ora ogni ora usa SOLO i suoi valori; se un campo orario manca resta
+    // null (mai il massimo del giorno: sarebbe lo stesso errore) e la condizione
+    // che lo usa non scatta. I termini aggregati del giorno (rain/gustMax/probMax)
+    // restano i massimi giornalieri: sono corretti per la vista giornaliera.
+    function r2HourlyInput(store, ix) {
+        var h = store.hourly || {};
+        return {
+            code: h.weathercode ? (h.weathercode[ix] ?? null) : null,
+            rain: h.precipitation ? (h.precipitation[ix] ?? null) : null,
+            cape: h.cape ? (h.cape[ix] ?? null) : null,
+            gusts: h.windgusts_10m ? (h.windgusts_10m[ix] ?? null) : null,
+            prob: h.precipitation_probability ? (h.precipitation_probability[ix] ?? null) : null
+        };
+    }
     function computeR2ForStore(store) {
         var d = currentDay, h = store.hourly, daily = store.daily || {};
         var rainSum = 0, gustMax = 0, probMax = 0;
@@ -23210,12 +23236,7 @@ function toggleForecastMaps() {
         var bestLevel = aggLevel, bestReason = aggReason, bestHour = -1;
         for (k = 0; k < 24; k++) {
             ix = d * 24 + k;
-            var o = {
-                code: h.weathercode ? (h.weathercode[ix] ?? 0) : 0,
-                rain: h.precipitation ? (h.precipitation[ix] ?? 0) : 0,
-                cape: h.cape ? (h.cape[ix] ?? 0) : 0,
-                gusts: gustMax, prob: prob
-            };
+            var o = r2HourlyInput(store, ix);
             var lv = riskLevelR2(o);
             if (lv > bestLevel) { bestLevel = lv; bestReason = riskR2Reason(o); bestHour = ix; }
         }

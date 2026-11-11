@@ -6,14 +6,19 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.78
+## Versione attiva: 1.2.4.79
 
-- File applicativo: `mri-light-1.2.4.78.html` (`APP_VERSION = '1.2.4.78'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.78', date: '2026-11-11' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.78'`, `TILE_CACHE = 'mri-tiles-1.2.4.78'`,
-  `FRAME_CACHE = 'mri-frames-1.2.4.78'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.79.html` (`APP_VERSION = '1.2.4.79'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.79', date: '2026-11-11' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.79'`, `TILE_CACHE = 'mri-tiles-1.2.4.79'`,
+  `FRAME_CACHE = 'mri-frames-1.2.4.79'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
+- Contenuto della 1.2.4.79 (release sopra la 1.2.4.78) - **R2 orario coerente: raffiche e probabilita dell'ora, non i massimi del giorno**. Solo client: nessuna modifica a `scripts/` (motore radar, renderer, dataset, `color_scales.json`, classi di rischio), al cono (dilatazione del poligono lato motore), a Top-N/confidence/timeline; `sw.js` tocca solo le 3 var di cache e i 3 commenti, i workflow solo le righe `cp`/commenti del nome del file.
+  - **Il difetto**: `computeR2ForStore` passava a ogni ora la raffica massima e la probabilita massima del giorno. Un'ora calma con una raffica forte nel pomeriggio veniva classificata come se la raffica fosse in quell'ora. Misurato da un backtest indipendente su 3.360 celle-giorno: accensioni di R2 >= 3 da **75** a **173** (2,3x), FAR da **0,787** a **0,896**.
+  - **La correzione**: nuovo `r2HourlyInput(store, ix)`; ogni ora usa SOLO `windgusts_10m`, `precipitation_probability` e `precipitation` di quell'ora. Campo orario mancante -> `null` (mai il massimo del giorno): la condizione che lo usa non scatta.
+  - **Scala invariata**: `riskLevelR2`, `riskR2Reason`, soglie 100/75/50 km/h, 45/15/1/0,2 mm, 60/20%, pesi, ordine dei livelli e meso (5) invariati. La vista giornaliera continua a usare i massimi del giorno (pioggia cumulata, raffica massima, probabilita massima).
+  - **Verifiche**: fixture con raffica 80 km/h solo alle 18:00 -> 06:00 non supera il livello per vento, 18:00 si; distribuzione oraria prima/dopo sui dati serviti; rotazione/mesociclone/supercella 0 nel pannello; `node --check` 8/8; `pytest scripts/tests/test_html_js_syntax.py` 1 passed; suite `.mjs` 28 file con baseline 1.2.4.78 (26 PASS, 2 non-zero pre-esistenti) e confronto per nome; 1440x900 e 390x844 overflow 0, 0 eccezioni.
 - Contenuto della 1.2.4.78 (release sopra la 1.2.4.77) - **Top-N con gerarchia, confidence del tracking nel LIVE, mini timeline al click, allerta solo con moto affidabile, cono ellittico dal poligono del motore**. Solo client: nessuna modifica a `scripts/` (motore radar, renderer, dataset, `color_scales.json`, classi di rischio); i workflow toccano solo le righe `cp`/commenti del nome del file.
   - **Top-N e gerarchia**: le prime **4** strutture per SOI (**3** sotto 1280 px) in evidenza con badge `#1..#N`, bordo viola e sfondo; le altre in un `<details>` chiuso `Altre strutture (N) Â· ordinate per SOI`. Ordinamento SOI decrescente con tie-break deterministico sulla chiave del track; l'intestazione dichiara il criterio (`organizzazione stimata dalla morfologia, senza Doppler`). Marker del Top-N piu' grandi (+10 px, peso +0,8, alone tratteggiato e pallino numerato). Con meno strutture del Top-N il gruppo secondario non esiste.
   - **Confidence del tracking nel LIVE**: `#live-sc-confidence` e `#sc-confidence`, stesso testo `Qualita' del tracking: alta|media|bassa|n/d Â· N% delle track con moto affidabile Â· durata mediana N min` + riga della fonte. Fonte: `tracking_metrics`, altrimenti `tracking_confidence`, altrimenti fallback **dichiarato** da `tracks.json` (track `motion_quality=reliable` con velocita' numerica, mediana di `duration_min`), altrimenti dalle strutture pubblicate (campione biased, solo SOI >= 65). Se manca tutto: `n/d`.

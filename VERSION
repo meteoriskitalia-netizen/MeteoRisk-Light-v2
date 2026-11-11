@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.2.4.79 - R2 ORARIO COERENTE: RAFFICHE E PROBABILITA DELL\'ORA, NON I MASSIMI DEL GIORNO (bump da 1.2.4.78)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=79
+RELEASE_TYPE=release
+DATE=2026-11-11
+NOTE=Release 1.2.4.79 (bump da 1.2.4.78) - SOLO CLIENT. (1) COERENZA TEMPORALE DI R2: computeR2ForStore passava a OGNI ora la raffica massima e la probabilita massima del GIORNO, invece dei valori di quell\'ora. Un\'ora calma con una raffica forte nel pomeriggio veniva classificata come se la raffica fosse in quell\'ora. Misurato da un backtest indipendente su 3.360 celle-giorno: accensioni di R2 >= 3 da 75 a 173 (2,3x) e FAR da 0,787 a 0,896. Ora ogni ora usa SOLO gusts, precipitation_probability e precipitation di quell\'ora (nuovo r2HourlyInput); se un campo orario manca resta null e la condizione che lo usa non scatta (mai il massimo del giorno). La vista giornaliera continua a usare i massimi del giorno (pioggia cumulata, raffica massima, probabilita massima) ed e\' corretta li\'. (2) SCALA INVARIATA: riskLevelR2, riskR2Reason, soglie 100/75/50 km/h, 45/15/1/0,2 mm, 60/20%, pesi, ordine dei livelli e meso (5) non cambiano; cambia solo QUALE valore entra. (3) VERIFICHE: fixture con raffica 80 km/h solo alle 18:00 -> l\'ora 06:00 non supera il livello per vento, l\'ora 18:00 si; distribuzione oraria prima/dopo sui dati serviti; rotazione/mesociclone/supercella 0 nel pannello; node --check 8/8; test_html_js_syntax.py 1 passed; suite .mjs con baseline 1.2.4.78 (28 file, 26 PASS, 2 non-zero pre-esistenti) e confronto per nome; 1440x900 e 390x844 overflow 0, 0 eccezioni. BUMP: html mri-light-1.2.4.79.html, VERSION (BUILD=79, DATE=2026-11-11, APP_FILE=mri-light-1.2.4.79.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.79), README.md, i 26 test .mjs col nome del file html in entrambe le forme, le righe cp dei 3 workflow (deploy-pages, radar-engine, update-weather-data); la 1.2.4.78 va RIMOSSA dal repo (una sola app servita da Pages). NON toccati: scripts/ (motore radar, renderer, dataset, color_scales.json, classi di rischio), il cono (dilatazione del poligono lato motore), Top-N/confidence/timeline. La 1.2.4.78 (Top-N, confidence, mini timeline, allerta con moto affidabile, cono ellittico) resta intatta.
+APP_FILE=mri-light-1.2.4.79.html
+
 MeteoRisk Light - 1.2.4.78 - TOP-N CON GERARCHIA, CONFIDENCE DEL TRACKING NEL LIVE, MINI TIMELINE AL CLICK, ALLERTA SOLO CON MOTO AFFIDABILE, CONO ELLITTICO DAL POLIGONO DEL MOTORE (bump da 1.2.4.77)
 MAJOR=1
 MINOR=2
