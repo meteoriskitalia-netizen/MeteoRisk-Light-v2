@@ -12263,6 +12263,12 @@ removeLightningTile();
         var key = structureKey + '|' + z + '|' + scDensityHash(bundle) + '|' + color;
         var hit = SC_DENSITY_CACHE[key];
         if (!hit) {
+            // tetto della cache: la chiave contiene la geometria, quindi un
+            // track che si sposta aggiunge una voce a ogni refresh; senza
+            // tetto la cache crescerebbe di ~30 KB per struttura ogni 5 min.
+            var n = 0, k;
+            for (k in SC_DENSITY_CACHE) if (SC_DENSITY_CACHE.hasOwnProperty(k)) n++;
+            if (n >= 40) SC_DENSITY_CACHE = {};
             hit = scBuildDensityOverlay(bundle, map, color, key);
             if (!hit) return null;
             SC_DENSITY_CACHE[key] = hit;
