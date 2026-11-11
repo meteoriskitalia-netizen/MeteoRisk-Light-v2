@@ -153,6 +153,10 @@ def test_due_strutture_di_area_diversa_hanno_coni_diversi(tmp_path):
     # i semiassi dell'inviluppo non sono piu' costanti
     assert (fc_small["steps"][-1]["cone_km_along"]
             != fc_large["steps"][-1]["cone_km_along"])
+    # budget: la struttura grande usa la griglia del cono a 2 km (dichiarata),
+    # la piccola resta a 1 km
+    assert fc_small["cone_grid_km"] == 1.0
+    assert fc_large["cone_grid_km"] == 2.0
 
 
 # ---------------------------------------------------------------------------

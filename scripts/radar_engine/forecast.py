@@ -141,6 +141,11 @@ _CONE_BAND_P75_KM_30 = 35.5
 _CONE_BAND_P90_KM_30 = 47.8
 _PROBABILITY_NULL_REASON = (
     "bands_from_historical_tracker_radial_errors_not_observations")
+# Budget di prestazioni: se la griglia paddata del cono supera questa soglia
+# (celle), il cono usa una griglia a 2 km (il contorno resta a 1 km). La scelta
+# e' dichiarata in `cone_grid_km`.
+_CONE_MAX_GRID_PX = 200000
+_CONE_COARSE_FACTOR = 2
 
 
 def _cone_bands_basis():
@@ -435,13 +440,19 @@ def _point_in_ring(pt, ring):
 
 
 def _mask_ring_to_lonlat(ring, raster, window, row_offset=0.0,
-                         col_offset=0.0):
-    """Anello (row, col) della maschera -> ring GeoJSON [lon, lat] chiuso."""
+                         col_offset=0.0, scale=1.0):
+    """Anello (row, col) della maschera -> ring GeoJSON [lon, lat] chiuso.
+
+    `scale` = fattore di riduzione della griglia del cono (1 = pixel radar,
+    2 = griglia a 2 km): le coordinate della maschera ridotta vanno riportate
+    alla griglia originale prima dell'affine del raster."""
     r0, _r1, c0, _c1 = window
+    half = 0.5 * float(scale)
     xs, ys = [], []
     for r, c in ring:
-        x, y = raster.transform @ (c0 + c + col_offset + 0.5,
-                                   r0 + r + row_offset + 0.5)
+        x, y = raster.transform @ (
+            c0 + (c + col_offset) * float(scale) + half,
+            r0 + (r + row_offset) * float(scale) + half)
         xs.append(float(x))
         ys.append(float(y))
     lon, lat = raster.geo_transform.transform(xs, ys)
@@ -452,7 +463,8 @@ def _mask_ring_to_lonlat(ring, raster, window, row_offset=0.0,
 
 
 def _rings_to_polygon(rings, raster, window, row_offset=0.0,
-                      col_offset=0.0, fill_holes=False, min_hole_px=0.0):
+                      col_offset=0.0, fill_holes=False, min_hole_px=0.0,
+                      scale=1.0):
     """(Polygon GeoJSON, meta) dagli anelli in coordinate maschera.
 
     L'anello esterno piu' grande e' il contorno; gli anelli contenuti sono
@@ -493,10 +505,10 @@ def _rings_to_polygon(rings, raster, window, row_offset=0.0,
     holes = [list(reversed(h)) if _ring_signed_area(h) > 0 else h
              for h in holes]
     coord_rings = [_mask_ring_to_lonlat(outer, raster, window,
-                                        row_offset, col_offset)]
+                                        row_offset, col_offset, scale)]
     for h in holes:
         coord_rings.append(_mask_ring_to_lonlat(h, raster, window,
-                                                row_offset, col_offset))
+                                                row_offset, col_offset, scale))
     return ({"type": "Polygon", "coordinates": coord_rings},
             {"holes": len(holes), "holes_filled": n_holes - len(holes)
              if fill_holes else 0,
@@ -647,11 +659,25 @@ def _resolve_outline(candidate_ctx, bundle):
     return meta, ctx
 
 
+def _downsample_mask(mask, factor):
+    """Maschera ridotta di `factor` con OR di blocco (copertura conservata)."""
+    m = np.asarray(mask, dtype=bool)
+    h, w = m.shape
+    ph = (-h) % factor
+    pw = (-w) % factor
+    if ph or pw:
+        m = np.pad(m, ((0, ph), (0, pw)), constant_values=False)
+    return m.reshape(m.shape[0] // factor, factor,
+                     m.shape[1] // factor, factor).any(axis=(1, 3))
+
+
 def _dilated_cone_bands(ctx, fit, growth):
     """({offset: [bande 50/75/90]}, grid_km) dal contorno della maschera.
 
     Una sola distance transform per struttura; i tre livelli sono soglie della
-    stessa mappa. Ritorna (None, motivo) se la maschera non e' utilizzabile."""
+    stessa mappa. Se la griglia paddata supera `_CONE_MAX_GRID_PX` il cono usa
+    una griglia a 2 km (dichiarata in `cone_grid_km`). Ritorna (None, motivo)
+    se la maschera non e' utilizzabile."""
     mask = ctx.get("mask")
     win = ctx.get("window")
     raster = ctx.get("raster")
@@ -663,13 +689,20 @@ def _dilated_cone_bands(ctx, fit, growth):
         return None, "scipy_unavailable"
     px_km = math.sqrt(max(float(ctx.get("pixel_area_km2") or 1.0), 1e-9))
     base = max(_CONE_MIN_KM, _CONE_DEFAULT_KM, float(fit["cone0_km"]))
+    max_km = max(base + growth * offset_min for offset_min in OFFSETS_MIN)
+    pad = int(math.ceil(max_km / px_km)) + 2
+    est_px = ((int(mask.shape[0]) + 2 * pad)
+              * (int(mask.shape[1]) + 2 * pad))
+    factor = _CONE_COARSE_FACTOR if est_px > _CONE_MAX_GRID_PX else 1
+    if factor > 1:
+        mask = _downsample_mask(mask, factor)
+        px_km *= factor
+        pad = int(math.ceil(max_km / px_km)) + 2
     radii = {}
     for offset_min in OFFSETS_MIN:
         outer_km = base + growth * offset_min
         radii[offset_min] = [max(px_km, outer_km * k)
                              for k in _CONE_BAND_SCALES]
-    max_km = max(max(v) for v in radii.values())
-    pad = int(math.ceil(max_km / px_km)) + 2
     padded = np.pad(np.asarray(mask, dtype=bool), pad, constant_values=False)
     dist = ndi.distance_transform_edt(~padded, sampling=(px_km, px_km))
     out = {}
@@ -692,7 +725,7 @@ def _dilated_cone_bands(ctx, fit, growth):
             rings = [_dp_ring(r, _CONE_DP_TOL_PX) for r in rings]
             geom, info = _rings_to_polygon(
                 rings, raster, win, row_offset=row_off, col_offset=col_off,
-                fill_holes=True)
+                fill_holes=True, scale=factor)
             if geom is None:
                 return None, "dilated_polygonize_empty"
             bands.append({
