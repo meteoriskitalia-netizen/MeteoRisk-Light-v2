@@ -260,7 +260,7 @@ def test_convective_structures_json_output(tmp_path):
     b = _bundle()
     b.radar_timestamp_iso = "2026-04-30T10:00:00Z"
     b.cells_by_frame = [[], []]
-    b.tracks = [_make_tracked(frames=2, dbz=54.0, org=90)]
+    b.tracks = [_make_tracked(frames=5, dbz=54.0, org=90)]
     cs.evaluate(b, CFG)
     out = str(tmp_path / "radar")
     paths = output.write_outputs(b, out, engine_meta={"phase": 1})

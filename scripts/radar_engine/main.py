@@ -45,6 +45,7 @@ import radar_engine as _engine
 from radar_engine import clock as clock_mod
 from radar_engine import models
 from radar_engine import output
+from radar_engine import convective_structure as cs_mod
 from radar_engine import history
 from radar_engine import fetch
 from radar_engine import footprint as footprint_mod
@@ -1717,6 +1718,8 @@ def main(argv=None):
             fp_summary = {"status": "error",
                           "error": f"{exc.__class__.__name__}: {exc}"}
 
+    published_structures, skipped_incoherent = cs_mod.split_publishable(
+        getattr(bundle, "convective_structures", []) or [])
     summary = {
         "status": bundle.status,
         # 1.2.4.26: `frames` = lunghezza della TIMELINE (frame scaricati +
@@ -1726,7 +1729,11 @@ def main(argv=None):
                       or bundle.frames),
         "cells": sum(len(c) for c in bundle.cells_by_frame),
         "tracks": len([t for t in bundle.tracks if len(t.points) >= 2]),
-        "structures": len(getattr(bundle, "convective_structures", []) or []),
+        # 2026-11-11: `structures` = PUBBLICATE in convective_structures.json
+        # (track_coherent=True). `skipped_incoherent` = scartate per track non
+        # coerente, dichiarate qui e in latest.json.
+        "structures": len(published_structures),
+        "skipped_incoherent": skipped_incoherent,
         "radar_timestamp": bundle.radar_timestamp_iso,
         "latency_min": bundle.data_latency_minutes,
         "warnings": bundle.warnings,
@@ -1747,8 +1754,11 @@ def main(argv=None):
             fh.write(f"frames={summary['frames']}\n")
             fh.write(f"cells={summary['cells']}\n")
             fh.write(f"tracks={summary['tracks']}\n")
+            # 2026-11-11: strutture PUBBLICATE (coerenti), non i candidati
+            # scartati; il numero scartato ha un output dedicato.
             fh.write("structure_candidates={}\n".format(
-                len(getattr(bundle, "convective_structures", []) or [])))
+                len(published_structures)))
+            fh.write(f"skipped_incoherent={skipped_incoherent}\n")
             fh.write(f"phase2_status={summary['phase2_status']}\n")
             fh.write(f"radar_timestamp={bundle.radar_timestamp_iso or ''}\n")
     return rc

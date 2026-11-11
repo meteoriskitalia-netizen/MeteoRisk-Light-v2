@@ -210,14 +210,21 @@ def _tracking_confidence(tracks):
 
 
 def _structure_summary(bundle):
-    """Riepilogo dei record del descrittore SOI per latest.json."""
-    cells = getattr(bundle, "convective_structures", None) or []
+    """Riepilogo dei record del descrittore SOI per latest.json.
+
+    Conta le strutture PUBBLICATE (quelle che entrano in
+    convective_structures.json) e quelle scartate per track non coerente
+    (`skipped_incoherent`, 2026-11-11): il numero pubblicato resta
+    `structure_candidates`, il file pubblicato resta la fonte di verita'."""
+    cells, skipped_incoherent = cs_mod.split_publishable(
+        getattr(bundle, "convective_structures", None) or [])
     if not cells:
         return {
             "structure_candidates": 0,
             "structure_births": 0,
             "structure_on_latest": 0,
             "soi_max": None,
+            "skipped_incoherent": skipped_incoherent,
         }
     births = sum(1 for c in cells if c.get("phase") == "birth")
     on_latest = sum(1 for c in cells if c.get("on_latest_frame"))
@@ -227,6 +234,7 @@ def _structure_summary(bundle):
         "structure_births": births,
         "structure_on_latest": on_latest,
         "soi_max": soi_max,
+        "skipped_incoherent": skipped_incoherent,
     }
 
 
@@ -400,11 +408,20 @@ def build_convective_structures(bundle, engine_meta=None):
     Solo track con candidate=True (SOI + gate di intensità + frame minimi),
     DEDUP per sistema (un record per storm object + finestra temporale).
     Nessun claim Doppler: ogni record porta rotation_measurable=false con la
-    motivazione, e la nota data_limits è inclusa sempre nel payload."""
-    cells = getattr(bundle, "convective_structures", None) or []
+    motivazione, e la nota data_limits è inclusa sempre nel payload.
+
+    PUBBLICAZIONE (2026-11-11): una struttura con `track_coherent=False` non
+    entra in `structures` (moto non determinabile = rumore nel pannello).
+    Resta in `bundle.convective_structures` e quindi in
+    tracks.json/storm_tracks.json per l'audit; il numero scartato e' sempre
+    dichiarato in `summary.skipped_incoherent`. Se tutte le strutture vengono
+    scartate il payload resta valido con `structures: []` (mai un 404)."""
+    all_cells = getattr(bundle, "convective_structures", None) or []
+    cells, skipped_incoherent = cs_mod.split_publishable(all_cells)
     summary = {
         "tracks_evaluated": getattr(bundle, "structure_tracks_evaluated", 0),
         "structures": len(cells),
+        "skipped_incoherent": skipped_incoherent,
         "births": sum(1 for c in cells if c.get("phase") == "birth"),
         "organized": sum(1 for c in cells if c.get("level") == "organized"),
         "strong": sum(1 for c in cells if c.get("level") == "strong"),

@@ -394,7 +394,7 @@ def test_evaluate_e_supercells_json_contengono_forecast(tmp_path):
     dead = make_track([make_cell(
         p.lonlat[0], p.lonlat[1], p.timestamp_ms, area_km2=p.area_km2,
         max_dbz=p.max_dbz, mean_dbz=p.mean_dbz, frame_index=p.frame_index,
-        cell_id="dead-{}".format(i)) for i, p in enumerate(alive.points[:3])], 2)
+        cell_id="dead-{}".format(i)) for i, p in enumerate(alive.points[:4])], 2)
     dead.motion = _wrong_motion()
     bundle.tracks = [alive, dead]
     bundle.radar_timestamp_ms = alive.points[-1].timestamp_ms

@@ -47,6 +47,13 @@ con almeno 4 punti e nessun segmento oltre il gate di continuita' delle celle
 (110 km/h, forecast.SPEED_RANGE_KMH[1]): se e' False il record NON puo'
 dichiarare `motion_quality="reliable"` - `velocity_kmh` e' null con
 `motion_null_reason="track_not_coherent"`.
+
+FILTRO DI PUBBLICAZIONE (2026-11-11): `split_publishable()` esclude da
+`convective_structures.json` i record con `track_coherent=False` e ne dichiara
+il numero (`skipped_incoherent`). Il filtro NON tocca il calcolo: il record
+resta in `bundle.convective_structures` (e quindi in
+`tracks.json`/`storm_tracks.json`) per l'audit. Se tutte le strutture vengono
+scartate il file pubblicato resta valido con `structures: []`.
 """
 
 from . import forecast as forecast_mod
@@ -501,6 +508,31 @@ def dedup_records(records):
                             str(r.get("track_type") or ""),
                             int(r.get("track_id") or 0)))
     return out
+
+
+def split_publishable(records):
+    """(record pubblicabili, numero scartati) per convective_structures.json.
+
+    Regola di PUBBLICAZIONE (2026-11-11), applicata DOPO `_track_coherence`:
+    un record con `track_coherent=False` non viene pubblicato perche' il suo
+    moto non e' determinabile (una riga "Moto non determinabile" per 6
+    strutture su 7 e' rumore, non informazione). Non e' un filtro di calcolo:
+    il record resta in `bundle.convective_structures` e quindi in
+    `tracks.json`/`storm_tracks.json` per l'audit.
+
+    Nessun secondo criterio: un record coerente (e gia' candidato, cioe' con
+    SOI >= candidate_soi) viene pubblicato. Un record senza il campo
+    `track_coherent` (chiamanti storici che costruiscono il payload a mano)
+    NON viene scartato: il filtro scatta solo su `False` esplicito.
+    """
+    publishable = []
+    skipped = 0
+    for rec in records or []:
+        if rec.get("track_coherent") is False:
+            skipped += 1
+            continue
+        publishable.append(rec)
+    return publishable, skipped
 
 
 def evaluate(bundle, cfg=None):
