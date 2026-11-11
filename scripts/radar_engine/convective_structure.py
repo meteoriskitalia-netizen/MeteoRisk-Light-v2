@@ -42,7 +42,15 @@ COMPOSIZIONE PUBBLICATA (2026-11-11): ogni record porta `cell_count` (celle
 della maschera dell'ultimo frame), `area_km2` (area dell'ultimo frame),
 `distance_km` (lunghezza del percorso), `track_points` (punti usati),
 `track_coherent`, `motion_reliable` (bool) e `motion_null_reason` (motivo
-esplicito quando il moto non e' pubblicabile). `track_coherent` e' True solo
+esplicito quando il moto non e' pubblicabile). Dal 2026-11-11 il record porta
+anche il CONTORNO della struttura alla posizione attuale (`outline`, GeoJSON
+Polygon, piu' `outline_null_reason`, `outline_source`, `outline_pixel_count`,
+`outline_area_km2`, `outline_polygon_area_km2`, `outline_coverage_pct`,
+`outline_vertices`, `outline_holes`, `outline_holes_dropped`,
+`outline_components_dropped`): il contorno viene risolto da forecast.py sulla
+maschera del footprint e pubblicato ANCHE quando `forecast` e' null (moto non
+affidabile), perche' e' un dato della struttura, non del cono. `track_coherent`
+e' True solo
 con almeno 4 punti e nessun segmento oltre il gate di continuita' delle celle
 (110 km/h, forecast.SPEED_RANGE_KMH[1]): se e' False il record NON puo'
 dichiarare `motion_quality="reliable"` - `velocity_kmh` e' null con
@@ -535,6 +543,38 @@ def split_publishable(records):
     return publishable, skipped
 
 
+# Campi del contorno pubblicati a livello di RECORD (fuori dal blocco
+# `forecast`): (chiave record, chiave meta di forecast.build_outline).
+_OUTLINE_FIELDS = (
+    ("outline", "geometry"),
+    ("outline_null_reason", "null_reason"),
+    ("outline_source", "source"),
+    ("outline_pixel_count", "pixel_count"),
+    ("outline_area_km2", "area_km2"),
+    ("outline_polygon_area_km2", "polygon_area_km2"),
+    ("outline_coverage_pct", "coverage_pct"),
+    ("outline_vertices", "vertices"),
+    ("outline_holes", "holes"),
+    ("outline_holes_dropped", "holes_dropped"),
+    ("outline_components_dropped", "components_dropped"),
+)
+
+
+def _copy_outline(rec, block, meta):
+    """Sposta il contorno dal blocco forecast al record (o dal meta).
+
+    `block` non None: i campi `outline_*` sono gia' nel blocco e vengono
+    rimossi da li' (una sola copia nel JSON pubblicato). `block` None: il
+    contorno viene dal meta di forecast.build_outline (record senza forecast).
+    """
+    if block is not None:
+        for rec_key, _meta_key in _OUTLINE_FIELDS:
+            rec[rec_key] = block.pop(rec_key, None)
+        return
+    for rec_key, meta_key in _OUTLINE_FIELDS:
+        rec[rec_key] = (meta or {}).get(meta_key)
+
+
 def evaluate(bundle, cfg=None):
     """Valuta tutte le track (cella + storm object) e popola
     bundle.convective_structures (solo candidati, DEDUP per sistema) e
@@ -570,6 +610,7 @@ def evaluate(bundle, cfg=None):
         if track is None:
             rec["forecast"] = None
             rec["forecast_null_reason"] = "no_track"
+            _copy_outline(rec, None, forecast_mod.build_outline(rec, bundle))
             continue
         # 2026-11-11: il forecast viene emesso SOLO su moto affidabile
         # (fit usato + velocity pubblicata + motion_quality "reliable").
@@ -578,6 +619,13 @@ def evaluate(bundle, cfg=None):
             {**rec, "track": track}, bundle)
         rec["forecast"] = block
         rec["forecast_null_reason"] = None if block is not None else reason
+        # Il contorno e' un dato della STRUTTURA, non del solo forecast:
+        # viene spostato sul record (una sola copia nel JSON). Se il forecast
+        # e' null (moto non affidabile) il contorno viene risolto lo stesso.
+        meta = (None if block is not None
+                else forecast_mod.build_outline({**rec, "track": track},
+                                                bundle))
+        _copy_outline(rec, block, meta)
     bundle.convective_structures = records
     bundle.structure_tracks_evaluated = len(_evaluated_tracks(bundle))
     return records

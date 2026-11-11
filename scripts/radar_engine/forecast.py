@@ -9,24 +9,49 @@ quadratico), proiezione haversine (riuso di tracking.dest_from), cono di
 incertezza ANISOTROPO e intensita' che decade esponenzialmente verso la media
 regionale con gate sul trend recente (dBZ/scansione clampato).
 
-CONO ANISOTROPO (2026-11-11). Il cono era un cerchio di raggio
-`cone_km = 15 + 1.0*t` (p90 MISURATO dell'errore radiale, 2026-11-10). Ora e'
-un'ellisse orientata lungo la direzione del moto, con due semiassi:
+CONO DAL CONTORNO DELLA STRUTTURA (2026-11-11). Il cono non e' piu' un'ellisse
+fissa uguale per ogni struttura: il motore risolve la maschera del footprint
+della struttura (la stessa di footprint.py: componente connessa a
+`detect.dbz_threshold`, identita' per cell_id/storm_object_id) e ne estrae il
+contorno con marching squares sulla griglia del pixel radar (1 km),
+semplificato con Douglas-Peucker (tolleranza 1.5 px; 1.2 px per il cono).
+Il contorno corrente e' pubblicato in `outline` (GeoJSON Polygon, [lon,lat],
+anello chiuso).
 
-    along(t) = 15 + 1.0*t        (lungo il moto, stesso valore di `cone_km`)
-    cross(t) = 0.6 * along(t)    (trasversale)
+Per ogni step t (30/60/90/120 min) il cono e' la DILATAZIONE del contorno:
 
-Ogni step porta `cone_km_along`, `cone_km_cross` e `cone_polygon` (ellisse
-campionata a 32 vertici, ring GeoJSON chiuso). `cone_km` resta il semiasse
-LUNGO, quindi il client che disegna un cerchio non cambia comportamento e il
-cono isotropo e' ricostruibile. `cone_shape` vale "ellipse"; un record SENZA
-il campo e' un cono circolare legacy.
+    R(t) = max(6, 15, cone0) + growth*t     (p90 calibrato: 15 km + 1 km/min)
+    raggi delle bande = R(t) * k,  k = 0.312 / 0.742 / 1.0
 
-Il rapporto 0.6 e' una SCELTA DICHIARATA, non una calibrazione: la misura
-dell'errore scomposto along/cross sui pair disponibili (7 track affidabili,
-533 coppie) da' un rapporto instabile e > 1 (1.42 / 1.81 / 0.58 / 0.34 nelle
-fasce 0-30 / 30-60 / 60-90 / 90-130 min): il campione non basta per una
-stima stabile. Il campo `cone_basis` vale "isotropic_scaled_0.6_cross" e
+Le tre bande annidate sono i livelli 50/75/90%. Ogni step porta `cone_bands`
+(lista di 3 dict: `level`, `radius_km`, `area_km2`, `vertices`, `polygon` =
+anello [lon,lat] chiuso) e `cone_polygon` = anello 90% (GeoJSON Polygon,
+retrocompatibilita' con il client che disegna un solo poligono). Il rapporto
+p50/p90 = 0.312 e' MISURATO a 30 min (14.9 / 47.8 km); p75 e' interpolato
+linearmente in probabilita' fra p50 e p90; il 90% resta R(t), cioe' lo stesso
+valore del cono precedente. La distanza euclidea dalla maschera e' calcolata
+UNA volta per struttura (scipy.ndimage.distance_transform_edt) e riusata per
+tutti gli step e le bande.
+
+`cone_km_along` / `cone_km_cross` sono i SEMIASSI DELL'INVILUPPO del poligono
+90% (0.5*(max-min) lungo il moto e di traverso), non piu' costanti: una cella
+da 300 km^2 e un sistema da 32.000 km^2 ricevono coni diversi.
+
+Se la maschera non e' disponibile (frame assente, cella non risolta, poligono
+vuoto) `outline` e' null con `outline_null_reason`, `cone_shape` torna
+"ellipse" e il cono e' l'ellisse precedente (along = 15+1*t, cross =
+0.6*along), dichiarata in `cone_fallback_reason`. Le tre bande sono calcolate
+anche in fallback (ellissi annidate con gli stessi k).
+
+Le bande NON sono una probabilita' calibrata: `probability_calibrated` vale
+false e `probability_null_reason` lo dichiara. I k vengono dagli errori radiali
+storici del tracker, non da un confronto con osservazioni.
+
+Il rapporto 0.6 del fallback e' una SCELTA DICHIARATA, non una calibrazione:
+la misura dell'errore scomposto along/cross sui pair disponibili (7 track
+affidabili, 533 coppie) da' un rapporto instabile e > 1 (1.42 / 1.81 / 0.58 /
+0.34 nelle fasce 0-30 / 30-60 / 60-90 / 90-130 min): il campione non basta per
+una stima stabile. Il campo `cone_basis` vale "isotropic_scaled_0.6_cross" e
 `cone_basis_note` riporta i numeri misurati.
 
 FORECAST SOLO SU MOTO AFFIDABILE (2026-11-11). `forecast` viene emesso solo se
@@ -51,6 +76,9 @@ del modulo fa fallire il run.
 import datetime as _dt
 import math
 
+import numpy as np
+
+from . import footprint as footprint_mod
 from . import models
 from .tracking import bearing_deg, dest_from, haversine_km
 
@@ -89,6 +117,51 @@ _CONE_BASIS_NOTE = (
     "measured cross/along on reliable fits = 1.42 (0-30 min), 1.81 (30-60), "
     "0.58 (60-90), 0.34 (90-130) su 7 track / 533 coppie -> campione troppo "
     "piccolo e instabile per una calibrazione; 0.6 e' una scelta dichiarata")
+# --- CONO DAL CONTORNO (2026-11-11) ----------------------------------------
+_CONE_SHAPE_DILATED = "dilated_outline"
+_CONE_SHAPE_ELLIPSE = "ellipse"
+_CONE_BASIS_DILATED = "footprint_mask_dilated"
+_CONE_BASIS_NOTE_DILATED = (
+    "outline = marching squares della maschera del footprint (pixel radar, "
+    "1 km) semplificato con Douglas-Peucker 1.5 px; cone = dilatazione "
+    "euclidea del contorno (distance_transform_edt, una sola mappa per "
+    "struttura, contorno semplificato 1.2 px) e traslazione lungo il moto. "
+    "Nessuna soglia di pubblicazione toccata.")
+_OUTLINE_DP_TOL_PX = 1.5
+_CONE_DP_TOL_PX = 1.2
+_OUTLINE_MIN_HOLE_PX = 4.0   # buchi < 4 px (4 km^2 a 1 km) non sono contorno
+# Livelli e fattori delle bande annidate. Il 90% e' R(t) (stesso cono di
+# prima); il 50% usa il rapporto p50/p90 MISURATO a 30 min (14.9/47.8 =
+# 0.3117) e il 75% e' interpolato linearmente in probabilita' fra p50 e p90:
+# 0.3117 + (1-0.3117)*(0.75-0.5)/(0.9-0.5) = 0.7419.
+_CONE_BAND_LEVELS = (0.50, 0.75, 0.90)
+_CONE_BAND_SCALES = (0.312, 0.742, 1.0)
+_CONE_BAND_P50_KM_30 = 14.9
+_CONE_BAND_P75_KM_30 = 35.5
+_CONE_BAND_P90_KM_30 = 47.8
+_PROBABILITY_NULL_REASON = (
+    "bands_from_historical_tracker_radial_errors_not_observations")
+
+
+def _cone_bands_basis():
+    """Metodo e numeri delle bande (copia fresca a ogni blocco pubblicato)."""
+    return {
+        "method": "measured_p50_p90_ratio_constant_with_t",
+        "levels": list(_CONE_BAND_LEVELS),
+        "scale_factors": list(_CONE_BAND_SCALES),
+        "p50_km_at_30min": _CONE_BAND_P50_KM_30,
+        "p75_km_at_30min": _CONE_BAND_P75_KM_30,
+        "p90_km_at_30min": _CONE_BAND_P90_KM_30,
+        "outer_envelope_km": "max(6, 15, cone0) + growth*t (p90 calibrato)",
+        "p75_derivation": (
+            "interpolazione lineare in probabilita' fra p50 e p90"),
+        "assumption": (
+            "rapporto p50/p90 costante con t; nessuna misura p50 a 60/90/120"),
+        "gaussian_2d_k": [1.177, 1.665, 2.146],
+        "gaussian_2d_k_normalized_to_p90": [0.549, 0.776, 1.0],
+        "note": (
+            "bande da errori radiali storici del tracker, NON da osservazioni"),
+    }
 _YOUNG_MINUTES = 20.0         # durata < 20 min -> cella giovane
 # --- DECADIMENTO LEGATO AL TIPO (2026-11-11) ------------------------------
 # Costante storica unica: 30 min. Due classi dichiarate sul SOI (0-100):
@@ -176,6 +249,449 @@ def _ellipse_polygon(center_lonlat, bearing_deg, along_km, cross_km,
         ring.append([round(float(lon), 5), round(float(lat), 5)])
     ring.append(list(ring[0]))
     return {"type": "Polygon", "coordinates": [ring]}
+
+
+# ---------------------------------------------------------------------------
+# Contorno della maschera: marching squares + Douglas-Peucker
+# ---------------------------------------------------------------------------
+def _marching_squares_segments(mask):
+    """Segmenti del contorno di una maschera booleana (marching squares).
+
+    La maschera e' campionata al CENTRO dei pixel; il contorno e' la curva di
+    livello 0.5 fra centri adiacenti, cioe' il bordo del pixel (stessa
+    geometria di rasterio.features.shapes, senza dipendere da rasterio).
+    Ritorna una lista di segmenti ((r0,c0),(r1,c1)) in coordinate di indice
+    della maschera (row, col), con r/c frazionari a .0/.5."""
+    m = np.pad(np.asarray(mask, dtype=bool), 1, constant_values=False)
+    tl = m[:-1, :-1]
+    tr = m[:-1, 1:]
+    br = m[1:, 1:]
+    bl = m[1:, :-1]
+    case = (tl.astype(np.uint8)
+            | (tr.astype(np.uint8) << 1)
+            | (br.astype(np.uint8) << 2)
+            | (bl.astype(np.uint8) << 3))
+
+    def _top(i, j):
+        return i.astype(float), j.astype(float) + 0.5
+
+    def _right(i, j):
+        return i.astype(float) + 0.5, j.astype(float) + 1.0
+
+    def _bottom(i, j):
+        return i.astype(float) + 1.0, j.astype(float) + 0.5
+
+    def _left(i, j):
+        return i.astype(float) + 0.5, j.astype(float)
+
+    edges = {"top": _top, "right": _right, "bottom": _bottom, "left": _left}
+    # 16 casi (bit TL=1, TR=2, BR=4, BL=8). I due casi sella (5, 10) sono
+    # risolti collegando i due angoli interni separatamente: nessun segmento
+    # condiviso, nessun anello a figura otto.
+    cases = {
+        1: (("left", "top"),),
+        2: (("top", "right"),),
+        3: (("left", "right"),),
+        4: (("right", "bottom"),),
+        5: (("left", "top"), ("right", "bottom")),
+        6: (("top", "bottom"),),
+        7: (("left", "bottom"),),
+        8: (("bottom", "left"),),
+        9: (("top", "bottom"),),
+        10: (("top", "right"), ("bottom", "left")),
+        11: (("right", "bottom"),),
+        12: (("left", "right"),),
+        13: (("top", "right"),),
+        14: (("left", "top"),),
+        15: (),
+    }
+    segs = []
+    for k, pairs in cases.items():
+        if not pairs:
+            continue
+        ii, jj = np.nonzero(case == k)
+        if ii.size == 0:
+            continue
+        for ea, eb in pairs:
+            ra, ca = edges[ea](ii, jj)
+            rb, cb = edges[eb](ii, jj)
+            for idx in range(ii.size):
+                segs.append(((float(ra[idx]), float(ca[idx])),
+                             (float(rb[idx]), float(cb[idx]))))
+    return segs
+
+
+def _link_rings(segs):
+    """Unisce i segmenti in anelli chiusi (lista di (r,c) senza doppio punto)."""
+    if not segs:
+        return []
+    from collections import defaultdict
+
+    def key(p):
+        return (round(p[0], 6), round(p[1], 6))
+
+    adj = defaultdict(list)
+    for idx, (a, b) in enumerate(segs):
+        adj[key(a)].append((idx, b))
+        adj[key(b)].append((idx, a))
+    used = [False] * len(segs)
+    rings = []
+    for start in range(len(segs)):
+        if used[start]:
+            continue
+        used[start] = True
+        a, b = segs[start]
+        ring = [a, b]
+        cur = b
+        while True:
+            nxt = None
+            for idx, other in adj[key(cur)]:
+                if not used[idx]:
+                    nxt = (idx, other)
+                    break
+            if nxt is None:
+                break
+            idx, other = nxt
+            used[idx] = True
+            ring.append(other)
+            cur = other
+            if key(cur) == key(ring[0]):
+                ring.pop()
+                break
+        if len(ring) >= 3:
+            rings.append(ring)
+    return rings
+
+
+def _dp_open(points, tol):
+    """Douglas-Peucker su una polilinea aperta (lista di (x, y))."""
+    if len(points) < 3:
+        return list(points)
+    keep = [False] * len(points)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(points) - 1)]
+    tol2 = float(tol) ** 2
+    while stack:
+        i0, i1 = stack.pop()
+        x0, y0 = points[i0]
+        x1, y1 = points[i1]
+        dx, dy = x1 - x0, y1 - y0
+        den = dx * dx + dy * dy
+        best = -1.0
+        best_idx = -1
+        for k in range(i0 + 1, i1):
+            px, py = points[k]
+            if den <= 1e-12:
+                d2 = (px - x0) ** 2 + (py - y0) ** 2
+            else:
+                t = ((px - x0) * dx + (py - y0) * dy) / den
+                t = max(0.0, min(1.0, t))
+                qx, qy = x0 + t * dx, y0 + t * dy
+                d2 = (px - qx) ** 2 + (py - qy) ** 2
+            if d2 > best:
+                best = d2
+                best_idx = k
+        if best > tol2 and best_idx > 0:
+            keep[best_idx] = True
+            stack.append((i0, best_idx))
+            stack.append((best_idx, i1))
+    return [p for p, k in zip(points, keep) if k]
+
+
+def _dp_ring(points, tol):
+    """Douglas-Peucker su un anello chiuso (senza doppio endpoint)."""
+    n = len(points)
+    if n <= 3:
+        return list(points)
+    x0, y0 = points[0]
+    far = max(range(n), key=lambda k: (points[k][0] - x0) ** 2
+              + (points[k][1] - y0) ** 2)
+    if far <= 0:
+        return list(points)
+    first = _dp_open(points[:far + 1], tol)
+    second = _dp_open(points[far:] + [points[0]], tol)
+    out = first[:-1] + second[:-1]
+    return out if len(out) >= 3 else list(points)
+
+
+def _ring_signed_area(ring):
+    """Area con segno (shoelace) di un anello aperto in (x, y)."""
+    s = 0.0
+    for (x0, y0), (x1, y1) in zip(ring, ring[1:] + ring[:1]):
+        s += x0 * y1 - x1 * y0
+    return 0.5 * s
+
+
+def _point_in_ring(pt, ring):
+    """Ray casting: True se pt e' dentro l'anello (bordo escluso)."""
+    x, y = pt
+    inside = False
+    for (x0, y0), (x1, y1) in zip(ring, ring[1:] + ring[:1]):
+        if (y0 > y) != (y1 > y):
+            xin = x0 + (y - y0) * (x1 - x0) / (y1 - y0)
+            if xin > x:
+                inside = not inside
+    return inside
+
+
+def _mask_ring_to_lonlat(ring, raster, window, row_offset=0.0,
+                         col_offset=0.0):
+    """Anello (row, col) della maschera -> ring GeoJSON [lon, lat] chiuso."""
+    r0, _r1, c0, _c1 = window
+    xs, ys = [], []
+    for r, c in ring:
+        x, y = raster.transform @ (c0 + c + col_offset + 0.5,
+                                   r0 + r + row_offset + 0.5)
+        xs.append(float(x))
+        ys.append(float(y))
+    lon, lat = raster.geo_transform.transform(xs, ys)
+    out = [[round(float(a), 5), round(float(b), 5)]
+           for a, b in zip(lon, lat)]
+    out.append(list(out[0]))
+    return out
+
+
+def _rings_to_polygon(rings, raster, window, row_offset=0.0,
+                      col_offset=0.0, fill_holes=False, min_hole_px=0.0):
+    """(Polygon GeoJSON, meta) dagli anelli in coordinate maschera.
+
+    L'anello esterno piu' grande e' il contorno; gli anelli contenuti sono
+    buchi (mantenuti, salvo fill_holes=True o area < min_hole_px); gli altri
+    anelli esterni sono componenti staccate e vengono contati in
+    `components_dropped`."""
+    empty = {"holes": 0, "holes_filled": 0, "holes_dropped": 0,
+             "components_dropped": 0, "vertices": 0}
+    if not rings:
+        return None, dict(empty)
+    items = []
+    for ring in rings:
+        area = abs(_ring_signed_area(ring))
+        if area > 0.0:
+            items.append((area, ring))
+    if not items:
+        return None, dict(empty)
+    items.sort(key=lambda t: -t[0])
+    _area, outer = items[0]
+    holes = []
+    dropped = 0
+    for area, ring in items[1:]:
+        if _point_in_ring(ring[0], outer):
+            holes.append((area, ring))
+        else:
+            dropped += 1
+    n_holes = len(holes)
+    tiny = sum(1 for a, _r in holes if float(min_hole_px) > 0.0
+               and a < float(min_hole_px))
+    if fill_holes:
+        holes = []
+    else:
+        holes = [r for a, r in holes
+                 if not (float(min_hole_px) > 0.0
+                         and a < float(min_hole_px))]
+    if _ring_signed_area(outer) < 0:
+        outer = list(reversed(outer))
+    holes = [list(reversed(h)) if _ring_signed_area(h) > 0 else h
+             for h in holes]
+    coord_rings = [_mask_ring_to_lonlat(outer, raster, window,
+                                        row_offset, col_offset)]
+    for h in holes:
+        coord_rings.append(_mask_ring_to_lonlat(h, raster, window,
+                                                row_offset, col_offset))
+    return ({"type": "Polygon", "coordinates": coord_rings},
+            {"holes": len(holes), "holes_filled": n_holes - len(holes)
+             if fill_holes else 0,
+             "holes_dropped": tiny,
+             "components_dropped": dropped, "vertices": len(outer)})
+
+
+def _ring_area_km2(ring):
+    """Area (km^2) di un ring [lon, lat] con piano locale equirettangolare."""
+    if not ring or len(ring) < 4:
+        return 0.0
+    n = len(ring) - 1
+    lat0 = sum(p[1] for p in ring[:n]) / max(n, 1)
+    kx = _KM_PER_DEG * math.cos(math.radians(lat0))
+    ky = _KM_PER_DEG
+    s = 0.0
+    for (x0, y0), (x1, y1) in zip(ring, ring[1:]):
+        s += (x0 * kx) * (y1 * ky) - (x1 * kx) * (y0 * ky)
+    return abs(s) * 0.5
+
+
+def _polygon_area_km2(geom):
+    """Area (km^2) di un Polygon GeoJSON: esterno meno i buchi."""
+    if not geom:
+        return 0.0
+    rings = geom.get("coordinates") or []
+    if not rings:
+        return 0.0
+    total = _ring_area_km2(rings[0])
+    for hole in rings[1:]:
+        total -= _ring_area_km2(hole)
+    return max(total, 0.0)
+
+
+def _translate_ring(ring, bearing, distance_km):
+    """Ring [lon,lat] traslato di `distance_km` verso `bearing`."""
+    out = []
+    for lon, lat in ring[:-1]:
+        nlon, nlat = dest_from((lon, lat), bearing, distance_km)
+        out.append([round(float(nlon), 5), round(float(nlat), 5)])
+    out.append(list(out[0]))
+    return out
+
+
+def _envelope_axes(ring, center, heading_deg):
+    """(semi-asse lungo, semi-asse traverso) dell'inviluppo del ring.
+
+    Proietta ogni vertice sul versante del moto (along) e sulla perpendicolare
+    (cross) rispetto a `center`; il semi-asse e' 0.5*(max-min)."""
+    along, cross = [], []
+    for lon, lat in ring[:-1]:
+        d = haversine_km(center, (lon, lat))
+        brg = bearing_deg(center, (lon, lat))
+        delta = math.radians(brg - heading_deg)
+        along.append(d * math.cos(delta))
+        cross.append(d * math.sin(delta))
+    if not along:
+        return 0.0, 0.0
+    return (0.5 * (max(along) - min(along)),
+            0.5 * (max(cross) - min(cross)))
+
+
+# ---------------------------------------------------------------------------
+# Risoluzione del contorno e cono dilatato
+# ---------------------------------------------------------------------------
+def _resolve_outline(candidate_ctx, bundle):
+    """(meta pubblico, contesto interno) del contorno alla posizione attuale.
+
+    `meta` e' serializzabile: geometry (Polygon o None), null_reason, source,
+    pixel_count, area_km2, vertices, holes, components_dropped. `ctx` contiene
+    mask/window/raster per la dilatazione (None se il contorno non esiste)."""
+    from . import config as _cfg
+    cfg_detect = dict((_cfg.CONFIG or {}).get("detect") or {})
+    cfg_detect.setdefault("dbz_threshold", 20.0)
+    meta = {"geometry": None, "null_reason": None, "source": None,
+            "pixel_count": None, "area_km2": None, "polygon_area_km2": None,
+            "coverage_pct": None, "vertices": None, "holes": 0,
+            "holes_dropped": 0, "components_dropped": 0}
+    rec = candidate_ctx if isinstance(candidate_ctx, dict) else {}
+    frame_iso = rec.get("last_seen") or rec.get("first_seen")
+    try:
+        frame_index = footprint_mod._frame_index_by_iso(bundle, frame_iso)
+    except Exception:
+        frame_index = None
+    if frame_index is None:
+        meta["null_reason"] = "frame_not_found"
+        return meta, None
+    try:
+        cells, source = footprint_mod._cells_for_record(bundle, rec,
+                                                        frame_index)
+    except Exception:
+        cells, source = [], "cell_not_found"
+    if not cells:
+        meta["null_reason"] = source or "cell_not_found"
+        return meta, None
+    try:
+        win, mask, _used, _skipped, _how = footprint_mod.masks_for_cells(
+            cells, bundle, cfg_detect)
+    except Exception:
+        win, mask = None, None
+    if win is None or mask is None:
+        meta["null_reason"] = "cell_mask_not_resolved"
+        return meta, None
+    raster = bundle.frames[frame_index]
+    meta["source"] = source
+    meta["pixel_count"] = int(mask.sum())
+    meta["area_km2"] = round(float(mask.sum())
+                             * float(raster.pixel_area_km2), 3)
+    try:
+        rings = _link_rings(_marching_squares_segments(mask))
+        rings = [_dp_ring(r, _OUTLINE_DP_TOL_PX) for r in rings]
+        geom, info = _rings_to_polygon(
+            rings, raster, win, fill_holes=False,
+            min_hole_px=_OUTLINE_MIN_HOLE_PX)
+    except Exception:
+        geom, info = None, {}
+    if geom is None:
+        meta["null_reason"] = "polygonize_empty"
+        return meta, None
+    poly_area = _polygon_area_km2(geom)
+    meta["geometry"] = geom
+    meta["polygon_area_km2"] = round(poly_area, 3)
+    meta["coverage_pct"] = (
+        round(100.0 * poly_area / meta["area_km2"], 2)
+        if meta["area_km2"] else None)
+    meta["vertices"] = info.get("vertices")
+    meta["holes"] = info.get("holes", 0)
+    meta["holes_dropped"] = info.get("holes_dropped", 0)
+    meta["components_dropped"] = info.get("components_dropped", 0)
+    ctx = {"mask": mask, "window": win, "raster": raster,
+           "frame_index": frame_index, "frame_iso": frame_iso,
+           "source": source,
+           "pixel_area_km2": float(raster.pixel_area_km2)}
+    return meta, ctx
+
+
+def _dilated_cone_bands(ctx, fit, growth):
+    """({offset: [bande 50/75/90]}, grid_km) dal contorno della maschera.
+
+    Una sola distance transform per struttura; i tre livelli sono soglie della
+    stessa mappa. Ritorna (None, motivo) se la maschera non e' utilizzabile."""
+    mask = ctx.get("mask")
+    win = ctx.get("window")
+    raster = ctx.get("raster")
+    if mask is None or win is None or raster is None:
+        return None, "outline_context_missing"
+    try:
+        import scipy.ndimage as ndi
+    except Exception:
+        return None, "scipy_unavailable"
+    px_km = math.sqrt(max(float(ctx.get("pixel_area_km2") or 1.0), 1e-9))
+    base = max(_CONE_MIN_KM, _CONE_DEFAULT_KM, float(fit["cone0_km"]))
+    radii = {}
+    for offset_min in OFFSETS_MIN:
+        outer_km = base + growth * offset_min
+        radii[offset_min] = [max(px_km, outer_km * k)
+                             for k in _CONE_BAND_SCALES]
+    max_km = max(max(v) for v in radii.values())
+    pad = int(math.ceil(max_km / px_km)) + 2
+    padded = np.pad(np.asarray(mask, dtype=bool), pad, constant_values=False)
+    dist = ndi.distance_transform_edt(~padded, sampling=(px_km, px_km))
+    out = {}
+    for offset_min in OFFSETS_MIN:
+        outer = dist <= radii[offset_min][-1]
+        rows, cols = np.nonzero(outer)
+        if rows.size == 0:
+            return None, "dilated_mask_empty"
+        r0d, r1d = int(rows.min()), int(rows.max())
+        c0d, c1d = int(cols.min()), int(cols.max())
+        sub_dist = dist[r0d:r1d + 1, c0d:c1d + 1]
+        row_off = r0d - pad
+        col_off = c0d - pad
+        bands = []
+        for level, radius in zip(_CONE_BAND_LEVELS, radii[offset_min]):
+            sub = ndi.binary_fill_holes(sub_dist <= radius)
+            rings = _link_rings(_marching_squares_segments(sub))
+            if not rings:
+                return None, "dilated_polygonize_empty"
+            rings = [_dp_ring(r, _CONE_DP_TOL_PX) for r in rings]
+            geom, info = _rings_to_polygon(
+                rings, raster, win, row_offset=row_off, col_offset=col_off,
+                fill_holes=True)
+            if geom is None:
+                return None, "dilated_polygonize_empty"
+            bands.append({
+                "level": float(level),
+                "radius_km": round(float(radius), 1),
+                "area_km2": round(_polygon_area_km2(geom), 1),
+                "vertices": int(info.get("vertices") or 0),
+                "holes_filled": int(info.get("holes_filled") or 0),
+                "components_dropped": int(info.get("components_dropped") or 0),
+                "polygon": geom,
+            })
+        out[offset_min] = bands
+    return out, px_km
 
 
 def _motion_gate(track, fit):
@@ -493,6 +1009,22 @@ def _build_with_reason(candidate_ctx, bundle):
     growth = _CONE_GROWTH_KM_MIN * (1.5 if young else 1.0)
     decay_lambda, decay_class = _decay_lambda(candidate_ctx, track)
 
+    # Contorno della struttura alla posizione attuale + cono dilatato.
+    outline_meta, outline_ctx = _resolve_outline(candidate_ctx, bundle)
+    band_data = None
+    grid_km = None
+    fallback_reason = None
+    if outline_ctx is not None:
+        band_data, grid_km = _dilated_cone_bands(outline_ctx, fit, growth)
+        if band_data is None:
+            fallback_reason = grid_km
+            grid_km = None
+    else:
+        fallback_reason = (outline_meta.get("null_reason")
+                           or "outline_unavailable")
+    cone_shape = (_CONE_SHAPE_DILATED if band_data is not None
+                  else _CONE_SHAPE_ELLIPSE)
+
     steps = []
     for offset_min in OFFSETS_MIN:
         lon, lat = dest_from(last.lonlat, fit["direction_toward_deg"],
@@ -501,20 +1033,66 @@ def _build_with_reason(candidate_ctx, bundle):
         i_dec = mean_max + (i0 - mean_max) * decay
         max_dbz = _clamp(i_dec + trend * (offset_min / 5.0), *_DBZ_RANGE)
         mean_dbz = _clamp(mean_mean + (m0 - mean_mean) * decay, *_MEAN_DBZ_RANGE)
-        # Semiasse LUNGO = cono isotropo storico (stesso valore di `cone_km`);
-        # semiasse TRASVERSALE = along * rapporto dichiarato (0.6).
+        # Semiasse LUNGO = cono isotropo storico (fallback); semiasse
+        # TRASVERSALE = along * rapporto dichiarato (0.6).
         along_km = max(_CONE_MIN_KM, _CONE_DEFAULT_KM,
                        fit["cone0_km"]) + growth * offset_min
         cross_km = along_km * _CONE_CROSS_RATIO
+        if band_data is not None:
+            bands = []
+            for band in band_data[offset_min]:
+                ring = _translate_ring(
+                    band["polygon"]["coordinates"][0],
+                    fit["direction_toward_deg"],
+                    fit["velocity_km_min"] * offset_min)
+                bands.append({
+                    "level": float(band["level"]),
+                    "radius_km": band["radius_km"],
+                    "radius_basis": "dilation",
+                    "area_km2": round(_ring_area_km2(ring), 1),
+                    "vertices": int(band["vertices"]),
+                    "holes_filled": int(band["holes_filled"]),
+                    "components_dropped": int(band["components_dropped"]),
+                    "polygon": ring,
+                })
+            outer_ring = bands[-1]["polygon"]
+            cone_polygon = {"type": "Polygon", "coordinates": [outer_ring]}
+            cone_along, cone_cross = _envelope_axes(
+                outer_ring, (lon, lat), fit["direction_toward_deg"])
+            cone_vertices = int(bands[-1]["vertices"])
+        else:
+            bands = []
+            for level, scale in zip(_CONE_BAND_LEVELS, _CONE_BAND_SCALES):
+                ring = _ellipse_polygon(
+                    (lon, lat), fit["direction_toward_deg"],
+                    along_km * scale, cross_km * scale)["coordinates"][0]
+                bands.append({
+                    "level": float(level),
+                    "radius_km": round(along_km * scale, 1),
+                    "radius_basis": "ellipse_along",
+                    "area_km2": round(_ring_area_km2(ring), 1),
+                    "vertices": _CONE_VERTICES,
+                    "holes_filled": 0,
+                    "components_dropped": 0,
+                    "polygon": ring,
+                })
+            outer_ring = bands[-1]["polygon"]
+            cone_polygon = {"type": "Polygon", "coordinates": [outer_ring]}
+            cone_along = along_km
+            cone_cross = cross_km
+            cone_vertices = _CONE_VERTICES
         steps.append({
             "offset_min": offset_min,
             "at": _iso_from_ms(anchor_ms + offset_min * 60000),
             "position": [round(float(lon), 5), round(float(lat), 5)],
-            "cone_km": round(along_km, 1),
-            "cone_km_along": round(along_km, 1),
-            "cone_km_cross": round(cross_km, 1),
-            "cone_polygon": _ellipse_polygon(
-                (lon, lat), fit["direction_toward_deg"], along_km, cross_km),
+            "cone_km": round(float(cone_along), 1),
+            "cone_km_along": round(float(cone_along), 1),
+            "cone_km_cross": round(float(cone_cross), 1),
+            "cone_polygon": cone_polygon,
+            "cone_bands": bands,
+            "cone_area_km2": round(_ring_area_km2(
+                cone_polygon["coordinates"][0]), 1),
+            "cone_vertices": cone_vertices,
             "max_dbz": round(max_dbz, 1),
             "mean_dbz": round(mean_dbz, 1),
             "area_km2": round(float(last.area_km2), 1),
@@ -525,11 +1103,33 @@ def _build_with_reason(candidate_ctx, bundle):
         "step_min": STEP_MIN,
         "generated_at": generated_at,
         "method": METHOD,
-        "cone_shape": _CONE_SHAPE,
-        "cone_basis": _CONE_BASIS,
-        "cone_basis_note": _CONE_BASIS_NOTE,
-        "cone_cross_ratio": _CONE_CROSS_RATIO,
-        "cone_vertices": _CONE_VERTICES,
+        "cone_shape": cone_shape,
+        "cone_basis": (_CONE_BASIS_DILATED if band_data is not None
+                       else _CONE_BASIS),
+        "cone_basis_note": (_CONE_BASIS_NOTE_DILATED if band_data is not None
+                            else _CONE_BASIS_NOTE),
+        "cone_cross_ratio": (None if band_data is not None
+                             else _CONE_CROSS_RATIO),
+        "cone_vertices": max((s["cone_vertices"] for s in steps),
+                             default=_CONE_VERTICES),
+        "cone_grid_km": (round(float(grid_km), 2) if grid_km else None),
+        "cone_dp_tolerance_px": _CONE_DP_TOL_PX,
+        "cone_fallback_reason": (fallback_reason if band_data is None else None),
+        "cone_bands_basis": _cone_bands_basis(),
+        "probability_calibrated": False,
+        "probability_null_reason": _PROBABILITY_NULL_REASON,
+        "outline": outline_meta.get("geometry"),
+        "outline_null_reason": outline_meta.get("null_reason"),
+        "outline_source": outline_meta.get("source"),
+        "outline_pixel_count": outline_meta.get("pixel_count"),
+        "outline_area_km2": outline_meta.get("area_km2"),
+        "outline_polygon_area_km2": outline_meta.get("polygon_area_km2"),
+        "outline_coverage_pct": outline_meta.get("coverage_pct"),
+        "outline_vertices": outline_meta.get("vertices"),
+        "outline_holes": outline_meta.get("holes", 0),
+        "outline_holes_dropped": outline_meta.get("holes_dropped", 0),
+        "outline_components_dropped": outline_meta.get(
+            "components_dropped", 0),
         "decay_class": decay_class,
         "decay_lambda_min": decay_lambda,
         "basis_frames": int(fit["basis_frames"]),
@@ -540,6 +1140,18 @@ def _build_with_reason(candidate_ctx, bundle):
         "velocity_kmh": round(float(fit["velocity_kmh"]), 1),
         "steps": steps,
     }, None
+
+
+def build_outline(candidate_ctx, bundle):
+    """Contorno pubblico della struttura alla posizione attuale (meta dict).
+
+    Stessa risoluzione usata dal forecast (`_resolve_outline`): geometry
+    (Polygon o None), null_reason, source, pixel_count, area_km2,
+    polygon_area_km2, coverage_pct, vertices, holes, holes_dropped,
+    components_dropped. Pensato per i record SENZA forecast (moto non
+    affidabile): il contorno esiste anche se il cono non viene emesso."""
+    meta, _ctx = _resolve_outline(candidate_ctx, bundle)
+    return meta
 
 
 def build_forecast(candidate_ctx, bundle):
