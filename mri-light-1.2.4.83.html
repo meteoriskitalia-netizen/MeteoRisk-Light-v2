@@ -1942,9 +1942,9 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <span class="legend-swatch" style="background:rgba(148,163,184,.18); border-color:#94a3b8;"></span><span>low</span>
         </div>
         <div class="legend-row">
-            <span class="legend-swatch" style="background:transparent; border:none; border-top:1px solid #22c55e; height:0; opacity:.5;"></span>
-            <span class="legend-swatch" style="background:transparent; border:none; border-top:2.5px solid #22c55e; height:0;"></span>
-            <span>Fascio di 24 traiettorie simulate — la densità indica la direzione più probabile; non calibrato</span>
+            <span class="legend-swatch" style="background:linear-gradient(90deg, rgba(34,197,94,.10), rgba(34,197,94,.55)); border-color:#22c55e;"></span>
+            <span class="legend-swatch" style="background:transparent; border:none; border-top:2.5px solid #22c55e; height:0; opacity:.9;"></span>
+            <span>Densità di 24 traiettorie simulate: più opaca dove passano più traiettorie (linea marcata = traiettoria media); non calibrata</span>
         </div>
         <div class="legend-row">
             <span style="color:#e2e8f0; font-weight:700;">➜</span><span>vettore di movimento: freccia = <b>30 min di tragitto</b> alla velocità osservata (64 km/h → 32 km), etichetta «km/h → direzione»; nessuna freccia se il moto non è affidabile o il track non è coerente</span>
@@ -2647,9 +2647,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.82';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.83';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-11';
     const APP_CHANGELOG = [
+        { version: '1.2.4.83', date: '2026-11-11', changes: [
+  "NIENTE LINEE: LA ZONA DI DENSITA'= Le 24 traiettorie di `ensemble_members` non sono piu' disegnate come polilinee. Sono la materia prima di una DENSITA': ogni percorso viene rasterizzato su un canvas offscreen con pennello bianco additivo (`globalCompositeOperation='lighter'`, larghezza 6 px, alpha 0,10 per membro), il campo viene sfocato in FLOAT (3 passate di box blur separabile orizzontale+verticale, sigma ~ raggio) e mappato in opacita' con `alpha = clamp(densita'^0.7 x 0,55, 0, 0,55)` dopo aver normalizzato la densita' a max 1. Il pane forecast riceve UN `L.imageOverlay` per struttura con `opacity: 1` (l'alpha e' gia' nel canvas, classe `sc-ens-density`): una zona colorata con opacita' crescente dove le traiettorie si addensano. Zero path di linea per i membri, zero poligoni con `fill-opacity > 0` nel ramo con membri. La traiettoria media resta una linea marcata a opacita' 0,9 e le etichette +30/+60/+90 restano sulla media.",
+  "KERNEL GEOGRAFICO, NON PIXEL= Il raggio di sfocatura e' 26 km convertiti in pixel allo zoom corrente e clampati a [6, 44] px: 7,4 px a z5, 14,9 a z6, 29,7 a z7, 44 (clamp) da z8. Con un blur fisso di 10 px le 24 traiettorie riemergono come 'dita' a zoom alto, perche' il fascio si allarga in pixel mentre il blur no: misurato a z8, il campo era di nuovo una forcella di linee. Il blur e' fatto in JS su Float32Array e non con `ctx.filter`: il canale alpha del canvas e' a 8 bit e con `blur() + getImageData` il campo usciva a bande concentriche visibili (la densita' utile sta in 0..0,15 e la potenza 0,7 amplifica i gradini).",
+  "MISURE= Edge headless CDP, payload reale 2026-11-11T14:05Z (4 strutture, 24 membri ciascuna). Con membri: 0 path di linea dei membri, 1 imageOverlay per struttura (4 su 4), 0 poligoni con fill-opacity > 0. Densita' concentrata: i tre alpha campionati sulla sezione perpendicolare al percorso medio al passo finale sono decrescenti su 4/4 strutture e il rapporto centro/bordo va da 3,1 a 298,8 a 1440x900 (zoom 6). Rapporto fra l'area con alpha >= 0,275 e quella con alpha >= 0,055: 0,16-0,21 (non e' un ellisse uniforme). Tempo di costruzione per struttura misurato: vedi campo `ms` di `SC_DENSITY_STATS` (sotto i 150 ms). 1440x900 e 390x844: overflow 0, 0 eccezioni JS, marker leggibili con elementFromPoint. Fallback invariato per le run senza `ensemble_members`: `cone_polygon` pieno o nastro da `cone_km`, come nella 1.2.4.82.",
+  "BUMP= html mri-light-1.2.4.83.html, VERSION (BUILD=83, DATE=2026-11-11, APP_FILE=mri-light-1.2.4.83.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.83), README.md, i 26 test .mjs col nome del file html in entrambe le forme, le righe cp dei 3 workflow (deploy-pages, radar-engine, update-weather-data); la 1.2.4.82 va RIMOSSA dal repo (una sola app servita da Pages). NON toccati: scripts/, motore, ensemble, Top-N, confidence, mini timeline, allerta di prossimita', area Doppler, bande."
+        ] },
         { version: '1.2.4.82', date: '2026-11-11', changes: [
   "RIMOSSO IL POLIGONO PIENO QUANDO E' DISPONIBILE IL FASCIO DI TRAIETTORIE= Con `ensemble_members` il pane forecast mostra SOLO il fascio (24 linee sottili + media + frecce + etichette): nessun `cone_polygon` pieno, nessun nastro da `cone_km`, nessun `cone_bands` (gia' assente dall'output). Il poligono pieno resta SOLO per le run vecchie senza `ensemble_members`. Il difetto misurato: con un payload misto (3 strutture con fascio, 1 senza) la 1.2.4.81 disegnava 72 linee + 3 medie E 1 poligono pieno `fill:#22c55e` `fill-opacity:0.35`: la struttura senza membri ricadeva nel fallback e la macchia tornava sotto le linee. Ora la regola e' a livello di RUN: se almeno una struttura con forecast ha i membri, il fallback pieno e' spento per TUTTE; per la struttura senza membri restano solo il path tratteggiato e le etichette +30/+60/+90. Nessun contorno dell'anello 90%: meglio niente che una forma piena.",
   "MISURE= Pagina locale (Edge headless CDP) con il payload 2026-11-11T14:05Z (4 strutture): 0 path con `fill-opacity > 0` nel pane forecast, 96 linee membro (24x4), 4 medie. Payload misto (3 con fascio, 1 senza): PRIMA 1 path con `fill-opacity` 0,35, DOPO 0 path con `fill-opacity > 0`, 72 linee + 3 medie. Fallback run vecchia (payload 2026-11-11T20:05Z, 11 strutture, 0 con `ensemble_members`): i poligoni pieni restano (invariati). 1440x900 e 390x844: overflow 0, 0 eccezioni JS, rotazione/mesociclone/supercella 0.",
@@ -11891,12 +11897,11 @@ removeLightningTile();
 
     // 1.2.4.81 - FASCIO DI TRAIETTORIE (client). Il motore pubblica 24
     // percorsi (`ensemble_members`: [[[lon,lat], ...] x 5 punti a
-    // t=0/30/60/90/120 min) e la traiettoria media (`ensemble_mean`). Il
-    // client disegna 24 polilinee sottili e la media in evidenza: NESSUN
-    // riempimento. `cone_bands` non esiste piu' nell'output (1.2.4.81); una
-    // run vecchia senza `ensemble_members` ricade su `cone_polygon`/nastro.
-    var SC_ENSEMBLE_MEMBER_WEIGHT = 1;
-    var SC_ENSEMBLE_MEMBER_OPACITY = 0.12;
+    // t=0/30/60/90/120 min) e la traiettoria media (`ensemble_mean`).
+    // 1.2.4.83: le 24 traiettorie NON sono piu' linee ma la MATERIA PRIMA
+    // della densita' (blocco SC_DENSITY_*): sulla mappa resta UN
+    // `imageOverlay` per struttura piu' la media in evidenza. Una run vecchia
+    // senza `ensemble_members` ricade su `cone_polygon`/nastro.
     var SC_ENSEMBLE_MEAN_WEIGHT = 2.5;
     var SC_ENSEMBLE_MEAN_OPACITY = 0.9;
 
@@ -11950,6 +11955,333 @@ removeLightningTile();
             members: members,
             mean: scEnsemblePathLonLat(record.ensemble_mean)
         };
+    }
+
+    // ------------------------------------------------------------------
+    // 1.2.4.83 - DENSITA' DEL FASCIO (client): NIENTE LINEE, UNA ZONA.
+    // Le 24 traiettorie di `ensemble_members` non sono piu' polilinee: sono
+    // rasterizzate su un canvas offscreen con pennello bianco ADDITIVO
+    // (`globalCompositeOperation = 'lighter'`), sfocate in FLOAT (3 passate
+    // di box blur separabile orizzontale+verticale, sigma ~ blurPx/2) e
+    // mappate in opacita': alpha = clamp(densita'^0.7 * 0.55, 0, 0.55) con
+    // densita' normalizzata a max 1. Il pane forecast riceve UN
+    // `L.imageOverlay` per struttura con `opacity: 1` (l'alpha e' gia' nel
+    // canvas): una zona colorata con opacita' crescente dove le traiettorie
+    // si addensano, non 24 linee.
+    // Il raggio di sfocatura e' un KERNEL GEOGRAFICO (26 km) convertito in
+    // pixel allo zoom corrente e clampato a [6, 44] px: con un blur fisso in
+    // pixel, a zoom alto le traiettorie riemergono come "dita" perche' il
+    // fascio si allarga in pixel mentre il blur no (misurato a z8 con 10 px).
+    // Il blur e' fatto in JS su Float32Array (non con `ctx.filter`): il canale
+    // alpha del canvas e' a 8 bit e con `blur() + getImageData` il campo usciva
+    // a bande visibili, perche' la densita' utile sta in 0..0.15 e la potenza
+    // 0.7 amplifica i gradini.
+    // ------------------------------------------------------------------
+    var SC_DENSITY_KERNEL_KM = 26;
+    var SC_DENSITY_BLUR_MIN_PX = 6;
+    var SC_DENSITY_BLUR_MAX_PX = 44;
+    var SC_DENSITY_LINE_WIDTH = 6;
+    var SC_DENSITY_STROKE_ALPHA = 0.10;
+    var SC_DENSITY_GAMMA = 0.7;
+    var SC_DENSITY_MAX_ALPHA = 0.55;
+    // Tetto di risoluzione del canvas: sopra questa soglia il campo viene
+    // rasterizzato piu' piccolo e il browser lo ingrandisce (bilineare).
+    // Misurato a z8 (673x408 = 275k px) il build costava 135 ms: blur 28,6 +
+    // mappa alpha 40,2 + toDataURL 15,9. Con il tetto a 180k px sta sotto i
+    // 70 ms; a z6 (31k px, il caso normale) non c'e' alcun downscale.
+    var SC_DENSITY_MAX_DIM = 900;
+    var SC_DENSITY_MAX_PIXELS = 180000;
+    // LUT della potenza 0.7 (2048 passi): Math.pow su ogni pixel costava ~40 ms
+    // a 275k px. Il passo 1/2048 tiene l'errore di alpha sotto 1/255.
+    var SC_DENSITY_POW_LUT = (function () {
+        var t = new Float32Array(2049);
+        for (var i = 0; i <= 2048; i++) {
+            t[i] = Math.pow(i / 2048, SC_DENSITY_GAMMA) * SC_DENSITY_MAX_ALPHA;
+        }
+        return t;
+    })();
+    var SC_DENSITY_CACHE = {};
+    var SC_DENSITY_CACHE_ZOOM = null;
+    var SC_DENSITY_STATS = [];
+    var SC_DENSITY_ZOOM_HANDLER = null;
+    var SC_DENSITY_ZOOM_TIMER = null;
+
+    // Metri per pixel (Web Mercator) a latitudine lat e zoom z.
+    function scDensityMetersPerPixel(lat, z) {
+        return 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, z);
+    }
+
+    // Raggio di sfocatura in px: kernel geografico costante -> stessa resa a
+    // ogni zoom. Clampato per non sfondare il costo a zoom alti.
+    function scDensityBlurPx(map, lat) {
+        if (!map) return SC_DENSITY_BLUR_MIN_PX;
+        var mpp = scDensityMetersPerPixel(lat, map.getZoom());
+        if (!(mpp > 0)) return SC_DENSITY_BLUR_MIN_PX;
+        var px = (SC_DENSITY_KERNEL_KM * 1000) / mpp;
+        return Math.min(SC_DENSITY_BLUR_MAX_PX, Math.max(SC_DENSITY_BLUR_MIN_PX, px));
+    }
+
+    // '#22c55e' -> [34,197,94]. Fallback verde del cono high.
+    function scDensityRgb(color) {
+        var m = /^#?([0-9a-fA-F]{6})$/.exec(String(color || ''));
+        if (!m) return [34, 197, 94];
+        var v = parseInt(m[1], 16);
+        return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+    }
+
+    // Box blur orizzontale con somma scorrevole, bordi clampati. O(w*h).
+    function scDensityBoxH(src, dst, w, h, r) {
+        var inv = 1 / (2 * r + 1), x, i, off, sum, addI, subI;
+        for (var y = 0; y < h; y++) {
+            off = y * w;
+            sum = 0;
+            for (i = -r; i <= r; i++) {
+                x = i < 0 ? 0 : (i >= w ? w - 1 : i);
+                sum += src[off + x];
+            }
+            for (x = 0; x < w; x++) {
+                dst[off + x] = sum * inv;
+                addI = x + r + 1; if (addI >= w) addI = w - 1;
+                subI = x - r; if (subI < 0) subI = 0;
+                sum += src[off + addI] - src[off + subI];
+            }
+        }
+    }
+
+    // Box blur verticale, stessa struttura.
+    function scDensityBoxV(src, dst, w, h, r) {
+        var inv = 1 / (2 * r + 1), y, i, off, sum, addI, subI;
+        for (var x = 0; x < w; x++) {
+            sum = 0;
+            for (i = -r; i <= r; i++) {
+                y = i < 0 ? 0 : (i >= h ? h - 1 : i);
+                sum += src[y * w + x];
+            }
+            for (y = 0; y < h; y++) {
+                dst[y * w + x] = sum * inv;
+                addI = y + r + 1; if (addI >= h) addI = h - 1;
+                subI = y - r; if (subI < 0) subI = 0;
+                sum += src[addI * w + x] - src[subI * w + x];
+            }
+        }
+    }
+
+    // 3 passate H+V = gaussiana approssimata con sigma ~ r (in px).
+    function scDensityBlur(src, w, h, r) {
+        if (r < 1) return src;
+        var a = src, b = new Float32Array(w * h);
+        for (var pass = 0; pass < 3; pass++) {
+            scDensityBoxH(a, b, w, h, r);
+            scDensityBoxV(b, a, w, h, r);
+        }
+        return a;
+    }
+
+    // Impronta della geometria del fascio: la cache si invalida quando il
+    // motore sposta i membri, non a ogni refresh.
+    function scDensityHash(bundle) {
+        var h = 2166136261, i, j, p;
+        for (i = 0; i < bundle.members.length; i++) {
+            p = bundle.members[i];
+            for (j = 0; j < p.length; j++) {
+                h = (h ^ (Math.round(p[j][0] * 10000) | 0)) >>> 0;
+                h = (h * 16777619) >>> 0;
+                h = (h ^ (Math.round(p[j][1] * 10000) | 0)) >>> 0;
+                h = (h * 16777619) >>> 0;
+            }
+        }
+        return h.toString(36) + '-' + bundle.members.length;
+    }
+
+    // Costruisce {url, bounds, ms, ...} oppure null. Nessuna linea disegnata
+    // sulla mappa: solo il canvas.
+    function scBuildDensityOverlay(bundle, map, color, cacheKey) {
+        if (!map || !bundle || !bundle.members || !bundle.members.length) return null;
+        var t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        var scr = [], all = [], i, j, latSum = 0, latN = 0, path, sp, cp;
+        for (i = 0; i < bundle.members.length; i++) {
+            path = bundle.members[i];
+            sp = [];
+            for (j = 0; j < path.length; j++) {
+                cp = map.latLngToContainerPoint(L.latLng(path[j][0], path[j][1]));
+                sp.push([cp.x, cp.y]);
+                all.push([cp.x, cp.y]);
+                latSum += path[j][0];
+                latN++;
+            }
+            scr.push(sp);
+        }
+        var meanScr = [];
+        if (bundle.mean) {
+            for (j = 0; j < bundle.mean.length; j++) {
+                cp = map.latLngToContainerPoint(L.latLng(bundle.mean[j][0], bundle.mean[j][1]));
+                meanScr.push([cp.x, cp.y]);
+            }
+        }
+        if (!all.length || !latN) return null;
+        var blurPx = scDensityBlurPx(map, latSum / latN);
+        var pad = Math.ceil(blurPx * 2 + SC_DENSITY_LINE_WIDTH);
+        var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (i = 0; i < all.length; i++) {
+            if (all[i][0] < x0) x0 = all[i][0];
+            if (all[i][0] > x1) x1 = all[i][0];
+            if (all[i][1] < y0) y0 = all[i][1];
+            if (all[i][1] > y1) y1 = all[i][1];
+        }
+        for (i = 0; i < meanScr.length; i++) {
+            if (meanScr[i][0] < x0) x0 = meanScr[i][0];
+            if (meanScr[i][0] > x1) x1 = meanScr[i][0];
+            if (meanScr[i][1] < y0) y0 = meanScr[i][1];
+            if (meanScr[i][1] > y1) y1 = meanScr[i][1];
+        }
+        x0 -= pad; y0 -= pad; x1 += pad; y1 += pad;
+        var bw = Math.ceil(x1 - x0), bh = Math.ceil(y1 - y0);
+        if (!(bw > 8) || !(bh > 8)) return null;
+        var scale = 1;
+        var maxDim = Math.max(bw, bh);
+        if (maxDim > SC_DENSITY_MAX_DIM) scale = SC_DENSITY_MAX_DIM / maxDim;
+        if (bw * bh * scale * scale > SC_DENSITY_MAX_PIXELS) {
+            scale = Math.sqrt(SC_DENSITY_MAX_PIXELS / (bw * bh));
+        }
+        if (scale > 1) scale = 1;
+        var cw = Math.max(8, Math.round(bw * scale)), ch = Math.max(8, Math.round(bh * scale));
+        var lw = Math.max(1, SC_DENSITY_LINE_WIDTH * scale);
+        var blurScaled = blurPx * scale;
+        var c1 = document.createElement('canvas');
+        c1.width = cw; c1.height = ch;
+        var g1 = c1.getContext('2d', { willReadFrequently: true });
+        if (!g1) return null;
+        g1.globalCompositeOperation = 'lighter';
+        g1.strokeStyle = '#ffffff';
+        g1.fillStyle = '#ffffff';
+        g1.globalAlpha = SC_DENSITY_STROKE_ALPHA;
+        g1.lineWidth = lw;
+        g1.lineJoin = 'round';
+        g1.lineCap = 'round';
+        for (i = 0; i < scr.length; i++) {
+            sp = scr[i];
+            g1.beginPath();
+            g1.moveTo((sp[0][0] - x0) * scale, (sp[0][1] - y0) * scale);
+            for (j = 1; j < sp.length; j++) {
+                g1.lineTo((sp[j][0] - x0) * scale, (sp[j][1] - y0) * scale);
+            }
+            g1.stroke();
+        }
+        var src = g1.getImageData(0, 0, cw, ch).data;
+        var dens = new Float32Array(cw * ch);
+        for (i = 0, j = 3; i < dens.length; i++, j += 4) dens[i] = src[j] / 255;
+        dens = scDensityBlur(dens, cw, ch, Math.max(1, Math.round(blurScaled * 0.5)));
+        var mx = 0;
+        for (i = 0; i < dens.length; i++) if (dens[i] > mx) mx = dens[i];
+        if (!(mx > 0)) return null;
+        var rgb = scDensityRgb(color);
+        var c2 = document.createElement('canvas');
+        c2.width = cw; c2.height = ch;
+        var g2 = c2.getContext('2d');
+        if (!g2) return null;
+        var lut = SC_DENSITY_POW_LUT, inv = 1 / mx, scaleLut = 2048;
+        var od = src;
+        for (i = 0, j = 0; i < dens.length; i++, j += 4) {
+            var li = ((dens[i] * inv) * scaleLut) | 0;
+            if (li > scaleLut) li = scaleLut;
+            od[j] = rgb[0]; od[j + 1] = rgb[1]; od[j + 2] = rgb[2];
+            od[j + 3] = (lut[li] * 255) | 0;
+        }
+        g2.putImageData(new ImageData(od, cw, ch), 0, 0);
+        // Sonda (diagnostica, nessun effetto sulla resa): sezione
+        // perpendicolare al percorso medio al passo finale.
+        var samples = null, n50 = 0, n10 = 0;
+        if (meanScr.length >= 2) {
+            var C = meanScr[meanScr.length - 1], P0 = meanScr[0];
+            var ux = C[0] - P0[0], uy = C[1] - P0[1];
+            var un = Math.sqrt(ux * ux + uy * uy);
+            if (un > 0) {
+                ux /= un; uy /= un;
+                var nx = -uy, ny = ux, posMax = 0, negMax = 0, off;
+                for (i = 0; i < scr.length; i++) {
+                    var ep = scr[i][scr[i].length - 1];
+                    off = (ep[0] - C[0]) * nx + (ep[1] - C[1]) * ny;
+                    if (off > posMax) posMax = off;
+                    if (-off > negMax) negMax = -off;
+                }
+                var maxOff = Math.max(posMax, negMax);
+                var side = (posMax >= negMax) ? 1 : -1;
+                var samp = function (pt) {
+                    var cx = Math.round((pt[0] - x0) * scale);
+                    var cy = Math.round((pt[1] - y0) * scale);
+                    if (cx < 1 || cy < 1 || cx >= cw - 1 || cy >= ch - 1) return 0;
+                    var s = 0, n = 0, dx, dy;
+                    for (dy = -1; dy <= 1; dy++) {
+                        for (dx = -1; dx <= 1; dx++) {
+                            s += od[((cy + dy) * cw + (cx + dx)) * 4 + 3];
+                            n++;
+                        }
+                    }
+                    return (s / n) / 255;
+                };
+                samples = {
+                    center: samp(C),
+                    mid: samp([C[0] + nx * side * maxOff * 0.5, C[1] + ny * side * maxOff * 0.5]),
+                    edge: samp([C[0] + nx * side * maxOff, C[1] + ny * side * maxOff])
+                };
+            }
+        }
+        var t50 = SC_DENSITY_MAX_ALPHA * 0.5, t10 = SC_DENSITY_MAX_ALPHA * 0.1;
+        for (i = 3; i < od.length; i += 4) {
+            var av = od[i] / 255;
+            if (av >= t50) n50++;
+            if (av >= t10) n10++;
+        }
+        var ms = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - t0;
+        var sw = map.containerPointToLatLng([x0, y1]);
+        var ne = map.containerPointToLatLng([x1, y0]);
+        var url;
+        try {
+            url = c2.toDataURL('image/png');
+        } catch (e) {
+            return null;
+        }
+        SC_DENSITY_STATS.push({
+            key: cacheKey, ms: Math.round(ms * 10) / 10, w: cw, h: ch,
+            scale: Math.round(scale * 1000) / 1000, blur_px: Math.round(blurPx * 10) / 10,
+            alpha_max: SC_DENSITY_MAX_ALPHA, samples: samples,
+            n50: n50, n10: n10,
+            area_ratio: n10 ? Math.round(n50 / n10 * 1000) / 1000 : null
+        });
+        if (SC_DENSITY_STATS.length > 40) SC_DENSITY_STATS.shift();
+        return { url: url, bounds: L.latLngBounds(sw, ne), ms: ms };
+    }
+
+    // Overlay della densita' per una struttura, con cache per zoom+geometria.
+    function scEnsembleDensityLayer(bundle, color, structureKey) {
+        if (!map || !bundle) return null;
+        var z = map.getZoom();
+        if (SC_DENSITY_CACHE_ZOOM !== z) {
+            SC_DENSITY_CACHE = {};
+            SC_DENSITY_CACHE_ZOOM = z;
+        }
+        var key = structureKey + '|' + z + '|' + scDensityHash(bundle) + '|' + color;
+        var hit = SC_DENSITY_CACHE[key];
+        if (!hit) {
+            hit = scBuildDensityOverlay(bundle, map, color, key);
+            if (!hit) return null;
+            SC_DENSITY_CACHE[key] = hit;
+        }
+        return L.imageOverlay(hit.url, hit.bounds, {
+            pane: 'forecastPane', opacity: 1, interactive: false,
+            className: 'sc-ens-density'
+        });
+    }
+
+    // La densita' e' rasterizzata in pixel: al cambio di zoom va rifatta.
+    // Debounce 140 ms: un pinch-zoom non rigenera a ogni livello.
+    function scDensityZoomRedraw() {
+        if (!map || !scShowForecast || !scDataActive()) return;
+        if (SC_DENSITY_ZOOM_TIMER) clearTimeout(SC_DENSITY_ZOOM_TIMER);
+        SC_DENSITY_ZOOM_TIMER = setTimeout(function () {
+            SC_DENSITY_ZOOM_TIMER = null;
+            try { scRedrawForecasts(); } catch (e) { }
+        }, 140);
     }
 
     // 1.2.4.82 - Il RUN pubblica il fascio? Vero se ALMENO UNA struttura con
@@ -12260,15 +12592,13 @@ removeLightningTile();
         // omettono SOLO fascio/cono; path e label +NN restano.
         if (bundle && !suppressCone) {
             var structureKey = scTrackKey(candidate);
-            for (var bi = 0; bi < bundle.members.length; bi++) {
-                var memberLine = L.polyline(bundle.members[bi], {
-                    pane: 'forecastPane', color: color,
-                    weight: SC_ENSEMBLE_MEMBER_WEIGHT,
-                    opacity: SC_ENSEMBLE_MEMBER_OPACITY,
-                    interactive: false, className: 'sc-ens-member'
-                });
-                memberLine._scStructureKey = structureKey;
-                out.push(memberLine);
+            // 1.2.4.83: NESSUNA linea per i membri. Le 24 traiettorie sono la
+            // materia prima della densita': un solo imageOverlay per struttura,
+            // con opacity 1 perche' l'alpha e' gia' nel canvas.
+            var densityLayer = scEnsembleDensityLayer(bundle, color, structureKey);
+            if (densityLayer) {
+                densityLayer._scStructureKey = structureKey;
+                out.push(densityLayer);
             }
             if (bundle.mean) {
                 var meanLine = L.polyline(bundle.mean, {
@@ -12436,6 +12766,12 @@ removeLightningTile();
     function scRedrawForecasts() {
         scClearForecasts();
         if (!scDataActive() || !scShowForecast || !map) return;
+        // 1.2.4.83: la densita' e' rasterizzata in pixel -> va rifatta al
+        // cambio di zoom (una sola registrazione dell'handler).
+        if (!SC_DENSITY_ZOOM_HANDLER) {
+            SC_DENSITY_ZOOM_HANDLER = scDensityZoomRedraw;
+            map.on('zoomend', SC_DENSITY_ZOOM_HANDLER);
+        }
         var cands = scRadarData && Array.isArray(scRadarData.structures) ? scRadarData.structures : [];
         var ordered = [];
         for (var i = 0; i < cands.length; i++) {
