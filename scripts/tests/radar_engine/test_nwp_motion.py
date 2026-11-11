@@ -197,7 +197,7 @@ def test_load_points_time_base_mezzanotte_locale(tmp_path):
 # Ensemble
 # ---------------------------------------------------------------------------
 
-def test_ensemble_deterministico_e_forma():
+def test_ensemble_deterministico_e_fascio():
     blend = {"speed_kmh": 30.0, "direction_toward_deg": 60.0}
     e1, b1 = nm.build_ensemble(blend, 10.0, 12.0, (12.0, 42.0),
                                1794398400000, structure_id="CS-X")
@@ -206,28 +206,58 @@ def test_ensemble_deterministico_e_forma():
     assert json.dumps(e1, sort_keys=True) == json.dumps(e2, sort_keys=True)
     assert e1["n"] == 200
     assert [s["offset_min"] for s in e1["steps"]] == [30, 60, 90, 120]
+    # 1.2.4.81: niente piu' isolinee di densita', solo il fascio.
     for step in e1["steps"]:
-        levels = [l["level"] for l in step["density_levels"]]
-        assert levels == [0.25, 0.5, 0.75, 0.9]
-        for lvl in step["density_levels"]:
-            assert lvl["polygon"], "poligono vuoto"
-            for ring in lvl["polygon"]:
-                assert len(ring) >= 4
-                assert ring[0] == ring[-1]
+        assert "density_levels" not in step
+    members = e1["members"]
+    assert len(members) == 24
+    for path in members:
+        assert len(path) == 5
+        for lon, lat in path:
+            assert lon == round(lon, 3)
+            assert lat == round(lat, 3)
+    assert len(e1["mean"]) == 5
+    assert e1["mean"][0] == members[0][0]
+    assert set(e1["spread_km"]) == {"60", "120"}
+    for key in ("60", "120"):
+        spread = e1["spread_km"][key]
+        assert spread["n"] == 200
+        assert spread["along_std_km"] >= 0.0
+        assert spread["cross_std_km"] >= 0.0
+        assert spread["cross_p90_km"] >= spread["cross_std_km"]
     assert b1["probability_calibrated"] is False
     assert b1["probability_null_reason"]
     assert b1["n"] == 200
+    assert b1["members_published"] == 24
+    assert b1["member_selection"]
 
 
-def test_ensemble_50_piu_stretto_del_90():
+def test_ensemble_spread_cresce_con_il_tempo():
     blend = {"speed_kmh": 35.0, "direction_toward_deg": 70.0}
     ens, _b = nm.build_ensemble(blend, 20.0, 20.0, (12.0, 42.0),
                                 1794398400000, structure_id="CS-Y")
-    for step in ens["steps"]:
-        lv = {l["level"]: l for l in step["density_levels"]}
-        assert lv[0.5]["area_km2"] < lv[0.9]["area_km2"] * 0.6
-        assert lv[0.25]["area_km2"] < lv[0.5]["area_km2"]
-        assert lv[0.5]["max_extent_km"] < lv[0.9]["max_extent_km"]
+    s60 = ens["spread_km"]["60"]
+    s120 = ens["spread_km"]["120"]
+    assert s120["cross_std_km"] > s60["cross_std_km"]
+    assert s120["along_std_km"] > s60["along_std_km"]
+    assert s120["cross_p90_km"] > s60["cross_p90_km"]
+
+
+def test_fascio_non_e_una_macchia():
+    """24 percorsi distinti e larghezza trasversale visibile a 60 min.
+
+    Se i membri stessero tutti entro ~1 km la polilinea sarebbe
+    indistinguibile da una linea sola (e il fascio inutile): il test
+    fallisce in quel caso.
+    """
+    blend = {"speed_kmh": 35.0, "direction_toward_deg": 70.0}
+    ens, _b = nm.build_ensemble(blend, 20.0, 20.0, (12.0, 42.0),
+                                1794398400000, structure_id="CS-F")
+    ends = [tuple(path[-1]) for path in ens["members"]]
+    # Le coppie speculari possono coincidere quando z2 ~ 0 (stessa direzione
+    # a 3 decimali): il requisito e' che il fascio NON sia una linea sola.
+    assert len(set(ends)) >= 20
+    assert ens["spread_km"]["60"]["cross_p90_km"] > 5.0
 
 
 def test_ensemble_centroide_sul_punto_blend():
@@ -248,7 +278,7 @@ def test_seed_diverso_per_struttura_diversa():
                              structure_id="A")
     b, _ = nm.build_ensemble(blend, 10.0, 10.0, (12.0, 42.0), 1,
                              structure_id="B")
-    assert a["steps"][0]["density_levels"] != b["steps"][0]["density_levels"]
+    assert a["members"] != b["members"]
 
 
 def test_area_anello_quadrato():
@@ -353,5 +383,6 @@ def test_forecast_espone_i_campi_nwp():
     assert block is not None
     for key in ("nwp_motion", "nwp_motion_null_reason", "nwp_motion_detail",
                 "motion_blend", "motion_weights", "motion_blend_components",
-                "ensemble", "ensemble_basis", "ensemble_null_reason"):
+                "ensemble", "ensemble_basis", "ensemble_null_reason",
+                "ensemble_members", "ensemble_mean", "ensemble_spread_km"):
         assert key in block

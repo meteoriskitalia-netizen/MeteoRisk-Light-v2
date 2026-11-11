@@ -21,17 +21,14 @@ anello chiuso).
 Per ogni step t (30/60/90/120 min) il cono e' la DILATAZIONE del contorno:
 
     R(t) = max(6, 15, cone0) + growth*t     (p90 calibrato: 15 km + 1 km/min)
-    raggi delle bande = R(t) * k,  k = 0.312 / 0.742 / 1.0
 
-Le tre bande annidate sono i livelli 50/75/90%. Ogni step porta `cone_bands`
-(lista di 3 dict: `level`, `radius_km`, `area_km2`, `vertices`, `polygon` =
-anello [lon,lat] chiuso) e `cone_polygon` = anello 90% (GeoJSON Polygon,
-retrocompatibilita' con il client che disegna un solo poligono). Il rapporto
-p50/p90 = 0.312 e' MISURATO a 30 min (14.9 / 47.8 km); p75 e' interpolato
-linearmente in probabilita' fra p50 e p90; il 90% resta R(t), cioe' lo stesso
-valore del cono precedente. La distanza euclidea dalla maschera e' calcolata
-UNA volta per struttura (scipy.ndimage.distance_transform_edt) e riusata per
-tutti gli step e le bande.
+Ogni step porta `cone_polygon` = anello 90% (GeoJSON Polygon). Dalla 1.2.4.81
+le bande annidate 50/75% NON sono piu' emesse: il client disegna il fascio di
+24 traiettorie dell'ensemble (`ensemble_members`, nwp_motion.py), non i
+riempimenti concentrici. `cone_polygon` resta SOLO per retrocompatibilita'
+(run vecchie) e non viene disegnato quando il fascio e' presente. La distanza
+euclidea dalla maschera e' calcolata UNA volta per struttura
+(scipy.ndimage.distance_transform_edt) e riusata per tutti gli step.
 
 `cone_km_along` / `cone_km_cross` sono i SEMIASSI DELL'INVILUPPO del poligono
 90% (0.5*(max-min) lungo il moto e di traverso), non piu' costanti: una cella
@@ -40,11 +37,10 @@ da 300 km^2 e un sistema da 32.000 km^2 ricevono coni diversi.
 Se la maschera non e' disponibile (frame assente, cella non risolta, poligono
 vuoto) `outline` e' null con `outline_null_reason`, `cone_shape` torna
 "ellipse" e il cono e' l'ellisse precedente (along = 15+1*t, cross =
-0.6*along), dichiarata in `cone_fallback_reason`. Le tre bande sono calcolate
-anche in fallback (ellissi annidate con gli stessi k).
+0.6*along), dichiarata in `cone_fallback_reason`.
 
-Le bande NON sono una probabilita' calibrata: `probability_calibrated` vale
-false e `probability_null_reason` lo dichiara. I k vengono dagli errori radiali
+Il cono NON e' una probabilita' calibrata: `probability_calibrated` vale false
+e `probability_null_reason` lo dichiara. I raggi vengono dagli errori radiali
 storici del tracker, non da un confronto con osservazioni.
 
 Il rapporto 0.6 del fallback e' una SCELTA DICHIARATA, non una calibrazione:
@@ -148,26 +144,6 @@ _PROBABILITY_NULL_REASON = (
 _CONE_MAX_GRID_PX = 200000
 _CONE_COARSE_FACTOR = 2
 
-
-def _cone_bands_basis():
-    """Metodo e numeri delle bande (copia fresca a ogni blocco pubblicato)."""
-    return {
-        "method": "measured_p50_p90_ratio_constant_with_t",
-        "levels": list(_CONE_BAND_LEVELS),
-        "scale_factors": list(_CONE_BAND_SCALES),
-        "p50_km_at_30min": _CONE_BAND_P50_KM_30,
-        "p75_km_at_30min": _CONE_BAND_P75_KM_30,
-        "p90_km_at_30min": _CONE_BAND_P90_KM_30,
-        "outer_envelope_km": "max(6, 15, cone0) + growth*t (p90 calibrato)",
-        "p75_derivation": (
-            "interpolazione lineare in probabilita' fra p50 e p90"),
-        "assumption": (
-            "rapporto p50/p90 costante con t; nessuna misura p50 a 60/90/120"),
-        "gaussian_2d_k": [1.177, 1.665, 2.146],
-        "gaussian_2d_k_normalized_to_p90": [0.549, 0.776, 1.0],
-        "note": (
-            "bande da errori radiali storici del tracker, NON da osservazioni"),
-    }
 _YOUNG_MINUTES = 20.0         # durata < 20 min -> cella giovane
 # --- DECADIMENTO LEGATO AL TIPO (2026-11-11) ------------------------------
 # Costante storica unica: 30 min. Due classi dichiarate sul SOI (0-100):
@@ -1105,44 +1081,22 @@ def _build_with_reason(candidate_ctx, bundle):
                        fit["cone0_km"]) + growth * offset_min
         cross_km = along_km * _CONE_CROSS_RATIO
         if band_data is not None:
-            bands = []
-            for band in band_data[offset_min]:
-                ring = _translate_ring(
-                    band["polygon"]["coordinates"][0],
-                    fit["direction_toward_deg"],
-                    fit["velocity_km_min"] * offset_min)
-                bands.append({
-                    "level": float(band["level"]),
-                    "radius_km": band["radius_km"],
-                    "radius_basis": "dilation",
-                    "area_km2": round(_ring_area_km2(ring), 1),
-                    "vertices": int(band["vertices"]),
-                    "holes_filled": int(band["holes_filled"]),
-                    "components_dropped": int(band["components_dropped"]),
-                    "polygon": ring,
-                })
-            outer_ring = bands[-1]["polygon"]
+            # 1.2.4.81: si pubblica SOLO l'anello 90% (retrocompatibilita').
+            # Le bande 50/75% non sono piu' emesse: il client disegna il fascio
+            # di 24 traiettorie, non i riempimenti concentrici.
+            band = band_data[offset_min][-1]
+            outer_ring = _translate_ring(
+                band["polygon"]["coordinates"][0],
+                fit["direction_toward_deg"],
+                fit["velocity_km_min"] * offset_min)
             cone_polygon = {"type": "Polygon", "coordinates": [outer_ring]}
             cone_along, cone_cross = _envelope_axes(
                 outer_ring, (lon, lat), fit["direction_toward_deg"])
-            cone_vertices = int(bands[-1]["vertices"])
+            cone_vertices = int(band["vertices"])
         else:
-            bands = []
-            for level, scale in zip(_CONE_BAND_LEVELS, _CONE_BAND_SCALES):
-                ring = _ellipse_polygon(
-                    (lon, lat), fit["direction_toward_deg"],
-                    along_km * scale, cross_km * scale)["coordinates"][0]
-                bands.append({
-                    "level": float(level),
-                    "radius_km": round(along_km * scale, 1),
-                    "radius_basis": "ellipse_along",
-                    "area_km2": round(_ring_area_km2(ring), 1),
-                    "vertices": _CONE_VERTICES,
-                    "holes_filled": 0,
-                    "components_dropped": 0,
-                    "polygon": ring,
-                })
-            outer_ring = bands[-1]["polygon"]
+            outer_ring = _ellipse_polygon(
+                (lon, lat), fit["direction_toward_deg"],
+                along_km, cross_km)["coordinates"][0]
             cone_polygon = {"type": "Polygon", "coordinates": [outer_ring]}
             cone_along = along_km
             cone_cross = cross_km
@@ -1155,7 +1109,6 @@ def _build_with_reason(candidate_ctx, bundle):
             "cone_km_along": round(float(cone_along), 1),
             "cone_km_cross": round(float(cone_cross), 1),
             "cone_polygon": cone_polygon,
-            "cone_bands": bands,
             "cone_area_km2": round(_ring_area_km2(
                 cone_polygon["coordinates"][0]), 1),
             "cone_vertices": cone_vertices,
@@ -1181,7 +1134,6 @@ def _build_with_reason(candidate_ctx, bundle):
         "cone_grid_km": (round(float(grid_km), 2) if grid_km else None),
         "cone_dp_tolerance_px": _CONE_DP_TOL_PX,
         "cone_fallback_reason": (fallback_reason if band_data is None else None),
-        "cone_bands_basis": _cone_bands_basis(),
         "probability_calibrated": False,
         "probability_null_reason": _PROBABILITY_NULL_REASON,
         "outline": outline_meta.get("geometry"),

@@ -121,7 +121,6 @@ def _inside(pt, ring):
                 ins = not ins
     return ins
 
-
 # ---------------------------------------------------------------------------
 # (a) cono diverso per strutture di area diversa
 # ---------------------------------------------------------------------------
@@ -160,37 +159,28 @@ def test_due_strutture_di_area_diversa_hanno_coni_diversi(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# (b) tre bande annidate 50/75/90
+# (b) un solo anello 90%, niente bande 50/75 (1.2.4.81)
 # ---------------------------------------------------------------------------
-def test_tre_bande_annidate_e_poligono_90(tmp_path):
+def test_anello_90_senza_bande(tmp_path):
     bundle, small, _large = _bundle(tmp_path)
     fc = forecast.build_forecast(_ctx(small, small.points[-1]), bundle)
     assert fc["probability_calibrated"] is False
     assert fc["probability_null_reason"]
-    assert fc["cone_bands_basis"]["levels"] == [0.5, 0.75, 0.9]
-    assert fc["cone_bands_basis"]["scale_factors"] == [0.312, 0.742, 1.0]
+    # Il contratto 1.2.4.81: le bande non esistono piu' nell'output.
+    assert "cone_bands_basis" not in fc
     for step in fc["steps"]:
-        bands = step["cone_bands"]
-        assert [b["level"] for b in bands] == [0.5, 0.75, 0.9]
-        areas = [b["area_km2"] for b in bands]
-        assert areas[0] < areas[1] < areas[2]
-        # l'anello 90% e' il `cone_polygon` (retrocompatibilita' client)
-        assert step["cone_polygon"]["coordinates"][0] == bands[-1]["polygon"]
-        assert step["cone_area_km2"] == areas[-1]
-        r50 = bands[0]["polygon"]
-        r75 = bands[1]["polygon"]
-        r90 = bands[2]["polygon"]
-        assert all(_inside(pt, r75) for pt in r50[:-1])
-        assert all(_inside(pt, r90) for pt in r75[:-1])
-        for ring in (r50, r75, r90):
-            assert ring[0] == ring[-1]
-            assert len(ring) >= 4
+        assert "cone_bands" not in step
+        ring = step["cone_polygon"]["coordinates"][0]
+        assert ring[0] == ring[-1]
+        assert len(ring) >= 4
+        assert step["cone_area_km2"] > 0.0
+        assert step["cone_vertices"] == len(ring) - 1
 
 
 # ---------------------------------------------------------------------------
-# (c) fallback ellittico dichiarato (senza frame)
+# (c) fallback ellittico dichiarato (senza frame), un solo anello 90%
 # ---------------------------------------------------------------------------
-def test_fallback_ellittico_dichiarato_con_tre_bande(tmp_path):
+def test_fallback_ellittico_dichiarato_senza_bande(tmp_path):
     bundle, small, _large = _bundle(tmp_path)
     bundle.frames = []
     fc = forecast.build_forecast(_ctx(small, small.points[-1]), bundle)
@@ -204,13 +194,11 @@ def test_fallback_ellittico_dichiarato_con_tre_bande(tmp_path):
     assert step["cone_km_along"] == 45.0
     assert step["cone_km_cross"] == 27.0
     assert len(step["cone_polygon"]["coordinates"][0]) == 33
-    assert [b["level"] for b in step["cone_bands"]] == [0.5, 0.75, 0.9]
-    areas = [b["area_km2"] for b in step["cone_bands"]]
-    assert areas[0] < areas[1] < areas[2]
-    assert (step["cone_polygon"]["coordinates"][0]
-            == step["cone_bands"][-1]["polygon"])
+    assert "cone_bands" not in step
+    assert "cone_bands_basis" not in fc
     # l'anello 90% e' l'ellisse storica: area ~ pi*45*27
-    assert abs(areas[-1] - math.pi * 45.0 * 27.0) / (math.pi * 45.0 * 27.0) \
+    area = step["cone_area_km2"]
+    assert abs(area - math.pi * 45.0 * 27.0) / (math.pi * 45.0 * 27.0) \
         < 0.02
 
 

@@ -581,6 +581,7 @@ _MOTION_FIELDS = (
     "nwp_motion", "nwp_motion_null_reason", "nwp_motion_detail",
     "motion_blend", "motion_weights", "motion_blend_components",
     "ensemble", "ensemble_basis", "ensemble_null_reason",
+    "ensemble_members", "ensemble_mean", "ensemble_spread_km",
 )
 
 

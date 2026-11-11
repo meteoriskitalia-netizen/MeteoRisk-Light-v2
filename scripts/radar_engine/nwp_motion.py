@@ -20,13 +20,18 @@ sui pair reali se e quanto la fusione batte l'estrapolazione pura. Il modulo:
     all'affidabilita' del fit (``motion_weights``);
   * costruisce un ENSEMBLE di 200 traiettorie perturbando velocita' e
     direzione di ``motion_blend`` con la dispersione MISURATA (divergenza
-    osservato-NWP + errore storico del tracker) e ne pubblica le isolinee di
-    densita' al 25/50/75/90% come poligoni.
+    osservato-NWP + errore storico del tracker) e ne pubblica 24 percorsi
+    (``ensemble_members``) in 12 coppie speculari rispetto all'asse del moto,
+    ai quantili di densita', la traiettoria media (``ensemble_mean``) e la
+    larghezza del fascio a 60/120 min
+    (``ensemble_spread_km``, std lungo/trasverso + p90 trasverso). Le
+    isolinee KDE sono state rimosse nella 1.2.4.81: il client non le ha mai
+    disegnate e pesavano ~190 KB su 4 strutture.
 
-ONESTA'. Le bande NON sono una probabilita' calibrata: non esiste un dataset
+ONESTA'. Il fascio NON e' una probabilita' calibrata: non esiste un dataset
 di verifiche etichettate per questa grandezza. ``probability_calibrated`` vale
-sempre ``false`` con motivo. Le soglie di densita' sono frazioni di massa
-dell'ensemble, non frequenze osservate.
+sempre ``false`` con motivo. La densita' delle linee e' la densita'
+dell'ensemble (200 membri gaussiani), non una frequenza osservata.
 
 DIPENDENZE. Solo stdlib + numpy (il motore ha gia' numpy). Nessun import da
 ``tracking``/``forecast`` a livello di modulo: distanza e proiezione sono
@@ -41,9 +46,13 @@ CAMPI PUBBLICATI (per record di struttura):
   motion_blend            vettore fuso {speed_kmh, direction_toward_deg, ...}
   motion_weights          {obs, nwp, rule, fit_used, resid_std_km}
   motion_blend_components componenti obs/NWP separati (per l'audit)
-  ensemble                {n, steps: [{offset_min, at, centroid,
-                          density_levels: [{level, polygon, area_km2, ...}]}]}
-  ensemble_basis          distribuzione, sigma, provenienza, N, seed
+  ensemble                {n, method, steps: [{offset_min, at, n, centroid}]}
+  ensemble_members        24 traiettorie [[lon,lat] x 5] (t=0/30/60/90/120)
+  ensemble_mean           traiettoria del blend [[lon,lat] x 5]
+  ensemble_spread_km      {"60": {along_std_km, cross_std_km, cross_p90_km},
+                           "120": {...}} sui 200 membri
+  ensemble_basis          distribuzione, sigma, provenienza, N, seed,
+                          selezione dei 24 membri
   ensemble_null_reason    motivo se l'ensemble non c'e'
 
 FILE DI COMPETENZA. Questo modulo e' nuovo e autonomo; il wiring in
@@ -79,11 +88,17 @@ MAX_DIST_KM = 80.0                 # gate: oltre, nwp_motion = null
 IDW_EPS_KM2 = 1.0                  # +1 km^2 al denominatore (punto coincidente)
 MAX_DATASET_AGE_MIN = 24 * 60.0    # oltre 24 h il dataset e' stantio -> null
 
-N_MEMBERS = 200                    # traiettorie dell'ensemble
+N_MEMBERS = 200                    # traiettorie dell'ensemble (monte Carlo)
 ENSEMBLE_OFFSETS_MIN = (30, 60, 90, 120)
-DENSITY_LEVELS = (0.25, 0.50, 0.75, 0.90)
-GRID_DEG = 0.02                    # passo minimo della griglia (~2.2 km)
-KDE_MIN_BW_KM = 2.0                # bandwidth minima del KDE (km)
+# 1.2.4.81: il client disegna un FASCIO di traiettorie, non piu' le isolinee
+# di densita' (poligoni mai usati dal client, ~190 KB su 4 strutture).
+# Si pubblicano 24 membri scelti ai quantili della densita' (rango della
+# distanza di Mahalanobis dal blend), non 24 a caso: il fascio copre la
+# dispersione reale, dal nucleo alla coda.
+MEMBERS_PUBLISHED = 24
+MEMBER_DECIMALS = 3                # ~100 m: compatto senza perdere la forma
+SPREAD_OFFSETS_MIN = (60, 120)     # dove si misura la larghezza del fascio
+KM_PER_DEG = 111.32                # conversione locale (stessa del client)
 
 # Pesi del blend (regola DICHIARATA, non calibrata):
 #   fit usato e residuo < 2 km   -> 0.8 (il fit spiega quasi tutto il moto)
@@ -126,7 +141,7 @@ VALIDATION_REFERENCE = {
 }
 
 METHOD = "idw4_massweighted_850_500_blend_ensemble200"
-ENSEMBLE_METHOD = "gaussian_antithetic_speed_dir_grid_marching_squares"
+ENSEMBLE_METHOD = "gaussian_antithetic_speed_dir_members24"
 
 # Cache del dataset (path, mtime, size) -> PointDataset. Una lettura per run.
 _DATASET_CACHE = {}
@@ -651,218 +666,140 @@ def _seed_for(structure_id, anchor_ms):
     return int(hashlib.sha256(key.encode("utf-8")).hexdigest()[:8], 16)
 
 
-def _kde_bandwidth_km(values_km, n):
-    """Bandwidth di Silverman (2D, per asse): 0.9 * min(std, IQR/1.34) * n^-0.2."""
-    v = np.asarray(values_km, dtype=float)
-    std = float(np.std(v))
-    q75, q25 = np.percentile(v, [75, 25])
-    iqr = (q75 - q25) / 1.34
-    sigma = min(std, iqr) if iqr > 0.0 else std
-    if not np.isfinite(sigma) or sigma <= 0.0:
-        sigma = 1.0
-    return max(KDE_MIN_BW_KM, 0.9 * sigma * (max(n, 2) ** -0.2))
-
-
-def _density_polygons(lons, lats, levels=DENSITY_LEVELS, grid_deg=GRID_DEG):
-    """KDE gaussiano 2D -> isolinee ai livelli di massa.
-
-    La densita' e' stimata con un kernel gaussiano per punto (bandwidth di
-    Silverman per asse, in km) valutato su una griglia locale. Il KDE evita
-    le isolinee frammentate di un istogramma con 200 campioni sparsi.
-    Ritorna {level: {"polygon": [ring,...], "area_km2": x, "max_extent_km": y}}
-    """
-    lons = np.asarray(lons, dtype=float)
-    lats = np.asarray(lats, dtype=float)
-    n = int(lons.size)
-    if n < 8:
-        return {}
-    lat_ref = float(lats.mean())
-    kx = KM_PER_DEG_LAT * math.cos(math.radians(lat_ref))
-    ky = KM_PER_DEG_LAT
-    hx = _kde_bandwidth_km((lons - lons.mean()) * kx, n)
-    hy = _kde_bandwidth_km((lats - lats.mean()) * ky, n)
-    # griglia: passo max(GRID_DEG, h/2), bordo a 3 bandwidth
-    step = max(grid_deg, min(hx, hy) / 2.0 / KM_PER_DEG_LAT)
-    lon0, lon1 = float(lons.min()) - 3.0 * hx / kx, float(lons.max()) + 3.0 * hx / kx
-    lat0, lat1 = float(lats.min()) - 3.0 * hy / ky, float(lats.max()) + 3.0 * hy / ky
-    # tetto di sicurezza sulla spaziatura (griglia massima ~200x200)
-    span = max(lon1 - lon0, lat1 - lat0)
-    if span / step > 200.0:
-        step = span / 200.0
-    nx = max(8, int(math.ceil((lon1 - lon0) / step)) + 1)
-    ny = max(8, int(math.ceil((lat1 - lat0) / step)) + 1)
-    xs = lon0 + np.arange(nx) * step
-    ys = lat0 + np.arange(ny) * step
-
-    # KDE diretta: (n_punti, ny, nx) -> somma sull'asse dei punti
-    dx = ((lons[None, :] - xs[:, None]) * kx) / hx      # (nx, n)
-    dy = ((lats[None, :] - ys[:, None]) * ky) / hy      # (ny, n)
-    kernel = np.exp(-0.5 * (dy[:, None, :] ** 2 + dx[None, :, :] ** 2))
-    density = kernel.sum(axis=2) / (2.0 * math.pi * hx * hy)  # (ny, nx)
-    cell_area = (step * kx) * (step * ky)
-    total = float(density.sum() * cell_area)
-    if total <= 0.0:
-        return {}
-    flat_density = density.ravel()
-    flat_mass = flat_density * cell_area
-    order = np.argsort(flat_density)[::-1]
-    cum = np.cumsum(flat_mass[order]) / total
-
-    out = {}
-    for frac in levels:
-        k = min(int(np.searchsorted(cum, frac)), order.size - 1)
-        threshold = float(flat_density[order[k]])
-        if threshold <= 0.0:
-            continue
-        segments = []
-        above = density >= threshold
-        cases = (above[:-1, :-1].astype(np.int8)
-                 | (above[:-1, 1:].astype(np.int8) << 1)
-                 | (above[1:, 1:].astype(np.int8) << 2)
-                 | (above[1:, :-1].astype(np.int8) << 3))
-        active = np.argwhere((cases > 0) & (cases < 15))
-        for i, j in active:
-            i = int(i)
-            j = int(j)
-            z00 = density[i, j]
-            z10 = density[i, j + 1]
-            z11 = density[i + 1, j + 1]
-            z01 = density[i + 1, j]
-            center_above = (0.25 * (z00 + z10 + z11 + z01)) >= threshold
-            segments.extend(_segments_for_cell(
-                z00, z10, z11, z01, threshold,
-                xs[j], xs[j + 1], ys[i], ys[i + 1], center_above))
-        rings = _link_rings(segments)
-        if not rings:
-            continue
-        area = sum(_ring_area_km2(r) for r in rings)
-        clon, clat = float(lons.mean()), float(lats.mean())
-        ext = 0.0
-        for r in rings:
-            for p in r:
-                ext = max(ext, haversine_km((clon, clat), (p[0], p[1])))
-        out[frac] = {
-            "polygon": rings,
-            "rings": len(rings),
-            "area_km2": round(area, 1),
-            "max_extent_km": round(2.0 * ext, 1),
-        }
-    return out
-
-
-def _segments_for_cell(z00, z10, z11, z01, level, x0, x1, y0, y1,
-                       center_above):
-    """Segmenti di isolinea in una cella (marching squares, 16 casi)."""
-    case = ((1 if z00 >= level else 0) | (2 if z10 >= level else 0)
-            | (4 if z11 >= level else 0) | (8 if z01 >= level else 0))
-    if case in (0, 15):
-        return []
-
-    def bottom():
-        t = (level - z00) / (z10 - z00)
-        return (x0 + t * (x1 - x0), y0)
-
-    def right():
-        t = (level - z10) / (z11 - z10)
-        return (x1, y0 + t * (y1 - y0))
-
-    def top():
-        t = (level - z01) / (z11 - z01)
-        return (x0 + t * (x1 - x0), y1)
-
-    def left():
-        t = (level - z00) / (z01 - z00)
-        return (x0, y0 + t * (y1 - y0))
-
-    table = {
-        1: [("L", "B")],
-        2: [("B", "R")],
-        3: [("L", "R")],
-        4: [("R", "T")],
-        6: [("B", "T")],
-        7: [("L", "T")],
-        8: [("T", "L")],
-        9: [("T", "B")],
-        11: [("T", "R")],
-        12: [("L", "R")],
-        13: [("B", "R")],
-        14: [("L", "B")],
-    }
-    if case == 5:
-        pairs = ([("L", "T"), ("B", "R")] if center_above
-                 else [("L", "B"), ("R", "T")])
-    elif case == 10:
-        pairs = ([("L", "B"), ("R", "T")] if center_above
-                 else [("L", "T"), ("B", "R")])
-    else:
-        pairs = table[case]
-    pts = {"B": bottom, "R": right, "T": top, "L": left}
-    return [(pts[a](), pts[b]()) for a, b in pairs]
-
-
-def _link_rings(segments, tol=1e-6):
-    """Concatena segmenti in anelli chiusi; scarta le catene aperte."""
-    if not segments:
-        return []
-
-    def key(p):
-        return (round(p[0] / tol) * tol, round(p[1] / tol) * tol)
-
-    adj = {}
-    for si, (a, b) in enumerate(segments):
-        ka, kb = key(a), key(b)
-        adj.setdefault(ka, []).append((si, b, kb))
-        adj.setdefault(kb, []).append((si, a, ka))
-    used = [False] * len(segments)
-    rings = []
-    for start in list(adj.keys()):
-        if all(used[si] for si, _p, _k in adj[start]):
-            continue
-        ring = [start]
-        cur = start
-        while True:
-            nxt = None
-            for si, p, k in adj.get(cur, ()):
-                if not used[si]:
-                    used[si] = True
-                    nxt = (p, k)
-                    break
-            if nxt is None:
-                break
-            cur = nxt[1]
-            ring.append(cur)
-            if cur == start:
-                break
-        if len(ring) >= 4 and ring[0] == ring[-1]:
-            rings.append([[round(p[0], 5), round(p[1], 5)] for p in ring])
-    return rings
-
-
 def _ring_area_km2(ring):
     """Area sferica approssimata di un anello chiuso (shoelace locale)."""
     if len(ring) < 4:
         return 0.0
     lat0 = sum(p[1] for p in ring[:-1]) / max(len(ring) - 1, 1)
-    kx = KM_PER_DEG_LAT * math.cos(math.radians(lat0))
-    ky = KM_PER_DEG_LAT
+    kx = KM_PER_DEG * math.cos(math.radians(lat0))
+    ky = KM_PER_DEG
     area = 0.0
     for (x1, y1), (x2, y2) in zip(ring[:-1], ring[1:]):
         area += (x1 * kx) * (y2 * ky) - (x2 * kx) * (y1 * ky)
     return abs(area) * 0.5
 
 
+def _select_member_indices(z1, z2, n_publish=MEMBERS_PUBLISHED):
+    """Indici dei membri ai quantili di densita', in coppie speculari.
+
+    La densita' di un membro nel piano delle perturbazioni e'
+    exp(-0.5*(z1^2+z2^2)): ordinare per r = sqrt(z1^2+z2^2) equivale a
+    ordinare per densita' decrescente.
+
+    Si prendono ``n_publish/2`` quantili uniformi del rango di r e per
+    ciascuno una COPPIA (i, j) con j il membro piu' vicino al riflesso di i
+    rispetto all'asse del moto, (z1, -z2). La coppia e' simmetrica per
+    costruzione, quindi il fascio non ha un lato piu' popolato dell'altro:
+    l'asse lungo resta la direzione del moto (misurato: delta <= 5,3 gradi
+    su 11 strutture reali) invece di inclinarsi per il campionamento di 24
+    punti. Sono membri REALI dell'ensemble da 200: nessuna traiettoria
+    inventata. Deterministico (seed dell'ensemble).
+    """
+    z1 = np.asarray(z1, dtype=float)
+    z2 = np.asarray(z2, dtype=float)
+    n = int(z1.size)
+    if n == 0:
+        return []
+    count = min(int(n_publish), n)
+    if count % 2 != 0 or count < 2:
+        # Fallback (non usato con 24): quantili semplici del rango di r.
+        r = np.hypot(z1, z2)
+        order = np.argsort(r, kind="stable")
+        out = []
+        for k in range(count):
+            pos = int(round(((k + 0.5) / count) * (n - 1)))
+            pos = max(0, min(n - 1, pos))
+            out.append(int(order[pos]))
+        return out
+
+    pts = np.column_stack([z1, z2])
+    target = np.column_stack([z1, -z2])
+    dist2 = ((pts[None, :, :] - target[:, None, :]) ** 2).sum(axis=2)
+    nearest = np.argmin(dist2, axis=1)
+    pairs = {}
+    for i in range(n):
+        j = int(nearest[i])
+        a, b = (i, j) if i <= j else (j, i)
+        if a == b:
+            continue
+        r = 0.5 * (math.hypot(z1[a], z2[a]) + math.hypot(z1[b], z2[b]))
+        key = (a, b)
+        if key not in pairs or r < pairs[key]:
+            pairs[key] = r
+    ordered = sorted(pairs.items(), key=lambda kv: (kv[1], kv[0]))
+    need = count // 2
+    if len(ordered) < need:
+        # Ensemble troppo piccolo per le coppie: quantili semplici.
+        r = np.hypot(z1, z2)
+        order = np.argsort(r, kind="stable")
+        out = []
+        for k in range(count):
+            pos = int(round(((k + 0.5) / count) * (n - 1)))
+            pos = max(0, min(n - 1, pos))
+            out.append(int(order[pos]))
+        return out
+    out = []
+    for k in range(need):
+        pos = int(round(((k + 0.5) / need) * (len(ordered) - 1)))
+        a, b = ordered[pos][0]
+        out.extend([int(a), int(b)])
+    return out
+
+
+def _path(start_lonlat, speed_kmh, direction_deg, offsets=ENSEMBLE_OFFSETS_MIN):
+    """Traiettoria [[lon,lat], ...] a t=0 + offsets, 3 decimali (~100 m)."""
+    lon0, lat0 = float(start_lonlat[0]), float(start_lonlat[1])
+    path = [[round(lon0, MEMBER_DECIMALS), round(lat0, MEMBER_DECIMALS)]]
+    for offset in offsets:
+        lon, lat = dest_from((lon0, lat0), float(direction_deg),
+                             float(speed_kmh) * (float(offset) / 60.0))
+        path.append([round(float(lon), MEMBER_DECIMALS),
+                     round(float(lat), MEMBER_DECIMALS)])
+    return path
+
+
+def _spread_km(lons, lats, center, direction_deg):
+    """Std lungo/trasverso e p90 trasverso (km) dei membri rispetto al blend.
+
+    ``lons``/``lats``: posizioni degli n membri a un offset. ``center``:
+    posizione del blend. ``direction_deg``: direzione VERSO cui si muove il
+    blend (0=N, 90=E). La scomposizione e' locale (piano tangente), la stessa
+    usata dal client per l'orientamento del fascio.
+    """
+    lon0, lat0 = float(center[0]), float(center[1])
+    kx = KM_PER_DEG * math.cos(math.radians(lat0))
+    dx = (np.asarray(lons, dtype=float) - lon0) * kx
+    dy = (np.asarray(lats, dtype=float) - lat0) * KM_PER_DEG
+    brg = math.radians(float(direction_deg))
+    u = math.sin(brg)      # est
+    v = math.cos(brg)      # nord
+    along = dx * u + dy * v
+    cross = dx * v - dy * u
+    return {
+        "along_std_km": round(float(np.std(along)), 2),
+        "cross_std_km": round(float(np.std(cross)), 2),
+        "cross_p90_km": round(float(np.percentile(np.abs(cross), 90)), 2),
+        "n": int(along.size),
+    }
+
+
 def build_ensemble(motion_blend, sigma_speed_kmh, sigma_dir_deg,
                    start_lonlat, anchor_ms, structure_id=None,
                    offsets=ENSEMBLE_OFFSETS_MIN, n=N_MEMBERS):
-    """Ensemble di ``n`` traiettorie con perturbazione gaussiana antithetica.
+    """Ensemble di ``n`` traiettorie + fascio pubblicabile (24 percorsi).
 
     Velocita': v_i = max(1, v + sigma_speed * z1)
     Direzione: dir_i = dir + sigma_dir * z2
     z1/z2 ~ N(0,1), coppie (z, -z) -> il centroide dell'ensemble coincide con
     il punto blend (nessuna deriva introdotta dal campionamento).
 
-    Ritorna (ensemble, ensemble_basis). Le bande sono frazioni di MASSA
-    dell'ensemble, non probabilita' calibrate.
+    Pubblica:
+      ``members``    24 percorsi ai quantili di densita' (t=0/30/60/90/120);
+      ``mean``       traiettoria del blend (stessi 5 punti);
+      ``spread_km``  std lungo/trasverso + p90 trasverso a 60/120 min.
+
+    Le isolinee KDE (25/50/75/90%) sono state RIMOSSE nella 1.2.4.81: il
+    client non le ha mai disegnate e pesavano ~190 KB su 4 strutture.
     """
     speed = float(motion_blend["speed_kmh"])
     direction = float(motion_blend["direction_toward_deg"])
@@ -875,6 +812,8 @@ def build_ensemble(motion_blend, sigma_speed_kmh, sigma_dir_deg,
     speeds = np.maximum(1.0, speed + sigma_speed_kmh * z1)
     directions = direction + sigma_dir_deg * z2
 
+    lons_by_offset = {}
+    lats_by_offset = {}
     steps = []
     for offset in offsets:
         lons = np.empty(n)
@@ -885,29 +824,38 @@ def build_ensemble(motion_blend, sigma_speed_kmh, sigma_dir_deg,
                                  float(dist[i]))
             lons[i] = lon
             lats[i] = lat
-        levels = _density_polygons(lons, lats)
-        step = {
+        lons_by_offset[int(offset)] = lons
+        lats_by_offset[int(offset)] = lats
+        steps.append({
             "offset_min": int(offset),
             "at": _iso_from_ms(anchor_ms + offset * 60000),
             "n": int(n),
             "centroid": [round(float(lons.mean()), 5),
                          round(float(lats.mean()), 5)],
-            "density_levels": [
-                {
-                    "level": frac,
-                    "polygon": levels[frac]["polygon"],
-                    "rings": levels[frac]["rings"],
-                    "area_km2": levels[frac]["area_km2"],
-                    "max_extent_km": levels[frac]["max_extent_km"],
-                }
-                for frac in DENSITY_LEVELS if frac in levels
-            ],
-        }
-        steps.append(step)
+        })
+
+    selected = _select_member_indices(z1, z2)
+    members = [_path(start_lonlat, float(speeds[i]), float(directions[i]),
+                     offsets) for i in selected]
+    mean = _path(start_lonlat, speed, direction, offsets)
+
+    spread = {}
+    for offset in SPREAD_OFFSETS_MIN:
+        if int(offset) not in lons_by_offset:
+            continue
+        center_lon, center_lat = dest_from(
+            start_lonlat, direction, speed * (float(offset) / 60.0))
+        spread[str(int(offset))] = _spread_km(
+            lons_by_offset[int(offset)], lats_by_offset[int(offset)],
+            (center_lon, center_lat), direction)
+
     ensemble = {
         "method": ENSEMBLE_METHOD,
         "n": int(n),
         "steps": steps,
+        "members": members,
+        "mean": mean,
+        "spread_km": spread,
     }
     basis = {
         "n": int(n),
@@ -924,14 +872,19 @@ def build_ensemble(motion_blend, sigma_speed_kmh, sigma_dir_deg,
             "divergence_obs_nwp": "vedi sigma_components",
         },
         "sigma_components": {},
-        "grid_deg": GRID_DEG,
-        "kde_bandwidth": "Silverman per asse (0.9*min(std,IQR/1.34)*n^-0.2), minimo %g km" % KDE_MIN_BW_KM,
-        "density_levels": list(DENSITY_LEVELS),
-        "density_meaning": ("frazione di massa dell'ensemble dentro il "
-                            "poligono (25/50/75/90%), NON probabilita'"),
+        "members_published": len(members),
+        "member_selection": ("%d coppie speculari rispetto all'asse del moto, "
+                             "ai quantili di densita' (rango di |z|) "
+                             "dell'ensemble da %d" % (
+                                 len(members) // 2, int(n))),
+        "member_offsets_min": list(offsets),
+        "member_decimals": MEMBER_DECIMALS,
+        "spread_offsets_min": list(SPREAD_OFFSETS_MIN),
+        "spread_meaning": ("std lungo/trasverso e p90 trasverso dei membri "
+                           "rispetto al blend, in km"),
         "probability_calibrated": False,
         "probability_null_reason": ("nessun dataset di verifiche etichettate "
-                                    "per questa grandezza: le bande misurano "
+                                    "per questa grandezza: il fascio misura "
                                     "la dispersione del moto, non la "
                                     "frequenza osservata degli eventi"),
         "calibration_reference": dict(VALIDATION_REFERENCE),
@@ -955,7 +908,8 @@ def build_motion_block(candidate_ctx, bundle, fit, anchor_ms,
     Ritorna un dict con le chiavi:
       nwp_motion, nwp_motion_null_reason, nwp_motion_detail,
       motion_blend, motion_weights, motion_blend_components,
-      ensemble, ensemble_basis, ensemble_null_reason.
+      ensemble, ensemble_basis, ensemble_null_reason,
+      ensemble_members, ensemble_mean, ensemble_spread_km.
 
     Regola: l'ensemble esiste se esiste un ``motion_blend`` (osservato e/o
     NWP). Se manca il NWP ma il fit e' valido, l'ensemble si costruisce SOLO
@@ -970,6 +924,9 @@ def build_motion_block(candidate_ctx, bundle, fit, anchor_ms,
         "motion_weights": None,
         "motion_blend_components": None,
         "ensemble": None,
+        "ensemble_members": None,
+        "ensemble_mean": None,
+        "ensemble_spread_km": None,
         "ensemble_basis": None,
         "ensemble_null_reason": None,
     }
@@ -1045,6 +1002,11 @@ def build_motion_block(candidate_ctx, bundle, fit, anchor_ms,
         "formula": "sqrt(divergence^2 + tracker^2), floor/cap dichiarati",
     }
     basis["motion_weights"] = weights
+    # Il fascio vive a livello RECORD (come `ensemble`): si estraggono i tre
+    # campi dal dict dell'ensemble per non duplicarli nel JSON.
+    out["ensemble_members"] = ensemble.pop("members", None)
+    out["ensemble_mean"] = ensemble.pop("mean", None)
+    out["ensemble_spread_km"] = ensemble.pop("spread_km", None)
     out["ensemble"] = ensemble
     out["ensemble_basis"] = basis
     return out

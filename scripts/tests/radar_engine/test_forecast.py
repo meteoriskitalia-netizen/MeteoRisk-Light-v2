@@ -347,7 +347,7 @@ def test_schema_steps_esattamente_4():
                           "cone_shape", "cone_basis", "cone_basis_note",
                           "cone_cross_ratio", "cone_vertices",
                           "cone_grid_km", "cone_dp_tolerance_px",
-                          "cone_fallback_reason", "cone_bands_basis",
+                          "cone_fallback_reason",
                           "probability_calibrated", "probability_null_reason",
                           "outline", "outline_null_reason", "outline_source",
                           "outline_pixel_count", "outline_area_km2",
@@ -363,7 +363,9 @@ def test_schema_steps_esattamente_4():
                           "nwp_motion", "nwp_motion_null_reason",
                           "nwp_motion_detail", "motion_blend", "motion_weights",
                           "motion_blend_components", "ensemble",
-                          "ensemble_basis", "ensemble_null_reason"}
+                          "ensemble_basis", "ensemble_null_reason",
+                          "ensemble_members", "ensemble_mean",
+                          "ensemble_spread_km"}
     assert block["horizon_min"] == 120
     assert block["step_min"] == 30
     assert block["method"] == "linear_weighted_haversine_decay"
@@ -375,17 +377,15 @@ def test_schema_steps_esattamente_4():
     assert block["outline"] is None
     assert block["outline_null_reason"] == "frame_not_found"
     assert block["probability_calibrated"] is False
-    assert block["cone_bands_basis"]["levels"] == [0.5, 0.75, 0.9]
+    assert "cone_bands_basis" not in block
     assert [s["offset_min"] for s in block["steps"]] == [30, 60, 90, 120]
     for step in block["steps"]:
         assert set(step) == {"offset_min", "at", "position", "cone_km",
                              "cone_km_along", "cone_km_cross", "cone_polygon",
-                             "cone_bands", "cone_area_km2", "cone_vertices",
+                             "cone_area_km2", "cone_vertices",
                              "max_dbz", "mean_dbz", "area_km2"}
-        assert [b["level"] for b in step["cone_bands"]] == [0.5, 0.75, 0.9]
-        # l'anello 90% e' il poligono storico: `cone_polygon` invariato
-        assert (step["cone_polygon"]["coordinates"][0]
-                == step["cone_bands"][-1]["polygon"])
+        # 1.2.4.81: le bande 50/75/90 non sono piu' emesse; resta l'anello 90%.
+        assert "cone_bands" not in step
         lon, lat = step["position"]
         assert isinstance(lon, float) and isinstance(lat, float)
         assert 4.0 <= lon <= 21.0 and 34.0 <= lat <= 48.0
@@ -483,7 +483,8 @@ def test_record_porta_i_campi_nwp_anche_senza_forecast(tmp_path):
         payload = json.load(fh)
     motion_keys = {"nwp_motion", "nwp_motion_null_reason", "nwp_motion_detail",
                    "motion_blend", "motion_weights", "motion_blend_components",
-                   "ensemble", "ensemble_basis", "ensemble_null_reason"}
+                   "ensemble", "ensemble_basis", "ensemble_null_reason",
+                   "ensemble_members", "ensemble_mean", "ensemble_spread_km"}
     assert len(payload["structures"]) == 2
     for rec in payload["structures"]:
         assert motion_keys <= set(rec), rec["structure_id"]
