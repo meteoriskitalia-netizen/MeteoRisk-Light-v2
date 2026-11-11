@@ -19,6 +19,11 @@ import os
 import warnings as warnings_mod
 from pathlib import Path
 
+# FONTE UNICA del gate di continuita' degli storm object: la stessa tupla che
+# usa il layer celle (forecast.SPEED_RANGE_KMH[1] = 110 km/h). Importarla qui
+# evita una seconda copia del valore che potrebbe divergere.
+from .forecast import SPEED_RANGE_KMH as _SPEED_RANGE_KMH
+
 # ---------------------------------------------------------------------------
 # Defaults — EXPERIMENTAL (valori iniziali di progetto, nessuna calibrazione)
 # ---------------------------------------------------------------------------
@@ -203,7 +208,7 @@ CONFIG = {
             # 20 storm track su 37 con almeno un segmento >110 km/h
             # (41 segmenti, massimo 12.703 km/h) e 5 delle 7 strutture
             # pubblicate costruite su quei salti.
-            "max_storm_speed_kmh": 110.0,
+            "max_storm_speed_kmh": _SPEED_RANGE_KMH[1],
             "prediction_gate_km": None,
             "diagnostics": False,
             "max_coast_frames": 0,          # 0=OFF (M1 grace/coasting, v. tracking)

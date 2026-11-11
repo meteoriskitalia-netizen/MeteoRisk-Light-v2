@@ -125,6 +125,8 @@ def test_record_composition_matches_object_mask():
     assert rec["track_points"] == len(track.points) == 5
     assert rec["distance_km"] == track.motion["distance_km"]
     assert rec["track_coherent"] is True
+    assert rec["motion_reliable"] is True
+    assert rec["motion_null_reason"] is None
     assert rec["motion"]["motion_quality"] == "reliable"
     assert rec["motion"]["velocity_kmh"] == 60.0
 
@@ -139,7 +141,30 @@ def test_incoherent_track_cannot_publish_reliable_motion():
     assert len(b.convective_structures) == 1
     rec = b.convective_structures[0]
     assert rec["track_coherent"] is False
+    assert rec["motion_reliable"] is False
+    assert rec["motion_null_reason"] == "track_not_coherent"
     assert rec["motion"]["motion_quality"] != "reliable"
     assert rec["motion"]["velocity_kmh"] is None
     assert rec["motion"]["motion_null_reason"] == "track_not_coherent"
     assert rec["rotation_measurable"] is False
+
+
+def test_coherent_track_without_velocity_propagates_null_reason():
+    """Moto nullo su track coerente: il motivo della track arriva in chiaro."""
+    track = _storm_track([10.0 + 0.06 * i for i in range(5)])
+    track.motion["velocity_kmh"] = None
+    track.motion["motion_quality"] = "unreliable"
+    track.motion["motion_null_reason"] = "fit_residual_too_high"
+    b = _bundle(track)
+    cs.evaluate(b, CONFIG["convective_structure"])
+    assert len(b.convective_structures) == 1
+    rec = b.convective_structures[0]
+    assert rec["track_coherent"] is True
+    assert rec["motion_reliable"] is False
+    assert rec["motion_null_reason"] == "fit_residual_too_high"
+
+
+def test_storm_gate_value_is_the_forecast_speed_range():
+    """Il gate 110 non e' una seconda costante: viene da forecast."""
+    assert CONFIG["storm"]["tracking"]["max_storm_speed_kmh"] == \
+        forecast.SPEED_RANGE_KMH[1] == 110.0

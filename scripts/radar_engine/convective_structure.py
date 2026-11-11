@@ -40,11 +40,12 @@ formula, i pesi e il cap applicato quando la copertura dati non e' ancora nota.
 
 COMPOSIZIONE PUBBLICATA (2026-11-11): ogni record porta `cell_count` (celle
 della maschera dell'ultimo frame), `area_km2` (area dell'ultimo frame),
-`distance_km` (lunghezza del percorso), `track_points` (punti usati) e
-`track_coherent`. `track_coherent` usa lo stesso gate di continuita' delle
-celle (110 km/h, forecast.SPEED_RANGE_KMH[1]): se e' False il record NON puo'
-dichiarare `motion_quality="reliable"` — `velocity_kmh` e' null con
-`motion_null_reason="track_not_coherent"`.
+`distance_km` (lunghezza del percorso), `track_points` (punti usati),
+`track_coherent`, `motion_reliable` (bool) e `motion_null_reason` (motivo
+esplicito quando il moto non e' pubblicabile). `track_coherent` usa lo stesso
+gate di continuita' delle celle (110 km/h, forecast.SPEED_RANGE_KMH[1]): se e'
+False il record NON puo' dichiarare `motion_quality="reliable"` -
+`velocity_kmh` e' null con `motion_null_reason="track_not_coherent"`.
 """
 
 from . import forecast as forecast_mod
@@ -384,6 +385,11 @@ def _candidate_dict(bundle, track, track_type, latest_frame_index, cfg, soi,
         "distance_km": round(float(dist), 2) if dist is not None else None,
         "track_points": n,
         "track_coherent": coherent,
+        # Moto pubblicabile: stessa decisione del blocco `motion`, esposta al
+        # livello superiore per il pannello (che non deve ricostruirla).
+        "motion_reliable": bool(coherent and velocity is not None
+                                and motion_quality == "reliable"),
+        "motion_null_reason": motion_null_reason,
         "level": level,
         "candidate": candidate,
         "phase": phase,
