@@ -70,11 +70,12 @@ def test_seed_continues_cell_track(tmp_path):
     _slot(root, T0, [_entry(7, 12.0, 41.0)])
     tr = Tracker(_cfg(), history_dir=root)
     tr.update([make_cell(12.05, 41.0, T0 + STEP_MS, cell_id="c1")], 0)
+    tr.update([make_cell(12.10, 41.0, T0 + 2 * STEP_MS, cell_id="c2")], 1)
     tr.complete_cycles()
     tr.finalize()
     assert len(tr.tracks) == 1
     track = tr.tracks[0]
-    assert len(track.points) == 2
+    assert len(track.points) == 3          # ancora + 2 frame del ciclo
     assert track.points[0].frame_index == -1
     assert track.points[0].cell_id == "history:7"
     assert track.continued_from_history is True
@@ -86,7 +87,21 @@ def test_seed_continues_cell_track(tmp_path):
     d = track.to_dict()
     assert d["continued_from_history"] is True
     assert d["history_uid"] == 7
-    assert d["n_frames"] == 2
+    assert d["n_frames"] == 2              # solo i frame del ciclo corrente
+
+
+def test_seed_single_current_observation_is_not_published(tmp_path):
+    """Un seed visto solo al primo frame non e' una track pubblicabile."""
+    root = str(tmp_path / "history")
+    _slot(root, T0, [_entry(7, 12.0, 41.0)])
+    tr = Tracker(_cfg(), history_dir=root)
+    tr.update([make_cell(12.05, 41.0, T0 + STEP_MS, cell_id="c1")], 0)
+    tr.complete_cycles()
+    tr.finalize()
+    track = tr.tracks[0]
+    assert len(track.points) == 1          # ancora rimossa: n_frames<2
+    assert track.continued_from_history is True   # audit in memoria
+    assert track.to_dict()["n_frames"] == 1
 
 
 def test_seed_rejected_beyond_20km(tmp_path):
@@ -148,10 +163,14 @@ def test_seed_storm_object_track(tmp_path):
                             area=240.0, cell_count=3)])
     tracker = st.StormObjectTracker(CONFIG["storm"], history_dir=root)
     tracker.update([_storm(0, 12.05, 41.0, T0 + STEP_MS)], 0)
+    tracker.update([_storm(1, 12.10, 41.0, T0 + 2 * STEP_MS)], 1)
+    tracker.complete_cycles()
+    tracker.finalize()
     assert len(tracker.tracks) == 1
     track = tracker.tracks[0]
-    assert len(track.points) == 2
+    assert len(track.points) == 3          # ancora + 2 frame del ciclo
     assert track.points[0].frame_index == -1
     assert track.continued_from_history is True
     assert track.history_uid == 11
     assert track.lineage == "continuation"
+    assert track.to_dict()["n_frames"] == 2

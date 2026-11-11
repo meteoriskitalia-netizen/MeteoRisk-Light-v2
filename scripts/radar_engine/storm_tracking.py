@@ -201,7 +201,10 @@ class StormObjectTracker:
     # matching helpers
     # ------------------------------------------------------------------
     def _features(self, track):
-        pts = track.points
+        # Come nel layer cella: il punto di archivio (frame_index=-1) non
+        # partecipa alla predizione del matching, solo alla storia/moto.
+        pts = [p for p in track.points
+               if getattr(p, "frame_index", 0) >= 0] or track.points
         last = pts[-1]
         predicted = None
         if len(pts) >= 2:
@@ -533,6 +536,16 @@ class StormObjectTracker:
         full_frames = int(self.tracking_cfg.get("full_confidence_frames", 5))
         scfg = cfg_scoring or self.cfg_scoring or scoring._fallback_scoring()
         for track in self.tracks:
+            # Stessa regola del layer cella: un seed con una sola osservazione
+            # nel ciclo non viene pubblicato come track (l'ancora di archivio
+            # non e' un frame corrente).
+            pts_now = [p for p in track.points
+                       if getattr(p, "frame_index", 0) >= 0]
+            if getattr(track, "continued_from_history", False) and \
+                    len(pts_now) < 2:
+                track.points = pts_now
+                if pts_now:
+                    track.birth_ms = pts_now[0].timestamp_ms
             pts = track.points
             n = len(pts)
             if n < 2:

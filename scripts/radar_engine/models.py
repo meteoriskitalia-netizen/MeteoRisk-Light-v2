@@ -258,11 +258,16 @@ class Track:
         pts = [p.to_dict() for p in self.points]
         birth = self.points[0].timestamp_iso if self.points else None
         death = self.points[-1].timestamp_iso if self.points else None
+        # n_frames = frame del CICLO corrente. Un punto con frame_index=-1 e'
+        # l'ancora di archivio del seed: resta in `points` per storia/moto ma
+        # non e' un frame osservato in questo run (2026-11-11).
+        n_frames = sum(1 for p in self.points
+                       if getattr(p, "frame_index", 0) >= 0)
         out = {
             "track_id": self.track_id,
             "status": self.status,
             "events": self.events,
-            "n_frames": len(self.points),
+            "n_frames": n_frames,
             "birth_time": birth,
             "death_time": death,
             "tracking_confidence": self.tracking_confidence,
@@ -455,12 +460,16 @@ class StormTrack:
         pts = [p.to_dict() for p in self.points]
         birth = self.points[0].timestamp_iso if self.points else None
         death = self.points[-1].timestamp_iso if self.points else None
+        # Vedi Track.to_dict: il punto di archivio (frame_index=-1) non conta
+        # come frame del ciclo corrente.
+        n_frames = sum(1 for p in self.points
+                       if getattr(p, "frame_index", 0) >= 0)
         return {
             "track_id": self.track_id,
             "type": "storm_object",
             "status": self.status,
             "events": self.events,
-            "n_frames": len(self.points),
+            "n_frames": n_frames,
             "birth_time": birth,
             "death_time": death,
             "tracking_confidence": self.tracking_confidence,

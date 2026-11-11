@@ -574,8 +574,15 @@ class Tracker:
 
     # -- feature/diagnostica helper ----------------------------------------
     def _features(self, track, cfg):
-        """Mappa di matching per una track attiva (temporal memory + predizione)."""
-        pts = track.points
+        """Mappa di matching per una track attiva (temporal memory + predizione).
+
+        Il punto di archivio (frame_index=-1) e' un'ancora di STORIA, non un
+        frame del ciclo corrente: non entra nella predizione del matching.
+        Altrimenti un seed a 20 km sposterebbe la previsione al frame 1 e
+        cambierebbe l'associazione rispetto al codice senza seed.
+        """
+        pts = [p for p in track.points
+               if getattr(p, "frame_index", 0) >= 0] or track.points
         last = pts[-1]
         mem = int(cfg.get("memory_frames", 3))
         tail = pts[-mem:]
@@ -909,6 +916,18 @@ class Tracker:
         full_frames = int(self.cfg.get("full_confidence_frames", 5))
         scfg = cfg_scoring or self.cfg_scoring or scoring._fallback_scoring()
         for track in self.tracks:
+            # Seed con UNA sola osservazione nel ciclo corrente: l'ancora di
+            # archivio non basta a pubblicare una track (sarebbe una nascita
+            # di 1 punto). Si toglie il punto frame_index=-1, cosi' il filtro
+            # n_frames>=2 dei derivati la esclude come prima del seed. Il flag
+            # continued_from_history resta per audit in memoria.
+            pts_now = [p for p in track.points
+                       if getattr(p, "frame_index", 0) >= 0]
+            if getattr(track, "continued_from_history", False) and \
+                    len(pts_now) < 2:
+                track.points = pts_now
+                if pts_now:
+                    track.birth_ms = pts_now[0].timestamp_ms
             pts = track.points
             if len(pts) < 2:
                 track.tracking_confidence = "insufficient"
