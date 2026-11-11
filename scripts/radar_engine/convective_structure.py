@@ -350,8 +350,9 @@ def _candidate_dict(bundle, track, track_type, latest_frame_index, cfg, soi,
         velocity = None
         motion_quality = "unreliable"
         motion_null_reason = "track_not_coherent"
-    elif velocity is None and motion_quality == "reliable":
-        motion_quality = "unreliable"
+    elif velocity is None:
+        if motion_quality == "reliable":
+            motion_quality = "unreliable"
         motion_null_reason = motion_null_reason or "velocity_unavailable"
     on_latest = (last.frame_index == latest_frame_index) if latest_frame_index is not None \
         else False
