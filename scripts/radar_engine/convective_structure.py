@@ -37,9 +37,18 @@ una rotazione: dichiara che i descrittori disponibili superano le soglie.
 
 `confidence` e' DERIVATA (mai una costante): vedi derive_confidence() per la
 formula, i pesi e il cap applicato quando la copertura dati non e' ancora nota.
+
+COMPOSIZIONE PUBBLICATA (2026-11-11): ogni record porta `cell_count` (celle
+della maschera dell'ultimo frame), `area_km2` (area dell'ultimo frame),
+`distance_km` (lunghezza del percorso), `track_points` (punti usati) e
+`track_coherent`. `track_coherent` usa lo stesso gate di continuita' delle
+celle (110 km/h, forecast.SPEED_RANGE_KMH[1]): se e' False il record NON puo'
+dichiarare `motion_quality="reliable"` — `velocity_kmh` e' null con
+`motion_null_reason="track_not_coherent"`.
 """
 
 from . import forecast as forecast_mod
+from .tracking import haversine_km
 
 DATA_LIMITS_NOTE = (
     "Radar-DPC VMI a singola riflettivita' (nessun Doppler): rotazione "
@@ -302,11 +311,48 @@ def _system_key(bundle, track, track_type, cfg):
     return ("cell:{}".format(track.track_id), "cell", window)
 
 
+def _track_coherence(points):
+    """(coerente, velocita' massima segmentale) sul gate di continuita' 110.
+
+    Fonte unica del valore: forecast.SPEED_RANGE_KMH[1], la stessa usata dal
+    tracker delle celle. Un segmento con dt <= 0 rende il track NON coerente
+    (la velocita' implicita non e' definita, non si assume nulla)."""
+    max_speed = float(forecast_mod.SPEED_RANGE_KMH[1])
+    worst = None
+    for a, b in zip(points, points[1:]):
+        dt_h = (b.timestamp_ms - a.timestamp_ms) / 3600000.0
+        if dt_h <= 0:
+            return False, worst
+        speed = haversine_km(a.lonlat, b.lonlat) / dt_h
+        if worst is None or speed > worst:
+            worst = speed
+        if speed > max_speed:
+            return False, worst
+    return True, worst
+
+
 def _candidate_dict(bundle, track, track_type, latest_frame_index, cfg, soi,
                     level, candidate, gates, components):
     """Rappresentazione JSON (solo track candidate)."""
     n = len(track.points)
     last = track.points[-1]
+    coherent, _max_seg_speed = _track_coherence(track.points)
+    dist = track.motion.get("distance_km")
+    if dist is None:
+        dist = sum(haversine_km(a.lonlat, b.lonlat)
+                   for a, b in zip(track.points, track.points[1:]))
+    motion_quality = track.motion.get("motion_quality")
+    motion_null_reason = track.motion.get("motion_null_reason")
+    velocity = track.motion.get("velocity_kmh")
+    if not coherent:
+        # Un track con un salto impossibile non e' utilizzabile per il moto:
+        # nessuna velocity pubblicata e nessuna qualita' "reliable".
+        velocity = None
+        motion_quality = "unreliable"
+        motion_null_reason = "track_not_coherent"
+    elif velocity is None and motion_quality == "reliable":
+        motion_quality = "unreliable"
+        motion_null_reason = motion_null_reason or "velocity_unavailable"
     on_latest = (last.frame_index == latest_frame_index) if latest_frame_index is not None \
         else False
     phase = "birth" if candidate and n <= int(cfg.get("birth_frames", 3)) else \
@@ -330,6 +376,13 @@ def _candidate_dict(bundle, track, track_type, latest_frame_index, cfg, soi,
         "storm_object_id": getattr(last, "storm_object_id", None),
         "soi": soi,
         "n_points": n,
+        # Composizione della struttura (2026-11-11): celle della maschera,
+        # area e percorso dell'ultimo frame, punti usati, utilizzabilita'.
+        "cell_count": int(getattr(last, "cell_count", 1) or 1),
+        "area_km2": round(float(last.area_km2), 2),
+        "distance_km": round(float(dist), 2) if dist is not None else None,
+        "track_points": n,
+        "track_coherent": coherent,
         "level": level,
         "candidate": candidate,
         "phase": phase,
@@ -351,14 +404,17 @@ def _candidate_dict(bundle, track, track_type, latest_frame_index, cfg, soi,
             "classification": track.motion.get("classification"),
         },
         "motion": {
-            "velocity_kmh": track.motion.get("velocity_kmh"),
+            "velocity_kmh": round(velocity, 1) if velocity is not None else None,
             # Qualita' del moto (2026-11-10): "reliable" | "unreliable".
             # Quando `velocity_kmh` e' null il motivo e' in
             # `motion_null_reason` (fit_residual_too_high / fit_not_used /
-            # non_positive_duration / insufficient_points). `motion_source`
-            # dice se il valore viene dal fit pesato o e' un fallback.
-            "motion_quality": track.motion.get("motion_quality"),
-            "motion_null_reason": track.motion.get("motion_null_reason"),
+            # non_positive_duration / insufficient_points /
+            # track_not_coherent). `motion_source` dice se il valore viene dal
+            # fit pesato o e' un fallback.
+            # 2026-11-11: `reliable` e' VIETATO quando `track_coherent` e'
+            # False (vedi _track_coherence).
+            "motion_quality": motion_quality,
+            "motion_null_reason": motion_null_reason,
             "motion_source": track.motion.get("motion_source"),
             "direction_toward_deg": track.motion.get("direction_toward_deg"),
             "distance_km": track.motion.get("distance_km"),

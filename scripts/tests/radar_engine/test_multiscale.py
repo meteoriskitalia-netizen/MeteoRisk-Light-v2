@@ -22,6 +22,7 @@ import pytest
 from radar_engine import models
 from radar_engine import output
 from radar_engine import aggregation as agg
+from radar_engine import forecast
 from radar_engine import storm_tracking as storm_mod
 from radar_engine.config import CONFIG
 
@@ -178,7 +179,11 @@ def test_scenario3_nearby_cells_merge_into_one_object():
 # Scenario 4: merge
 # ---------------------------------------------------------------------------
 def test_scenario4_merge_objects():
-    # due oggetti separati convergono -> un solo storm object al merge
+    # Due oggetti separati convergono -> un solo storm object al merge.
+    # Il merge osservativo resta, ma il centroide aggregato salta di ~0,36°
+    # (≈30 km in 5 min = 360 km/h): con il gate di continuità a 110 km/h la
+    # track precedente NON può continuare attraverso il salto. Il merge apre
+    # una NUOVA track invece di forzare l'identità (2026-11-11).
     series = [
         (0, T0,               [(10.00, 41.0), (10.71, 41.0)]),
         (1, T0 + STEP_MS,     [(10.00, 41.0), (10.71, 41.0)]),
@@ -187,14 +192,14 @@ def test_scenario4_merge_objects():
     ]
     objs, tracks = _run_storm_pipeline(series)
     assert [len(o) for o in objs] == [2, 2, 2, 1]
-    assert len(tracks) == 2
-    by_id = {t.track_id: t for t in tracks}
+    assert len(tracks) == 3
+    # il merge è la track nata al frame 2 (continua l'oggetto aggregato)
     merged = objs[3][0]
-    assert merged.track_id in by_id            # continua UNA delle due track
-    # l'altra track è terminata (merge observativo al frame 3)
-    dead = [t for t in tracks if t.track_id != merged.track_id][0]
-    assert dead.death_ms == objs[2][1].timestamp_ms or \
-        dead.death_ms == objs[2][0].timestamp_ms
+    assert merged.track_id == tracks[-1].track_id
+    # nessuna track pubblicata attraversa il merge a velocità impossibile
+    for t in tracks:
+        assert all(v <= forecast.SPEED_RANGE_KMH[1]
+                   for v in storm_mod.segment_velocities_kmh(t.points))
 
 
 # ---------------------------------------------------------------------------

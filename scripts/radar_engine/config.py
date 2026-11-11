@@ -195,7 +195,15 @@ CONFIG = {
             "max_assignment_cost": 400.0,
             "min_frames_track": 2,
             "full_confidence_frames": 5,
-            "max_storm_speed_kmh": None,    # gate fisico (None = off Fase 1.6)
+            # GATE DI CONTINUITA' degli storm object (2026-11-11). Stesso
+            # valore/semantica del gate delle CELLE (forecast.SPEED_RANGE_KMH[1]
+            # = 110 km/h): se la velocita' implicita fra due associazioni supera
+            # la soglia, l'associazione viene RIFIUTATA e nasce un nuovo storm
+            # object. Misurato sul run 2026-11-10T22:55:36Z prima del gate:
+            # 20 storm track su 37 con almeno un segmento >110 km/h
+            # (41 segmenti, massimo 12.703 km/h) e 5 delle 7 strutture
+            # pubblicate costruite su quei salti.
+            "max_storm_speed_kmh": 110.0,
             "prediction_gate_km": None,
             "diagnostics": False,
             "max_coast_frames": 0,          # 0=OFF (M1 grace/coasting, v. tracking)

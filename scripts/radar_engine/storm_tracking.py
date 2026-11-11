@@ -27,6 +27,17 @@ Parte C — motion sullo storm object (velocità/direzione) con motion_confidenc
 Parte D — tracking_ambiguity (DIAGNOSTICA, qualità dell'identificazione):
     competing candidates + cell density locale + merge/split candidati +
     assignment cost separation. Mai usata come firma meteorologica.
+
+GATE DI CONTINUITA' anche sugli storm object (2026-11-11). Prima esisteva
+solo nel tracker delle CELLE: qui `max_storm_speed_kmh` era None, quindi un
+ID-switch o un salto di centroide restava nella stessa track. MISURATO sul
+run 2026-11-10T22:55:36Z: 20 storm track su 37 avevano almeno un segmento
+oltre 110 km/h (41 segmenti, massimo 12.703 km/h) e 5 delle 7 strutture
+pubblicate erano costruite su quei salti. Ora l'associazione e' RIFIUTATA
+quando la velocita' implicita (distanza dall'ultima osservazione / dt)
+supera 110 km/h (config `storm.tracking.max_storm_speed_kmh`, stesso valore
+del gate delle celle): il salto apre una NUOVA track invece di essere
+assorbito nella stessa identita'.
 """
 
 import numpy as np
@@ -196,6 +207,11 @@ class StormObjectTracker:
         return track
 
     def _gate_limits(self, feats, obj):
+        """Raggi massimi (km) del gate di continuita' (110 km/h di default).
+
+        Nessun hardcode: il valore arriva da storm.tracking.max_storm_speed_kmh
+        (stessa semantica del gate delle celle: d > speed * dt -> associazione
+        rifiutata, nuova track)."""
         max_speed = self.tracking_cfg.get("max_storm_speed_kmh")
         if not max_speed:
             return None, None
@@ -437,6 +453,7 @@ class StormObjectTracker:
                     "median_segment_velocity_kmh": None,
                     "velocity_valid": False,
                     "motion_quality": "unreliable",
+                    "motion_null_reason": REASON_INSUFFICIENT_OBS,
                     "motion_status": MOTION_STATUS_NOT_ESTIMABLE,
                     "motion_rejection_reason": REASON_INSUFFICIENT_OBS,
                     "rejected_segments": 0,
@@ -483,6 +500,12 @@ class StormObjectTracker:
                 # cella (tracking.py).
                 "motion_quality": ("reliable" if assess["velocity_valid"]
                                    else "unreliable"),
+                # Contratto di `convective_structures.json`: quando la
+                # velocity e' None il motivo sta anche in `motion_null_reason`
+                # (stesso nome del layer cella). `track_coherent` viene
+                # calcolato sul record pubblicato (convective_structure.py).
+                "motion_null_reason": (None if assess["velocity_valid"]
+                                       else assess["motion_rejection_reason"]),
                 "motion_status": assess["motion_status"],
                 "motion_rejection_reason": assess["motion_rejection_reason"],
                 "rejected_segments": int(assess["rejected_segments"]),

@@ -448,6 +448,7 @@ class StormTrack:
                 self.motion.get("median_segment_velocity_kmh"),
             "velocity_valid": self.motion.get("velocity_valid"),
             "motion_quality": self.motion.get("motion_quality"),
+            "motion_null_reason": self.motion.get("motion_null_reason"),
             "motion_status": self.motion.get("motion_status"),
             "motion_rejection_reason": self.motion.get("motion_rejection_reason"),
             "rejected_segments": self.motion.get("rejected_segments"),
