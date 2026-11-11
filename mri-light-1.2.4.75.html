@@ -534,8 +534,10 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             line-height: 1.4; color: #cbd5e1; max-width: 100%; overflow-wrap: anywhere; }
         .radar-legend .legend-title { font-size: 10px; font-weight: 700; color: #e2e8f0; margin-bottom: 2px; }
         .radar-legend .legend-row { display: flex; align-items: flex-start; gap: 6px; flex-wrap: wrap; }
-        .radar-legend .doppler-swatch { flex: 0 0 24px; height: 0; margin-top: 5px;
-            border-top: 2px dashed #ff3b30; }
+        /* 1.2.4.75 - canvas dell'AREA DOPPLER. Sta nel pane dedicato (z 405):
+           sopra il raster radar (400), sotto i bordi amministrativi (410) e i
+           marker (600). Non intercetta il mouse: e' solo una superficie. */
+        .doppler-area-canvas { position: absolute; left: 0; top: 0; pointer-events: none; }
         .sc-source-badge { font-size: 10px; font-weight: 700; border: 1px solid #334155;
             border-radius: 10px; padding: 1px 8px; color: #94a3b8; white-space: nowrap; }
         .sc-source-badge.ok { color: #86efac; border-color: #22c55e; background: rgba(34,197,94,.12); }
@@ -1703,7 +1705,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <option value="librewxr">LibreWXR (DPC+OPERA)</option>
             <option value="dpc">DPC Italia (WebP)</option>
         </select>
-        <button type="button" id="btn-doppler" class="tool-btn" onclick="toggleDopplerCoverage()" style="font-size:11px; flex-shrink:0;" title="Mostra o nascondi il confine della copertura Doppler (linea tratteggiata rossa): dentro il tratteggio il radar dispone di velocità radiale, fuori no">Doppler: ON</button>
         <select id="dpc-product-select" class="tool-btn" onchange="changeDpcProduct(this.value)" style="font-size:11px; display:none; flex-shrink:0">
             <option value="VMI" selected>VMI — Riflettività Max</option>
             <option value="SRI">SRI — Pioggia al Suolo</option>
@@ -1783,11 +1784,16 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 <div class="panel-live" id="live-panel">
     <div class="live-header">
         <span class="live-dot"></span> <strong>LIVE · TEMPO REALE</strong>
-        <span id="live-subtitle" style="font-size:10px;color:#94a3b8;">Satellite + radar live · Struttura convettiva e centraline (toggle)</span>
+        <span id="live-subtitle" style="font-size:10px;color:#94a3b8;">Satellite + radar live · Struttura convettiva, centraline e area Doppler (toggle)</span>
     </div>
     <div class="sc-toggles">
         <button type="button" id="live-toggle-supercells" class="sc-toggle" onclick="toggleLiveSupercells()" title="Record di struttura convettiva (data/radar/convective_structures.json) e fenomeni osservati, riusati dal pannello Struttura convettiva e mostrati qui nel pannello LIVE">Struttura convettiva</button>
         <button type="button" id="live-toggle-stations" class="sc-toggle" onclick="toggleLiveStations()" title="Strato delle centraline osservate (data/stations/, MeteoHub/ItaliaMeteo, CC BY 4.0): etichette con la temperatura a 2 m. Indipendente dalla sorgente METAR/Modelli/Centraline del pannello.">Centraline</button>
+        <!-- 1.2.4.75 - Terzo toggle del pannello LIVE: AREA DOPPLER. Prima era il
+             pulsante #btn-doppler nella toolbar e si disegnava all'apertura della
+             mappa; ora si accende SOLO da qui, con qualunque sorgente del selettore
+             LIVE, e non tocca #mnw-source-select. Default OFF. -->
+        <button type="button" id="live-toggle-doppler" class="sc-toggle" onclick="toggleDopplerCoverage()" title="Area in cui esiste un radar con velocità radiale (Doppler): superficie azzurra continua, senza bordi per sito. Fuori, solo riflettività. Indipendente dalla sorgente del pannello LIVE.">Area Doppler</button>
         <!-- Sub-toggle spostati dal pannello #sc-radar-panel: stessa logica, stessi handler,
              id dedicati (live-toggle-*), visibili SOLO con celle organizzate attive (come #live-sc-*). -->
         <button type="button" id="live-toggle-trails" class="sc-toggle on" onclick="toggleScTrails()" title="Traccia 2h dei candidati attivi (archivio rolling radar-history)" style="display:none;">Traccia 2h</button>
@@ -1811,6 +1817,16 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <div class="legend-row" id="live-stations-scale-labels" style="font-size:9px;color:#94a3b8;"></div>
         <div class="legend-row" id="live-stations-decimation" style="font-size:9px;color:#64748b;"></div>
         <div class="legend-row" id="live-stations-credit" style="font-size:10px;color:#94a3b8;">Dati centraline: reti regionali e MeteoNetwork via MeteoHub/ItaliaMeteo — CC BY 4.0</div>
+    </div>
+    <!-- 1.2.4.75 - Legenda dell'AREA DOPPLER: visibile SOLO quando il layer e'
+         acceso (toggle #live-toggle-doppler). Spiega cosa significa la superficie
+         e dichiara la fonte. Nessun CSS nuovo: stesse classi della legenda
+         centraline (.live-legend/.legend-title/.legend-row). -->
+    <div class="live-legend" id="live-doppler-box" style="display:none;">
+        <div class="legend-title" id="live-doppler-title">Area Doppler — copertura con velocità radiale</div>
+        <div class="legend-row" style="font-size:11px;">Area in cui esiste un radar con velocità radiale (Doppler). Fuori, solo riflettività: la rotazione non è misurabile.</div>
+        <div class="legend-row" id="live-doppler-status" style="display:none;font-size:10px;color:#fca5a5;"></div>
+        <div class="legend-row" id="live-doppler-credit" style="font-size:10px;color:#94a3b8;">Fonti: EUMETNET/OPERA (CC BY 4.0)</div>
     </div>
     <div id="live-sc-summary" style="display:none;gap:8px;flex-wrap:wrap;padding:0 10px 6px 10px;font-size:11px;color:#e2e8f0;"></div>
     <div id="live-sc-phenomena" style="display:none;"></div>
@@ -2028,17 +2044,12 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
              I testi delle fonti sono riempiti da renderRadarLegend() con i dati
              reali di data/radar/latest.json e data/radar/collimation.json. -->
         <div class="legend radar-legend" id="radar-legend" aria-live="polite">
-            <div class="legend-title">Radar — copertura Doppler e fonti</div>
-            <div class="legend-row">
-                <span class="doppler-swatch" aria-hidden="true"></span>
-                <span><b>Dentro il tratteggio rosso: Doppler disponibile</b> · fuori: solo riflettività, nessuna velocità radiale.</span>
-            </div>
+            <div class="legend-title">Radar — fonti e fusione DPC + OPERA</div>
             <div class="legend-row" id="radar-legend-sources">
                 <span>Fonti: <b>DPC (Italia)</b> · <b>OPERA CIRRUS / EUMETNET</b> (fuori copertura DPC, CC BY 4.0).</span>
             </div>
             <div class="legend-row" id="radar-legend-opera" style="display:none;"></div>
             <div class="legend-row" id="radar-legend-collimation" style="display:none;"></div>
-            <div class="legend-row" id="radar-legend-doppler-state" style="display:none;color:#94a3b8;"></div>
         </div>
         <!-- Selettore ORARIO a slider sotto la mappa (sostituisce la tendina) -->
         <div class="hour-slider" id="hour-slider-wrap" style="display:none;">
@@ -2515,9 +2526,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.74';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.75';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-11';
     const APP_CHANGELOG = [
+        { version: '1.2.4.75', date: '2026-11-11', changes: [
+  "AREA DOPPLER, NON PIU' CONTORNI= I 134 poligoni dei siti (data/radar/doppler_coverage.geojson) non sono piu' 134 path tratteggiati rossi con bordo per sito: sono una SUPERFICIE RIEMPITA unica, azzurra (#38bdf8) e senza alcun tratto. Tutti i poligoni si riempiono in BIANCO PIENO (opaco) su un canvas FUORI SCHERMO: le sovrapposizioni non contano e il risultato e' una maschera. La maschera si tinge una volta (source-in) e si compone UNA sola volta sulla mappa con globalAlpha 0.13: dove si sovrappongono tre siti (Francia/Svizzera/Alpi) l'opacita' e' la STESSA di un punto coperto da un solo sito, mentre riempire 134 poligoni direttamente a bassa opacita' avrebbe prodotto zone piu' scure e una mappa che sembra dire cose che non sono. Nessun bordo: un contorno esterno unico non e' ricavabile in modo pulito dalla maschera, e una linea sbagliata e' peggio di nessuna linea. Il canvas sta nel pane z 405 (sopra il raster radar 400, sotto i bordi 410 e i marker 600), non intercetta il mouse e si ridisegna a moveend/zoomend/resize.",
+  "SPENTA DI DEFAULT, SI ACCENDE SOLO DAL PANNELLO LIVE= Il pulsante #btn-doppler e' stato RIMOSSO dalla toolbar (non nascosto: rimosso, con il suo CSS e il suo handler dedicato) e il controllo e' il terzo toggle del pannello LIVE: #live-toggle-doppler 'Area Doppler', accanto a 'Struttura convettiva' e 'Centraline'. Con la chiave meteorisk.dopplerCoverage.v1 assente il layer e' OFF: nessun poligono e nessun canvas Doppler al primo caricamento. Funziona con qualunque sorgente del selettore LIVE e non cambia la voce selezionata; chiudendo il pannello il layer si spegne (come le centraline) e la preferenza torna a '0'. La legenda nel pannello LIVE (#live-doppler-box) compare solo con il layer acceso e dice: 'Area in cui esiste un radar con velocita' radiale (Doppler). Fuori, solo riflettivita': la rotazione non e' misurabile.', con 'Fonti: EUMETNET/OPERA (CC BY 4.0)'.",
+  "BUMP= html mri-light-1.2.4.75.html, VERSION (BUILD=75, DATE=2026-11-11), sw.js (CACHE_NAME mri-1.2.4.75), README.md, i 26 test .mjs, le 5 righe cp dei 3 workflow; la 1.2.4.74 va RIMOSSA dal repo. NON toccati: scripts/, workflow dei dati, dataset e renderer. Un altro agente sta lavorando su una copia dell'html per gli alert di prossimita': coni, frecce e alert NON sono stati toccati."
+        ] },
         { version: '1.2.4.74', date: '2026-11-11', changes: [
   "PANNELLO STRUTTURA CONVETTIVA RISCRITTO= La riga non dice piu' solo 'sistema #17': mostra la composizione (Sistema #17 \u00b7 7 celle \u00b7 32.025 km\u00b2, oppure Cella #43 \u00b7 1 cella \u00b7 305 km\u00b2), la posizione con la provincia piu' vicina (44,19\u00b0N 17,88\u00b0E \u00b7 277 km da Foggia \u00b7 fuori Italia oltre 50 km), il SOI come 'organizzazione stimata (morfologia, senza Doppler)', il moto osservato con i punti utili del fit (64 km/h verso S 180\u00b0 \u00b7 3/6 punti utili) oppure 'Moto non determinabile \u00b7 track non coerente', durata/frame/percorso e i descrittori con il contesto (Hook 0 (nessun hook), Strutt.V 0 (nessuna struttura verticale), OT 0 (nessun OT), Fulmini n/d con il motivo). Se cell_count o area_km2 mancano (run vecchie) la parte si OMETTE: nessun '0' e nessun 'n/d celle'. distance_km del motore e' la lunghezza del percorso, non la distanza da una provincia: la distanza e' calcolata sui capoluoghi di regionsData.",
   "CONO FORECAST SOLO SE COERENTE, BADGE SOLO ENTRO 10 MINUTI= Il cono si disegna solo con fit_used=true, non clampato, track coerente, moto affidabile e direzione del fit concorde con il moto osservato entro 45 gradi; altrimenti la riga dichiara perche' non e' disponibile (fit non usato / track non coerente / direzione discorde). I badge di fenomeni compaiono solo se lo scan dei badge dista al massimo 10 minuti da quello delle strutture; oltre, la nota dice 'badge 06:25 (20 min dopo)' invece di accostare un altro istante. Via le parole che il dato non sostiene: rotazione, mesociclone, supercella, vortice e 'intenso' come severita' non compaiono nel pannello (misurato 0/0/0/0); il riepilogo dice 'N organizzate' / 'N molto organizzate'.",
@@ -8075,26 +8091,44 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
         allRadarLayers = [];
     }
 
-    // ============ COPERTURA DOPPLER + FONTI RADAR (1.2.4.64+Doppler) ============
+    // ============ AREA DOPPLER + FONTI RADAR (1.2.4.75) ============
     // Perche' esiste: il motore fonde DPC (dentro l'Italia) e OPERA CIRRUS
     // (fuori), ma il client non lo diceva. Qui:
-    //  - si disegna il confine MISURATO della copertura Doppler (poligoni
-    //    data/radar/doppler_coverage.geojson) come linea tratteggiata rossa
-    //    SOLO quando il layer radar e' attivo (isRadarActive);
-    //  - la legenda dichiara le fonti effettive e, se collimation.json c'e',
-    //    il MAE mediano fra DPC e OPERA (differenza fra prodotti, non errore);
+    //  - si disegna l'AREA MISURATA della copertura Doppler (poligoni
+    //    data/radar/doppler_coverage.geojson) come SUPERFICIE RIEMPITA, senza
+    //    tratti tratteggiati e senza bordi per sito, e SOLO dal pannello LIVE
+    //    (toggle #live-toggle-doppler), con qualunque sorgente del selettore;
+    //  - la legenda del pannello LIVE spiega cosa significa l'area e dichiara
+    //    la fonte (EUMETNET/OPERA, CC BY 4.0);
+    //  - la legenda del player radar dichiara le fonti effettive e, se
+    //    collimation.json c'e', il MAE mediano fra DPC e OPERA (differenza fra
+    //    prodotti, non errore);
     //  - il pannello Struttura convettiva mostra un badge con lo stato OPERA.
-    // Il layer sta su un pane dedicato z 405: sopra il radar (400), sotto i
-    // bordi amministrativi (410), quindi non nasconde confini ne' marker.
+    //
+    // PERCHE' UN CANVAS FUORI SCHERMO (e non 134 poligoni fillOpacity 0.13):
+    // i siti si sovrappongono (Francia, Svizzera, Alpi) e riempire ogni poligono
+    // a bassa opacita' produrrebbe zone PIU' SCURE dove i cerchi si accavallano:
+    // una mappa che sembra dire cose che non sono. Qui tutti i poligoni si
+    // riempiono in BIANCO PIENO (opaco, alpha 1) su un canvas fuori schermo: le
+    // sovrapposizioni non contano e il risultato e' una MASCHERA. La maschera si
+    // tinge una volta sola (source-in) e si compone UNA volta sulla mappa con
+    // globalAlpha 0.13: l'opacita' e' identica in ogni punto coperto, anche dove
+    // si sovrappongono tre siti. Nessun bordo: un contorno esterno unico non e'
+    // ricavabile in modo pulito dalla maschera, e una linea sbagliata e' peggio
+    // di nessuna linea.
     var DOPPLER_PREF_KEY = "meteorisk.dopplerCoverage.v1";
-    var dopplerCoverageEnabled = true;
+    var DOPPLER_AREA_COLOR = "#38bdf8";   // azzurro: distinto dal bianco delle province e dal raster radar
+    var DOPPLER_AREA_ALPHA = 0.13;        // opacita' UNICA della superficie composita
+    // Default OFF: chiave assente (o "0") => nessuna area al primo caricamento.
+    var dopplerCoverageEnabled = false;
     try {
         var _dopPref = localStorage.getItem(DOPPLER_PREF_KEY);
-        if (_dopPref === "0") dopplerCoverageEnabled = false;
-        else if (_dopPref === "1") dopplerCoverageEnabled = true;
-    } catch (e) { /* localStorage non disponibile: default ON */ }
+        if (_dopPref === "1") dopplerCoverageEnabled = true;
+    } catch (e) { /* localStorage non disponibile: default OFF */ }
     var dopplerCoverageData = null;
-    var dopplerCoverageLayer = null;
+    var dopplerCoverageLayer = null;      // canvas visibile (uno solo), null se spento
+    var dopplerCoverageMask = null;       // canvas fuori schermo con la maschera opaca
+    var dopplerCoverageBound = false;     // handler moveend/zoomend/resize registrati
     var dopplerCoverageLoading = false;
     var dopplerCoverageError = null;
     var dopplerCoverageStats = null;
@@ -8133,65 +8167,165 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
         return n;
     }
 
+    // True quando il pannello LIVE e' aperto: l'area Doppler vive SOLO li'.
+    // try/catch: isLivePanelActive e' una `let` dichiarata piu' avanti nello
+    // stesso script; se una harness di test chiama questa funzione prima
+    // dell'inizializzazione, il TDZ non deve rompere nulla.
+    function dopplerLivePanelOpen() {
+        try { return (typeof isLivePanelActive !== "undefined") && !!isLivePanelActive; }
+        catch (e) { return false; }
+    }
+
+    function dopplerSetToggleState(on) {
+        var btn = document.getElementById("live-toggle-doppler");
+        if (!btn) return;
+        if (on) btn.classList.add("on");
+        else btn.classList.remove("on");
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+
+    function dopplerSetLegendVisible(on) {
+        var box = document.getElementById("live-doppler-box");
+        if (box) box.style.display = on ? "" : "none";
+        if (!on) {
+            var st = document.getElementById("live-doppler-status");
+            if (st) { st.style.display = "none"; st.innerText = ""; }
+        }
+    }
+
+    // Ridisegna la superficie: maschera opaca fuori schermo -> tinta -> UNA
+    // composizione a globalAlpha 0.13. Chiamata a ogni moveend/zoomend/resize.
+    function dopplerAreaRedraw() {
+        if (!dopplerCoverageLayer || !dopplerCoverageMask || !dopplerCoverageData || !map) return;
+        var size = map.getSize();
+        if (!size || !size.x || !size.y) return;
+        var dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+        var w = Math.round(size.x * dpr);
+        var h = Math.round(size.y * dpr);
+        if (dopplerCoverageLayer.width !== w || dopplerCoverageLayer.height !== h) {
+            dopplerCoverageLayer.width = w;
+            dopplerCoverageLayer.height = h;
+            dopplerCoverageLayer.style.width = size.x + "px";
+            dopplerCoverageLayer.style.height = size.y + "px";
+            dopplerCoverageMask.width = w;
+            dopplerCoverageMask.height = h;
+        }
+        // Il canvas sta nel pane (che Leaflet trasla/zooma): si ancora al
+        // layer point dell'angolo in alto a sinistra del contenitore.
+        var topLeft = map.containerPointToLayerPoint([0, 0]);
+        L.DomUtil.setPosition(dopplerCoverageLayer, topLeft);
+
+        var mctx = dopplerCoverageMask.getContext("2d");
+        mctx.setTransform(1, 0, 0, 1, 0, 0);
+        mctx.clearRect(0, 0, w, h);
+        mctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        mctx.globalAlpha = 1;                 // OPACO: le sovrapposizioni non contano
+        mctx.globalCompositeOperation = "source-over";
+        mctx.fillStyle = "#ffffff";
+        var feats = (dopplerCoverageData.features || []);
+        for (var i = 0; i < feats.length; i++) {
+            var geom = feats[i] && feats[i].geometry;
+            if (!geom || !geom.coordinates) continue;
+            var polys = geom.type === "MultiPolygon" ? geom.coordinates
+                : (geom.type === "Polygon" ? [geom.coordinates] : []);
+            for (var p = 0; p < polys.length; p++) {
+                var rings = polys[p] || [];
+                mctx.beginPath();
+                for (var r = 0; r < rings.length; r++) {
+                    var ring = rings[r] || [];
+                    for (var k = 0; k < ring.length; k++) {
+                        var pt = ring[k];
+                        if (!pt || pt.length < 2) continue;
+                        var xy = map.latLngToContainerPoint([pt[1], pt[0]]);
+                        if (k === 0) mctx.moveTo(xy.x, xy.y);
+                        else mctx.lineTo(xy.x, xy.y);
+                    }
+                    mctx.closePath();
+                }
+                mctx.fill("evenodd");
+            }
+        }
+        // Tinta UNA volta: il colore sostituisce il bianco mantenendo la maschera.
+        mctx.globalCompositeOperation = "source-in";
+        mctx.fillStyle = DOPPLER_AREA_COLOR;
+        mctx.fillRect(0, 0, size.x, size.y);
+        mctx.globalCompositeOperation = "source-over";
+
+        // Composizione UNICA sulla mappa: alpha 0.13 ovunque, sovrapposizioni comprese.
+        var ctx = dopplerCoverageLayer.getContext("2d");
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = "source-over";
+        ctx.clearRect(0, 0, w, h);
+        ctx.globalAlpha = DOPPLER_AREA_ALPHA;
+        ctx.drawImage(dopplerCoverageMask, 0, 0);
+        ctx.globalAlpha = 1;
+    }
+
+    function dopplerAreaBind() {
+        if (dopplerCoverageBound || !map || !map.on) return;
+        dopplerCoverageBound = true;
+        map.on("moveend", dopplerAreaRedraw);
+        map.on("zoomend", dopplerAreaRedraw);
+        map.on("resize", dopplerAreaRedraw);
+        map.on("viewreset", dopplerAreaRedraw);
+    }
+
+    function dopplerAreaUnbind() {
+        if (!dopplerCoverageBound) return;
+        dopplerCoverageBound = false;
+        if (map && map.off) {
+            map.off("moveend", dopplerAreaRedraw);
+            map.off("zoomend", dopplerAreaRedraw);
+            map.off("resize", dopplerAreaRedraw);
+            map.off("viewreset", dopplerAreaRedraw);
+        }
+    }
+
     function addDopplerCoverageLayer() {
-        // 1.2.4.72 - il confine e' una geometria STATICA (134 poligoni): non dipende
-        // dal provider radar ne' dal player. Resta solo la preferenza dell'utente.
+        // 1.2.4.75 - geometria STATICA (134 poligoni), ma la superficie si
+        // disegna SOLO dal pannello LIVE e solo se il toggle e' ON.
         if (!dopplerCoverageEnabled) return;
+        if (!dopplerLivePanelOpen()) return;
         if (!dopplerCoverageData || !map) return;
         ensureDopplerPane();
         var t0 = performance.now();
         if (!dopplerCoverageLayer) {
-            dopplerCoverageLayer = L.geoJSON(dopplerCoverageData, {
-                pane: "dopplerPane",
-                interactive: false,
-                smoothFactor: 1.2,
-                style: function() {
-                    return {
-                        color: "#ff3b30",
-                        weight: 1.4,
-                        opacity: 0.9,
-                        dashArray: "6 4",
-                        lineCap: "butt",
-                        lineJoin: "round",
-                        fillColor: "#ff3b30",
-                        fillOpacity: 0.035
-                    };
-                },
-                onEachFeature: function(feature, layer) {
-                    // Difesa esplicita: il pane e l'interattivita' valgono anche
-                    // se una futura versione di Leaflet non li propagasse dal
-                    // gruppo GeoJSON ai singoli poligoni.
-                    if (layer && layer.options) {
-                        layer.options.pane = "dopplerPane";
-                        layer.options.interactive = false;
-                    }
-                }
-            });
+            dopplerCoverageLayer = document.createElement("canvas");
+            dopplerCoverageLayer.className = "doppler-area-canvas";
+            dopplerCoverageLayer.setAttribute("aria-hidden", "true");
+            var pane = map.getPane("dopplerPane");
+            if (!pane) return;
+            pane.appendChild(dopplerCoverageLayer);
+            dopplerCoverageMask = document.createElement("canvas");
         }
+        dopplerAreaBind();
+        dopplerAreaRedraw();
         var t1 = performance.now();
-        if (!map.hasLayer(dopplerCoverageLayer)) dopplerCoverageLayer.addTo(map);
-        var t2 = performance.now();
         dopplerCoverageStats = {
             features: (dopplerCoverageData.features || []).length,
             points: countGeoJsonPoints(dopplerCoverageData),
-            build_ms: Math.round((t1 - t0) * 10) / 10,
-            add_ms: Math.round((t2 - t1) * 10) / 10,
-            total_ms: Math.round((t2 - t0) * 10) / 10,
+            total_ms: Math.round((t1 - t0) * 10) / 10,
             zoom: (map.getZoom ? map.getZoom() : null),
             at: new Date().toISOString()
         };
-        console.log("[Doppler] confine disegnato: " + dopplerCoverageStats.features + " poligoni, " +
-            dopplerCoverageStats.points + " punti, " + dopplerCoverageStats.total_ms + " ms (build " +
-            dopplerCoverageStats.build_ms + " + add " + dopplerCoverageStats.add_ms + ")");
-        // Il layer e' a posto: toglie la riga "Caricamento..." dalla legenda
-        // (renderRadarLegend era stata chiamata quando i dati non c'erano).
-        renderRadarLegend();
+        console.log("[Doppler] area disegnata: " + dopplerCoverageStats.features + " poligoni, " +
+            dopplerCoverageStats.points + " punti, " + dopplerCoverageStats.total_ms + " ms, alpha " +
+            DOPPLER_AREA_ALPHA);
+        dopplerSetToggleState(true);
+        dopplerSetLegendVisible(true);
+        var st = document.getElementById("live-doppler-status");
+        if (st) { st.style.display = "none"; st.innerText = ""; }
     }
 
     function removeDopplerCoverageLayer() {
-        if (dopplerCoverageLayer && map && map.hasLayer(dopplerCoverageLayer)) {
-            try { map.removeLayer(dopplerCoverageLayer); } catch (e) {}
+        dopplerAreaUnbind();
+        if (dopplerCoverageLayer && dopplerCoverageLayer.parentNode) {
+            try { dopplerCoverageLayer.parentNode.removeChild(dopplerCoverageLayer); } catch (e) {}
         }
+        dopplerCoverageLayer = null;
+        dopplerCoverageMask = null;
+        dopplerSetLegendVisible(false);
     }
 
     function ensureDopplerCoverage() {
@@ -8217,21 +8351,29 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
                 dopplerCoverageLoading = false;
                 dopplerCoverageError = String((e && e.message) || e);
                 console.warn("[Doppler] copertura non disponibile: " + dopplerCoverageError);
-                applyDopplerButtonState();
-                renderRadarLegend();
+                // Stato coerente: niente toggle ON senza superficie.
+                dopplerCoverageEnabled = false;
+                try { localStorage.setItem(DOPPLER_PREF_KEY, "0"); } catch (e2) {}
+                dopplerSetToggleState(false);
+                dopplerSetLegendVisible(true);
+                var st = document.getElementById("live-doppler-status");
+                if (st) {
+                    st.innerText = "Area Doppler non disponibile: " + dopplerCoverageError;
+                    st.style.display = "";
+                }
             });
     }
 
     function toggleDopplerCoverage() {
         dopplerCoverageEnabled = !dopplerCoverageEnabled;
         try { localStorage.setItem(DOPPLER_PREF_KEY, dopplerCoverageEnabled ? "1" : "0"); } catch (e) {}
+        dopplerSetToggleState(dopplerCoverageEnabled);
         if (dopplerCoverageEnabled) {
             ensureDopplerCoverage();
         } else {
             removeDopplerCoverageLayer();
         }
-        updateRadarDopplerUI();
-        console.log("[Doppler] confine " + (dopplerCoverageEnabled ? "ON" : "OFF") + " (preferenza salvata)");
+        console.log("[Doppler] area " + (dopplerCoverageEnabled ? "ON" : "OFF") + " (preferenza salvata)");
     }
 
     function medianOf(values) {
@@ -8277,7 +8419,6 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
         var srcEl = document.getElementById("radar-legend-sources");
         var opEl = document.getElementById("radar-legend-opera");
         var colEl = document.getElementById("radar-legend-collimation");
-        var stateEl = document.getElementById("radar-legend-doppler-state");
         if (!srcEl || !opEl || !colEl) return;
         var latest = radarLatestInfo;
         var providerLabel = "—";
@@ -8333,59 +8474,20 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
         } else {
             colEl.style.display = "none";
         }
-        if (stateEl) {
-            if (!dopplerCoverageEnabled) {
-                stateEl.innerText = "Confine Doppler spento (toggle \"Doppler\"): le fonti restano quelle dichiarate.";
-                stateEl.style.display = "";
-            } else if (dopplerCoverageError) {
-                stateEl.innerText = "Confine Doppler non disponibile: " + dopplerCoverageError;
-                stateEl.style.display = "";
-            } else if (!dopplerCoverageData && dopplerCoverageLoading) {
-                stateEl.innerText = "Caricamento del confine Doppler...";
-                stateEl.style.display = "";
-            } else {
-                stateEl.style.display = "none";
-            }
-        }
     }
 
-    // 1.2.4.72 - stato del pulsante SEMPRE aggiornato, anche senza player radar.
-    // Se il geojson non arriva (404/rete) il pulsante e' disabilitato e il motivo
-    // sta nel title: nessuna eccezione, nessun confine disegnato a meta'.
-    var DOPPLER_BTN_TITLE = "Mostra o nascondi il confine della copertura Doppler (linea tratteggiata rossa): dentro il tratteggio il radar dispone di velocit\u00e0 radiale, fuori no";
-    function applyDopplerButtonState() {
-        var btn = document.getElementById("btn-doppler");
-        if (!btn) return;
-        btn.style.display = "";
-        if (dopplerCoverageError) {
-            btn.disabled = true;
-            btn.innerText = "Doppler: n/d";
-            btn.title = "Confine Doppler non disponibile: " + dopplerCoverageError;
-            btn.style.borderColor = "#334155";
-            btn.style.color = "#94a3b8";
-            btn.setAttribute("aria-pressed", "false");
-            return;
-        }
-        btn.disabled = false;
-        btn.title = DOPPLER_BTN_TITLE;
-        btn.innerText = dopplerCoverageEnabled ? "Doppler: ON" : "Doppler: OFF";
-        btn.style.borderColor = dopplerCoverageEnabled ? "#ef4444" : "#334155";
-        btn.style.color = dopplerCoverageEnabled ? "#fca5a5" : "";
-        btn.setAttribute("aria-pressed", dopplerCoverageEnabled ? "true" : "false");
-    }
     function updateRadarDopplerUI() {
         var on = radarDopplerActive();
-        applyDopplerButtonState();
         var legend = document.getElementById("radar-legend");
         if (legend) legend.style.display = on ? "flex" : "none";
         if (on) {
             ensureRadarSourcesInfo();
             renderRadarLegend();
         }
-        // Il confine NON e' legato al player: si disegna anche col provider
-        // rainviewer (il file e' indipendente dal provider).
-        if (dopplerCoverageEnabled) ensureDopplerCoverage();
-        else removeDopplerCoverageLayer();
+        // 1.2.4.75 - l'area Doppler NON si disegna piu' da qui: vive solo nel
+        // pannello LIVE (#live-toggle-doppler) e il suo ciclo e' in
+        // addDopplerCoverageLayer/removeDopplerCoverageLayer. Questa funzione
+        // resta per la legenda delle fonti del player radar.
     }
 
     function updateScSourceBadge(latest) {
@@ -9663,6 +9765,11 @@ removeLightningTile();
             // Handler zoom: aggiorna i marker quando cambia lo zoom (sistema proporzionale)
             liveZoomHandler = function() { refreshLiveLightningMarkers(); };
             map.on('zoomend', liveZoomHandler);
+            // 1.2.4.75 - AREA DOPPLER: il toggle vive SOLO qui. Lo stato mostrato
+            // e' quello della preferenza (default OFF); se era ON, l'area compare
+            // all'apertura del pannello. Non tocca #mnw-source-select.
+            dopplerSetToggleState(dopplerCoverageEnabled);
+            if (dopplerCoverageEnabled) ensureDopplerCoverage();
         } else {
             btn.innerText = '🔴 LIVE Panel (OFF)';
             btn.style.borderColor = '#fbbf24';
@@ -9679,6 +9786,13 @@ removeLightningTile();
             var liveStationsBtn = document.getElementById('live-toggle-stations');
             if (liveStationsBtn) liveStationsBtn.classList.remove('on');
             stationsSetActive(false);
+            // 1.2.4.75 - chiusura del pannello: anche l'AREA DOPPLER si spegne,
+            // come le centraline. La preferenza salvata passa a "0": alla
+            // riapertura il toggle riparte OFF e nessuna superficie resta sulla mappa.
+            dopplerCoverageEnabled = false;
+            try { localStorage.setItem(DOPPLER_PREF_KEY, "0"); } catch (e) {}
+            dopplerSetToggleState(false);
+            removeDopplerCoverageLayer();
             var livePanelEl = document.getElementById('live-panel');
             if (livePanelEl) livePanelEl.classList.remove('active');
             // Se i livelli timeline sono ancora attivi, riapri il player
@@ -18336,6 +18450,10 @@ function toggleForecastMaps() {
         // "Sviluppo" non lo nasconde (la NEBBIA resta invece dietro lo switch).
         var lst = document.getElementById('live-toggle-stations');
         if (lst) lst.style.display = '';
+        // 1.2.4.75 - anche il toggle "Area Doppler" e' pubblico: lo switch
+        // "Sviluppo" non lo nasconde (la NEBBIA resta dietro lo switch).
+        var ldb = document.getElementById('live-toggle-doppler');
+        if (ldb) ldb.style.display = '';
         var scrp = document.getElementById('sc-radar-panel');
         if (scrp) {
             // Nessuna chiusura forzata quando lo switch Sviluppo si spegne: il toggle
@@ -29870,9 +29988,9 @@ syncSelect('lightning-source-select', [
         if (typeof L !== 'undefined') {
             applyFeatureFlagConstraints();
 initMap();
-            // 1.2.4.72 - confine Doppler disegnato di default all'apertura della mappa
-            // (geometria statica, 134 poligoni); la preferenza OFF salvata in localStorage
-            // resta rispettata da dopplerCoverageEnabled.
+            // 1.2.4.75 - nessuna area Doppler all'apertura della mappa: si accende
+            // SOLO dal pannello LIVE (#live-toggle-doppler). updateRadarDopplerUI()
+            // qui gestisce solo la legenda delle fonti del player radar.
             updateRadarDopplerUI();
             updateDayButtonLabels();
             renderLegend();
