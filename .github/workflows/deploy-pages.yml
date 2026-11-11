@@ -5,7 +5,7 @@ name: Deploy Pages (manuale / consolidamento)
 # radar/phenomena/satellite nell'artefatto. Questo file ricostruisce _site in
 # modo GENUINO replicando il deploy inline di radar-engine.yml e di
 # update-weather-data.yml (stesso ordine, stesse guardie e stessi path):
-#   - cp mri-light-1.2.4.77.html _site/index.html
+#   - cp mri-light-1.2.4.78.html _site/index.html
 #   - cp sw.js _site/sw.js   (1.2.4.15: Service Worker, servito come /sw.js)
 #   - data/latest, data/geography, data/radar (con restore dell'archivio
 #     rolling radar-history), data/phenomena e satellite (con restore della
@@ -56,7 +56,7 @@ jobs:
       - name: Build sito statico Pages (app + data/latest + data/geography + data/radar + data/phenomena + satellite)
         run: |
           mkdir -p _site/data
-          cp mri-light-1.2.4.77.html _site/index.html
+          cp mri-light-1.2.4.78.html _site/index.html
           cp sw.js _site/sw.js                                      # 1.2.4.15: Service Worker (cache applicativa)
           cp manifest.webmanifest _site/manifest.webmanifest        # 1.2.4.77: PWA installabile
           cp offline.html _site/offline.html                        # 1.2.4.77: fallback offline

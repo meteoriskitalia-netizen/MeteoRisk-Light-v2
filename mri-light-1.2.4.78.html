@@ -270,6 +270,60 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 .sc-tracked-list { max-height: 34vh; overflow-y: auto; margin-top: 4px; }
 .sc-tracked-row { display: flex; flex-wrap: wrap; gap: 2px 8px; padding: 4px 0; border-top: 1px solid #1f2937; font-size: 11px; color: #cbd5e1; }
 .sc-tracked-foot { margin-top: 4px; font-size: 10px; color: #94a3b8; }
+/* 1.2.4.77+ GERARCHIA STRUTTURE + CONFIDENCE GLOBALE + MINI TIMELINE.
+   Il criterio del Top-N e' scritto nell'intestazione (SOI decrescente), non un
+   "importante" senza motivo. Le righe oltre il Top-N stanno in un <details>. */
+.sc-rank-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 7px 10px; border-bottom: 1px solid #334155; background: #0b1220; }
+.sc-rank-criterion { font-size: 10px; color: #94a3b8; }
+.sc-rank-badge { display: inline-block; min-width: 18px; padding: 1px 5px; border-radius: 9999px; background: #a855f7; color: #fff; font-size: 10px; font-weight: 700; text-align: center; }
+.sc-top-item { background: linear-gradient(90deg, rgba(168,85,247,.12), transparent 60%); box-shadow: inset 2px 0 0 #a855f7; }
+.sc-secondary-details { border-top: 1px solid #334155; }
+.sc-secondary-details > summary { cursor: pointer; padding: 8px 10px; font-size: 11px; color: #cbd5e1; list-style: none; }
+.sc-secondary-details > summary::-webkit-details-marker { display: none; }
+.sc-secondary-details[open] > summary { color: #e2e8f0; background: #0f172a; }
+.sc-secondary-list { border-top: 1px solid #1f2937; }
+.sc-confidence { display: none; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0 10px 6px 10px; padding: 6px 9px; border: 1px solid #334155; border-radius: 6px; background: #0b1220; font-size: 11px; line-height: 1.35; color: #e2e8f0; }
+.sc-confidence .sc-conf-label { font-weight: 700; }
+.sc-confidence .sc-conf-src { font-size: 10px; color: #94a3b8; }
+.sc-timeline { display: none; margin: 0 10px 8px 10px; padding: 8px; border: 1px solid #334155; border-radius: 6px; background: #0b1220; }
+.sc-timeline-head { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; font-size: 11px; color: #e2e8f0; }
+.sc-timeline-head b { color: #f1f5f9; }
+.sc-timeline-note { font-size: 10px; color: #94a3b8; }
+.sc-timeline svg { display: block; width: 100%; height: auto; margin-top: 6px; }
+.sc-timeline .sc-tl-label { font-size: 9px; fill: #94a3b8; }
+.sc-timeline .sc-tl-value { font-size: 10px; font-weight: 700; }
+.sc-timeline .sc-tl-axis { font-size: 8px; fill: #64748b; }
+/* Ordine visivo del pannello SC: Top-N e timeline SUBITO sotto lo stato, prima
+   della legenda lunga. Il DOM resta invariato; su flex l'ordine e' questo. */
+#sc-radar-panel > .live-header { order: 0; }
+#sc-radar-panel > #sc-status { order: 1; }
+#sc-radar-panel > #sc-confidence { order: 2; }
+#sc-radar-panel > #sc-summary { order: 3; }
+#sc-radar-panel > #sc-list { order: 4; }
+#sc-radar-panel > #sc-timeline { order: 5; }
+#sc-radar-panel > .sc-toggles { order: 6; }
+#sc-radar-panel > #sc-alert-box { order: 7; }
+#sc-radar-panel > #sc-phenomena { order: 8; }
+#sc-radar-panel > #sc-legend { order: 9; }
+#sc-radar-panel > .live-hint { order: 10; }
+#sc-radar-panel > #sc-caption-toggle { order: 11; }
+#sc-radar-panel > #sc-caption { order: 12; }
+#sc-radar-panel > #sc-tracked-details { order: 13; }
+@media (max-width: 1279px) {
+  /* Top-N leggibile senza scroll su 390x844: 3 righe (scTopN) compatte, foglio
+     63vh e pre-lista ridotta (niente chip di riepilogo ne' toggle della legenda;
+     header e fonte della confidence compressi). Restano ~37% di mappa sopra. */
+  #sc-radar-panel.panel-sc { max-height: 63vh; }
+  #sc-radar-panel > #legend-collapse-head { display: none !important; }
+  #sc-radar-panel > #sc-summary { display: none !important; }
+  #sc-radar-panel > .live-header > span:not(:first-child) { display: none; }
+  #sc-radar-panel > #sc-confidence { padding: 5px 8px; margin-bottom: 4px; }
+  #sc-radar-panel > #sc-confidence .sc-conf-src { display: none; }
+  #sc-radar-panel .sc-item { padding: 4px 8px; gap: 2px 8px; font-size: 10px; }
+  #sc-radar-panel .sc-row-title { font-size: 11px; }
+  #sc-radar-panel .sc-row-line { line-height: 1.2; }
+  #sc-radar-panel .sc-row-detail > summary { font-size: 9px; }
+}
 .sc-phenomena-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 10px; color: #e2e8f0; padding: 3px 10px; border-top: 1px solid #1f2937; cursor: pointer; }
 .sc-phenomena-glyph { display: inline-flex; width: 18px; height: 18px; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; line-height: 1; flex-shrink: 0; border: 1px solid currentColor; border-radius: 50%; background: rgba(15,23,42,.65); }
 .sc-phenomena-detail { flex-basis: 100%; display: none; margin-top: 2px; font-size: 11px; color: #94a3b8; line-height: 1.35; }
@@ -1851,13 +1905,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
          centraline (.live-legend/.legend-title/.legend-row). -->
     <div class="live-legend" id="live-doppler-box" style="display:none;">
         <div class="legend-title" id="live-doppler-title">Area Doppler — copertura con velocità radiale</div>
-        <div class="legend-row" style="font-size:11px;">Area in cui esiste un radar con velocità radiale (Doppler). Fuori, solo riflettività: la rotazione non è misurabile.</div>
+        <div class="legend-row" style="font-size:11px;">Area in cui esiste un radar con velocità radiale (Doppler). Fuori, solo riflettività: la circolazione interna non è misurabile.</div>
         <div class="legend-row" id="live-doppler-status" style="display:none;font-size:10px;color:#fca5a5;"></div>
         <div class="legend-row" id="live-doppler-credit" style="font-size:10px;color:#94a3b8;">Fonti: EUMETNET/OPERA (CC BY 4.0)</div>
     </div>
+    <div id="live-sc-confidence" class="sc-confidence" style="display:none;"></div>
     <div id="live-sc-summary" style="display:none;gap:8px;flex-wrap:wrap;padding:0 10px 6px 10px;font-size:11px;color:#e2e8f0;"></div>
     <div id="live-sc-phenomena" style="display:none;"></div>
     <div id="live-sc-list" style="max-height:220px;overflow-y:auto;border-top:1px solid #334155;"></div>
+    <div id="live-sc-timeline" class="sc-timeline" style="display:none;"></div>
 </div>
 
 <!-- Pannello Struttura convettiva (descrittore SOI dal Motion Engine; morfologia radar, senza Doppler) -->
@@ -1909,6 +1965,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         previste dal modello.
     </div>
     <div id="sc-status" style="font-size:11px;color:#94a3b8;padding:2px 10px 6px 10px;">Caricamento...</div>
+    <div id="sc-confidence" class="sc-confidence" style="display:none;"></div>
     <div class="sc-toggles">
         <button type="button" id="sc-toggle-trails" class="sc-toggle on" onclick="toggleScTrails()" title="Traccia 2h dei candidati attivi (archivio rolling radar-history)">Traccia 2h</button>
         <button type="button" id="sc-toggle-forecast" class="sc-toggle on" onclick="toggleScForecast()" title="Cono di forecast cinematico ≤2h, solo con fit usato e track coerente">Forecast ≤2h</button>
@@ -1955,10 +2012,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <div class="legend-row"><span><b>Pos</b> — ultima posizione del centro (latitudine/longitudine).</span></div>
         <div class="legend-row"><span><b>Moto osservato</b> — velocità e direzione del centro ricavate dal tracking; "punti utili" = punti che superano il gate di continuità. Se il track non è coerente il moto non viene mostrato come numero.</span></div>
         <div class="legend-row"><span><b>Forecast ≤2h</b> — proiezione cinematica del track. Compare solo con <b>fit usato</b>, non clampato e track coerente; altrimenti la riga dichiara perché non è disponibile.</span></div>
-        <div class="legend-row"><span><b>Allerta prossimità</b> — distanza fra il punto scelto (posizione del dispositivo o clic sulla mappa) e il <b>bordo del cono</b>, non dal centroide: il centroide non dice se il temporale arriva. «Arrivo stimato» = distanza / velocità del moto osservato a velocità costante: è una stima cinematica, <b>non</b> una probabilità.</span></div>
+        <div class="legend-row"><span><b>Allerta prossimità</b> — distanza fra il punto scelto (posizione del dispositivo o clic sulla mappa) e il <b>bordo del cono</b>, non dal centroide: il centroide non dice se il temporale arriva. «Arrivo stimato» = distanza / velocità del moto osservato a velocità costante: è una stima cinematica, <b>non</b> una probabilità. L'allerta scatta <b>solo</b> con <b>moto affidabile</b> e arrivo stimato calcolabile; altrimenti la riga di stato dice perché la struttura non è allertabile.</span></div>
         <div class="legend-row"><span><b>Nascita / Attiva</b> — record nuovo nella finestra corrente (≤3 frame) o già sostenuto. "Nascita" non significa nuovo temporale.</span></div>
         <div class="legend-row"><span><b>non sull'ultimo frame</b> — il track non compare nell'ultima scansione radar: record più vecchio, non necessariamente esaurito.</span></div>
         <div class="legend-row"><span><b>Record / Nascite / Organizzate / Molto organizzate / Sull'ultimo frame / SOI max</b> — conteggi della lista e SOI massimo; le fasce pubblicate sono organizzata 65-79 e molto organizzata 80-100.</span></div>
+        <div class="legend-row"><span><b>Top-N</b> — le prime 4 strutture per <b>SOI decrescente</b> sono in evidenza (badge #1-#4, bordo viola, marker più grande sulla mappa); le altre stanno nel gruppo «Altre strutture», collassabile. È un criterio di ordinamento, non un giudizio di severità.</span></div>
+        <div class="legend-row"><span><b>Qualità del tracking</b> — percentuale di track con moto affidabile e durata mediana. Se il motore pubblica <b>tracking_metrics</b> si usano quei valori; altrimenti il client li calcola da tracks.json (già scaricato) e lo dichiara. «bassa» = meno del 35% delle track con moto affidabile.</span></div>
+        <div class="legend-row"><span><b>Mini timeline</b> — area, dBZ massimo e velocità del track negli ultimi frame già disponibili (track_points, tracks.json o archivio 2h). Nessuna richiesta di rete aggiuntiva; se la serie manca si mostra lo stato corrente e lo si dichiara.</span></div>
         <div class="legend-row"><span><b>Grandine ▲</b> — badge osservato dal radar: POH + struttura verticale + fulmini + zero termico + OT (proxy di riflettività).</span></div>
         <div class="legend-row"><span><b>Struttura asimmetrica ↻</b> — morfologia asimmetrica/hook: proxy di riflettività.</span></div>
         <div class="legend-row"><span><b>Sospetto / Confermato</b> — un solo segnale (SUSPECT, tratteggiato) oppure più segnali concordi (CORROBORATED/VERIFIED, pieno).</span></div>
@@ -1970,6 +2030,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <div class="live-hint" style="margin-top:6px;">Cosa <b>non</b> è calcolabile con questo dato: la circolazione interna della cella, perché il mosaico DPC è a sola riflettività 2D senza velocità radiale; una <b>probabilità calibrata</b> (POD/FAR), perché non esiste un archivio di etichette verificato. MESH, VIL density, SRH e Bunker sono nel file dati ma non in questo pannello, e possono essere assenti (MESH sotto 4 quote CAPPI, SRH sotto 4 livelli di vento).</div>
     </div>
     <div id="sc-list" style="border-top:1px solid #334155;"></div>
+    <div id="sc-timeline" class="sc-timeline" style="display:none;"></div>
     <details id="sc-tracked-details" class="sc-tracked-details">
         <summary id="sc-tracked-summary">Celle tracciate</summary>
         <div id="sc-tracked-list" class="sc-tracked-list"></div>
@@ -2581,9 +2642,17 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.77';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.78';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-11';
     const APP_CHANGELOG = [
+        { version: '1.2.4.78', date: '2026-11-11', changes: [
+  "TOP-N E GERARCHIA= La lista delle strutture non e' piu' piatta: le prime 4 per SOI (3 sotto 1280 px) stanno in evidenza con badge #1..#N, bordo viola e sfondo, le altre in un gruppo secondario chiuso <details> Altre strutture (N) - ordinate per SOI. L'ordinamento e' SOI decrescente con tie-break deterministico sulla chiave del track, e l'intestazione DICHIARA il criterio: organizzazione stimata dalla morfologia, senza Doppler. Sulla mappa i marker del Top-N sono piu' grandi (+10 px, peso +0,8, alone tratteggiato e pallino numerato) cosi' il numero della lista si ritrova sulla mappa. Con meno strutture del Top-N il gruppo secondario non esiste (nessun <details> vuoto).",
+  "CONFIDENCE DEL TRACKING NEL LIVE= Nuovi indicatori #live-sc-confidence e #sc-confidence, riempiti dalla stessa funzione: Qualita' del tracking alta/media/bassa/n/d - N% delle track con moto affidabile - durata mediana N min, con la riga della FONTE. Fonte: tracking_metrics se il motore la pubblica, altrimenti il campo tracking_confidence, altrimenti un fallback DICHIARATO calcolato da tracks.json (gia' scaricato: track con motion_quality reliable e velocita' numerica, mediana di duration_min). Se manca anche quello si leggono le strutture pubblicate e lo si dichiara come campione biased (solo SOI >= 65). Se manca tutto la UI scrive n/d: nessun numero inventato.",
+  "MINI TIMELINE AL CLICK= Cliccando una riga (Top-N o secondaria) si apre una mini timeline SVG inline, senza librerie: tre sparkline (area km2, dBZ max, km/h) con l'ultimo valore a destra e l'asse HH:MMZ-HH:MMZ, piu' la testata N frame - range - fonte. Le serie vengono dai dati GIA' in memoria, in ordine di priorita': track_points se e' un array, tracks.json gia' scaricato (per uno storm object si usa merged_cell.track_id), archivio 2h delle tracce, solo stato corrente. La velocita' e' calcolata fra punti consecutivi e oltre 200 km/h viene scartata (stesso gate cinematico del track). Si chiude al secondo click, al cambio di struttura o quando la struttura sparisce dal payload.",
+  "ALLERTA SOLO CON MOTO AFFIDABILE= L'allerta di prossimita' ha ora DUE gate. Primo: motion_reliable=true, altrimenti la struttura non genera allerta anche se il cono geometricamente esiste, e il pannello scrive N non allertabili (moto non affidabile (motion_reliable=false)). Secondo: l'arrivo stimato deve essere calcolabile (distanza / velocita' del moto osservato > 0), altrimenti nessun banner e motivo ETA non calcolabile. L'ETA arrotonda al MINUTO (prima a 5): 12 km a 40 km/h = 18 min, non 20. Il banner dice Sistema #N a 12 km - arrivo stimato 18 min.",
+  "CONO ELLITTICO, IL POLIGONO DEL MOTORE= Il motore pubblica per ogni struttura forecast.steps[] con cone_polygon (33 vertici chiusi), cone_km_along e cone_km_cross e cone_shape ellipse; il client finora ignorava il poligono e ricostruiva un nastro largo cone_km per lato. Ora scBuildForecastCone usa cone_polygon quando c'e' (anelli dei 4 step fusi in un solo anello con l'inviluppo convesso dei vertici del motore: nessun punto inventato) e tiene il nastro come FALLBACK per le run precedenti, che non hanno il campo. Il cono e' quindi piu' stretto di lato a parita' di estensione lungo il moto: misurato su una struttura reale, area 34.300 km2 contro 57.255 km2 del cerchio di raggio cone_km (rapporto 0,60). Colori, opacita', gating scForecastUsable ed etichette +30/+60/+90 restano invariati.",
+  "BUMP= html mri-light-1.2.4.78.html, VERSION (BUILD=78, DATE=2026-11-11, APP_FILE=mri-light-1.2.4.78.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.78), README.md, i 26 test .mjs col nome del file html in entrambe le forme, le righe cp dei 3 workflow (deploy-pages, radar-engine, update-weather-data); la 1.2.4.77 va RIMOSSA dal repo (una sola app servita da Pages). NON toccati: scripts/ (motore radar, renderer, dataset, color_scales.json, classi di rischio). La release 1.2.4.77 (PWA, #live-toggle-doppler, scAlertEvaluate, 6 aree, fasce altimetriche, pannello a tab) resta intatta."
+        ] },
         { version: '1.2.4.77', date: '2026-11-11', changes: [
   "PWA INSTALLABILE= Nuovi asset statici alla radice: manifest.webmanifest (JSON valido con name, short_name, start_url, display standalone, background/theme #0b1220, lang it e icone 192/512), offline.html e le due icone PNG reali (32.332 B e 147.100 B). L'html dichiara solo due righe nuove dopo il title: <link rel=manifest href=manifest.webmanifest> e <link rel=apple-touch-icon href=icons/icon-192.png>. Nessun'altra modifica alla 1.2.4.76: la fase 3 (scAlertEvaluate, coni, frecce) e l'area Doppler (#live-toggle-doppler) restano intatte.",
   "TILE OFFLINE 7 GIORNI= Nuova cache mri-tiles-* per le tile di tile.openstreetmap.org/z/x/y.png: cache-first con scadenza 7 giorni e tetto 400 voci (~16 MB). Ogni copia porta x-mri-cached-at; se e' scaduta vince la rete, se la rete manca si serve la copia marcata X-MRI-Cache: stale. La cache dei tile e' separata da quella dell'app, quindi la sua potatura non puo' sfrattare i WebP previsionali.",
@@ -10208,17 +10277,15 @@ removeLightningTile();
         }
         var list = document.getElementById('live-sc-list');
         if (list) {
-            list.innerHTML = '';
-            if (!Array.isArray(cands) || cands.length === 0) {
-                list.innerHTML = '<div class="sc-item" style="color:#94a3b8;">Nessun candidato cella organizzata allo scan corrente.</div>';
-            } else {
-                for (var i = 0; i < cands.length; i++) list.appendChild(scCandidateRowEl(cands[i]));
-            }
+            scRenderStructuredList(list, cands, { live: true });
             // A3-1 (LIVE): bind una tantum della selezione anche sulla lista LIVE
             // (stessa delegazione di #sc-list; sopravvive ai re-render). Le righe
             // candidate portano data-sc-key -> scSelectCandidate condiviso.
             scEnsureListClickHandler('live-sc-list');
         }
+        // 1.2.4.77+: stessa confidence globale e stessa mini timeline della vista SC.
+        scRenderTrackingConfidence();
+        scRefreshTimelineSelection();
     }
 
     // Lista compatta fenomeni osservati nella vista LIVE (id dedicato).
@@ -10268,6 +10335,13 @@ removeLightningTile();
             // 1.2.4.76: con la vista celle organizzate spenta non resta sulla mappa
             // ne' il banner ne' il segnaposto dell'allerta (il punto salvato resta).
             scAlertResetView();
+            // 1.2.4.77+: mini timeline e indicatore non restano orfani.
+            scSelectedCandidate = null;
+            scHideTimeline();
+            var confLive = document.getElementById('live-sc-confidence');
+            if (confLive) { confLive.innerHTML = ''; confLive.style.display = 'none'; }
+            var confSc = document.getElementById('sc-confidence');
+            if (confSc) { confSc.innerHTML = ''; confSc.style.display = 'none'; }
             scRadarData = null;
             scPhenomenaData = null;
             scTrailsData = null;
@@ -10285,6 +10359,10 @@ removeLightningTile();
     var scRefreshTimer = null;
     var scSelectedTrackKey = null;   // A3-1: cella organizzata selezionata dalla lista (null = nessuna)
     var SC_REFRESH_MS = 5 * 60 * 1000;
+    // 1.2.4.77+: gerarchia della lista. Le prime SC_TOP_N strutture per SOI
+    // decrescente sono in evidenza; le altre stanno in un gruppo collassabile.
+    var SC_TOP_N = 4;
+    var scSelectedCandidate = null;   // ultimo candidato selezionato (mini timeline)
     var scTrailLayer = null;        // tracce 2h (L.layerGroup su trailPane)
     var scForecastLayer = null;     // coni/linee forecast ≤2h (forecastPane)
     var scPhenomenaLayer = null;    // glyph grandine/rotazione (supercellPane)
@@ -10381,6 +10459,9 @@ removeLightningTile();
                 scClearPhenomena();
                 // 1.2.4.76: banner e segnaposto dell'allerta non restano orfani.
                 scAlertResetView();
+                // 1.2.4.77+: niente mini timeline orfana a pannello chiuso.
+                scSelectedCandidate = null;
+                scHideTimeline();
                 scTrailsData = null;
                 scPhenomenaData = null;
                 scSlotCache = {};
@@ -10428,6 +10509,10 @@ removeLightningTile();
             scRadarLayer = null;
             scTracksData = null;
             renderScTrackedCells(null);
+            // 1.2.4.77+: senza payload l'indicatore degrada a "n/d" (mai un numero inventato).
+            scRenderTrackingConfidence();
+            scSelectedCandidate = null;
+            scHideTimeline();
             scRedrawDerived();
         }
     }
@@ -10498,11 +10583,14 @@ removeLightningTile();
     // (0=N, senso orario). Dimensione/spessore/opacità crescono con SOI; colore dal
     // livello (scLevelColor); se phen (badge grandine/rotazione) è presente aggiunge
     // il glifo e l'accento colore. Doppio stroke scuro/chiaro per leggibilità.
-    function scPennantIcon(candidate, phen) {
+    function scPennantIcon(candidate, phen, rank) {
         var c = candidate || {};
         var soi = (typeof c.soi === 'number' && isFinite(c.soi)) ? Math.max(0, Math.min(100, c.soi)) : 0;
-        var size = 24 + Math.round(soi * 0.14);
-        var weight = Math.round((1.2 + soi * 0.023) * 10) / 10;
+        // 1.2.4.77+: i marker del Top-N sono piu' grandi, con alone e numero di
+        // posizione: la gerarchia della lista si legge anche sulla mappa.
+        var topRank = (typeof rank === 'number' && rank > 0 && rank <= scTopN()) ? Math.round(rank) : 0;
+        var size = 24 + Math.round(soi * 0.14) + (topRank ? 10 : 0);
+        var weight = Math.round((1.2 + soi * 0.023 + (topRank ? 0.8 : 0)) * 10) / 10;
         var onLatest = c.on_latest_frame !== false;
         var opacity = onLatest ? Math.round((0.7 + 0.3 * soi / 100) * 100) / 100 : 0.45;
         var color = scLevelColor(c.level);
@@ -10515,11 +10603,14 @@ removeLightningTile();
             var dash = onLatest ? '' : ' stroke-dasharray="3,3"';
             var svg =
                 '<svg width="' + size + '" height="' + size + '" viewBox="0 0 34 34" style="pointer-events:auto;overflow:visible;">' +
+                (topRank ? '<circle cx="17" cy="17" r="16" fill="none" stroke="' + color + '" stroke-width="1.6" stroke-dasharray="2,2.5" opacity="0.9"/>' : '') +
                 '<g' + transform + dash + '>' +
                 '<path d="M17 2 L30 21 L17 16 L4 21 Z" fill="none" stroke="#0b1220" stroke-width="' + (weight + 2.8) + '" stroke-linejoin="round" opacity="' + opacity + '"/>' +
                 '<path d="M17 2 L30 21 L17 16 L4 21 Z" fill="' + (accent || color) + '" fill-opacity="' + (0.20 + 0.22 * soi / 100) + '" stroke="#e2e8f0" stroke-width="' + (weight + 1.0) + '" stroke-linejoin="round" opacity="' + opacity + '"/>' +
                 '<path d="M17 2 L30 21 L17 16 L4 21 Z" fill="' + (accent || color) + '" fill-opacity="' + (0.20 + 0.22 * soi / 100) + '" stroke="' + color + '" stroke-width="' + weight + '" stroke-linejoin="round" opacity="' + opacity + '" stroke-opacity="' + (0.85 + 0.15 * soi / 100) + '"/>' +
                 '</g>' +
+                (topRank ? '<circle cx="29" cy="5" r="5.2" fill="#a855f7" stroke="#0b1220" stroke-width="1.2"/>' +
+                    '<text x="29" y="8.2" text-anchor="middle" font-size="6.5" font-weight="700" fill="#fff">' + topRank + '</text>' : '') +
                 (glyph ? '<circle cx="17" cy="17" r="6" fill="rgba(15,23,42,.9)" stroke="' + (accent || '#e2e8f0') + '" stroke-width="1.6"/>' +
                     '<text x="17" y="20.5" text-anchor="middle" font-size="18" font-weight="700" fill="' + (accent || '#e2e8f0') + '">' + glyph + '</text>' : '') +
                 '</svg>';
@@ -10602,15 +10693,20 @@ removeLightningTile();
         if (!Array.isArray(cands)) return markers;
         var badges = scActivePhenomenaBadges();
         var phenMap = scBuildPhenMap(badges, cands);
+        // 1.2.4.77+: stessa classifica della lista (SOI decrescente) -> i marker
+        // del Top-N sono piu' grandi e numerati.
+        var topKeys = scTopKeys(cands);
         for (var i = 0; i < cands.length; i++) {
             var c = cands[i];
             if (!(c && c.position && c.position.length === 2)) continue;
             var phen = phenMap[scTrackKey(c)] || null;
+            var rank = topKeys[scTrackKey(c)] || 0;
             var m = L.marker([c.position[1], c.position[0]], {
-                icon: scPennantIcon(c, phen), pane: 'supercellPane', interactive: true
+                icon: scPennantIcon(c, phen, rank), pane: 'supercellPane', interactive: true
             });
             var info = 'SOI ' + c.soi + '/100 — ' + scLevelLabel(c.level) + ' · organizzazione stimata (morfologia)' +
                 (c.phase === 'birth' ? ' (nascita)' : '') +
+                (rank ? '<br>Top ' + rank + ' per SOI' : '') +
                 '<br>Track ' + (c.track_type === 'storm_object' ? 'sistema #' : 'cella #') + c.track_id +
                 '<br>' + c.position[1].toFixed(3) + '°N, ' + c.position[0].toFixed(3) + '°E' +
                 (scForecastUsable(c) && c.forecast && typeof c.forecast.velocity_kmh === 'number' && isFinite(c.forecast.velocity_kmh) ? '<br>Forecast: ' + Math.round(c.forecast.velocity_kmh) + ' km/h verso ' + scCompass(c.forecast.direction_toward_deg) : '') +
@@ -10894,7 +10990,384 @@ removeLightningTile();
             '<span class="sc-chip sc-chip-neutral">' + (c.strong || 0) + ' organizzate</span>' +
             '<span class="sc-chip sc-chip-neutral">' + (c.intense || 0) + ' molto organizzate</span>' +
             '<span class="sc-chip sc-chip-neutral">' + (c.on_latest_frame || 0) + ' sull\'ultimo frame</span>' +
-            '<span class="sc-chip sc-chip-neutral">SOI max ' + ((c.soi_max !== null && c.soi_max !== undefined) ? c.soi_max : '—') + '/100</span>';
+            '<span class="sc-chip sc-chip-neutral">SOI max ' + ((c.soi_max !== null && c.soi_max !== undefined) ? c.soi_max : '—') + '/100</span>' +
+            '<span class="sc-chip sc-chip-neutral">Top ' + Math.min(scTopN(), list.length) + ' per SOI</span>';
+    }
+
+    // ---- 1.2.4.77+: GERARCHIA, CONFIDENCE GLOBALE, MINI TIMELINE ----
+    // Tutto quello che segue legge SOLO dati gia' nel payload scaricato:
+    // convective_structures.json, tracks.json (scaricato da refreshScRadar),
+    // l'archivio 2h gia' in memoria (scTrailsData) e i campi della struttura.
+    // Nessuna richiesta di rete nuova.
+
+    // Ordine deterministico: SOI decrescente (null in fondo), poi chiave track.
+    function scRankCandidates(cands) {
+        var list = Array.isArray(cands) ? cands.slice() : [];
+        list.sort(function(a, b) {
+            var sa = scNum(a && a.soi);
+            var sb = scNum(b && b.soi);
+            if (sa === null) sa = -1;
+            if (sb === null) sb = -1;
+            if (sb !== sa) return sb - sa;
+            var ka = scTrackKey(a), kb = scTrackKey(b);
+            return ka < kb ? -1 : (ka > kb ? 1 : 0);
+        });
+        return list;
+    }
+
+    // Top-N responsive: 4 su desktop (>=1280px), 3 su mobile. Il requisito
+    // ammette 3-5; su 390x844 il foglio e' alto 63vh e 3 righe compatte
+    // restano visibili senza scroll (misurato, vedi report).
+    function scTopN() {
+        if (typeof window !== 'undefined' && window.matchMedia &&
+            window.matchMedia('(max-width: 1279px)').matches) return 3;
+        return (typeof SC_TOP_N === 'number' ? SC_TOP_N : 4);
+    }
+
+    // Mappa chiave -> posizione 1..N per le prime scTopN() strutture.
+    function scTopKeys(cands) {
+        var ranked = scRankCandidates(cands);
+        var keys = {};
+        var n = Math.min(scTopN(), ranked.length);
+        for (var i = 0; i < n; i++) keys[scTrackKey(ranked[i])] = i + 1;
+        return keys;
+    }
+
+    function scMedian(values) {
+        if (!Array.isArray(values) || !values.length) return null;
+        var v = values.slice().sort(function(a, b) { return a - b; });
+        var mid = Math.floor(v.length / 2);
+        return (v.length % 2) ? v[mid] : (v[mid - 1] + v[mid]) / 2;
+    }
+
+    // Qualita' del tracking: prima scelta tracking_metrics (se il motore lo
+    // pubblica), altrimenti FALLBACK DICHIARATO calcolato da tracks.json:
+    //   pct_reliable = track con motion_quality='reliable' e velocity_kmh numerica
+    //   durata mediana = mediana di duration_min
+    // Se anche tracks.json manca, i campi restano null e la UI scrive "n/d".
+    function scTrackingStats() {
+        var p = scRadarData || {};
+        var tm = (p.tracking_metrics && typeof p.tracking_metrics === 'object') ? p.tracking_metrics : null;
+        var out = {
+            confidence: null, pct_reliable: null, median_duration_min: null,
+            total: null, reliable: null, source: null
+        };
+        if (tm) {
+            out.confidence = tm.confidence || tm.global_confidence || p.tracking_confidence || null;
+            // pct_reliable/reliable_pct sono percentuali; reliable_ratio e' 0-1.
+            var ratio = scNum(tm.reliable_ratio);
+            if (ratio !== null && ratio <= 1) ratio = ratio * 100;
+            out.pct_reliable = scFirstNum(tm.pct_reliable, tm.reliable_pct, ratio);
+            out.median_duration_min = scFirstNum(tm.median_duration_min, tm.duration_median_min);
+            out.total = scFirstNum(tm.total, tm.tracks);
+            out.reliable = scFirstNum(tm.reliable, tm.reliable_tracks);
+            out.source = 'tracking_metrics';
+        } else if (typeof p.tracking_confidence === 'string') {
+            out.confidence = p.tracking_confidence;
+        }
+        var tracks = (scTracksData && Array.isArray(scTracksData.tracks)) ? scTracksData.tracks : null;
+        if (tracks && tracks.length && (out.pct_reliable === null || out.median_duration_min === null)) {
+            var rel = 0, durs = [];
+            for (var i = 0; i < tracks.length; i++) {
+                var t = tracks[i];
+                if (!t) continue;
+                if (t.motion_quality === 'reliable' && scNum(t.velocity_kmh) !== null) rel++;
+                var d = scNum(t.duration_min);
+                if (d !== null) durs.push(d);
+            }
+            if (out.total === null) out.total = tracks.length;
+            if (out.reliable === null) out.reliable = rel;
+            if (out.pct_reliable === null) out.pct_reliable = tracks.length ? rel / tracks.length * 100 : null;
+            if (out.median_duration_min === null) out.median_duration_min = scMedian(durs);
+            out.source = out.source ? (out.source + ' + tracks.json') : 'calcolato da tracks.json';
+        }
+        // Secondo fallback (solo se tracks.json manca): le strutture PUBBLICATE
+        // hanno motion_reliable e motion.duration_min. E' un campione biased (solo
+        // SOI >= 65), per questo viene DOPO tracks.json e la fonte lo dichiara.
+        if ((out.pct_reliable === null || out.median_duration_min === null) &&
+            p && Array.isArray(p.structures) && p.structures.length) {
+            var relS = 0, dursS = [], nS = 0;
+            for (var si = 0; si < p.structures.length; si++) {
+                var st = p.structures[si];
+                if (!st) continue;
+                nS++;
+                if (scMotionReliable(st)) relS++;
+                var dS = scNum(st.motion && st.motion.duration_min);
+                if (dS !== null) dursS.push(dS);
+            }
+            if (out.total === null) out.total = nS;
+            if (out.reliable === null) out.reliable = relS;
+            if (out.pct_reliable === null) out.pct_reliable = nS ? relS / nS * 100 : null;
+            if (out.median_duration_min === null) out.median_duration_min = scMedian(dursS);
+            out.source = out.source ? (out.source + ' + strutture') : 'calcolato dalle strutture pubblicate';
+        }
+        // Confidence derivata SOLO se il motore non la pubblica: soglie dichiarate.
+        if (out.confidence === null && out.pct_reliable !== null) {
+            out.confidence = out.pct_reliable >= 60 ? 'high' : (out.pct_reliable >= 35 ? 'medium' : 'low');
+            out.confidence_derived = true;
+        }
+        return out;
+    }
+
+    function scTrackingConfidenceText(stats) {
+        var s = stats || {};
+        var label = s.confidence === 'high' ? 'alta'
+            : (s.confidence === 'medium' ? 'media' : (s.confidence === 'low' ? 'bassa' : 'n/d'));
+        var pct = (s.pct_reliable === null || s.pct_reliable === undefined)
+            ? 'n/d' : (scFmtInt(Math.round(s.pct_reliable)) + '%');
+        var med = (s.median_duration_min === null || s.median_duration_min === undefined)
+            ? 'n/d' : (scFmtInt(Math.round(s.median_duration_min)) + ' min');
+        return 'Qualità del tracking: ' + label + ' · ' + pct +
+            ' delle track con moto affidabile · durata mediana ' + med;
+    }
+
+    // Scrive l'indicatore in ENTRAMBE le viste (pannello SC e pannello LIVE).
+    // Null-safe: gli elementi possono mancare nei test/vm.
+    function scRenderTrackingConfidence() {
+        var stats = scTrackingStats();
+        var txt = scTrackingConfidenceText(stats);
+        var src = stats.source
+            ? ('fonte: ' + stats.source + (stats.confidence_derived ? ' · confidenza derivata dalla percentuale' : ''))
+            : 'fonte: n/d (tracking_metrics e tracks.json assenti)';
+        var html = '<span class="sc-conf-label">' + txt + '</span>' +
+            '<span class="sc-conf-src">' + src + '</span>';
+        var ids = ['live-sc-confidence', 'sc-confidence'];
+        for (var i = 0; i < ids.length; i++) {
+            var el = document.getElementById(ids[i]);
+            if (!el) continue;
+            el.innerHTML = html;
+            el.style.display = 'flex';
+        }
+        return stats;
+    }
+
+    // Mini timeline: serie dagli ultimi frame disponibili. Priorita':
+    // 1) track_points come ARRAY (payload futuro, se il motore lo pubblichera');
+    // 2) tracks.json gia' scaricato (per uno storm_object si usa merged_cell);
+    // 3) archivio 2h gia' in memoria (scTrailsData, stessi slot del layer tracce);
+    // 4) solo lo stato corrente (la UI lo dichiara).
+    // La velocita' e' calcolata fra punti consecutivi; oltre 200 km/h e' scartata
+    // (stesso gate cinematico di scTrackCoherent), quindi il grafico non disegna
+    // salti di track come se fossero moto reale.
+    function scTimelineSeries(c) {
+        var out = { points: [], source: null };
+        if (!c) return out;
+        var pts = [];
+        function pushPoint(t, area, dbz, lonlat) {
+            var ms = scNum(t);
+            if (ms === null && typeof t === 'string') {
+                var parsed = Date.parse(t);
+                if (isFinite(parsed)) ms = parsed;
+            }
+            if (ms === null) return;
+            var ll = (lonlat && lonlat.length === 2 && isFinite(lonlat[0]) && isFinite(lonlat[1]))
+                ? [Number(lonlat[0]), Number(lonlat[1])] : null;
+            pts.push({ t: ms, area: scNum(area), dbz: scNum(dbz), lonlat: ll });
+        }
+        if (Array.isArray(c.track_points)) {
+            for (var i = 0; i < c.track_points.length; i++) {
+                var p = c.track_points[i] || {};
+                pushPoint(p.timestamp_ms !== undefined ? p.timestamp_ms : (p.timestamp !== undefined ? p.timestamp : p.t), p.area_km2, p.max_dbz, p.lonlat);
+            }
+            if (pts.length) out.source = 'track_points';
+        }
+        if (!pts.length && scTracksData && Array.isArray(scTracksData.tracks)) {
+            var wanted = (c.track_type === 'storm_object')
+                ? ((c.merged_cell && c.merged_cell.track_id !== undefined) ? c.merged_cell.track_id : null)
+                : ((c.track_id !== undefined) ? c.track_id : null);
+            if (wanted !== null) {
+                for (var j = 0; j < scTracksData.tracks.length; j++) {
+                    var tr = scTracksData.tracks[j];
+                    if (!tr || String(tr.track_id) !== String(wanted)) continue;
+                    if (Array.isArray(tr.points)) {
+                        for (var k = 0; k < tr.points.length; k++) {
+                            var tp = tr.points[k] || {};
+                            pushPoint(tp.timestamp_ms !== undefined ? tp.timestamp_ms : tp.timestamp, tp.area_km2, tp.max_dbz, tp.lonlat);
+                        }
+                    }
+                    break;
+                }
+                if (pts.length) out.source = 'tracks.json (già scaricato)';
+            }
+        }
+        if (!pts.length && scTrailsData) {
+            var arr = scTrailsData[scTrailLookupKey(c)];
+            if (Array.isArray(arr)) {
+                for (var m = 0; m < arr.length; m++) {
+                    var ap = arr[m] || {};
+                    pushPoint(ap.t, null, ap.max_dbz, ap.lonlat);
+                }
+                if (pts.length) out.source = 'archivio 2h (già scaricato)';
+            }
+        }
+        if (!pts.length) {
+            pushPoint(c.last_seen || c.first_seen, c.area_km2, c.intensity && c.intensity.max_dbz, c.position);
+            if (pts.length) out.source = 'stato corrente (serie storica non disponibile)';
+        }
+        pts.sort(function(a, b) { return a.t - b.t; });
+        var seen = {}, uniq = [];
+        for (var q = 0; q < pts.length; q++) {
+            if (seen[pts[q].t]) continue;
+            seen[pts[q].t] = 1;
+            uniq.push(pts[q]);
+        }
+        if (uniq.length > 12) uniq = uniq.slice(-12);
+        for (var r = 0; r < uniq.length; r++) {
+            uniq[r].speed = null;
+            if (r > 0 && uniq[r].lonlat && uniq[r - 1].lonlat) {
+                var dtMin = (uniq[r].t - uniq[r - 1].t) / 60000;
+                var dist = scHaversineKm(uniq[r - 1].lonlat, uniq[r].lonlat);
+                if (dtMin > 0 && dist !== null) {
+                    var v = dist / (dtMin / 60);
+                    if (isFinite(v) && v <= 200) uniq[r].speed = v;
+                }
+            }
+        }
+        out.points = uniq;
+        return out;
+    }
+
+    function scTimelineClock(ms) {
+        var d = new Date(ms);
+        return ('0' + d.getUTCHours()).slice(-2) + ':' + ('0' + d.getUTCMinutes()).slice(-2);
+    }
+
+    // SVG minimale: tre righe (area, dBZ, km/h), scala LOCALE per riga, ultimo
+    // valore a destra. Nessuna libreria, nessun canvas.
+    function scTimelineSvg(series) {
+        var pts = (series && Array.isArray(series.points)) ? series.points : [];
+        if (!pts.length) return '<div class="sc-timeline-note">Serie non disponibile: nessun timestamp nel payload.</div>';
+        var W = 340, H = 120, left = 44, right = 48, top = 2, rowH = 36;
+        var n = pts.length;
+        function x(i) { return left + (n <= 1 ? (W - left - right) / 2 : (i * (W - left - right) / (n - 1))); }
+        function row(vals, color, y0, fmt) {
+            var nums = [];
+            for (var i = 0; i < vals.length; i++) if (vals[i] !== null && vals[i] !== undefined) nums.push(vals[i]);
+            if (!nums.length) return '<text x="' + (left + 4) + '" y="' + (y0 + 20) + '" class="sc-tl-label">n/d</text>';
+            var min = Math.min.apply(null, nums), max = Math.max.apply(null, nums);
+            if (max === min) max = min + 1;
+            var d = [];
+            for (var j = 0; j < n; j++) {
+                var v = vals[j];
+                if (v === null || v === undefined) continue;
+                var y = y0 + 26 - ((v - min) / (max - min)) * 22;
+                d.push((d.length ? 'L' : 'M') + x(j).toFixed(1) + ' ' + y.toFixed(1));
+            }
+            var last = null;
+            for (var k = vals.length - 1; k >= 0; k--) {
+                if (vals[k] !== null && vals[k] !== undefined) { last = vals[k]; break; }
+            }
+            return '<path d="' + d.join(' ') + '" fill="none" stroke="' + color + '" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>' +
+                '<text x="' + (W - right + 4) + '" y="' + (y0 + 14) + '" class="sc-tl-value" fill="' + color + '">' + fmt(last) + '</text>';
+        }
+        var areas = [], dbzs = [], speeds = [];
+        for (var i = 0; i < n; i++) {
+            areas.push(pts[i].area);
+            dbzs.push(pts[i].dbz);
+            speeds.push(pts[i].speed);
+        }
+        var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Mini timeline area, dBZ massimo e velocità">';
+        svg += '<text x="2" y="' + (top + 14) + '" class="sc-tl-label">Area km²</text>';
+        svg += row(areas, '#a855f7', top, function(v) { return scFmtInt(Math.round(v)); });
+        svg += '<text x="2" y="' + (top + rowH + 14) + '" class="sc-tl-label">dBZ max</text>';
+        svg += row(dbzs, '#f59e0b', top + rowH, function(v) { return scFmtInt(Math.round(v)); });
+        svg += '<text x="2" y="' + (top + 2 * rowH + 14) + '" class="sc-tl-label">km/h</text>';
+        svg += row(speeds, '#22c55e', top + 2 * rowH, function(v) { return scFmtInt(Math.round(v)); });
+        svg += '<text x="' + left + '" y="' + (H - 2) + '" class="sc-tl-axis">' + scTimelineClock(pts[0].t) + 'Z</text>';
+        svg += '<text x="' + (W - right) + '" y="' + (H - 2) + '" text-anchor="end" class="sc-tl-axis">' + scTimelineClock(pts[n - 1].t) + 'Z</text>';
+        svg += '</svg>';
+        return svg;
+    }
+
+    function scTimelineHtml(c) {
+        if (!c) return '';
+        var series = scTimelineSeries(c);
+        var pts = series.points || [];
+        var name = (c.track_type === 'storm_object' ? 'Sistema #' : 'Cella #') + scAlertSafe(c.track_id);
+        var range = pts.length
+            ? (scTimelineClock(pts[0].t) + '–' + scTimelineClock(pts[pts.length - 1].t) + 'Z')
+            : 'n/d';
+        var head = '<div class="sc-timeline-head"><b>Mini timeline · ' + name + '</b> ' +
+            '<span class="sc-timeline-note">' + pts.length + ' frame · ' + range +
+            ' · fonte: ' + scAlertSafe(series.source || 'n/d') + '</span></div>';
+        return head + scTimelineSvg(series);
+    }
+
+    function scRenderTimeline(c) {
+        if (!c) { scHideTimeline(); return null; }
+        var html = scTimelineHtml(c);
+        var ids = ['sc-timeline', 'live-sc-timeline'];
+        for (var i = 0; i < ids.length; i++) {
+            var el = document.getElementById(ids[i]);
+            if (!el) continue;
+            el.innerHTML = html;
+            el.style.display = 'block';
+        }
+        return c;
+    }
+
+    function scHideTimeline() {
+        var ids = ['sc-timeline', 'live-sc-timeline'];
+        for (var i = 0; i < ids.length; i++) {
+            var el = document.getElementById(ids[i]);
+            if (!el) continue;
+            el.innerHTML = '';
+            el.style.display = 'none';
+        }
+    }
+
+    function scRefreshTimelineSelection() {
+        if (!scSelectedTrackKey) { scHideTimeline(); return; }
+        var cands = (scRadarData && Array.isArray(scRadarData.structures)) ? scRadarData.structures : [];
+        for (var i = 0; i < cands.length; i++) {
+            if (scTrackKey(cands[i]) === scSelectedTrackKey) {
+                scSelectedCandidate = cands[i];
+                scRenderTimeline(cands[i]);
+                return;
+            }
+        }
+        scSelectedTrackKey = null;
+        scSelectedCandidate = null;
+        scHideTimeline();
+    }
+
+    // Lista strutturata condivisa dalle due viste: Top-N in evidenza + gruppo
+    // secondario collassabile. Il criterio e' scritto nell'intestazione.
+    function scRenderStructuredList(list, cands, opts) {
+        if (!list) return;
+        var live = !!(opts && opts.live);
+        list.innerHTML = '';
+        var ranked = scRankCandidates(cands);
+        if (!ranked.length) {
+            var empty = document.createElement('div');
+            empty.className = 'sc-item';
+            empty.style.color = '#94a3b8';
+            empty.textContent = live
+                ? 'Nessun candidato cella organizzata allo scan corrente.'
+                : 'Nessun candidato nell\'ultima scansione radar (avvio = nessun record emesso).';
+            list.appendChild(empty);
+            return;
+        }
+        var topN = Math.min(scTopN(), ranked.length);
+        var head = document.createElement('div');
+        head.className = 'sc-rank-head';
+        head.innerHTML = '<span class="sc-chip sc-chip-neutral">Top ' + topN + ' per SOI</span> ' +
+            '<span class="sc-rank-criterion">ordinamento per SOI decrescente (organizzazione stimata dalla morfologia, senza Doppler)</span>';
+        list.appendChild(head);
+        for (var i = 0; i < topN; i++) list.appendChild(scCandidateRowEl(ranked[i], i + 1));
+        if (ranked.length > topN) {
+            var det = document.createElement('details');
+            det.className = 'sc-secondary-details';
+            det.id = live ? 'live-sc-secondary' : 'sc-secondary-details';
+            var summary = document.createElement('summary');
+            summary.textContent = 'Altre strutture (' + (ranked.length - topN) + ') · ordinate per SOI';
+            det.appendChild(summary);
+            var box = document.createElement('div');
+            box.className = 'sc-secondary-list';
+            for (var j = topN; j < ranked.length; j++) box.appendChild(scCandidateRowEl(ranked[j], 0));
+            det.appendChild(box);
+            list.appendChild(det);
+        }
     }
 
     // Elemento riga candidato: 7 punti. 1-4 sempre visibili; 5-7 nel <details>
@@ -10902,16 +11375,23 @@ removeLightningTile();
     // Elemento riga candidato: composizione, posizione con provincia, SOI,
     // moto (osservato o motivo), dettaglio. La composizione (celle/area) DEGRADA
     // omettendo la parte mancante: mai "0" o "n/d celle" al posto di un dato assente.
-    function scCandidateRowEl(c) {
+    function scCandidateRowEl(c, rank) {
         var row = document.createElement('div');
-        row.className = 'sc-item';
+        var topRank = (typeof rank === 'number' && rank > 0) ? Math.round(rank) : 0;
+        row.className = 'sc-item' + (topRank ? ' sc-top-item' : '');
+        if (topRank) {
+            row.setAttribute('data-sc-rank', String(topRank));
+            row.title = 'Top ' + topRank + ' per SOI decrescente';
+        }
         var rowKey = scTrackKey(c);
         row.setAttribute('data-sc-key', rowKey);
         if (rowKey === scSelectedTrackKey) row.classList.add('sc-selected');
         var name = (c.track_type === 'storm_object' ? 'Sistema #' : 'Cella #') + c.track_id;
         var cells = scNum(c.cell_count);
         var area = scTrackArea(c);
-        var titleParts = [name];
+        var titleParts = [];
+        if (topRank) titleParts.push('<span class="sc-rank-badge">#' + topRank + '</span>');
+        titleParts.push(name);
         if (cells !== null) titleParts.push(cells === 1 ? '1 cella' : scFmtInt(cells) + ' celle');
         if (area.end !== null) titleParts.push(scFmtInt(area.end) + ' km²');
         var phaseChip = c.phase === 'birth'
@@ -11100,17 +11580,16 @@ removeLightningTile();
             sum.style.display = 'flex';
             sum.innerHTML = scCandidatesSummaryHtml(cands, cards);
         }
-        // Lista candidati
+        // Lista candidati: Top-N per SOI + gruppo secondario collassabile.
         var list = scRadarEl('sc-list');
         if (list) {
-            list.innerHTML = '';
             scEnsureListClickHandler();   // A3-1: bind una tantum su #sc-list (delegazione, sopravvive ai re-render)
-            if (cands.length === 0) {
-                list.innerHTML = '<div class="sc-item" style="color:#94a3b8;">Nessun candidato nell\'ultima scansione radar (avvio = nessun record emesso).</div>';
-            } else {
-                cands.forEach(function(c) { list.appendChild(scCandidateRowEl(c)); });
-            }
+            scRenderStructuredList(list, cands, { live: false });
         }
+        // 1.2.4.77+: indicatore di qualita' del tracking (payload gia' scaricato).
+        scRenderTrackingConfidence();
+        // 1.2.4.77+: la mini timeline segue il refresh se una struttura e' selezionata.
+        scRefreshTimelineSelection();
         // 1.2.4.73: lista separata e collassabile delle celle con SOI 50-64.
         renderScTrackedCells(payload);
         // Overlay mappa: pennant direzionale per candidato (solo candidati).
@@ -11166,8 +11645,17 @@ removeLightningTile();
             if (scSelectedTrackKey && r.getAttribute('data-sc-key') === scSelectedTrackKey) r.classList.add('sc-selected');
             else r.classList.remove('sc-selected');
         }
-        if (scSelectedTrackKey) scCenterOnCandidate(c);
-        else console.log('[SC] selezione rimossa (' + key + ')');
+        if (scSelectedTrackKey) {
+            scSelectedCandidate = c;
+            // 1.2.4.77+: click sulla struttura -> mini timeline (area, dBZ, km/h)
+            // dagli ultimi frame gia' disponibili. Nessuna rete nuova.
+            scRenderTimeline(c);
+            scCenterOnCandidate(c);
+        } else {
+            scSelectedCandidate = null;
+            scHideTimeline();
+            console.log('[SC] selezione rimossa (' + key + ')');
+        }
     }
 
     function scCenterOnCandidate(c) {
@@ -11366,13 +11854,81 @@ removeLightningTile();
         return fallback;
     }
 
-    // Cono di incertezza forecast: anello CHIUSO dal path origine->steps con
-    // margine perpendicolare = cone_km convertito in gradi (km/111.32 sulla
-    // latitudine, /cos(lat) sulla longitudine). Output = [[lat,lon],...] con il
-    // primo punto ripetuto in coda; null se il forecast è invalido.
+    // Cono di incertezza forecast. Dal 1.2.4.78 il motore pubblica per OGNI step
+    // il poligono REALE del cono (`cone_polygon`: ellisse con semiasse lungo =
+    // `cone_km_along` e trasverso = `cone_km_cross`, `cone_shape` "ellipse"). Se
+    // c'e', si disegna QUEL poligono: i vertici sono del motore, non ricostruiti
+    // qui. Gli anelli dei singoli step si fondono in UN solo anello con l'inviluppo
+    // convesso dei loro vertici: nessun punto inventato, l'output e' un
+    // sottoinsieme dell'input. Fallback INVARIATO per le run precedenti alla
+    // 1.2.4.78 (senza `cone_polygon`): il nastro costruito da `cone_km`, identico
+    // alla 1.2.4.77. Output = [[lat,lon],...] con il primo punto ripetuto in coda;
+    // null se il forecast e' invalido.
+    // Gli helper sono INTERNI alla funzione: il test .mjs estrae il corpo di
+    // scBuildForecastCone con una regex e deve poterlo valutare da solo.
     function scBuildForecastCone(forecast, originLonLat) {
+        // Poligono di uno step: GeoJSON Polygon ({type:'Polygon',coordinates:[[[lon,lat],...]]})
+        // oppure array di [lon,lat]. Ritorna un anello [[lat,lon],...] o null.
+        function coneRingFromStep(step) {
+            var cp = step && step.cone_polygon;
+            if (!cp) return null;
+            var ring = null;
+            if (Array.isArray(cp)) ring = cp;
+            else if (cp && Array.isArray(cp.coordinates) && Array.isArray(cp.coordinates[0])) ring = cp.coordinates[0];
+            if (!ring || ring.length < 4) return null;
+            var out = [];
+            for (var i = 0; i < ring.length; i++) {
+                var pt = ring[i];
+                if (!(pt && pt.length === 2)) return null;
+                var lon = Number(pt[0]), lat = Number(pt[1]);
+                if (!isFinite(lon) || !isFinite(lat)) return null;
+                if (lon < -180 || lon > 180 || lat < -90 || lat > 90) return null;
+                out.push([lat, lon]);
+            }
+            return out;
+        }
+        // Inviluppo convesso (monotone chain) di punti [lat,lon] -> anello chiuso.
+        // Tutti i vertici restituiti SONO vertici dell'input.
+        function convexHullRing(points) {
+            if (!Array.isArray(points) || points.length < 3) return null;
+            var pts = points.slice().sort(function (a, b) { return (a[1] - b[1]) || (a[0] - b[0]); });
+            function cross(o, a, b) {
+                return (a[1] - o[1]) * (b[0] - o[0]) - (a[0] - o[0]) * (b[1] - o[1]);
+            }
+            var lower = [], upper = [], i;
+            for (i = 0; i < pts.length; i++) {
+                while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], pts[i]) <= 0) lower.pop();
+                lower.push(pts[i]);
+            }
+            for (i = pts.length - 1; i >= 0; i--) {
+                while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], pts[i]) <= 0) upper.pop();
+                upper.push(pts[i]);
+            }
+            lower.pop();
+            upper.pop();
+            var hull = lower.concat(upper);
+            if (hull.length < 3) return null;
+            hull.push([hull[0][0], hull[0][1]]);
+            return hull;
+        }
         var steps = forecast && Array.isArray(forecast.steps) ? forecast.steps : null;
         if (!steps || !steps.length) return null;
+        // 1) poligoni pubblicati dal motore (1.2.4.78+): il dato, non una stima
+        var rings = [], ri;
+        for (ri = 0; ri < steps.length; ri++) {
+            var rStep = coneRingFromStep(steps[ri]);
+            if (rStep) rings.push(rStep);
+        }
+        if (rings.length === 1) return rings[0];
+        if (rings.length > 1) {
+            var all = [];
+            for (ri = 0; ri < rings.length; ri++) {
+                for (var rj = 0; rj < rings[ri].length; rj++) all.push(rings[ri][rj]);
+            }
+            var hull = convexHullRing(all);
+            if (hull && hull.length >= 4) return hull;
+        }
+        // 2) fallback 1.2.4.77: nastro da cone_km (run senza cone_polygon)
         var chain = [], margins = [];
         if (originLonLat && originLonLat.length === 2 && isFinite(originLonLat[0]) && isFinite(originLonLat[1])) {
             chain.push([originLonLat[0], originLonLat[1]]);
@@ -11863,16 +12419,18 @@ removeLightningTile();
 
     // "Arrivo stimato" = t = d / v * 60 minuti, con d = distanza minima punto<->bordo
     // del cono in km e v = velocita' del moto OSSERVATO in km/h (la stessa della
-    // freccia), arrotondata a 5 minuti. E' una stima cinematica a velocita' costante:
+    // freccia), arrotondata al MINUTO. E' una stima cinematica a velocita' costante:
     // NON e' una probabilita' e non dice che il temporale colpira' il punto.
-    // null se la velocita' manca o non e' positiva -> la riga scrive "n/d".
+    // 1.2.4.77+: arrotondamento a 1 min (non piu' a 5) perche' l'ETA e' il gate
+    // dell'allerta: 12 km a 40 km/h = 18 min, non 20.
+    // null se la velocita' manca o non e' positiva -> la struttura NON e' allertabile.
     function scAlertArrivalMin(c, distKm) {
         var vel = scNum(c && c.motion && c.motion.velocity_kmh);
         var d = scNum(distKm);
         if (vel === null || vel <= 0 || d === null || d < 0) return null;
         var t = d / vel * 60;
         if (!isFinite(t)) return null;
-        return Math.round(t / 5) * 5;
+        return Math.round(t);
     }
 
     function scAlertSafe(v) {
@@ -12097,7 +12655,7 @@ removeLightningTile();
     // il motivo in chiaro nella riga di stato. Ritorna { point, alerts, with_cone }
     // per i test; non lancia mai.
     function scAlertEvaluate(sourceLabel) {
-        var out = { point: scAlertPoint, alerts: [], with_cone: 0, without_cone: 0 };
+        var out = { point: scAlertPoint, alerts: [], with_cone: 0, without_cone: 0, not_alertable: 0 };
         if (!scAlertPoint) {
             scAlertHideBanner();
             scAlertRemoveLayer();
@@ -12118,23 +12676,43 @@ removeLightningTile();
         for (var i = 0; i < cands.length; i++) {
             var c = cands[i];
             if (!c || !c.on_latest_frame) continue;
+            // 1.2.4.77+: PRIMO gate dell'allerta = moto affidabile. Senza
+            // motion_reliable=true la struttura non genera allerta, anche se il
+            // cono geometricamente esiste: il pannello dice il motivo.
+            if (!scMotionReliable(c)) {
+                var whyMotion = 'moto non affidabile (motion_reliable=false)';
+                reasons[whyMotion] = (reasons[whyMotion] || 0) + 1;
+                out.not_alertable++;
+                continue;
+            }
             if (!scForecastUsable(c)) {
                 var why = scAlertNoConeReason(c);
                 reasons[why] = (reasons[why] || 0) + 1;
                 out.without_cone++;
+                out.not_alertable++;
                 continue;
             }
             var cone = scBuildForecastCone(c.forecast, c.position);
             if (!cone || cone.length < 4) {
                 reasons['cono non disegnabile'] = (reasons['cono non disegnabile'] || 0) + 1;
                 out.without_cone++;
+                out.not_alertable++;
                 continue;
             }
             var d = scPointToPolygonKm([scAlertPoint.lon, scAlertPoint.lat], cone);
             if (!d) continue;
+            // SECONDO gate: ETA calcolato (distanza / velocita'). Se la velocita'
+            // manca o non e' positiva, l'arrivo stimato non esiste -> nessun banner.
+            var arrival = scAlertArrivalMin(c, d.km);
+            if (arrival === null) {
+                var whyEta = 'ETA non calcolabile (velocità del moto n/d)';
+                reasons[whyEta] = (reasons[whyEta] || 0) + 1;
+                out.not_alertable++;
+                continue;
+            }
             out.with_cone++;
             if (d.km <= scAlertThresholdKm) {
-                alerts.push({ candidate: c, km: d.km, inside: d.inside, arrival_min: scAlertArrivalMin(c, d.km) });
+                alerts.push({ candidate: c, km: d.km, inside: d.inside, arrival_min: arrival });
             }
         }
         alerts.sort(function (x, y) { return x.km - y.km; });
@@ -12155,7 +12733,7 @@ removeLightningTile();
             rk.sort(function (x, y) { return reasons[y] - reasons[x]; });
             var tot = 0;
             for (var ri = 0; ri < rk.length; ri++) tot += reasons[rk[ri]];
-            parts.push(scFmtInt(tot) + ' senza cono (' + rk[0] + ')');
+            parts.push(scFmtInt(tot) + ' non allertabili (' + rk[0] + ')');
         }
         if (sourceLabel) parts.push(sourceLabel);
         scAlertStatusText(parts.join(' · '));
