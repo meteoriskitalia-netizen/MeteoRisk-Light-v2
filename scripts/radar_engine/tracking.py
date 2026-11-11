@@ -309,6 +309,7 @@ def tracking_metrics(tracks, track_type="cell", max_speed_kmh=None,
     active = [t for t in published
               if getattr(t, "status", None) == models.STATUS_ACTIVE]
     durations = []
+    current_durations = []
     for t in active:
         motion = getattr(t, "motion", None) or {}
         value = motion.get("duration_min")
@@ -318,9 +319,17 @@ def tracking_metrics(tracks, track_type="cell", max_speed_kmh=None,
         try:
             value = float(value)
         except (TypeError, ValueError):
-            continue
-        if math.isfinite(value):
+            value = None
+        if value is not None and math.isfinite(value):
             durations.append(value)
+        # Durata senza il punto di archivio (frame_index=-1): audit separato,
+        # perche' il seed puo' allungare la track con una osservazione REALE
+        # del run precedente. Non sostituisce la metrica richiesta.
+        pts_now = [p for p in t.points
+                   if getattr(p, "frame_index", 0) >= 0]
+        if len(pts_now) >= 2:
+            current_durations.append(
+                (pts_now[-1].timestamp_ms - pts_now[0].timestamp_ms) / 60000.0)
     max_speed = float(max_speed_kmh) if max_speed_kmh is not None \
         else float(_speed_range_kmh()[1])
     jumps = 0
@@ -365,6 +374,9 @@ def tracking_metrics(tracks, track_type="cell", max_speed_kmh=None,
         "pct_reliable": round(100.0 * reliable / n, 1) if n else None,
         "median_duration_min": (round(statistics.median(durations), 1)
                                 if durations else None),
+        "median_duration_current_min": (
+            round(statistics.median(current_durations), 1)
+            if current_durations else None),
         "id_switch_rate": (round((jumps + reids) / n, 3) if n else None),
         "id_switch_jumps": jumps,
         "id_switch_reids": reids,
@@ -373,6 +385,11 @@ def tracking_metrics(tracks, track_type="cell", max_speed_kmh=None,
         "lineage_continuation": continuation,
         "lineage_links": links,
         "n_frames_ge_3": sum(1 for t in published if len(t.points) >= 3),
+        # Audit: n_frames del solo ciclo corrente (esclude frame_index=-1).
+        "n_frames_current_ge_3": sum(
+            1 for t in published
+            if len([p for p in t.points
+                    if getattr(p, "frame_index", 0) >= 0]) >= 3),
         "continued_from_history": sum(
             1 for t in published
             if getattr(t, "continued_from_history", False)),
@@ -398,11 +415,13 @@ def build_tracking_metrics(cell_tracks, storm_tracks, **kwargs):
     combined = tracking_metrics(list(cell_tracks or []) + list(storm_tracks or []),
                                 "combined", **kwargs)
     out = {"primary_layer": "combined"}
-    for key in ("pct_reliable", "median_duration_min", "id_switch_rate",
+    for key in ("pct_reliable", "median_duration_min",
+                "median_duration_current_min", "id_switch_rate",
                 "lineage_split", "lineage_merge", "lineage_continuation",
                 "lineage_links", "id_switch_jumps", "id_switch_reids",
                 "n_tracks", "n_active_tracks", "n_frames_ge_3",
-                "continued_from_history", "thresholds"):
+                "n_frames_current_ge_3", "continued_from_history",
+                "thresholds"):
         out[key] = combined[key]
     out["cell"] = cell
     out["storm_object"] = storm
