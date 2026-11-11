@@ -449,3 +449,48 @@ def test_evaluate_e_supercells_json_contengono_forecast(tmp_path):
     assert forecasts[1]["basis_frames"] >= 4
     assert forecasts[2] is None
     assert output.validate_outputs(str(tmp_path / "radar")) == []
+
+
+def test_record_porta_i_campi_nwp_anche_senza_forecast(tmp_path):
+    """I campi NWP/ensemble stanno sul RECORD, non dentro `forecast`.
+
+    Un record senza cono (moto non affidabile, qui `on_latest_frame=False`)
+    deve comunque pubblicare le nove chiavi: e' il caso che il client legge per
+    disegnare l'ensemble quando il cono non c'e'. Se i campi restassero dentro
+    il blocco `forecast`, un record con `forecast: null` non avrebbe ne'
+    `nwp_motion` ne' `ensemble` (la seconda patch esiste per questo)."""
+    bundle = models.EngineBundle("ok", "2026-04-30T10:00:00Z", output.SOURCE_LABEL)
+    dlon = 5.0 / _km_per_deg_lon(41.0)          # 5 km per 5 min -> 60 km/h
+    cells = [make_cell(
+        12.0 + i * dlon, 41.0, T0 + i * STEP_S * 1000,
+        area_km2=300.0 * (1.0 + 0.4 * i / 5), max_dbz=54.0, mean_dbz=48.0,
+        frame_index=i, cell_id="nwp-{}".format(i)) for i in range(6)]
+    alive = make_track(cells, 1)
+    alive.motion = _wrong_motion()
+    dead = make_track([make_cell(
+        p.lonlat[0], p.lonlat[1], p.timestamp_ms, area_km2=p.area_km2,
+        max_dbz=p.max_dbz, mean_dbz=p.mean_dbz, frame_index=p.frame_index,
+        cell_id="nwp-dead-{}".format(i))
+        for i, p in enumerate(alive.points[:4])], 2)
+    dead.motion = _wrong_motion()
+    bundle.tracks = [alive, dead]
+    bundle.radar_timestamp_ms = alive.points[-1].timestamp_ms
+    bundle.radar_timestamp_iso = _iso(bundle.radar_timestamp_ms)
+    bundle.cells_by_frame = [[c] for c in cells]
+    sc_mod.evaluate(bundle, CONFIG["convective_structure"])
+    paths = output.write_outputs(bundle, str(tmp_path / "radar"))
+    with open(paths["convective_structures.json"], encoding="utf-8") as fh:
+        payload = json.load(fh)
+    motion_keys = {"nwp_motion", "nwp_motion_null_reason", "nwp_motion_detail",
+                   "motion_blend", "motion_weights", "motion_blend_components",
+                   "ensemble", "ensemble_basis", "ensemble_null_reason"}
+    assert len(payload["structures"]) == 2
+    for rec in payload["structures"]:
+        assert motion_keys <= set(rec), rec["structure_id"]
+        # una sola copia nel JSON: niente campi anche dentro il blocco cono
+        assert not (motion_keys & set(rec.get("forecast") or {}))
+    by_id = {c["track_id"]: c for c in payload["structures"]}
+    assert by_id[2]["forecast"] is None
+    assert by_id[2]["motion_weights"]["obs"] is not None
+    assert by_id[1]["ensemble"] is not None
+    assert by_id[2]["ensemble"] is not None
