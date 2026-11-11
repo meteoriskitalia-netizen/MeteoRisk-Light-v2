@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.2.4.72 - DISCLAIMER POTENZIALE/NWP UNA VOLTA SOLA (SCHEDE E TOOLTIP PULITI), CONFINE DOPPLER SEMPRE VISIBILE E DISEGNATO DI DEFAULT, LEGENDA FULMINI MORTA RIMOSSA (bump da 1.2.4.71)
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=72
+RELEASE_TYPE=release
+DATE=2026-11-11
+NOTE=Release 1.2.4.72 (bump da 1.2.4.71) - SOLO CLIENT. (1) DISCLAIMER RIPETUTO RIMOSSO: la riga 'Potenziale ambientale (modello NWP): condizioni favorevoli previste, non un evento osservato' e stata tolta dal corpo della scheda provincia (#zone-risk-origin) e da OGNI tooltip (badge della scheda via riskBadgeTip, badge sulla mappa, dischi dei rischi in RISK_DEFS, barra riepilogo). La distinzione potenziale/evento resta UNA volta: nella legenda badge (#badge-legend-bar) e nel pulsante '?'. Nel tooltip resta la riga 'Colore dovuto a: [rischio] (livello N)'; 'osservato dal radar' viene aggiunto solo se il livello deriva da una cella radar osservata (oggi la scala provincia e calcolata solo su NWP, quindi non compare: il default non si scrive). (2) CONFINE DOPPLER: il pulsante #btn-doppler era display:none e il confine si caricava solo col player radar attivo, quindi col provider di default (rainviewer) non si vedeva MAI. Ora il pulsante e sempre in toolbar, il confine (data/radar/doppler_coverage.geojson, 134 poligoni) si disegna di default all'apertura della mappa, la preferenza OFF resta salvata in localStorage (chiave meteorisk.dopplerCoverage.v1). Se il file da 404 o errore il pulsante e disabilitato con il motivo nel title, senza eccezioni. (3) LEGENDA FULMINI MORTA RIMOSSA: il blocco 'Legenda fulmini (eta delle scariche)' dentro #live-panel (intestazione collassabile creata da bindLegend + 4 pastiglie eta + hint #live-hint) e stato rimosso; con Blitzortung disattivato mostrava una intestazione senza dati. Rimossa anche la pastiglia 'Fulmini n/d' dalle righe candidato: la chip compare solo quando il valore esiste. Il pannello LIVE resta con Struttura convettiva e Centraline. BUMP: html mri-light-1.2.4.72.html, VERSION (BUILD=72, DATE=2026-11-11), sw.js (CACHE_NAME mri-1.2.4.72), README.md, i 26 test .mjs, le 5 righe cp dei 3 workflow. La 1.2.4.71 va RIMOSSA dal repo. NON toccati: scripts/, workflow dei dati, color_scales.json, classi di rischio della 1.2.4.71, dataset e renderer.
+APP_FILE=mri-light-1.2.4.72.html
+
 MeteoRisk Light - 1.2.4.71 - CLASSI DI RISCHIO RICALIBRATE (SCALA R2 CON RAFICHE, MERGE PER MODELLO, POTENZIALE != EVENTO) E PANNELLI A TAB DELLA 1.2.4.70 MANTENUTI (bump da 1.2.4.70)
 MAJOR=1
 MINOR=2

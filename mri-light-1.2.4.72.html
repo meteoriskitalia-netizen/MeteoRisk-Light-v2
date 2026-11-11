@@ -1337,7 +1337,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             .metric-title, #hour-slider-label, #hour-slider-disp, .mp-label,
             #badge-legend-toggle, .legend, .live-legend, .live-hint,
             #live-subtitle, #tile-load-box, #sync-caption,
-            #sync-preload-status, #zone-risk-origin, .fm-legend,
+            #sync-preload-status, .fm-legend,
             .fm-legend-note, .fm-legend-cat-row, .fm-timeline-run,
             #model-compare-note, .bl-note, .model-table, #model-compare-refresh,
             #ens-head-meta, #footer-version, .dev-label, .live-tag
@@ -1659,7 +1659,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <option value="librewxr">LibreWXR (DPC+OPERA)</option>
             <option value="dpc">DPC Italia (WebP)</option>
         </select>
-        <button type="button" id="btn-doppler" class="tool-btn" onclick="toggleDopplerCoverage()" style="display:none; font-size:11px; flex-shrink:0;" title="Mostra o nascondi il confine della copertura Doppler (linea tratteggiata rossa): dentro il tratteggio il radar dispone di velocità radiale, fuori no">Doppler: ON</button>
+        <button type="button" id="btn-doppler" class="tool-btn" onclick="toggleDopplerCoverage()" style="font-size:11px; flex-shrink:0;" title="Mostra o nascondi il confine della copertura Doppler (linea tratteggiata rossa): dentro il tratteggio il radar dispone di velocità radiale, fuori no">Doppler: ON</button>
         <select id="dpc-product-select" class="tool-btn" onchange="changeDpcProduct(this.value)" style="font-size:11px; display:none; flex-shrink:0">
             <option value="VMI" selected>VMI — Riflettività Max</option>
             <option value="SRI">SRI — Pioggia al Suolo</option>
@@ -1741,24 +1741,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <span class="live-dot"></span> <strong>LIVE · TEMPO REALE</strong>
         <span id="live-subtitle" style="font-size:10px;color:#94a3b8;">Satellite + radar live · Struttura convettiva e centraline (toggle)</span>
     </div>
-    <div class="live-legend" id="live-legend">
-        <div class="legend-title">Età dei fulmini (giallo → rosso, 0-120 min)</div>
-        <div class="legend-row">
-            <span class="legend-swatch" style="background:rgb(255,192,0);"></span><span>recenti</span>
-            <span class="legend-swatch" style="background:rgb(255,128,0);"></span><span>medi</span>
-            <span class="legend-swatch" style="background:rgb(255,64,0);"></span><span>vecchi</span>
-            <span class="legend-swatch" style="background:rgb(255,0,0);"></span><span>più vecchi</span>
-        </div>
-    </div>
-    <div class="live-hint" id="live-hint">
-        I colori rappresentano l'età dei fulmini: giallo = recenti, rosso = più vecchi.
-        La durata è selezionabile nel player (fino a 120 min, slot 5 min).
-        Le scariche live vengono accumulate via WebSocket e mostrate come marker.
-        Il tile raster di sfondo mostra la densità cumulativa (come maps.blitzortung.org).
-        Le successioni di fulmini indicano la traiettoria dei sistemi temporaleschi.
-        Più i colori sono distanti tra loro, più la propagazione è rapida (fronti freddi).
-        Colori sovrapposti indicano temporali di calore stagnanti.
-    </div>
     <div class="sc-toggles">
         <button type="button" id="live-toggle-supercells" class="sc-toggle" onclick="toggleLiveSupercells()" title="Record di struttura convettiva (data/radar/convective_structures.json) e fenomeni osservati, riusati dal pannello Struttura convettiva e mostrati qui nel pannello LIVE">Struttura convettiva</button>
         <button type="button" id="live-toggle-stations" class="sc-toggle" onclick="toggleLiveStations()" title="Strato delle centraline osservate (data/stations/, MeteoHub/ItaliaMeteo, CC BY 4.0): etichette con la temperatura a 2 m. Indipendente dalla sorgente METAR/Modelli/Centraline del pannello.">Centraline</button>
@@ -1830,7 +1812,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <br><strong style="color:#22c55e;">Eventi osservati (radar)</strong>: questi badge indicano un
         fenomeno <em>rilevato dal radar</em> e sono distinti dai badge di <em>rischio</em> sulla mappa,
         che esprimono solo il <strong>potenziale ambientale (modello NWP)</strong> — condizioni favorevoli
-        previste, non un evento osservato.
+        previste dal modello.
     </div>
     <div id="sc-status" style="font-size:11px;color:#94a3b8;padding:2px 10px 6px 10px;">Caricamento...</div>
     <div class="sc-toggles">
@@ -1854,7 +1836,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <div class="legend-row"><span><b>Strutt.V</b> — 0-100: struttura verticale dai prodotti DPC (VIL 35%, ETM 25%, POH 25%, overhang 15%).</span></div>
         <div class="legend-row"><span><b>OT</b> — 0-100: overshooting top da satellite IR_108: area di pixel a ≤ 215 K (-58 °C) che sono almeno 6,5 °C più freddi dell'anvillo a ~8 km. Indica un updraft forte, non la rotazione.</span></div>
         <div class="legend-row"><span><b>Fulmini</b> — 0-100: 70% dal rate dell'ultimo slot da 5 minuti nel raggio 30 km (satura a 100 fulmini) + 30% dal salto di tendenza. "n/d" se il dato manca.</span></div>
-        <div class="legend-row"><span><b>Env</b> — 0-100: ambiente previsto dal modello NWP (100·tanh(SCP/3), corretto per la completezza). È potenziale previsto, non un evento osservato.</span></div>
+        <div class="legend-row"><span><b>Env</b> — 0-100: ambiente previsto dal modello NWP (100·tanh(SCP/3), corretto per la completezza). È potenziale previsto dal modello.</span></div>
         <div class="legend-row"><span><b>Track</b> — identificativo del track: <b>cella #N</b> (cella convettiva) o <b>sistema #N</b> (storm object = celle vicine raggruppate dal tracking).</span></div>
         <div class="legend-row"><span><b>Pos</b> — ultima posizione del centro (latitudine/longitudine).</span></div>
         <div class="legend-row"><span><b>km/h verso</b> — velocità e direzione del moto (fit del tracking quando è affidabile).</span></div>
@@ -2279,7 +2261,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                 <div id="zone-type" class="zone-type-tag">Zona Selezionata</div>
                 <h2 id="zone-title">Seleziona un punto sulla mappa</h2>
                 <span id="zone-badge" class="badge bg-low">In attesa...</span>
-                <div id="zone-risk-origin" style="font-size:10px;color:#94a3b8;line-height:1.3;margin-top:2px;">⚠️ <b style="color:#cbd5e1;">Potenziale ambientale (modello NWP)</b>: condizioni favorevoli previste, <b>non</b> un evento osservato (gli eventi rilevati dal radar sono nel pannello "Struttura convettiva").</div>
                 <div id="hail-indicator" class="hail-indicator">
                     <span class="hail-badge hail-none">❄️ Grandine: Assente</span>
                     <span id="hail-detail">CAPE: -- J/kg</span>
@@ -2484,9 +2465,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.71';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-11-10';
+    const APP_VERSION = '1.2.4.72';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-11-11';
     const APP_CHANGELOG = [
+        { version: '1.2.4.72', date: '2026-11-11', changes: [
+  "BADGE SENZA DISCLAIMER RIPETUTO= La riga 'Potenziale ambientale (modello NWP): condizioni favorevoli previste, non un evento osservato' e stata tolta dal corpo della scheda provincia (#zone-risk-origin) e da OGNI tooltip (badge della scheda, badge sulla mappa, dischi dei rischi, barra riepilogo). La distinzione potenziale/evento resta UNA volta: nella legenda badge e nel pulsante '?'. Nel tooltip resta la riga 'Colore dovuto a: [rischio] (livello N)'; 'osservato dal radar' compare solo se il livello deriva da una cella radar osservata (oggi il livello provincia e calcolato solo su NWP, quindi non compare).",
+  "CONFINE DOPPLER SEMPRE VISIBILE= Il pulsante #btn-doppler era display:none e il confine si caricava solo col player radar attivo: con il provider di default (rainviewer) non si vedeva MAI. Ora il pulsante e sempre in toolbar, il confine (data/radar/doppler_coverage.geojson, 134 poligoni) si disegna di default all'apertura della mappa, la preferenza OFF resta salvata in localStorage (chiave meteorisk.dopplerCoverage.v1). Se il file da 404 o errore il pulsante e disabilitato con il motivo nel title, nessuna eccezione.",
+  "LEGENDA FULMINI RIMOSSA= Il blocco 'Legenda fulmini (eta delle scariche)' dentro #live-panel (intestazione collassabile creata da bindLegend + 4 pastiglie eta + hint) e stato rimosso: con Blitzortung disattivato mostrava una intestazione senza dati. Rimossa anche la pastiglia 'Fulmini n/d' dalle righe candidato (il valore lightning e null: la pastiglia compare solo quando c'e un numero). Il pannello LIVE resta con Struttura convettiva e Centraline.",
+  "BUMP= html mri-light-1.2.4.72.html, VERSION (BUILD=72, DATE=2026-11-11), sw.js (CACHE_NAME mri-1.2.4.72), README.md, i 26 test .mjs, le 5 righe cp dei 3 workflow. La 1.2.4.71 va RIMOSSA dal repo. NON toccati: scripts/, workflow dei dati, color_scales.json, classi di rischio della 1.2.4.71, dataset e renderer."
+        ]},
         { version: '1.2.4.71', date: '2026-11-10', changes: [
   "SCALA DI RISCHIO R2 RICALIBRATA= La classe non e piu una somma di ingredienti: 4 = pioggia >45 mm oppure raffiche >100 km/h oppure (codice >=95 e pioggia >=10 mm e CAPE >=300 J/kg); 3 = pioggia >15 mm oppure raffiche >75 km/h oppure (codice >=95 e pioggia >=3 mm e CAPE >=150 J/kg) oppure (codice 80-90 e pioggia >=8 mm); 2 = probabilita >60% oppure pioggia >1 mm oppure raffiche >50 km/h; 1 = probabilita >20% oppure pioggia >0,2 mm. Le congiunte convettive sono valutate ORA PER ORA sullo STESSO modello (codice, pioggia e CAPE della stessa ora), non su aggregati di ore diverse. La classe 5 resta il mesociclone con innesco.",
   "VENTO SULLE RAFICHE, NON SULLA MEDIA= La vecchia condizione wind >60 km/h non scattava MAI: nel dataset la media massima del vento in Italia e 24,6 km/h contro raffiche fino a 89 km/h, quindi la gamba vento era morta. Ora usa windgusts_10m (massimo giornaliero, o valore dell'ora in vista oraria) con soglie 50/75/100 km/h. Misurato il 2026-11-10: 3,9% delle province-giorno sopra 75 km/h, 0,3% sopra 100 km/h.",
@@ -4845,7 +4832,7 @@ function enabledLightningSourceIds() {
         rain:         { label: 'Rovesci / pioggia', color: '#38bdf8', title: 'Possibili rovesci e pioggia anche intensa' },
         wind:         { label: 'Vento',            color: '#2dd4bf', title: 'Vento con possibili raffiche' },
         thunderstorm: { label: 'Temporali',         color: '#8b5cf6', title: 'Possibili temporali' },
-        hail:         { label: 'Grandine (potenziale NWP)', color: '#22d3ee', title: 'Possibile grandine secondo il modello (potenziale ambientale, non un evento osservato)' },
+        hail:         { label: 'Grandine (potenziale NWP)', color: '#22d3ee', title: 'Possibile grandine secondo il modello' },
         heat:         { label: 'Caldo intenso',     color: '#fb923c', title: 'Caldo intenso / ondata di calore' },
         cold:         { label: 'Gelate / freddo',   color: '#60a5fa', title: 'Freddo / possibili gelate' },
         snow:         { label: 'Neve',              color: '#cbd5e1', title: 'Possibili nevicate' },
@@ -4853,9 +4840,9 @@ function enabledLightningSourceIds() {
         supercell:    { label: 'Convezione organizzata (NWP)', color: '#a855f7',
                         potentialLabel: CONV_POTENTIAL_LABEL, potentialColor: CONV_POTENTIAL_COLOR,
                         title: 'Convezione organizzata con innesco nella stessa ora (weather code 95-99 con pioggia > 0,1 mm/h): descrizione ambientale del modello NWP, NON un rilevamento radar e NON una misura di rotazione',
-                        potentialTitle: 'Ambiente favorevole a convezione organizzata SENZA alcun innesco previsto nella stessa ora: potenziale ambientale, non un evento' },
-        vorticosi:    { label: 'Vortici / tornado (potenziale NWP)', color: '#d946ef', title: 'Possibili fenomeni vorticosi (tornado / tromba marina) secondo il modello (potenziale ambientale, non un evento osservato)' },
-        downburst:    { label: 'Downburst / raffiche (potenziale NWP)', color: '#f43f5e', title: 'Possibile downburst con raffiche convettive intense secondo il modello (potenziale ambientale, non un evento osservato)' },
+                        potentialTitle: 'Ambiente favorevole a convezione organizzata SENZA alcun innesco previsto nella stessa ora' },
+        vorticosi:    { label: 'Vortici / tornado (potenziale NWP)', color: '#d946ef', title: 'Possibili fenomeni vorticosi (tornado / tromba marina) secondo il modello' },
+        downburst:    { label: 'Downburst / raffiche (potenziale NWP)', color: '#f43f5e', title: 'Possibile downburst con raffiche convettive intense secondo il modello' },
         fog:          { label: 'Nebbia (potenziale NWP)', color: '#94a3b8', title: 'Indice 0-100 di potenziale della nebbia: aria prossima alla saturazione, vento debole, umidità alta. Non è visibilità misurata e non è una probabilità' },
     };
 
@@ -5208,6 +5195,11 @@ function enabledLightningSourceIds() {
         var s = computeZoneRiskSummary(agg);
         if (!s.level) return 'Nessun rischio rilevante';
         var head = 'Colore dovuto a: ' + s.driverLabel + ' (livello ' + s.level + ')';
+        // 1.2.4.72 - "osservato dal radar" SOLO se il livello deriva da una cella
+        // radar osservata. Oggi la scala provincia e' calcolata solo su NWP (regola
+        // 1.2.4.71): nessun componente imposta radar=true, quindi il tag non compare
+        // e la riga resta "Colore dovuto a: ..." (il default NWP non si scrive).
+        if (s.driverRadar) head += ' — osservato dal radar';
         var others = [];
         for (var i = 1; i < s.components.length && others.length < 3; i++) {
             others.push(s.components[i].label + ' (' + s.components[i].level + ')');
@@ -5218,7 +5210,7 @@ function enabledLightningSourceIds() {
     // Costruisce l'HTML della nuvola hover: nome provincia + disco dei rischi attivi
     function buildRiskTooltip(idx) {
         var item = regionsData[idx];
-        var base = '<b>' + 'Provincia di ' + item.prov + '</b><br><span style="color:#94a3b8;">' + item.region + ' · criticità previste (potenziale ambientale NWP)</span>';
+        var base = '<b>' + 'Provincia di ' + item.prov + '</b><br><span style="color:#94a3b8;">' + item.region + ' · criticità previste</span>';
         var risks = computeActiveRisks(idx);
         var agg = getAggregateForZone(idx);
         var driver = agg ? riskDriverLine(agg) : 'Nessun rischio rilevante';
@@ -5446,7 +5438,7 @@ function enabledLightningSourceIds() {
                 return '<li><b>' + name + ' — ' + riskLevelLine(r, agg) + '.</b>' + infoTag + '<br><span style="color:#94a3b8;">' +
                     riskLevelImpact(r, agg) + '</span></li>';
             }).join('');
-            note = '<div class="rs-note"><b>Colore = rischio piu\' alto fra TUTTI i pericoli previsti</b> (livello = massimo dei livelli): ' + escapeHtml(riskDriverLine(agg)) + '. <b>Potenziale ambientale (modello NWP)</b>, non un evento osservato: indica condizioni favorevoli previste. Gli eventi rilevati dal radar (grandine/struttura asimmetrica/candidati cella organizzata) sono nel pannello "Struttura convettiva". Riferito a ' + (currentHour === 'all' ? 'tutta la giornata selezionata' : 'ore ' + String(currentHour).padStart(2, '0') + ':00') + '.</div>';
+            note = '<div class="rs-note"><b>Colore = rischio piu\' alto fra TUTTI i pericoli previsti</b> (livello = massimo dei livelli): ' + escapeHtml(riskDriverLine(agg)) + '. Riferito a ' + (currentHour === 'all' ? 'tutta la giornata selezionata' : 'ore ' + String(currentHour).padStart(2, '0') + ':00') + '.</div>';
         }
 
         el.innerHTML = head + '<ul class="rs-list">' + list + '</ul>' + note;
@@ -8081,7 +8073,9 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
     }
 
     function addDopplerCoverageLayer() {
-        if (!radarDopplerActive() || !dopplerCoverageEnabled) return;
+        // 1.2.4.72 - il confine e' una geometria STATICA (134 poligoni): non dipende
+        // dal provider radar ne' dal player. Resta solo la preferenza dell'utente.
+        if (!dopplerCoverageEnabled) return;
         if (!dopplerCoverageData || !map) return;
         ensureDopplerPane();
         var t0 = performance.now();
@@ -8140,7 +8134,7 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
     }
 
     function ensureDopplerCoverage() {
-        if (!radarDopplerActive() || !dopplerCoverageEnabled) return;
+        if (!dopplerCoverageEnabled) return;
         if (dopplerCoverageData) {
             addDopplerCoverageLayer();
             return;
@@ -8156,12 +8150,13 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
             .then(function(data) {
                 dopplerCoverageLoading = false;
                 dopplerCoverageData = data;
-                if (radarDopplerActive() && dopplerCoverageEnabled) addDopplerCoverageLayer();
+                if (dopplerCoverageEnabled) addDopplerCoverageLayer();
             })
             .catch(function(e) {
                 dopplerCoverageLoading = false;
                 dopplerCoverageError = String((e && e.message) || e);
                 console.warn("[Doppler] copertura non disponibile: " + dopplerCoverageError);
+                applyDopplerButtonState();
                 renderRadarLegend();
             });
     }
@@ -8293,26 +8288,43 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
         }
     }
 
+    // 1.2.4.72 - stato del pulsante SEMPRE aggiornato, anche senza player radar.
+    // Se il geojson non arriva (404/rete) il pulsante e' disabilitato e il motivo
+    // sta nel title: nessuna eccezione, nessun confine disegnato a meta'.
+    var DOPPLER_BTN_TITLE = "Mostra o nascondi il confine della copertura Doppler (linea tratteggiata rossa): dentro il tratteggio il radar dispone di velocit\u00e0 radiale, fuori no";
+    function applyDopplerButtonState() {
+        var btn = document.getElementById("btn-doppler");
+        if (!btn) return;
+        btn.style.display = "";
+        if (dopplerCoverageError) {
+            btn.disabled = true;
+            btn.innerText = "Doppler: n/d";
+            btn.title = "Confine Doppler non disponibile: " + dopplerCoverageError;
+            btn.style.borderColor = "#334155";
+            btn.style.color = "#94a3b8";
+            btn.setAttribute("aria-pressed", "false");
+            return;
+        }
+        btn.disabled = false;
+        btn.title = DOPPLER_BTN_TITLE;
+        btn.innerText = dopplerCoverageEnabled ? "Doppler: ON" : "Doppler: OFF";
+        btn.style.borderColor = dopplerCoverageEnabled ? "#ef4444" : "#334155";
+        btn.style.color = dopplerCoverageEnabled ? "#fca5a5" : "";
+        btn.setAttribute("aria-pressed", dopplerCoverageEnabled ? "true" : "false");
+    }
     function updateRadarDopplerUI() {
         var on = radarDopplerActive();
-        var btn = document.getElementById("btn-doppler");
-        if (btn) {
-            btn.style.display = on ? "" : "none";
-            btn.innerText = dopplerCoverageEnabled ? "Doppler: ON" : "Doppler: OFF";
-            btn.style.borderColor = dopplerCoverageEnabled ? "#ef4444" : "#334155";
-            btn.style.color = dopplerCoverageEnabled ? "#fca5a5" : "";
-            btn.setAttribute("aria-pressed", dopplerCoverageEnabled ? "true" : "false");
-        }
+        applyDopplerButtonState();
         var legend = document.getElementById("radar-legend");
         if (legend) legend.style.display = on ? "flex" : "none";
         if (on) {
             ensureRadarSourcesInfo();
-            if (dopplerCoverageEnabled) ensureDopplerCoverage();
-            else removeDopplerCoverageLayer();
             renderRadarLegend();
-        } else {
-            removeDopplerCoverageLayer();
         }
+        // Il confine NON e' legato al player: si disegna anche col provider
+        // rainviewer (il file e' indipendente dal provider).
+        if (dopplerCoverageEnabled) ensureDopplerCoverage();
+        else removeDopplerCoverageLayer();
     }
 
     function updateScSourceBadge(latest) {
@@ -10298,10 +10310,13 @@ removeLightningTile();
     }
 
     // ---- A3-2: chip metrica record (scala SOI 65/80, baseline n/d) ----
-    function scMetricChip(label, v) {
+    function scMetricChip(label, v, hideWhenMissing) {
         var cls = 'sc-chip sc-chip-sustained';
         var txt;
         if (v === null || v === undefined || v === '' || (typeof v === 'number' && !isFinite(v))) {
+            // 1.2.4.72 - chip senza valore = pastiglia inutile ("Fulmini n/d"):
+            // si omette del tutto invece di mostrare una riga che non informa.
+            if (hideWhenMissing) return '';
             txt = label + ' n/d';
         } else {
             var num = (typeof v === 'number') ? v : parseFloat(v);
@@ -10362,7 +10377,7 @@ removeLightningTile();
             scMetricChip('Hook', c.hook) +
             scMetricChip('Strutt.V', c.structure) +
             scMetricChip('OT', c.ot) +
-            scMetricChip('Fulmini', c.lightning) +
+            scMetricChip('Fulmini', c.lightning, true) +
             scMetricChip('Env', c.env_scp);
         row.innerHTML =
             levelChip + phaseChip + fresh +
@@ -18161,7 +18176,6 @@ function toggleForecastMaps() {
             if (r.level >= 1 && r.level <= 4 && typeof BADGE_LEVEL_NAME !== 'undefined') {
                 badgeTitle += ' — ' + BADGE_LEVEL_NAME[r.level] + ': ' + (BADGE_LEVEL_DESC[r.level] || '');
             }
-            badgeTitle += ' (potenziale del modello NWP, non un evento osservato)';
             return '<span class="map-risk-badge" style="background:' + color + '" title="' + badgeTitle + '">' +
                 '<svg width="13" height="13" viewBox="0 0 48 48" aria-hidden="true">' + riskIconSvg(r.id) + '</svg></span>';
         };
@@ -21461,7 +21475,7 @@ function toggleForecastMaps() {
             code: agg && agg.code, cape: agg && agg.cape
         });
         if (r2 > 0) {
-            out.push({ id: 'risk', level: r2, potential: false, convEvent: false, info: false,
+            out.push({ id: 'risk', level: r2, potential: false, convEvent: false, radar: false, info: false,
                        label: (agg && agg.r2Reason) ? agg.r2Reason : riskR2Reason(agg) });
         }
         var risks = computeRisksForAgg(agg);
@@ -21476,7 +21490,7 @@ function toggleForecastMaps() {
             // classe POTENZIALE, che R2 non rappresenta.
             if (r.id === 'supercell' && !r.potential) continue;
             out.push({ id: r.id, level: r.level, potential: !!r.potential,
-                       convEvent: !!r.convEvent, info: !!r.info,
+                       convEvent: !!r.convEvent, radar: !!r.radar, info: !!r.info,
                        label: riskComponentLabel(r) });
         }
         return out;
@@ -21488,11 +21502,11 @@ function toggleForecastMaps() {
                 var c = list[i], cur = byId[c.id];
                 if (!cur) {
                     byId[c.id] = { id: c.id, level: c.level, potential: c.potential,
-                                   convEvent: c.convEvent, info: c.info, label: c.label };
+                                   convEvent: c.convEvent, radar: c.radar, info: c.info, label: c.label };
                     order.push(c.id);
                 } else if (c.level > cur.level) {
                     cur.level = c.level; cur.potential = c.potential;
-                    cur.convEvent = c.convEvent; cur.label = c.label;
+                    cur.convEvent = c.convEvent; cur.radar = c.radar; cur.label = c.label;
                 }
             }
         };
@@ -21511,7 +21525,7 @@ function toggleForecastMaps() {
     // prende il massimo dei livelli. Mai CAPE di un modello con shear/SRH dell'altro.
     function computeZoneRiskSummary(agg) {
         if (!agg) return { level: 0, driverId: null, driverLabel: 'Nessun rischio rilevante',
-                           driverPotential: false, driverConvEvent: false, components: [] };
+                           driverPotential: false, driverConvEvent: false, driverRadar: false, components: [] };
         var comps;
         if (agg._modelAggA && agg._modelAggB) {
             comps = mergeComponentLists(zoneRiskComponents(agg._modelAggA), zoneRiskComponents(agg._modelAggB));
@@ -21525,6 +21539,7 @@ function toggleForecastMaps() {
                  driverLabel: driver ? driver.label : 'Nessun rischio rilevante',
                  driverPotential: driver ? !!driver.potential : false,
                  driverConvEvent: driver ? !!driver.convEvent : false,
+                 driverRadar: driver ? !!driver.radar : false,
                  components: comps };
     }
 
@@ -23891,14 +23906,16 @@ function renderContinuousOverlay() {
     // 1.2.4.64 - TESTO IN PAROLE dei badge e degli indici (nessuna soglia nuova:
     // i numeri vengono da BADGE_LEVEL_NAME/BADGE_LEVEL_DESC e dai commenti delle
     // formule gia' presenti in questo file).
-    var ORIGIN_NWP = 'Potenziale ambientale del modello (NWP): condizioni favorevoli previste, non un evento osservato.';
+    // 1.2.4.72 - il badge della scheda provincia NON ripete piu' il disclaimer
+    // potenziale/NWP: la distinzione potenziale-evento sta una sola volta nella
+    // legenda badge (e nel pulsante "?"). Resta il testo del rischio e del livello.
     function riskBadgeTip(profile) {
-        if (!profile) return ORIGIN_NWP;
+        if (!profile) return '';
         var lv = profile.level;
         var name = (lv >= 1 && lv <= 4 && BADGE_LEVEL_NAME) ? BADGE_LEVEL_NAME[lv] : (lv === 5 ? 'Convezione organizzata' : '');
         var desc = (lv >= 1 && lv <= 4 && BADGE_LEVEL_DESC) ? BADGE_LEVEL_DESC[lv] : 'Energia e vento in quota da cella organizzata.';
         var t = profile.riskText + (name ? ' ' + '\u2014' + ' livello ' + lv + ' di 5 (' + name + '): ' + desc : '.');
-        return t + '. ' + ORIGIN_NWP;
+        return t;
     }
     function capeBand(c) {
         if (c === null || c === undefined || !isFinite(c)) return '';
@@ -23926,7 +23943,7 @@ function renderContinuousOverlay() {
         'Strutt.V': 'Struttura verticale dai prodotti radar (liquido in colonna, quota della cima, probabilità di grandine, eco alta): 0-100.',
         'OT': 'Overshooting top (0-100): la cima del temporale buca l\'incudine nel satellite infrarosso. Indica una corrente ascensionale forte, non la rotazione.',
         'Fulmini': 'Fulmini nel raggio di 30 km nell\'ultimo intervallo di 5 minuti (100 = 100 scariche) più la tendenza: 0-100.',
-        'Env': 'Ambiente previsto dal modello attorno alla cella (0-100): è potenziale previsto, non un evento osservato.'
+        'Env': 'Ambiente previsto dal modello attorno alla cella (0-100): è potenziale previsto dal modello.'
     };
     function scSoiTip(soi) {
         return 'Struttura organizzata della cella: SOI ' + soi + '/100 (nucleo, forma e persistenza). Da 65 il record viene pubblicato; non è una probabilità.';
@@ -23966,7 +23983,7 @@ function renderContinuousOverlay() {
         var d = RISK_DEFS[id];
         if (!d) return;
         var title = d.title || d.label;
-        var origin = '<span class="bl-tip-origin">Potenziale ambientale (modello NWP) — condizioni favorevoli previste, non un evento osservato</span>';
+        var origin = '<span class="bl-tip-origin">Potenziale previsto dal modello (NWP)</span>';
         if (lv >= 1) {
             tip.innerHTML = '<b>' + d.label + '</b> — Livello ' + lv + ' (' + BADGE_LEVEL_NAME[lv] + ')<br>'
                 + BADGE_LEVEL_DESC[lv] + '<br>' + origin + '<br><span class="bl-tip-title">' + title + '</span>';
@@ -27987,18 +28004,15 @@ function renderContinuousOverlay() {
     //   UI            -> #live-panel RESTA nel DOM anche con Blitzortung OFF (1.2.3.1):
     //                     ospita la funzione interna "Struttura convettiva" (#live-toggle-supercells
     //                     + #live-sc-summary/list/phenomena), quindi deve restare raggiungibile
-    //                     a prescindere dai fulmini. Con flag OFF si neutralizza SOLO la UI
-    //                     specifica dei fulmini (legenda età #live-legend + hint #live-hint);
-    //                     il titolo è generico e il sottotitolo è già neutralizzato in HTML.
-    //   LEGEND        -> #live-legend/#live-hint nascosti (display:none) con flag OFF
+    //                     a prescindere dai fulmini. Dalla 1.2.4.72 non c'è più la legenda
+    //                     età dei fulmini (#live-legend) né il suo hint (#live-hint): niente
+    //                     da neutralizzare, il pannello mostra solo i blocchi con dati.
     //   ATTRIBUTION   -> aggiunta solo quando il tile raster è creato (flag true)
-    function applyPublicEditionFeatureVisibility() {
-        var blitzOff = !isFeatureEnabled('lightningBlitzortung');
-        var legendEl = document.getElementById('live-legend');
-        if (legendEl) legendEl.style.display = blitzOff ? 'none' : '';
-        var hintEl = document.getElementById('live-hint');
-        if (hintEl) hintEl.style.display = blitzOff ? 'none' : '';
-    }
+    // 1.2.4.72 - la legenda eta dei fulmini (#live-legend) e il suo hint
+    // (#live-hint) sono stati RIMOSSI dal pannello LIVE: con Blitzortung disattivato
+    // mostravano solo intestazioni senza dati. Non resta niente da nascondere qui;
+    // il pannello LIVE ospita la Struttura convettiva e le centraline.
+    function applyPublicEditionFeatureVisibility() {}
 
     function applyFeatureFlagConstraints() {
 
@@ -29200,6 +29214,10 @@ syncSelect('lightning-source-select', [
         if (typeof L !== 'undefined') {
             applyFeatureFlagConstraints();
 initMap();
+            // 1.2.4.72 - confine Doppler disegnato di default all'apertura della mappa
+            // (geometria statica, 134 poligoni); la preferenza OFF salvata in localStorage
+            // resta rispettata da dopplerCoverageEnabled.
+            updateRadarDopplerUI();
             updateDayButtonLabels();
             renderLegend();
             buildBadgeLegendBar();
@@ -29251,13 +29269,9 @@ initMap();
         }
         setTimeout(() => startApp(retriesLeft - 1), 200);
     }
-    // Guardia di visibilita' IMMEDIATA, indipendente dal boot della mappa:
-    // con PUBLIC_EDITION_FEATURES.lightningBlitzortung = false la UI specifica
-    // dei fulmini dentro il pannello LIVE (#live-legend + #live-hint) viene
-    // nascosta alla lettura dello script, PRIMA di aspettare il CDN Leaflet.
-    // 1.2.3.1: il pannello #live-panel NON viene piu' rimosso dal DOM (ospita la
-    // funzione interna "Struttura convettiva", #live-toggle-supercells), quindi resta
-    // sempre raggiungibile. Idempotente e null-safe; riapplicata in applyFeatureFlagConstraints.
+    // 1.2.4.72 - il pannello #live-panel resta nel DOM (ospita la funzione interna
+    // "Struttura convettiva", #live-toggle-supercells) e non contiene piu' la legenda
+    // eta dei fulmini ne' il suo hint: niente da nascondere alla lettura dello script.
     applyPublicEditionFeatureVisibility();
     startApp(25);
 
@@ -29540,7 +29554,7 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
                 <h3>3. Il pannello di destra, nell'ordine giusto</h3>
                 <ol class="help-order">
                     <li><b>Zona e badge di rischio</b>: il riassunto in una parola del punto che hai scelto.</li>
-                    <li><b>Riga del potenziale e grandine</b>: dice che il livello viene dal modello (NWP) e mostra l'energia disponibile (CAPE) con gli altri indici.</li>
+                    <li><b>Riga della grandine</b>: mostra l'energia disponibile (CAPE) con gli altri indici.</li>
                     <li><b>Le sei metriche</b>: temperatura, umidit&agrave;, pressione, raffiche, probabilit&agrave; di pioggia, millimetri previsti.</li>
                     <li><b>Grafico e confronto modelli</b>: come cambia nelle prossime ore e quanto i due modelli concordano.</li>
                     <li><b>Riepilogo finale</b>: la stessa cosa detta in parole, con i fenomeni attesi.</li>
@@ -29688,7 +29702,6 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
     // oppure usano un pulsante gia esistente, quindi li il layout non cambia.
     var LEGENDS = [
         { key: 'sc',   sel: '#sc-legend',        title: 'Legenda struttura convettiva (radar)', dflt: false },
-        { key: 'live', sel: '#live-legend',      title: 'Legenda fulmini (eta delle scariche)', dflt: false },
         { key: 'fm',   sel: '#fm-legend',        title: 'Legenda mappe previsionali', dflt: false }
     ];
     var bound = 0;

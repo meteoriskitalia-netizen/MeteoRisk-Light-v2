@@ -13,7 +13,7 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.71.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.72.html');
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -53,12 +53,12 @@ const ctx = {
   convCategory: 'no',
   currentMetric: 'risk',
   HAZARD_COLORS: ['#334155', '#22c55e', '#eab308', '#f97316', '#ef4444', '#7c1d6f'],
-  // 1.2.4.71: classe NEUTRA del potenziale convettivo (0 < value < 0,75), non una
+  // 1.2.4.72: classe NEUTRA del potenziale convettivo (0 < value < 0,75), non una
   // fascia di severita: sta fuori da RISK_BAND_COLORS ed e' definita nell'html.
   CONV_POTENTIAL_COLOR: '#7d93a8',
   getRiskProfile() { return RPROFILE; },
   getRiskProfileNew() { return RPROFILE; },
-  // 1.2.4.71: getMetricValue('risk') delega a computeZoneRiskSummary (livello per modello,
+  // 1.2.4.72: getMetricValue('risk') delega a computeZoneRiskSummary (livello per modello,
   // stessa ora). Qui il livello resta controllato da RPROFILE, come per getRiskProfileNew:
   // questo test misura la coerenza valore -> colore, non il calcolo R2 (verificato in browser
   // sulla pagina servita e dai fixture del patch rischi).
@@ -128,7 +128,7 @@ vm.runInNewContext(pure, ctx);
   // Surface pura sul punto critico (ancora) = stesso colore ufficiale
   ok('B: surfaceColor nel punto critico = #ef4444', ctx.surfaceColor(vWorst, 0) === '#ef4444');
   // Media dei VALORI degli indici (2*1 + 1*4)/3 = 2 -> fascia ufficiale #eab308.
-  // La 1.2.4.71 ha 6 bande (0 Basso .. 5 conv. organizzata) e il livello e' l'indice:
+  // La 1.2.4.72 ha 6 bande (0 Basso .. 5 conv. organizzata) e il livello e' l'indice:
   // prima il vecchio percorso restituiva level-1, ora restituisce il livello R2.
   const mix = (2 * vMild + 1 * vWorst) / 3;
   const colMix = ctx.colorForMetricValue('risk', mix);
@@ -140,7 +140,7 @@ vm.runInNewContext(pure, ctx);
 // ---------- 4. CASO C: confine tra province (monotonia della scala) ----------
 {
   let prev = -1, mono = true;
-  // 1.2.4.71: la severita' parte dal livello 1 (Lieve) perche' 0 = Basso e
+  // 1.2.4.72: la severita' parte dal livello 1 (Lieve) perche' 0 = Basso e
   // 0 < v < 0,75 = potenziale convettivo neutro (classe a parte, non una banda).
   for (let v = 1; v <= 5.001; v += 0.25) {
     const col = ctx.colorForMetricValue('risk', v);

@@ -6,13 +6,17 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.71
+## Versione attiva: 1.2.4.72
 
-- File applicativo: `mri-light-1.2.4.71.html` (`APP_VERSION = '1.2.4.71'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.71', date: '2026-11-10' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.71'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.72.html` (`APP_VERSION = '1.2.4.72'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.72', date: '2026-11-11' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.72'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
+- Contenuto della 1.2.4.72 (release sopra la 1.2.4.71) - **disclaimer potenziale/NWP una volta sola, confine Doppler sempre visibile e disegnato di default, legenda fulmini morta rimossa**. Solo client: nessuna modifica a `scripts/`, ai workflow dei dati, a `color_scales.json`, alle classi di rischio della 1.2.4.71, al dataset o al renderer; i workflow toccano solo le 5 righe (`cp` + commenti) del nome del file.
+  - **Niente disclaimer ripetuto**: la riga `Potenziale ambientale (modello NWP): condizioni favorevoli previste, non un evento osservato` non e piu nel corpo della scheda provincia (`#zone-risk-origin` rimosso) ne nei tooltip (badge della scheda, badge sulla mappa, dischi dei rischi, barra riepilogo). La distinzione potenziale/evento resta una sola volta nella legenda badge e nel pulsante `?`. Nel tooltip resta `Colore dovuto a: ... (livello N)`; `osservato dal radar` compare solo se il livello deriva da una cella radar osservata (oggi la scala provincia e solo NWP, quindi non compare).
+  - **Confine Doppler**: `#btn-doppler` non e piu `display:none` e non dipende dal player radar; il confine (`data/radar/doppler_coverage.geojson`, 134 poligoni) si carica all'apertura della mappa anche con provider `rainviewer`, con preferenza `meteorisk.dopplerCoverage.v1` in `localStorage`. Su 404/errore il pulsante e disabilitato con il motivo nel `title` e nessuna eccezione.
+  - **Legenda fulmini**: rimossi dal pannello LIVE il blocco `Legenda fulmini (eta delle scariche)` (intestazione collassabile + 4 pastiglie eta) e l'hint `#live-hint`; la pastiglia `Fulmini n/d` delle righe candidato non viene piu disegnata quando il valore manca.
 - Contenuto della 1.2.4.71 (release sopra la 1.2.4.70) - **classi di rischio ricalibrate: scala R2 con le raffiche, merge per modello, potenziale distinto dall'evento; mantiene i pannelli a tab della 1.2.4.70**. Solo client: nessuna modifica a `scripts/`, ai workflow dei dati, a `color_scales.json`, alle formule o ai calcoli; i workflow toccano solo le 5 righe `cp` del nome del file.
   - **Scala R2**: 4 = pioggia >45 mm o raffiche >100 km/h o (codice >=95 e pioggia >=10 mm e CAPE >=300 J/kg); 3 = pioggia >15 mm o raffiche >75 km/h o (codice >=95 e pioggia >=3 mm e CAPE >=150 J/kg) o (codice 80-90 e pioggia >=8 mm); 2 = probabilita >60% o pioggia >1 mm o raffiche >50 km/h; 1 = probabilita >20% o pioggia >0,2 mm. Le congiunte convettive sono valutate ora per ora sullo stesso modello; la classe 5 resta il mesociclone con innesco.
   - **Vento sulle raffiche**: `windgusts_10m` con soglie 50/75/100 km/h. La vecchia `wind >60` non scattava mai (media massima 24,6 km/h contro raffiche 89 km/h). Misurato il 2026-11-10: 3,9% delle province-giorno sopra 75 km/h, 0,3% sopra 100 km/h.

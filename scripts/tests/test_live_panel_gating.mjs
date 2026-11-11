@@ -2,11 +2,12 @@
 // TEST 1.0.0.8 — PARTE D (FIX3): gating Live Panel / Blitzortung.
 // 1.2.3.1: il pannello #live-panel ospita la funzione interna "Supercelle radar"
 // (#live-toggle-supercells + #live-sc-summary/list/phenomena), quindi RESTA nel DOM
-// anche con PUBLIC_EDITION_FEATURES.lightningBlitzortung = false. Con flag OFF viene
-// neutralizzata SOLO la UI specifica dei fulmini (#live-legend/#live-hint), mentre i
+// anche con PUBLIC_EDITION_FEATURES.lightningBlitzortung = false. Dalla 1.2.4.72 la
+// legenda eta dei fulmini (#live-legend) e il suo hint (#live-hint) NON ESISTONO PIU'
+// nel pannello (mostravano solo intestazioni senza dati), mentre i
 // layer fulmini restano gated nei rispettivi handler. Con flag OFF:
-//   - #live-panel RESTA nel DOM (il toggle supercelle è raggiungibile);
-//   - #live-legend / #live-hint nascosti (display:none);
+//   - #live-panel RESTA nel DOM (il toggle supercelle resta raggiungibile);
+//   - #live-legend / #live-hint ASSENTI dal sorgente (niente da nascondere);
 //   - refreshBlitzTile / refreshLiveLightningMarkers / flashLightningStrike
 //     ritornano PRIMA di creare layer o scrivere stato (nessuna UI orfana);
 //   - il testo di status del LIVE panel è costruito dalle SOLA fonti attive
@@ -20,7 +21,7 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.71.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.72.html');
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -83,10 +84,8 @@ function makeDoc() {
     'status-msg': status,
     'sync-timeline-panel': { classList: { remove() {} } },
     'btn-live': { classList: { toggle() {} }, style: {} },
-    // UI specifica dei fulmini dentro #live-panel: con flag OFF viene nascosta
-    // (display:none) mentre il pannello RESTA nel DOM.
-    'live-legend': { style: {} },
-    'live-hint': { style: {} },
+    // 1.2.4.72: legenda eta dei fulmini e hint RIMOSSI dal pannello LIVE (non
+    // esistono piu' nel sorgente, quindi nessun elemento finto da popolare qui).
     'live-subtitle': { style: {} },
     // toggle interno "Supercelle radar" + id dedicati della vista LIVE (nessun
     // id duplicato del pannello #sc-radar-panel).
@@ -151,10 +150,10 @@ const doc = ctx.document;
 ok('UI: #live-panel presente nel DOM prima della guardia', !!doc.getElementById('live-panel'));
 ctx.applyPublicEditionFeatureVisibility();
 ok('UI: #live-panel NON rimosso dal DOM (lightningBlitzortung=false)', doc.getElementById('live-panel') !== null);
-ok('UI: legenda fulmini #live-legend nascosta (display:none) con flag OFF',
-  doc.els['live-legend'].style.display === 'none');
-ok('UI: hint fulmini #live-hint nascosto (display:none) con flag OFF',
-  doc.els['live-hint'].style.display === 'none');
+ok('UI: legenda fulmini #live-legend ASSENTE dal sorgente html',
+  !/id="live-legend"/.test(src));
+ok('UI: hint fulmini #live-hint ASSENTE dal sorgente html',
+  !/id="live-hint"/.test(src));
 let noThrow = true;
 try { ctx.applyPublicEditionFeatureVisibility(); } catch (e) { noThrow = false; }
 ok('UI: chiamata ripetuta non lancia (null-safe)', noThrow);
@@ -162,10 +161,10 @@ ok('UI: dopo la ripetizione il pannello è ancora nel DOM (idempotente)', doc.ge
 // Con flag ON la UI specifica dei fulmini torna visibile; il pannello resta.
 FLAGS.lightningBlitzortung = true;
 ctx.applyPublicEditionFeatureVisibility();
-ok('UI: con flag ON il pannello resta e legenda/hint NON sono nascosti',
+ok('UI: con flag ON il pannello resta e legenda/hint restano assenti',
   doc.getElementById('live-panel') !== null &&
-  doc.els['live-legend'].style.display !== 'none' &&
-  doc.els['live-hint'].style.display !== 'none');
+  !/id="live-legend"/.test(src) &&
+  !/id="live-hint"/.test(src));
 FLAGS.lightningBlitzortung = false;
 ctx.applyPublicEditionFeatureVisibility();
 
