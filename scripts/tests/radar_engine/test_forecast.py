@@ -35,12 +35,20 @@ def _km_per_deg_lon(lat_deg):
 
 
 def _wrong_motion():
-    """Motion NON usato dal forecast: valori di troppo, apposta."""
+    """Motion NON usato dal forecast: valori di troppo, apposta.
+
+    `motion_quality="reliable"` e' pero' NECESSARIO: dal 2026-11-11 il
+    forecast viene emesso solo su moto affidabile (gate esplicito). I valori
+    di velocita'/direzione restano sbagliati apposta: il forecast deve
+    derivarli dai centroidi, non dal motion pubblicato."""
     return {
         "organization_score": 90,
         "classification": "Organized Convective Cell",
         "velocity_kmh": 999.0,
         "direction_toward_deg": 180.0,
+        "motion_quality": "reliable",
+        "motion_source": "weighted_fit",
+        "motion_null_reason": None,
         "distance_km": 1.0,
         "duration_min": 5.0,
         "area_growth_pct": 40.0,
@@ -247,17 +255,15 @@ def test_confidence_low_cella_giovane_e_medium_sotto_6_frame():
     assert block2["confidence"] == "medium"
 
 
-def test_due_punti_vector_avg_e_confidence_low():
+def test_due_punti_fit_false_e_forecast_non_emesso():
     track = _moving_track(n=2, v_kmh=60.0)
     fit = forecast.fit_motion(track.points)
     assert fit["fit_used"] is False
-    block = forecast.build_forecast(_ctx(track), _bundle([track]))
-    assert block is not None
-    assert block["basis_frames"] == 2
-    assert block["confidence"] == "low"
-    dist = tracking.haversine_km(track.points[-1].lonlat,
-                                 tuple(block["steps"][1]["position"]))
-    assert abs(dist - 60.0) <= 6.0        # +60 min a 60 km/h (vector-avg)
+    # 2026-11-11: senza fit utilizzabile il forecast NON viene emesso.
+    block, reason = forecast.build_forecast_with_reason(_ctx(track),
+                                                        _bundle([track]))
+    assert block is None
+    assert reason == "fit_not_used"
 
 
 def test_outlier_isolato_incrementa_n_outliers_e_mai_high():
@@ -275,7 +281,7 @@ def test_outlier_isolato_incrementa_n_outliers_e_mai_high():
 # ---------------------------------------------------------------------------
 # Fallback con cap di velocita', potatura estremi, campi esposti
 # ---------------------------------------------------------------------------
-def test_fallback_ultimo_punto_assurdo_clamp_e_low():
+def test_fallback_ultimo_punto_assurdo_clamp_e_forecast_non_emesso():
     track = _moving_track(n=2, v_kmh=60.0, heading_deg=90.0)
     last = track.points[-1]
     last.lonlat = (last.lonlat[0] + 3.0, last.lonlat[1])   # ~250 km in un passo
@@ -284,14 +290,10 @@ def test_fallback_ultimo_punto_assurdo_clamp_e_low():
     assert fit["clamped"] is True
     assert fit["velocity_kmh"] <= 110.0
     assert abs(fit["velocity_kmh"] - 110.0) <= 1e-9
-    block = forecast.build_forecast(_ctx(track), _bundle([track]))
-    assert block["fit_used"] is False
-    assert block["clamped"] is True
-    assert block["velocity_kmh"] <= 110.0
-    assert block["confidence"] == "low"
-    origin = track.points[-1].lonlat
-    dist = tracking.haversine_km(origin, tuple(block["steps"][-1]["position"]))
-    assert dist <= 110.0 * (120.0 / 60.0) + 2.0
+    block, reason = forecast.build_forecast_with_reason(_ctx(track),
+                                                        _bundle([track]))
+    assert block is None
+    assert reason == "fit_not_used"
 
 
 def test_spike_chiusura_potato_confidenza_non_medium_high():
@@ -325,16 +327,13 @@ def test_output_espone_direzione_velocita_e_flag():
     assert _ang_diff(brg, block["direction_toward_deg"]) <= 3.0
 
 
-def test_tracce_corte_restano_valide_e_non_esplodono():
+def test_tracce_corte_non_emettono_forecast():
     for n in (2, 3):
         track = _moving_track(n=n, v_kmh=40.0, heading_deg=45.0, track_id=n)
-        block = forecast.build_forecast(_ctx(track), _bundle([track]))
-        assert block is not None
-        assert block["confidence"] == "low"
-        assert block["velocity_kmh"] <= 110.0
-        origin = track.points[-1].lonlat
-        dist = tracking.haversine_km(origin, tuple(block["steps"][-1]["position"]))
-        assert dist <= 40.0 * 2.0 + 5.0
+        block, reason = forecast.build_forecast_with_reason(
+            _ctx(track), _bundle([track]))
+        assert block is None
+        assert reason == "fit_not_used"
 
 
 # ---------------------------------------------------------------------------
@@ -345,20 +344,29 @@ def test_schema_steps_esattamente_4():
     bundle = _bundle([track])
     block = forecast.build_forecast(_ctx(track), bundle)
     assert set(block) == {"horizon_min", "step_min", "generated_at", "method",
-                          "cone_basis", "basis_frames", "confidence", "steps",
+                          "cone_shape", "cone_basis", "cone_basis_note",
+                          "cone_cross_ratio", "cone_vertices",
+                          "decay_class", "decay_lambda_min",
+                          "basis_frames", "confidence", "steps",
                           "direction_toward_deg", "velocity_kmh",
                           "fit_used", "clamped"}
     assert block["horizon_min"] == 120
     assert block["step_min"] == 30
     assert block["method"] == "linear_weighted_haversine_decay"
     assert block["generated_at"] == bundle.generated_at_iso
+    assert block["cone_shape"] == "ellipse"
+    assert block["cone_basis"] == "isotropic_scaled_0.6_cross"
     assert [s["offset_min"] for s in block["steps"]] == [30, 60, 90, 120]
     for step in block["steps"]:
         assert set(step) == {"offset_min", "at", "position", "cone_km",
+                             "cone_km_along", "cone_km_cross", "cone_polygon",
                              "max_dbz", "mean_dbz", "area_km2"}
         lon, lat = step["position"]
         assert isinstance(lon, float) and isinstance(lat, float)
         assert 4.0 <= lon <= 21.0 and 34.0 <= lat <= 48.0
+        ring = step["cone_polygon"]["coordinates"][0]
+        assert len(ring) == block["cone_vertices"] + 1
+        assert ring[0] == ring[-1]
         expected_at = _iso(bundle.radar_timestamp_ms + step["offset_min"] * 60000)
         assert step["at"] == expected_at
 

@@ -6,8 +6,41 @@ Meteorisk Radar Engine — forecast.py (tracking 2h + nowcast, PARTE 3)
 Forecast cinematico <=2h per i record di struttura convettiva: estrapolazione lineare
 PESSATA dai centroidi della track associata (TITAN/SCIT-style, NO fit
 quadratico), proiezione haversine (riuso di tracking.dest_from), cono di
-incertezza che cresce nel tempo e intensita' che decade esponenzialmente
-verso la media regionale con gate sul trend recente (dBZ/scansione clampato).
+incertezza ANISOTROPO e intensita' che decade esponenzialmente verso la media
+regionale con gate sul trend recente (dBZ/scansione clampato).
+
+CONO ANISOTROPO (2026-11-11). Il cono era un cerchio di raggio
+`cone_km = 15 + 1.0*t` (p90 MISURATO dell'errore radiale, 2026-11-10). Ora e'
+un'ellisse orientata lungo la direzione del moto, con due semiassi:
+
+    along(t) = 15 + 1.0*t        (lungo il moto, stesso valore di `cone_km`)
+    cross(t) = 0.6 * along(t)    (trasversale)
+
+Ogni step porta `cone_km_along`, `cone_km_cross` e `cone_polygon` (ellisse
+campionata a 32 vertici, ring GeoJSON chiuso). `cone_km` resta il semiasse
+LUNGO, quindi il client che disegna un cerchio non cambia comportamento e il
+cono isotropo e' ricostruibile. `cone_shape` vale "ellipse"; un record SENZA
+il campo e' un cono circolare legacy.
+
+Il rapporto 0.6 e' una SCELTA DICHIARATA, non una calibrazione: la misura
+dell'errore scomposto along/cross sui pair disponibili (7 track affidabili,
+533 coppie) da' un rapporto instabile e > 1 (1.42 / 1.81 / 0.58 / 0.34 nelle
+fasce 0-30 / 30-60 / 60-90 / 90-130 min): il campione non basta per una
+stima stabile. Il campo `cone_basis` vale "isotropic_scaled_0.6_cross" e
+`cone_basis_note` riporta i numeri misurati.
+
+FORECAST SOLO SU MOTO AFFIDABILE (2026-11-11). `forecast` viene emesso solo se
+il fit cinematico e' usato (`fit_used`), se `track.motion.velocity_kmh` e'
+pubblicata e se `motion_quality == "reliable"`. Altrimenti `forecast: null` e
+`forecast_null_reason` esplicito: `fit_not_used`, `velocity_missing`,
+`motion_unreliable` (piu' i motivi di non computabilita': `no_track`,
+`insufficient_points`, `not_on_latest_frame`, `build_error`).
+
+DECADIMENTO LEGATO AL TIPO (2026-11-11). La costante unica di 30 min diventa
+due classi sul SOI del record: SOI < 70 -> "fast" (tau 21 min), SOI >= 70 ->
+"slow" (tau 39 min). Sono il valore storico scalato di +-30%: nessuna
+calibrazione del decadimento per classe e' disponibile, quindi e' una scelta
+dichiarata nei campi `decay_class` / `decay_lambda_min`.
 
 Layer ADDITIVO ed ENGINE-ONLY: la chiave `forecast` viene aggiunta ai dict
 record di convective_structures.json. Record non proiettabile (non sull'ultimo
@@ -36,13 +69,38 @@ _CONE_MIN_KM = 6.0            # floor del cono di incertezza
 # Cono ricalibrato il 2026-11-10 sui percentili MISURATI degli errori reali
 # (due campioni indipendenti, R^2 0.999 e 0.985): 15 km a 30 min + 1 km/min.
 # Il vecchio 8 km + 0.08 km/min copriva solo il 44% degli errori a 30 min e il
-# 27% a 90 min; questa forma copre l'88-94%. Non e' piu' una scelta
-# ingegneristica: il campo `cone_basis` lo dichiara nel record pubblicato.
+# 27% a 90 min; questa forma copre l'88-94%. Resta il semiasse LUNGO.
 _CONE_DEFAULT_KM = 15.0       # intercetta fissa (p90 misurato)
 _CONE_GROWTH_KM_MIN = 1.0     # crescita per minuto di offset (p90 misurato)
-_CONE_BASIS = "p90_measured_15km_1km_per_min"
+# --- ANISOTROPIA (2026-11-11) ---------------------------------------------
+# Rapporto cross/along DICHIARATO, NON calibrato. Misura sui pair disponibili
+# (7 track con fit affidabile, 533 coppie, residuo < 6 km): cross/along
+# misurato = 1.42 (0-30 min), 1.81 (30-60), 0.58 (60-90), 0.34 (90-130).
+# Il campione e' piccolo e instabile (21 coppie oltre 90 min) e il rapporto
+# misurato NON e' < 1: 0.6 e' una SCELTA INGEGNERISTICA dichiarata.
+# Verifica fatta: 0.6*(15+t) copre il 100% dei |cross| misurati in ogni
+# fascia, quindi il restringimento laterale non sotto-copre il campione.
+_CONE_CROSS_RATIO = 0.6
+_CONE_VERTICES = 32
+_CONE_SHAPE = "ellipse"
+_CONE_BASIS = "isotropic_scaled_0.6_cross"
+_CONE_BASIS_NOTE = (
+    "declared: cross = 0.6 * along, along = p90 measured 15 km + 1 km/min; "
+    "measured cross/along on reliable fits = 1.42 (0-30 min), 1.81 (30-60), "
+    "0.58 (60-90), 0.34 (90-130) su 7 track / 533 coppie -> campione troppo "
+    "piccolo e instabile per una calibrazione; 0.6 e' una scelta dichiarata")
 _YOUNG_MINUTES = 20.0         # durata < 20 min -> cella giovane
-_INTENSITY_LAMBDA_MIN = 30.0  # tau del decadimento esponenziale dBZ
+# --- DECADIMENTO LEGATO AL TIPO (2026-11-11) ------------------------------
+# Costante storica unica: 30 min. Due classi dichiarate sul SOI (0-100):
+#   SOI <  70 -> "fast"  tau = 21 min  (30 * 0.7)
+#   SOI >= 70 -> "slow"  tau = 39 min  (30 * 1.3)
+# I due valori sono il 30 min esistente scalato di +-30%: non esiste una
+# calibrazione del decadimento dBZ per classe, quindi e' una SCELTA
+# DICHIARATA (esposta nei campi decay_class / decay_lambda_min).
+_INTENSITY_LAMBDA_MIN = 30.0      # default se SOI e organization_score mancano
+_INTENSITY_LAMBDA_FAST_MIN = 21.0
+_INTENSITY_LAMBDA_SLOW_MIN = 39.0
+_DECAY_SOI_SPLIT = 70.0
 _TREND_SLOPE_MIN = -2.5       # dBZ/scansione, gate trend decadimento
 _TREND_SLOPE_MAX = 1.5        # dBZ/scansione, gate trend crescita
 _DBZ_RANGE = (20.0, 75.0)     # clamp intensita' proiettata
@@ -72,6 +130,73 @@ def _ms_from_iso(iso):
 
 def _clamp(x, lo, hi):
     return max(lo, min(hi, x))
+
+
+def _decay_lambda(candidate_ctx, track):
+    """(tau_min, classe) del decadimento intensita' legato al tipo (SOI).
+
+    Due classi dichiarate: SOI < 70 -> "fast" (21 min), SOI >= 70 -> "slow"
+    (39 min). Il SOI del record pubblicato e' la fonte primaria; se manca si
+    usa `organization_score` della track; se mancano entrambi vale il
+    decadimento storico (30 min, classe "default"). I valori sono il 30 min
+    storico scalato di +-30%: scelta dichiarata, non calibrazione (vedi le
+    costanti _INTENSITY_LAMBDA_*)."""
+    soi = candidate_ctx.get("soi") if isinstance(candidate_ctx, dict) else None
+    if soi is None:
+        motion = getattr(track, "motion", None) or {}
+        soi = motion.get("organization_score")
+    try:
+        soi = float(soi)
+    except (TypeError, ValueError):
+        return _INTENSITY_LAMBDA_MIN, "default"
+    if soi >= _DECAY_SOI_SPLIT:
+        return _INTENSITY_LAMBDA_SLOW_MIN, "slow"
+    return _INTENSITY_LAMBDA_FAST_MIN, "fast"
+
+
+def _ellipse_polygon(center_lonlat, bearing_deg, along_km, cross_km,
+                     vertices=_CONE_VERTICES):
+    """Poligono GeoJSON dell'ellisse orientata lungo il moto.
+
+    Vertice i al parametro theta = 2*pi*i/vertices: componente lungo il moto =
+    along*cos(theta), componente trasversale (verso DESTRA del moto) =
+    cross*sin(theta). Il punto e' a distanza hypot(along*cos, cross*sin) e
+    bearing bearing_deg + atan2(cross*sin, along*cos): e' la forma
+    parametrica dell'ellisse ruotata, non una circonferenza. Ring chiuso
+    (vertices+1 punti, il primo ripetuto in coda come richiede GeoJSON),
+    coordinate arrotondate a 5 decimali (~1 m)."""
+    ring = []
+    for i in range(vertices):
+        theta = 2.0 * math.pi * i / vertices
+        a = along_km * math.cos(theta)
+        b = cross_km * math.sin(theta)
+        dist = math.hypot(a, b)
+        brg = (bearing_deg + math.degrees(math.atan2(b, a))) % 360.0
+        lon, lat = dest_from(center_lonlat, brg, dist)
+        ring.append([round(float(lon), 5), round(float(lat), 5)])
+    ring.append(list(ring[0]))
+    return {"type": "Polygon", "coordinates": [ring]}
+
+
+def _motion_gate(track, fit):
+    """Motivo per cui il forecast NON va emesso, None se e' emettibile.
+
+    Ordine DETERMINISTICO (il primo che scatta):
+      fit_not_used      -> il fit cinematico non e' utilizzabile (< 4 punti o
+                           velocita' fuori range: forecast.py non proietta)
+      velocity_missing  -> nessuna `velocity_kmh` pubblicata dal tracker
+      motion_unreliable -> `motion_quality != "reliable"` (track.motion)
+    Il gate non inventa una velocita' e non usa il fallback: senza un moto
+    affidabile il cono non viene disegnato."""
+    if not fit["fit_used"]:
+        return "fit_not_used"
+    motion = getattr(track, "motion", None) or {}
+    velocity = motion.get("velocity_kmh")
+    if velocity is None or float(fit["velocity_kmh"] or 0.0) <= 0.0:
+        return "velocity_missing"
+    if motion.get("motion_quality") != "reliable":
+        return "motion_unreliable"
+    return None
 
 
 def _steps_weights(n):
@@ -334,16 +459,27 @@ def _anchor_ms(bundle, last):
 
 def _build(candidate_ctx, bundle):
     """Costruisce il blocco forecast (dict) o None se non computabile."""
+    block, _reason = _build_with_reason(candidate_ctx, bundle)
+    return block
+
+
+def _build_with_reason(candidate_ctx, bundle):
+    """(blocco forecast, motivo del null). Motivo None se il blocco esiste."""
     track = _resolve_track(candidate_ctx, bundle)
-    if track is None or len(track.points) < 2:
-        return None
+    if track is None:
+        return None, "no_track"
+    if len(track.points) < 2:
+        return None, "insufficient_points"
     if not _on_latest_frame(candidate_ctx, track, bundle):
-        return None
+        return None, "not_on_latest_frame"
 
     points = sorted(track.points, key=lambda p: p.timestamp_ms)
     fit = fit_motion(points)
     if fit["basis_frames"] < 2:
-        return None
+        return None, "insufficient_points"
+    gate_reason = _motion_gate(track, fit)
+    if gate_reason is not None:
+        return None, gate_reason
 
     last = points[-1]
     duration_min = (last.timestamp_ms - points[0].timestamp_ms) / 60000.0
@@ -355,22 +491,30 @@ def _build(candidate_ctx, bundle):
     m0 = float(last.mean_dbz)
     trend = _clamp(_dbz_trend(points), _TREND_SLOPE_MIN, _TREND_SLOPE_MAX)
     growth = _CONE_GROWTH_KM_MIN * (1.5 if young else 1.0)
+    decay_lambda, decay_class = _decay_lambda(candidate_ctx, track)
 
     steps = []
     for offset_min in OFFSETS_MIN:
         lon, lat = dest_from(last.lonlat, fit["direction_toward_deg"],
                              fit["velocity_km_min"] * offset_min)
-        decay = math.exp(-offset_min / _INTENSITY_LAMBDA_MIN)
+        decay = math.exp(-offset_min / decay_lambda)
         i_dec = mean_max + (i0 - mean_max) * decay
         max_dbz = _clamp(i_dec + trend * (offset_min / 5.0), *_DBZ_RANGE)
         mean_dbz = _clamp(mean_mean + (m0 - mean_mean) * decay, *_MEAN_DBZ_RANGE)
-        cone = max(_CONE_MIN_KM, _CONE_DEFAULT_KM,
-                   fit["cone0_km"]) + growth * offset_min
+        # Semiasse LUNGO = cono isotropo storico (stesso valore di `cone_km`);
+        # semiasse TRASVERSALE = along * rapporto dichiarato (0.6).
+        along_km = max(_CONE_MIN_KM, _CONE_DEFAULT_KM,
+                       fit["cone0_km"]) + growth * offset_min
+        cross_km = along_km * _CONE_CROSS_RATIO
         steps.append({
             "offset_min": offset_min,
             "at": _iso_from_ms(anchor_ms + offset_min * 60000),
             "position": [round(float(lon), 5), round(float(lat), 5)],
-            "cone_km": round(cone, 1),
+            "cone_km": round(along_km, 1),
+            "cone_km_along": round(along_km, 1),
+            "cone_km_cross": round(cross_km, 1),
+            "cone_polygon": _ellipse_polygon(
+                (lon, lat), fit["direction_toward_deg"], along_km, cross_km),
             "max_dbz": round(max_dbz, 1),
             "mean_dbz": round(mean_dbz, 1),
             "area_km2": round(float(last.area_km2), 1),
@@ -381,7 +525,13 @@ def _build(candidate_ctx, bundle):
         "step_min": STEP_MIN,
         "generated_at": generated_at,
         "method": METHOD,
+        "cone_shape": _CONE_SHAPE,
         "cone_basis": _CONE_BASIS,
+        "cone_basis_note": _CONE_BASIS_NOTE,
+        "cone_cross_ratio": _CONE_CROSS_RATIO,
+        "cone_vertices": _CONE_VERTICES,
+        "decay_class": decay_class,
+        "decay_lambda_min": decay_lambda,
         "basis_frames": int(fit["basis_frames"]),
         "confidence": _confidence(fit, young),
         "fit_used": bool(fit["fit_used"]),
@@ -389,7 +539,7 @@ def _build(candidate_ctx, bundle):
         "direction_toward_deg": round(float(fit["direction_toward_deg"]), 1),
         "velocity_kmh": round(float(fit["velocity_kmh"]), 1),
         "steps": steps,
-    }
+    }, None
 
 
 def build_forecast(candidate_ctx, bundle):
@@ -398,22 +548,35 @@ def build_forecast(candidate_ctx, bundle):
     candidate_ctx = dict candidato (on_latest_frame/track_id/track_type) con
     eventuale track associata sotto la chiave 'track'; senza 'track' la track
     viene risolta da track_id/track_type sul bundle. Qualsiasi errore -> None
-    (layer additivo: mai rompere il run)."""
+    (layer additivo: mai rompere il run). Per il motivo del None usare
+    build_forecast_with_reason()."""
+    block, _reason = build_forecast_with_reason(candidate_ctx, bundle)
+    return block
+
+
+def build_forecast_with_reason(candidate_ctx, bundle):
+    """(blocco `forecast`, `forecast_null_reason`).
+
+    Il motivo e' None quando il blocco esiste; altrimenti e' uno di:
+    `no_track`, `insufficient_points`, `not_on_latest_frame`, `fit_not_used`,
+    `velocity_missing`, `motion_unreliable`, `build_error`. Qualsiasi errore
+    imprevisto -> (None, "build_error") senza far fallire il run."""
     try:
-        return _build(candidate_ctx, bundle)
+        return _build_with_reason(candidate_ctx, bundle)
     except Exception:
-        return None
+        return None, "build_error"
 
 
 def attach_forecasts(bundle):
-    """Aggiunge `forecast` a ogni record di bundle.convective_structures.
+    """Aggiunge `forecast` + `forecast_null_reason` a ogni record.
 
     Ritorna il numero di candidati con forecast calcolato (0 su bundle senza
     candidati)."""
     count = 0
     for candidate in (getattr(bundle, "convective_structures", None) or []):
-        block = build_forecast(candidate, bundle)
+        block, reason = build_forecast_with_reason(candidate, bundle)
         candidate["forecast"] = block
+        candidate["forecast_null_reason"] = None if block is not None else reason
         if block is not None:
             count += 1
     return count

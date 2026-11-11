@@ -70,6 +70,11 @@ def _bundle(track):
 def _forecast_block(n=8, v_kmh=60.0, heading_deg=90.0):
     track = make_track(_linear_cells(n=n, v_kmh=v_kmh,
                                      heading_deg=heading_deg), 1)
+    # Dal 2026-11-11 il forecast viene emesso solo su moto affidabile: qui il
+    # test misura il CONO, non il gate (coperto da test_forecast_anisotropic).
+    track.motion = {"velocity_kmh": v_kmh, "direction_toward_deg": heading_deg,
+                    "motion_quality": "reliable", "motion_source": "weighted_fit",
+                    "organization_score": 80}
     return forecast.build_forecast(
         {"track": track, "track_id": 1, "track_type": "cell",
          "on_latest_frame": True}, _bundle(track))
@@ -82,7 +87,9 @@ def test_cono_ricalibrato_15km_piu_1km_per_minuto():
     block = _forecast_block(n=8, v_kmh=60.0, heading_deg=90.0)
     assert [s["offset_min"] for s in block["steps"]] == [30, 60, 90, 120]
     assert [s["cone_km"] for s in block["steps"]] == [45.0, 75.0, 105.0, 135.0]
-    assert block["cone_basis"] == "p90_measured_15km_1km_per_min"
+    assert [s["cone_km_along"] for s in block["steps"]] == [45.0, 75.0, 105.0, 135.0]
+    assert [s["cone_km_cross"] for s in block["steps"]] == [27.0, 45.0, 63.0, 81.0]
+    assert block["cone_basis"] == "isotropic_scaled_0.6_cross"
 
 
 # ---------------------------------------------------------------------------

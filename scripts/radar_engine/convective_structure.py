@@ -542,7 +542,10 @@ def evaluate(bundle, cfg=None):
 
     Layer ADDITIVO: mai fallisce il run (errori -> warning in main.py).
     Ritorna la lista dei record. Ogni record riceve la chiave `forecast`
-    (forecast.py, blocco <=2h o None se non computabile)."""
+    (forecast.py, blocco <=2h o None se non computabile) e
+    `forecast_null_reason` (None se il blocco esiste; altrimenti il motivo:
+    `fit_not_used`, `velocity_missing`, `motion_unreliable` o un motivo di
+    non computabilita')."""
     cfg = cfg or _cfg_defaults()
     latest_frame_index = None
     frames = getattr(bundle, "cells_by_frame", None)
@@ -564,8 +567,17 @@ def evaluate(bundle, cfg=None):
     records = dedup_records(raw)
     for rec in records:
         track = _track_by_key(bundle, rec)
-        rec["forecast"] = (forecast_mod.build_forecast(
-            {**rec, "track": track}, bundle) if track is not None else None)
+        if track is None:
+            rec["forecast"] = None
+            rec["forecast_null_reason"] = "no_track"
+            continue
+        # 2026-11-11: il forecast viene emesso SOLO su moto affidabile
+        # (fit usato + velocity pubblicata + motion_quality "reliable").
+        # Il motivo del null viaggia nel record (`forecast_null_reason`).
+        block, reason = forecast_mod.build_forecast_with_reason(
+            {**rec, "track": track}, bundle)
+        rec["forecast"] = block
+        rec["forecast_null_reason"] = None if block is not None else reason
     bundle.convective_structures = records
     bundle.structure_tracks_evaluated = len(_evaluated_tracks(bundle))
     return records

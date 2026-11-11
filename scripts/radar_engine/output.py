@@ -402,6 +402,20 @@ def build_storm_tracks(bundle):
     }
 
 
+def _forecast_null_reason_counts(cells):
+    """Conteggio dei motivi di `forecast: null` (audit del gate sul moto).
+
+    Solo record pubblicati; un null senza motivo (chiamanti storici che
+    costruiscono il payload a mano) finisce sotto `unknown`."""
+    counts = {}
+    for cell in cells:
+        if cell.get("forecast") is not None:
+            continue
+        reason = cell.get("forecast_null_reason") or "unknown"
+        counts[reason] = counts.get(reason, 0) + 1
+    return counts
+
+
 def build_convective_structures(bundle, engine_meta=None):
     """convective_structures.json — record del descrittore SOI.
 
@@ -415,7 +429,13 @@ def build_convective_structures(bundle, engine_meta=None):
     Resta in `bundle.convective_structures` e quindi in
     tracks.json/storm_tracks.json per l'audit; il numero scartato e' sempre
     dichiarato in `summary.skipped_incoherent`. Se tutte le strutture vengono
-    scartate il payload resta valido con `structures: []` (mai un 404)."""
+    scartate il payload resta valido con `structures: []` (mai un 404).
+
+    CONO (2026-11-11): `summary.cone_ellipse` conta le strutture con cono
+    ellittico pubblicato, `summary.forecast_null` quelle senza forecast e
+    `summary.forecast_null_reasons` il motivo per ciascuna: i tre numeri
+    rendono verificabile dal file pubblicato quante strutture hanno un cono e
+    quante no (e perche')."""
     all_cells = getattr(bundle, "convective_structures", None) or []
     cells, skipped_incoherent = cs_mod.split_publishable(all_cells)
     summary = {
@@ -432,6 +452,12 @@ def build_convective_structures(bundle, engine_meta=None):
                            if c.get("soi_v2") is not None), default=None),
         "merged": sum(1 for c in cells
                       if len(c.get("merged_from") or []) > 1),
+        "cone_ellipse": sum(
+            1 for c in cells
+            if isinstance(c.get("forecast"), dict)
+            and c["forecast"].get("cone_shape") == "ellipse"),
+        "forecast_null": sum(1 for c in cells if c.get("forecast") is None),
+        "forecast_null_reasons": _forecast_null_reason_counts(cells),
     }
     return {
         "generated_at": bundle.generated_at_iso,
