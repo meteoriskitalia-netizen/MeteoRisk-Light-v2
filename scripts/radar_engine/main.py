@@ -837,6 +837,23 @@ def _record_predictions(bundle, config, out_dir):
     return bundle.severe_predictions
 
 
+def _ltg_not_published(exc):
+    """True se il fallimento LTG significa "slot non ancora pubblicato" (403).
+
+    1.2.4.26 — `lightning.fetch_ltg(epoch_ms=...)` alza
+    `LightningFetchError('ltg_unavailable:not_published_403')` quando lo slot
+    richiesto risponde 403 (bucket S3 senza ListBucket = oggetto assente), e
+    un messaggio DIVERSO per rete/5xx/payload. La distinzione serve al tetto
+    adattivo: un 403 e' un ritardo di pubblicazione (misurato: primo slot a
+    k=5-7 nelle 72h, k=9 il 2026-10-07) e va ritentato; un guasto di rete no.
+    L'attributo strutturato e' la via primaria; il match sul testo copre gli
+    opener iniettati dai test e i chiamanti storici."""
+    if getattr(exc, "not_published", False):
+        return True
+    text = str(exc)
+    return "not_published_403" in text or "http_403" in text
+
+
 def _phase2_evaluate(bundle, config):
     """Fase 2 (additivo): sub-layer A1 -> indice v2 + stack severo PER CANDIDATO.
 
@@ -863,7 +880,7 @@ def _phase2_evaluate(bundle, config):
     try:
         from radar_engine import phase2 as p2_mod
         from radar_engine.phase2 import (aggregate, environment, hook,
-                                         lightning, lightning_afa, satellite_ot,
+                                         lightning, satellite_ot,
                                          vertical_structure)
     except Exception as exc:
         warnings.append(f"phase2 import failed: {exc}")
@@ -1001,64 +1018,101 @@ def _phase2_evaluate(bundle, config):
         ir_rd = None
     result["cappi_fetch"] = cappi_summary
 
-    # --- FULMINI: AFA EUMETSAT (MTG LI) + vecchio feed come SONDA dichiarata --
-    # MISURA 2026-11-11: il feed DPC LGT/lgt_5min_*.bin risponde 403 su 12/12
-    # slot (findLastProductByType?type=LGT -> 404, downloadProduct LGT -> 400):
-    # in produzione lightning era null su 4/4 strutture. La sorgente primaria
-    # e' ora l'AFA di MTG-I via EUMETView WMS (HTTP 200 senza token, archivio
-    # dal 2025-05-30, passo 5 min): UNA richiesta per run. Il vecchio feed si
-    # interroga SOLO se l'AFA non e' disponibile, con UNA sonda (niente
-    # backoff): il costo in 403 scende da 12 richieste a 0 (1 se l'AFA e' giu').
-    afa_cfg = lcfg.get("afa") or {}
-    afa_frame = None
-    afa_null_reason = None
-    if bool(afa_cfg.get("enabled", True)):
-        try:
-            afa_frame = lightning_afa.fetch_afa(
-                now_ms=p2_clock.now_ms(),
-                bbox=afa_cfg.get("bbox"),
-                width=afa_cfg.get("grid_px"),
-                height=afa_cfg.get("grid_px"),
-                wms_url=afa_cfg.get("wms_url"),
-                layer=afa_cfg.get("layer"),
-                max_backoff_steps=afa_cfg.get("max_backoff_steps"),
-                timeout_s=afa_cfg.get("timeout_s"),
-                throttle_s=afa_cfg.get("throttle_s"),
-                cache_dir=afa_cfg.get("cache_dir"))
-        except lightning_afa.AfaFetchError as exc:
-            afa_null_reason = str(exc)
-            warnings.append(f"phase2 lightning AFA: {exc}")
-        except Exception as exc:            # guasto imprevisto -> campo null
-            afa_null_reason = f"afa_failed:{exc.__class__.__name__}"
-            warnings.append(f"phase2 lightning AFA failed: {exc}")
-    else:
-        afa_null_reason = "afa_disabled"
-
-    # Vecchio feed: SOLO sonda singola, e solo se l'AFA non ha dato un frame.
-    # In replay l'AFA usa l'archivio storico (2025-05-30 -> oggi) mentre il
-    # vecchio feed non ha archivio: nessuna sonda in --as-of.
-    ltg_slots = []
-    legacy_probe = None
-    if afa_frame is None and replay:
+    # --- FULMINI: slot scaricati UNA VOLTA, strike in cache per slot --------
+    # Scansione all'INDIETRO fino a max_backoff_steps: si raccolgono gli slot
+    # pubblicati PIU' RECENTI fino a window_slots disponibili, cosi' un ritardo
+    # di pubblicazione oltre la finestra base non azzera il layer fulmini.
+    try:
+        window = max(2, min(int(lcfg.get("window_slots", 4)),
+                            lightning.LIGHTNING_TREND_WINDOW))
+    except (TypeError, ValueError):
+        window = lightning.LIGHTNING_TREND_WINDOW
+    # E (1.2.4.17): il backoff effettivo e' il MINIMO fra config e costante
+    # del modulo (LTG_MAX_BACKOFF_STEPS = 12). Prima la config diceva 36 e il
+    # modulo 12: un run senza slot pubblicati produceva 37 richieste HTTP 403
+    # (STUDIO_SUPERCELLE_RADAR sez. 6.4). Il clamp resta.
+    try:
+        max_backoff = max(0, min(int(lcfg.get("max_backoff_steps",
+                                              lightning.LTG_MAX_BACKOFF_STEPS)),
+                                 int(lightning.LTG_MAX_BACKOFF_STEPS)))
+    except (TypeError, ValueError):
+        max_backoff = int(lightning.LTG_MAX_BACKOFF_STEPS)
+    slot_cache = {}
+    ltg_slots_recent = []
+    if replay:
+        # 1.2.4.20: NON esiste un archivio pubblico degli slot LTG storici
+        # (misurato: 403 su ogni slot storico, retro/REPORT.md §2.4). Il layer
+        # si dichiara assente con motivo: NON si leggono i fulmini di oggi.
         _degrade("lightning", "lightning_history_unavailable")
-        warnings.append("phase2 lightning: modalita' --as-of senza AFA per "
-                        "quell'istante (lightning_history_unavailable)")
-    elif afa_frame is None and bool(afa_cfg.get("legacy_fallback", True)):
-        # La sonda e' DICHIARATA prima dell'esito: costo massimo 1 richiesta.
-        warnings.append("phase2 lightning: AFA non disponibile -> sonda "
-                        "singola sul vecchio feed DPC (1 richiesta, "
-                        "nessun backoff)")
+        warnings.append("phase2 lightning: modalita' --as-of senza archivio "
+                        "storico (lightning_history_unavailable)")
+    else:
+        # 1.2.4.26 — TETTO DEI TENTATIVI FALLITI (default 12, config
+        # lightning.max_failed_attempts) + TETTO SEPARATO SUI GUASTI NON-403
+        # (config lightning.max_unexpected_failures, default 3).
+        # MISURA (72h 2026-10-22T21:31Z -> 2026-10-25T21:46Z, 435 run, 267 con
+        # candidati; fonte data/radar/latest.json a ogni commit):
+        #   - 58 run con almeno un dato fulmini (21,7% di quelle con candidati);
+        #   - 43 di quelle 58 avevano >=3 fallimenti INIZIALI: con un tetto a 3
+        #     avrebbero perso il layer (74%); mediana 10 richieste per run con
+        #     dato = ~6 slot in 403 prima del primo pubblicato;
+        #   - nessuna run con dato ha avuto bisogno di k>=9, ma il valore 12
+        #     resta quello misurato il 2026-10-07 (primo slot a k=9): costo
+        #     massimo 12 richieste/run, nessuno slot perso.
+        # Il conteggio si azzera a ogni slot trovato, quindi la finestra di
+        # trend (4 slot) non viene ridotta quando i fulmini ci sono. Il tetto
+        # separato sui guasti NON-403 evita di spendere 12 richieste quando la
+        # sorgente e' rotta (rete/5xx/payload): li' ritentare non serve.
         try:
-            legacy_slot = lightning.fetch_ltg(
-                epoch_ms=lightning.ltg_epoch_floor(now_ms=p2_clock.now_ms()))
-            ltg_slots = [legacy_slot["strikes"]]
-            legacy_probe = "ok"
-        except lightning.LightningFetchError as exc:
-            legacy_probe = str(exc)
-            warnings.append(f"phase2 lightning legacy probe: {exc}")
-        except Exception as exc:            # guasto imprevisto -> slot assente
-            legacy_probe = f"failed:{exc.__class__.__name__}"
-            warnings.append(f"phase2 lightning legacy probe failed: {exc}")
+            max_failed = int(lcfg.get("max_failed_attempts", 12))
+        except (TypeError, ValueError):
+            max_failed = 12
+        max_failed = max(1, min(max_failed, max_backoff + 1))
+        try:
+            max_unexpected = int(lcfg.get("max_unexpected_failures", 3))
+        except (TypeError, ValueError):
+            max_unexpected = 3
+        max_unexpected = max(1, min(max_unexpected, max_failed))
+        failures = 0
+        unexpected = 0
+        for k in range(0, max_backoff + 1):   # dal piu' recente all'indietro
+            if len(ltg_slots_recent) >= window:
+                break
+            epoch = lightning.ltg_epoch_floor(backoff_steps=k,
+                                              now_ms=p2_clock.now_ms())
+            not_published = False
+            if epoch in slot_cache:
+                slot = slot_cache[epoch]
+            else:
+                try:
+                    slot = lightning.fetch_ltg(epoch_ms=epoch)["strikes"]
+                except lightning.LightningFetchError as exc:
+                    warnings.append(f"phase2 lightning slot-{k}: {exc}")
+                    not_published = _ltg_not_published(exc)
+                    slot = None
+                except Exception as exc:  # guasto imprevisto -> slot assente
+                    warnings.append(f"phase2 lightning failed: {exc}")
+                    slot = None
+                slot_cache[epoch] = slot
+            if slot is not None:
+                failures = 0
+                unexpected = 0
+                ltg_slots_recent.append(slot)
+            else:
+                failures += 1
+                if not not_published:
+                    unexpected += 1
+                if failures >= max_failed or unexpected >= max_unexpected:
+                    warnings.append(
+                        f"phase2 lightning: stop dopo {failures} tentativi "
+                        f"falliti (max_failed_attempts={max_failed}, "
+                        f"max_unexpected_failures={max_unexpected}, "
+                        f"guasti_non_403={unexpected})")
+                    break
+    # dal piu' vecchio al piu' recente (ordine atteso da lightning_spatial_score)
+    ltg_slots = list(reversed(ltg_slots_recent))
+    if not ltg_slots and not replay:
+        warnings.append("phase2 lightning: no slots available (wider window)")
 
     # --- LAYER PER CANDIDATO: hook/struttura/fulmini/ambiente ---------------
     # Cache condivise: env per bucket (0.1 gradi), fulmini per slot epoch ->
@@ -1131,7 +1185,7 @@ def _phase2_evaluate(bundle, config):
                     ot_details = None
 
         lightning_score = None
-        if lon is not None and ltg_slots:
+        if lon is not None:
             try:
                 counts = [(lightning.count_strikes_in_radius(
                     s, lon, lat, ltg_radius) if s is not None else None)
@@ -1181,10 +1235,6 @@ def _phase2_evaluate(bundle, config):
         c["ot"] = ot_score
         c["ot_details"] = ot_details
         c["lightning"] = lightning_score
-        # AFA (2026-11-11): area con scariche accumulate, NON un conteggio.
-        # value True/False/None + null_reason, source e reference dichiarati.
-        c["lightning_afa"] = lightning_afa.field_for_candidate(
-            afa_frame, lon, lat, ltg_radius, null_reason=afa_null_reason)
         c["env"] = env_score
         c["env_scp"] = env_score        # chip 'Env' (0-100; SCP grezzo sopra)
         if replay:
@@ -1251,20 +1301,6 @@ def _phase2_evaluate(bundle, config):
             c["overhang"] = None
             c["bunkers"] = None
             c["footprint"] = {"source": fp_source, "pixels": fp_pixels}
-
-    # --- AFA: riepilogo del frame (una voce per run, non per candidato) ------
-    afa_values = [(c.get("lightning_afa") or {}).get("value")
-                  for c in candidates]
-    result["lightning_afa"] = dict(
-        lightning_afa.frame_summary(afa_frame) or {
-            "slot_iso": None, "active_pixels": None, "area_km2": None,
-            "cells_0p1": None, "source": lightning_afa.SOURCE,
-            "reference": lightning_afa.REFERENCE},
-        null_reason=afa_null_reason,
-        candidates_total=len(candidates),
-        candidates_known=sum(1 for v in afa_values if v is not None),
-        candidates_active=sum(1 for v in afa_values if v is True),
-        legacy_probe=legacy_probe)
 
     if no_position:
         _warn("phase2: candidate without valid position -> per-cell layers None")
@@ -1509,8 +1545,13 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
         bundle.mosaic_mixed_cells = n_mixed
 
     # ---- TRACKING (>=2 frame validi; altrimenti solo detection) -------------
+    # Seed dall'archivio rolling (2026-11-11): al primo frame una track viva
+    # nell'archivio entro 20 km/30 min continua invece di nascere. In replay
+    # (--as-of) il seed e' DISATTIVATO: un replay non dipende dallo stato live.
+    seed_history = None if clock.replay else history_dir
     tracker = track_mod.Tracker(config["tracking"],
-                                cfg_scoring=config.get("scoring"))
+                                cfg_scoring=config.get("scoring"),
+                                history_dir=seed_history)
     for idx, cells in enumerate(bundle.cells_by_frame):
         tracker.update(cells, idx)
     tracker.complete_cycles()
@@ -1528,7 +1569,8 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
                 agg_mod.aggregate_frame(cells, idx, storm_cfg)
                 for idx, cells in enumerate(bundle.cells_by_frame)]
             storm_tracker = storm_mod.StormObjectTracker(
-                storm_cfg, cfg_scoring=config.get("scoring"))
+                storm_cfg, cfg_scoring=config.get("scoring"),
+                history_dir=seed_history)
             for idx, objs in enumerate(bundle.storm_objects_by_frame):
                 storm_tracker.update(objs, idx)
             storm_tracker.complete_cycles()
@@ -1538,6 +1580,13 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
             bundle.warnings.append(f"storm_layer failed: {exc}")
             bundle.storm_objects_by_frame = []
             bundle.storm_tracks = []
+
+    # ---- METRICHE DI REGRESSIONE DEL TRACKING (2026-11-11) -----------------
+    # pct_reliable / median_duration_min / id_switch_rate / lineage_split /
+    # lineage_merge per layer (cella, storm object) + aggregato. Sempre
+    # calcolate, anche se il layer storm fallisce: il blocco e' additivo.
+    bundle.tracking_metrics = track_mod.build_tracking_metrics(
+        bundle.tracks, getattr(bundle, "storm_tracks", None) or [])
 
     # ---- CONVECTIVE STRUCTURE (descrittore SOI, additivo) ------------------
     # SOI su celle + storm object tracciati (stessi dati Fase 1, zero richieste
@@ -1572,7 +1621,12 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
         return bundle, _OK
 
     try:
-        output.write_outputs(bundle, out_dir, engine_meta=_engine_meta())
+        # 2026-11-11 — `tracking_metrics` viaggia anche nel blocco `engine`
+        # di latest.json: il dato e' pubblicato e verificabile dai run reali.
+        engine_meta = dict(_engine_meta())
+        engine_meta["tracking_metrics"] = getattr(
+            bundle, "tracking_metrics", None)
+        output.write_outputs(bundle, out_dir, engine_meta=engine_meta)
     except models.OutputError as exc:
         return _fail_output(bundle, out_dir, str(exc))
     except Exception as exc:  # guasto imprevisto del writer -> OutputError

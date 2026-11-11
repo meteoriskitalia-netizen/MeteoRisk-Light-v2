@@ -55,7 +55,9 @@ ambiguous_split_candidate) SENZA causalità meteorologica; il comportamento
 'ambiguous' della Fase 1 resta invariato (EVENT_AMBIGUOUS).
 """
 
+import datetime as _dt
 import math
+import statistics
 
 import numpy as np
 from scipy.optimize import linear_sum_assignment
@@ -66,6 +68,11 @@ _EPS = 1e-12
 # Soglia di residuo per PUBBLICARE il moto del fit pesato (finalize): sopra
 # 6 km il fit non descrive i centroidi e il valore resta null (motivo esplicito).
 _MOTION_MAX_RESID_KM = 6.0
+# Lineage merge/split (2026-11-11): un oggetto a t e' lo STESSO sistema di un
+# oggetto a t+1 se i due dischi (centroide + area equivalente) si sovrappongono
+# per almeno il 20% dell'unione. E' un criterio geometrico, non una firma
+# meteorologica: serve solo a registrare la relazione, non a fondere gli ID.
+_LINEAGE_IOU = 0.2
 
 # ---------------------------------------------------------------------------
 # Geografia / distanza
@@ -129,6 +136,278 @@ def _circle_iou(lonlat1, area1, lonlat2, area2):
     inter = max(0.0, a1 + a2 - a_region)
     union = math.pi * (r1s + r2s) - inter
     return inter / max(union, _EPS)
+
+
+# ---------------------------------------------------------------------------
+# Lineage merge/split (2026-11-11)
+# ---------------------------------------------------------------------------
+def _object_lonlat(obj):
+    """(lon, lat) di una cella o di uno storm object (stessa convenzione)."""
+    return (getattr(obj, "centroid_lonlat", None)
+            or getattr(obj, "lonlat", None))
+
+
+def lineage_plan(active, objects, assignment, reversed_assign,
+                 iou_threshold=_LINEAGE_IOU):
+    """Relazioni merge/split del frame, senza cambiare l'assegnazione.
+
+    Regola: si guarda l'IoU fra l'ultimo punto di ogni track ATTIVA e ogni
+    oggetto del frame corrente. Il piano NON modifica gli ID: dice solo quali
+    track nuove (colonne non assegnate) ereditano un genitore e quali track
+    morte (righe non assegnate) sono assorbite da un figlio.
+
+    - `split_new`     {col: [parent_track_id, ...]}: il figlio nasce nuovo ma
+      contiene la massa di un genitore (che continua o muore).
+    - `merge_new`     {col: [parent_track_id, ...]}: il figlio nasce nuovo e
+      assorbe una track morta.
+    - `merge_row`     {row: [parent_track_id, ...]}: la track (che continua)
+      assorbe una track morta.
+    - `split_existing`{row: [parent_track_id, ...]}: una track che continua
+      eredita la massa di una track morta che si e' divisa su piu' oggetti.
+
+    Conservativo: un genitore che continua e ha un secondo oggetto gia'
+    assegnato a un'altra track non crea un legame (entrambe le identita'
+    esistono gia': non c'e' un ID nuovo da agganciare). Il caso "due oggetti
+    nuovi da un genitore" e "due genitori su un oggetto" sono coperti.
+    """
+    plan = {"split_new": {}, "merge_new": {}, "merge_row": {},
+            "split_existing": {}, "matched_rows": set(assignment)}
+    if not active or not objects:
+        return plan
+    n_r, n_c = len(active), len(objects)
+    iou = [[0.0] * n_c for _ in range(n_r)]
+    for i, track in enumerate(active):
+        prev = track.points[-1]
+        for j, obj in enumerate(objects):
+            coord = _object_lonlat(obj)
+            area = getattr(obj, "area_km2", None)
+            if coord is None or area is None:
+                continue
+            iou[i][j] = _circle_iou(prev.lonlat, prev.area_km2,
+                                    coord, float(area))
+    for i, track in enumerate(active):
+        cols = [j for j in range(n_c) if iou[i][j] > float(iou_threshold)]
+        if not cols:
+            continue
+        matched_col = assignment.get(i)
+        if matched_col is not None:
+            # La track continua: i figli NUOVI che si sovrappongono a lei
+            # nascono da una sua divisione.
+            for j in cols:
+                if j == matched_col or j in reversed_assign:
+                    continue
+                plan["split_new"].setdefault(j, []).append(track.track_id)
+            continue
+        # La track non ha un oggetto assegnato: muore. Un solo oggetto
+        # sovrapposto -> merge; due o piu' -> split (anche verso track che
+        # continuano con un'altra identita').
+        if len(cols) == 1:
+            j = cols[0]
+            row = reversed_assign.get(j)
+            if row is None:
+                plan["merge_new"].setdefault(j, []).append(track.track_id)
+            else:
+                plan["merge_row"].setdefault(row, []).append(track.track_id)
+        else:
+            for j in cols:
+                row = reversed_assign.get(j)
+                if row is None:
+                    plan["split_new"].setdefault(j, []).append(track.track_id)
+                else:
+                    plan["split_existing"].setdefault(row, []).append(track.track_id)
+    return plan
+
+
+def _lineage_event(track, event):
+    """Aggiunge un evento di lineage una sola volta (audit, non stato)."""
+    if event not in track.events:
+        track.events.append(event)
+
+
+def apply_lineage(active, new_tracks_by_col, plan):
+    """Applica il piano: parent_ids/child_ids/lineage + eventi di audit.
+
+    Precedenza: `merge` vince su `split` quando la stessa track e' coinvolta in
+    entrambi nello stesso frame (assorbe un genitore e nasce/continua da una
+    divisione). `continuation` viene assegnato solo a una track che continua se
+    non ha gia' una relazione: non sovrascrive l'origine split/merge.
+    """
+    by_id = {t.track_id: t for t in active}
+
+    def _link(child, parent_ids, kind):
+        linked = False
+        for parent_id in parent_ids:
+            if parent_id == child.track_id:
+                continue
+            parent = by_id.get(parent_id)
+            # Niente cicli: un figlio che si divide e poi viene riassorbito
+            # dal genitore produrrebbe 1 -> 71 -> 1. La relazione temporale
+            # resta registrata dal primo legame; il secondo viene saltato
+            # (un forecast che risale i parent non deve entrare in loop).
+            if parent_id in (getattr(child, "child_ids", None) or []):
+                continue
+            if parent is not None and child.track_id in \
+                    (getattr(parent, "child_ids", None) or []):
+                continue
+            if parent_id not in child.parent_ids:
+                child.parent_ids.append(parent_id)
+            linked = True
+            if parent is not None and child.track_id not in parent.child_ids:
+                parent.child_ids.append(child.track_id)
+                _lineage_event(parent, "lineage_" + kind)
+        if linked:
+            if kind == "merge" or child.lineage != "merge":
+                child.lineage = kind
+            _lineage_event(child, "lineage_" + kind)
+
+    for col, parent_ids in plan["split_new"].items():
+        child = new_tracks_by_col.get(col)
+        if child is not None:
+            _link(child, parent_ids, "split")
+    for col, parent_ids in plan["merge_new"].items():
+        child = new_tracks_by_col.get(col)
+        if child is not None:
+            _link(child, parent_ids, "merge")
+    for row, parent_ids in plan["merge_row"].items():
+        if 0 <= row < len(active):
+            _link(active[row], parent_ids, "merge")
+    for row, parent_ids in plan["split_existing"].items():
+        if 0 <= row < len(active):
+            _link(active[row], parent_ids, "split")
+    for row in plan["matched_rows"]:
+        if 0 <= row < len(active) and active[row].lineage is None:
+            active[row].lineage = "continuation"
+
+
+# ---------------------------------------------------------------------------
+# Metriche di regressione del tracking (2026-11-11)
+# ---------------------------------------------------------------------------
+def tracking_metrics(tracks, track_type="cell", max_speed_kmh=None,
+                     reid_window_min=15.0, reid_radius_km=20.0,
+                     lineage_iou=_LINEAGE_IOU):
+    """Metriche per-layer, calcolate sui record PUBBLICATI (n_frames >= 2).
+
+    Definizioni (dichiarate perche' non sono standard):
+    - `pct_reliable`: % di track con `motion_quality == "reliable"`.
+    - `median_duration_min`: mediana della durata delle track ATTIVE.
+    - `id_switch_rate`: (salti > max_speed + re-ID inspiegati) / n_track.
+      Un re-ID e' una track che nasce entro `reid_window_min` e
+      `reid_radius_km` dalla morte di un'altra track senza un legame di
+      lineage. I salti sono segmenti consecutivi con velocita' implicita
+      sopra `max_speed_kmh` (default: la soglia unica di forecast.py).
+    - `lineage_split` / `lineage_merge`: track con quel `lineage`.
+    """
+    tracks = list(tracks or [])
+    published = [t for t in tracks
+                 if len(getattr(t, "points", None) or []) >= 2]
+    n = len(published)
+    reliable = 0
+    for t in published:
+        motion = getattr(t, "motion", None) or {}
+        if motion.get("motion_quality") == "reliable":
+            reliable += 1
+    active = [t for t in published
+              if getattr(t, "status", None) == models.STATUS_ACTIVE]
+    durations = []
+    for t in active:
+        motion = getattr(t, "motion", None) or {}
+        value = motion.get("duration_min")
+        if value is None and t.points:
+            value = (t.points[-1].timestamp_ms
+                     - t.points[0].timestamp_ms) / 60000.0
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(value):
+            durations.append(value)
+    max_speed = float(max_speed_kmh) if max_speed_kmh is not None \
+        else float(_speed_range_kmh()[1])
+    jumps = 0
+    for t in published:
+        for a, b in zip(t.points, t.points[1:]):
+            dt_h = (b.timestamp_ms - a.timestamp_ms) / 3600000.0
+            if dt_h > 0 and haversine_km(a.lonlat, b.lonlat) / dt_h > max_speed:
+                jumps += 1
+    reids = 0
+    for child in published:
+        if getattr(child, "continued_from_history", False):
+            continue
+        first = child.points[0]
+        parents = set(getattr(child, "parent_ids", None) or [])
+        for parent in published:
+            if parent is child:
+                continue
+            if getattr(parent, "status", None) != models.STATUS_DEAD:
+                continue
+            last = parent.points[-1]
+            gap_min = (first.timestamp_ms - last.timestamp_ms) / 60000.0
+            if gap_min < 0 or gap_min > reid_window_min:
+                continue
+            if haversine_km(last.lonlat, first.lonlat) > reid_radius_km:
+                continue
+            if parent.track_id in parents or child.track_id in \
+                    (getattr(parent, "child_ids", None) or []):
+                continue
+            reids += 1
+            break
+    split = sum(1 for t in published
+                if getattr(t, "lineage", None) == "split")
+    merge = sum(1 for t in published
+                if getattr(t, "lineage", None) == "merge")
+    continuation = sum(1 for t in published
+                       if getattr(t, "lineage", None) == "continuation")
+    links = sum(len(getattr(t, "parent_ids", None) or []) for t in published)
+    return {
+        "track_type": track_type,
+        "n_tracks": n,
+        "n_active_tracks": len(active),
+        "pct_reliable": round(100.0 * reliable / n, 1) if n else None,
+        "median_duration_min": (round(statistics.median(durations), 1)
+                                if durations else None),
+        "id_switch_rate": (round((jumps + reids) / n, 3) if n else None),
+        "id_switch_jumps": jumps,
+        "id_switch_reids": reids,
+        "lineage_split": split,
+        "lineage_merge": merge,
+        "lineage_continuation": continuation,
+        "lineage_links": links,
+        "n_frames_ge_3": sum(1 for t in published if len(t.points) >= 3),
+        "continued_from_history": sum(
+            1 for t in published
+            if getattr(t, "continued_from_history", False)),
+        "thresholds": {
+            "max_speed_kmh": max_speed,
+            "reid_window_min": float(reid_window_min),
+            "reid_radius_km": float(reid_radius_km),
+            "lineage_iou": float(lineage_iou),
+        },
+    }
+
+
+def build_tracking_metrics(cell_tracks, storm_tracks, **kwargs):
+    """Blocco `tracking_metrics` per latest.json: per-layer + aggregato.
+
+    I campi piatti (pct_reliable, median_duration_min, id_switch_rate,
+    lineage_split, lineage_merge) sono l'AGGREGATO cella+storm object: nessuna
+    selezione a posteriori del layer che migliora. Il dettaglio per layer e'
+    in `cell` e `storm_object`.
+    """
+    cell = tracking_metrics(cell_tracks, "cell", **kwargs)
+    storm = tracking_metrics(storm_tracks, "storm_object", **kwargs)
+    combined = tracking_metrics(list(cell_tracks or []) + list(storm_tracks or []),
+                                "combined", **kwargs)
+    out = {"primary_layer": "combined"}
+    for key in ("pct_reliable", "median_duration_min", "id_switch_rate",
+                "lineage_split", "lineage_merge", "lineage_continuation",
+                "lineage_links", "id_switch_jumps", "id_switch_reids",
+                "n_tracks", "n_active_tracks", "n_frames_ge_3",
+                "continued_from_history", "thresholds"):
+        out[key] = combined[key]
+    out["cell"] = cell
+    out["storm_object"] = storm
+    out["combined"] = combined
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +494,35 @@ def _speed_range_kmh():
     return _forecast.SPEED_RANGE_KMH
 
 
+class _SeedCell:
+    """Vista minima di una track dell'archivio come cella (per TrackPoint).
+
+    Non inventa geometria: `lonlat` e `area_km2` arrivano dallo slot; la
+    morfologia mancante negli slot scritti prima del 2026-11-11 usa il neutro
+    1.0 (solidity/compactness), che non altera il matching (solo lo scoring).
+    """
+
+    def __init__(self, seed):
+        self.cell_id = "history:{}".format(seed.get("uid"))
+        self.timestamp_ms = int(seed["timestamp_ms"])
+        iso = seed.get("timestamp_iso")
+        if not iso:
+            iso = _dt.datetime.fromtimestamp(
+                self.timestamp_ms / 1000.0, _dt.timezone.utc
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.timestamp_iso = iso
+        self.centroid_lonlat = tuple(seed["lonlat"])
+        self.area_km2 = float(seed["area_km2"])
+        self.max_dbz = float(seed.get("max_dbz") or 0.0)
+        self.mean_dbz = float(seed.get("mean_dbz") or 0.0)
+        self.solidity = float(seed["solidity"]
+                              if seed.get("solidity") is not None else 1.0)
+        self.compactness = float(seed["compactness"]
+                                 if seed.get("compactness") is not None else 1.0)
+        self.eccentricity = None
+        self.frame_index = -1
+
+
 class Tracker:
     """Aggrega celle in track multi-frame (Hungarian per frame).
 
@@ -222,7 +530,9 @@ class Tracker:
     finalize()/organization_score() nel caso il chiamante non la fornisca a
     finalize(cfg_scoring=...). La diagnmat/opzionale non altera il risultato."""
 
-    def __init__(self, cfg_tracking, cfg_scoring=None, diagnostics=False):
+    def __init__(self, cfg_tracking, cfg_scoring=None, diagnostics=False,
+                 history_dir=None, seed_max_km=20.0, seed_max_age_min=30.0,
+                 seed_max_speed_kmh=None):
         self.cfg = cfg_tracking
         self.cfg_scoring = cfg_scoring
         self.tracks = []
@@ -233,6 +543,15 @@ class Tracker:
         # D2 (1.2.4.17): ultimo frame PROCESSATO. Serve a complete_cycles per
         # non dichiarare "dead" una track osservata sull'ultimo frame.
         self._last_frame_index = None
+        # Seed dall'archivio rolling (2026-11-11). `history_dir` None = off
+        # (replay, libreria, test). Il seed e' ONE-SHOT: si tenta al primo
+        # frame con celle e nessuna track attiva, poi non si ripete.
+        self.history_dir = history_dir
+        self.seed_max_km = float(seed_max_km)
+        self.seed_max_age_min = float(seed_max_age_min)
+        self.seed_max_speed_kmh = (float(seed_max_speed_kmh)
+                                   if seed_max_speed_kmh is not None else None)
+        self._seed_attempted = False
 
     # -- feature/diagnostica helper ----------------------------------------
     def _features(self, track, cfg):
@@ -278,12 +597,72 @@ class Tracker:
         dist_km = pr["speed_kmh"] * dt_h
         return dest_from(pr["from_lonlat"], pr["bearing"], dist_km)
 
-    def _new_track(self, cell, frame_index):
+    def _new_track(self, cell, frame_index, seed=None):
         track = models.Track(self._next_track_id, cell.timestamp_ms)
         self._next_track_id += 1
+        if seed is not None:
+            # Continuazione cross-run: il punto dell'archivio e' una
+            # OSSERVAZIONE REALE (stesso sistema, run precedente), non un
+            # valore interpolato. frame_index=-1 lo distingue dai frame del
+            # ciclo corrente e non interferisce con complete_cycles.
+            prior = _SeedCell(seed)
+            track.points.append(models.TrackPoint(track.track_id, -1, prior))
+            track.birth_ms = int(prior.timestamp_ms)
+            track.continued_from_history = True
+            track.history_uid = seed.get("uid")
+            track.history_slot = seed.get("slot")
+            track.history_age_min = seed.get("age_min")
+            track.lineage = "continuation"
+            track.events.append("continued_from_history")
         track.points.append(models.TrackPoint(track.track_id, frame_index, cell))
-        track.events.append(models.EVENT_BIRTH)
+        if seed is None:
+            track.events.append(models.EVENT_BIRTH)
         return track
+
+    def _seed_matches(self, cells):
+        """Accoppia le celle del primo frame alle track dell'archivio.
+
+        Vincoli (2026-11-11): entro 20 km e 30 min, con la stessa soglia
+        cinematica del tracker (110 km/h). Accoppiamento greedy uno-a-uno per
+        distanza: nessuna track dell'archivio puo' generare due track e nessuna
+        cella puo' assorbire due seed. Un archivio illeggibile -> nessun seed.
+        """
+        if self._seed_attempted or not self.history_dir or not cells:
+            return {}
+        self._seed_attempted = True
+        from . import history as history_mod
+        try:
+            seeds = history_mod.load_track_seeds(
+                self.history_dir, int(cells[0].timestamp_ms),
+                track_type="cell", max_age_min=self.seed_max_age_min)
+        except Exception:
+            return {}
+        if not seeds:
+            return {}
+        max_speed = self.seed_max_speed_kmh
+        if max_speed is None:
+            max_speed = float(_speed_range_kmh()[1])
+        candidates = []
+        for ci, cell in enumerate(cells):
+            for si, seed in enumerate(seeds):
+                dist = haversine_km(tuple(seed["lonlat"]), cell.centroid_lonlat)
+                if dist > self.seed_max_km:
+                    continue
+                age_h = float(seed["age_min"]) / 60.0
+                if age_h <= 0:
+                    continue
+                if dist / age_h > max_speed:
+                    continue
+                candidates.append((dist, ci, si))
+        candidates.sort(key=lambda item: (item[0], item[1], item[2]))
+        used_cells, used_seeds, out = set(), set(), {}
+        for _dist, ci, si in candidates:
+            if ci in used_cells or si in used_seeds:
+                continue
+            out[ci] = seeds[si]
+            used_cells.add(ci)
+            used_seeds.add(si)
+        return out
 
     def _gate_limits(self, features, cell, cfg):
         """Raggi massimi (km): rispetto all'ultima posizione e (se predizione
@@ -325,10 +704,12 @@ class Tracker:
         definita e vale il comportamento storico."""
         self._last_frame_index = int(frame_index)
         active = [t for t in self.tracks if t.status == models.STATUS_ACTIVE]
+        seed_map = self._seed_matches(cells) if not active else {}
         if not active or not cells:
             rows = []
-            for cell in cells:
-                self.tracks.append(self._new_track(cell, frame_index))
+            for ci, cell in enumerate(cells):
+                self.tracks.append(self._new_track(cell, frame_index,
+                                                   seed=seed_map.get(ci)))
                 rows.append({"track_id": self._next_track_id - 1,
                              "prev_cell_id": None, "current_cell_id": cell.cell_id,
                              "assignment_status": "new_track"})
@@ -417,6 +798,10 @@ class Tracker:
                         assignment[ti] = ci
                         reversed_assign[ci] = ti
 
+        # Lineage merge/split (2026-11-11): piano calcolato PRIMA di creare le
+        # track nuove, cosi' i figli possono ereditare parent_ids.
+        lineage = lineage_plan(active, cells, assignment, reversed_assign)
+
         # ambiguous candidato (merge/split) -> EVENT_AMBIGUOUS come in Fase 1
         for ti, ci in assignment.items():
             cell = cells[ci]
@@ -455,12 +840,16 @@ class Tracker:
                                  if np.isfinite(cost[ti, ci]) else None,
                                  **meta})
 
+        new_tracks_by_col = {}
         for j, cell in enumerate(cells):
             if j not in reversed_assign:
-                self.tracks.append(self._new_track(cell, frame_index))
-                rows.append({"track_id": self._next_track_id - 1,
+                track = self._new_track(cell, frame_index)
+                self.tracks.append(track)
+                new_tracks_by_col[j] = track
+                rows.append({"track_id": track.track_id,
                              "prev_cell_id": None, "current_cell_id": cell.cell_id,
                              "assignment_status": "new_track"})
+        apply_lineage(active, new_tracks_by_col, lineage)
 
         for ti, track in enumerate(active):
             if ti not in assignment:

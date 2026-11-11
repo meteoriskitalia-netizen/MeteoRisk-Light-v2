@@ -44,7 +44,8 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 from . import models
-from .tracking import haversine_km, bearing_deg, dest_from, _circle_iou
+from .tracking import (haversine_km, bearing_deg, dest_from, _circle_iou,
+                       lineage_plan, apply_lineage, _speed_range_kmh)
 
 _EPS = 1e-12
 
@@ -136,10 +137,44 @@ def ambiguity_class(competing, density, cost_sep, merge_split, cfg_amb):
     return klass, reason
 
 
+class _SeedStormObject:
+    """Vista minima di una track dell'archivio come storm object.
+
+    `cell_count` manca negli slot scritti prima del 2026-11-11: il neutro 1
+    non altera il matching (il seed usa solo centroide/area); la morfologia
+    mancante usa 1.0 come nel layer cella.
+    """
+
+    def __init__(self, seed):
+        import datetime as _dt
+        self.storm_object_id = "history:{}".format(seed.get("uid"))
+        self.timestamp_ms = int(seed["timestamp_ms"])
+        iso = seed.get("timestamp_iso")
+        if not iso:
+            iso = _dt.datetime.fromtimestamp(
+                self.timestamp_ms / 1000.0, _dt.timezone.utc
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.timestamp_iso = iso
+        self.cell_count = int(seed["cell_count"]
+                              if seed.get("cell_count") is not None else 1)
+        self.centroid_lonlat = tuple(seed["lonlat"])
+        self.area_km2 = float(seed["area_km2"])
+        self.max_dbz = float(seed.get("max_dbz") or 0.0)
+        self.mean_dbz = float(seed.get("mean_dbz") or 0.0)
+        self.solidity = float(seed["solidity"]
+                              if seed.get("solidity") is not None else 1.0)
+        self.compactness = float(seed["compactness"]
+                                 if seed.get("compactness") is not None else 1.0)
+        self.tracking_ambiguity = None
+        self.frame_index = -1
+
+
 class StormObjectTracker:
     """Tracker indipendente su storm object (Hungarian per frame)."""
 
-    def __init__(self, cfg_storm, cfg_scoring=None, diagnostics=None):
+    def __init__(self, cfg_storm, cfg_scoring=None, diagnostics=None,
+                 history_dir=None, seed_max_km=20.0, seed_max_age_min=30.0,
+                 seed_max_speed_kmh=None):
         self.cfg = cfg_storm
         self.tracking_cfg = cfg_storm["tracking"]
         self.amb_cfg = cfg_storm["ambiguity"]
@@ -153,6 +188,14 @@ class StormObjectTracker:
             else self.tracking_cfg.get("diagnostics", False))
         # D2 (1.2.4.17): ultimo frame PROCESSATO (v. complete_cycles).
         self._last_frame_index = None
+        # Seed dall'archivio rolling (2026-11-11): stessa semantica del layer
+        # cella, track_type="storm_object". None = off (replay/libreria/test).
+        self.history_dir = history_dir
+        self.seed_max_km = float(seed_max_km)
+        self.seed_max_age_min = float(seed_max_age_min)
+        self.seed_max_speed_kmh = (float(seed_max_speed_kmh)
+                                   if seed_max_speed_kmh is not None else None)
+        self._seed_attempted = False
 
     # ------------------------------------------------------------------
     # matching helpers
@@ -191,12 +234,25 @@ class StormObjectTracker:
         return dest_from(pr["from_lonlat"], pr["bearing"],
                          pr["speed_kmh"] * dt_h)
 
-    def _new_track(self, obj, frame_index):
+    def _new_track(self, obj, frame_index, seed=None):
         track = models.StormTrack(self._next_track_id, obj.timestamp_ms)
         self._next_track_id += 1
+        if seed is not None:
+            # Continuazione cross-run: punto REALE dell'archivio (run
+            # precedente), frame_index=-1 per non contarlo nel ciclo corrente.
+            prior = _SeedStormObject(seed)
+            track.points.append(models.StormTrackPoint(track.track_id, -1, prior))
+            track.birth_ms = int(prior.timestamp_ms)
+            track.continued_from_history = True
+            track.history_uid = seed.get("uid")
+            track.history_slot = seed.get("slot")
+            track.history_age_min = seed.get("age_min")
+            track.lineage = "continuation"
+            track.events.append("continued_from_history")
         pt = models.StormTrackPoint(track.track_id, frame_index, obj)
         track.points.append(pt)
-        track.events.append(models.EVENT_BIRTH)
+        if seed is None:
+            track.events.append(models.EVENT_BIRTH)
         obj.track_id = track.track_id
         # ambiguità di nascita: solo cell density locale (nessun competitor)
         klass, reason = ambiguity_class(0, obj.cell_density, 1.0, False,
@@ -205,6 +261,49 @@ class StormObjectTracker:
         obj.ambiguity_reason = reason
         pt.ambiguity = klass
         return track
+
+    def _seed_matches(self, objs):
+        """Accoppia gli storm object del primo frame alle track dell'archivio.
+
+        Stessi vincoli del layer cella: 20 km, 30 min, gate 110 km/h,
+        accoppiamento greedy uno-a-uno. Un archivio illeggibile -> nessun seed.
+        """
+        if self._seed_attempted or not self.history_dir or not objs:
+            return {}
+        self._seed_attempted = True
+        from . import history as history_mod
+        try:
+            seeds = history_mod.load_track_seeds(
+                self.history_dir, int(objs[0].timestamp_ms),
+                track_type="storm_object", max_age_min=self.seed_max_age_min)
+        except Exception:
+            return {}
+        if not seeds:
+            return {}
+        max_speed = self.seed_max_speed_kmh
+        if max_speed is None:
+            max_speed = float(_speed_range_kmh()[1])
+        candidates = []
+        for ci, obj in enumerate(objs):
+            for si, seed in enumerate(seeds):
+                dist = haversine_km(tuple(seed["lonlat"]), obj.centroid_lonlat)
+                if dist > self.seed_max_km:
+                    continue
+                age_h = float(seed["age_min"]) / 60.0
+                if age_h <= 0:
+                    continue
+                if dist / age_h > max_speed:
+                    continue
+                candidates.append((dist, ci, si))
+        candidates.sort(key=lambda item: (item[0], item[1], item[2]))
+        used_cells, used_seeds, out = set(), set(), {}
+        for _dist, ci, si in candidates:
+            if ci in used_cells or si in used_seeds:
+                continue
+            out[ci] = seeds[si]
+            used_cells.add(ci)
+            used_seeds.add(si)
+        return out
 
     def _gate_limits(self, feats, obj):
         """Raggi massimi (km) del gate di continuita' (110 km/h di default).
@@ -225,10 +324,11 @@ class StormObjectTracker:
     def update(self, objs, frame_index):
         self._last_frame_index = int(frame_index)
         active = [t for t in self.tracks if t.status == models.STATUS_ACTIVE]
+        seed_map = self._seed_matches(objs) if not active else {}
         if not active or not objs:
             rows = []
-            for obj in objs:
-                track = self._new_track(obj, frame_index)
+            for ci, obj in enumerate(objs):
+                track = self._new_track(obj, frame_index, seed=seed_map.get(ci))
                 self.tracks.append(track)
                 rows.append({"track_id": track.track_id,
                              "prev_storm_object_id": None,
@@ -312,6 +412,10 @@ class StormObjectTracker:
                         assignment[ti] = ci
                         reversed_assign[ci] = ti
 
+        # Lineage merge/split (2026-11-11): piano prima della creazione delle
+        # track nuove, cosi' i figli ereditano parent_ids.
+        lineage = lineage_plan(active, objs, assignment, reversed_assign)
+
         # -- matched: cost separation + ambiguity (Parte D) ---------------- *
         for ti, ci in assignment.items():
             obj = objs[ci]
@@ -375,14 +479,17 @@ class StormObjectTracker:
                                  if np.isfinite(cost[ti, ci]) else None,
                                  **m})
 
+        new_tracks_by_col = {}
         for j, obj in enumerate(objs):
             if j not in reversed_assign:
                 track = self._new_track(obj, frame_index)
                 self.tracks.append(track)
+                new_tracks_by_col[j] = track
                 rows.append({"track_id": track.track_id,
                              "prev_storm_object_id": None,
                              "current_storm_object_id": obj.storm_object_id,
                              "status": "new_track"})
+        apply_lineage(active, new_tracks_by_col, lineage)
         for ti, t in enumerate(active):
             if ti not in assignment:
                 t.status = models.STATUS_DEAD

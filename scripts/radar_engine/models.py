@@ -240,6 +240,19 @@ class Track:
         self.motion = {}
         self.tracking_confidence = "insufficient"
         self.score_confidence = "low"
+        # Lineage (2026-11-11): relazioni esplicite fra identita' quando un
+        # oggetto si divide o due si fondono. `parent_ids`/`child_ids` sono
+        # track_id LOCALI dello stesso run; `lineage` e' "split"/"merge"/
+        # "continuation" oppure None per una nascita senza relazione.
+        self.parent_ids = []
+        self.child_ids = []
+        self.lineage = None
+        # Seed dall'archivio rolling (history.py): la track continua una track
+        # vista in un run precedente invece di nascere da zero.
+        self.continued_from_history = False
+        self.history_uid = None
+        self.history_slot = None
+        self.history_age_min = None
 
     def to_dict(self):
         pts = [p.to_dict() for p in self.points]
@@ -254,6 +267,13 @@ class Track:
             "death_time": death,
             "tracking_confidence": self.tracking_confidence,
             "score_confidence": self.score_confidence,
+            "parent_ids": list(self.parent_ids),
+            "child_ids": list(self.child_ids),
+            "lineage": self.lineage,
+            "continued_from_history": bool(self.continued_from_history),
+            "history_uid": self.history_uid,
+            "history_slot": self.history_slot,
+            "history_age_min": self.history_age_min,
             "classification": self.motion.get("classification"),
             "organization_score": self.motion.get("organization_score"),
             "class_probs": self.motion.get("class_probs"),
@@ -421,6 +441,15 @@ class StormTrack:
         self.score_confidence = "low"
         self.motion_confidence = "low"
         self.tracking_ambiguity = "high"
+        # Lineage (2026-11-11): stessa semantica del layer cella. I track_id
+        # sono LOCALI al run; la relazione sopravvive al cambio di ID.
+        self.parent_ids = []
+        self.child_ids = []
+        self.lineage = None
+        self.continued_from_history = False
+        self.history_uid = None
+        self.history_slot = None
+        self.history_age_min = None
 
     def to_dict(self):
         pts = [p.to_dict() for p in self.points]
@@ -438,6 +467,13 @@ class StormTrack:
             "motion_confidence": self.motion_confidence,
             "tracking_ambiguity": self.tracking_ambiguity,
             "score_confidence": self.score_confidence,
+            "parent_ids": list(self.parent_ids),
+            "child_ids": list(self.child_ids),
+            "lineage": self.lineage,
+            "continued_from_history": bool(self.continued_from_history),
+            "history_uid": self.history_uid,
+            "history_slot": self.history_slot,
+            "history_age_min": self.history_age_min,
             "classification": self.motion.get("classification"),
             "organization_score": self.motion.get("organization_score"),
             "class_probs": self.motion.get("class_probs"),

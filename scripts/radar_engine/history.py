@@ -373,6 +373,14 @@ def _track_entry(track, latest_frame_index, track_type, uid=None):
         "mean_dbz": _round(point.mean_dbz, 2),
         "velocity_kmh": _round(motion.get("velocity_kmh"), 2),
         "direction_toward_deg": _round(motion.get("direction_toward_deg"), 1),
+        # Seed del tracker (2026-11-11): la continuazione cross-run ha bisogno
+        # anche della morfologia e della composizione, non solo del centroide.
+        # Gli slot scritti prima di questa modifica non hanno le chiavi: il
+        # lettore usa None (nessun valore inventato) e il seed resta possibile
+        # solo se area/centroide sono presenti.
+        "cell_count": _as_int(getattr(point, "cell_count", 1)),
+        "solidity": _round(getattr(point, "solidity", None), 4),
+        "compactness": _round(getattr(point, "compactness", None), 4),
     }
 
 
@@ -434,6 +442,101 @@ def build_slot_payload(bundle_like):
         "tracks": tracks,
         "structures": structures,
     })
+
+
+def load_track_seeds(root, reference_ms, track_type="cell",
+                     max_age_min=30.0, max_slots=WINDOW_SLOTS):
+    """Track VIVE nell'archivio rolling, candidate a continuare nel run.
+
+    Perche' esiste (2026-11-11): l'archivio di 2 h veniva usato solo per
+    disegnare la scia. Al primo frame di un run, un oggetto che era gia' una
+    track viva nel run precedente nasceva con un ID nuovo; qui si restituiscono
+    le track dell'archivio con timestamp STRETTAMENTE precedente a
+    `reference_ms`, entro `max_age_min`. Il chiamante (tracker) filtra per
+    distanza (20 km) e per il gate cinematico (110 km/h) e decide l'accoppiamento
+    uno-a-uno: nessuna track viene creata qui.
+
+    Lo slot piu' recente per ogni `uid` vince (l'archivio puo' contenere la
+    stessa identita' in piu' slot): si evita di proporre due volte la stessa
+    track. Un payload corrotto o senza `radar_timestamp_ms` viene saltato.
+    """
+    if not root:
+        return []
+    try:
+        ref = float(reference_ms)
+    except (TypeError, ValueError):
+        return []
+    if not math.isfinite(ref):
+        return []
+    try:
+        max_age = float(max_age_min)
+    except (TypeError, ValueError):
+        max_age = 30.0
+    index = read_index(root)
+    slots = list(index.get("slots") or [])
+    if max_slots:
+        slots = slots[-int(max_slots):]
+    seen = set()
+    out = []
+    for slot in reversed(slots):
+        payload = read_slot(root, slot)
+        if not _slot_valid(payload, slot):
+            continue
+        try:
+            ts = float(payload.get("radar_timestamp_ms"))
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(ts) or ts >= ref:
+            continue
+        age_min = (ref - ts) / 60000.0
+        if age_min <= 0:
+            continue
+        if age_min > max_age:
+            # slot in ordine cronologico: i successivi (piu' vecchi) sono
+            # ancora fuori finestra.
+            break
+        for track in payload.get("tracks") or []:
+            if track.get("track_type") != track_type:
+                continue
+            if track.get("status") != models.STATUS_ACTIVE:
+                continue
+            uid = track.get("uid")
+            if uid is None:
+                # Senza uid l'identita' non e' stabile fra slot: usarla come
+                # seed puo' duplicare la stessa track. Si ignora (l'archivio
+                # corrente assegna sempre uid in build_history).
+                continue
+            key = (track_type, uid)
+            if key in seen:
+                continue
+            coord = _lonlat(track)
+            if coord is None:
+                continue
+            area = _round(track.get("area_km2"), 2)
+            if area is None or area <= 0:
+                continue
+            out.append({
+                "uid": _as_int(uid),
+                "track_id": _as_int(track.get("track_id")),
+                "track_type": track_type,
+                "slot": slot,
+                "timestamp_ms": int(round(ts)),
+                "timestamp_iso": payload.get("radar_timestamp"),
+                "age_min": round(age_min, 2),
+                "lonlat": [coord[0], coord[1]],
+                "area_km2": area,
+                "max_dbz": _round(track.get("max_dbz"), 2),
+                "mean_dbz": _round(track.get("mean_dbz"), 2),
+                "velocity_kmh": _round(track.get("velocity_kmh"), 2),
+                "direction_toward_deg": _round(track.get("direction_toward_deg"), 1),
+                "cell_count": _as_int(track.get("cell_count")),
+                "solidity": _round(track.get("solidity"), 4),
+                "compactness": _round(track.get("compactness"), 4),
+            })
+            if uid is not None:
+                seen.add(key)
+    out.sort(key=lambda e: (e["age_min"], e["uid"] if e["uid"] is not None else -1))
+    return out
 
 
 def _slot_valid(payload, slot):
