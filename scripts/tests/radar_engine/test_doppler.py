@@ -43,13 +43,35 @@ def volume_from(vrad, az, site="frale", lat=42.12971, lon=9.49639,
                 height_m=63.0, el=0.6, rstart=0.0, rscale=960.0,
                 valid_time="2026-11-11T20:14:46Z", nyquist=62.0555):
     sh, r_km = dop.azimuthal_shear(vrad, az, rstart, rscale, window_rays=1)
+    nrays, nbins = vrad.shape
     return {
         "site": site, "lat": lat, "lon": lon, "height_m": height_m,
-        "elangle_deg": el, "nrays": int(vrad.shape[0]), "nbins": int(vrad.shape[1]),
+        "elangle_deg": el, "nrays": int(nrays), "nbins": int(nbins),
         "rstart_m": rstart, "rscale_m": rscale, "az_deg": az,
         "vrad": vrad, "valid_time": valid_time, "nyquist": nyquist,
         "shear": sh, "range_km": r_km,
+        "maxrange_m": np.full(nrays, rstart + nbins * rscale),
+        "maxrange_source": "grid_geometry",
     }
+
+
+def _coverage_inputs(scan, el=0.6, site="frale", key="k"):
+    """Input minimo per build_coverage senza rete (by_key gia' popolato)."""
+    import datetime as dt
+    vol = dict(scan)
+    vol["key"] = key
+    if "vrad" not in vol and not (np.asarray(scan["max_range_m"]) > 0).any():
+        # solo per il caso "nessun eco": un volume coerente senza gate, cosi'
+        # anche la versione precedente (che assume by_key = volume completo)
+        # arriva in fondo e fallisce sull'assenza di `kind`.
+        vol["vrad"] = np.full((int(scan["nrays"]), int(scan["nbins"])), np.nan)
+        vol["az_deg"] = np.asarray(scan["az_start_deg"], dtype="float64")
+    volumes = [{"ts": dt.datetime(2026, 11, 11, 19, 4, tzinfo=dt.timezone.utc),
+                "elevations": {el: key}}]
+    st = {"site": site, "valid_time": "2026-11-11T19:04:45Z",
+          "files": 0, "bytes": 0, "status": "ok"}
+    return [(site, volumes, {el: scan}, el, {key: vol},
+             dop.config_for({}), {}, st)]
 
 
 def _write_scan(path, nrays=360, nbins=267, rscale=960.0, el=0.6,
@@ -325,3 +347,94 @@ def test_coverage_from_valid_rays_contains_rome(tmp_path):
     doc = {"type": "FeatureCollection", "features": feats}
     hits = dop.coverage_contains(doc, 12.48, 41.89)
     assert hits, "Roma (12.48E 41.89N) deve cadere nel poligono di copertura"
+
+
+# ---------------------------------------------------------------------------
+# Copertura GEOMETRICA vs OSSERVATA (1.2.4.85)
+# ---------------------------------------------------------------------------
+def test_range_at_beam_height_is_inverse():
+    for el in (0.6, 1.01, 1.4):
+        r = dop.range_at_beam_height(8.0, el, 63.0)
+        assert dop.beam_height_km(r, el, 63.0) == pytest.approx(8.0, abs=1e-3)
+    assert dop.range_at_beam_height(8.0, 0.6, 63.0) == pytest.approx(289.0, abs=2.0)
+    assert dop.range_at_beam_height(8.0, 1.01, 63.0) < 250.0
+    assert dop.range_at_beam_height(8.0, 1.4, 63.0) < 220.0
+
+
+def test_coverage_geometric_published_without_echo():
+    # NESSUN gate valido: l'osservata non ha poligoni, la geometrica si'.
+    # Questo test FALLISCE sulla versione precedente (nessun `kind`).
+    nrays = 360
+    vrad = np.full((nrays, 267), np.nan)
+    vol = volume_from(vrad, np.arange(nrays, dtype="float64"))
+    doc = dop.build_coverage(_coverage_inputs(dop._scan_like(vol)),
+                             dop.config_for({}))
+    kinds = {f["properties"]["kind"] for f in doc["features"]}
+    assert "geometric" in kinds
+    geo = [f for f in doc["features"] if f["properties"]["kind"] == "geometric"]
+    assert geo and all(f["properties"]["max_range_km"] > 250 for f in geo)
+    assert all("beam_height_at_max_km" in f["properties"] for f in geo)
+    st = dop.coverage_status(doc, 12.48, 41.89)
+    assert st["geometric"]["inside"] is True
+    assert st["observed"]["present"] is False
+
+
+def test_coverage_geometric_follows_per_ray_maxrange():
+    nrays = 360
+    vrad = np.full((nrays, 267), np.nan)
+    vol = volume_from(vrad, np.arange(nrays, dtype="float64"))
+    vol["maxrange_m"] = np.full(nrays, 100_000.0)
+    vol["maxrange_source"] = "where/maxrange"
+    doc = dop.build_coverage(_coverage_inputs(dop._scan_like(vol)),
+                             dop.config_for({}))
+    geo = [f for f in doc["features"] if f["properties"]["kind"] == "geometric"]
+    assert geo and geo[0]["properties"]["max_range_km"] == pytest.approx(100.0, abs=0.1)
+    assert geo[0]["properties"]["max_range_source"] == "where/maxrange"
+    # a 100 km Roma (248 km) e' fuori
+    assert dop.coverage_status(doc, 12.48, 41.89)["geometric"]["inside"] is False
+
+
+def test_coverage_geometric_beam_height_caps_range():
+    nrays = 360
+    vrad = np.full((nrays, 267), np.nan)
+    vol = volume_from(vrad, np.arange(nrays, dtype="float64"), el=1.4)
+    doc = dop.build_coverage(_coverage_inputs(dop._scan_like(vol), el=1.4),
+                             dop.config_for({}))
+    geo = [f for f in doc["features"] if f["properties"]["kind"] == "geometric"]
+    assert geo and 200.0 < geo[0]["properties"]["max_range_km"] < 220.0
+    assert geo[0]["properties"]["beam_height_at_max_km"] <= 8.05
+    assert dop.coverage_status(doc, 12.48, 41.89)["geometric"]["inside"] is False
+
+
+def test_coverage_has_both_kinds_and_counts():
+    nrays = 360
+    vrad = np.full((nrays, 267), 5.0)
+    vol = volume_from(vrad, np.arange(nrays, dtype="float64"))
+    doc = dop.build_coverage(_coverage_inputs(dop._scan_like(vol)),
+                             dop.config_for({}))
+    kinds = [f["properties"]["kind"] for f in doc["features"]]
+    assert "geometric" in kinds and "observed" in kinds
+    assert doc["counts"]["geometric"] == kinds.count("geometric")
+    assert doc["counts"]["observed"] == kinds.count("observed")
+    assert doc["counts"]["polygons"] == len(doc["features"])
+    for f in doc["features"]:
+        p = f["properties"]
+        for k in ("kind", "elevation_deg", "max_range_km",
+                  "beam_height_at_max_km"):
+            assert k in p
+        assert p["kind"] in ("geometric", "observed")
+
+
+def test_coverage_status_reports_signed_distance():
+    nrays = 360
+    vrad = np.full((nrays, 267), np.nan)
+    vol = volume_from(vrad, np.arange(nrays, dtype="float64"))
+    doc = dop.build_coverage(_coverage_inputs(dop._scan_like(vol)),
+                             dop.config_for({}))
+    st = dop.coverage_status(doc, 12.48, 41.89)
+    assert st["geometric"]["inside"] is True
+    # 256.32 - 247.93 = 8.39 km dal bordo
+    assert 7.0 < st["geometric"]["distance_to_edge_km"] < 9.5
+    far = dop.coverage_status(doc, 15.0, 45.0)
+    assert far["geometric"]["inside"] is False
+    assert far["geometric"]["distance_to_edge_km"] < 0

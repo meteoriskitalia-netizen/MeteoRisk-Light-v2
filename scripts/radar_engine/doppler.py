@@ -158,6 +158,22 @@ def beam_height_km(range_km, elevation_deg, site_height_m=0.0,
     return h + float(site_height_m) / 1000.0
 
 
+def range_at_beam_height(height_km, elevation_deg, site_height_m=0.0,
+                         earth_radius_km=EARTH_RADIUS_KM):
+    """Raggio (km) dove il fascio raggiunge `height_km` (inversa di
+    `beam_height_km`). `inf` se non lo raggiunge mai (elevazione <= 0).
+
+    Risolve r^2 + 2*k*sin(el)*r + k^2 - A^2 = 0 con A = h + k - h_sito.
+    """
+    k = float(earth_radius_km)
+    th = math.radians(float(elevation_deg))
+    a = float(height_km) + k - float(site_height_m) / 1000.0
+    disc = (k * math.sin(th)) ** 2 + a * a - k * k
+    if disc <= 0.0:
+        return float("inf")
+    return -k * math.sin(th) + math.sqrt(disc)
+
+
 def destination(lon, lat, bearing_deg, dist_km):
     """Punto a `dist_km` e azimuth `bearing_deg` (sfera R=6371.0088 km)."""
     r = 6371.0088
@@ -240,6 +256,11 @@ def read_vradh(source):
         lat = float(_attr(where, "lat"))
         lon = float(_attr(where, "lon"))
         height = float(_attr(where, "height", 0.0))
+        # `where/maxrange` e' la portata REALE del raggio. In questi SCAN
+        # OPERA FR non c'e' (misurato il 2026-11-12: where ha solo
+        # height/lat/lon) -> si ricava dalla geometria del file
+        # (rstart + nbins*rscale) e la fonte viene DICHIARATA in output.
+        maxrange_attr = _attr(where, "maxrange")
         d1 = fh["dataset1"]
         dw = d1["where"].attrs
         nrays = int(_attr(dw, "nrays"))
@@ -308,6 +329,21 @@ def read_vradh(source):
             pass
 
     v = decode_vradh(raw, gain, offset, nodata, undetect)
+    grid_max = float(rstart + nbins * rscale)
+    if maxrange_attr is None:
+        maxrange = np.full(nrays, grid_max, dtype="float64")
+        maxrange_source = "grid_geometry"
+    else:
+        arr = np.asarray(maxrange_attr, dtype="float64").reshape(-1)
+        if arr.size == 1:
+            arr = np.full(nrays, float(arr[0]), dtype="float64")
+            maxrange_source = "where/maxrange"
+        elif arr.size != nrays:
+            arr = np.full(nrays, grid_max, dtype="float64")
+            maxrange_source = "grid_geometry"
+        else:
+            maxrange_source = "where/maxrange"
+        maxrange = arr
     return {
         "lat": lat,
         "lon": lon,
@@ -320,6 +356,8 @@ def read_vradh(source):
         "rscale_m": rscale,
         "az_deg": np.mod(az_center, 360.0),
         "vrad": v,
+        "maxrange_m": maxrange,
+        "maxrange_source": maxrange_source,
         "nyquist": (float(ni) if ni is not None else None),
         "nyquist_source": ni_source,
         "nyquist_note": ("single_prf_nyquist" if ni_source == "prf*wavelength/4"
@@ -982,8 +1020,13 @@ def collect(config=None, as_of=None):
     except Exception as exc:
         res["errors"].append({"coverage": f"{exc.__class__.__name__}:{exc}"})
     if res.get("coverage"):
-        res["coverage_rome"] = coverage_contains(res["coverage"], 12.48, 41.89)
-        res["coverage_rome_inside"] = bool(res["coverage_rome"])
+        st74 = coverage_status(res["coverage"], 12.48, 41.89)
+        res["coverage_rome"] = st74
+        res["coverage_rome_geometric_inside"] = st74.get(
+            "geometric", {}).get("inside")
+        res["coverage_rome_observed_inside"] = st74.get(
+            "observed", {}).get("inside")
+        res["coverage_rome_inside"] = res["coverage_rome_geometric_inside"]
     res["cost"]["files"] = int(sum(s["files"] for s in res["sites"]))
     res["cost"]["bytes"] = int(sum(s["bytes"] for s in res["sites"]))
     res["cost"]["seconds"] = round(
@@ -1010,15 +1053,53 @@ def _scan_like(vol, max_range_m=None):
             max_r[i] = rng[w[-1]] + vol["rscale_m"] / 2.0
     if max_range_m is not None:
         max_r = np.maximum(max_r, max_range_m)
+    mr = vol.get("maxrange_m")
+    if mr is None:
+        mr = np.full(vol["nrays"], float(vol["rstart_m"]) + nb * float(vol["rscale_m"]))
+    else:
+        mr = np.asarray(mr, dtype="float64").reshape(-1)
+        if mr.size == 1:
+            mr = np.full(vol["nrays"], float(mr[0]))
     return {
         "lat": vol["lat"], "lon": vol["lon"], "height_m": vol["height_m"],
         "elangle_deg": vol["elangle_deg"], "nrays": vol["nrays"],
         "nbins": nb, "rscale_m": vol["rscale_m"], "rstart_m": vol["rstart_m"],
         "a1gate": 0, "az_start_deg": vol["az_deg"],
         "max_range_m": max_r, "n_valid_bins": valid.sum(axis=1),
+        "maxrange_m": mr,
+        "maxrange_source": vol.get("maxrange_source", "grid_geometry"),
         "coverage_fraction": float((max_r > 0).mean()),
         "max_range_km": round(float(max_r.max()) / 1000.0, 2),
     }
+
+
+def geometric_scan(vol, cfg):
+    """Scan GEOMETRICO: portata del raggio tagliata dal limite di altezza.
+
+    NON usa i gate VRADH: un raggio senza eco ha COMUNQUE copertura (il fascio
+    campiona il volume, semplicemente non c'e' velocita' da misurare).
+    La portata per raggio viene da `where/maxrange` se presente, altrimenti
+    dalla geometria della griglia (`rstart + nbins*rscale`); la fonte resta
+    dichiarata in `maxrange_source`. Il taglio e' `min(maxrange, r(h_max))`.
+    """
+    el = float(vol["elangle_deg"])
+    nrays = int(vol["nrays"])
+    r_max = np.asarray(vol.get("maxrange_m"), dtype="float64").reshape(-1)
+    if r_max.size == 1:
+        r_max = np.full(nrays, float(r_max[0]), dtype="float64")
+    elif r_max.size != nrays:
+        r_max = np.full(nrays, float(vol["rstart_m"])
+                        + int(vol["nbins"]) * float(vol["rscale_m"]))
+    limit = range_at_beam_height(float(cfg["max_beam_height_km"]), el,
+                                 vol.get("height_m", 0.0)) * 1000.0
+    out = dict(vol)
+    out["max_range_m"] = np.minimum(r_max, limit)
+    out["az_start_deg"] = np.asarray(vol.get("az_deg", vol["az_start_deg"]),
+                                     dtype="float64")
+    out["n_valid_bins"] = np.zeros(nrays, dtype="int32")
+    out["coverage_fraction"] = 1.0
+    out["max_range_km"] = round(float(out["max_range_m"].max()) / 1000.0, 2)
+    return out
 
 
 def _expand_beam(scan):
@@ -1130,7 +1211,7 @@ def build_coverage(coverage_inputs, cfg, previous_doc=None):
                     st["bytes"] += len(body)
                 except Exception:
                     continue
-            scan = _scan_like(pv)
+            scan = _scan_like(pv) if "vrad" in pv else dict(pv)
             used += 1
             if merged is None:
                 merged = scan
@@ -1141,6 +1222,37 @@ def build_coverage(coverage_inputs, cfg, previous_doc=None):
         if merged is None:
             continue
         day_s = (st.get("valid_time") or "")[:10]
+        # ---- coverage_GEOMETRIC: portata del fascio, INDIPENDENTE dall'eco.
+        # Un raggio senza eco e' coperto: il fascio campiona il volume, non
+        # c'e' solo la velocita' da misurare. Portata per raggio (maxrange o
+        # griglia) tagliata dal limite di altezza del fascio (<= 8 km).
+        geo, geo_el, geo_src = None, None, None
+        for el in sorted(cov_scans):
+            g = geometric_scan(cov_scans[el], cf)
+            if geo is None:
+                geo, geo_el, geo_src = g, el, g.get("maxrange_source")
+            else:
+                geo = dict(geo)
+                geo["max_range_m"] = np.maximum(geo["max_range_m"],
+                                                g["max_range_m"])
+        if geo is not None:
+            geo_feats = dc.site_features(
+                _expand_beam(geo), site, cf["country"], st["valid_time"],
+                generated, min_range_km=float(cf["coverage_min_range_km"]),
+                max_points=720)
+            for f in geo_feats:
+                p = f["properties"]
+                p["kind"] = "geometric"
+                p["layer"] = "geometric"
+                p["elevation_deg"] = round(float(geo_el), 2)
+                p["elevations_merged"] = sorted(cov_scans)
+                p["max_range_source"] = geo_src
+                p["beam_height_at_max_km"] = round(float(beam_height_km(
+                    p["max_range_km"], geo_el, geo.get("height_m", 0.0))), 2)
+                p["day"] = day_s
+                p["rays_km"] = [round(float(x) / 1000.0, 2)
+                                for x in geo["max_range_m"]]
+            features.extend(geo_feats)
         prev = _previous_rays(previous_doc, site, "min_elevation", day_s)
         if prev is not None:
             merged = dict(merged)
@@ -1150,11 +1262,16 @@ def build_coverage(coverage_inputs, cfg, previous_doc=None):
                                      min_range_km=float(cf["coverage_min_range_km"]),
                                      max_points=720)
         for f in min_feats:
-            f["properties"]["layer"] = "min_elevation"
-            f["properties"]["elevation_deg"] = round(float(el0), 2)
-            f["properties"]["volumes_merged"] = used
-            f["properties"]["day"] = day_s
-            f["properties"]["rays_km"] = [
+            p = f["properties"]
+            p["kind"] = "observed"
+            p["layer"] = "min_elevation"
+            p["elevation_deg"] = round(float(el0), 2)
+            p["volumes_merged"] = used
+            p["day"] = day_s
+            p["max_range_source"] = "gates"
+            p["beam_height_at_max_km"] = round(float(beam_height_km(
+                p["max_range_km"], el0, merged.get("height_m", 0.0))), 2)
+            p["rays_km"] = [
                 round(float(x) / 1000.0, 2) for x in merged["max_range_m"]]
         features.extend(min_feats)
         # any elevation: max sui volumi gia' preparati (tutte le elevazioni)
@@ -1174,49 +1291,149 @@ def build_coverage(coverage_inputs, cfg, previous_doc=None):
                                      min_range_km=float(cf["coverage_min_range_km"]),
                                      max_points=720)
         for f in any_feats:
-            f["properties"]["layer"] = "any_elevation"
-            f["properties"]["elevation_deg"] = None
-            f["properties"]["elevations_merged"] = len(cov_scans)
-            f["properties"]["day"] = day_s
-            f["properties"]["rays_km"] = [
+            p = f["properties"]
+            p["kind"] = "observed"
+            p["layer"] = "any_elevation"
+            p["elevation_deg"] = None
+            p["elevations_merged"] = len(cov_scans)
+            p["day"] = day_s
+            p["max_range_source"] = "gates"
+            p["beam_height_at_max_km"] = round(float(beam_height_km(
+                p["max_range_km"], el0, merged.get("height_m", 0.0))), 2)
+            p["rays_km"] = [
                 round(float(x) / 1000.0, 2) for x in any_scan["max_range_m"]]
         features.extend(any_feats)
+    kinds = {}
+    for f in features:
+        k = f["properties"].get("kind")
+        kinds[k] = kinds.get(k, 0) + 1
     doc = {
         "type": "FeatureCollection",
         "generated_at": generated,
         "license": LICENSE,
         "attribution": ATTRIBUTION,
+        "kinds": {
+            "geometric": (
+                "Dove il fascio PUO' campionare: portata del raggio "
+                "(where/maxrange, altrimenti rstart+nbins*rscale) tagliata "
+                "dal limite di altezza del fascio (<= 8 km). NON dipende "
+                "dall'eco: un raggio senza precipitazione resta coperto."),
+            "observed": (
+                "Dove esiste almeno un gate VRADH valido nella finestra: "
+                "dipende dall'eco ed e' quindi dinamica."),
+        },
         "data_limits": [
-            "Copertura MISURATA sui raggi con almeno un gate VRADH valido, "
-            "non un cerchio teorico: un raggio senza eco non ha Doppler.",
-            "La copertura e' l'inviluppo dei range massimi per azimuth nella "
-            "finestra indicata; non tiene conto del mascheramento locale.",
-            "A 248 km (Roma) la 0.6 gradi e' a 6.2 km di altezza: il Doppler "
-            "c'e' solo se la precipitazione arriva a quella quota.",
+            "coverage_geometric: la portata per raggio viene da "
+            "where/maxrange quando il produttore la scrive; in questi SCAN "
+            "OPERA FR l'attributo NON c'e' (where ha solo height/lat/lon), "
+            "quindi si usa la geometria della griglia (rstart+nbins*rscale) "
+            "e la fonte e' dichiarata in max_range_source.",
+            "coverage_geometric e' limitata dal fascio <= 8 km: a 248 km la "
+            "0.6 gradi e' a 6.2 km, la 1.01 a 8.0 km, la 1.4 a 9.7 km.",
+            "coverage_observed e' l'inviluppo dei range massimi per azimuth "
+            "con almeno un gate VRADH valido: un raggio senza eco non ha "
+            "Doppler, quindi il poligono si restringe quando non piove.",
             "Il bordo del poligono e' l'impronta del fascio (mezzo raggio per "
             "lato), non la corda fra i centri dei raggi.",
         ],
         "counts": {"polygons": len(features),
+                   "geometric": kinds.get("geometric", 0),
+                   "observed": kinds.get("observed", 0),
                    "sites": len({f["properties"]["site"] for f in features})},
         "features": features,
     }
     return doc
 
 
-def coverage_contains(doc, lon, lat):
-    """True se il punto cade in almeno un poligono della copertura."""
+def distance_to_ring_km(lon, lat, ring):
+    """Distanza minima (km) dal punto all'anello (proiezione locale).
+
+    Positiva per costruzione: il segno lo decide `coverage_status` con
+    point_in_ring. Sufficiente alla scala del poligono (< 300 km): errore
+    della proiezione equirettangolare < 0.1%.
+    """
+    if not ring or len(ring) < 2:
+        return None
+    lat0 = math.radians(float(lat))
+    kx = 111.320 * math.cos(lat0)
+    ky = 110.574
+    best = None
+    n = len(ring)
+    for i in range(n - 1):
+        x1 = (ring[i][0] - lon) * kx
+        y1 = (ring[i][1] - lat) * ky
+        x2 = (ring[i + 1][0] - lon) * kx
+        y2 = (ring[i + 1][1] - lat) * ky
+        dx, dy = x2 - x1, y2 - y1
+        l2 = dx * dx + dy * dy
+        t = 0.0 if l2 == 0.0 else max(0.0, min(1.0, -(x1 * dx + y1 * dy) / l2))
+        d = math.hypot(x1 + t * dx, y1 + t * dy)
+        if best is None or d < best:
+            best = d
+    return best
+
+
+def coverage_contains(doc, lon, lat, kind=None):
+    """Poligoni che contengono il punto (filtro opzionale per `kind`)."""
     hits = []
     for f in (doc or {}).get("features", []):
+        p = f.get("properties") or {}
+        if kind is not None and p.get("kind") != kind:
+            continue
         ring = f["geometry"]["coordinates"][0]
         if point_in_ring(lon, lat, ring):
-            hits.append({"site": f["properties"].get("site"),
-                         "layer": f["properties"].get("layer"),
-                         "azimuth_start_deg": f["properties"].get(
-                             "azimuth_start_deg"),
-                         "azimuth_end_deg": f["properties"].get(
-                             "azimuth_end_deg"),
-                         "max_range_km": f["properties"].get("max_range_km")})
+            d = distance_to_ring_km(lon, lat, ring)
+            hits.append({"site": p.get("site"), "kind": p.get("kind"),
+                         "layer": p.get("layer"),
+                         "elevation_deg": p.get("elevation_deg"),
+                         "max_range_km": p.get("max_range_km"),
+                         "beam_height_at_max_km": p.get("beam_height_at_max_km"),
+                         "distance_to_edge_km": (round(float(d), 3)
+                                                 if d is not None else None)})
     return hits
+
+
+def coverage_status(doc, lon, lat):
+    """Stato del punto per ciascun `kind`: dentro/fuori + distanza dal bordo.
+
+    `distance_to_edge_km` e' positiva dentro, negativa fuori.
+    """
+    feats = [f for f in (doc or {}).get("features", [])
+             if (f.get("properties") or {}).get("kind")]
+    out = {}
+    for kind in ("geometric", "observed"):
+        group = [f for f in feats if f["properties"]["kind"] == kind]
+        if not group:
+            out[kind] = {"present": False, "inside": None,
+                         "distance_to_edge_km": None}
+            continue
+        inside, outside = [], []
+        for f in group:
+            ring = f["geometry"]["coordinates"][0]
+            d = distance_to_ring_km(lon, lat, ring)
+            (inside if point_in_ring(lon, lat, ring) else outside).append(
+                (d, f))
+        if inside:
+            d, f = max(inside, key=lambda x: x[0] if x[0] is not None else -1)
+            signed = d
+            hit = True
+        else:
+            d, f = min(outside, key=lambda x: x[0] if x[0] is not None else 1e9)
+            signed = -d if d is not None else None
+            hit = False
+        p = f["properties"]
+        out[kind] = {
+            "present": True,
+            "inside": bool(hit),
+            "site": p.get("site"),
+            "layer": p.get("layer"),
+            "elevation_deg": p.get("elevation_deg"),
+            "max_range_km": p.get("max_range_km"),
+            "beam_height_at_max_km": p.get("beam_height_at_max_km"),
+            "distance_to_edge_km": (round(float(signed), 3)
+                                    if signed is not None else None),
+        }
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1332,8 +1549,13 @@ def attach(bundle, config=None, out_dir=None):
     result["null_reasons"] = reasons
     cov = result.get("coverage")
     if cov:
-        result["coverage_rome"] = coverage_contains(cov, 12.48, 41.89)
-        result["coverage_rome_inside"] = bool(result["coverage_rome"])
+        st74 = coverage_status(cov, 12.48, 41.89)
+        result["coverage_rome"] = st74
+        result["coverage_rome_geometric_inside"] = st74.get(
+            "geometric", {}).get("inside")
+        result["coverage_rome_observed_inside"] = st74.get(
+            "observed", {}).get("inside")
+        result["coverage_rome_inside"] = result["coverage_rome_geometric_inside"]
     if out_dir and cov:
         try:
             from . import doppler_coverage as dc
