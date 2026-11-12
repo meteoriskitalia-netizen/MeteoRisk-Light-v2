@@ -70,6 +70,24 @@ _STRUCTURE_PRODUCTS = (("vil", "product_vil"), ("etm", "product_etm"),
                        ("high", "product_high"))
 # Componenti Fase 2 calcolati PER CANDIDATO (B2).
 _PHASE2_COMPONENTS = ("hook", "structure", "env", "ot", "lightning")
+# Campi di `aggregate_ssi_v2` pubblicati PER RECORD in `soi_v2_detail`
+# (2026-11-12): sono quelli che rendono attribuibile un soi_v2 (pesi usati,
+# componenti presenti/assenti/invalidi/zeri misurati, livello, status).
+# Nessun ricalcolo: copia dei valori gia' prodotti da aggregate.py.
+_SOI_V2_DETAIL_KEYS = (
+    "weights_used", "weights_used_sum", "sum_present_weights",
+    "components_present", "components_missing", "components_invalid",
+    "components_zero_measured", "level", "level_thresholds", "status")
+
+
+def _soi_v2_detail(v2):
+    """Sottoinsieme AUDITABILE del risultato di aggregate_ssi_v2.
+
+    `soi_v2` da solo non dice perche' un record vale 41: i pesi usati, i
+    componenti esclusi e gli zeri MISURATI (hook/ot) sono in questo blocco.
+    ValueError se `aggregate_ssi_v2` non ha prodotto una chiave attesa: meglio
+    un warning esplicito che un dettaglio pubblicato a meta'."""
+    return {k: v2[k] for k in _SOI_V2_DETAIL_KEYS}
 
 
 def _utcnow_str():
@@ -1192,8 +1210,13 @@ def _hook_for_candidate(frames, lon, lat, radius_km, hcfg, hook_mod):
 
     Ogni frame viene ritagliato sulla finestra ±radius_km attorno al
     candidato e la coppia (data, valid_mask) passata a
-    hook.hook_score_footprint: finestra assente/fuori griglia -> None.
-    Ritorna lo score persistito (float) oppure None."""
+    hook.hook_score_footprint_detail: finestra assente/fuori griglia ->
+    (None, None).
+
+    2026-11-12 — ritorna `(score, features)`: `features` e' il dettaglio
+    dell'ULTIMA finestra (core_pixels, bay_wrap_deg, bay_arc_px, concavity,
+    intensity, failing_gates, ...). Prima usciva solo lo score e un hook=0.0
+    non era attribuibile a un gate (core < 25 px? bay_wrap < 150 deg?)."""
     try:
         n_hist = max(1, int(hcfg.get("history_frames", 3)))
     except (TypeError, ValueError):
@@ -1201,14 +1224,14 @@ def _hook_for_candidate(frames, lon, lat, radius_km, hcfg, hook_mod):
     windows = []
     for fr in (frames or [])[-n_hist:]:
         if fr is None:
-            return None
+            return None, None
         win = _candidate_window(fr, lon, lat, radius_km)
         if win is None:
-            return None
+            return None, None
         windows.append((_crop(win, fr.data), _crop(win, fr.valid_mask)))
     if not windows:
-        return None
-    return hook_mod.hook_score_footprint(
+        return None, None
+    return hook_mod.hook_score_footprint_detail(
         windows, dbz_threshold=hcfg.get("dbz_threshold"))
 
 
@@ -1648,10 +1671,11 @@ def _phase2_evaluate(bundle, config):
                   if frames and lon is not None else None)
 
         hook_score = None
+        hook_features = None
         if lon is not None:
             try:
-                hook_score = _hook_for_candidate(hook_frames, lon, lat,
-                                                 hook_radius, hcfg, hook)
+                hook_score, hook_features = _hook_for_candidate(
+                    hook_frames, lon, lat, hook_radius, hcfg, hook)
             except Exception as exc:
                 _warn(f"phase2 hook failed: {exc}")
 
@@ -1735,6 +1759,7 @@ def _phase2_evaluate(bundle, config):
                     }
 
         c["hook"] = hook_score
+        c["hook_features"] = hook_features
         c["structure"] = structure_score
         if structure_feats is None:
             c["structure_features"] = None
@@ -1870,6 +1895,9 @@ def _phase2_evaluate(bundle, config):
                 float(c.get("soi") or 0.0), c.get("hook"), c.get("structure"),
                 c.get("env"), c.get("ot"), c.get("lightning"), weights=weights)
             c["soi_v2"] = v2["soi_v2"]
+            # 2026-11-12 — DETTAGLIO PUBBLICATO: un soi_v2 senza i pesi usati e
+            # senza i componenti esclusi non e' verificabile dal record.
+            c["soi_v2_detail"] = _soi_v2_detail(v2)
             # A (1.2.4.17): la confidenza si RICALCOLA con la copertura dati
             # nota (5 descrittori Fase 2) invece di restare la costante "low".
             present = sum(1 for k in _PHASE2_COMPONENTS

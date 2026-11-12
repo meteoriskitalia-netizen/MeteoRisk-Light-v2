@@ -464,6 +464,78 @@ def filter_persistence(current, history):
     return round(sum(s * wi for s, wi in zip(seq, w)) / total_w, 1)
 
 
+def hook_score_footprint_detail(windows, dbz_threshold=None):
+    """Score persistito + FEATURE dell'ultima finestra (diagnostica dei gate).
+
+    Stessa validazione e stesso calcolo di `hook_score_footprint` (che delega
+    qui): ritorna `(score, detail)` oppure `(None, None)` quando la sequenza e'
+    vuota o ALMENO UNA finestra e' senza dati (stessi motivi: shape vuota/1D,
+    0 px validi nel mask, nessun pixel finito nella griglia).
+
+    `detail` descrive l'ULTIMA osservazione (il frame corrente), cioe' quella
+    su cui `hook_score_from_features` applica i gate, e contiene:
+      core_pixels / bay_wrap_deg / bay_arc_px / concavity / intensity
+        (intensity = dbz_max nel core), i valori che il record pubblicato non
+        aveva: senza di essi un hook=0.0 non e' attribuibile a un gate;
+      dbz_threshold, gates (soglie applicate), failing_gates (nomi dei gate
+        NON superati, lista vuota se il candidato passa);
+      hook_candidate (gate completo, include bay_arc_px);
+      frames, history_scores, score_last_frame, persistence_score.
+    Deterministico: nessuno stato, nessuna I/O."""
+    if not windows:
+        return None, None
+    feats = []
+    scores = []
+    for item in windows:
+        if not isinstance(item, (tuple, list)) or len(item) != 2:
+            return None, None
+        grid, mask = item
+        g = np.asarray(grid, dtype="float64")
+        if g.ndim != 2 or g.size == 0:
+            return None, None
+        m = np.isfinite(g) if mask is None else np.asarray(mask, dtype=bool)
+        if m.shape != g.shape or not m.any():
+            return None, None
+        if not np.isfinite(g[m]).any():
+            return None, None
+        f = compute_hook_features(g, m, dbz_threshold=dbz_threshold)
+        feats.append(f)
+        scores.append(hook_score_from_features(f))
+    if not scores:
+        return None, None
+    score = filter_persistence(scores[-1], scores[:-1])
+    last = feats[-1]
+    failing = []
+    if int(last.get("core_area_px", 0)) < HOOK_MIN_CORE_PX:
+        failing.append("core_pixels")
+    if float(last.get("bay_wrap_deg", 0.0)) < HOOK_BAY_WRAP_MIN_DEG:
+        failing.append("bay_wrap_deg")
+    if float(last.get("bay_arc_px", 0.0)) < HOOK_BAY_ARC_MIN_PX:
+        failing.append("bay_arc_px")
+    detail = {
+        "core_pixels": int(last.get("core_area_px", 0)),
+        "bay_wrap_deg": float(last.get("bay_wrap_deg", 0.0)),
+        "bay_arc_px": float(last.get("bay_arc_px", 0.0)),
+        "concavity": float(last.get("concavity_ratio", 1.0)),
+        "intensity": float(last.get("dbz_max", 0.0)),
+        "found": bool(last.get("found")),
+        "dbz_threshold": float(HOOK_DBZ_THRESHOLD if dbz_threshold is None
+                               else dbz_threshold),
+        "gates": {
+            "core_pixels_min": int(HOOK_MIN_CORE_PX),
+            "bay_wrap_deg_min": float(HOOK_BAY_WRAP_MIN_DEG),
+            "bay_arc_px_min": float(HOOK_BAY_ARC_MIN_PX),
+        },
+        "failing_gates": failing,
+        "hook_candidate": bool(last.get("hook_candidate")),
+        "frames": len(scores),
+        "history_scores": [round(float(s), 1) for s in scores[:-1]],
+        "score_last_frame": round(float(scores[-1]), 1),
+        "persistence_score": score,
+    }
+    return score, detail
+
+
 def hook_score_footprint(windows, dbz_threshold=None):
     """Score uncino sul FOOTPRINT PER-CANDIDATO (B2, finestra locale).
 
@@ -478,24 +550,9 @@ def hook_score_footprint(windows, dbz_threshold=None):
         la persistenza multi-frame non e' verificabile -> nessun valore.
     Altrimenti: score per finestra (compute_hook_features +
     hook_score_from_features) e persistenza (filter_persistence) sull'ultima
-    osservazione. Deterministico: nessuno stato, nessuna I/O."""
-    if not windows:
-        return None
-    scores = []
-    for item in windows:
-        if not isinstance(item, (tuple, list)) or len(item) != 2:
-            return None
-        grid, mask = item
-        g = np.asarray(grid, dtype="float64")
-        if g.ndim != 2 or g.size == 0:
-            return None
-        m = np.isfinite(g) if mask is None else np.asarray(mask, dtype=bool)
-        if m.shape != g.shape or not m.any():
-            return None
-        if not np.isfinite(g[m]).any():
-            return None
-        scores.append(hook_score_from_features(
-            compute_hook_features(g, m, dbz_threshold=dbz_threshold)))
-    if not scores:
-        return None
-    return filter_persistence(scores[-1], scores[:-1])
+    osservazione. Deterministico: nessuno stato, nessuna I/O.
+
+    Delega a `hook_score_footprint_detail` (unica implementazione): qui si
+    scarta il dettaglio e si tiene lo score, come prima."""
+    return hook_score_footprint_detail(windows,
+                                       dbz_threshold=dbz_threshold)[0]
