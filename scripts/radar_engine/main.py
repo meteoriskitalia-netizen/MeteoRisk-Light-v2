@@ -31,11 +31,15 @@ Utilizzo:
 """
 
 import argparse
+import contextlib
 import datetime as _dt
+import functools
 import json
 import math
 import os
 import sys
+import threading
+import time
 
 # Bootstrap: consente l'esecuzione sia come `python scripts/radar_engine/main.py`
 # sia come modulo package (import assoluti vs via `radar_engine`).
@@ -82,6 +86,252 @@ def _engine_meta():
         "phase": _engine.ENGINE_PHASE,
     }
 
+
+# ---------------------------------------------------------------------------
+# TEMPI PER STADIO (2026-11-12)
+# ---------------------------------------------------------------------------
+# Perche' esiste: il job del radar dura 159-194 s e il motore e' l'86% del job,
+# ma dentro il motore non si sapeva DOVE andasse quel tempo. Il workflow
+# pubblicava `timings_ms` con `engine_internal` tutto null e motivo
+# "engine_non_espone_tempi_per_stadio": non si ottimizza cio' che non si misura.
+#
+# Semantica (dichiarata, non implicita):
+#   - `ms` e' il tempo di PARETE della chiamata (time.perf_counter), INCLUSIVO
+#     dei figli: se `cappi_fetch` sta dentro `phase2`, i due numeri si
+#     sovrappongono. `parents` dice chi contiene chi; `sum_top_level_ms` e
+#     `residual_ms` sono calcolati sui SOLI stadi senza padre, quindi la loro
+#     somma piu' il residuo da' `total`.
+#   - `calls` = numero di invocazioni misurate (N frame -> N).
+#   - Un'eccezione NON perde la misura: il tempo si registra nel `finally`
+#     (uno stadio che esplode resta visibile nella tabella).
+#   - Il costo dell'accumulo e' un `perf_counter` + un lock per chiamata:
+#     misurato < 1% (vedi test_stage_timings.py, che misura l'overhead).
+TIMINGS_VERSION = "1.0.0"
+
+# Stadio -> stadi che lo contengono. Lista vuota = top level (tempi disgiunti).
+# `preprocess` e `fetch_dpc` hanno piu' padri possibili perche' `read_raster` e
+# `_download_slots` sono chiamati da piu' percorsi di fetch.
+STAGE_PARENTS = {
+    "fetch_window": (),
+    "opera_merge": (),
+    "detect": (),
+    "tracking_cells": (),
+    "storm_tracking": (),
+    "tracking_metrics": (),
+    "convective_structure": (),
+    "phase2": (),
+    "write_outputs": (),
+    "history_archive": (),
+    "predictions_record": (),
+    "plan_window": ("fetch_window",),
+    "archive_lookup": ("fetch_window",),
+    "fetch_dpc": ("fetch_window",),
+    "fetch_cappi": ("phase2",),
+    "fetch_vil_etm_poh_sri": ("phase2",),
+    "fetch_ir108": ("phase2",),
+    "lightning_afa": ("phase2",),
+    "lightning_legacy_probe": ("phase2",),
+    "aggregate_frame": (),
+    "preprocess": ("fetch_dpc", "fetch_cappi", "fetch_vil_etm_poh_sri",
+                   "fetch_ir108"),
+}
+
+# Nota per consumatore: cosa misura davvero ogni stadio quando il nome da solo
+# non basta (nessuna etichetta inventata: il nome dell'oggetto misurato).
+STAGE_TARGETS = {
+    "plan_window": "fetch.plan_window",
+    "archive_lookup": "history.read_cells (una chiamata per slot)",
+    "fetch_dpc": "fetch._download_slots (frame DPC: VMI + fallback singolo)",
+    "fetch_cappi": "fetch.fetch_cappi_set (set CAPPI allineato alla VMI)",
+    "fetch_vil_etm_poh_sri": "fetch.fetch_product_bundle (VIL/ETM/POH/SRI)",
+    "fetch_ir108": "main._fetch_ir108 (frame IR_108 per l'OT)",
+    "preprocess": "preprocess.read_raster (decodifica+validazione GeoTIFF)",
+    "aggregate_frame": "aggregation.aggregate_frame (una chiamata per frame)",
+}
+
+
+class StageTimers:
+    """Accumulatore thread-safe di tempi per stadio.
+
+    Uso:
+        timers = StageTimers()
+        with timers.instrument():        # avvolge le funzioni di altri moduli
+            with timers.stage("detect"):
+                ...
+
+    `instrument()` ripristina gli originali all'uscita: nessuna patch
+    permanente del modulo (i test che monkeypatchano `fetch.plan_window`
+    continuano a vincere, perche' scrivono l'attributo dopo l'installazione).
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._acc = {}          # name -> [ms, calls]
+        self._wrapped = []      # [(module, attr, original)]
+        self._t0 = time.perf_counter()
+        self._t_stop = None
+
+    # -- misura ------------------------------------------------------------
+    def add(self, name, seconds, calls=1):
+        """Aggiunge `seconds` allo stadio `name` (thread-safe, mai eccezioni)."""
+        try:
+            ms = float(seconds) * 1000.0
+        except (TypeError, ValueError):
+            return
+        if ms < 0.0 or not math.isfinite(ms):
+            return
+        with self._lock:
+            rec = self._acc.setdefault(str(name), [0.0, 0])
+            rec[0] += ms
+            rec[1] += int(calls)
+
+    @contextlib.contextmanager
+    def stage(self, name):
+        """Misura un blocco di codice. Il tempo si registra anche se il blocco
+        solleva (il `finally` precede la propagazione dell'eccezione)."""
+        t = time.perf_counter()
+        try:
+            yield
+        finally:
+            self.add(name, time.perf_counter() - t)
+
+    def wrap(self, module, attr, name):
+        """Avvolge `module.attr` misurando `name`. Ritorna il wrapper."""
+        original = getattr(module, attr)
+        timers = self
+
+        @functools.wraps(original)
+        def _timed(*args, **kwargs):
+            t = time.perf_counter()
+            try:
+                return original(*args, **kwargs)
+            finally:
+                timers.add(name, time.perf_counter() - t)
+
+        setattr(module, attr, _timed)
+        self._wrapped.append((module, attr, original))
+        return _timed
+
+    @contextlib.contextmanager
+    def instrument(self):
+        """Installa i wrapper dichiarati in `_INSTRUMENTED` e li ripristina."""
+        for module, attr, name in _INSTRUMENTED:
+            try:
+                if callable(getattr(module, attr, None)):
+                    self.wrap(module, attr, name)
+            except (AttributeError, TypeError):
+                # funzione assente in questa versione del modulo: nessuno
+                # stadio inventato, la tabella semplicemente non la contiene.
+                continue
+        try:
+            yield self
+        finally:
+            while self._wrapped:
+                module, attr, original = self._wrapped.pop()
+                setattr(module, attr, original)
+
+    # -- pubblicazione ------------------------------------------------------
+    def total_ms(self):
+        end = self._t_stop if self._t_stop is not None else time.perf_counter()
+        return round((end - self._t0) * 1000.0, 3)
+
+    def stop(self):
+        """Fissa l'istante finale di `total` (idempotente)."""
+        if self._t_stop is None:
+            self._t_stop = time.perf_counter()
+        return self
+
+    def snapshot(self):
+        """Tabella pubblicabile in latest.json, ordinata per ms decrescenti."""
+        with self._lock:
+            items = [(name, rec[0], rec[1])
+                     for name, rec in self._acc.items()]
+        items.sort(key=lambda it: (-it[1], it[0]))
+        total = self.total_ms()
+        stages = {}
+        for name, ms, calls in items:
+            entry = {
+                "ms": round(ms, 3),
+                "calls": int(calls),
+                "pct": (round(100.0 * ms / total, 2) if total > 0 else None),
+                "parents": list(STAGE_PARENTS.get(name, ())),
+            }
+            target = STAGE_TARGETS.get(name)
+            if target:
+                entry["target"] = target
+            stages[name] = entry
+        top = sum(rec["ms"] for rec in stages.values() if not rec["parents"])
+        return {
+            "unit": "ms",
+            "version": TIMINGS_VERSION,
+            "total": total,
+            "stages": stages,
+            "sum_top_level_ms": round(top, 3),
+            "residual_ms": round(total - top, 3),
+            "sorted_by": "ms_desc",
+        }
+
+
+# (modulo, attributo, nome dello stadio). `main._run` non e' qui: gli stadi
+# top-level sono misurati con `with timers.stage(...)` attorno al blocco, cosi'
+# il tempo e' quello del codice che gira davvero in quel punto del pipeline.
+_INSTRUMENTED = (
+    (fetch, "plan_window", "plan_window"),
+    (fetch, "_download_slots", "fetch_dpc"),
+    (fetch, "fetch_cappi_set", "fetch_cappi"),
+    (fetch, "fetch_product_bundle", "fetch_vil_etm_poh_sri"),
+    (history, "read_cells", "archive_lookup"),
+    (preprocess, "read_raster", "preprocess"),
+)
+
+
+class _NullTimers:
+    """Sostituto INERTE quando il run non e' strumentato.
+
+    Esiste perche' `_run_pipeline`/`_phase2_evaluate` sono chiamabili anche
+    direttamente (test, script di validazione): senza timers il codice non
+    deve ne' cambiare comportamento ne' crashare. `snapshot()` vuoto = nessuna
+    chiave nuova nell'output."""
+
+    def add(self, name, seconds, calls=1):
+        return None
+
+    def stage(self, name):
+        return contextlib.nullcontext()
+
+    def wrap(self, module, attr, name):
+        return getattr(module, attr)
+
+    def instrument(self):
+        return contextlib.nullcontext(self)
+
+    def snapshot(self):
+        return {}
+
+
+_NULL_TIMERS = _NullTimers()
+
+
+def _stage_timers(bundle):
+    """`StageTimers` del run corrente (inerte se `_run` non e' passato di qui)."""
+    return getattr(bundle, "_stage_timers", None) or _NULL_TIMERS
+
+
+def _log_timings(timers, total_label="engine"):
+    """Stampa la tabella degli stadi nel log del run (ordine: ms decrescenti).
+
+    Il log e' l'unico canale che non dipende dal file scritto: `write_outputs`
+    serializza latest.json PRIMA di scrivere gli altri file, quindi il suo
+    stesso tempo non puo' stare nel file che sta scrivendo (viene aggiunto
+    dopo da `output.write_timings`)."""
+    snap = timers.snapshot()
+    print("[timings] {} total={:.1f} ms (top-level {:.1f} + residuo {:.1f})"
+          .format(total_label, snap["total"], snap["sum_top_level_ms"],
+                  snap["residual_ms"]))
+    for name, rec in snap["stages"].items():
+        pct = "-" if rec["pct"] is None else "{:.1f}%".format(rec["pct"])
+        print("[timings]   {:<24} {:>10.1f} ms  {:>6}  x{}".format(
+            name, rec["ms"], pct, rec["calls"]))
 
 def _candidate_position(candidate):
     """(lon, lat) float del candidato; None se assente/invalido.
@@ -766,11 +1016,6 @@ def _attach_poh_to_hail(cand, poh):
     hail["poh_source"] = poh.get("source")
     hail["poh_valid_time"] = poh.get("valid_time")
     hail["poh_null_reason"] = poh.get("null_reason")
-    # Shape richiesta dal task: `hail.source`/`hail.valid_time` si riferiscono
-    # al blocco POH (il sotto-oggetto `hail.poh` ha la stessa shape completa).
-    # I campi dello stack severo (VIL density, MESH) restano intatti.
-    hail["source"] = poh.get("source")
-    hail["valid_time"] = poh.get("valid_time")
     cand["hail"] = hail
 
 
@@ -1130,6 +1375,7 @@ def _phase2_evaluate(bundle, config):
     gia' calcolato alla riga 85 del pipeline, prima di questo layer)."""
     p2_cfg = config.get("phase2") or {}
     cs_cfg = config.get("convective_structure") or {}
+    timers = _stage_timers(bundle)
     warnings = bundle.warnings
     if not p2_cfg.get("enabled"):
         bundle.phase2 = {"status": "disabled", "warnings": warnings}
@@ -1295,7 +1541,9 @@ def _phase2_evaluate(bundle, config):
         if not any(rd is not None for rd in products.values()):
             warnings.append("phase2 structure: no products available")
         # OVERSHOOTING TOP: frame IR_108 (stessa griglia TM della VMI).
-        ir_rd = _fetch_ir108(config, otcfg, frames[-1], warnings, replay=replay)
+        with timers.stage("fetch_ir108"):
+            ir_rd = _fetch_ir108(config, otcfg, frames[-1], warnings,
+                                 replay=replay)
         if replay:
             if ir_rd is None:
                 _degrade("ot", "ir108_history_unavailable")
@@ -1320,17 +1568,18 @@ def _phase2_evaluate(bundle, config):
     afa_null_reason = None
     if bool(afa_cfg.get("enabled", True)):
         try:
-            afa_frame = lightning_afa.fetch_afa(
-                now_ms=p2_clock.now_ms(),
-                bbox=afa_cfg.get("bbox"),
-                width=afa_cfg.get("grid_px"),
-                height=afa_cfg.get("grid_px"),
-                wms_url=afa_cfg.get("wms_url"),
-                layer=afa_cfg.get("layer"),
-                max_backoff_steps=afa_cfg.get("max_backoff_steps"),
-                timeout_s=afa_cfg.get("timeout_s"),
-                throttle_s=afa_cfg.get("throttle_s"),
-                cache_dir=afa_cfg.get("cache_dir"))
+            with timers.stage("lightning_afa"):
+                afa_frame = lightning_afa.fetch_afa(
+                    now_ms=p2_clock.now_ms(),
+                    bbox=afa_cfg.get("bbox"),
+                    width=afa_cfg.get("grid_px"),
+                    height=afa_cfg.get("grid_px"),
+                    wms_url=afa_cfg.get("wms_url"),
+                    layer=afa_cfg.get("layer"),
+                    max_backoff_steps=afa_cfg.get("max_backoff_steps"),
+                    timeout_s=afa_cfg.get("timeout_s"),
+                    throttle_s=afa_cfg.get("throttle_s"),
+                    cache_dir=afa_cfg.get("cache_dir"))
         except lightning_afa.AfaFetchError as exc:
             afa_null_reason = str(exc)
             warnings.append(f"phase2 lightning AFA: {exc}")
@@ -1355,8 +1604,9 @@ def _phase2_evaluate(bundle, config):
                         "singola sul vecchio feed DPC (1 richiesta, "
                         "nessun backoff)")
         try:
-            legacy_slot = lightning.fetch_ltg(
-                epoch_ms=lightning.ltg_epoch_floor(now_ms=p2_clock.now_ms()))
+            with timers.stage("lightning_legacy_probe"):
+                legacy_slot = lightning.fetch_ltg(
+                    epoch_ms=lightning.ltg_epoch_floor(now_ms=p2_clock.now_ms()))
             ltg_slots = [legacy_slot["strikes"]]
             legacy_probe = "ok"
         except lightning.LightningFetchError as exc:
@@ -1668,6 +1918,30 @@ def _incremental_allow_replay(config):
 
 def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
          clock=None):
+    """Esegue il pipeline e pubblica i tempi per stadio (2026-11-12).
+
+    Wrapper sottile: crea i `StageTimers`, installa i wrapper delle funzioni
+    di altri moduli per la sola durata del run (`instrument()` li ripristina
+    all'uscita: nessuna patch permanente), delega a `_run_pipeline` e chiude
+    la misura. La FIRMA resta identica a prima: i chiamanti e i test che
+    sostituiscono `main._run` non cambiano."""
+    timers = StageTimers()
+    with timers.instrument():
+        bundle, rc = _run_pipeline(config, out_dir, product, max_frames,
+                                   dry_run, history_dir=history_dir,
+                                   clock=clock, timers=timers)
+    timers.stop()
+    bundle._stage_timers = timers
+    # Tabella FINALE (include write_outputs/history/predictions): il file e'
+    # gia' scritto, quindi `main()` la persiste con output.write_timings.
+    bundle.timings_ms = timers.snapshot()
+    _log_timings(timers)
+    return bundle, rc
+
+
+def _run_pipeline(config, out_dir, product, max_frames, dry_run,
+                  history_dir=None, clock=None, timers=None):
+    timers = timers or _NULL_TIMERS
     clock = clock if isinstance(clock, clock_mod.Clock) else \
         clock_mod.from_config(config)
     clock_mod.inject(config, clock)
@@ -1680,6 +1954,9 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
     bundle = models.EngineBundle("ok", clock.now_iso(), output.SOURCE_LABEL)
     bundle.engine = _engine_meta()
     bundle.as_of_mode = as_of_mode
+    # Il bundle porta con se' i timers: `_phase2_evaluate` li legge da qui
+    # (nessuna firma nuova per i test che la chiamano direttamente).
+    bundle._stage_timers = timers
 
     # ---- FECTH + VALIDAZIONE ------------------------------------------------
     # 1.2.4.26 — percorso INCREMENTALE: `fetch_window` riusa le celle archiviate
@@ -1690,13 +1967,14 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
     # storico). In replay (--as-of) non si riusa nulla: un replay non deve
     # dipendere da uno stato live.
     try:
-        frames, warnings, latest_ts, reused, _planned = fetch.fetch_window(
-            config, product=product, max_frames=max_frames,
-            anchor_ms=clock.anchor_ms(period_s),
-            history_dir=(None if (clock.replay
-                                  and not _incremental_allow_replay(config))
-                         else history_dir),
-        )
+        with timers.stage("fetch_window"):
+            frames, warnings, latest_ts, reused, _planned = fetch.fetch_window(
+                config, product=product, max_frames=max_frames,
+                anchor_ms=clock.anchor_ms(period_s),
+                history_dir=(None if (clock.replay
+                                      and not _incremental_allow_replay(config))
+                             else history_dir),
+            )
     except models.SourceError as exc:
         bundle.warnings = [f"fetch failed: {exc}"]
         return bundle, _ERROR
@@ -1734,9 +2012,10 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
     if ocfg.get("enabled"):
         try:
             from radar_engine import mosaic as mosaic_mod
-            mosaic = mosaic_mod.apply(
-                frames, config, now_ms=clock.now_ms(),
-                measure_bytes=bool(ocfg.get("measure_bytes", False)))
+            with timers.stage("opera_merge"):
+                mosaic = mosaic_mod.apply(
+                    frames, config, now_ms=clock.now_ms(),
+                    measure_bytes=bool(ocfg.get("measure_bytes", False)))
             bundle.mosaic_summary = mosaic.summary()
             bundle.sources = mosaic_mod.source_summary(mosaic)
             bundle.opera_status = {
@@ -1785,15 +2064,16 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
     # inventato.
     cfg_detect = config["detect"]
     entries = {}
-    for raster in frames:
-        try:
-            cells = detect_mod.detect_cells(
-                raster, cfg_detect,
-                exclude_mask=seam_by_ms.get(raster.time_ms))
-        except Exception as exc:
-            bundle.warnings.append(f"detect@{raster.time_iso} failed: {exc}")
-            cells = []
-        entries[raster.time_ms] = [raster, cells]
+    with timers.stage("detect"):
+        for raster in frames:
+            try:
+                cells = detect_mod.detect_cells(
+                    raster, cfg_detect,
+                    exclude_mask=seam_by_ms.get(raster.time_ms))
+            except Exception as exc:
+                bundle.warnings.append(f"detect@{raster.time_iso} failed: {exc}")
+                cells = []
+            entries[raster.time_ms] = [raster, cells]
     for slot_ms, archived in (reused or {}).items():
         entries.setdefault(slot_ms, [None, archived])
     bundle.cells_by_frame = []
@@ -1840,13 +2120,14 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
     # nell'archivio entro 20 km/30 min continua invece di nascere. In replay
     # (--as-of) il seed e' DISATTIVATO: un replay non dipende dallo stato live.
     seed_history = None if clock.replay else history_dir
-    tracker = track_mod.Tracker(config["tracking"],
-                                cfg_scoring=config.get("scoring"),
-                                history_dir=seed_history)
-    for idx, cells in enumerate(bundle.cells_by_frame):
-        tracker.update(cells, idx)
-    tracker.complete_cycles()
-    bundle.tracks = tracker.finalize(cfg_scoring=config.get("scoring"))
+    with timers.stage("tracking_cells"):
+        tracker = track_mod.Tracker(config["tracking"],
+                                    cfg_scoring=config.get("scoring"),
+                                    history_dir=seed_history)
+        for idx, cells in enumerate(bundle.cells_by_frame):
+            tracker.update(cells, idx)
+        tracker.complete_cycles()
+        bundle.tracks = tracker.finalize(cfg_scoring=config.get("scoring"))
 
     # ---- MULTI-SCALE: STORM OBJECT LAYER (Fase 1.7, additivo) ---------------
     # Il layer cella resta intatto; l'aggregazione e lo storm tracking sono
@@ -1856,17 +2137,19 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
         try:
             from radar_engine import aggregation as agg_mod
             from radar_engine import storm_tracking as storm_mod
+            timers.wrap(agg_mod, "aggregate_frame", "aggregate_frame")
             bundle.storm_objects_by_frame = [
                 agg_mod.aggregate_frame(cells, idx, storm_cfg)
                 for idx, cells in enumerate(bundle.cells_by_frame)]
-            storm_tracker = storm_mod.StormObjectTracker(
-                storm_cfg, cfg_scoring=config.get("scoring"),
-                history_dir=seed_history)
-            for idx, objs in enumerate(bundle.storm_objects_by_frame):
-                storm_tracker.update(objs, idx)
-            storm_tracker.complete_cycles()
-            bundle.storm_tracks = storm_tracker.finalize(
-                cfg_scoring=config.get("scoring"))
+            with timers.stage("storm_tracking"):
+                storm_tracker = storm_mod.StormObjectTracker(
+                    storm_cfg, cfg_scoring=config.get("scoring"),
+                    history_dir=seed_history)
+                for idx, objs in enumerate(bundle.storm_objects_by_frame):
+                    storm_tracker.update(objs, idx)
+                storm_tracker.complete_cycles()
+                bundle.storm_tracks = storm_tracker.finalize(
+                    cfg_scoring=config.get("scoring"))
         except Exception as exc:  # layer additivo: mai rompere il pipeline base
             bundle.warnings.append(f"storm_layer failed: {exc}")
             bundle.storm_objects_by_frame = []
@@ -1876,8 +2159,9 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
     # pct_reliable / median_duration_min / id_switch_rate / lineage_split /
     # lineage_merge per layer (cella, storm object) + aggregato. Sempre
     # calcolate, anche se il layer storm fallisce: il blocco e' additivo.
-    bundle.tracking_metrics = track_mod.build_tracking_metrics(
-        bundle.tracks, getattr(bundle, "storm_tracks", None) or [])
+    with timers.stage("tracking_metrics"):
+        bundle.tracking_metrics = track_mod.build_tracking_metrics(
+            bundle.tracks, getattr(bundle, "storm_tracks", None) or [])
 
     # ---- CONVECTIVE STRUCTURE (descrittore SOI, additivo) ------------------
     # SOI su celle + storm object tracciati (stessi dati Fase 1, zero richieste
@@ -1887,7 +2171,8 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
     if cs_cfg.get("enabled"):
         try:
             from radar_engine import convective_structure as cs_mod
-            cs_mod.evaluate(bundle, cs_cfg)
+            with timers.stage("convective_structure"):
+                cs_mod.evaluate(bundle, cs_cfg)
         except Exception as exc:  # layer additivo: mai rompere il pipeline base
             bundle.warnings.append(f"convective_structure layer failed: {exc}")
             bundle.convective_structures = []
@@ -1897,7 +2182,8 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
     # Layer ADDITIVO: nessun errore fa fallire il pipeline base (warning) e
     # la firma Fase 1 dei candidati (ssi/level/...) resta intatta.
     try:
-        _phase2_evaluate(bundle, config)
+        with timers.stage("phase2"):
+            _phase2_evaluate(bundle, config)
     except Exception as exc:  # layer additivo: mai rompere il pipeline base
         bundle.warnings.append(f"phase2 layer failed: {exc}")
         bundle.phase2 = {"status": "unavailable", "warnings": bundle.warnings}
@@ -1917,7 +2203,13 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
         engine_meta = dict(_engine_meta())
         engine_meta["tracking_metrics"] = getattr(
             bundle, "tracking_metrics", None)
-        output.write_outputs(bundle, out_dir, engine_meta=engine_meta)
+        # 2026-11-12 — tempi per stadio: snapshot PRIMA della scrittura (cosi'
+        # latest.json li contiene gia'), poi `main()` li finalizza con
+        # output.write_timings (il tempo di write_outputs si conosce solo dopo).
+        bundle.timings_ms = timers.snapshot()
+        engine_meta["stage_timings_ms"] = bundle.timings_ms
+        with timers.stage("write_outputs"):
+            output.write_outputs(bundle, out_dir, engine_meta=engine_meta)
     except models.OutputError as exc:
         return _fail_output(bundle, out_dir, str(exc))
     except Exception as exc:  # guasto imprevisto del writer -> OutputError
@@ -1934,8 +2226,10 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
                                      "reason": "as_of_replay"}
     else:
         if history_dir:
-            _archive_history(bundle, history_dir, config)
-        _record_predictions(bundle, config, out_dir)
+            with timers.stage("history_archive"):
+                _archive_history(bundle, history_dir, config)
+        with timers.stage("predictions_record"):
+            _record_predictions(bundle, config, out_dir)
     return bundle, _OK if bundle.status == "ok" else _DEGRADED
 
 
@@ -2054,6 +2348,14 @@ def main(argv=None):
         summary["as_of_mode"] = as_of_mode
     if fp_summary is not None:
         summary["footprints"] = fp_summary
+    # 2026-11-12 — TEMPI PER STADIO: la tabella FINALE (che include il tempo di
+    # `write_outputs`, noto solo DOPO aver scritto i file) viene persistita in
+    # latest.json. `write_outputs` ne ha gia' scritto uno snapshot precedente.
+    # Best-effort: un guasto della misura non cambia l'esito del run.
+    try:
+        output.write_timings(out_dir, getattr(bundle, "timings_ms", None))
+    except Exception as exc:                     # misura persa, run intatto
+        print(f"[timings] WARNING: timings_ms non aggiornato: {exc}")
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     # GitHub Actions: espone status/stats come step outputs (se presente).
     gh_out = os.environ.get("GITHUB_OUTPUT")

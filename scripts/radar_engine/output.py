@@ -152,6 +152,13 @@ def build_latest(bundle, engine_meta=None):
                 "substitute_reason", "opera_time_iso")}
                 for f in (mosaic.get("frames") or [])],
         }
+    # 2026-11-12 — TEMPI PER STADIO (additivo): `{unit, total, stages}` con
+    # `stages[name] = {ms, calls, pct, parents}` ordinati per ms decrescenti.
+    # Presente solo quando il motore ha misurato (bundle.timings_ms assente ->
+    # nessuna chiave nuova, output identico a prima).
+    timings = getattr(bundle, "timings_ms", None)
+    if isinstance(timings, dict) and timings:
+        payload["timings_ms"] = timings
     return payload
 
 
@@ -598,6 +605,42 @@ def write_outputs(bundle, out_dir, engine_meta=None):
     for name, path in paths.items():
         _atomic_write_text(path, contents[name])
     return paths
+
+
+def write_timings(out_dir, timings):
+    """Aggiunge i TEMPI PER STADIO a latest.json (2026-11-12). ADDITIVO.
+
+    Perche' non basta `build_latest`: `write_outputs` serializza `latest.json`
+    per PRIMO, quindi il tempo del suo stesso stadio non puo' stare nel file
+    che sta scrivendo (e `history_archive`/`predictions_record` girano dopo).
+    Questa funzione rilegge il `latest.json` appena scritto e vi aggiunge:
+        `timings_ms`              -> {unit, total, stages{ms,calls,pct,...}}
+        `engine.stage_timings_ms` -> lo stesso oggetto
+    La seconda chiave esiste perche' lo step "Timings" del workflow
+    (`radar-engine.yml`) SOSTITUISCE `timings_ms` con il proprio blocco: la
+    chiave `engine` non viene toccata, quindi la tabella del motore sopravvive
+    al run e finisce su main/Pages. Nessun'altra chiave e' modificata.
+
+    Ritorna il path scritto, o None se non c'e' nulla da aggiornare (nessun
+    timings, latest.json assente o illeggibile)."""
+    if not isinstance(timings, dict) or not timings:
+        return None
+    path = os.path.join(out_dir, "latest.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    payload["timings_ms"] = timings
+    engine = payload.get("engine")
+    if isinstance(engine, dict):
+        engine["stage_timings_ms"] = timings
+    else:
+        payload["engine"] = {"stage_timings_ms": timings}
+    _atomic_write_text(path, json.dumps(payload, default=_json_default))
+    return path
 
 
 def write_status_only(out_dir, status, generated_at_iso, warnings, engine_meta=None):
