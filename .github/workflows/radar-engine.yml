@@ -19,12 +19,12 @@ name: Radar Engine (Fase 1 — Storm Detection & Tracking)
 #     delle predizioni (rotazione 30 giorni) per la futura validazione.
 
 on:
+  # 2026-11-12: rimosso l'input `run_unit_tests`. Serviva a ACCENDERE i test
+  # su dispatch manuale, ma il trigger di produzione (cron-job.org) manda solo
+  # {"ref":"main"}: i test non giravano mai. Ora la suite radar_engine gira
+  # SEMPRE (step "Unit tests"), quindi l'interruttore non ha piu' ragione di
+  # esistere. Un dispatch che passasse ancora quell'input riceverebbe 422.
   workflow_dispatch:
-    inputs:
-      run_unit_tests:
-        description: "Esegui gli unit test (dispatch manuale). Il cron-job.org non passa input: le run schedate li saltano."
-        type: boolean
-        default: false
   repository_dispatch:
     types: [ci-run]
 
@@ -32,6 +32,19 @@ permissions:
   contents: write
   pages: write
   id-token: write
+
+# 2026-11-12 — CONCURRENCY A LIVELLO DI WORKFLOW (nuova, group DEDICATO).
+# Perche': l'11/11/2026 un run e' fallito allo step "Commit output derivato"
+# per un conflitto git con un run sovrapposto (13:15 vs 13:16). Il group
+# include il ref, quindi due run dello stesso ref non si sovrappongono piu':
+# la seconda resta in coda e parte quando la prima ha finito (commit e push
+# compresi). cancel-in-progress: false -> un run NON viene MAI annullato a
+# meta' commit: annullarlo mentre scrive su main o su radar-history
+# lascerebbe lo stato a meta'. Costo della coda: trascurabile, la cadenza
+# resta 10 minuti e un run misurato dura ~1-2 minuti.
+concurrency:
+  group: radar-engine-${{ github.ref }}
+  cancel-in-progress: false
 
 # NOTA (fase A4 — separazione concurrency): rimossa la concurrency di
 # WORKFLOW (ex group "pages" condiviso con update-weather-data e
@@ -54,16 +67,41 @@ permissions:
 jobs:
   radar-engine:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 2026-11-12: 20 -> 15 minuti. Durata MISURATA dei run reali: 41-135 s
+    # (job completo). 15 minuti e' ~7x il massimo misurato: un tetto che non
+    # taglia un run sano ma ferma un blocco (fetch che non risponde).
+    timeout-minutes: 15
     # Serializza le 2 cron del motore tra loro (archivio radar-history:
     # niente fetch/push concorrenti sulla stessa finestra rolling).
     # cancel-in-progress: false -> la run in coda prosegue, non viene
     # cancellata. Gruppo PROPRIO: non entra in coda con i deploy del meteo.
+    # 2026-11-12: la serializzazione PRIMARIA e' ora quella a livello di
+    # workflow (group "radar-engine-${{ github.ref }}", sopra): questa a
+    # livello di job resta come seconda difesa, invariata.
     concurrency:
       queue: max
       group: radar-history
       cancel-in-progress: false
     steps:
+      # ── MISURA DEI TEMPI (2026-11-12) ────────────────────────────────────
+      # Ogni step con blocco `run:` scrive due righe (begin/end) in
+      # $RUNNER_TEMP/timings/marks.tsv con `date +%s%3N` (epoch ms).
+      # `github.run_started_at` e' l'istante di CREAZIONE del run: il primo
+      # delta (queue_and_runner_startup) include l'eventuale coda dovuta alla
+      # concurrency e l'avvio del runner.
+      # LIMITE DICHIARATO: gli stadi INTERNI al motore (fetch DPC, preprocess,
+      # detect, tracking, storm object, structure, phase2, write) NON sono
+      # separabili da fuori — main.py li esegue in un solo processo e non
+      # stampa tempi per stadio, e questa task vieta di toccare il codice
+      # Python. Lo step "Timings -> latest.json" li pubblica come null con il
+      # motivo (null_reason), non come stime.
+      - name: "Timings: init"
+        run: |
+          mkdir -p "$RUNNER_TEMP/timings"
+          START_MS="$(date -d "${{ github.run_started_at }}" +%s%3N 2>/dev/null || date +%s%3N)"
+          printf '%s\t%s\n' run_started_at "$START_MS" > "$RUNNER_TEMP/timings/marks.tsv"
+          echo "[INFO] timings: $RUNNER_TEMP/timings/marks.tsv (run_started_at=${{ github.run_started_at }})"
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -87,20 +125,31 @@ jobs:
           cache-dependency-glob: "scripts/radar_engine/requirements*.txt"
 
       - name: Install dependencies
+        timeout-minutes: 5
         run: |
+          tmark() { printf '%s\t%s\n' "$1" "$(date +%s%3N)" >> "$RUNNER_TEMP/timings/marks.tsv"; }
+          tmark begin:install_deps
           uv pip install --system -r scripts/radar_engine/requirements-dev.txt
+          tmark end:install_deps
 
-      - name: Unit tests (raster sintetici, nessun dato DPC reale nel repo)
-        # 1.2.4.26 — i test girano su push / repository_dispatch e sui dispatch
-        # MANUALI (input run_unit_tests). Il trigger di produzione e' la
-        # workflow_dispatch di cron-job.org, che manda SOLO {"ref":"main"} senza
-        # input: assenza dell'input = run schedulata = test saltati. Non e' un
-        # test "spento a caso": la casella in "Run workflow" li riaccende e il
-        # push li esegue sempre. Se un domani il job cron passasse input, il
-        # discriminante va rivisto (GitHub non espone l'User-Agent del dispatch).
-        if: github.event_name != 'workflow_dispatch' || inputs.run_unit_tests
+      - name: Unit tests — suite radar_engine (SEMPRE, anche sulle run schedate)
+        # 2026-11-12 — DIFETTO RIPARATO: prima questo step aveva
+        #   if: github.event_name != 'workflow_dispatch' || inputs.run_unit_tests
+        # ma il trigger di PRODUZIONE e' la workflow_dispatch di cron-job.org,
+        # che manda solo {"ref":"main"} senza input: quindi in produzione i
+        # test non giravano MAI (610 test mai eseguiti). Ora la suite
+        # radar_engine gira SEMPRE e un rosso fa fallire il run PRIMA del
+        # motore (nessun output derivato pubblicato da codice non testato).
+        # Misura (main @ 5742a0f7, 2026-11-12, host locale): 446 test in 34 s.
+        # COSA RESTA FUORI: `scripts/tests` (l'intera suite del repository,
+        # oltre radar_engine) — non veniva eseguita nemmeno prima, e contiene
+        # test legati ai dataset che richiedono `data/` popolata.
+        timeout-minutes: 8
         run: |
+          tmark() { printf '%s\t%s\n' "$1" "$(date +%s%3N)" >> "$RUNNER_TEMP/timings/marks.tsv"; }
+          tmark begin:unit_tests
           python -m pytest scripts/tests/radar_engine -q
+          tmark end:unit_tests
 
       # L'ARCHIVIO ROLLING 2h (celle+tracks+strutture) vive nel branch
       # radar-history (mai su main): ogni run lo ripristina PRIMA del motore,
@@ -108,7 +157,10 @@ jobs:
       # precedenti (clone dello step satellite-engine). Branch assente ->
       # finestra vuota (primo run), nessun errore.
       - name: Ripristina archivio rolling (branch radar-history)
+        timeout-minutes: 3
         run: |
+          tmark() { printf '%s\t%s\n' "$1" "$(date +%s%3N)" >> "$RUNNER_TEMP/timings/marks.tsv"; }
+          tmark begin:restore_history
           if git fetch --depth 1 origin "+radar-history:refs/heads/radar-history-base" 2>/dev/null; then
             if git restore --source radar-history-base --worktree -- data/radar/history 2>/dev/null; then
               echo "[INFO] Archivio rolling ripristinato da radar-history."
@@ -118,10 +170,14 @@ jobs:
           else
             echo "[INFO] Branch radar-history assente (primo run): finestra vuota."
           fi
+          tmark end:restore_history
 
       - name: Run radar engine (Fase 1)
         id: run
+        timeout-minutes: 8
         run: |
+          tmark() { printf '%s\t%s\n' "$1" "$(date +%s%3N)" >> "$RUNNER_TEMP/timings/marks.tsv"; }
+          tmark begin:engine
           # rc 0 ok / rc 3 degraded (fetch parziale, comunque atteso) -> success;
           # rc 4 error (nessun frame valido) -> failure visibile.
           rc=0
@@ -131,6 +187,133 @@ jobs:
           if [ "$rc" -ne 0 ] && [ "$rc" -ne 3 ]; then
             exit "$rc"
           fi
+          tmark end:engine
+
+      # ── TIMINGS -> latest.json (2026-11-12) ──────────────────────────────
+      # PRIMA del commit: un campo scritto dopo il commit non verrebbe
+      # committato (e quindi non sarebbe ne' su main ne' su Pages).
+      # Additivo: aggiunge la chiave `timings_ms` al latest.json scritto dal
+      # motore, senza toccare il codice Python. Se il file non c'e' o la
+      # scrittura fallisce, il run PROSEGUE con un [WARN] esplicito (un guasto
+      # della misura non deve fermare la pubblicazione dei dati radar).
+      - name: "Timings: pubblica timings_ms in data/radar/latest.json"
+        if: always()
+        run: |
+          tmark() { printf '%s\t%s\n' "$1" "$(date +%s%3N)" >> "$RUNNER_TEMP/timings/marks.tsv"; }
+          tmark begin:write_timings
+          RUN_STARTED_AT="${{ github.run_started_at }}" python - <<'PY'
+          import json
+          import os
+          import sys
+
+          tmp = os.environ.get("RUNNER_TEMP") or "/tmp"
+          marks_path = os.path.join(tmp, "timings", "marks.tsv")
+          marks = {}
+          try:
+              with open(marks_path, encoding="utf-8") as fh:
+                  for line in fh:
+                      line = line.rstrip("\n")
+                      if not line or "\t" not in line:
+                          continue
+                      key, value = line.split("\t", 1)
+                      marks[key] = int(value)
+          except (OSError, ValueError) as exc:
+              print("[WARN] marks non leggibili (%s): timings_ms non pubblicato" % exc)
+              sys.exit(0)
+
+          ORDER = ["init", "install_deps", "unit_tests", "restore_history",
+                   "engine", "write_timings"]
+
+          def span(name):
+              b = marks.get("begin:" + name)
+              e = marks.get("end:" + name)
+              if b is None or e is None:
+                  return None
+              return e - b
+
+          steps = {}
+          started = marks.get("run_started_at")
+          steps["queue_and_runner_startup"] = (
+              None if (started is None or "begin:init" not in marks)
+              else marks["begin:init"] - started)
+          # checkout + setup-python + setup-uv sono step `uses:`: non hanno un
+          # blocco run, quindi il loro costo e' il delta fra due mark.
+          steps["checkout_and_toolchain"] = (
+              None if ("end:init" not in marks or "begin:install_deps" not in marks)
+              else marks["begin:install_deps"] - marks["end:init"])
+          for name in ORDER:
+              steps[name] = span(name)
+
+          latest_path = os.path.join("data", "radar", "latest.json")
+          try:
+              with open(latest_path, encoding="utf-8") as fh:
+                  payload = json.load(fh)
+          except (OSError, ValueError) as exc:
+              print("[WARN] %s non leggibile (%s): timings_ms non pubblicato"
+                    % (latest_path, exc))
+              sys.exit(0)
+
+          def sub(dotted):
+              cur = payload
+              for part in dotted.split("."):
+                  if not isinstance(cur, dict):
+                      return None
+                  cur = cur.get(part)
+              return cur
+
+          payload["timings_ms"] = {
+              "unit": "ms",
+              "partial": True,
+              "run_started_at": os.environ.get("RUN_STARTED_AT") or None,
+              "steps": steps,
+              "engine_internal": {
+                  "fetch_dpc": None,
+                  "preprocess": None,
+                  "detect": None,
+                  "tracking": None,
+                  "storm_object": None,
+                  "structure": None,
+                  "phase2": None,
+                  "write": None,
+                  "null_reason": "engine_non_espone_tempi_per_stadio",
+                  "note": ("scripts/radar_engine/main.py esegue tutti gli stadi "
+                           "in un solo processo e non stampa tempi per stadio; il "
+                           "workflow non modifica il codice Python, quindi questi "
+                           "valori sono DICHIARATI null, non stimati."),
+                  "measured_subparts": {
+                      "cappi_fetch_s": sub("cappi_fetch.seconds"),
+                      "opera_s": sub("opera.seconds"),
+                      "mosaic_s": sub("mosaic.seconds"),
+                  },
+              },
+              "not_included": {
+                  "commit_and_push_main": None,
+                  "push_history_branch": None,
+                  "build_site": None,
+                  "upload_pages": None,
+                  "null_reason": ("misurati DOPO la scrittura di questo file: "
+                                  "un valore scritto dopo il commit non verrebbe "
+                                  "committato"),
+                  "published_in": "GITHUB_STEP_SUMMARY (step finale, sempre)",
+              },
+          }
+          out_tmp = latest_path + ".timings.tmp"
+          try:
+              with open(out_tmp, "w", encoding="utf-8") as fh:
+                  json.dump(payload, fh, ensure_ascii=True)
+                  fh.flush()
+                  os.fsync(fh.fileno())
+              os.replace(out_tmp, latest_path)
+          except OSError as exc:
+              print("[WARN] scrittura %s fallita (%s): timings_ms non pubblicato"
+                    % (latest_path, exc))
+              sys.exit(0)
+
+          print("[INFO] timings_ms scritto in %s" % latest_path)
+          for key, value in steps.items():
+              print("  %-26s %s" % (key, "n/a" if value is None else "%d ms" % value))
+          PY
+          tmark end:write_timings
 
       - name: Summary
         if: always()
@@ -145,7 +328,10 @@ jobs:
 
       - name: Commit output derivato (only if changed)
         if: success()
+        timeout-minutes: 5
         run: |
+          tmark() { printf '%s\t%s\n' "$1" "$(date +%s%3N)" >> "$RUNNER_TEMP/timings/marks.tsv"; }
+          tmark begin:commit_push_main
           git config user.name "meteorisk-bot"
           git config user.email "actions@users.noreply.github.com"
           # Derivati scritti da output.write_outputs(): lista ESPLICITA (mai
@@ -166,8 +352,28 @@ jobs:
             echo "[INFO] Nessuna modifica ai dati radar derivati."
           else
             git commit -m "chore(radar): celle convettive + strutture convettive (SOI, rotazione non misurabile) da Radar-DPC VMI"
-            ok=0; for i in 1 2 3 4 5; do if git pull --rebase --autostash origin main && git push origin main; then ok=1; break; fi; echo "[retry] push $i"; sleep $((i*5)); done; if [ "$ok" != "1" ]; then echo "[ERRORE] push radar fallito"; exit 1; fi
+            # RETRY (2026-11-12): copre ANCHE il caso "non-fast-forward". Se un
+            # altro run scrive su main fra il pull e il push, il push viene
+            # rifiutato e il ciclo RIFA' il pull --rebase e riprova (5 tentativi,
+            # attese 5/10/15/20 s). `git rebase --abort` pulisce il rebase
+            # lasciato a meta' da un pull fallito, altrimenti il tentativo
+            # successivo partirebbe da uno stato sporco.
+            ok=0
+            for i in 1 2 3 4 5; do
+              if git pull --rebase --autostash origin main && git push origin main; then
+                ok=1
+                break
+              fi
+              echo "[retry] push main $i/5 fallito (non-fast-forward o rete): rifaccio pull --rebase"
+              git rebase --abort 2>/dev/null || true
+              sleep $((i * 5))
+            done
+            if [ "$ok" != "1" ]; then
+              echo "[ERRORE] push radar fallito dopo 5 tentativi"
+              exit 1
+            fi
           fi
+          tmark end:commit_push_main
 
       # ARCHIVIO ROLLING 2h su branch ORPHAN radar-history (clone dello step
       # satellite-cache): commit singola senza parent -> history resettata ad
@@ -178,10 +384,14 @@ jobs:
       # "radar-history"): le 2 cron non gareggiano sullo stesso fetch/push.
       - name: Pubblica archivio rolling radar (branch radar-history)
         if: success()
+        timeout-minutes: 5
         run: |
           set -euo pipefail
+          tmark() { printf '%s\t%s\n' "$1" "$(date +%s%3N)" >> "$RUNNER_TEMP/timings/marks.tsv"; }
+          tmark begin:push_history
           if [ ! -d data/radar/history ]; then
             echo "[INFO] Nessuna directory data/radar/history: archivio non aggiornato."
+            tmark end:push_history
             exit 0
           fi
           export GIT_INDEX_FILE="$RUNNER_TEMP/radar-history.index"
@@ -195,19 +405,41 @@ jobs:
           fi
           if [ "$OLD" = "$TREE" ]; then
             echo "[INFO] Nessuna modifica all'archivio rolling: push saltato."
+            tmark end:push_history
             exit 0
           fi
           COMMIT=$(git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit-tree "$TREE" -m "[skip ci] radar: archivio storico (finestra rolling 2h)")
+          # 2026-11-12 — DIFETTO RIPARATO: era `git push --force` NUDO. Con un
+          # push concorrente (o un run che parte mentre questo pusha) il force
+          # nudo sovrascrive il ref remoto e cancella la storia scritta
+          # dall'altro run. Ora il push usa --force-with-lease contro lo SHA
+          # letto SUBITO PRIMA del push: se il ref remoto e' cambiato, git
+          # RIFIUTA il push (non sovrascrive) e il ciclo rilegge lo SHA e
+          # riprova. Se il branch non esiste il lease e' vuoto (= "deve non
+          # esistere"), quindi la creazione non puo' cancellare nulla.
+          read_remote_sha() {
+            git ls-remote origin refs/heads/radar-history 2>/dev/null | awk 'NR==1 {print $1}'
+          }
           for attempt in 1 2 3; do
-            if git push --force origin "$COMMIT:refs/heads/radar-history"; then
+            PARENT="$(read_remote_sha || true)"
+            if [ -z "$PARENT" ]; then
+              LEASE="--force-with-lease=refs/heads/radar-history:"
+              EXPECT="<ref assente>"
+            else
+              LEASE="--force-with-lease=refs/heads/radar-history:$PARENT"
+              EXPECT="$PARENT"
+            fi
+            echo "[INFO] push radar-history tentativo $attempt/3 (lease su $EXPECT)"
+            if git push "$LEASE" origin "$COMMIT:refs/heads/radar-history"; then
               echo "[INFO] radar-history aggiornata (commit ${COMMIT:0:7})."
+              tmark end:push_history
               exit 0
             fi
-            echo "[WARN] push radar-history fallito (tentativo $attempt/3): riprovo."
+            echo "[WARN] push radar-history rifiutato (tentativo $attempt/3): ref remoto cambiato o rete; rileggo lo SHA e riprovo."
             sleep $((attempt * 5))
           done
-          echo "[ERRORE] push radar-history fallito dopo 3 tentativi."
+          echo "[ERRORE] push radar-history fallito dopo 3 tentativi (nessuna sovrascrittura: --force-with-lease)."
           exit 1
 
       # L'ARTEFATTO di deploy contiene: app, dataset derivati, geografie richieste,
@@ -232,7 +464,10 @@ jobs:
       # l'archivio rolling): non entra in coda dietro i run lunghi del meteo.
       - name: Build sito statico Pages (app + data/latest + data/geography + data/radar + data/phenomena + satellite)
         if: success()
+        timeout-minutes: 5
         run: |
+          tmark() { printf '%s\t%s\n' "$1" "$(date +%s%3N)" >> "$RUNNER_TEMP/timings/marks.tsv"; }
+          tmark begin:build_site
           mkdir -p _site/data
           cp mri-light-1.2.4.83.html _site/index.html
           cp sw.js _site/sw.js                                      # 1.2.4.15: Service Worker (cache applicativa)
@@ -250,12 +485,100 @@ jobs:
             echo "[INFO] Finestra satellite/ ripristinata da satellite-cache per l'artifact."
           fi
           if [ -d satellite ]; then cp -R satellite _site/satellite; fi
+          tmark end:build_site
 
       - name: Upload Pages artifact
         if: success()
         uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+
+      # ── RIEPILOGO TEMPI (sempre, anche se un passo precedente e' fallito) ──
+      # `latest.json` contiene solo i tempi fino alla sua scrittura (che deve
+      # avvenire PRIMA del commit, altrimenti il campo non verrebbe
+      # committato). QUI c'e' la tabella COMPLETA del job — commit, push su
+      # main, push su radar-history, build del sito compresi: e' l'evidenza
+      # pubblicata a ogni run (pagina del run, sezione Summary).
+      - name: "Timings: riepilogo completo (sempre)"
+        if: always()
+        run: |
+          python - <<'PY'
+          import os
+
+          tmp = os.environ.get("RUNNER_TEMP") or "/tmp"
+          path = os.path.join(tmp, "timings", "marks.tsv")
+          marks = {}
+          try:
+              with open(path, encoding="utf-8") as fh:
+                  for line in fh:
+                      line = line.rstrip("\n")
+                      if line and "\t" in line:
+                          k, v = line.split("\t", 1)
+                          marks[k] = int(v)
+          except (OSError, ValueError):
+              marks = {}
+
+          ORDER = ["init", "install_deps", "unit_tests", "restore_history",
+                   "engine", "write_timings", "commit_push_main",
+                   "push_history", "build_site"]
+          LABEL = {
+              "queue_and_runner_startup": "coda + avvio runner",
+              "checkout_and_toolchain": "checkout + setup-python + setup-uv (+cache)",
+              "init": "timings init",
+              "install_deps": "install dipendenze (uv)",
+              "unit_tests": "unit test radar_engine",
+              "restore_history": "restore archivio rolling",
+              "engine": "motore radar (fetch+preprocess+detect+tracking+storm+structure+phase2+write)",
+              "write_timings": "scrittura timings_ms in latest.json",
+              "commit_push_main": "commit + push su main",
+              "push_history": "push branch radar-history",
+              "build_site": "build _site",
+          }
+
+          def span(name):
+              b = marks.get("begin:" + name)
+              e = marks.get("end:" + name)
+              return None if (b is None or e is None) else e - b
+
+          rows = []
+          started = marks.get("run_started_at")
+          if started is not None and "begin:init" in marks:
+              rows.append(("queue_and_runner_startup", marks["begin:init"] - started))
+          else:
+              rows.append(("queue_and_runner_startup", None))
+          if "end:init" in marks and "begin:install_deps" in marks:
+              rows.append(("checkout_and_toolchain",
+                           marks["begin:install_deps"] - marks["end:init"]))
+          else:
+              rows.append(("checkout_and_toolchain", None))
+          for name in ORDER:
+              rows.append((name, span(name)))
+
+          total = None
+          if started is not None and marks:
+              total = max(marks.values()) - started
+
+          lines = ["## Radar engine — tempi per stadio (ms)", "",
+                   "| stadio | ms |", "| :--- | ---: |"]
+          for name, value in rows:
+              lines.append("| %s | %s |" % (LABEL.get(name, name),
+                                            "n/a" if value is None else value))
+          lines.append("| **TOTALE (fino all'ultimo step misurato)** | **%s** |"
+                       % ("n/a" if total is None else total))
+          lines.append("")
+          lines.append("Stadi INTERNI al motore (fetch DPC, preprocess, detect, "
+                       "tracking, storm object, structure, phase2, write): "
+                       "**non misurati** — `main.py` non espone tempi per stadio "
+                       "e il workflow non modifica il codice Python. Sono "
+                       "pubblicati come `null` con motivo in "
+                       "`data/radar/latest.json` -> `timings_ms.engine_internal`.")
+          text = "\n".join(lines) + "\n"
+          print(text)
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as fh:
+                  fh.write(text)
+          PY
 
   # JOB DI DEPLOY PAGES — unico punto serializzato del workflow.
   # group "pages-deploy" condiviso con update-weather-data e satellite-engine:
