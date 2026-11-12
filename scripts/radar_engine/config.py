@@ -597,6 +597,9 @@ CONFIG = {
             # Somma > 1.0 -> ValueError -> warning + nessun soi_v2 (v. A2-2).
             # B2: i componenti None per candidato vengono ESCLUSI e i pesi
             # RINORMALIZZATI sui presenti (somma 1.0); tutti None -> soi_v2 None.
+            # 2026-11-12: un 0.0 FINITO e' un valore MISURATO e conta con il
+            # suo peso (non viene escluso). NaN/inf/non numerici sono ASSENTI
+            # (prima diventavano 0.0 e contavano: dato mancante -> zero finto).
             "weights": {
                 "base": 0.60,          # SOI Fase 1 (convective_structure) — base
                 "hook": 0.15,
@@ -605,6 +608,33 @@ CONFIG = {
                 "ot": 0.04,
                 "lightning": 0.03,
             },
+            # MISURA del 2026-11-12 (34 record, 15 run osservati, 14 con almeno
+            # una struttura) — perche' soi_v2 sta ~20.7 punti sotto soi
+            # (media; 17-25):
+            #   hook 0.0 su 34/34: il descrittore e' stato VALUTATO (non null)
+            #     e il gate morfologico (core >= 25 px E bay_wrap >= 150 gradi)
+            #     non e' scattato. Quale dei due sotto-gate fallisca NON e'
+            #     attribuibile dai record pubblicati (hook_features non c'e').
+            #   ot 0.0 su 34/34 (ctt_min_c max -38.5 C contro soglia -58 C:
+            #     nessun overshooting top, novembre),
+            #   lightning null su 34/34 (AFA 504/timeout, feed legacy 403):
+            #     ESCLUSO dalla rinormalizzazione (questo e' il caso "assente"),
+            #   structure 0.0-5.8 (m_poh e m_overhang = 0 su 34/34, m_vil > 0
+            #     su 1/34: contribuisce solo ETM), env 2.2-42.1.
+            # Il 19% di peso di hook+ot resta quindi una costante negativa:
+            # NON si compensa abbassando i pesi (sarebbe una toppa): la
+            # correzione e' nei descrittori. I pesi usati per record sono
+            # pubblicati in aggregate_ssi_v2()['weights_used'].
+            # Livelli DESCRITTIVI di soi_v2 (0-100): stesse parole dei livelli
+            # SOI ma soglie DIVERSE (SOI: 50/65/80) e valori NON comparabili.
+            # = aggregate.DEFAULT_LEVELS_V2 (il valore EFFETTIVO: main.py non
+            # passa cfg a aggregate_ssi_v2). Un test verifica la coincidenza.
+            "levels_v2": [
+                [0.0, 49.0, "unorganized"],
+                [50.0, 69.0, "organized"],
+                [70.0, 84.0, "strong"],
+                [85.0, 100.0, "intense"],
+            ],
         },
     },
     "output": {
