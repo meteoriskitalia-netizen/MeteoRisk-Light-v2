@@ -258,6 +258,11 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 .sc-row-title { font-size: 12px; font-weight: 700; color: #f1f5f9; }
 .sc-row-soi { color: #cbd5e1; }
 .sc-row-motion { color: #cbd5e1; }
+/* 1.2.4.84 - shear azimutale OSSERVATO (Doppler): riga dedicata, distinta
+   dal SOI (morfologia) e dal moto. Il motivo del null sta sulla stessa
+   riga, in grigio: mai un simbolo senza misura. */
+.sc-row-doppler { color: #a5f3fc; }
+.sc-row-doppler-na { color: #94a3b8; }
 .sc-chip-neutral { background: #334155; color: #e2e8f0; }
 .sc-row-detail { flex-basis: 100%; margin-top: 2px; }
 .sc-row-detail > summary { cursor: pointer; color: #94a3b8; font-size: 10px; list-style: none; }
@@ -1905,9 +1910,11 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
          centraline (.live-legend/.legend-title/.legend-row). -->
     <div class="live-legend" id="live-doppler-box" style="display:none;">
         <div class="legend-title" id="live-doppler-title">Area Doppler — copertura con velocità radiale</div>
-        <div class="legend-row" style="font-size:11px;">Area in cui esiste un radar con velocità radiale (Doppler). Fuori, solo riflettività: la circolazione interna non è misurabile.</div>
+        <div class="legend-row" style="font-size:11px;">Area in cui esiste un radar con velocità radiale (Doppler), misurata sui raggi con almeno un gate valido: non è un cerchio teorico. Fuori, solo riflettività.</div>
+        <div class="legend-row" style="font-size:11px;">Shear Doppler: solo dove il fascio è basso (&lt;3 km) la confidenza è alta; oltre il fascio campiona a mezza quota.</div>
+        <div class="legend-row" id="live-doppler-area-mode" style="font-size:10px;color:#94a3b8;"></div>
         <div class="legend-row" id="live-doppler-status" style="display:none;font-size:10px;color:#fca5a5;"></div>
-        <div class="legend-row" id="live-doppler-credit" style="font-size:10px;color:#94a3b8;">Fonti: EUMETNET/OPERA (CC BY 4.0)</div>
+        <div class="legend-row" id="live-doppler-credit" style="font-size:10px;color:#94a3b8;">Doppler: EUMETNET/OPERA (CC BY 4.0)</div>
     </div>
     <div id="live-sc-confidence" class="sc-confidence" style="display:none;"></div>
     <div id="live-sc-summary" style="display:none;gap:8px;flex-wrap:wrap;padding:0 10px 6px 10px;font-size:11px;color:#e2e8f0;"></div>
@@ -1956,6 +1963,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <span style="color:#7dd3fc; font-weight:700;font-size:18px;vertical-align:middle;">▲</span><span>grandine (toggle Grandine · proxy riflettività, senza Doppler)</span>
             <span style="color:#fb923c; font-weight:700;font-size:18px;vertical-align:middle;">↻</span><span>struttura asimmetrica (toggle Fenomeni · proxy riflettività, senza Doppler)</span>
             <span style="color:#94a3b8;">○</span><span>SUSPECT (tratteggiato) · pieno = CORROBORATED/VERIFIED</span>
+        </div>
+        <!-- 1.2.4.84 - SHEAR AZIMUTALE OSSERVATO: simbolo distinto dal pennant
+             (cerchietto con freccia di azimuth). La riga esiste solo quando il
+             motore pubblica `rotation_shear`; il null ha la sua riga-motivo
+             nella lista, mai un simbolo vuoto. -->
+        <div class="legend-row">
+            <span style="color:#22d3ee; font-weight:700;font-size:18px;vertical-align:middle;">◉</span><span>shear azimutale osservato (Doppler): cerchietto con freccia = azimuth del campione · solo dove il fascio è basso (&lt;3 km) la confidenza è alta; oltre il fascio campiona a mezza quota · Doppler: EUMETNET/OPERA (CC BY 4.0)</span>
         </div>
     </div>
     <div class="live-hint">
@@ -2647,9 +2661,16 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.83';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-11-11';
+    const APP_VERSION = '1.2.4.84';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-11-12';
     const APP_CHANGELOG = [
+        { version: '1.2.4.84', date: '2026-11-12', changes: [
+  "SHEAR DOPPLER IN MAPPA= Per ogni struttura con `rotation_shear.shear_ms_km` numerico il client disegna un SIMBOLO DI SHEAR: un cerchietto di 22x22 px con la freccia di azimuth (0 gradi = Nord, senso orario) posto SOTTO il pennant, dentro lo STESSO `divIcon`. Un solo marker per struttura: niente icone sovrapposte, niente click conteso, il pennant resta quello di prima. E\' lo shear AZIMUTALE OSSERVATO dal radar Doppler: un descrittore geometrico, non una diagnosi di circolazione. Tooltip e riga del pannello Struttura convettiva portano la stessa stringa con i campi del payload (`shear_ms_km`, `azimuth_deg`, `range_km`, `beam_height_km`, `confidence`, `radar`), numeri con la virgola e siti tradotti (`frale` -> Aleria, `fraja` -> Ajaccio).",
+  "AREA DI COPERTURA GEOMETRICA= Il geojson della copertura puo\' pubblicare due famiglie di feature, distinte da `properties.kind`: `geometric` (copertura dell\'ANTENNA, area teorica che non dipende dal tempo) e `observed` (copertura MISURATA nei volumi, cioe\' i raggi con almeno un gate valido). Se esiste almeno una `geometric` il client disegna SOLO quelle: l\'area non si restringe quando non piove. Le `observed` restano nel file per l\'audit ma non vengono disegnate. Se `kind` non c\'e\' affatto (file precedente alla 1.2.4.84) si disegnano TUTTE le feature, esattamente come prima: nessuna rottura con i payload vecchi; se esiste solo `observed` si disegnano le osservate. Il canvas composito non cambia (maschera opaca fuori schermo, tinta una volta, composizione unica a alpha 0,10, nessun bordo e nessun tratteggio) e la legenda LIVE dichiara QUALE area sta guardando: Area disegnata: N settori geometrici (copertura dell\'antenna, non dipende dalla pioggia) - M aree osservate nel file non disegnate.",
+  "NESSUN SIMBOLO QUANDO IL DATO MANCA= Se `rotation_shear` c\'e\' ma `shear_ms_km` e\' null, non si disegna nessun glifo: nel pannello compare una riga grigia con il motivo (Shear azimutale non disponibile: <codice> - <spiegazione>), con i codici del motore mappati (`no_doppler_candidate_within_15km_5min`, `structure_position_missing`, `doppler_disabled`, `beam_too_high`, `below_threshold`, `nyquist_missing`, `no_opera_scan_for_site`, `no_volume_before_as_of`, `no_vradh_elevation`, `no_radial_velocity_in_dpc_2d_mosaic`); un codice sconosciuto resta scritto e la spiegazione dice motivo non riconosciuto dal client. Se la chiave `rotation_shear` non esiste (payload precedenti) non c\'e\' ne\' simbolo ne\' riga ne\' chip: silenzio, non errore. Il chip di riepilogo `Shear Doppler X/Y` compare solo quando il payload pubblica la chiave.",
+  "MISURE= Edge headless CDP sulla pagina servita in locale (1440x900 e 390x844). AREA, payload reale di `main` (7 feature, nessun `kind`): 7 aree disegnate, 1 solo canvas, 0 path vettoriali e 0 tratteggi nel pane Doppler, alpha 26/255 = 0,102 in un punto interno (11,0E 42,0N), alpha 0 in un punto esterno (15,0E 45,0N). Roma (12,4964E 41,9028N) e\' FUORI dall\'area reale: alpha 0, bordo piu\' vicino 3,6 km (feature `frale`, `min_elevation`) - il file servito non ha ancora `coverage_geometric`, quindi l\'area non contiene Roma e il client disegna esattamente la geometria pubblicata. AREA con fixture `kind` (1 geometrica sintetica intorno a Roma + le 7 osservate reali): 1 disegnata su 8 nel file, Roma alpha 26 (DENTRO), il punto interno alle sole osservate alpha 0 (non disegnate), esterno 0, 0 path e 0 tratteggi. SHEAR, fixture valorizzata: 1 glifo, tooltip e riga con Shear azimutale 6,2 m/s/km - az 95 gradi - 48 km - fascio 0,7 km - confidenza media - Doppler Aleria, chip Shear Doppler 1/1; con `rotation_shear` null: 0 glifi e la riga-motivo; con la chiave assente: 0 glifi, 0 righe, nessun chip, 0 eccezioni. Parole vietate nel pannello (`rotazione`, `mesociclone`, `supercella`): 0. Layout: overflow orizzontale 0 a 1440x900 e a 390x844, 0 eccezioni JS, 0 console.error.",
+  "BUMP= html mri-light-1.2.4.84.html, VERSION (BUILD=84, DATE=2026-11-12, APP_FILE=mri-light-1.2.4.84.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.84), README.md, i 26 test .mjs col nome del file html in entrambe le forme, le righe cp dei 3 workflow (deploy-pages, radar-engine, update-weather-data); la 1.2.4.83 va RIMOSSA dal repo (una sola app servita da Pages). NON toccati: `scripts/` (motore, `doppler.py`, renderer, dataset), il resto di `sw.js`, la geometria pubblicata dal motore."
+        ] },
         { version: '1.2.4.83', date: '2026-11-11', changes: [
   "NIENTE LINEE: LA ZONA DI DENSITA'= Le 24 traiettorie di `ensemble_members` non sono piu' disegnate come polilinee. Sono la materia prima di una DENSITA': ogni percorso viene rasterizzato su un canvas offscreen con pennello bianco additivo (`globalCompositeOperation='lighter'`, larghezza 6 px, alpha 0,10 per membro), il campo viene sfocato in FLOAT (3 passate di box blur separabile orizzontale+verticale, sigma ~ raggio) e mappato in opacita' con `alpha = clamp(densita'^0.7 x 0,55, 0, 0,55)` dopo aver normalizzato la densita' a max 1. Il pane forecast riceve UN `L.imageOverlay` per struttura con `opacity: 1` (l'alpha e' gia' nel canvas, classe `sc-ens-density`): una zona colorata con opacita' crescente dove le traiettorie si addensano. Zero path di linea per i membri, zero poligoni con `fill-opacity > 0` nel ramo con membri. La traiettoria media resta una linea marcata a opacita' 0,9 e le etichette +30/+60/+90 restano sulla media.",
   "KERNEL GEOGRAFICO, NON PIXEL= Il raggio di sfocatura e' 26 km convertiti in pixel allo zoom corrente e clampati a [6, 44] px: 7,4 px a z5, 14,9 a z6, 29,7 a z7, 44 (clamp) da z8. Con un blur fisso di 10 px le 24 traiettorie riemergono come 'dita' a zoom alto, perche' il fascio si allarga in pixel mentre il blur no: misurato a z8, il campo era di nuovo una forcella di linee. Il blur e' fatto in JS su Float32Array e non con `ctx.filter`: il canale alpha del canvas e' a 8 bit e con `blur() + getImageData` il campo usciva a bande concentriche visibili (la densita' utile sta in 0..0,15 e la potenza 0,7 amplifica i gradini).",
@@ -8281,20 +8302,20 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
     //    prodotti, non errore);
     //  - il pannello Struttura convettiva mostra un badge con lo stato OPERA.
     //
-    // PERCHE' UN CANVAS FUORI SCHERMO (e non 134 poligoni fillOpacity 0.13):
+    // PERCHE' UN CANVAS FUORI SCHERMO (e non un fillOpacity per poligono):
     // i siti si sovrappongono (Francia, Svizzera, Alpi) e riempire ogni poligono
     // a bassa opacita' produrrebbe zone PIU' SCURE dove i cerchi si accavallano:
     // una mappa che sembra dire cose che non sono. Qui tutti i poligoni si
     // riempiono in BIANCO PIENO (opaco, alpha 1) su un canvas fuori schermo: le
     // sovrapposizioni non contano e il risultato e' una MASCHERA. La maschera si
     // tinge una volta sola (source-in) e si compone UNA volta sulla mappa con
-    // globalAlpha 0.13: l'opacita' e' identica in ogni punto coperto, anche dove
+    // globalAlpha 0.10: l'opacita' e' identica in ogni punto coperto, anche dove
     // si sovrappongono tre siti. Nessun bordo: un contorno esterno unico non e'
     // ricavabile in modo pulito dalla maschera, e una linea sbagliata e' peggio
     // di nessuna linea.
     var DOPPLER_PREF_KEY = "meteorisk.dopplerCoverage.v1";
     var DOPPLER_AREA_COLOR = "#38bdf8";   // azzurro: distinto dal bianco delle province e dal raster radar
-    var DOPPLER_AREA_ALPHA = 0.13;        // opacita' UNICA della superficie composita
+    var DOPPLER_AREA_ALPHA = 0.10;        // opacita' UNICA della superficie composita
     // Default OFF: chiave assente (o "0") => nessuna area al primo caricamento.
     var dopplerCoverageEnabled = false;
     try {
@@ -8302,6 +8323,9 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
         if (_dopPref === "1") dopplerCoverageEnabled = true;
     } catch (e) { /* localStorage non disponibile: default OFF */ }
     var dopplerCoverageData = null;
+    // 1.2.4.84 - selezione AREA GEOMETRICA vs OSSERVATA calcolata sul file
+    // (vedi dopplerAreaFeatureSet): null finche' il geojson non e' caricato.
+    var dopplerCoverageAreaSet = null;
     var dopplerCoverageLayer = null;      // canvas visibile (uno solo), null se spento
     var dopplerCoverageMask = null;       // canvas fuori schermo con la maschera opaca
     var dopplerCoverageBound = false;     // handler moveend/zoomend/resize registrati
@@ -8366,11 +8390,72 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
         if (!on) {
             var st = document.getElementById("live-doppler-status");
             if (st) { st.style.display = "none"; st.innerText = ""; }
+            var modeEl = document.getElementById("live-doppler-area-mode");
+            if (modeEl) modeEl.innerText = "";
         }
     }
 
+    // 1.2.4.84 - AREA GEOMETRICA vs AREA OSSERVATA.
+    // Il geojson puo' pubblicare due famiglie di feature, distinte da
+    // `properties.kind`:
+    //   - "geometric": copertura dell'ANTENNA (area teorica, non dipende dal
+    //     tempo): e' l'area da disegnare, cosi' non si restringe quando non
+    //     piove;
+    //   - "observed": copertura MISURATA nei volumi (solo i raggi con almeno
+    //     un gate valido): resta nel file per l'audit, ma NON e' l'area.
+    // Se esiste almeno una "geometric" si disegnano SOLO quelle. Se `kind` non
+    // c'e' affatto (file precedente alla 1.2.4.84) si disegnano TUTTE le
+    // feature, esattamente come prima: nessuna rottura con i payload vecchi.
+    function dopplerAreaFeatureSet(data) {
+        var feats = (data && data.features) || [];
+        var geometric = [], observed = [], other = [], hasKind = false;
+        for (var i = 0; i < feats.length; i++) {
+            var f = feats[i] || {};
+            var props = f.properties || {};
+            var kind = (props.kind === undefined || props.kind === null) ? null : String(props.kind);
+            if (kind !== null) hasKind = true;
+            if (kind === "geometric") geometric.push(f);
+            else if (kind === "observed") observed.push(f);
+            else other.push(f);
+        }
+        if (geometric.length) {
+            return { features: geometric, mode: "geometric", geometric: geometric.length,
+                     observed: observed.length, other: other.length, has_kind: hasKind };
+        }
+        return { features: feats, mode: hasKind ? "observed" : "legacy",
+                 geometric: 0, observed: observed.length, other: other.length, has_kind: hasKind };
+    }
+
+    // Riga di stato nella legenda LIVE: dice QUALE area e' disegnata, cosi'
+    // l'utente sa se sta guardando la copertura dell'antenna o quella del volume.
+    function dopplerAreaModeText(areaSet) {
+        if (!areaSet) return "";
+        if (areaSet.mode === "geometric") {
+            var ng = areaSet.geometric;
+            var txt = "Area disegnata: " + ng +
+                (ng === 1 ? " settore geometrico" : " settori geometrici") +
+                " (copertura dell'antenna, non dipende dalla pioggia)";
+            if (areaSet.observed > 0) {
+                txt += " · " + areaSet.observed +
+                    (areaSet.observed === 1 ? " area osservata nel file non disegnata"
+                        : " aree osservate nel file non disegnate");
+            }
+            return txt + ".";
+        }
+        if (areaSet.mode === "observed") {
+            var no = areaSet.features.length;
+            return "Area disegnata: " + no +
+                (no === 1 ? " settore osservato nel volume" : " settori osservati nel volume") +
+                " (raggi con almeno un gate valido).";
+        }
+        var nl = areaSet.features.length;
+        return "Area disegnata: " + nl +
+            (nl === 1 ? " settore dal file senza campo kind" : " settori dal file senza campo kind") +
+            " (geometria presa cosi' com'e').";
+    }
+
     // Ridisegna la superficie: maschera opaca fuori schermo -> tinta -> UNA
-    // composizione a globalAlpha 0.13. Chiamata a ogni moveend/zoomend/resize.
+    // composizione a globalAlpha 0.10. Chiamata a ogni moveend/zoomend/resize.
     function dopplerAreaRedraw() {
         if (!dopplerCoverageLayer || !dopplerCoverageMask || !dopplerCoverageData || !map) return;
         var size = map.getSize();
@@ -8398,7 +8483,9 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
         mctx.globalAlpha = 1;                 // OPACO: le sovrapposizioni non contano
         mctx.globalCompositeOperation = "source-over";
         mctx.fillStyle = "#ffffff";
-        var feats = (dopplerCoverageData.features || []);
+        var areaSet = dopplerAreaFeatureSet(dopplerCoverageData);
+        dopplerCoverageAreaSet = areaSet;
+        var feats = areaSet.features;
         for (var i = 0; i < feats.length; i++) {
             var geom = feats[i] && feats[i].geometry;
             if (!geom || !geom.coordinates) continue;
@@ -8427,7 +8514,7 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
         mctx.fillRect(0, 0, size.x, size.y);
         mctx.globalCompositeOperation = "source-over";
 
-        // Composizione UNICA sulla mappa: alpha 0.13 ovunque, sovrapposizioni comprese.
+        // Composizione UNICA sulla mappa: alpha 0.10 ovunque, sovrapposizioni comprese.
         var ctx = dopplerCoverageLayer.getContext("2d");
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.globalAlpha = 1;
@@ -8459,7 +8546,8 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
     }
 
     function addDopplerCoverageLayer() {
-        // 1.2.4.75 - geometria STATICA (134 poligoni), ma la superficie si
+        // 1.2.4.75/1.2.4.84 - geometria STATICA (poligoni della copertura vera,
+        // raggi con almeno un gate valido), ma la superficie si
         // disegna SOLO dal pannello LIVE e solo se il toggle e' ON.
         if (!dopplerCoverageEnabled) return;
         if (!dopplerLivePanelOpen()) return;
@@ -8478,18 +8566,27 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
         dopplerAreaBind();
         dopplerAreaRedraw();
         var t1 = performance.now();
+        var areaSet = dopplerCoverageAreaSet || dopplerAreaFeatureSet(dopplerCoverageData);
         dopplerCoverageStats = {
             features: (dopplerCoverageData.features || []).length,
-            points: countGeoJsonPoints(dopplerCoverageData),
+            drawn: areaSet.features.length,
+            mode: areaSet.mode,
+            geometric: areaSet.geometric,
+            observed: areaSet.observed,
+            points: countGeoJsonPoints({ features: areaSet.features }),
             total_ms: Math.round((t1 - t0) * 10) / 10,
             zoom: (map.getZoom ? map.getZoom() : null),
             at: new Date().toISOString()
         };
-        console.log("[Doppler] area disegnata: " + dopplerCoverageStats.features + " poligoni, " +
-            dopplerCoverageStats.points + " punti, " + dopplerCoverageStats.total_ms + " ms, alpha " +
-            DOPPLER_AREA_ALPHA);
+        console.log("[Doppler] area disegnata: " + areaSet.features.length + " poligoni (" +
+            areaSet.mode + ": " + areaSet.geometric + " geometrici, " + areaSet.observed +
+            " osservati, file " + dopplerCoverageStats.features + "), " +
+            dopplerCoverageStats.points + " punti, " + dopplerCoverageStats.total_ms +
+            " ms, alpha " + DOPPLER_AREA_ALPHA);
         dopplerSetToggleState(true);
         dopplerSetLegendVisible(true);
+        var modeEl = document.getElementById("live-doppler-area-mode");
+        if (modeEl) modeEl.innerText = dopplerAreaModeText(areaSet);
         var st = document.getElementById("live-doppler-status");
         if (st) { st.style.display = "none"; st.innerText = ""; }
     }
@@ -8501,6 +8598,7 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
         }
         dopplerCoverageLayer = null;
         dopplerCoverageMask = null;
+        dopplerCoverageAreaSet = null;
         dopplerSetLegendVisible(false);
     }
 
@@ -10655,7 +10753,32 @@ removeLightningTile();
                 (glyph ? '<circle cx="17" cy="17" r="6" fill="rgba(15,23,42,.9)" stroke="' + (accent || '#e2e8f0') + '" stroke-width="1.6"/>' +
                     '<text x="17" y="20.5" text-anchor="middle" font-size="18" font-weight="700" fill="' + (accent || '#e2e8f0') + '">' + glyph + '</text>' : '') +
                 '</svg>';
-        return L.divIcon({ className: '', iconSize: [size, size], iconAnchor: [size / 2, size / 2], html: svg });
+        // 1.2.4.84 - SHEAR AZIMUTALE OSSERVATO: glifo distinto (cerchietto con
+        // freccia di azimuth) SOTTO il pennant, dentro lo stesso marker. Un solo
+        // marker per struttura: niente icone sovrapposte e nessun click conteso.
+        // Il glifo ha dimensione fissa (22 px); il pennant resta quello di prima.
+        var shearGlyph = '';
+        if (scShearValue(c) !== null) {
+            var rs = scShearObj(c) || {};
+            var az = scNum(rs.azimuth_deg);
+            var rot = (az === null) ? 0 : az;
+            shearGlyph =
+                '<svg class="sc-shear-glyph" width="22" height="22" viewBox="0 0 22 22" ' +
+                'style="position:absolute;left:' + Math.round((size - 22) / 2) + 'px;top:' + (size + 1) + 'px;overflow:visible;">' +
+                '<circle cx="11" cy="11" r="9.2" fill="rgba(8,47,73,.62)" stroke="#0b1220" stroke-width="3.2"/>' +
+                '<circle cx="11" cy="11" r="9.2" fill="none" stroke="#22d3ee" stroke-width="1.6"/>' +
+                '<g transform="rotate(' + rot + ' 11 11)">' +
+                '<line x1="11" y1="11" x2="11" y2="5.2" stroke="#22d3ee" stroke-width="1.5" stroke-linecap="round"/>' +
+                '<path d="M11 2.6 L13.7 6.6 L11 5.4 L8.3 6.6 Z" fill="#22d3ee" stroke="#0b1220" stroke-width="0.7" stroke-linejoin="round"/>' +
+                '</g>' +
+                '<circle cx="11" cy="11" r="1.4" fill="#e2e8f0" stroke="#0b1220" stroke-width="0.5"/>' +
+                '</svg>';
+        }
+        var boxW = Math.max(size, 22);
+        var boxH = size + (shearGlyph ? 23 : 0);
+        var html = '<div style="position:relative;width:' + boxW + 'px;height:' + boxH + 'px;">' +
+            '<div style="position:absolute;left:0;top:0;">' + svg + '</div>' + shearGlyph + '</div>';
+        return L.divIcon({ className: '', iconSize: [boxW, boxH], iconAnchor: [size / 2, size / 2], html: html });
     }
 
     // badge -> candidato (via scMatchBadgeCandidate): mappa per chiave candidato con
@@ -10752,7 +10875,8 @@ removeLightningTile();
                 '<br>' + c.position[1].toFixed(3) + '°N, ' + c.position[0].toFixed(3) + '°E' +
                 (scForecastUsable(c) && c.forecast && typeof c.forecast.velocity_kmh === 'number' && isFinite(c.forecast.velocity_kmh) ? '<br>Forecast: ' + Math.round(c.forecast.velocity_kmh) + ' km/h verso ' + scCompass(c.forecast.direction_toward_deg) : '') +
                 '<br>' + (scPennantDirectionDeg(c) != null ? 'Indicatore: ' + scCompass(scCandidateDirectionDeg(c)) : 'Indicatore: fermo') +
-                '<br>' + scMotionLine(c);
+                '<br>' + scMotionLine(c) +
+                (scShearValue(c) !== null ? '<br>' + scShearLine(c) : '');
             m.bindTooltip(info, { direction: 'top', opacity: 0.95 });
             markers.push(m);
         }
@@ -11018,6 +11142,90 @@ removeLightningTile();
         return 'Moto non determinabile · ' + (scMotionReasonTxt(c) || 'motivo non disponibile') + suffix;
     }
 
+    // ---- 1.2.4.84: SHEAR AZIMUTALE OSSERVATO (Doppler) ----
+    // Il motore pubblica `rotation_shear` per struttura quando il layer Doppler
+    // e' attivo. E' uno shear azimutale OSSERVATO dal radar: un descrittore
+    // geometrico, non una diagnosi di circolazione. Se la chiave non esiste
+    // (payload precedenti) nessuna riga e nessun simbolo: silenzio, non errore.
+    var SC_SHEAR_SITE_LABEL = { frale: 'Aléria', fraja: 'Ajaccio' };
+
+    function scShearObj(c) {
+        if (!c || !Object.prototype.hasOwnProperty.call(c, 'rotation_shear')) return null;
+        var rs = c.rotation_shear;
+        return (rs && typeof rs === 'object') ? rs : {};
+    }
+
+    function scShearValue(c) {
+        var rs = scShearObj(c);
+        return rs ? scNum(rs.shear_ms_km) : null;
+    }
+
+    function scShearReasonCode(c) {
+        var rs = scShearObj(c);
+        if (!rs) return null;
+        var code = rs.null_reason || (c && c.rotation_null_reason) || null;
+        return code ? String(code) : null;
+    }
+
+    function scShearConfidenceLabel(v) {
+        if (v === 'high') return 'alta';
+        if (v === 'medium') return 'media';
+        if (v === 'low') return 'bassa';
+        return null;
+    }
+
+    function scShearSiteLabel(v) {
+        if (!v) return null;
+        var k = String(v);
+        return SC_SHEAR_SITE_LABEL[k] || k;
+    }
+
+    function scShearNum(v, d) {
+        var n = scNum(v);
+        return (n === null) ? null : n.toFixed(d).replace('.', ',');
+    }
+
+    function scShearReasonText(code) {
+        var m = {
+            no_doppler_candidate_within_15km_5min: 'nessun candidato Doppler entro 15 km e 5 min dalla struttura',
+            structure_position_missing: 'posizione della struttura non disponibile',
+            doppler_disabled: 'layer Doppler disattivato nel motore',
+            beam_too_high: 'il fascio e\' troppo alto: campiona a mezza quota',
+            below_threshold: 'shear sotto la soglia di 4,0 m/s/km',
+            nyquist_missing: 'velocita\' di Nyquist non disponibile: dato avvolto',
+            no_opera_scan_for_site: 'nessuna scansione OPERA per il sito',
+            no_volume_before_as_of: 'nessun volume OPERA prima dell\'istante richiesto',
+            no_vradh_elevation: 'nessuna elevazione VRADH disponibile',
+            no_radial_velocity_in_dpc_2d_mosaic: 'il mosaico DPC 2D non contiene velocità radiale'
+        };
+        return m[code] || 'motivo non riconosciuto dal client';
+    }
+
+    // Riga unica per pannello e tooltip. Ritorna '' quando la chiave manca
+    // (payload vecchio): nessuna riga, nessun simbolo, nessun errore.
+    function scShearLine(c) {
+        var rs = scShearObj(c);
+        if (!rs) return '';
+        var val = scShearValue(c);
+        if (val === null) {
+            var code = scShearReasonCode(c);
+            if (!code) return 'Shear azimutale non disponibile (motivo non pubblicato dal motore).';
+            return 'Shear azimutale non disponibile: ' + code + ' — ' + scShearReasonText(code);
+        }
+        var parts = ['Shear azimutale ' + scShearNum(val, 1) + ' m/s/km'];
+        var az = scNum(rs.azimuth_deg);
+        if (az !== null) parts.push('az ' + Math.round(az) + '°');
+        var range = scNum(rs.range_km);
+        if (range !== null) parts.push(Math.round(range) + ' km');
+        var beam = scNum(rs.beam_height_km);
+        if (beam !== null) parts.push('fascio ' + scShearNum(beam, 1) + ' km');
+        var conf = scShearConfidenceLabel(rs.confidence);
+        if (conf) parts.push('confidenza ' + conf);
+        var site = scShearSiteLabel(rs.radar);
+        if (site) parts.push('Doppler ' + site);
+        return parts.join(' · ');
+    }
+
     // HTML del riepilogo candidati. Estratto da renderScRadar per riusarlo
     // anche nella vista compatta del pannello LIVE (nessuna duplicazione).
     function scCandidatesSummaryHtml(cands, cards) {
@@ -11026,13 +11234,23 @@ removeLightningTile();
         if (list.length === 0) {
             return '<span style="color:#22c55e;">✓ Nessun record di struttura convettiva allo scan corrente.</span>';
         }
+        // 1.2.4.84 - conteggio dello shear azimutale osservato. Il chip compare
+        // SOLO se il payload pubblica `rotation_shear` (run vecchie: nessun chip).
+        var shearKnown = 0, shearValued = 0;
+        for (var si = 0; si < list.length; si++) {
+            if (scShearObj(list[si])) {
+                shearKnown++;
+                if (scShearValue(list[si]) !== null) shearValued++;
+            }
+        }
         return '<span class="sc-chip sc-chip-neutral">' + list.length + ' strutture</span>' +
             '<span class="sc-chip sc-chip-neutral">' + (c.births || 0) + ' nascite</span>' +
             '<span class="sc-chip sc-chip-neutral">' + (c.strong || 0) + ' organizzate</span>' +
             '<span class="sc-chip sc-chip-neutral">' + (c.intense || 0) + ' molto organizzate</span>' +
             '<span class="sc-chip sc-chip-neutral">' + (c.on_latest_frame || 0) + ' sull\'ultimo frame</span>' +
             '<span class="sc-chip sc-chip-neutral">SOI max ' + ((c.soi_max !== null && c.soi_max !== undefined) ? c.soi_max : '—') + '/100</span>' +
-            '<span class="sc-chip sc-chip-neutral">Top ' + Math.min(scTopN(), list.length) + ' per SOI</span>';
+            '<span class="sc-chip sc-chip-neutral">Top ' + Math.min(scTopN(), list.length) + ' per SOI</span>' +
+            (shearKnown ? '<span class="sc-chip sc-chip-neutral" title="Shear azimutale osservato dal radar Doppler: solo le strutture con una misura valida hanno il simbolo; le altre portano il motivo nella riga.">Shear Doppler ' + shearValued + '/' + shearKnown + '</span>' : '');
     }
 
     // ---- 1.2.4.77+: GERARCHIA, CONFIDENCE GLOBALE, MINI TIMELINE ----
@@ -11499,6 +11717,11 @@ removeLightningTile();
             : ('Env ' + scFmtInt(env) + '/100' + (env === 0 ? ' (nessun segnale NWP)' : ''));
         var soiV2 = scNum(c.soi_v2);
         var soiV2Txt = (soiV2 === null) ? '' : 'SOI v2 ' + scFmtInt(soiV2) + '/100 · ';
+        // 1.2.4.84 - riga dello shear azimutale OSSERVATO: se la chiave
+        // `rotation_shear` manca (payload vecchio) shearTxt e' '' e la riga non
+        // esiste. Se c'e' ma il valore e' null, la riga porta il motivo.
+        var shearTxt = scShearLine(c);
+        var shearCls = (scShearValue(c) === null) ? ' sc-row-doppler-na' : '';
         var trackTxt = 'traccia ' + (dur === null ? 'n/d' : scFmtInt(dur) + ' min') +
             ' · ' + (frames === null ? 'n/d frame' : scFmtInt(frames) + ' frame') +
             ' · percorso ' + (distKm === null ? 'n/d' : scFmtInt(distKm) + ' km') +
@@ -11507,6 +11730,7 @@ removeLightningTile();
             '<div class="sc-row-line sc-row-title">' + titleParts.join(' · ') + ' ' + phaseChip + fresh + '</div>' +
             '<div class="sc-row-line">' + pos + ' · ' + distTxt + '</div>' +
             '<div class="sc-row-line sc-row-soi">' + soiTxt + ' · organizzazione stimata (morfologia, senza Doppler)</div>' +
+            (shearTxt ? '<div class="sc-row-line sc-row-doppler' + shearCls + '">' + shearTxt + '</div>' : '') +
             '<div class="sc-row-line sc-row-motion">' + scMotionLine(c) + '</div>' +
             '<details class="sc-row-detail"><summary>Dettaglio traccia, descrittori e forecast</summary>' +
             '<div class="sc-detail-lines">' +
