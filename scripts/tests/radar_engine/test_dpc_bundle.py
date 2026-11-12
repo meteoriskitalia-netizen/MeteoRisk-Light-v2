@@ -375,6 +375,8 @@ def test_rain_and_poh_features_inside_cell_mask(tmp_path):
     assert cand["hail"]["poh_max"] == pytest.approx(0.7)
     assert cand["hail"]["poh"]["source"] == "POH"
     assert cand["hail"]["poh_valid_time"] == _iso(T0)
+    assert cand["hail"]["source"] == "POH"
+    assert cand["hail"]["valid_time"] == _iso(T0)
 
 
 def test_missing_sri_gives_null_with_reason(tmp_path):
