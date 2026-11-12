@@ -109,6 +109,65 @@ CONFIG = {
         # None = non scritto (il dettaglio aggregato va in latest.json).
         "provenance_out": None,
     },
+    # -----------------------------------------------------------------
+    # 1.2.4.84 - DOPPLER FRANCESE (OPERA FR): shear azimutale osservato.
+    # Il prodotto DPC VMI e' un mosaico 2D a singola riflettivita' e NON
+    # contiene velocita' radiale: l'unico Doppler disponibile per l'Italia
+    # centro-settentrionale e' quello dei due radar francesi che coprono la
+    # Corsica e il Tirreno (frale = Aleria, fraja = Ajaccio).
+    # GEOMETRIA MISURATA il 2026-11-11 sui file OPERA SCAN:
+    #   360 raggi x 267 bin, rscale 960 m, rstart 0 -> 256.32 km,
+    #   gain +0.5, offset -60, nodata 255, undetect 254, how/NI = 62.0555 m/s
+    #   (il PVOL nativo MÃ©tÃ©o-France/iRadar e' 360x256 @ 1000 m, gain -0.5,
+    #   offset 60: codifica speculare, stesso valore fisico).
+    # COPERTURA: Roma e' a 247.9 km da Aleria (dentro i 250 km) ma la 0.6
+    # gradi a 248 km e' a 6.2 km di altezza: il Doppler c'e' solo se la
+    # precipitazione arriva a quella quota (misurato: 13/243 volumi del
+    # 2026-11-11 con almeno un gate valido nella finestra di Roma).
+    # COSTO: 4 file per sito (~250 kB) + 2 per la finestra di copertura,
+    # ~1.5-3 s per run (misurato); nessun download se il bucket non ha il
+    # giorno corrente (lookback_days).
+    "doppler": {
+        "enabled": True,
+        "sites": ["frale", "fraja"],
+        "country": "FR",
+        # Gate fisici. `max_range_km` 250 (Roma a 247.9): il taglio e' sulla
+        # DISTANZA, l'altezza del fascio e' un gate separato a 8 km.
+        # `min_range_km` 30: sotto, 1 grado di azimuth vale meno del gate
+        # radiale (0.52 km a 30 km contro 0.96 km) e lo "shear azimutale"
+        # misura il rumore lungo il raggio, non la struttura azimutale
+        # (misurato: |shear| p99 8-10 m/s/km a 30-100 km contro 1-3 a
+        # 100-250 km).
+        "max_range_km": 250.0,
+        "min_range_km": 30.0,
+        "max_beam_height_km": 8.0,
+        "high_beam_height_km": 3.0,     # confidenza high sotto 3 km
+        "medium_beam_height_km": 6.0,   # medium sotto 6, low sopra
+        # SCELTA INGEGNERISTICA (nessuna calibrazione): 4 m/s/km su 2 gradi
+        # a 100 km = 14 m/s di differenza fra raggi adiacenti.
+        "shear_threshold_ms_km": 4.0,
+        "shear_window_rays": 1,         # 1 -> 3 raggi (i-1, i, i+1)
+        "persistence_scans": 2,
+        "persistence_factor": 0.5,
+        "vertical_tolerance_rays": 2,
+        "vertical_tolerance_gates": 2,
+        "vertical_factor": 0.5,
+        # Ingestione: 2 elevazioni per lo shear (0.6 + 1.01 per frale,
+        # 0.4 + 0.8 per fraja), 4 per la copertura.
+        "max_elevations_shear": 2,
+        "max_elevations_coverage": 3,
+        "lookback_days": 2,
+        "timeout_s": 60,
+        # Accoppiamento struttura <-> candidato.
+        "match_radius_km": 15.0,
+        "match_window_min": 5.0,
+        # Copertura misurata (non un cerchio): merge dei range massimi per
+        # azimuth nella finestra.
+        "coverage_out": "data/radar/doppler_coverage.geojson",
+        "coverage_window_min": 30.0,
+        "coverage_max_volumes": 3,
+        "coverage_min_range_km": 5.0,
+    },
     # Collimazione DPC <-> OPERA (harness, non UI): disattivata in produzione,
     # si esegue dal workflow radar-collimation.yml o da CLI.
     "collimation": {

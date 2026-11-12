@@ -530,6 +530,9 @@ class EngineBundle:
         self.storm_tracks = []          # lista StormTrack (Fase 1.7)
         self.convective_structures = []  # record del descrittore SOI (1.2.4.17)
         self.structure_tracks_evaluated = 0
+        # 1.2.4.84 - DOPPLER (shear azimutale OPERA FR): riepilogo del layer
+        # (siti, candidati, costo, copertura). None = layer non eseguito.
+        self.doppler = None
         self.severe_predictions = None   # esito del registro JSONL (o None)
         # 2026-11-12 — BUNDLE PRODOTTI DPC ALLINEATO (VIL/ETM/POH/SRI):
         # matrice slot x prodotto con valid_time/skew/stale e QC per prodotto.

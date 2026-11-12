@@ -2195,6 +2195,22 @@ def _run_pipeline(config, out_dir, product, max_frames, dry_run,
         bundle.warnings.append(f"phase2 layer failed: {exc}")
         bundle.phase2 = {"status": "unavailable", "warnings": bundle.warnings}
 
+    # ---- DOPPLER (1.2.4.84, additivo): shear azimutale OPERA FR ------------
+    # Solo radar francesi (frale = Aleria, fraja = Ajaccio): il mosaico DPC
+    # VMI non ha velocita' radiale. Nessun errore fa fallire il run; ogni
+    # struttura senza candidato porta rotation_shear=null con motivo. In
+    # dry-run non si scarica nulla (nessun accesso di rete).
+    dop_cfg = config.get("doppler") or {}
+    if dop_cfg.get("enabled", True) and not dry_run:
+        try:
+            from radar_engine import doppler as doppler_mod
+            with timers.stage("doppler"):
+                bundle.doppler = doppler_mod.attach(
+                    bundle, config, out_dir=out_dir)
+        except Exception as exc:  # layer additivo: mai rompere il pipeline base
+            bundle.warnings.append(f"doppler layer failed: {exc}")
+            bundle.doppler = {"status": "error", "null_reason": str(exc)}
+
     # ---- SCORING incluso in finalize (per track) ----------------------------
     if len(bundle.cells_by_frame) < 2:
         bundle.warnings.append("tracking skipped (<2 valid frames); "

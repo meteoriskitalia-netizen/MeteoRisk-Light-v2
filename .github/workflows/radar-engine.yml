@@ -348,7 +348,8 @@ jobs:
           # data/radar/history, che vive sul branch radar-history) e guardia di
           # esistenza per il ramo status-only (rc 4: solo latest.json).
           for f in latest.json storms.geojson tracks.json storm_objects.geojson \
-                   storm_tracks.json convective_structures.json; do
+                   storm_tracks.json convective_structures.json \
+                   doppler_coverage.geojson; do
             if [ -f "data/radar/$f" ]; then git add "data/radar/$f"; fi
           done
           # Registro append-only delle predizioni (data/state, rotazione 30 gg).
