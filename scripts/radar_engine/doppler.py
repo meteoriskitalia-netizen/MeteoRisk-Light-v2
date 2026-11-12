@@ -1073,7 +1073,7 @@ def _scan_like(vol, max_range_m=None):
     }
 
 
-def geometric_scan(vol, cfg):
+def geometric_scan(vol, cfg, mute=None):
     """Scan GEOMETRICO: portata del raggio tagliata dal limite di altezza.
 
     NON usa i gate VRADH: un raggio senza eco ha COMUNQUE copertura (il fascio
@@ -1081,6 +1081,11 @@ def geometric_scan(vol, cfg):
     La portata per raggio viene da `where/maxrange` se presente, altrimenti
     dalla geometria della griglia (`rstart + nbins*rscale`); la fonte resta
     dichiarata in `maxrange_source`. Il taglio e' `min(maxrange, r(h_max))`.
+
+    `mute` (bool per raggio) esclude i raggi che il radar NON produce mai:
+    il settore ovest di frale (raggi 200-359) non ha alcun gate in nessuna
+    delle 25 scansioni campionate del 2026-11-11, quindi va escluso dalla
+    copertura geometrica (non e' "assenza di eco", e' assenza di misura).
     """
     el = float(vol["elangle_deg"])
     nrays = int(vol["nrays"])
@@ -1094,6 +1099,9 @@ def geometric_scan(vol, cfg):
                                  vol.get("height_m", 0.0)) * 1000.0
     out = dict(vol)
     out["max_range_m"] = np.minimum(r_max, limit)
+    if mute is not None:
+        out["max_range_m"] = np.where(np.asarray(mute, dtype=bool), 0.0,
+                                      out["max_range_m"])
     out["az_start_deg"] = np.asarray(vol.get("az_deg", vol["az_start_deg"]),
                                      dtype="float64")
     out["n_valid_bins"] = np.zeros(nrays, dtype="int32")
@@ -1222,13 +1230,30 @@ def build_coverage(coverage_inputs, cfg, previous_doc=None):
         if merged is None:
             continue
         day_s = (st.get("valid_time") or "")[:10]
+        prev_any = _previous_rays(previous_doc, site, "any_elevation", day_s)
         # ---- coverage_GEOMETRIC: portata del fascio, INDIPENDENTE dall'eco.
         # Un raggio senza eco e' coperto: il fascio campiona il volume, non
         # c'e' solo la velocita' da misurare. Portata per raggio (maxrange o
         # griglia) tagliata dal limite di altezza del fascio (<= 8 km).
+        # `mute`: raggi senza alcun gate in NESSUNA elevazione ingerita e,
+        # se c'e', nell'inviluppo osservato del giorno -> il radar non li
+        # produce (settore ovest di frale: 200-359, mai visto su 25 volumi).
+        mute = None
+        for el in sorted(cov_scans):
+            m = np.asarray(cov_scans[el]["max_range_m"], dtype="float64") <= 0.0
+            mute = m if mute is None else (mute & m)
+        mute_source = "current_volume"
+        if prev_any is not None and mute is not None:
+            mute = mute & (np.asarray(prev_any, dtype="float64") <= 0.0)
+            mute_source = "day_envelope"
+        if mute is not None and bool(mute.all()):
+            # volume interamente senza eco: non e' una prova di settore muto
+            # (e' un guasto/assenza di precipitazione), quindi non si applica.
+            mute = None
+            mute_source = "none_all_empty"
         geo, geo_el, geo_src = None, None, None
         for el in sorted(cov_scans):
-            g = geometric_scan(cov_scans[el], cf)
+            g = geometric_scan(cov_scans[el], cf, mute=mute)
             if geo is None:
                 geo, geo_el, geo_src = g, el, g.get("maxrange_source")
             else:
@@ -1247,6 +1272,9 @@ def build_coverage(coverage_inputs, cfg, previous_doc=None):
                 p["elevation_deg"] = round(float(geo_el), 2)
                 p["elevations_merged"] = sorted(cov_scans)
                 p["max_range_source"] = geo_src
+                p["muted_rays"] = (int(np.count_nonzero(mute))
+                                   if mute is not None else 0)
+                p["mute_source"] = mute_source
                 p["beam_height_at_max_km"] = round(float(beam_height_km(
                     p["max_range_km"], geo_el, geo.get("height_m", 0.0))), 2)
                 p["day"] = day_s

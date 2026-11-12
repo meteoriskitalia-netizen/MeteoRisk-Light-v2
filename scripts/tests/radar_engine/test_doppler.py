@@ -425,6 +425,23 @@ def test_coverage_has_both_kinds_and_counts():
         assert p["kind"] in ("geometric", "observed")
 
 
+def test_coverage_geometric_excludes_always_mute_rays():
+    # Il radar non produce mai dati nel settore ovest: la geometrica NON deve
+    # disegnare un cerchio completo (misurato su frale: raggi 200-359 sempre
+    # vuoti su 25 volumi del 2026-11-11).
+    nrays = 360
+    vrad = np.full((nrays, 267), np.nan)
+    vrad[:180, :] = 5.0
+    vol = volume_from(vrad, np.arange(nrays, dtype="float64"))
+    doc = dop.build_coverage(_coverage_inputs(dop._scan_like(vol)),
+                             dop.config_for({}))
+    geo = [f for f in doc["features"] if f["properties"]["kind"] == "geometric"]
+    assert geo
+    span = sum(f["properties"]["azimuth_span_deg"] for f in geo)
+    assert 170.0 <= span <= 190.0
+    assert all(f["properties"]["muted_rays"] == 180 for f in geo)
+
+
 def test_coverage_status_reports_signed_distance():
     nrays = 360
     vrad = np.full((nrays, 267), np.nan)
