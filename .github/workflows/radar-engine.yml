@@ -86,9 +86,10 @@ jobs:
       # ── MISURA DEI TEMPI (2026-11-12) ────────────────────────────────────
       # Ogni step con blocco `run:` scrive due righe (begin/end) in
       # $RUNNER_TEMP/timings/marks.tsv con `date +%s%3N` (epoch ms).
-      # `github.run_started_at` e' l'istante di CREAZIONE del run: il primo
-      # delta (queue_and_runner_startup) include l'eventuale coda dovuta alla
-      # concurrency e l'avvio del runner.
+      # t0 = inizio del primo step del job (NON `github.run_started_at`, che
+      # non esiste nel contesto `github`: si espande a stringa vuota).
+      # La coda dovuta alla concurrency (run creato -> job avviato) NON e'
+      # misurabile da dentro il workflow: si legge dall'API.
       # LIMITE DICHIARATO: gli stadi INTERNI al motore (fetch DPC, preprocess,
       # detect, tracking, storm object, structure, phase2, write) NON sono
       # separabili da fuori — main.py li esegue in un solo processo e non
