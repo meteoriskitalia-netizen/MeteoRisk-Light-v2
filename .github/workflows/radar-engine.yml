@@ -98,9 +98,15 @@ jobs:
       - name: "Timings: init"
         run: |
           mkdir -p "$RUNNER_TEMP/timings"
-          START_MS="$(date -d "${{ github.run_started_at }}" +%s%3N 2>/dev/null || date +%s%3N)"
-          printf '%s\t%s\n' run_started_at "$START_MS" > "$RUNNER_TEMP/timings/marks.tsv"
-          echo "[INFO] timings: $RUNNER_TEMP/timings/marks.tsv (run_started_at=${{ github.run_started_at }})"
+          # t0 = inizio del primo step del job. NON si usa
+          # `github.run_started_at`: NON esiste nel contesto `github` e si
+          # espande a stringa vuota (MISURATO il 2026-11-12 sul primo run:
+          # `run_started_at=` vuoto nel log). La coda fra creazione del run e
+          # avvio del job si legge dall'API (run_started_at -> job.started_at),
+          # non da qui.
+          printf 't0\t%s\n' "$(date +%s%3N)" > "$RUNNER_TEMP/timings/marks.tsv"
+          date -u +%FT%TZ > "$RUNNER_TEMP/timings/t0_iso.txt"
+          echo "[INFO] timings: $RUNNER_TEMP/timings/marks.tsv (t0=$(cat "$RUNNER_TEMP/timings/t0_iso.txt"))"
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -201,7 +207,7 @@ jobs:
         run: |
           tmark() { printf '%s\t%s\n' "$1" "$(date +%s%3N)" >> "$RUNNER_TEMP/timings/marks.tsv"; }
           tmark begin:write_timings
-          RUN_STARTED_AT="${{ github.run_started_at }}" python - <<'PY'
+          python - <<'PY'
           import json
           import os
           import sys
@@ -221,8 +227,7 @@ jobs:
               print("[WARN] marks non leggibili (%s): timings_ms non pubblicato" % exc)
               sys.exit(0)
 
-          ORDER = ["init", "install_deps", "unit_tests", "restore_history",
-                   "engine", "write_timings"]
+          ORDER = ["install_deps", "unit_tests", "restore_history", "engine"]
 
           def span(name):
               b = marks.get("begin:" + name)
@@ -232,17 +237,21 @@ jobs:
               return e - b
 
           steps = {}
-          started = marks.get("run_started_at")
-          steps["queue_and_runner_startup"] = (
-              None if (started is None or "begin:init" not in marks)
-              else marks["begin:init"] - started)
-          # checkout + setup-python + setup-uv sono step `uses:`: non hanno un
-          # blocco run, quindi il loro costo e' il delta fra due mark.
+          started = marks.get("t0")
+          # checkout + setup-python + setup-uv + init sono step senza un blocco
+          # run misurabile (o gia' trascorsi quando si scrive): il loro costo e'
+          # il delta fra t0 e il primo mark.
           steps["checkout_and_toolchain"] = (
-              None if ("end:init" not in marks or "begin:install_deps" not in marks)
-              else marks["begin:install_deps"] - marks["end:init"])
+              None if (started is None or "begin:install_deps" not in marks)
+              else marks["begin:install_deps"] - started)
           for name in ORDER:
               steps[name] = span(name)
+          t0_iso = None
+          try:
+              with open(os.path.join(tmp, "timings", "t0_iso.txt"), encoding="utf-8") as fh:
+                  t0_iso = fh.read().strip() or None
+          except OSError:
+              t0_iso = None
 
           latest_path = os.path.join("data", "radar", "latest.json")
           try:
@@ -264,7 +273,7 @@ jobs:
           payload["timings_ms"] = {
               "unit": "ms",
               "partial": True,
-              "run_started_at": os.environ.get("RUN_STARTED_AT") or None,
+              "started_at": t0_iso,
               "steps": steps,
               "engine_internal": {
                   "fetch_dpc": None,
@@ -352,19 +361,44 @@ jobs:
             echo "[INFO] Nessuna modifica ai dati radar derivati."
           else
             git commit -m "chore(radar): celle convettive + strutture convettive (SOI, rotazione non misurabile) da Radar-DPC VMI"
-            # RETRY (2026-11-12): copre ANCHE il caso "non-fast-forward". Se un
-            # altro run scrive su main fra il pull e il push, il push viene
-            # rifiutato e il ciclo RIFA' il pull --rebase e riprova (5 tentativi,
-            # attese 5/10/15/20 s). `git rebase --abort` pulisce il rebase
-            # lasciato a meta' da un pull fallito, altrimenti il tentativo
-            # successivo partirebbe da uno stato sporco.
+            # RIALLINEAMENTO + RETRY (2026-11-12). Due difetti distinti:
+            # 1) `actions/checkout` parte dallo SHA del DISPATCH, non dal tip di
+            #    main al momento del commit: un run accodato (concurrency) trova
+            #    su main i derivati di un run partito dopo il suo checkout e va
+            #    in conflitto su TUTTI i 7 file dati. MISURATO il 2026-11-12
+            #    (run #3303): 5 tentativi, tutti "CONFLICT (content)" su
+            #    latest.json/convective_structures.json/storms.geojson/
+            #    tracks.json/storm_objects.geojson/storm_tracks.json/
+            #    severe_predictions.jsonl, job fallito. Il retry da solo non
+            #    risolve un conflitto deterministico.
+            #    `-X theirs` in un REBASE tiene il commit che stiamo applicando,
+            #    cioe' i NOSTRI derivati: corretto perche' questo run ha letto i
+            #    frame radar DOPO il run che ha scritto main (i run sono
+            #    serializzati dalla concurrency).
+            # 2) il registro `severe_predictions.jsonl` e' append-only: -X theirs
+            #    terrebbe solo le nostre righe. Sotto si fa l'UNIONE (righe di
+            #    main prima, poi le nostre, dedup preservando l'ordine).
             ok=0
             for i in 1 2 3 4 5; do
-              if git pull --rebase --autostash origin main && git push origin main; then
-                ok=1
-                break
+              if git pull --rebase --autostash -X theirs origin main; then
+                if [ -f data/state/severe_predictions.jsonl ] \
+                   && git cat-file -e "HEAD^:data/state/severe_predictions.jsonl" 2>/dev/null; then
+                  git show "HEAD^:data/state/severe_predictions.jsonl" > "$RUNNER_TEMP/pred_up.jsonl"
+                  cat data/state/severe_predictions.jsonl >> "$RUNNER_TEMP/pred_up.jsonl"
+                  awk '!seen[$0]++' "$RUNNER_TEMP/pred_up.jsonl" > "$RUNNER_TEMP/pred_union.jsonl"
+                  if ! cmp -s "$RUNNER_TEMP/pred_union.jsonl" data/state/severe_predictions.jsonl; then
+                    cp "$RUNNER_TEMP/pred_union.jsonl" data/state/severe_predictions.jsonl
+                    git add data/state/severe_predictions.jsonl
+                    git commit --amend --no-edit -q
+                    echo "[INFO] registro predizioni: unione con le righe di main (nessuna riga persa)"
+                  fi
+                fi
+                if git push origin main; then
+                  ok=1
+                  break
+                fi
               fi
-              echo "[retry] push main $i/5 fallito (non-fast-forward o rete): rifaccio pull --rebase"
+              echo "[retry] push main $i/5 fallito (non-fast-forward, conflitto o rete): rifaccio pull --rebase -X theirs"
               git rebase --abort 2>/dev/null || true
               sleep $((i * 5))
             done
@@ -518,13 +552,11 @@ jobs:
           except (OSError, ValueError):
               marks = {}
 
-          ORDER = ["init", "install_deps", "unit_tests", "restore_history",
+          ORDER = ["install_deps", "unit_tests", "restore_history",
                    "engine", "write_timings", "commit_push_main",
                    "push_history", "build_site"]
           LABEL = {
-              "queue_and_runner_startup": "coda + avvio runner",
-              "checkout_and_toolchain": "checkout + setup-python + setup-uv (+cache)",
-              "init": "timings init",
+              "checkout_and_toolchain": "init + checkout + setup-python + setup-uv (+cache)",
               "install_deps": "install dipendenze (uv)",
               "unit_tests": "unit test radar_engine",
               "restore_history": "restore archivio rolling",
@@ -541,22 +573,19 @@ jobs:
               return None if (b is None or e is None) else e - b
 
           rows = []
-          started = marks.get("run_started_at")
-          if started is not None and "begin:init" in marks:
-              rows.append(("queue_and_runner_startup", marks["begin:init"] - started))
-          else:
-              rows.append(("queue_and_runner_startup", None))
-          if "end:init" in marks and "begin:install_deps" in marks:
+          started = marks.get("t0")
+          if started is not None and "begin:install_deps" in marks:
               rows.append(("checkout_and_toolchain",
-                           marks["begin:install_deps"] - marks["end:init"]))
+                           marks["begin:install_deps"] - started))
           else:
               rows.append(("checkout_and_toolchain", None))
           for name in ORDER:
               rows.append((name, span(name)))
 
           total = None
-          if started is not None and marks:
-              total = max(marks.values()) - started
+          ints = [v for v in marks.values() if isinstance(v, int)]
+          if started is not None and ints:
+              total = max(ints) - started
 
           lines = ["## Radar engine — tempi per stadio (ms)", "",
                    "| stadio | ms |", "| :--- | ---: |"]
