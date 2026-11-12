@@ -1016,6 +1016,13 @@ def _attach_poh_to_hail(cand, poh):
     hail["poh_source"] = poh.get("source")
     hail["poh_valid_time"] = poh.get("valid_time")
     hail["poh_null_reason"] = poh.get("null_reason")
+    # Shape richiesta dal task: `hail.source`/`hail.valid_time` si riferiscono
+    # al blocco POH (il sotto-oggetto `hail.poh` ha la stessa shape completa).
+    # I campi dello stack severo (VIL density, MESH) restano intatti. Questo e'
+    # l'UNICO punto che costruisce `hail` per il record: vale sia quando
+    # `cand["hail"]` e' il layer severe_stack sia quando e' None.
+    hail["source"] = poh.get("source")
+    hail["valid_time"] = poh.get("valid_time")
     cand["hail"] = hail
 
 
