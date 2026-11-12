@@ -531,6 +531,18 @@ class EngineBundle:
         self.convective_structures = []  # record del descrittore SOI (1.2.4.17)
         self.structure_tracks_evaluated = 0
         self.severe_predictions = None   # esito del registro JSONL (o None)
+        # 2026-11-12 — BUNDLE PRODOTTI DPC ALLINEATO (VIL/ETM/POH/SRI):
+        # matrice slot x prodotto con valid_time/skew/stale e QC per prodotto.
+        # None = bundle non costruito (nessuna chiave nuova nell'output).
+        self.dpc_bundle = None
+        # 2026-11-12 — slot della TIMELINE in epoch ms (stesso ordine di
+        # frame_slots_iso): serve al bundle per chiedere i prodotti allo
+        # stesso productDate dei frame ricostruiti dall'archivio.
+        self.frame_slots_ms = []
+        # 2026-11-12 — frame VMI DPC ORIGINALI (prima del mosaico OPERA):
+        # il QC di dominio del bundle confronta i prodotti DPC con la VMI DPC
+        # (sentinelle -9999/-9998), non con il mosaico (NaN/OPERA).
+        self.dpc_frames = []
         # 1.2.4.20: riepilogo del replay (--as-of). None in modalita' live:
         # nessuna chiave nuova nell'output operativo.
         self.as_of_mode = None

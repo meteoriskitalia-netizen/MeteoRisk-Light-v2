@@ -542,3 +542,275 @@ def fetch_cappi_set(config, products, ref_time_ms, period_s=None, warnings=None,
         "products": metas,
     }
     return results, summary
+
+
+# ---------------------------------------------------------------------------
+# 2026-11-12 — BUNDLE PRODOTTI DPC ALLINEATO PER FRAME (VIL/ETM/POH/SRI)
+# ---------------------------------------------------------------------------
+BUNDLE_DEFAULT_PRODUCTS = {"vil": "VIL", "etm": "ETM", "poh": "POH",
+                           "sri": "SRI"}
+
+
+def _bundle_config(config):
+    return (((config.get("phase2") or {}).get("structure") or {})
+            .get("bundle") or {})
+
+
+def fetch_product_bundle(config, slots_ms, products, period_s=None,
+                         warnings=None, downloader=None, stale_after_s=None,
+                         reference_slot_ms=None, reference_rasters=None,
+                         retain=None):
+    """Scarica la MATRICE slot x prodotto e la allinea temporalmente.
+
+    Perche' esiste (2026-11-12): VIL/ETM/POH erano chiesti con
+    `fetch_frames(max_frames=1)`, cioe' l'ULTIMO prodotto di ciascun tipo:
+    quando la VMI e' indietro di uno slot (misurato 14:40 vs 14:45) la VIL
+    density veniva calcolata su un VIL di 5 minuti dopo, in silenzio. Qui ogni
+    prodotto e' chiesto allo STESSO `productDate` del frame e il suo
+    `valid_time` REALE (dalla chiave S3) viene confrontato con lo slot:
+
+      skew_s = (valid_time - slot) / 1000
+      stale_for_frame = |skew_s| >= stale_after_s (default 300 s = una cadenza)
+
+    Un prodotto stale NON entra nelle feature di quel frame (il chiamante lo
+    esclude); resta nel QC con il suo scarto dichiarato. La soglia e' `>=` e
+    non `>`: lo scarto di UNA cadenza (300 s) e' il caso misurato e deve
+    essere marcato stale (test test_dpc_bundle.py::test_skew_300_is_stale).
+
+    `products`: {nome: product_type}. `reference_slot_ms`: slot del frame di
+    riferimento (di default l'ultimo). `reference_rasters`: {slot_ms: RasterData}
+    delle VMI gia' scaricate, usate SOLO per il QC di dominio (nessun download).
+    `retain(name, slot_ms)`: quali raster tenere in memoria; default =
+    reference + `bundle.retain_non_reference` (poh/sri). I raster non
+    trattenuti vengono comunque scaricati e passati al QC, poi rilasciati.
+
+    Ritorna un dict con entries per slot (valid_time/skew/stale/qc/error),
+    `reference` (raster usabili del frame di riferimento), `qc` aggregato,
+    `missing`, `stale`, `alignments`. Non solleva MAI: un prodotto mancante e'
+    un dato assente dichiarato."""
+    import time as _time
+
+    warnings = warnings if warnings is not None else []
+    bcfg = _bundle_config(config)
+    try:
+        period_s = int(period_s or (config.get("source") or {}).get(
+            "period_s") or 300)
+    except (TypeError, ValueError):
+        period_s = 300
+    if stale_after_s is None:
+        try:
+            stale_after_s = int(bcfg.get("stale_after_s", period_s))
+        except (TypeError, ValueError):
+            stale_after_s = period_s
+    stale_ms = int(stale_after_s) * 1000
+    slots = sorted({int(s) for s in (slots_ms or [])})
+    if reference_slot_ms is not None and int(reference_slot_ms) not in slots:
+        slots.append(int(reference_slot_ms))
+        slots.sort()
+    if not slots:
+        return {"status": "unavailable", "slots": [], "slots_ms": [],
+                "period_s": period_s, "stale_after_s": int(stale_after_s),
+                "products": dict(products or {}), "reference": {},
+                "reference_reason": {}, "entries": {}, "alignments": {},
+                "qc": {"missing": {}, "stale": [], "products": {}},
+                "bytes": 0, "seconds": 0.0, "warnings": warnings}
+
+    product_types = {str(n): (str(t) if t else None)
+                     for n, t in (products or {}).items()}
+    if retain is None:
+        keep = set(bcfg.get("retain_non_reference") or ["poh", "sri"])
+        ref_keep = int(reference_slot_ms) if reference_slot_ms is not None \
+            else slots[-1]
+
+        def retain(name, slot):
+            return int(slot) == ref_keep or name in keep
+
+    pairs = [(slot, name, ptype) for slot in slots
+             for name, ptype in sorted(product_types.items()) if ptype]
+    t_start = _time.monotonic()
+
+    def _one(pair):
+        slot, name, ptype = pair
+        try:
+            raster, meta = _read_product_bytes(config, ptype, slot, period_s,
+                                               downloader)
+            return {"slot": slot, "name": name, "product_type": ptype,
+                    "raster": raster, "meta": meta, "error": None}
+        except models.SourceError as exc:
+            return {"slot": slot, "name": name, "product_type": ptype,
+                    "raster": None, "meta": None, "error": str(exc),
+                    "not_published": source_dpc.is_not_published_error(exc)}
+        except (models.ValidationError, models.CrsError) as exc:
+            return {"slot": slot, "name": name, "product_type": ptype,
+                    "raster": None, "meta": None,
+                    "error": "invalid:{}".format(exc),
+                    "not_published": False}
+        except Exception as exc:
+            return {"slot": slot, "name": name, "product_type": ptype,
+                    "raster": None, "meta": None,
+                    "error": "{}:{}".format(exc.__class__.__name__, exc),
+                    "not_published": False}
+
+    workers = _parallel_workers(config, len(pairs))
+    if workers > 1 and len(pairs) > 1:
+        with ThreadPoolExecutor(max_workers=min(workers, len(pairs))) as pool:
+            fetched = list(pool.map(_one, pairs))
+    else:
+        fetched = [_one(p) for p in pairs]
+
+    entries = {slot: {} for slot in slots}
+    total_bytes = 0
+    for res in fetched:
+        slot = int(res["slot"])
+        e = {
+            "product_type": res["product_type"],
+            "valid_time_ms": None, "valid_time_iso": None,
+            "skew_s": None, "stale_for_frame": False,
+            "key_timestamp_parsed": None,
+            "qc": None, "error": res.get("error"),
+            "bytes": 0, "elapsed_s": None, "raster": None,
+        }
+        rd = res.get("raster")
+        if rd is not None:
+            meta = res.get("meta") or {}
+            total_bytes += int(meta.get("bytes") or 0)
+            e.update({
+                "valid_time_ms": int(rd.time_ms),
+                "valid_time_iso": rd.time_iso,
+                "skew_s": int((int(rd.time_ms) - slot) // 1000),
+                "stale_for_frame": bool(abs(int(rd.time_ms) - slot)
+                                        >= stale_ms),
+                "key_timestamp_parsed": bool(
+                    meta.get("key_timestamp_parsed", True)),
+                "qc": preprocess.qc_product(rd.data, res["product_type"]),
+                "bytes": int(meta.get("bytes") or 0),
+                "elapsed_s": meta.get("elapsed_s"),
+                "raster": rd,
+            })
+        entries[slot][res["name"]] = e
+
+    # --- QC di dominio per frame: riferimento = VMI dello stesso slot --------
+    alignments = {}
+    for slot in slots:
+        vmi_rd = (reference_rasters or {}).get(slot)
+        vmi_domain = None
+        if vmi_rd is not None:
+            vmi_masks = preprocess.product_masks(vmi_rd.data, "VMI")
+            vmi_domain = vmi_masks["domain"]
+            entries[slot]["vmi"] = {
+                "product_type": "VMI",
+                "valid_time_ms": int(vmi_rd.time_ms),
+                "valid_time_iso": vmi_rd.time_iso,
+                "skew_s": int((int(vmi_rd.time_ms) - slot) // 1000),
+                "stale_for_frame": False,
+                "key_timestamp_parsed": True,
+                "qc": preprocess.qc_product(
+                    vmi_rd.data, "VMI", reference_domain=vmi_domain),
+                "error": None, "bytes": 0, "elapsed_s": None, "raster": None,
+            }
+        domains = {}
+        for name, ptype in product_types.items():
+            e = entries[slot].get(name)
+            if e is None or e.get("raster") is None:
+                continue
+            e["qc"] = preprocess.qc_product(
+                e["raster"].data, ptype, reference_domain=vmi_domain)
+            domains[name] = preprocess.product_masks(
+                e["raster"].data, ptype)["domain"]
+        alignments[slot] = preprocess.align_domain_masks(
+            domains, reference_domain=vmi_domain)
+
+    # --- Rilascio dei raster non necessari alle feature ---------------------
+    for slot in slots:
+        for name, e in entries[slot].items():
+            if name == "vmi":
+                continue
+            if not retain(name, slot):
+                e["raster"] = None
+
+    # --- Riferimento: prodotti USABILI del frame di riferimento -------------
+    ref_slot = (int(reference_slot_ms) if reference_slot_ms is not None
+                else slots[-1])
+    reference = {}
+    reference_reason = {}
+    for name, ptype in product_types.items():
+        e = (entries.get(ref_slot) or {}).get(name)
+        if not ptype:
+            reference[name] = None
+            reference_reason[name] = "not_configured"
+        elif e is None:
+            reference[name] = None
+            reference_reason[name] = "not_fetched"
+        elif e.get("raster") is None:
+            reference[name] = None
+            reference_reason[name] = e.get("error") or "not_retained"
+        elif e.get("stale_for_frame"):
+            reference[name] = None
+            reference_reason[name] = "stale_for_frame:skew_s={}".format(
+                e.get("skew_s"))
+        else:
+            reference[name] = e["raster"]
+
+    qc = preprocess.qc_bundle(entries, product_types, period_s=period_s,
+                              stale_after_s=stale_after_s)
+    qc["domain_alignment"] = {
+        _iso(slot): alignments[slot] for slot in slots
+        if alignments.get(slot, {}).get("intersection_pixels") is not None}
+    qc["reference_missing_slots"] = [
+        _iso(slot) for slot in slots if entries[slot].get("vmi") is None]
+    for slot in slots:
+        for name, e in entries[slot].items():
+            if name == "vmi" or e.get("qc") is None:
+                continue
+            if e.get("stale_for_frame"):
+                msg = ("bundle {}: stale_for_frame allo slot {} "
+                       "(valid_time {}, skew {} s) — escluso dalle feature "
+                       "di quel frame").format(
+                           name, _iso(slot), e.get("valid_time_iso"),
+                           e.get("skew_s"))
+                if msg not in warnings:
+                    warnings.append(msg)
+            elif e.get("error"):
+                msg = "bundle {}: assente allo slot {} ({})".format(
+                    name, _iso(slot), e.get("error"))
+                if msg not in warnings:
+                    warnings.append(msg)
+    for name in product_types:
+        if reference[name] is None and reference_reason.get(name) not in (
+                "not_configured", "not_fetched"):
+            msg = "bundle {}: riferimento non usabile ({})".format(
+                name, reference_reason.get(name))
+            if msg not in warnings:
+                warnings.append(msg)
+
+    expected = sum(1 for _s in slots for _n, _t in product_types.items() if _t)
+    usable = 0
+    for slot in slots:
+        for name, ptype in product_types.items():
+            if not ptype:
+                continue
+            e = entries[slot].get(name)
+            if e is not None and e.get("qc") is not None \
+                    and not e.get("stale_for_frame"):
+                usable += 1
+    status = ("unavailable" if usable == 0
+              else "ok" if usable == expected else "partial")
+    return {
+        "status": status,
+        "slots": [_iso(s) for s in slots],
+        "slots_ms": slots,
+        "period_s": int(period_s),
+        "stale_after_s": int(stale_after_s),
+        "products": {n: t for n, t in product_types.items() if t},
+        "reference_slot_ms": ref_slot,
+        "reference_slot_iso": _iso(ref_slot),
+        "reference": reference,
+        "reference_reason": reference_reason,
+        "entries": entries,
+        "alignments": {_iso(s): alignments[s] for s in slots},
+        "qc": qc,
+        "bytes": int(total_bytes),
+        "seconds": (None if _clock.from_config(config).replay
+                    else round(_time.monotonic() - t_start, 3)),
+        "warnings": warnings,
+    }

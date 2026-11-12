@@ -314,6 +314,30 @@ CONFIG = {
             "product_vil": "VIL",      # prodotto DPC verificato (A0)
             "product_etm": "ETM",      # prodotto DPC verificato (A0)
             "product_poh": "POH",      # prodotto DPC verificato (A0)
+            # 2026-11-12 — SRI: Quantitative Precipitation Estimate (mm/h).
+            # Product type DPC "SRI" (findLastProductByType?type=SRI -> 200,
+            # PT5M; file servito SRI/<DD-MM-YYYY-HH-MM>.tif). La sonda del
+            # 2026-11-12 misura 0.01..72.43 mm/h, 0.0 = assenza valida e
+            # -9999 = fuori copertura (NESSUN -9998). Etichetta di fonte
+            # richiesta: "SRI_adj" (radar + pluviometri); l'API espone solo il
+            # product type SRI (SRI_adj/SRI_ADJ/SRIadj -> 404, misurato).
+            "product_sri": "SRI",
+            # 2026-11-12 — BUNDLE ALLINEATO: VIL/ETM/POH/SRI chiesti allo
+            # STESSO productDate di OGNI frame (non piu' "l'ultimo prodotto").
+            # Costo misurato sullo slot 2026-11-12T15:15Z: VIL 430 kB,
+            # ETM 745 kB, POH 335 kB, SRI 1.168 kB = 2,68 MB/slot; 6 slot =
+            # ~16 MB/run (rete, nessun file committato). `retain_non_reference`
+            # tiene in memoria solo POH/SRI su tutti gli slot (servono a
+            # feature e accumulo); VIL/ETM sono usati solo sul frame di
+            # riferimento e vengono rilasciati dopo il QC.
+            "bundle": {
+                "enabled": True,
+                "products": ["vil", "etm", "poh", "sri"],
+                "stale_after_s": 300,      # una cadenza PT5M
+                "accum_step_s": 300,       # passo dell'accumulo stimato
+                "poh_threshold": 0.5,      # POH e' una FRAZIONE 0-1
+                "retain_non_reference": ["poh", "sri"],
+            },
             "product_low": "CAPPI_2",  # CAPPI 2 km: verificato live (findLastProductByType)
             "product_high": "CAPPI_6", # CAPPI 6 km: verificato live -> overhang attivo
             "local_radius_km": 45.0,   # finestra ±km attorno al candidato

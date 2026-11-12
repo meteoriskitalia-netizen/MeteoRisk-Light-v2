@@ -48,6 +48,7 @@ from radar_engine import output
 from radar_engine import convective_structure as cs_mod
 from radar_engine import history
 from radar_engine import fetch
+from radar_engine import preprocess
 from radar_engine import footprint as footprint_mod
 from radar_engine import detect as detect_mod
 from radar_engine import tracking as track_mod
@@ -174,7 +175,8 @@ def _cappi_product_map(scfg):
 
 
 def _fetch_structure_products(config, scfg, ref_shape, warnings,
-                              cappi_rd=None, ref_time_ms=None, replay=False):
+                              cappi_rd=None, ref_time_ms=None, replay=False,
+                              product_bundle=None):
     """Scarica UNA VOLTA i prodotti DPC di struttura (griglia di riferimento).
 
     vil/etm/poh: `fetch_frames` (il loro ultimo prodotto, come in 1.2.4.17).
@@ -189,7 +191,12 @@ def _fetch_structure_products(config, scfg, ref_shape, warnings,
     1.2.4.20 (`replay=True`): vil/etm/poh sono chiesti allo STESSO
     `ref_time_ms` della VMI (`fetch.fetch_product_at`), non all'ultimo
     prodotto. Era il difetto #2 di retro/REPORT.md §5.2: la VIL density veniva
-    calcolata su un VIL di oggi."""
+    calcolata su un VIL di oggi.
+
+    2026-11-12 (`product_bundle`): vil/etm/poh arrivano dal bundle allineato
+    (fetch.fetch_product_bundle) GIA' filtrati per slot/stale. Il percorso
+    storico (fetch_frames/fetch_product_at) resta per i chiamanti che non
+    passano il bundle (test di replay e compatibilita')."""
     out = {}
     for name, key in _STRUCTURE_PRODUCTS:
         if name in ("low", "high"):
@@ -206,6 +213,21 @@ def _fetch_structure_products(config, scfg, ref_shape, warnings,
         product = scfg.get(key)
         if not product:
             out[name] = None
+            continue
+        if product_bundle is not None and name in ("vil", "etm", "poh"):
+            rd = (product_bundle.get("reference") or {}).get(name)
+            if rd is None:
+                reason = ((product_bundle.get("reference_reason") or {})
+                          .get(name) or "missing")
+                warnings.append(
+                    "phase2 structure {}: {}".format(name, reason))
+                out[name] = None
+                continue
+            if tuple(rd.data.shape) != tuple(ref_shape):
+                warnings.append(f"phase2 structure {name}: shape mismatch")
+                out[name] = None
+                continue
+            out[name] = rd
             continue
         if replay and ref_time_ms is not None:
             rd, meta = fetch.fetch_product_at(config, product, ref_time_ms)
@@ -480,6 +502,17 @@ def _cell_footprint(bundle, candidate, config, target_window=None):
                 float(cell.centroid_raster[1]) - cc0)
         comp = _component_containing(sub, sub_valid, thr, seed)
         if comp is None:
+            # 2026-11-12 — il centroide di una cella concava puo' cadere FUORI
+            # dalla componente connessa (es. CS-...-cel005 del run reale
+            # 2026-07-01T13:55Z): il seed sopra soglia piu' vicino al centroide
+            # risolve la STESSA componente, senza inventare geometria.
+            rr, cc = np.nonzero(sub_valid & (sub >= thr))
+            if rr.size:
+                d2 = ((rr - seed[0]) ** 2 + (cc - seed[1]) ** 2)
+                j = int(np.argmin(d2))
+                comp = _component_containing(sub, sub_valid, thr,
+                                             (rr[j], cc[j]))
+        if comp is None:
             continue
         # intersezione con la finestra comune
         a0, b0 = max(rr0, r0), max(cc0, c0)
@@ -493,6 +526,247 @@ def _cell_footprint(bundle, candidate, config, target_window=None):
         return None, None, "cell_mask_not_resolved"
     source = "storm_object_cells" if len(cells) > 1 else "cell_mask"
     return (r0, r1, c0, c1), mask, source
+
+
+def _candidate_frame_ms(bundle, cand):
+    """epoch ms del frame a cui appartiene il candidato.
+
+    Identita' (nessun match geometrico): storm_object_id -> timestamp
+    dell'oggetto; cell_id -> timestamp della cella; fallback `last_seen`
+    (ISO pubblicato). None se non risolvibile: il chiamante pubblica null con
+    motivo, mai un frame inventato."""
+    sid = cand.get("storm_object_id")
+    if sid is not None:
+        for objs in (getattr(bundle, "storm_objects_by_frame", None) or []):
+            for obj in objs or []:
+                if str(getattr(obj, "storm_object_id", "")) == str(sid):
+                    return int(obj.timestamp_ms)
+    cid = cand.get("cell_id")
+    if cid is not None:
+        for cells in (getattr(bundle, "cells_by_frame", None) or []):
+            for cell in cells or []:
+                if cell.cell_id == cid:
+                    return int(cell.timestamp_ms)
+    iso = cand.get("last_seen")
+    if iso:
+        try:
+            return int(clock_mod.parse_iso8601_utc(iso)[0])
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _bundle_entry(dpc_bundle, slot_ms, name):
+    """Entry {valid_time, skew, stale, qc, raster, error} del bundle."""
+    if dpc_bundle is None or slot_ms is None:
+        return None
+    return (((dpc_bundle.get("entries") or {}).get(int(slot_ms))) or {}).get(name)
+
+
+def _rain_null(reason):
+    return {
+        "sri_max_mmh": None, "sri_mean_mmh": None,
+        "accum_30min_mm": None,
+        "source": "SRI_adj",
+        "valid_time": None, "stale_for_frame": None, "skew_s": None,
+        "null_reason": reason,
+        "pixels": 0, "outside_pixels": None,
+        "mask_source": None, "mask_pixels": 0,
+        "accum": {
+            "method": "mean_rate_in_cell_mask_x_step",
+            "step_s": None, "frames_used": 0, "frames_total": 0,
+            "duration_s": 0.0, "null_reason": reason,
+            "frames_skipped": [],
+            "note": ("stima da rate istantaneo SRI (mm/h), NON un accumulo "
+                     "misurato"),
+        },
+    }
+
+
+def _poh_null(reason):
+    return {
+        "poh_max": None, "poh_pixels_gt_0_5": None,
+        "source": "POH", "valid_time": None,
+        "stale_for_frame": None, "skew_s": None,
+        "null_reason": reason,
+        "pixels": 0, "outside_pixels": None, "threshold": 0.5,
+        "mask_source": None, "mask_pixels": 0,
+    }
+
+
+def _rain_hail_for_candidate(bundle, cand, dpc_bundle, config, warnings):
+    """Feature SRI/POH del candidato dal bundle GIA' allineato.
+
+    Nessuna richiesta HTTP: legge le entry del bundle per lo slot del frame
+    del candidato (SRI max/mean, POH max/pixels>0.5) e, per l'accumulo, tutti
+    gli slot del bundle. Un prodotto mancante o stale NON entra: null con
+    motivo (mai 0). La maschera e' quella della CELLA del candidato
+    (`_cell_footprint` senza target_window: finestra del frame della cella,
+    non dell'ultimo frame).
+
+    ACCUMULO: per ogni frame usabile, media di SRI dentro la maschera per
+    `step_s / 3600` (SRI e' mm/h, il risultato e' mm); la somma e' una STIMA
+    da rate istantaneo (dichiarata in `accum.note`), non un accumulo misurato.
+    I frame senza pixel validi nella maschera sono esclusi e dichiarati in
+    `accum.frames_skipped`."""
+    import numpy as np
+
+    bcfg = ((config.get("phase2") or {}).get("structure") or {}).get(
+        "bundle") or {}
+    try:
+        step_s = int(bcfg.get("accum_step_s", 300))
+    except (TypeError, ValueError):
+        step_s = 300
+    try:
+        poh_thr = float(bcfg.get("poh_threshold", 0.5))
+    except (TypeError, ValueError):
+        poh_thr = 0.5
+
+    if dpc_bundle is None:
+        return _rain_null("dpc_bundle_unavailable"), _poh_null(
+            "dpc_bundle_unavailable")
+    slot = _candidate_frame_ms(bundle, cand)
+    if slot is None:
+        return _rain_null("candidate_frame_unknown"), _poh_null(
+            "candidate_frame_unknown")
+    fp_win, fp_mask, fp_src = _cell_footprint(bundle, cand, config,
+                                              target_window=None)
+    if fp_mask is None or fp_win is None:
+        return _rain_null("cell_mask_not_resolved"), _poh_null(
+            "cell_mask_not_resolved")
+
+    slots = [int(s) for s in (dpc_bundle.get("slots_ms") or [])]
+    ref_shape = (tuple(bundle.frames[-1].data.shape)
+                 if getattr(bundle, "frames", None) else None)
+    rain = _rain_null(None)
+    rain["accum"]["step_s"] = step_s
+    rain["accum"]["frames_total"] = len(slots)
+    rain["accum"]["null_reason"] = None
+    rain["mask_source"] = fp_src
+    rain["mask_pixels"] = int(fp_mask.sum())
+    poh = _poh_null(None)
+    poh["threshold"] = poh_thr
+    poh["mask_source"] = fp_src
+    poh["mask_pixels"] = int(fp_mask.sum())
+
+    # --- SRI istantaneo sul frame del candidato ----------------------------
+    e = _bundle_entry(dpc_bundle, slot, "sri")
+    if e is None or e.get("qc") is None:
+        rain["null_reason"] = "sri_missing_at_frame:{}".format(
+            (e or {}).get("error") or "not_fetched")
+    elif e.get("stale_for_frame"):
+        rain["null_reason"] = "sri_stale_for_frame:skew_s={}".format(
+            e.get("skew_s"))
+        rain["valid_time"] = e.get("valid_time_iso")
+        rain["stale_for_frame"] = True
+        rain["skew_s"] = e.get("skew_s")
+    else:
+        rd = e.get("raster")
+        if rd is None:
+            rain["null_reason"] = "sri_raster_not_retained"
+        elif ref_shape is not None and tuple(rd.data.shape) != ref_shape:
+            rain["null_reason"] = "sri_grid_mismatch"
+        else:
+            stats = preprocess.rate_stats_in_mask(
+                _crop(fp_win, rd.data), "SRI", fp_mask)
+            rain["valid_time"] = e.get("valid_time_iso")
+            rain["stale_for_frame"] = False
+            rain["skew_s"] = e.get("skew_s")
+            rain["pixels"] = stats.get("pixels")
+            rain["outside_pixels"] = stats.get("outside_pixels")
+            if stats.get("pixels"):
+                rain["sri_max_mmh"] = stats.get("max")
+                rain["sri_mean_mmh"] = stats.get("mean")
+            else:
+                rain["null_reason"] = "no_valid_sri_pixels_in_cell"
+
+    # --- POH istantaneo sul frame del candidato ----------------------------
+    p = _bundle_entry(dpc_bundle, slot, "poh")
+    if p is None or p.get("qc") is None:
+        poh["null_reason"] = "poh_missing_at_frame:{}".format(
+            (p or {}).get("error") or "not_fetched")
+    elif p.get("stale_for_frame"):
+        poh["null_reason"] = "poh_stale_for_frame:skew_s={}".format(
+            p.get("skew_s"))
+        poh["valid_time"] = p.get("valid_time_iso")
+        poh["stale_for_frame"] = True
+        poh["skew_s"] = p.get("skew_s")
+    else:
+        rd = p.get("raster")
+        if rd is None:
+            poh["null_reason"] = "poh_raster_not_retained"
+        elif ref_shape is not None and tuple(rd.data.shape) != ref_shape:
+            poh["null_reason"] = "poh_grid_mismatch"
+        else:
+            stats = preprocess.rate_stats_in_mask(
+                _crop(fp_win, rd.data), "POH", fp_mask, threshold=poh_thr)
+            poh["valid_time"] = p.get("valid_time_iso")
+            poh["stale_for_frame"] = False
+            poh["skew_s"] = p.get("skew_s")
+            poh["pixels"] = stats.get("pixels")
+            poh["outside_pixels"] = stats.get("outside_pixels")
+            if stats.get("pixels"):
+                poh["poh_max"] = stats.get("max")
+                poh["poh_pixels_gt_0_5"] = stats.get("pixels_gt_threshold")
+            else:
+                poh["null_reason"] = "no_valid_poh_pixels_in_cell"
+
+    # --- ACCUMULO 30 min: somma dei rate istantanei sui frame del bundle ----
+    rate_frames = []
+    skipped = []
+    for s in slots:
+        se = _bundle_entry(dpc_bundle, s, "sri")
+        if se is None or se.get("qc") is None:
+            skipped.append({"slot": fetch._iso(s),
+                            "reason": "sri_missing_at_frame"})
+            continue
+        if se.get("stale_for_frame"):
+            skipped.append({"slot": fetch._iso(s),
+                            "reason": "sri_stale_for_frame:skew_s={}".format(
+                                se.get("skew_s"))})
+            continue
+        rd = se.get("raster")
+        if rd is None:
+            skipped.append({"slot": fetch._iso(s),
+                            "reason": "sri_raster_not_retained"})
+            continue
+        if tuple(rd.data.shape) != ref_shape:
+            skipped.append({"slot": fetch._iso(s),
+                            "reason": "sri_grid_mismatch"})
+            continue
+        rate_frames.append((s, _crop(fp_win, rd.data)))
+    acc = preprocess.accumulate_rate(rate_frames, "SRI", fp_mask, step_s)
+    rain["accum"].update({
+        "frames_used": acc["frames_used"],
+        "duration_s": acc["duration_s"],
+        "null_reason": acc["null_reason"],
+        "frames_skipped": skipped + [
+            {"slot_ms": f["slot_ms"], "reason": f["reason"]}
+            for f in (acc.get("frames_skipped") or [])],
+        "per_frame": acc.get("per_frame") or [],
+    })
+    rain["accum_30min_mm"] = acc["accum_mm"]
+    return rain, poh
+
+
+def _attach_poh_to_hail(cand, poh):
+    """Aggiunge i campi POH all'oggetto `hail` del record (ADDITIVO).
+
+    `hail` esiste gia' (severe_stack: VIL density, MESH, ...). Il task chiede
+    `hail: {poh_max, poh_pixels_gt_0_5, source, valid_time}`: quei campi
+    vengono aggiunti in cima e duplicati nel sotto-oggetto `hail.poh`, senza
+    rimuovere nulla dello stack severo. Se il layer severo era None si crea
+    un oggetto con i soli campi POH (il dato POH esiste comunque)."""
+    hail = cand.get("hail")
+    if not isinstance(hail, dict):
+        hail = {}
+    hail["poh"] = poh
+    hail["poh_max"] = poh.get("poh_max")
+    hail["poh_pixels_gt_0_5"] = poh.get("poh_pixels_gt_0_5")
+    hail["poh_source"] = poh.get("source")
+    hail["poh_valid_time"] = poh.get("valid_time")
+    hail["poh_null_reason"] = poh.get("null_reason")
+    cand["hail"] = hail
 
 
 def _ir108_grid_mismatch(ref, cand):
@@ -943,18 +1217,45 @@ def _phase2_evaluate(bundle, config):
     cappi = {}
     cappi_summary = {}
     cappi_by_name = {}
+    dpc_bundle = None
     if frames:
+        # 2026-11-12 — BUNDLE ALLINEATO: VIL/ETM/POH/SRI chiesti allo STESSO
+        # productDate di OGNI frame della timeline (non piu' "l'ultimo
+        # prodotto" di ciascun tipo). Un prodotto che arriva da uno slot
+        # diverso porta `skew_s`; se |skew| >= 300 s e' `stale_for_frame` e
+        # non entra nelle feature di quel frame. Il QC (sentinelle per
+        # prodotto, pixel validi/fuori dominio, mancanti) e' in
+        # preprocess.qc_product/qc_bundle.
+        bcfg = scfg.get("bundle") or {}
+        if bcfg.get("enabled", True):
+            specs = {
+                "vil": scfg.get("product_vil"),
+                "etm": scfg.get("product_etm"),
+                "poh": scfg.get("product_poh"),
+                "sri": scfg.get("product_sri"),
+            }
+            wanted = bcfg.get("products")
+            if wanted:
+                specs = {n: specs.get(n) for n in wanted if n in specs}
+            slots_ms = (getattr(bundle, "frame_slots_ms", None)
+                        or [int(r.time_ms) for r in frames])
+            ref_rasters = {int(r.time_ms): r for r in (
+                getattr(bundle, "dpc_frames", None) or frames)}
+            dpc_bundle = fetch.fetch_product_bundle(
+                config, slots_ms, specs, warnings=warnings,
+                reference_slot_ms=frames[-1].time_ms,
+                reference_rasters=ref_rasters)
+            bundle.dpc_bundle = dpc_bundle
         # 1.2.4.26 — ORDINE: prima i prodotti di struttura (VIL/ETM/POH, 3 file),
         # poi il GATE di plausibilita' grandine, poi i CAPPI. Il set completo da
         # 10 livelli (MESH) si scarica solo se il gate lo giustifica; low/high
-        # (overhang + struttura verticale) si scaricano SEMPRE. Vantaggio
-        # misurato sul registro predizioni: 26/177 run (14,7%) sopra soglia,
-        # quindi ~85% dei run evitano l'8 livelli extra (287 MB/giorno).
+        # (overhang + struttura verticale) si scaricano SEMPRE.
         products = _fetch_structure_products(config, scfg,
                                              frames[-1].data.shape, warnings,
                                              cappi_rd=None,
                                              ref_time_ms=frames[-1].time_ms,
-                                             replay=replay)
+                                             replay=replay,
+                                             product_bundle=dpc_bundle)
         gate = _hail_plausibility_gate(products, scfg)
         if gate["evaluated"] and not gate["fetch_full_set"]:
             warnings.append(
@@ -1252,6 +1553,22 @@ def _phase2_evaluate(bundle, config):
             c["bunkers"] = None
             c["footprint"] = {"source": fp_source, "pixels": fp_pixels}
 
+        # --- 2026-11-12: PIOGGIA (SRI) e GRANDINE (POH) dal bundle ----------
+        # Feature calcolate dai prodotti GIA' allineati (nessuna richiesta
+        # HTTP): maschera della cella del frame del candidato; un prodotto
+        # mancante/stale -> null + motivo, mai 0.
+        try:
+            rain_feat, poh_feat = _rain_hail_for_candidate(
+                bundle, c, dpc_bundle, config, warnings)
+        except Exception as exc:
+            _warn(f"phase2 rain/hail features failed: {exc}")
+            rain_feat = _rain_null(
+                "feature_error:{}".format(exc.__class__.__name__))
+            poh_feat = _poh_null(
+                "feature_error:{}".format(exc.__class__.__name__))
+        c["rain"] = rain_feat
+        _attach_poh_to_hail(c, poh_feat)
+
     # --- AFA: riepilogo del frame (una voce per run, non per candidato) ------
     afa_values = [(c.get("lightning_afa") or {}).get("value")
                   for c in candidates]
@@ -1381,6 +1698,9 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
 
     bundle.frames = frames
     bundle.warnings = list(warnings)
+    # 2026-11-12 — copia dei frame DPC PRIMA del mosaico OPERA: il QC del
+    # bundle prodotti usa la VMI DPC (sentinelle -9999/-9998), non il mosaico.
+    bundle.dpc_frames = list(frames)
     if not frames:
         bundle.status = "error"
         bundle.warnings.append("no valid frames available")
@@ -1473,6 +1793,7 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
         entries.setdefault(slot_ms, [None, archived])
     bundle.cells_by_frame = []
     bundle.frame_slots_iso = []
+    bundle.frame_slots_ms = []
     bundle.raster_by_frame_index = {}
     for idx, slot_ms in enumerate(sorted(entries)):
         raster, cells = entries[slot_ms]
@@ -1480,6 +1801,7 @@ def _run(config, out_dir, product, max_frames, dry_run, history_dir=None,
             c.frame_index = idx
         bundle.cells_by_frame.append(cells)
         bundle.frame_slots_iso.append(fetch._iso(slot_ms))
+        bundle.frame_slots_ms.append(int(slot_ms))
         if raster is not None:
             bundle.raster_by_frame_index[idx] = raster
     # 1.2.4.26: il riuso dei frame NON e' un'anomalia (non deve degradare lo

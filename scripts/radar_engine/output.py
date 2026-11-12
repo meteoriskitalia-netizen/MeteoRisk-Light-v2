@@ -111,6 +111,12 @@ def build_latest(bundle, engine_meta=None):
     cappi = _cappi_fetch_summary(bundle)
     if cappi is not None:
         payload["cappi_fetch"] = cappi
+    # 2026-11-12 — bundle prodotti DPC allineato (VIL/ETM/POH/SRI): status,
+    # QC per prodotto (pixel validi/fuori dominio/zeri), mancanti e stale.
+    # ADDITIVO: presente solo quando il bundle e' stato costruito.
+    product_bundle = _product_bundle_summary(bundle)
+    if product_bundle is not None:
+        payload["product_bundle"] = product_bundle
     # 1.2.4.26 — modalita' di fetch (additiva): dice quanti frame sono stati
     # scaricati e quanti ricostruiti dall'archivio delle celle. Presente solo
     # quando il percorso incrementale ha davvero riusato qualcosa.
@@ -195,6 +201,46 @@ def _cappi_fetch_summary(bundle):
             "reason": gate.get("reason"),
         }
     return out
+
+
+def _product_bundle_summary(bundle):
+    """Riepilogo del bundle DPC allineato (VIL/ETM/POH/SRI) per latest.json.
+
+    ADDITIVO: presente solo quando bundle.dpc_bundle esiste. Il dettaglio per
+    slot/prodotto e' in bundle.dpc_bundle["qc"] (conteggi pixel validi/fuori
+    dominio, mancanti, stale); qui si pubblica il riepilogo compatto."""
+    db = getattr(bundle, "dpc_bundle", None)
+    if not isinstance(db, dict) or not db:
+        return None
+    qc = db.get("qc") or {}
+    return {
+        "status": db.get("status"),
+        "products": db.get("products"),
+        "slots": db.get("slots"),
+        "reference_slot": db.get("reference_slot_iso"),
+        "stale_after_s": db.get("stale_after_s"),
+        "bytes": db.get("bytes"),
+        "seconds": db.get("seconds"),
+        "missing": qc.get("missing") or {},
+        "stale": qc.get("stale") or [],
+        "not_configured": qc.get("not_configured") or [],
+        "reference_missing_slots": qc.get("reference_missing_slots") or [],
+        "products_qc": {
+            name: {
+                "product_type": p.get("product_type"),
+                "frames_expected": p.get("frames_expected"),
+                "frames_present": p.get("frames_present"),
+                "frames_stale": p.get("frames_stale"),
+                "valid_pixels_total": p.get("valid_pixels_total"),
+                "outside_domain_pixels_total":
+                    p.get("outside_domain_pixels_total"),
+                "zero_pixels_total": p.get("zero_pixels_total"),
+                "no_echo_pixels_total": p.get("no_echo_pixels_total"),
+            }
+            for name, p in (qc.get("products") or {}).items()
+        },
+        "domain_alignment": qc.get("domain_alignment") or {},
+    }
 
 
 def _tracking_confidence(tracks):
@@ -488,8 +534,19 @@ def build_convective_structures(bundle, engine_meta=None):
         "cone_shape_missing": cone_shapes["missing"],
         "forecast_null": sum(1 for c in cells if c.get("forecast") is None),
         "forecast_null_reasons": _forecast_null_reason_counts(cells),
+        # 2026-11-12 — copertura delle feature SRI/POH pubblicate per
+        # struttura: sono i numeri che il report usa per "prima/dopo".
+        "rain_sri_present": sum(
+            1 for c in cells
+            if ((c.get("rain") or {}).get("sri_max_mmh") is not None)),
+        "rain_accum_present": sum(
+            1 for c in cells
+            if ((c.get("rain") or {}).get("accum_30min_mm") is not None)),
+        "hail_poh_present": sum(
+            1 for c in cells
+            if ((c.get("hail") or {}).get("poh_max") is not None)),
     }
-    return {
+    payload = {
         "generated_at": bundle.generated_at_iso,
         "radar_timestamp": bundle.radar_timestamp_iso,
         "status": bundle.status,
@@ -503,6 +560,10 @@ def build_convective_structures(bundle, engine_meta=None):
         "structures": cells,
         **_as_of_summary(bundle),
     }
+    product_bundle = _product_bundle_summary(bundle)
+    if product_bundle is not None:
+        payload["product_bundle"] = product_bundle
+    return payload
 
 
 def write_outputs(bundle, out_dir, engine_meta=None):
