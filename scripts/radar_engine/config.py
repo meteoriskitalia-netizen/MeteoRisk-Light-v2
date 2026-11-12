@@ -366,12 +366,27 @@ CONFIG = {
             # plausibili.
             "cappi_fetch": {
                 "period_s": 300,           # cadenza misurata PT5M
-                "retry_attempts": 1,       # UN retry sullo slot corrente
+                # 2026-11-12 — INTERRUTTORE del retry (0 = nessun retry).
+                # NON e' piu' il numero di tentativi: con il polling il numero
+                # di round lo decide `ceil(retry_wait_s / poll_interval_s)`,
+                # cioe' 12 con i valori qui sotto. Il tetto resta `retry_wait_s`.
+                "retry_attempts": 1,
                 # Ritardo di pubblicazione MISURATO: VMI +6m53s, CAPPI +9m03s
                 # sullo stesso slot => ~2m10s fra i due. 120 s di attesa UNICA
                 # (condivisa dai 10 livelli) coprono quel divario; senza di
                 # essa lo slot allineato alla VMI sarebbe spesso assente.
                 "retry_wait_s": 120.0,
+                # 2026-11-12 — GRANULARITA' DELL'ATTESA (fetch.CAPPI_POLL_INTERVAL_S).
+                # Il tetto resta `retry_wait_s`; cambia solo che si riprova ogni
+                # `poll_interval_s` e si esce al PRIMO successo, invece di
+                # dormire 120 s e riprovare una volta sola. MISURA di produzione
+                # (40 run del 2026-11-12, data/radar/latest.json):
+                # `cappi_fetch.seconds` = 121,456 / 121,985 / 122,294 s in 3 run
+                # su 40 (motore 148,5-159,5 s) contro 1,05-2,01 s negli altri 37
+                # (motore 21,3-43,3 s). Con 10 s il caso "prodotto arrivato
+                # pochi secondi dopo il primo 500" costa <=10 s invece di 120.
+                # 0 o negativo = attesa unica storica (rollback senza codice).
+                "poll_interval_s": 10.0,
                 "allow_previous_slot": True,  # fallback t-5min se resta 5xx
             },
             "overhang": {

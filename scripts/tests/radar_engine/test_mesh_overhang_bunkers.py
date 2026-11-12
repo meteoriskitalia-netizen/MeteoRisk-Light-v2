@@ -365,7 +365,7 @@ def _raster():
 
 
 def test_fetch_cappi_set_retry_then_success(monkeypatch):
-    """Primo tentativo 500 ("non pubblicato") -> retry con UNA attesa -> ok."""
+    """Primo tentativo 500 ("non pubblicato") -> polling -> ok al primo giro."""
     waits = []
     calls = []
 
@@ -381,7 +381,12 @@ def test_fetch_cappi_set_retry_then_success(monkeypatch):
         _cfg(retry_attempts=1, retry_wait_s=20.0, allow_previous_slot=True),
         ["CAPPI_1", "CAPPI_2"], 1792790100000, warnings=[],
         sleeper=waits.append)
-    assert waits == [20.0]                       # UNA attesa, non una per file
+    # 2026-11-12: non piu' UNA attesa da 20 s, ma polling ogni 10 s
+    # (poll_interval_s) che esce al PRIMO successo -> 10 s, non 20.
+    assert waits == [10.0]
+    assert sum(waits) <= 20.0
+    assert summary["retry"]["attempts"] == 1
+    assert summary["retry"]["waited_s"] == 10.0
     assert results["CAPPI_1"] is not None and results["CAPPI_2"] is not None
     assert summary["fetched"] == 2 and summary["fallback"] == 0
     assert summary["bytes"] == 1000000

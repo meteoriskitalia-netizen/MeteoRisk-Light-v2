@@ -18,6 +18,7 @@ Regole:
   - i raw GeoTIFF vivono SOLO in cache_dir (escluso dal repo via .gitignore).
 """
 
+import math
 import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -34,6 +35,19 @@ from . import source_dpc
 # seriale storico senza toccare il codice (leva di rollback).
 FETCH_WORKERS_DEFAULT = 6
 FETCH_WORKERS_MAX = 8
+
+# 2026-11-12 — POLLING DELLO SLOT CAPPI (sostituisce l'attesa CIECA).
+# Misura di produzione (data/radar/latest.json, 40 run del 2026-11-12):
+# `cappi_fetch.seconds` = 121,456 / 121,985 / 122,294 s in 3 run su 40, contro
+# 1,05-2,01 s negli altri 37; nelle stesse 3 run il motore intero dura
+# 148,5-159,5 s contro 21,3-43,3 s. Quei ~120 s sono il `retry_wait_s` fisso:
+# il primo POST prende HTTP 500 ("HeadObject Forbidden" = slot non ancora
+# pubblicato), si dorme 120 s e solo allora si riprova — anche quando il
+# prodotto e' disponibile 10 s dopo. Con il polling si riprova ogni 10 s e si
+# esce al PRIMO successo: stesso tetto massimo (retry_wait_s invariato), stesso
+# slot, stessi prodotti; cambia solo la granularita' con cui si scopre che il
+# file e' arrivato. `poll_interval_s <= 0` riporta all'attesa unica storica.
+CAPPI_POLL_INTERVAL_S = 10.0
 
 
 def _parallel_workers(config, items):
@@ -409,7 +423,8 @@ def fetch_product_at(config, product, time_ms, period_s=None):
 
 def fetch_cappi_set(config, products, ref_time_ms, period_s=None, warnings=None,
                     sleeper=None, downloader=None, retry_wait_s=None,
-                    retry_attempts=None, allow_previous_slot=None):
+                    retry_attempts=None, allow_previous_slot=None,
+                    poll_interval_s=None):
     """Scarica un SET di prodotti (CAPPI) allo STESSO timestamp della VMI.
 
     Perche' non `fetch_frames`: i CAPPI sono pubblicati ~2 min dopo VMI/VIL/ETM
@@ -421,9 +436,13 @@ def fetch_cappi_set(config, products, ref_time_ms, period_s=None, warnings=None,
     Gestione del "non ancora pubblicato" (MISURATO): POST allo slot corrente ->
     HTTP 500 con errore S3, NON 404. Sequenza:
       1) tentativo su ref_time_ms per tutti i prodotti;
-      2) UNA attesa condivisa (retry_wait_s) e nuovo tentativo SOLO sui 5xx;
+      2) ATTESA ATTIVA: nuovo tentativo ogni `poll_interval_s` (default 10 s)
+         finche' i prodotti mancanti compaiono o finche' e' passato
+         `retry_wait_s` in totale (default 120 s). Il tetto e' lo stesso
+         dell'attesa unica storica, ma si esce AL PRIMO successo;
       3) fallback a ref_time_ms - period (se allow_previous_slot).
-    Costo limitato: al massimo UNA attesa per run, non una per prodotto.
+    Costo limitato: al massimo una attesa per ROUND (condivisa da tutti i
+    prodotti mancanti), non una per prodotto.
 
     Ritorna (results, summary):
       results = {product: RasterData|None}
@@ -442,6 +461,12 @@ def fetch_cappi_set(config, products, ref_time_ms, period_s=None, warnings=None,
         retry_attempts = int(scfg.get("retry_attempts", 1))
     if allow_previous_slot is None:
         allow_previous_slot = bool(scfg.get("allow_previous_slot", True))
+    if poll_interval_s is None:
+        try:
+            poll_interval_s = float(scfg.get("poll_interval_s",
+                                             CAPPI_POLL_INTERVAL_S))
+        except (TypeError, ValueError):
+            poll_interval_s = CAPPI_POLL_INTERVAL_S
     if sleeper is None:
         sleeper = _time.sleep
     warnings = warnings if warnings is not None else []
@@ -487,23 +512,61 @@ def fetch_cappi_set(config, products, ref_time_ms, period_s=None, warnings=None,
         if raster is None and meta.get("not_published"):
             pending.append(name)
 
+    poll_rounds = 0
+    waited_s = 0.0
     if pending and retry_attempts > 0:
+        # 2026-11-12 — ATTESA ATTIVA al posto dell'attesa CIECA di 120 s.
+        # Misura di produzione (40 run del 2026-11-12): 3 run con
+        # `cappi_fetch.seconds` 121,456/121,985/122,294 s e motore 148,5-159,5 s,
+        # contro 1,05-2,01 s di CAPPI e 21,3-43,3 s di motore negli altri 37.
+        # Il primo POST prende HTTP 500 "HeadObject Forbidden" (slot non ancora
+        # pubblicato) e il vecchio codice dormiva TUTTO `retry_wait_s` prima di
+        # riprovare, anche se il file arrivava 10 s dopo. Qui si riprova ogni
+        # `poll_interval_s` e si ESCE AL PRIMO SUCCESSO. Il tetto totale resta
+        # `retry_wait_s` (nessun timeout allungato), lo slot richiesto e' lo
+        # stesso e i prodotti sono gli stessi: nessuna capacita' persa.
+        # `retry_attempts=0` -> nessun retry (invariato); `poll_interval_s<=0`
+        # -> attesa unica storica (leva di rollback senza toccare il codice).
+        if poll_interval_s and poll_interval_s > 0:
+            max_rounds = max(1, int(math.ceil(
+                float(retry_wait_s) / float(poll_interval_s))))
+        else:
+            max_rounds = 1
         warnings.append(
             "cappi: {} prodotto/i non ancora pubblicati allo slot {} "
-            "(HTTP 5xx) — retry dopo {}s".format(
-                len(pending), _iso(int(ref_time_ms)), retry_wait_s))
-        if retry_wait_s > 0:
-            sleeper(retry_wait_s)
-        still = []
-        for name, raster, meta in _attempt_many(
-                pending, ref_time_ms, 1 + retry_attempts):
-            if raster is None:
-                still.append(name)
-                metas[name].update(meta)
+            "(HTTP 5xx) — {} fino a {}s totali ({} round da {}s)".format(
+                len(pending), _iso(int(ref_time_ms)),
+                "poll" if max_rounds > 1 else "retry", retry_wait_s,
+                max_rounds,
+                poll_interval_s if max_rounds > 1 else retry_wait_s))
+        # Il budget e' un CONTATORE ESPLICITO, non l'orologio: `waited_s` non
+        # puo' mai superare `retry_wait_s` (nessun timeout allungato) e il
+        # comportamento e' deterministico anche con uno `sleeper` finto nei
+        # test. Il tempo delle richieste si somma come prima (era cosi' anche
+        # nel percorso storico: 120 s di attesa + un round di richieste).
+        budget = max(0.0, float(retry_wait_s))
+        for rnd in range(max_rounds):
+            if not pending or budget <= 0:
+                break
+            if max_rounds == 1:
+                wait = budget                   # attesa unica storica
             else:
-                results[name] = raster
-                metas[name] = meta
-        pending = still
+                wait = min(float(poll_interval_s), budget)
+            if wait > 0:
+                sleeper(wait)
+                waited_s += wait
+                budget -= wait
+            still = []
+            for name, raster, meta in _attempt_many(
+                    pending, ref_time_ms, rnd + 2):
+                if raster is None:
+                    still.append(name)
+                    metas[name].update(meta)
+                else:
+                    results[name] = raster
+                    metas[name] = meta
+            pending = still
+            poll_rounds += 1
 
     if pending and allow_previous_slot:
         prev_ts = int(ref_time_ms) - int(period_s) * 1000
@@ -539,6 +602,20 @@ def fetch_cappi_set(config, products, ref_time_ms, period_s=None, warnings=None,
         "seconds": (None if _clock.from_config(config).replay
                     else round(_time.monotonic() - t_start, 3)),
         "ref_time_iso": _iso(int(ref_time_ms)),
+        # 2026-11-12 — contatori del polling: `attempts` = round di retry
+        # eseguiti sullo slot corrente, `waited_s` = secondi dormiti davvero
+        # (somma dei `sleeper`). Con l'attesa cieca storica valevano 1 e
+        # `retry_wait_s`; con il polling valgono il numero di tentativi e il
+        # tempo fino al primo successo. `seconds` sopra e' il tempo di parete
+        # dell'intera funzione, quindi il guadagno e' visibile da solo.
+        "retry": {
+            "attempts": poll_rounds,
+            "waited_s": round(waited_s, 3),
+            "poll_interval_s": (None if not poll_interval_s
+                                or poll_interval_s <= 0
+                                else float(poll_interval_s)),
+            "max_wait_s": float(retry_wait_s),
+        },
         "products": metas,
     }
     return results, summary
