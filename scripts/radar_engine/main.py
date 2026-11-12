@@ -109,8 +109,10 @@ def _engine_meta():
 TIMINGS_VERSION = "1.0.0"
 
 # Stadio -> stadi che lo contengono. Lista vuota = top level (tempi disgiunti).
-# `preprocess` e `fetch_dpc` hanno piu' padri possibili perche' `read_raster` e
-# `_download_slots` sono chiamati da piu' percorsi di fetch.
+# `preprocess`, `plan_window` e `fetch_dpc` hanno piu' padri possibili perche'
+# `read_raster`, `plan_window` e `_download_slots` sono chiamati da piu'
+# percorsi di fetch (VMI, CAPPI con fallback, IR_108): il `parents` pubblicato
+# elenca TUTTI i contenitori, e `sum_top_level_ms` somma solo chi non ne ha.
 STAGE_PARENTS = {
     "fetch_window": (),
     "opera_merge": (),
@@ -123,9 +125,9 @@ STAGE_PARENTS = {
     "write_outputs": (),
     "history_archive": (),
     "predictions_record": (),
-    "plan_window": ("fetch_window",),
+    "plan_window": ("fetch_window", "fetch_cappi", "fetch_ir108"),
     "archive_lookup": ("fetch_window",),
-    "fetch_dpc": ("fetch_window",),
+    "fetch_dpc": ("fetch_window", "fetch_cappi", "fetch_ir108"),
     "fetch_cappi": ("phase2",),
     "fetch_vil_etm_poh_sri": ("phase2",),
     "fetch_ir108": ("phase2",),
