@@ -2513,18 +2513,18 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                     <div class="src-item"><b>CAPE</b> — energia potenziale convettiva. <span class="src-ref">≈100 debole · 1000+ forte · 2500+ estremo (scala standard).</span></div>
                     <div class="src-item"><b>Deep-layer shear 0-6 km (DLS)</b> — variazione del vento con la quota. <span class="src-ref">≥15-18 m/s convezione organizzata · &gt;20 m/s ambiente da cella organizzata.</span></div>
                     <div class="src-item"><b>WMAXSHEAR</b> = √(2·CAPE)·DLS — combina energia e shear. <span class="src-ref">Valori tipici Europa (Taszarek et al. 2017): &lt;500 marginale · 500-800 organizzazione possibile · 800-1200 favorevole a celle organizzate · &gt;1200 marcatamente favorevole.</span></div>
-                    <div class="src-item"><b>SRH 0-3 km</b> — elicità storm-relative (storm motion di Bunkers). <span class="src-ref">50-120 rotazione debole · 120-180 significativa · &gt;250 favorevole a celle organizzate. SRH 0-1 km per la tornadogenesi.</span></div>
+                    <div class="src-item"><b>SRH 0-3 km</b> — elicità storm-relative (storm motion di Bunkers). <span class="src-ref">50-120 elicitazione debole · 120-180 significativa · &gt;250 favorevole a celle organizzate. SRH 0-1 km per la tornadogenesi.</span></div>
                     <div class="src-item"><b>EHI</b> = CAPE/1000 · SRH3/150. <span class="src-ref">Rasmussen &amp; Blanchard 1998: &gt;1.0 potenziale cella organizzata · &gt;2.0 alta probabilità. De Martin et al. 2020 (preTEMP, Italia): &gt;0.5 temporale forte · &gt;1.4 estremi.</span></div>
                     <div class="src-item"><b>SCP</b> = CAPE/1000 · min(DLS/20,1) · min(SRH3/50,1.5). <span class="src-ref">Thompson et al. 2003: SCP&gt;1 potenziale cella organizzata.</span></div>
                     <div class="src-item"><b>SHIP</b> — Significant Hail Parameter (formula operativa USA con caps su umidità/shear/T500 e correzioni per CAPE&lt;1300, lapse rate&lt;5.8, freezing level). <span class="src-ref">&lt;1 marginale · 1-2 significativa · &gt;2 marcato rischio grandine &gt;2 cm.</span></div>
-                    <div class="src-item"><b>Mesociclone</b> (badge "Convezione organizzata" lv4): temporale attivo E CAPE≥1000 (o ≥500 con DLS≥22 e SRH3≥120) E DLS≥20 m/s E SRH3≥100 E (SCP≥1.0 o EHI≥1.5).</div>
+                    <div class="src-item"><b>Convezione organizzata</b> (badge NWP, livello 5): temporale attivo E CAPE≥1000 (o ≥500 con DLS≥22 e SRH3≥120) E DLS≥20 m/s E SRH3≥100 E SCP≥1.0. È una stima ambientale del modello, non un rilevamento radar e non un'osservazione diretta della cella.</div>
                     <div class="src-item"><b>Convezione organizzata: potenziale o evento</b> (1.2.4.69). La classe <b>EVENTO</b> esiste solo con un innesco nella <b>stessa ora</b>: weather code WMO 95-99 <b>e</b> pioggia &gt; 0,1 mm/h (oppure cella radar osservata, pannello &laquo;Struttura convettiva&raquo;). Senza innesco la stessa configurazione &egrave; <b>POTENZIALE</b>: classe distinta e neutra (grigio-blu), &laquo;ambiente favorevole &mdash; potenziale, nessun temporale previsto&raquo;. Il gate ambientale ha due sole gambe con fonte: <b>WMAXSHEAR 0-6 km &ge; 1000 m&sup2;/s&sup2;</b> (<span class="src-ref">Taszarek et al. 2017; Gr&uuml;nwald &amp; Brooks 2011</span>) <b>oppure SRH 0-3 km &ge; 100 m&sup2;/s&sup2; con CAPE &ge; 500 J/kg</b> (<span class="src-ref">Ingrosso et al. 2020</span>). <b>WMAXSHEAR 0-3 km &ge; 500 &egrave; stato rimosso</b> (nessuna fonte verificabile). <b>EHI 0-3 km resta solo display</b>: &ge; 1,0 &egrave; una convenzione delle US Plains (<span class="src-ref">Rasmussen &amp; Blanchard 1998</span>) e la soglia europea pubblicata &egrave; 0,065 con SRH 0-1 km, quindi non confrontabile. <b>CAPE saturato a 800 J/kg</b> e <b>veto di umidit&agrave;</b>: con RH 850-700 &lt; 50% la classe scende di un livello con il motivo nel tooltip (<span class="src-ref">Westermayer et al. 2017, Meteorol. Z. 26:59</span>: sopra 800 J/kg la frequenza di fulmini resta al ~20%; RH &lt; 50% &rarr; frequenza &lt; 0,15). Le etichette &laquo;organizzati&raquo;/&laquo;celle organizzate&raquo; compaiono solo se il gate di coerenza passa; altrimenti &laquo;temporali possibili&raquo;. Il livello di rischio si calcola <b>per modello e per ora</b> e poi si prende il massimo: CAPE, shear, SRH, SCP e innesco non vengono mai presi da ore o modelli diversi.</div>
                 </div>
             </div>
             <div class="fl-section">
                 <div class="fl-section-title">Fenomeni vorticosi (Sviluppo)</div>
                 <div class="src-list">
-                    <div class="src-item"><b>Tornado / trombe marine</b> (indice introdotto in v10.51): <b>LCL ≤1500 m</b> (base delle nubi, stimata 125·(T−Td); Lawrence) — base bassa che discrimina i tornado in Europa <span class="src-ref">(Púčik 2015, Taszarek 2017/2020; mediana tornado UE 600-700 m)</span>; <b>EHI 0-3 km</b> ≥0.4-0.7 (lv2/lv3, soglia "forte" 0.5) e ≥1.5 (lv4); <b>SRH 0-3 km</b> 50-180; <b>DLS</b> ≥15-18 m/s.</div>
+                    <div class="src-item"><b>Fenomeni vorticosi (ambiente favorevole NWP, non un vortice osservato)</b>: <b>LCL ≤1500 m</b> (base delle nubi, stimata 125·(T−Td); Lawrence) — base bassa che discrimina i tornado in Europa <span class="src-ref">(Púčik 2015, Taszarek 2017/2020; mediana tornado UE 600-700 m)</span>; <b>EHI 0-3 km</b> ≥0.4-0.7 (lv2/lv3, soglia "forte" 0.5) e ≥1.5 (lv4); <b>SRH 0-3 km</b> 50-180; <b>DLS</b> ≥15-18 m/s.</div>
                     <div class="src-item"><b>HSLC italiano</b> — temporali tornadici a bassa energia (CAPE 200-500 J/kg ammesso se DLS≥22 m/s e SRH3≥120); <span class="src-ref">Ingrosso et al. 2020.</span></div>
                 </div>
             </div>
@@ -2545,7 +2545,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                 <div class="fl-section-title">Fonti letterarie</div>
                 <div class="src-list">
                     <div class="src-item"><b>Weisman &amp; Klemp (1982)</b> — numero di Bulk Richardson e struttura della cella organizzata (BRN &lt;50). Mon. Wea. Rev., 110(4).</div>
-                    <div class="src-item"><b>Davies-Jones (1984)</b> — elicità storm-relative (SRH) e sviluppo del mesociclone.</div>
+                    <div class="src-item"><b>Davies-Jones (1984)</b> — elicità storm-relative (SRH), ingrediente della convezione organizzata.</div>
                     <div class="src-item"><b>Hart &amp; Korotky (1991)</b> — Energy-Helicity Index (EHI = CAPE·SRH/160000).</div>
                     <div class="src-item"><b>Rasmussen &amp; Blanchard (1998)</b> — climatologia di radiosonde per celle organizzate e tornado (MWR 126): EHI&gt;1.0 potenziale cella organizzata, &gt;2.0 alta probabilità; 90% dei temporali ordinari con EHI&lt;0.77; SRH0-3&lt;100 nella maggior parte degli ordinari.</div>
                     <div class="src-item"><b>Thompson, Edwards &amp; Mead (2003/2004/2007)</b> — SCP e STP con layer "effettivi": SCP = MUCAPE/1000 · (shear eff./20) · (SRH eff./50), shear eff. tagliato 10-20 m/s, SCP&gt;1 = ambiente da cella organizzata.</div>
@@ -2797,9 +2797,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.87';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.88';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-13';
     const APP_CHANGELOG = [
+        { version: '1.2.4.88', date: '2026-11-13', changes: [
+  "MAPPA DEI RISCHI - IL LIVELLO 5 NON SI ACCENDE PIU' COL SOLO SCP= Misurato il 2026-11-13 sui dati reali (data/latest/meteorisk-points.json, 257 punti reali, 107 province, 72 ore, modelli best_match + ecmwf_ifs): 7 province su 107 erano colorate al livello 5 (magenta) e il riepilogo attribuiva la convezione organizzata; 2 di esse (LT, OR) non avevano NESSUNA ora con detectMesocyclone vero, perche' assessConvOrg assegnava il livello 5 anche con il solo SCP >= 1. Sulla pagina, che aggiunge 50 punti virtuali (IDW), le province a livello 5 erano 8 (in piu' RM). Ora il livello 5 richiede la stessa condizione di detectMesocyclone (temporale attivo E CAPE >= 1000, oppure >= 500 con DLS >= 22 e SRH3 >= 120, E DLS >= 20 m/s E SRH3 >= 100 E SCP >= 1): restano 5 province (CE, CS, FR, IS, SA), LT scende 5 -> 2 e OR 5 -> 3. Il testo del livello 5 diventa 'convezione organizzata con innesco nella stessa ora (ambiente favorevole NWP)'.",
+  "BADGE VORTICI - DA 'TORNADO' A 'AMBIENTE FAVOREVOLE (NWP)', 16 -> 8 PROVINCE= I campi NWP non misurano la vorticità: detectVorticosi non produce piu' un badge che suggerisce un vortice osservato. L'etichetta passa da 'Vortici / tornado (potenziale NWP)' a 'Ambiente favorevole a vortici (NWP)', l'icona e' un'informazione neutra (non la spirale), il colore e' grigio-blu e il livello e' sempre 1; il badge NON entra nel massimo che colora la provincia (zoneRiskComponents lo salta). Il gate richiede nella STESSA ORA CAPE >= 500 J/kg, shear 0-6 km >= 20 m/s, SRH 0-3 km >= 100 m2/s2, LCL <= 1500 m (2500 m in stagione fredda) e temporale attivo (weather code 95-99 E pioggia > 0,1 mm/h). Prima: 16 province col badge sui 257 punti reali (17 sulla pagina con le virtuali), 9 a livello 4 con un testo che annunciava un tornado violento e CAPE 260-690 J/kg. Dopo: 8 province, tutte livello 1 (AV, CE, CS, FR, IS, NA, OR, SA).",
+  "TESTI DELLA MAPPA NEUTRI, NESSUNA DIAGNOSI DI VORTICE= Rimossi da RISK_DEFS (titolo della convezione organizzata), riskR2Reason, riskLevelLine, riskLevelImpact, assessConvOrg, RISK_PLAIN_NAMES, Fonti & Metodologie e dai riassunti di getRiskProfile/getRiskProfileNew. La legenda dei badge mostra per i vortici solo il disco neutro, senza livelli. Le altre classi non cambiano: conteggio badge sulla pagina identico prima/dopo per pioggia 97, vento 102, temporale 49, grandine 22, downburst 11, nebbia 90, caldo/freddo 5, convezione organizzata 17.",
+  "MISURE E BUMP= Edge headless CDP (1440x900 e 390x844) sulla pagina locale con il dataset live: 1.2.4.87 -> 17 badge vorticosi (9 a livello 4), 8 province a livello 5, etichetta 'Vortici / tornado (potenziale NWP)'; 1.2.4.88 -> 8 badge vorticosi tutti livello 1, 5 province a livello 5, etichetta 'Ambiente favorevole a vortici (NWP)'; 0 eccezioni JS, 0 overflow orizzontale in entrambe le dimensioni. Node sulle 257 reali: livello 5 7 -> 5, badge 16 -> 8, livello visualizzato con Sviluppo ON: LT 5 -> 2, OR 5 -> 3, RI 4 -> 3, nessun'altra provincia cambiata. node --check 9/9 blocchi inline. BUMP= html mri-light-1.2.4.88.html, VERSION (BUILD=88, DATE=2026-11-13, APP_FILE=mri-light-1.2.4.88.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.88), README.md, i 26 test .mjs col nome del file html in entrambe le forme; la 1.2.4.87 va RIMOSSA dal repo (una sola app servita da Pages). NON toccati: scripts/, dataset, renderer, motore radar, il layer radar Struttura convettiva."
+        ] },
         { version: '1.2.4.87', date: '2026-11-13', changes: [
   "SOGLIA DI STALENESS DELLE CELLE TRACCIATE A 30 MINUTI= Difetto misurato: alle 18:08:46Z del 2026-11-13 data/radar/tracks.json aveva 16 minuti di eta', la costante client CELLS_STALE_MS valeva 15 minuti, quindi cellsStats.markers diventava 0, la riga di conteggio scriveva n/d e nessuna cella veniva disegnata. Il motore pubblica ogni 10 minuti e l'aggiornamento arriva con ritardo: con la soglia a 15 il layer si azzerava di routine. La costante unica e' portata a 30 * 60 * 1000; non esiste una seconda copia della soglia dura.",
   "TRA 15 E 30 MINUTI LE CELLE RESTANO DISEGNATE= Il layer continua a disegnare TUTTI i track (stessi colori per dBZ, stesso contesto NWP nel popup, nessun filtro, nessuna cella nascosta) e mostra un badge VISIBILE nella legenda con classe dedicata .cells-age-badge: 'dato di N minuti fa'. Il badge non e' solo nel tooltip. Anche il conteggio riflette lo stato: 'N celle tracciate - M strutture organizzate - K fuori dalle aree previste - dato di N minuti fa'.",
@@ -5267,9 +5273,9 @@ function enabledLightningSourceIds() {
         generic:      { label: 'Avviso meteo',      color: '#f59e0b', title: 'Condizioni meteo potenzialmente avverse' },
         supercell:    { label: 'Convezione organizzata (NWP)', color: '#a855f7',
                         potentialLabel: CONV_POTENTIAL_LABEL, potentialColor: CONV_POTENTIAL_COLOR,
-                        title: 'Convezione organizzata con innesco nella stessa ora (weather code 95-99 con pioggia > 0,1 mm/h): descrizione ambientale del modello NWP, NON un rilevamento radar e NON una misura di rotazione',
+                        title: 'Convezione organizzata con innesco nella stessa ora (weather code 95-99 con pioggia > 0,1 mm/h): descrizione ambientale del modello NWP, NON un rilevamento radar e NON un\'osservazione diretta dell\'organizzazione della cella',
                         potentialTitle: 'Ambiente favorevole a convezione organizzata SENZA alcun innesco previsto nella stessa ora' },
-        vorticosi:    { label: 'Vortici / tornado (potenziale NWP)', color: '#d946ef', title: 'Possibili fenomeni vorticosi (tornado / tromba marina) secondo il modello' },
+        vorticosi:    { label: 'Ambiente favorevole a vortici (NWP)', color: '#7d93a8', title: 'Condizioni del modello NWP favorevoli a fenomeni vorticosi: informazione ambientale, non un vortice osservato' },
         downburst:    { label: 'Downburst / raffiche (potenziale NWP)', color: '#f43f5e', title: 'Possibile downburst con raffiche convettive intense secondo il modello' },
         fog:          { label: 'Nebbia (potenziale NWP)', color: '#94a3b8', title: 'Indice 0-100 di potenziale della nebbia: aria prossima alla saturazione, vento debole, umidità alta. Non è visibilità misurata e non è una probabilità' },
     };
@@ -5334,11 +5340,11 @@ function enabledLightningSourceIds() {
                                         '<path d="M24 33.2v4.4"/>' +
                                         '<path d="M24 37.6c1.3 0 2.2-.9 2.2-2.2s-.9-2.2-2.2-2.2-2.2.9-2.2 2.2.9 2.2 2.2 2.2"/>' +
                                         '</g>';
-            case 'vorticosi':   return '<g fill="none" stroke="' + g + '" stroke-width="2.6" stroke-linecap="round">' +
-                                        '<path d="M24 14c3.5-2 7.5-1.3 8.5 1.5 1.3 3.6-3 5.6-3 5.6s-5.4 1.3-5.4 6-2.5 5.9-2.5 5.9.2-3.6-1.5-5c-4.7-3.9.4-10 4.4-12.5z"/>' +
-                                        '<path d="M24 14c2.4-3.6 7-4.6 9.6-2.2 3.9 3.6-1.3 7.6-1.3 7.6s-5.3.4-8.3 3.7"/>' +
-                                        '<circle cx="24" cy="24" r="1.4" fill="' + g + '" stroke="none"/>' +
-                                        '</g>';
+            case 'vorticosi':   return '<g fill="none" stroke="' + g + '" stroke-width="2.4" stroke-linecap="round">' +
+                                        '<circle cx="24" cy="24" r="10.5"/>' +
+                                        '<path d="M24 22.5v8"/>' +
+                                        '</g>' +
+                                        '<circle cx="24" cy="16.8" r="1.6" fill="' + g + '"/>';
             case 'downburst':   return '<g fill="none" stroke="' + g + '" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">' +
                                         '<path d="M24 10v16M18 20l6 6 6-6"/>' +
                                         '<path d="M16 30h16"/>' +
@@ -5363,12 +5369,17 @@ function enabledLightningSourceIds() {
             color = (risk.level >= 5) ? '#a855f7' : (risk.level >= 4 ? '#ef4444' : '#f97316');
             label = def.label;
             title = def.title;
+        } else if (risk.id === 'vorticosi') {
+            // 1.2.4.88 - Ambiente favorevole (NWP): informazione neutra, mai colore di allerta.
+            color = def.color;
+            label = def.label;
+            title = def.title;
         } else {
             color = risk.info ? '#94a3b8' : ((BADGE_LEVEL_COLOR && risk.level >= 1 && risk.level <= 4) ? BADGE_LEVEL_COLOR[risk.level] : def.color);
             label = def.label;
             title = risk.info ? 'pioggia debole prevista, non critica' : def.title;
         }
-        var lvl = (!risk.info && risk.level && risk.level > 1) ? '<span class="risk-lvl"></span>' : '';
+        var lvl = (!risk.info && risk.id !== 'vorticosi' && risk.level && risk.level > 1) ? '<span class="risk-lvl"></span>' : '';
         return '<div class="risk-disc" style="background:' + color + '" title="' + label + ': ' + title + '">' +
             '<svg width="22" height="22" viewBox="0 0 48 48" aria-hidden="true">' + riskIconSvg(risk.id) + '</svg>' + lvl + '</div>';
     }
@@ -5601,7 +5612,9 @@ function enabledLightningSourceIds() {
         if (dev && hasConvEnv) {
             var vor = agg.vorticosi;
             if (vor && vor.level >= 1) {
-                risks.push({ id: 'vorticosi', level: vor.level });
+                // 1.2.4.88 - informazione ambientale, livello 1 fisso: non e' un vortice
+                // osservato e non deve alzare il livello di rischio della provincia.
+                risks.push({ id: 'vorticosi', level: 1, env: true });
             }
             var dnw = agg.downburst;
             if (dnw && dnw.level >= 1) {
@@ -5698,17 +5711,12 @@ function enabledLightningSourceIds() {
                     2: 'Innesco presente ma ambiente secco alle quote medie: organizzazione improbabile',
                     3: 'Innesco presente (weather code 95-99 e pioggia > 0,1 mm/h nella stessa ora): possibile organizzazione convettiva',
                     4: 'Innesco presente e ambiente secco alle quote medie: organizzazione improbabile',
-                    5: 'Innesco presente e SCP >= 1: organizzazione da mesociclone'
+                    5: 'Innesco presente e parametri di organizzazione sopra soglia: convezione organizzata stimata dal modello (ambiente favorevole NWP)'
                 };
                 return scTxt[r.level] || 'Innesco presente';
             }
             case 'vorticosi': {
-                return [
-                    'Possibili fenomeni vorticosi deboli (landspout / tromba marina)',
-                    'Possibile tornado di debole intensità (o tromba marina)',
-                    'Possibile tornado significativo',
-                    'Rischio tornado violento'
-                ][r.level - 1];
+                return 'Ambiente favorevole (NWP) a fenomeni vorticosi: condizioni favorevoli secondo il modello, nessun vortice osservato';
             }
             case 'downburst': return ['Possibili raffiche convettive improvvise', 'Downburst moderato con raffiche intense', 'Downburst forte con raffiche violente', 'Downburst estremo con raffiche devastanti'][r.level - 1];
             default:             return '';
@@ -5805,19 +5813,14 @@ function enabledLightningSourceIds() {
                     2: 'Innesco presente ma ambiente secco alle quote medie: possibile rovescio convettivo, organizzazione improbabile.',
                     3: 'Possibile organizzazione convettiva, con rovesci forti, raffiche e grandine.',
                     4: 'Innesco presente e ambiente secco alle quote medie: organizzazione improbabile, restano possibili rovesci forti.',
-                    5: 'Possibile cella organizzata con grandine grande, raffiche distruttive e tornado; seguire gli aggiornamenti e ripararsi.'
+                    5: 'Convezione organizzata stimata dal modello: possibili grandine grande e raffiche intense; seguire gli aggiornamenti.'
                 };
                 var txt = scImp[r.level] || 'Possibile cella organizzata; prestare attenzione e seguire gli aggiornamenti.';
                 if (r.dryVeto) txt += ' Motivo del declassamento: aria secca alle quote medie (RH 850-700 ' + (r.rhMid != null ? Math.round(r.rhMid) + '%' : 'n/d') + ').';
                 return txt;
             }
             case 'vorticosi': {
-                return [
-                    'Possibili vortici deboli associati a temporali (landspout/gustnado) o trombe marine sulla costa: raffiche rotatorie molto localizzate, breve durata e danni limitati.',
-                    'Possibile tornado di debole intensità (<F2) con raffiche 110-150 km/h: possibili danni a coperture, rami, cartelloni e strutture leggere.',
-                    'Possibile tornado significativo (F2/F3) con raffiche 150-200 km/h: possibili danni a tetti, alberi e strutture deboli; ripararsi al chiuso.',
-                    'Possibile tornado violento (oltre F3) con raffiche anche oltre 200 km/h: danni estesi e gravi, massima cautela e riparo immediato.'
-                ][r.level - 1];
+                return 'Informazione ambientale del modello NWP: l\'ambiente e\' favorevole a fenomeni vorticosi, ma non e\' previsto ne\' osservato un vortice. Il rischio della provincia resta quello di pioggia, vento e temporale.';
             }
             case 'downburst': {
                 return [
@@ -24685,8 +24688,12 @@ function toggleForecastMaps() {
         if (env) {
             if (trigger) {
                 kind = 'event';
-                level = (o.meso || (scp != null && scp >= 1.0)) ? 5 : 3;
-                if (level === 5) reasons.push('SCP ' + Number(scp).toFixed(2) + ' (>=1): organizzazione da mesociclone');
+                // 1.2.4.88 - il livello 5 richiede la STESSA condizione di detectMesocyclone
+                // (CAPE/DLS/SRH/SCP + innesco). Il solo SCP >= 1 non basta: senza questo,
+                // una provincia veniva etichettata 'mesociclone' anche con detectMesocyclone
+                // false (misurato il 2026-11-13: LT e OR).
+                level = o.meso ? 5 : 3;
+                if (level === 5) reasons.push('SCP ' + Number(scp).toFixed(2) + ' (>=1) con CAPE/DLS/SRH sopra soglia: organizzazione stimata dal modello');
             } else {
                 // Potenziale: livello 1 (il piu' basso). Non deve scavalcare un rischio
                 // ordinario di pari livello (vedi zoneRiskRank): dipinge la provincia solo
@@ -24750,7 +24757,7 @@ function toggleForecastMaps() {
         var prob = (o.prob == null || !isFinite(o.prob)) ? 0 : o.prob;
         var code = (o.code == null || !isFinite(o.code)) ? 0 : o.code;
         var cape = (o.cape == null || !isFinite(o.cape)) ? 0 : o.cape;
-        if (o.meso) return 'convezione organizzata con innesco (mesociclone, SCP >= 1)';
+        if (o.meso) return 'convezione organizzata con innesco nella stessa ora (ambiente favorevole NWP)';
         if (rain > 45) return 'pioggia oltre 45 mm';
         if (gusts > 100) return 'raffiche oltre 100 km/h';
         if (code >= 95 && rain >= 10 && cape >= 300) return 'temporale con pioggia >= 10 mm/h e CAPE >= 300 J/kg nella stessa ora';
@@ -24821,7 +24828,7 @@ function toggleForecastMaps() {
         rain: 'pioggia e allagamenti', wind: 'vento', thunderstorm: 'temporale', hail: 'grandine',
         heat: 'caldo', cold: 'gelo', snow: 'neve', fog: 'nebbia', supercell: 'convezione organizzata',
         risk: 'rischio meteo',
-        vorticosi: 'vortici o tromba d\'aria', downburst: 'downburst', generic: 'avviso meteo'
+        vorticosi: 'ambiente favorevole a vortici (NWP)', downburst: 'downburst', generic: 'avviso meteo'
     };
     var RISK_LEVEL_WORD = ['', 'lieve', 'moderato', 'forte', 'estremo', 'estremo'];
     var GATE_LEVEL_WORD = ['', 'Lieve', 'Moderato', 'Mod-Alto', 'Alto', 'Conv. organizzata'];
@@ -24877,6 +24884,9 @@ function toggleForecastMaps() {
             // criticità: non dipinge la provincia ne' entra nel massimo.
             if (r.info) continue;
             if (R2_COVERED_RISK_IDS[r.id]) continue;
+            // 1.2.4.88 - 'ambiente favorevole a vortici (NWP)' e' informazione: non alza
+            // il livello della provincia, che resta quello di pioggia/vento/temporale.
+            if (r.id === 'vorticosi') continue;
             // La convezione EVENTO e' gia' dentro R2 (livello 5 = meso): si tiene solo la
             // classe POTENZIALE, che R2 non rappresenta.
             if (r.id === 'supercell' && !r.potential) continue;
@@ -25215,61 +25225,33 @@ function toggleForecastMaps() {
         var cape = hourly.cape?.[idx] ?? 0;
         var code = hourly.weathercode?.[idx] ?? 0;
         var rain = hourly.precipitation?.[idx] ?? 0;
-        var prob = hourly.precipitation_probability?.[idx] ?? 0;
         var t2 = hourly.temperature_2m?.[idx] ?? null;
         var td2 = hourly.dew_point_2m?.[idx] ?? null;
         var si = severeIndices || {};
         var shear06 = si.shear06 ?? 0;
         var srh3 = si.srh3 ?? 0;
-        // SCIAUDIT MIGLIORAMENTO (§5.6/§8.6): discriminanti BASSI 0-1km (tornado SIGNIFICATIVI,
-        // Thompson et al. 2003). Spesso un tornado/waterspout non associato a convezione organizzata ha shear deep
-        // MODESTO ma basso strato 0-1km molto elicoids: aggiungiamo un canale dedicato.
         var shear01 = si.shear01 ?? 0;
         var srh1 = si.srh1 ?? 0;
         var ehi = computeEHI(cape, srh3);
         var lcl = computeLclApprox(t2, td2);
-
-        // SCIAUDIT 5#1/#2: stagionalita' + convezione elevated.
         var season = seasonInfo(hourly, idx);
-        var cold = season.hslcFactor > 0; // inverno o spalle -> HSLC/elevated di norma
-
+        var cold = season.hslcFactor > 0;
         var out = { level: 0, lcl: lcl, ehi: ehi, srh3: srh3, shear06: shear06, shear01: shear01, srh1: srh1 };
-        // In stagione fredda la convezione 'elevated' parte da CAPE modesto: ammettiamo
-        // anche CAPE 150-200 quando shear/elicità sono intensi (HSLC italiano di norma).
-        if (!cape || cape < (cold ? 150 : 200)) return out;
-
+        // 1.2.4.88 - AMBIENTE FAVOREVOLE (NWP), NON UN VORTICE.
+        // I campi NWP non misurano la rotazione: il badge non descrive un tornado o una
+        // tromba marina. Resta una sola informazione ambientale (livello 1), e serve la
+        // compresenza NELLA STESSA ORA di tutti gli ingredienti verificabili:
+        //   CAPE >= 500 J/kg, shear 0-6 km >= 20 m/s, SRH 0-3 km >= 100 m2/s2,
+        //   LCL <= 1500 m (2500 m in stagione fredda per la convezione elevated),
+        //   temporale ATTIVO (weather code 95-99 E pioggia > 0,1 mm/h).
+        // Il vecchio canale low-level (shear01/SRH1) produceva il livello 4 con CAPE
+        // 260-550 J/kg: misurato il 2026-11-13, 9 province su 107 marcate "tornado
+        // violento" e 16 con il badge. Con questo gate restano 8.
+        if (cape < 500 || shear06 < 20 || srh3 < 100) return out;
         var isThunder = isThunderstormCode(code) && hasSignificantRain(rain);
-        var trigger = isThunder || rain > 2 || prob > 30;
-        if (!trigger) return out;
-
-        // HSLC: CAPE basso ammesso solo se shear+elicità sono molto intensi
-        // In stagione fredda la barra HSLC scende (checklist Liguria invernale).
-        var capeOK = cape >= (cold ? 400 : 500)
-                  || (cape >= (cold ? 150 : 200) && shear06 >= (cold ? 20 : 22) && srh3 >= 120);
-        if (!capeOK || shear06 < (cold ? 12 : 15)) return out;
-        // Fail-closed, coerente con detectDownburst: l'LCL basso (<1500m) è un discriminante
-        // tornadico chiave (Púčik 2015, Taszarek et al.). Se l'LCL non è calcolabile (manca
-        // T o Td a 2m) il gate NON si supera: un dato mancante non deve passare il filtro
-        // come se la base delle nuvole fosse favorevole, aprendo la porta a falsi positivi
-        // del badge vorticosi proprio quando i dati sono più incompleti.
-        // SCIAUDIT 5#2: in stagione fredda/notturna la convezione puo' essere 'elevated'
-        // (base in quota, LCL di superficie alto): il gate LCL di superficie viene ammorbidito
-        // per non escludere trombe/grandine autunnali mediterranee ad atmosfera elevata.
-        var lclOK = (lcl != null) && (lcl <= (cold ? 2500 : 1500));
-        if (!lclOK) return out;
-
-        // SCIAUDIT MIGLIORAMENTO (§6): soglie SRH 0-3km allineate alle BASI liguri
-        // (checklist CFMI-PC: 150-300 moderato, 300-450 forte, >450 estremo) invece dei
-        // valori "estremi" USA. Il canale low-level 0-1km (shear01/srh1) rende riconoscibili
-        // anche i tornado/waterspout NON associate a convezione organizzata (HSLC a basso strato ma deep modesto).
-        var thunder = isThunder || rain > 2;
-        // canale low-level (0-1km): tornado/waterspout non associato a convezione organizzata del Mediterraneo
-        var lowLevelStrong = (shear01 >= 10 && srh1 >= 90)
-                          || (srh1 >= 140 && shear06 >= (cold ? 10 : 12));
-        if (thunder && (lowLevelStrong || (ehi >= 1.5 && srh3 >= 300 && shear06 >= 18))) out.level = 4;
-        else if (thunder && ehi >= 0.7 && srh3 >= (cold ? 250 : 300) && shear06 >= 15) out.level = 3;
-        else if ((ehi >= 0.4 && srh3 >= 80) || srh3 >= 150) out.level = 2;
-        else if (ehi >= 0.25 && srh3 >= 50) out.level = 1;
+        if (!isThunder) return out;
+        if (lcl == null || lcl > (cold ? 2500 : 1500)) return out;
+        out.level = 1;
         return out;
     }
 
@@ -25475,7 +25457,7 @@ function toggleForecastMaps() {
             if (level === 5) {
                 riskText = "Rischio Estremo / Convezione organizzata";
                 badgeClass = "bg-high"; color = "#a855f7";
-                summary = "Condizioni estreme: ambiente di convezione organizzata (WMAXSHEAR=" + Math.round(wms) + ", EHI=" + EHI.toFixed(1) + ", Shear=" + Math.round(shear06) + " m/s). Possibili celle organizzate, mesocicloni e grandine grande.";
+                summary = "Condizioni estreme: ambiente di convezione organizzata (WMAXSHEAR=" + Math.round(wms) + ", EHI=" + EHI.toFixed(1) + ", Shear=" + Math.round(shear06) + " m/s). Possibili celle organizzate e grandine grande.";
             } else if (level === 4 && sevScore >= 0.45) {
                 riskText = "Rischio Alto / Convezione severa";
                 badgeClass = "bg-high"; color = "#ef4444";
@@ -25522,7 +25504,7 @@ function toggleForecastMaps() {
         // Livello 5: Estremo/Potenziale cella organizzata (magenta)
         if (isMeso) {
             riskText = "Rischio Estremo / Convezione organizzata"; badgeClass = "bg-high"; color = "#a855f7"; level = 5;
-            summary = "Condizioni estreme: CAPE elevatissimo + wind shear intenso + temporali. Possibili celle organizzate, mesocicloni e grandine grande.";
+            summary = "Condizioni estreme: CAPE elevatissimo + wind shear intenso + temporali. Possibili celle organizzate e grandine grande.";
         } else if (rain > 45 || wind > 60 || (isThunderstormCode(code) && hasSignificantRain(rain))) {
             // 1.2.4.69 - il solo codice 95-99 NON basta piu' per il livello 4 (rosso):
             // serve la pioggia > 0,1 mm/h NELLA STESSA ORA (qui il dato e' gia' quello
@@ -26451,7 +26433,7 @@ function toggleForecastMaps() {
             }
             r2 = store.__r2Cache.v;
             if (dm && dm.scLevel >= 5 && dm.scKind === 'event') {
-                r2 = { level: 5, reason: 'convezione organizzata con innesco (mesociclone, SCP >= 1)', hour: dm.scHour };
+                r2 = { level: 5, reason: 'convezione organizzata con innesco nella stessa ora (ambiente favorevole NWP)', hour: dm.scHour };
             }
         }
         // Calcola hailMetrics per la nuova logica rischio (usa stesso idx dei severeIndices)
@@ -27348,7 +27330,7 @@ function renderContinuousOverlay() {
         // il livello 4 (Estremo) non e' raggiungibile dalla formula, quindi non va
         // mostrato in legenda: una riga che promette un livello impossibile e' un falso.
         fog: [1,2,3],
-        supercell: [3,4], vorticosi: [1,2,3,4], downburst: [1,2,3,4]
+        supercell: [3,4], vorticosi: [], downburst: [1,2,3,4]
     };
     function toggleBadgeLegend() {
         var bar = document.getElementById('badge-legend-bar');

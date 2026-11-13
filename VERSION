@@ -1,3 +1,15 @@
+MeteoRisk Light - 1.2.4.88 - MAPPA DEI RISCHI: NIENTE CONVEZIONE ORGANIZZATA SULLA SOLA PREVISIONE, BADGE VORTICI NEUTRO E LIMITATO ALL'AMBIENTE FAVOREVOLE (bump da 1.2.4.87)
+VERSION=1.2.4.88
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=88
+RELEASE_TYPE=release
+DATE=2026-11-13
+NOTE=Release 1.2.4.88 (bump da 1.2.4.87) - SOLO CLIENT, MAPPA DEI RISCHI. (1) LIVELLO 5 SENZA CONVEZIONE ORGANIZZATA OSSERVATA: assessConvOrg assegnava il livello 5 al solo SCP >= 1 anche con detectMesocyclone false; misurato il 2026-11-13 su data/latest/meteorisk-points.json (257 punti reali, 107 province, 72 ore, best_match + ecmwf_ifs), 7 province su 107 a livello 5 e 2 (LT, OR) senza alcuna ora con detectMesocyclone vero; sulla pagina con i 50 punti virtuali le province a livello 5 erano 8 (in piu' RM). Ora il livello 5 richiede la stessa condizione di detectMesocyclone: restano 5 province (CE, CS, FR, IS, SA), LT 5 -> 2 e OR 5 -> 3. (2) BADGE VORTICI: da 'Vortici / tornado (potenziale NWP)' a 'Ambiente favorevole a vortici (NWP)', icona informativa neutra, colore grigio-blu, livello sempre 1, non entra nel massimo che colora la provincia; gate nella stessa ora CAPE >= 500 J/kg, shear 0-6 km >= 20 m/s, SRH 0-3 km >= 100 m2/s2, LCL <= 1500 m (2500 m in stagione fredda) e temporale attivo (weather code 95-99 + pioggia > 0,1 mm/h). Prima 16 province (9 a livello 4 con un testo che annunciava un tornado violento), dopo 8 tutte livello 1 (AV, CE, CS, FR, IS, NA, OR, SA). (3) TESTI: nessuna diagnosi di vortice nel testo della mappa; RISK_DEFS, riskR2Reason, riskLevelLine/Impact, assessConvOrg, RISK_PLAIN_NAMES, Fonti & Metodologie e i riassunti di getRiskProfile(New) sono neutri. (4) MISURE: Edge headless CDP 1440x900 e 390x844, 0 eccezioni JS e 0 overflow; badge sulla pagina identici prima/dopo per pioggia 97, vento 102, temporale 49, grandine 22, downburst 11, nebbia 90, caldo/freddo 5, convezione organizzata 17; livello visualizzato con Sviluppo ON: LT 5 -> 2, OR 5 -> 3, RI 4 -> 3; node --check 9/9 blocchi inline. BUMP: html mri-light-1.2.4.88.html, VERSION (BUILD=88, DATE=2026-11-13, APP_FILE=mri-light-1.2.4.88.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.88), README.md, i 26 test .mjs col nome del file html in entrambe le forme; la 1.2.4.87 va RIMOSSA dal repo. NON toccati: scripts/, dataset, renderer, motore radar, layer radar Struttura convettiva.
+APP_FILE=mri-light-1.2.4.88.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.88), README.md, i 26 test .mjs col nome del file html in entrambe le forme; la 1.2.4.87 va RIMOSSA dal repo. NON toccati: scripts/, dataset, renderer, motore radar, layer radar Struttura convettiva.
+APP_FILE=mri-light-1.2.4.88.html
+
 MeteoRisk Light - 1.2.4.87 - CELLE TRACCIATE: SOGLIA DURA A 30 MINUTI E BADGE VISIBILE FRA 15 E 30, WORKFLOW SENZA NOME HTML SCRITTO A MANO (bump da 1.2.4.86)
 VERSION=1.2.4.87
 MAJOR=1

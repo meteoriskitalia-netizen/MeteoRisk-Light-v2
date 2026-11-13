@@ -6,15 +6,15 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.87
+## Versione attiva: 1.2.4.88
 
-- File applicativo: `mri-light-1.2.4.87.html` (`APP_VERSION = '1.2.4.87'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.87', date: '2026-11-13' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.87'`, `TILE_CACHE = 'mri-tiles-1.2.4.87'`,
-  `FRAME_CACHE = 'mri-frames-1.2.4.87'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.88.html` (`APP_VERSION = '1.2.4.88'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.88', date: '2026-11-13' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.88'`, `TILE_CACHE = 'mri-tiles-1.2.4.88'`,
+  `FRAME_CACHE = 'mri-frames-1.2.4.88'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
-- Contenuto della 1.2.4.87 (release sopra la 1.2.4.86) - **celle tracciate: soglia a 30 minuti e badge visibile fra 15 e 30; workflow senza nome html scritto a mano**. Due difetti misurati e riparati; solo client + i 3 workflow che copiano l'app in `_site`.
+- Contenuto della 1.2.4.88 (release sopra la 1.2.4.86) - **celle tracciate: soglia a 30 minuti e badge visibile fra 15 e 30; workflow senza nome html scritto a mano**. Due difetti misurati e riparati; solo client + i 3 workflow che copiano l'app in `_site`.
   - **Soglia di staleness a 30 minuti**: il 2026-11-13 alle 18:08:46Z `data/radar/tracks.json` aveva 16 minuti di eta', la costante `CELLS_STALE_MS` valeva 15 minuti -> `cellsStats.markers = 0`, riga `n/d`, nessuna cella disegnata. Il motore pubblica ogni 10 minuti e l'aggiornamento arriva con ritardo: con 15 minuti il layer si azzerava di routine. La costante unica e' portata a `30 * 60 * 1000`, senza duplicarla.
   - **Fra 15 e 30 minuti le celle restano**: stesso colore per dBZ, stesso contesto NWP nel popup, nessun filtro; badge VISIBILE nella legenda (`.cells-age-badge`, sfondo ambra) con `dato di N minuti fa`, e conteggio che riflette lo stato (`107 celle tracciate - 3 strutture organizzate - 66 fuori dalle aree previste - dato di 22 minuti fa`).
   - **Oltre 30 minuti**: nessun disegno, `cellsStats.markers = 0`, motivo con l'ora del file (`data/radar/tracks.json fermo: generato <ISO> (N min fa, soglia 30 min)`), badge assente.
