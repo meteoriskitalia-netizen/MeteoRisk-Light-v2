@@ -11964,7 +11964,7 @@ removeLightningTile();
     }
 
     function cellsDbzText(v) {
-        return (v === null || !isFinite(v)) ? 'max n/d' : (scFmtDec(v, 1) + ' dBZ');
+        return (v === null || !isFinite(v)) ? 'max n/d' : ('max ' + scFmtDec(v, 1) + ' dBZ');
     }
 
     function cellsTrackShortText(t) {
@@ -12382,7 +12382,7 @@ removeLightningTile();
         var nf = (t && isFinite(Number(t.n_frames))) ? Math.round(Number(t.n_frames))
             : (t && Array.isArray(t.points) ? t.points.length : 0);
         var h = '<div style="font-size:12px;line-height:1.5;min-width:220px;">';
-        h += '<div style="font-weight:700;color:#e2e8f0;">Cella #' + escapeHtml(String(t && t.track_id)) + '</div>';
+        h += '<div style="font-weight:700;color:#e2e8f0;">cella #' + escapeHtml(String(t && t.track_id)) + '</div>';
         h += '<div>' + cellsDbzText(cellsTrackMaxDbz(t)) + ' · ' + (area === null ? 'area n/d' : (scFmtInt(area) + ' km²')) + '</div>';
         h += '<div>' + escapeHtml(cellsMotionText(t)) + '</div>';
         h += '<div>' + scFmtInt(nf) + ' frame · ' + cellsDurationText(age) + '</div>';
