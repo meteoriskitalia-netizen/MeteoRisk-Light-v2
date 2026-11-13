@@ -203,6 +203,20 @@ def test_validation_missing_file_raises(tmp_path):
     assert "stations_file_missing" in str(exc.value)
 
 
+def test_run_writes_unavailable_payload_on_source_failure(tmp_path, monkeypatch):
+    def _fail(*args, **kwargs):
+        raise acc.models.SourceError("network:test")
+    monkeypatch.setattr(acc.source_dpc, "get_latest_product", _fail)
+    payload, raster = acc.run(
+        str(tmp_path), config={"source": {"cache_dir": str(tmp_path / "cache")}})
+    assert payload["status"] == "unavailable"
+    assert raster is None
+    written = json.loads((tmp_path / "accumulation.json").read_text(
+        encoding="utf-8"))
+    assert written["status"] == "unavailable"
+    assert written["slots"] == []
+
+
 def test_payload_has_no_alert_words(tmp_path):
     arr = np.zeros((10, 10), dtype="float32")
     path = _write_tif(tmp_path / "acc.tif", arr)
