@@ -228,6 +228,15 @@ def test_payload_has_no_alert_words(tmp_path):
     payload = acc.build_payload(
         [slot], generated_at="2026-11-13T19:20:00Z",
         limits=acc._default_limits(raster))
-    text = json.dumps(payload, ensure_ascii=False).lower()
-    for word in ("allagamento", "allerta", "rischio"):
-        assert word not in text
+    stations = {"generated_at": "2026-11-13T19:20:00Z", "stations": [
+        {"id": "a", "lat": 45.995, "lon": 10.005, "network": "x",
+         "obs_time": "2026-11-13T19:10:00Z", "precipitation": 0.5,
+         "precipitation_period_s": 3600},
+    ]}
+    validation = val.build_validation_payload(
+        stations, raster,
+        valid_time_ms=acc.parse_iso_utc("2026-11-13T19:10:00Z"))
+    for candidate in (payload, validation):
+        text = json.dumps(candidate, ensure_ascii=False).lower()
+        for word in ("allagamento", "allerta", "rischio"):
+            assert word not in text

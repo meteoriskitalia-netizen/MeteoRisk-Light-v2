@@ -314,8 +314,7 @@ def build_validation_payload(stations_payload, raster, valid_time_ms,
         "di 1 km; il confronto usa il pixel piu' vicino (nearest).",
         "`precipitation` della sorgente e' arrotondata a 1 decimale: "
         "quantizzazione 0,1 mm sul valore di stazione.",
-        "Nessuna soglia meteorologica e nessuna parola di allerta: solo "
-        "millimetri e statistiche.",
+        "Nessuna soglia meteorologica: solo millimetri e statistiche.",
     ]
     return {
         "schema_version": 1,
