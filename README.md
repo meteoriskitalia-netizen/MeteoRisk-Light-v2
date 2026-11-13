@@ -6,14 +6,18 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.84
+## Versione attiva: 1.2.4.85
 
-- File applicativo: `mri-light-1.2.4.84.html` (`APP_VERSION = '1.2.4.84'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.84', date: '2026-11-12' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.84'`, `TILE_CACHE = 'mri-tiles-1.2.4.84'`,
-  `FRAME_CACHE = 'mri-frames-1.2.4.84'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.85.html` (`APP_VERSION = '1.2.4.85'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.85', date: '2026-11-13' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.85'`, `TILE_CACHE = 'mri-tiles-1.2.4.85'`,
+  `FRAME_CACHE = 'mri-frames-1.2.4.85'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
+- Contenuto della 1.2.4.85 (release sopra la 1.2.4.84) - **celle tracciate in mappa**. Solo client: l'html `mri-light-1.2.4.85.html` era gia' su `main` con il layer e non viene toccato nel contenuto funzionale; `sw.js` tocca solo le 3 var di cache, i workflow solo le righe `cp`/commenti del nome del file.
+  - **Tutti i track di cella, non solo le strutture**: quarto toggle del pannello LIVE che disegna su un canvas unico (pane `cellsPane`, z 548) TUTTI i track di cella di `data/radar/tracks.json` (136 nel payload del 2026-11-13T17:05Z), non solo le strutture organizzate di `convective_structures.json` (6 nello stesso run). Un cerchio da 4,5 px per track, colore = riflettivita' massima del track (<30 azzurro, 30-40 verde, 40-50 ambra, >=50 rosso), popup al click e tooltip all'hover; nessun marker DOM per cella.
+  - **Contesto NWP nel popup, mai un filtro**: la riga previsionale e' calcolata sui dati gia' in memoria di `data/latest/meteorisk-points.json` (zero richieste nuove) e non decide chi disegnare; la riga di conteggio scrive `N celle tracciate - M strutture organizzate - K fuori dalle aree previste` e se il dataset manca il campo K e' omesso con il motivo, senza inventare un numero.
+  - **Degrado dichiarato**: se `tracks.json` manca o `generated_at` e' piu' vecchio di 15 minuti il layer non si disegna e la legenda scrive il motivo con la data del file; nessun marker fantasma. Layer spento -> 0 marcatori celle, strutture invariate.
 - Contenuto della 1.2.4.84 (release sopra la 1.2.4.83) - **shear Doppler in mappa e area di copertura geometrica**. Solo client: nessuna modifica a `scripts/` (motore, `doppler.py`, renderer, dataset, `color_scales.json`); `sw.js` tocca solo le 3 var di cache e i 3 commenti che le documentano, i workflow solo le righe `cp`/commenti del nome del file.
   - **Shear azimutale osservato**: per ogni struttura con `rotation_shear.shear_ms_km` numerico un **cerchietto di 22x22 px con la freccia di azimuth** (0 gradi = Nord, senso orario) posto **sotto** il pennant **dentro lo stesso `divIcon`**: un solo marker per struttura, niente icone sovrapposte, nessun click conteso. E' un descrittore geometrico osservato dal radar Doppler, **non** una diagnosi di circolazione. Tooltip e riga del pannello Struttura convettiva portano la stessa stringa con i campi del payload (`shear_ms_km`, `azimuth_deg`, `range_km`, `beam_height_km`, `confidence`, `radar`), numeri con la virgola, siti tradotti (`frale` -> Aleria, `fraja` -> Ajaccio). Chip di riepilogo `Shear Doppler X/Y`, presente solo quando il payload pubblica la chiave.
   - **Area di copertura geometrica**: il geojson puo' contenere due famiglie di feature distinte da `properties.kind`: `geometric` (copertura dell'antenna, non dipende dal tempo) e `observed` (copertura misurata nei volumi, raggi con almeno un gate valido). Se esiste almeno una `geometric` il client disegna **solo quelle** e l'area non si restringe quando non piove; le `observed` restano nel file ma non vengono disegnate. Se `kind` non c'e' (file precedente) si disegnano **tutte** le feature come prima; se esiste solo `observed` si disegnano le osservate. Il canvas composito non cambia: maschera opaca fuori schermo, tinta una volta, composizione unica a **alpha 0,10**, nessun bordo, nessun tratteggio. La legenda LIVE dichiara quale area sta guardando (`Area disegnata: N settori geometrici ... - M aree osservate nel file non disegnate`).

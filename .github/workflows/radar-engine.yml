@@ -505,7 +505,7 @@ jobs:
           tmark() { printf '%s\t%s\n' "$1" "$(date +%s%3N)" >> "$RUNNER_TEMP/timings/marks.tsv"; }
           tmark begin:build_site
           mkdir -p _site/data
-          cp mri-light-1.2.4.84.html _site/index.html
+          cp mri-light-1.2.4.85.html _site/index.html
           cp sw.js _site/sw.js                                      # 1.2.4.15: Service Worker (cache applicativa)
           cp manifest.webmanifest _site/manifest.webmanifest        # 1.2.4.77: PWA installabile
           cp offline.html _site/offline.html                        # 1.2.4.77: fallback offline

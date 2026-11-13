@@ -1,3 +1,14 @@
+MeteoRisk Light - 1.2.4.85 - CELLE TRACCIATE IN MAPPA: TUTTI I TRACK DI CELLA DEL RADAR, NON SOLO LE STRUTTURE ORGANIZZATE; CONTESTO NWP SOLO NEL POPUP, MAI UN FILTRO (bump da 1.2.4.84)
+VERSION=1.2.4.85
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=85
+RELEASE_TYPE=release
+DATE=2026-11-13
+NOTE=Release 1.2.4.85 (bump da 1.2.4.84) - SOLO CLIENT. (1) CELLE TRACCIATE IN MAPPA: nuovo layer che disegna TUTTI i track di cella di `data/radar/tracks.json` (136 nel payload del 2026-11-13T17:05Z), non solo le strutture organizzate di `convective_structures.json` (6 nello stesso run). Marcatori piccoli su un canvas unico nel pane `cellsPane` (z 548, sotto i pennant a 550): un cerchio per track, raggio 4,5 px, colore = riflettivita' MASSIMA del track a gradini (<30 azzurro, 30-40 verde, 40-50 ambra, >=50 rosso), bordo scuro. Nessun marker DOM per cella, nessun ritaglio. Popup al click e tooltip all'hover con `cella #ID - max_dbz dBZ - area km2 - moto X km/h verso DIR - N frame - eta'`. (2) CONTESTO NWP NEL POPUP, MAI UN FILTRO: la riga previsionale e' calcolata sui dati GIA' in memoria di `data/latest/meteorisk-points.json` (zero richieste nuove); il contesto non decide chi disegnare, non ordina, non taglia, non cambia colore o dimensione. (3) CONTEGGIO E FRASE: riga sempre visibile `N celle tracciate - M strutture organizzate - K fuori dalle aree previste` e la frase `una cella fuori dalle aree previste non e' meno importante: e' quella che il modello non ha visto`; se il dataset di previsione manca, il campo K e' OMESSO con il motivo, senza inventare un numero. (4) DEGRADO DICHIARATO: se `tracks.json` manca o `generated_at` e' piu' vecchio di 15 minuti, il layer non si disegna e la legenda scrive il motivo con la data del file; nessun marker fantasma. (5) BUMP: html `mri-light-1.2.4.85.html` (contenuto funzionale gia' su `main`, NON toccato in questa release), VERSION (BUILD=85, DATE=2026-11-13, APP_FILE=mri-light-1.2.4.85.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.85), README.md, i 26 test .mjs col nome del file html in entrambe le forme, le righe cp dei 3 workflow (deploy-pages, radar-engine, update-weather-data); la 1.2.4.84 va RIMOSSA dal repo (una sola app servita da Pages). NON toccati: `scripts/` (motore radar, renderer, dataset) e il contenuto funzionale dell'html.
+APP_FILE=mri-light-1.2.4.85.html
+
 MeteoRisk Light - 1.2.4.84 - SHEAR DOPPLER IN MAPPA E AREA DI COPERTURA GEOMETRICA: IL SIMBOLO DELLO SHEAR AZIMUTALE OSSERVATO, L'AREA CHE NON SI RESTRINGE QUANDO NON PIOVE, NESSUN SIMBOLO SENZA MISURA (bump da 1.2.4.83)
 MAJOR=1
 MINOR=2
