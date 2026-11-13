@@ -280,6 +280,10 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 .sc-cells-count { margin: 0 10px 8px 10px; padding: 6px 8px; border: 1px solid #334155; border-radius: 6px; background: rgba(15,23,42,0.55); font-size: 11px; line-height: 1.45; color: #e2e8f0; }
 .sc-cells-count .sc-cells-sub { display: block; margin-top: 2px; font-size: 10px; color: #94a3b8; }
 .sc-cells-count .sc-cells-warn { color: #fca5a5; }
+/* 1.2.4.87 - badge VISIBILE dell'eta' del payload del layer "Celle tracciate":
+   compare fra 15 e 30 minuti, quando le celle restano disegnate ma il file non
+   e' piu' fresco. Non e' un tooltip: sta nella legenda, a testo pieno. */
+.cells-age-badge { display: inline-block; padding: 2px 8px; border-radius: 9999px; background: #f59e0b; color: #0b1220; font-size: 10px; font-weight: 700; letter-spacing: 0.2px; }
 .cells-legend-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 4px 0 8px; vertical-align: middle; border: 1px solid rgba(15,23,42,0.9); }
 /* 1.2.4.77+ GERARCHIA STRUTTURE + CONFIDENCE GLOBALE + MINI TIMELINE.
    Il criterio del Top-N e' scritto nell'intestazione (SOI decrescente), non un
@@ -2005,6 +2009,10 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         </div>
         <div class="legend-row" style="font-size:10px;color:#94a3b8;">celle tracciate dal radar, non strutture organizzate — colore = riflettività massima del track, non una probabilità e non una severità</div>
         <div class="legend-row" id="live-cells-status" style="font-size:10px;color:#e2e8f0;">Layer spento.</div>
+        <!-- 1.2.4.87 - marcatura VISIBILE dell'eta': 15-30 min -> celle disegnate
+             con questo badge; oltre 30 min -> nessun disegno e motivo in
+             #live-cells-status. Il testo lo scrive cellsUpdateDrawStatus(). -->
+        <div class="legend-row" id="live-cells-age" style="display:none;"><span class="cells-age-badge" id="live-cells-age-badge"></span></div>
         <div class="legend-row" id="live-cells-draw" style="font-size:9px;color:#64748b;"></div>
     </div>
     <div id="live-sc-confidence" class="sc-confidence" style="display:none;"></div>
@@ -2789,9 +2797,16 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.86';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.87';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-13';
     const APP_CHANGELOG = [
+        { version: '1.2.4.87', date: '2026-11-13', changes: [
+  "SOGLIA DI STALENESS DELLE CELLE TRACCIATE A 30 MINUTI= Difetto misurato: alle 18:08:46Z del 2026-11-13 data/radar/tracks.json aveva 16 minuti di eta', la costante client CELLS_STALE_MS valeva 15 minuti, quindi cellsStats.markers diventava 0, la riga di conteggio scriveva n/d e nessuna cella veniva disegnata. Il motore pubblica ogni 10 minuti e l'aggiornamento arriva con ritardo: con la soglia a 15 il layer si azzerava di routine. La costante unica e' portata a 30 * 60 * 1000; non esiste una seconda copia della soglia dura.",
+  "TRA 15 E 30 MINUTI LE CELLE RESTANO DISEGNATE= Il layer continua a disegnare TUTTI i track (stessi colori per dBZ, stesso contesto NWP nel popup, nessun filtro, nessuna cella nascosta) e mostra un badge VISIBILE nella legenda con classe dedicata .cells-age-badge: 'dato di N minuti fa'. Il badge non e' solo nel tooltip. Anche il conteggio riflette lo stato: 'N celle tracciate - M strutture organizzate - K fuori dalle aree previste - dato di N minuti fa'.",
+  "OLTRE 30 MINUTI NIENTE DISEGNO E MOTIVO CON L'ORA DEL FILE= Con eta' maggiore di 30 minuti cellsPayloadStatus restituisce ok:false, il layer viene rimosso, cellsStats.markers resta 0 e la legenda scrive 'Layer non disegnato: data/radar/tracks.json fermo: generato <ISO> (N min fa, soglia 30 min)'; il badge sparisce. La data e' quella del payload, nessuno stato inventato.",
+  "WORKFLOW: IL NOME DEL FILE HTML NON E' PIU' SCRITTO A MANO= Nei 3 workflow che copiano l'app in _site (deploy-pages.yml, radar-engine.yml, update-weather-data.yml) il nome viene letto da APP_FILE in VERSION: APP_FILE=$(grep -m1 '^APP_FILE=' VERSION | cut -d= -f2). Se APP_FILE e' vuoto o il file non esiste il passo fallisce con ::error::APP_FILE non trovato in VERSION ed exit 1. Motivo misurato: il run radar-engine 3467 e' fallito con cp: cannot stat 'mri-light-1.2.4.85.html' perche' aveva fatto checkout di un main in cui la release aveva gia' rimosso quel nome.",
+  "MISURE E BUMP= Edge headless CDP sulla pagina locale con il codice di questa release, 1440x900 e 390x844: tracks.json fresco -> 107 marcatori su 107 track e badge assente; stesso payload con generated_at a -22 minuti -> 107 marcatori e badge 'dato di 22 minuti fa' (visibile, sfondo ambra); a -35 minuti -> 0 marcatori e motivo 'generato ... (35 min fa, soglia 30 min)'. 0 eccezioni JS, 0 console.error, 0 overflow orizzontale in entrambe le dimensioni. node --check 9/9 blocchi inline, pytest scripts/tests/test_html_js_syntax.py 1 passed. BUMP= html mri-light-1.2.4.87.html, VERSION (BUILD=87, DATE=2026-11-13, APP_FILE=mri-light-1.2.4.87.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.87), README.md, i 26 test .mjs col nome del file html in entrambe le forme; la 1.2.4.86 va RIMOSSA dal repo (una sola app servita da Pages). NON toccati: scripts/, dataset, renderer, motore radar."
+        ] },
         { version: '1.2.4.86', date: '2026-11-13', changes: [
   "CRITICITA' DPC IN MAPPA= Nuovo layer SEPARATO dalla precipitazione prevista dal modello: lo switch 'Criticità DPC' sta nel gruppo degli altri layer meteo (.map-corner-switches), è spento per default e si carica solo alla prima accensione. Legge data/hydro/criticality.json, decodifica la griglia TopoJSON (ring piatti con delta interi: lon = x*scale[0]+translate[0], lat = y*scale[1]+translate[1]) e disegna le zone in un L.geoJSON nel pane 'hydroPane' (z-index 450: sopra i poligoni provinciali a 400, sotto i marker a 600). Il layer non esisteva nell'html della 1.2.4.85: il patch è additivo tranne la riga di #leaflet-map, che ora ospita il pannello nell'angolo della mappa.",
   "TRE RISCHI SEPARATI, QUATTRO LIVELLI= Il selettore 'Rischio' sceglie QUALE rischio colorare (idrogeologico, idraulico, temporali) e non ne somma nessuno in un indice unico. I quattro livelli sono quelli ufficiali del bollettino (nessuna, gialla, arancione, rossa) e i colori sono quelli dello style JSON del DPC (#90c985, #f8f865, #f0bf01, #fd6767): nessun colore inventato dal client. La legenda ha 4 righe con il conteggio delle zone del rischio selezionato; il popup di ogni zona mostra i tre rischi separati con il numero di comuni della zona.",
@@ -10666,7 +10681,13 @@ removeLightningTile();
     var cellsLastDrawMs = null;
     var cellsBound = false;
     var cellsHoverEl = null;
-    var CELLS_STALE_MS = 15 * 60 * 1000;
+    // 1.2.4.87 - SOGLIA DURA 30 min: il motore pubblica ogni 10 minuti e
+    // l'aggiornamento arriva con ritardo, quindi a 15 min il layer si azzerava
+    // di routine (misurato: payload di 16 min -> 0 celle). Fra 15 e 30 minuti
+    // le celle restano disegnate e compare il badge "dato di N minuti fa";
+    // oltre 30 minuti non si disegna e si dichiara il motivo con l'ora del file.
+    var CELLS_STALE_MS = 30 * 60 * 1000;
+    var CELLS_STALE_WARN_MS = 15 * 60 * 1000;
     var CELLS_NWP_RADIUS_KM = 40;
     var CELLS_RADIUS_PX = 4.5;
     var CELLS_HIT_PX = 7;
@@ -12085,27 +12106,36 @@ removeLightningTile();
             ' · ' + cellsMotionText(t) + ' · ' + scFmtInt(nf) + ' frame · ' + cellsDurationText(age);
     }
 
-    // Freschezza del file: manca / senza data / piu' vecchio di 15 min -> il layer
-    // non si disegna e il motivo cita la data del file. Nessun dato inventato.
+    // Freschezza del file: manca / senza data / piu' vecchio di 30 min -> il layer
+    // non si disegna e il motivo cita la data del file. Fra 15 e 30 minuti il
+    // layer resta disegnato e lo stato e' "warn" con il testo del badge.
     function cellsPayloadStatus(payload) {
         if (!payload || !Array.isArray(payload.tracks)) {
-            return { ok: false, reason: 'data/radar/tracks.json non disponibile', generatedAt: null, ageMin: null };
+            return { ok: false, warn: false, badgeText: '', reason: 'data/radar/tracks.json non disponibile', generatedAt: null, ageMin: null };
         }
         var iso = payload.generated_at || payload.radar_timestamp || null;
         var t = iso ? Date.parse(iso) : NaN;
         if (!isFinite(t)) {
-            return { ok: false, reason: 'data/radar/tracks.json senza generated_at: età non verificabile', generatedAt: null, ageMin: null };
+            return { ok: false, warn: false, badgeText: '', reason: 'data/radar/tracks.json senza generated_at: età non verificabile', generatedAt: null, ageMin: null };
         }
         var age = (Date.now() - t) / 60000;
+        var ageR = Math.round(age);
         if (age > CELLS_STALE_MS / 60000) {
             return {
                 ok: false,
+                warn: false,
+                badgeText: '',
                 reason: 'data/radar/tracks.json fermo: generato ' + iso + ' (' +
-                    Math.round(age) + ' min fa, soglia 15 min)',
+                    ageR + ' min fa, soglia ' + Math.round(CELLS_STALE_MS / 60000) + ' min)',
                 generatedAt: iso, ageMin: age
             };
         }
-        return { ok: true, reason: '', generatedAt: iso, ageMin: age };
+        var warn = age >= CELLS_STALE_WARN_MS / 60000;
+        return {
+            ok: true, warn: warn,
+            badgeText: warn ? ('dato di ' + ageR + ' minuti fa') : '',
+            reason: '', generatedAt: iso, ageMin: age
+        };
     }
 
     // ---- CONTESTO NWP: SOLO lettura della cache gia' in memoria ----
@@ -12249,6 +12279,7 @@ removeLightningTile();
     // Riga di conteggio: N track di cella, M strutture, K fuori dalle aree previste.
     // Se K non e' calcolabile il campo si OMETTE e si dichiara il motivo.
     function cellsUpdateCountLine(structuresCount) {
+        var stale = cellsPayloadStatus(scTracksData);
         var tracks = cellsTracksAll(scTracksData);
         var haveTracks = !!(scTracksData && Array.isArray(scTracksData.tracks));
         var n = haveTracks ? tracks.length : null;
@@ -12261,9 +12292,12 @@ removeLightningTile();
             k = kres.value;
             if (k === null) kReason = kres.reason;
         }
+        // 1.2.4.87: il conteggio riflette lo stato del file. Fra 15 e 30 minuti
+        // aggiunge "· dato di N minuti fa" (stessa frase del badge visibile).
         var line = (n === null ? 'n/d' : scFmtInt(n)) + ' celle tracciate · ' +
             scFmtInt(m) + ' strutture organizzate' +
-            (k === null ? '' : (' · ' + scFmtInt(k) + ' fuori dalle aree previste'));
+            (k === null ? '' : (' · ' + scFmtInt(k) + ' fuori dalle aree previste')) +
+            (stale.warn ? (' · ' + stale.badgeText) : '');
         var sentence = "una cella fuori dalle aree previste non è meno importante: è quella che il modello non ha visto";
         var note = '';
         if (k === null) {
@@ -12271,7 +12305,6 @@ removeLightningTile();
         } else {
             note = 'fuori dalle aree previste = nessun punto NWP entro 40 km con pioggia prevista (>1 mm o codice 80-99) alla data del modello.';
         }
-        var stale = cellsPayloadStatus(scTracksData);
         if (!stale.ok && stale.reason) note = (note ? note + ' ' : '') + stale.reason + ' — layer non disegnato.';
         var el = document.getElementById('sc-cells-count');
         if (el) {
@@ -12288,6 +12321,15 @@ removeLightningTile();
     }
 
     function cellsUpdateDrawStatus() {
+        // 1.2.4.87: badge VISIBILE nella legenda (non solo tooltip). Compare
+        // solo col layer acceso e il file fra 15 e 30 minuti; oltre 30 minuti
+        // resta il motivo in #live-cells-draw con l'ora del file.
+        var st = cellsPayloadStatus(scTracksData);
+        var badgeBox = document.getElementById('live-cells-age');
+        var badgeEl = document.getElementById('live-cells-age-badge');
+        var showBadge = !!(liveShowCells && st.ok && st.warn);
+        if (badgeBox) badgeBox.style.display = showBadge ? '' : 'none';
+        if (badgeEl) badgeEl.textContent = showBadge ? st.badgeText : '';
         var el = document.getElementById('live-cells-draw');
         if (!el) return;
         if (!liveShowCells) { el.textContent = 'Layer spento.'; return; }
@@ -12295,7 +12337,8 @@ removeLightningTile();
         if (cellsStats.stale) { el.textContent = 'Layer non disegnato: ' + cellsStats.reason + '.'; return; }
         el.textContent = 'Marcatori celle: ' + scFmtInt(cellsStats.markers) + ' su ' + scFmtInt(cellsStats.total) +
             ' track · ' + scFmtInt(cellsStats.visible) + ' nel riquadro visibile · disegno ' +
-            String(cellsStats.drawMs) + ' ms · zoom ' + cellsStats.zoom;
+            String(cellsStats.drawMs) + ' ms · zoom ' + cellsStats.zoom +
+            (cellsStats.warn ? ' · ' + cellsStats.badgeText : '');
     }
 
     function cellsSortForDraw(tracks) {
@@ -12416,7 +12459,8 @@ removeLightningTile();
         cellsStats = {
             total: tracks.length, markers: markers, visible: visible,
             drawMs: cellsLastDrawMs, zoom: map.getZoom(),
-            stale: !st.ok, reason: st.reason, generatedAt: st.generatedAt
+            stale: !st.ok, warn: !!st.warn, badgeText: st.badgeText || '',
+            reason: st.reason, generatedAt: st.generatedAt, ageMin: st.ageMin
         };
         cellsUpdateDrawStatus();
     }
@@ -12428,7 +12472,7 @@ removeLightningTile();
         var st = cellsPayloadStatus(scTracksData);
         if (!st.ok) {
             cellsRemoveLayer();
-            cellsStats = { total: cellsTracksAll(scTracksData).length, markers: 0, visible: 0, drawMs: 0, zoom: map.getZoom(), stale: true, reason: st.reason, generatedAt: st.generatedAt };
+            cellsStats = { total: cellsTracksAll(scTracksData).length, markers: 0, visible: 0, drawMs: 0, zoom: map.getZoom(), stale: true, warn: false, badgeText: '', reason: st.reason, generatedAt: st.generatedAt, ageMin: st.ageMin };
             cellsUpdateDrawStatus();
             return;
         }

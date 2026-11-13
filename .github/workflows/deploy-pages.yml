@@ -5,7 +5,7 @@ name: Deploy Pages (manuale / consolidamento)
 # radar/phenomena/satellite nell'artefatto. Questo file ricostruisce _site in
 # modo GENUINO replicando il deploy inline di radar-engine.yml e di
 # update-weather-data.yml (stesso ordine, stesse guardie e stessi path):
-#   - cp mri-light-1.2.4.86.html _site/index.html
+#   - cp "$APP_FILE" _site/index.html   (APP_FILE letto da VERSION)
 #   - cp sw.js _site/sw.js   (1.2.4.15: Service Worker, servito come /sw.js)
 #   - data/latest, data/geography, data/radar (con restore dell'archivio
 #     rolling radar-history), data/phenomena e satellite (con restore della
@@ -56,7 +56,12 @@ jobs:
       - name: Build sito statico Pages (app + data/latest + data/geography + data/radar + data/phenomena + satellite)
         run: |
           mkdir -p _site/data
-          cp mri-light-1.2.4.86.html _site/index.html
+          # 1.2.4.87 - niente nome scritto a mano: il run puo' aver fatto checkout
+          # di un main in cui la release ha gia' rimosso quel nome (race). La fonte
+          # e' APP_FILE in VERSION; se manca o il file non esiste, fail esplicito.
+          APP_FILE="$(grep -m1 '^APP_FILE=' VERSION | cut -d= -f2)"
+          if [ -z "$APP_FILE" ] || [ ! -f "$APP_FILE" ]; then echo "::error::APP_FILE non trovato in VERSION"; exit 1; fi
+          cp "$APP_FILE" _site/index.html
           cp sw.js _site/sw.js                                      # 1.2.4.15: Service Worker (cache applicativa)
           cp manifest.webmanifest _site/manifest.webmanifest        # 1.2.4.77: PWA installabile
           cp offline.html _site/offline.html                        # 1.2.4.77: fallback offline

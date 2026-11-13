@@ -6,14 +6,20 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.86
+## Versione attiva: 1.2.4.87
 
-- File applicativo: `mri-light-1.2.4.86.html` (`APP_VERSION = '1.2.4.86'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.86', date: '2026-11-13' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.86'`, `TILE_CACHE = 'mri-tiles-1.2.4.86'`,
-  `FRAME_CACHE = 'mri-frames-1.2.4.86'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.87.html` (`APP_VERSION = '1.2.4.87'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.87', date: '2026-11-13' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.87'`, `TILE_CACHE = 'mri-tiles-1.2.4.87'`,
+  `FRAME_CACHE = 'mri-frames-1.2.4.87'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
+- Contenuto della 1.2.4.87 (release sopra la 1.2.4.86) - **celle tracciate: soglia a 30 minuti e badge visibile fra 15 e 30; workflow senza nome html scritto a mano**. Due difetti misurati e riparati; solo client + i 3 workflow che copiano l'app in `_site`.
+  - **Soglia di staleness a 30 minuti**: il 2026-11-13 alle 18:08:46Z `data/radar/tracks.json` aveva 16 minuti di eta', la costante `CELLS_STALE_MS` valeva 15 minuti -> `cellsStats.markers = 0`, riga `n/d`, nessuna cella disegnata. Il motore pubblica ogni 10 minuti e l'aggiornamento arriva con ritardo: con 15 minuti il layer si azzerava di routine. La costante unica e' portata a `30 * 60 * 1000`, senza duplicarla.
+  - **Fra 15 e 30 minuti le celle restano**: stesso colore per dBZ, stesso contesto NWP nel popup, nessun filtro; badge VISIBILE nella legenda (`.cells-age-badge`, sfondo ambra) con `dato di N minuti fa`, e conteggio che riflette lo stato (`107 celle tracciate - 3 strutture organizzate - 66 fuori dalle aree previste - dato di 22 minuti fa`).
+  - **Oltre 30 minuti**: nessun disegno, `cellsStats.markers = 0`, motivo con l'ora del file (`data/radar/tracks.json fermo: generato <ISO> (N min fa, soglia 30 min)`), badge assente.
+  - **Workflow**: `deploy-pages.yml`, `radar-engine.yml` e `update-weather-data.yml` leggono `APP_FILE` da `VERSION` e copiano quel file in `_site/index.html`; se `APP_FILE` e' vuoto o il file non esiste il passo fallisce con `::error::APP_FILE non trovato in VERSION` ed exit 1. Evidenza: il run `radar-engine` 3467 e' fallito con `cp: cannot stat 'mri-light-1.2.4.85.html'` per la race sul nome.
+  - **Misure**: Edge headless CDP 1440x900 e 390x844 -> fresco **107/107** marcatori e badge assente; `generated_at` a -22 minuti -> **107/107** e badge `dato di 22 minuti fa`; a -35 minuti -> **0** marcatori e motivo con ISO e soglia. **0** eccezioni JS, **0** `console.error`, **0** overflow orizzontale. `node --check` **9/9** blocchi inline; `pytest scripts/tests/test_html_js_syntax.py` **1 passed**; `yaml.safe_load` **3/3**.
 - Contenuto della 1.2.4.86 (release sopra la 1.2.4.85) - **criticita' idrogeologica/idraulica ufficiale del DPC in mappa**. Solo client: l'html `mri-light-1.2.4.86.html` e' la 1.2.4.85 piu' il patch `hydro-layer-1.2.4.85.diff` (4 hunk, fuzz 0, risultato byte-identico a 2.803.542 byte / sha256 `0f29026b274b9df14117ce0d517a98c947760fbaa863651a4b88d4519769efb0`); `sw.js` tocca solo le 3 var di cache, i workflow solo le righe `cp`/commenti del nome del file.
   - **Layer separato dalla precipitazione prevista**: switch `Criticita' DPC` nel gruppo degli altri layer meteo (default OFF, caricamento alla prima accensione) che legge `data/hydro/criticality.json` e disegna le zone del bollettino giornaliero del Dipartimento della Protezione Civile in un `L.geoJSON` nel pane `hydroPane` (z 450, sopra i poligoni provinciali e sotto i marker), decodificando la griglia TopoJSON (ring piatti con delta interi).
   - **Tre rischi separati, quattro livelli ufficiali**: il selettore `Rischio` sceglie quale rischio colorare (idrogeologico, idraulico, temporali) senza sommarli in un indice unico; i 4 livelli sono nessuna/gialla/arancione/rossa con i colori dello `style` JSON del DPC (`#90c985`, `#f8f865`, `#f0bf01`, `#fd6767`); la legenda a 4 righe porta i conteggi delle zone del rischio selezionato e il popup mostra i tre rischi separati con il numero di comuni.
