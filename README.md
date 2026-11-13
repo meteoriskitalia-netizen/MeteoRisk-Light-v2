@@ -6,14 +6,19 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.85
+## Versione attiva: 1.2.4.86
 
-- File applicativo: `mri-light-1.2.4.85.html` (`APP_VERSION = '1.2.4.85'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.85', date: '2026-11-13' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.85'`, `TILE_CACHE = 'mri-tiles-1.2.4.85'`,
-  `FRAME_CACHE = 'mri-frames-1.2.4.85'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.86.html` (`APP_VERSION = '1.2.4.86'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.86', date: '2026-11-13' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.86'`, `TILE_CACHE = 'mri-tiles-1.2.4.86'`,
+  `FRAME_CACHE = 'mri-frames-1.2.4.86'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
+- Contenuto della 1.2.4.86 (release sopra la 1.2.4.85) - **criticita' idrogeologica/idraulica ufficiale del DPC in mappa**. Solo client: l'html `mri-light-1.2.4.86.html` e' la 1.2.4.85 piu' il patch `hydro-layer-1.2.4.85.diff` (4 hunk, fuzz 0, risultato byte-identico a 2.803.542 byte / sha256 `0f29026b274b9df14117ce0d517a98c947760fbaa863651a4b88d4519769efb0`); `sw.js` tocca solo le 3 var di cache, i workflow solo le righe `cp`/commenti del nome del file.
+  - **Layer separato dalla precipitazione prevista**: switch `Criticita' DPC` nel gruppo degli altri layer meteo (default OFF, caricamento alla prima accensione) che legge `data/hydro/criticality.json` e disegna le zone del bollettino giornaliero del Dipartimento della Protezione Civile in un `L.geoJSON` nel pane `hydroPane` (z 450, sopra i poligoni provinciali e sotto i marker), decodificando la griglia TopoJSON (ring piatti con delta interi).
+  - **Tre rischi separati, quattro livelli ufficiali**: il selettore `Rischio` sceglie quale rischio colorare (idrogeologico, idraulico, temporali) senza sommarli in un indice unico; i 4 livelli sono nessuna/gialla/arancione/rossa con i colori dello `style` JSON del DPC (`#90c985`, `#f8f865`, `#f0bf01`, `#fd6767`); la legenda a 4 righe porta i conteggi delle zone del rischio selezionato e il popup mostra i tre rischi separati con il numero di comuni.
+  - **Attribuzione e degrado dichiarato**: nel pannello `Fonte: Dipartimento della Protezione Civile` con licenza CC BY 4.0 e il disclaimer che la criticita' e' prevista dal DPC e non e' un'allerta emessa da MeteoRisk; con bollettino `stale` o `valid_date` diversa da oggi (Europe/Rome) il layer non disegna nulla e il pannello scrive il motivo con la data dell'ultimo bollettino, con il file mancante scrive `Dato non disponibile: <motivo>`.
+  - **Misure (Edge headless CDP, 1440x900 e 390x844)**: switch ON -> **187 zone** disegnate nel pane `hydroPane` (**258** poligoni componenti nel dato), legenda con i conteggi del bollettino (**126/44/17/0** idrogeologico, **152/29/6/0** idraulico, **167/20/0/0** temporali), **0** eccezioni JS, **0** overflow orizzontale; switch OFF -> **0** zone disegnate; `data/hydro/criticality.json` bloccato via rete -> **0** zone e messaggio con il motivo.
 - Contenuto della 1.2.4.85 (release sopra la 1.2.4.84) - **celle tracciate in mappa**. Solo client: l'html `mri-light-1.2.4.85.html` era gia' su `main` con il layer e non viene toccato nel contenuto funzionale; `sw.js` tocca solo le 3 var di cache, i workflow solo le righe `cp`/commenti del nome del file.
   - **Tutti i track di cella, non solo le strutture**: quarto toggle del pannello LIVE che disegna su un canvas unico (pane `cellsPane`, z 548) TUTTI i track di cella di `data/radar/tracks.json` (136 nel payload del 2026-11-13T17:05Z), non solo le strutture organizzate di `convective_structures.json` (6 nello stesso run). Un cerchio da 4,5 px per track, colore = riflettivita' massima del track (<30 azzurro, 30-40 verde, 40-50 ambra, >=50 rosso), popup al click e tooltip all'hover; nessun marker DOM per cella.
   - **Contesto NWP nel popup, mai un filtro**: la riga previsionale e' calcolata sui dati gia' in memoria di `data/latest/meteorisk-points.json` (zero richieste nuove) e non decide chi disegnare; la riga di conteggio scrive `N celle tracciate - M strutture organizzate - K fuori dalle aree previste` e se il dataset manca il campo K e' omesso con il motivo, senza inventare un numero.

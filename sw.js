@@ -107,9 +107,9 @@
  */
 'use strict';
 
-var CACHE_NAME = 'mri-1.2.4.85';
-var TILE_CACHE = 'mri-tiles-1.2.4.85';
-var FRAME_CACHE = 'mri-frames-1.2.4.85';
+var CACHE_NAME = 'mri-1.2.4.86';
+var TILE_CACHE = 'mri-tiles-1.2.4.86';
+var FRAME_CACHE = 'mri-frames-1.2.4.86';
 var APP_CACHES = [CACHE_NAME, TILE_CACHE, FRAME_CACHE];
 var MAX_ENTRIES = 1200;
 var MAX_TILE_ENTRIES = 400;

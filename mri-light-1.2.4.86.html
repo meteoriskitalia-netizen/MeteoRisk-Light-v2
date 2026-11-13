@@ -1706,6 +1706,72 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             .fc-tab { min-height: 34px; padding: 7px 8px; font-size: 11px; }
             .fc-body { padding: 0 8px 8px 8px; }
         }
+        /* === 1.2.4.85 - LAYER CRITICITA' IDROGEOLOGICA/IDRAULICA UFFICIALE (DPC) ===
+           Pannello e voci di legenda del layer "Criticita' DPC". Colori dei 4
+           livelli: sono quelli ufficiali del bollettino (style JSON del DPC:
+           #90c985 nessuna, #f8f865 gialla, #f0bf01 arancione, #fd6767 rossa).
+           Nessun colore e' inventato dal client. */
+        .hydro-panel {
+            position: absolute;
+            left: 10px;
+            bottom: 10px;
+            z-index: 900;
+            width: 302px;
+            max-width: calc(100% - 20px);
+            box-sizing: border-box;
+            background: rgba(15,23,42,0.93);
+            border: 1px solid #334155;
+            border-radius: 10px;
+            padding: 8px 10px;
+            color: #e2e8f0;
+            font-size: 11px;
+            line-height: 1.35;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+        }
+        .hydro-panel[hidden] { display: none; }
+        .hydro-title {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 6px;
+            flex-wrap: wrap;
+            font-size: 12px;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+        .hydro-title .hydro-bulletin { font-size: 9.5px; font-weight: 400; color: #94a3b8; }
+        .hydro-legend { display: flex; flex-direction: column; gap: 3px; margin: 0 0 5px 0; }
+        .hydro-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+        .hydro-chip {
+            width: 15px;
+            height: 10px;
+            border-radius: 2px;
+            border: 1px solid rgba(15,23,42,0.6);
+            flex: 0 0 auto;
+        }
+        .hydro-row .hydro-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .hydro-row .hydro-n { margin-left: auto; color: #94a3b8; font-variant-numeric: tabular-nums; }
+        .hydro-status { font-size: 10px; color: #94a3b8; overflow-wrap: anywhere; }
+        .hydro-status.hydro-bad { color: #fca5a5; font-weight: 600; }
+        .hydro-attrib {
+            font-size: 9.5px;
+            color: #94a3b8;
+            margin-top: 5px;
+            padding-top: 4px;
+            border-top: 1px solid #334155;
+            overflow-wrap: anywhere;
+        }
+        .hydro-attrib b { color: #cbd5e1; font-weight: 600; }
+        .hydro-pop { font-size: 11px; line-height: 1.4; color: #e2e8f0; min-width: 170px; }
+        .hydro-pop .hydro-pop-title { font-weight: 700; margin-bottom: 3px; }
+        .hydro-pop .hydro-pop-row { display: flex; gap: 6px; align-items: center; }
+        .hydro-pop .hydro-pop-n { margin-left: auto; color: #94a3b8; }
+        .hydro-pop .hydro-pop-note { color: #94a3b8; font-size: 9.5px; margin-top: 4px; }
+        #switch-hydro-wrap { width: auto; min-width: 110px; }
+        #hydro-risk-wrap { display: none; width: auto; min-width: 110px; }
+        @media (max-width: 600px) {
+            .hydro-panel { left: 6px; right: 6px; bottom: 6px; width: auto; max-width: none; font-size: 10.5px; }
+        }
     </style>
 <!-- ================================================================
      VERSION SYSTEM — AI INSTRUCTIONS (READ BEFORE MODIFYING)
@@ -2114,7 +2180,23 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <div id="radar-embed-container" style="display:none; width:100%; height:560px; border-radius:8px; overflow:hidden; position:relative; background:#0f172a;">
             <iframe id="radar-embed-iframe" style="width:100%; height:100%; border:0; display:block; margin:0; padding:0;" src="" allowfullscreen></iframe>
         </div>
-        <div id="leaflet-map"></div>
+        <div id="leaflet-map">
+        <!-- 1.2.4.85 - Pannello del layer criticita' DPC: legenda a 4 livelli
+             (nessuna/gialla/arancione/rossa) e attribuzione obbligatoria.
+             `hidden` finche' il layer non viene acceso. -->
+        <div id="hydro-panel" class="hydro-panel" hidden>
+            <div class="hydro-title">
+                <span id="hydro-panel-title">Criticità DPC — rischio idrogeologico</span>
+                <span class="hydro-bulletin" id="hydro-bulletin"></span>
+            </div>
+            <div class="hydro-legend" id="hydro-legend"></div>
+            <div class="hydro-status" id="hydro-status">Bollettino non ancora caricato.</div>
+            <div class="hydro-attrib">
+                <b>Fonte: Dipartimento della Protezione Civile</b> — licenza CC BY 4.0.
+                Criticità <b>prevista</b> dal DPC: non è un'allerta emessa da MeteoRisk.
+            </div>
+        </div>
+        </div>
         <!-- Mappe previsionali (Open-Meteo Weather Map Layer) -->
         <div id="forecast-maps-panel" class="fm-panel">
             <div class="fm-header">
@@ -2180,6 +2262,23 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                 <input type="checkbox" id="switch-colors" checked onchange="toggleMapColors()">
                 <span class="mp-knob"></span>
                 <span class="mp-label">Colori</span>
+            </label>
+        <!-- 1.2.4.85 - Switch del layer "Criticita' DPC". Sta nello stesso
+             gruppo degli altri layer meteo (.map-corner-switches), default OFF:
+             e' un livello UFFICIALE del bollettino DPC, separato dalla
+             precipitazione prevista dal modello. -->
+            <label class="mp-switch" id="switch-hydro-wrap" title="Criticità idrogeologica/idraulica ufficiale del DPC (bollettino giornaliero). NON è un'allerta emessa da MeteoRisk.">
+                <input type="checkbox" id="switch-hydro" onchange="toggleHydroLayer(this.checked)">
+                <span class="mp-knob"></span>
+                <span class="mp-label">Criticità DPC</span>
+            </label>
+            <label class="mp-select" id="hydro-risk-wrap" title="Rischio da colorare: i tre rischi del bollettino restano SEPARATI (nessuna somma in un indice unico)">
+                <span class="mp-label">Rischio</span>
+                <select id="hydro-risk-select" onchange="hydroSetRisk(this.value)">
+                    <option value="hydrogeological">Idrogeol.</option>
+                    <option value="hydraulic">Idraulico</option>
+                    <option value="thunderstorm">Temporali</option>
+                </select>
             </label>
         </div>
         <!-- Preloader satellite + fulmini -->
@@ -2690,9 +2789,17 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.85';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.86';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-13';
     const APP_CHANGELOG = [
+        { version: '1.2.4.86', date: '2026-11-13', changes: [
+  "CRITICITA' DPC IN MAPPA= Nuovo layer SEPARATO dalla precipitazione prevista dal modello: lo switch 'Criticità DPC' sta nel gruppo degli altri layer meteo (.map-corner-switches), è spento per default e si carica solo alla prima accensione. Legge data/hydro/criticality.json, decodifica la griglia TopoJSON (ring piatti con delta interi: lon = x*scale[0]+translate[0], lat = y*scale[1]+translate[1]) e disegna le zone in un L.geoJSON nel pane 'hydroPane' (z-index 450: sopra i poligoni provinciali a 400, sotto i marker a 600). Il layer non esisteva nell'html della 1.2.4.85: il patch è additivo tranne la riga di #leaflet-map, che ora ospita il pannello nell'angolo della mappa.",
+  "TRE RISCHI SEPARATI, QUATTRO LIVELLI= Il selettore 'Rischio' sceglie QUALE rischio colorare (idrogeologico, idraulico, temporali) e non ne somma nessuno in un indice unico. I quattro livelli sono quelli ufficiali del bollettino (nessuna, gialla, arancione, rossa) e i colori sono quelli dello style JSON del DPC (#90c985, #f8f865, #f0bf01, #fd6767): nessun colore inventato dal client. La legenda ha 4 righe con il conteggio delle zone del rischio selezionato; il popup di ogni zona mostra i tre rischi separati con il numero di comuni della zona.",
+  "ATTRIBUZIONE E DISCLAIMER= Il pannello porta l'attribuzione 'Fonte: Dipartimento della Protezione Civile — licenza CC BY 4.0' e la frase che la criticità è PREVISTA dal DPC e non è un'allerta emessa da MeteoRisk. L'attribuzione sta nel pannello visibile, non solo nel popup.",
+  "DEGRADO DICHIARATO= Se il bollettino è stale o valid_date non è la data odierna a Roma (Europe/Rome) il layer non disegna nulla e il pannello scrive il motivo con la data dell'ultimo bollettino disponibile; se il file manca, risponde un errore HTTP o il formato non è riconosciuto, il pannello scrive 'Dato non disponibile: <motivo>'. Nessuno stato inventato e nessuna zona disegnata con un bollettino vecchio.",
+  "MISURE= Edge headless CDP, 1440x900 e 390x844: switch ON -> 187 zone disegnate nel pane hydroPane (258 poligoni componenti nel dato), legenda con i conteggi del bollettino (idrogeologico 126/44/17/0, idraulico 152/29/6/0, temporali 167/20/0/0), 0 eccezioni JS, 0 overflow orizzontale; switch OFF -> 0 zone disegnate; data/hydro/criticality.json bloccato via rete -> 0 zone, messaggio con il motivo, 0 eccezioni. node --check 9/9 blocchi inline (gli 8 della 1.2.4.85 + il blocco del layer), test_html_js_syntax.py 1 passed, suite .mjs 28 file.",
+  "BUMP= html mri-light-1.2.4.86.html (patch hydro-layer-1.2.4.85.diff applicato strict, 4 hunk, fuzz 0: 2.803.542 byte, sha256 0f29026b274b9df14117ce0d517a98c947760fbaa863651a4b88d4519769efb0 prima del bump), VERSION (BUILD=86, DATE=2026-11-13, APP_FILE=mri-light-1.2.4.86.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.86), README.md, i 26 test .mjs col nome del file html in entrambe le forme, le righe cp dei 3 workflow (deploy-pages, radar-engine, update-weather-data); la 1.2.4.85 va RIMOSSA dal repo (una sola app servita da Pages). NON toccati: scripts/ (motore radar, renderer, scripts/hydro/fetch_criticality.py, dataset) e il resto dell'html."
+        ] },
         { version: '1.2.4.85', date: '2026-11-13', changes: [
   "CELLE TRACCIATE IN MAPPA= Nuovo layer client che disegna TUTTI i track di cella di data/radar/tracks.json (65 nel payload di riferimento), non solo le strutture organizzate di convective_structures.json (1 nello stesso run). Marcatori PICCOLI su un canvas unico nel pane 'cellsPane' (z 548, sotto i pennant delle strutture a 550): un cerchio per track, raggio 4,5 px, colore = riflettività MASSIMA del track a gradini (<30 azzurro, 30-40 verde, 40-50 ambra, >=50 rosso), bordo scuro per contrasto. Nessun marker DOM per cella, nessun ritaglio: si disegnano tutte, anche quelle fuori dal riquadro visibile (il canvas le ritaglia senza scartarle). Popup al click e tooltip all'hover con 'cella #ID · max_dbz dBZ · area km² · moto X km/h verso DIR (oppure moto non determinabile) · N frame · età'. Nessuna parola rotazione/mesociclone/supercella/allerta.",
   "CONTESTO NWP NEL POPUP, MAI UN FILTRO= Ogni popup aggiunge una riga di contesto previsionale calcolata dal client sui dati GIA' in memoria (provinceSamplePoints + rawPointStores del dataset data/latest/meteorisk-points.json: zero richieste nuove). Punto di previsione più vicino entro 40 km: se ha daily.precipitation_sum > 1 mm o weathercode 80-99 scrive 'contesto NWP: pioggia prevista X mm, CAPE Y J/kg (modello, non osservato) · punto a Z km'; se è asciutto 'contesto NWP: nessuna precipitazione prevista (punto a Z km; modello, non osservato)'; se non c'è nessun punto entro 40 km 'nessun punto di previsione entro 40 km (mare o fuori copertura; modello, non osservato)'; senza dataset 'contesto NWP: non disponibile'. Il contesto NON decide chi disegnare, non ordina, non taglia, non cambia colore o dimensione: la colorazione resta per dBZ.",
@@ -33231,6 +33338,292 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
     document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') hidePop(); });
     window.addEventListener('resize', hidePop);
     window.addEventListener('scroll', hidePop, { passive: true });
+})();
+</script>
+<script>
+/* ==== 1.2.4.85 - LAYER "CRITICITA' IDROGEOLOGICA/IDRAULICA UFFICIALE" (DPC) ====
+   Cosa e': un layer SEPARATO dalla precipitazione prevista dal modello. Mostra
+   i livelli del bollettino giornaliero del Dipartimento della Protezione
+   Civile (data/hydro/criticality.json, prodotto da
+   scripts/hydro/fetch_criticality.py).
+   Regole:
+     - i tre rischi del bollettino (idrogeologico, idraulico, temporali) sono
+       indipendenti e restano SEPARATI: il selettore sceglie QUALE rischio
+       colorare, non ne somma nessuno;
+     - i 4 livelli sono quelli ufficiali (nessuna/gialla/arancione/rossa) e i
+       colori sono quelli dello style JSON del DPC;
+     - se il bollettino manca o non copre la data odierna il layer NON si
+       disegna e il pannello scrive il motivo con la data dell'ultimo
+       bollettino disponibile: nessuno stato inventato;
+     - attribuzione obbligatoria (CC BY 4.0) visibile nel pannello.
+   Il layer e' spento per default e si carica solo alla prima accensione. */
+(function () {
+    'use strict';
+    var HYDRO_URL = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/main/data/hydro/criticality.json';
+    var HYDRO_SCHEMA = 'meteorisk.hydro.criticality/1';
+    /* Colori ufficiali del bollettino (style JSON DPC), non scelti dal client. */
+    var HYDRO_COLORS = { none: '#90c985', yellow: '#f8f865', orange: '#f0bf01', red: '#fd6767', unknown: '#94a3b8' };
+    var HYDRO_LABELS = { none: 'Nessuna', yellow: 'Gialla', orange: 'Arancione', red: 'Rossa', unknown: 'Non definita' };
+    var HYDRO_RISKS = [
+        { key: 'hydrogeological', label: 'idrogeologico', short: 'Idrogeologico' },
+        { key: 'hydraulic', label: 'idraulico', short: 'Idraulico' },
+        { key: 'thunderstorm', label: 'temporali', short: 'Temporali' }
+    ];
+    var st = { loading: false, loaded: false, doc: null, error: null, risk: 'hydrogeological', layer: null };
+
+    function byId(id) { return document.getElementById(id); }
+    function mapReady() {
+        try { return !!(window.L && typeof map !== 'undefined' && map && typeof map.addLayer === 'function'); }
+        catch (e) { return false; }
+    }
+    /* Data odierna a Roma: serve a NON disegnare un bollettino di ieri come se
+       fosse di oggi. Il file dichiara `valid_date`: se non e' oggi il layer
+       resta spento e il pannello scrive quale bollettino c'e'. */
+    function romeToday() {
+        try {
+            return new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
+        } catch (e) {
+            return null;
+        }
+    }
+    function dayMismatch() {
+        if (!st.doc) { return false; }
+        var t = romeToday();
+        return !!(t && st.doc.valid_date && st.doc.valid_date !== t);
+    }
+    function zonesForDisplay() {
+        if (!st.doc || st.doc.stale || dayMismatch()) { return []; }
+        return st.doc.zones || [];
+    }
+    function esc(v) {
+        return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function riskLabel(key) {
+        for (var i = 0; i < HYDRO_RISKS.length; i++) { if (HYDRO_RISKS[i].key === key) { return HYDRO_RISKS[i].label; } }
+        return 'idrogeologico';
+    }
+
+    /* Griglia TopoJSON (interi, delta per anello) -> [lon, lat] GeoJSON.
+       Il formato e' dichiarato in geometry.encoding del file dati:
+       lon = x*scale[0]+translate[0], lat = y*scale[1]+translate[1].
+       NOTA: L.geoJSON vuole [lon, lat] e converte da solo in LatLng. */
+    function decodeRing(flat, scale, translate) {
+        var pts = [], x = 0, y = 0, i;
+        for (i = 0; i + 1 < flat.length; i += 2) {
+            x += flat[i];
+            y += flat[i + 1];
+            pts.push([x * scale[0] + translate[0], y * scale[1] + translate[1]]);
+        }
+        return pts;
+    }
+
+    function toFeature(zone, geom) {
+        var polys = [], p, r, rings;
+        for (p = 0; p < zone.polygons.length; p++) {
+            rings = [];
+            for (r = 0; r < zone.polygons[p].length; r++) {
+                rings.push(decodeRing(zone.polygons[p][r], geom.scale, geom.translate));
+            }
+            polys.push(rings);
+        }
+        return {
+            type: 'Feature',
+            properties: {
+                name: zone.name,
+                levels: zone.levels,
+                comuni_count: zone.comuni_count,
+                dpc_map_class: zone.dpc_map_class
+            },
+            geometry: polys.length === 1
+                ? { type: 'Polygon', coordinates: polys[0] }
+                : { type: 'MultiPolygon', coordinates: polys }
+        };
+    }
+
+    function styleFor(feature) {
+        var code = (feature && feature.properties && feature.properties.levels)
+            ? (feature.properties.levels[st.risk] || 'unknown') : 'unknown';
+        /* "nessuna" resta visibile ma molto tenue: il verde pieno del DPC
+           coprirebbe l'intera mappa. La legenda dichiara il livello. */
+        var fillOpacity = code === 'none' ? 0.12 : (code === 'unknown' ? 0.18 : 0.5);
+        return {
+            pane: 'hydroPane',
+            className: 'hydro-zone',
+            color: 'rgba(15,23,42,0.75)',
+            weight: 0.7,
+            opacity: 0.9,
+            fillColor: HYDRO_COLORS[code] || HYDRO_COLORS.unknown,
+            fillOpacity: fillOpacity
+        };
+    }
+
+    function ensurePane() {
+        if (!mapReady()) { return false; }
+        if (!map.getPane('hydroPane')) {
+            var pane = map.createPane('hydroPane');
+            pane.style.zIndex = 450; /* sopra i poligoni provinciali (400), sotto i marker (600) */
+        }
+        return true;
+    }
+
+    function popupHtml(props) {
+        var out = '<div class="hydro-pop"><div class="hydro-pop-title">' + esc(props.name) + '</div>', i, code;
+        for (i = 0; i < HYDRO_RISKS.length; i++) {
+            code = (props.levels && props.levels[HYDRO_RISKS[i].key]) || 'unknown';
+            out += '<div class="hydro-pop-row"><span class="hydro-chip" style="background:' +
+                (HYDRO_COLORS[code] || HYDRO_COLORS.unknown) + '"></span><span>' + HYDRO_RISKS[i].short +
+                '</span><span class="hydro-pop-n">' + (HYDRO_LABELS[code] || HYDRO_LABELS.unknown) + '</span></div>';
+        }
+        out += '<div class="hydro-pop-note">' + (props.comuni_count || 0) +
+            ' comuni nella zona &middot; livelli ufficiali DPC (bollettino, non allerta MeteoRisk)</div></div>';
+        return out;
+    }
+
+    function draw() {
+        if (!ensurePane()) { return; }
+        if (!st.layer) {
+            st.layer = window.L.geoJSON(null, {
+                pane: 'hydroPane',
+                style: styleFor,
+                onEachFeature: function (feature, lyr) {
+                    lyr.on('click', function (ev) {
+                        window.L.popup({ className: 'hydro-pop-wrap', maxWidth: 280 })
+                            .setLatLng(ev.latlng).setContent(popupHtml(feature.properties)).openOn(map);
+                    });
+                    lyr.bindTooltip(feature.properties.name, { direction: 'auto', sticky: true });
+                }
+            });
+        }
+        st.layer.clearLayers();
+        var zones = zonesForDisplay();
+        if (zones.length) {
+            var features = [], i;
+            for (i = 0; i < zones.length; i++) { features.push(toFeature(zones[i], st.doc.geometry)); }
+            st.layer.addData({ type: 'FeatureCollection', features: features });
+            if (!map.hasLayer(st.layer)) { map.addLayer(st.layer); }
+        } else if (map.hasLayer(st.layer)) {
+            map.removeLayer(st.layer);
+        }
+    }
+
+    function renderPanel() {
+        var panel = byId('hydro-panel');
+        if (!panel) { return; }
+        var title = byId('hydro-panel-title');
+        if (title) { title.textContent = 'Criticità DPC — rischio ' + riskLabel(st.risk); }
+        var bul = byId('hydro-bulletin');
+        if (bul) {
+            bul.textContent = (st.doc && st.doc.source && st.doc.source.index_label) ? st.doc.source.index_label : '';
+        }
+        var legend = byId('hydro-legend');
+        var zones = zonesForDisplay();
+        if (legend) {
+            var codes = ['none', 'yellow', 'orange', 'red'], counts = {}, html = '', i, code;
+            for (i = 0; i < codes.length; i++) { counts[codes[i]] = 0; }
+            for (i = 0; i < zones.length; i++) {
+                code = (zones[i].levels && zones[i].levels[st.risk]) || 'unknown';
+                counts[code] = (counts[code] || 0) + 1;
+            }
+            for (i = 0; i < codes.length; i++) {
+                html += '<div class="hydro-row"><span class="hydro-chip" style="background:' + HYDRO_COLORS[codes[i]] +
+                    '"></span><span class="hydro-name">' + HYDRO_LABELS[codes[i]] + '</span><span class="hydro-n">' +
+                    (zones.length ? (counts[codes[i]] === 1 ? '1 zona' : counts[codes[i]] + ' zone') : '—') + '</span></div>';
+            }
+            legend.innerHTML = html;
+        }
+        var status = byId('hydro-status');
+        if (!status) { return; }
+        if (st.error) {
+            status.className = 'hydro-status hydro-bad';
+            status.textContent = 'Dato non disponibile: ' + st.error;
+        } else if (st.loading) {
+            status.className = 'hydro-status';
+            status.textContent = 'Caricamento bollettino DPC…';
+        } else if (st.doc && st.doc.stale) {
+            status.className = 'hydro-status hydro-bad';
+            status.textContent = st.doc.stale_reason || 'Bollettino non aggiornato.';
+        } else if (st.doc && dayMismatch()) {
+            status.className = 'hydro-status hydro-bad';
+            status.textContent = 'Bollettino del ' + st.doc.valid_date + ' non aggiornato per oggi (' + romeToday() +
+                '). Ultimo bollettino disponibile: ' +
+                ((st.doc.source && st.doc.source.index_label) || st.doc.valid_date) + '.';
+        } else if (st.doc) {
+            status.className = 'hydro-status';
+            status.textContent = 'Valido per il ' + st.doc.valid_date + ' · aggiornato ' + st.doc.generated_at + ' UTC';
+        } else {
+            status.className = 'hydro-status';
+            status.textContent = 'Bollettino non ancora caricato.';
+        }
+    }
+
+    function load(cb) {
+        if (st.loading) { return; }
+        if (st.loaded) { if (cb) { cb(); } return; }
+        if (typeof window.fetch !== 'function') {
+            st.error = 'fetch non disponibile in questo browser';
+            renderPanel();
+            return;
+        }
+        st.loading = true;
+        st.error = null;
+        renderPanel();
+        window.fetch(HYDRO_URL, { cache: 'no-store' }).then(function (res) {
+            if (!res.ok) { throw new Error('HTTP ' + res.status + ' sul file del bollettino'); }
+            return res.json();
+        }).then(function (doc) {
+            if (!doc || doc.schema !== HYDRO_SCHEMA) { throw new Error('formato del bollettino non riconosciuto'); }
+            if (!(doc.zones instanceof Array)) { throw new Error('bollettino senza elenco zone'); }
+            st.doc = doc;
+            st.loaded = true;
+            st.loading = false;
+            renderPanel();
+            draw();
+            if (cb) { cb(); }
+        })['catch'](function (err) {
+            st.loading = false;
+            st.error = (err && err.message) ? err.message : 'errore di rete';
+            renderPanel();
+        });
+    }
+
+    window.toggleHydroLayer = function (on) {
+        var cb = byId('switch-hydro');
+        if (cb && cb.checked !== !!on) { cb.checked = !!on; }
+        var panel = byId('hydro-panel');
+        var wrap = byId('hydro-risk-wrap');
+        if (!on) {
+            if (panel) { panel.hidden = true; }
+            if (wrap) { wrap.style.display = 'none'; }
+            if (st.layer && mapReady() && map.hasLayer(st.layer)) { map.removeLayer(st.layer); }
+            return;
+        }
+        if (panel) { panel.hidden = false; }
+        renderPanel();
+        if (!mapReady()) {
+            st.error = 'mappa non pronta (Leaflet non caricato)';
+            renderPanel();
+            return;
+        }
+        load(function () {
+            var showRisk = zonesForDisplay().length > 0;
+            if (wrap) { wrap.style.display = showRisk ? 'inline-flex' : 'none'; }
+        });
+    };
+
+    window.hydroSetRisk = function (key) {
+        st.risk = key;
+        renderPanel();
+        if (st.layer) { st.layer.setStyle(styleFor); }
+    };
+
+    window.hydroReload = function () {
+        st.loaded = false;
+        st.error = null;
+        st.doc = null;
+        if (st.layer) { st.layer.clearLayers(); }
+        load(function () {});
+    };
 })();
 </script>
 </body>
