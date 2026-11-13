@@ -342,3 +342,97 @@ jobs:
               echo "⚠️ Pipeline non completata senza nuovo dataset pubblicato (dettagli nei log sopra)."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # ==========================================================================
+  # CRITICITA' IDROGEOLOGICA / IDRAULICA UFFICIALE (DPC) - 1.2.4.85
+  # --------------------------------------------------------------------------
+  # Job SEPARATO dal pipeline meteo: non tocca data/latest, data/geography ne'
+  # il deploy Pages, e non legge nulla di quei passi.
+  #
+  # Cadenza: il bollettino DPC esce UNA volta al giorno (misurato il 2026-11-13
+  # sugli ultimi 14 giorni: commit su `master` fra 13:23 e 16:10 UTC; l'ora nel
+  # nome del file e' quella del bollettino, non quella di pubblicazione). Il
+  # workflow gira ogni ~20 minuti, quindi e' lo script a fare da gate:
+  #   --if-stale  -> fuori dalla finestra 12:30-20:30 UTC non fa NESSUNA
+  #                  richiesta e lascia il file com'era (exit 0 dichiarato).
+  #   indice invariato -> nessuna scrittura (exit 0 "nessun cambio").
+  # Costo di rete: 3 richieste API + 1 indice + 1 TopoJSON per aggiornamento.
+  #
+  # UNICO SCRITTORE: solo questo job scrive data/hydro/ (nessun altro workflow
+  # tocca la cartella: evita il lost-update).
+  #
+  # Dato: pcm-dpc/DPC-Bollettini-Criticita-Idrogeologica-Idraulica (CC BY 4.0,
+  # attribuzione "Dipartimento della Protezione Civile"). Livelli ufficiali
+  # copiati, MAI convertiti in soglie MeteoRisk ne' sommati fra rischi.
+  # ==========================================================================
+  hydro-criticality:
+    runs-on: ubuntu-latest
+    concurrency:
+      queue: max
+      group: hydro-criticality
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # continue-on-error: un guasto del DPC (o un 429) NON deve colorare di
+      # rosso un workflow che pubblica anche il meteo; il file precedente resta
+      # valido e il motivo finisce nel summary (nessun errore silenzioso).
+      - name: Fetch criticita' DPC (giornaliero, gated)
+        id: hydro
+        continue-on-error: true
+        run: |
+          time python scripts/hydro/fetch_criticality.py \
+            --out data/hydro/criticality.json \
+            --if-stale
+
+      - name: Commit data/hydro/ (solo se cambiato)
+        if: steps.hydro.outcome == 'success'
+        run: |
+          git config user.name "meteorisk-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/hydro
+          if git diff --cached --quiet; then
+            echo "[INFO] data/hydro/criticality.json invariato."
+          else
+            git commit -m "chore(hydro): criticita' DPC ufficiale (data/hydro/criticality.json)"
+            # stessa protezione dalla race degli altri commit su main
+            # (radar-engine pusha ogni ~5 min): rebase + retry.
+            push_ok=0
+            for i in 1 2 3 4 5; do
+              if git pull --rebase --autostash origin main && git push origin main; then
+                push_ok=1
+                break
+              fi
+              echo "[WARN] Push hydro rifiutato (race su main) - tentativo $i/5"
+              if [ "$i" -lt 5 ]; then sleep 5; fi
+            done
+            if [ "$push_ok" -ne 1 ]; then
+              echo "[ERROR] Push hydro non riuscito dopo 5 tentativi (race con altri workflow su main)"
+              exit 1
+            fi
+          fi
+
+      - name: Summary criticita' DPC (sempre eseguito)
+        if: always()
+        run: |
+          {
+            echo "## Criticita' DPC - layer idrogeologico/idraulico"
+            echo ""
+            if [ "${{ steps.hydro.outcome }}" = "success" ]; then
+              echo "**Fetch:** ok (fuori finestra o nessun cambio = exit 0 dichiarato nei log)."
+              if [ -f data/hydro/criticality.json ]; then
+                python -c 'import json;d=json.load(open("data/hydro/criticality.json",encoding="utf-8"));s=d.get("source",{});g=d.get("geometry",{}).get("simplify",{});print("**Bollettino:** `%s` - valido `%s` - stale `%s`" % (s.get("index_name"),d.get("valid_date"),d.get("stale")));print("**Zone:** %d - vertici %s -> %s" % (len(d.get("zones",[])),g.get("vertices_before"),g.get("vertices_after")))'
+              fi
+            else
+              echo "**Fetch fallito:** file precedente conservato, nessun commit."
+              echo "Controllare i log dello step (rete/API GitHub o formato DPC cambiato)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
