@@ -6,14 +6,21 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.89
+## Versione attiva: 1.2.4.90
 
-- File applicativo: `mri-light-1.2.4.89.html` (`APP_VERSION = '1.2.4.89'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.89', date: '2026-11-13' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.89'`, `TILE_CACHE = 'mri-tiles-1.2.4.89'`,
-  `FRAME_CACHE = 'mri-frames-1.2.4.89'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.90.html` (`APP_VERSION = '1.2.4.90'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.90', date: '2026-11-13' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.90'`, `TILE_CACHE = 'mri-tiles-1.2.4.90'`,
+  `FRAME_CACHE = 'mri-frames-1.2.4.90'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
+- Contenuto della 1.2.4.90 (release sopra la 1.2.4.89) - **accumulo osservato dell'ultima ora (SRT1, Radar-DPC) nella linguetta Aree**. Solo client: nessuna modifica a `scripts/`, dataset, renderer o motore radar; le due sorgenti erano gia' pubblicate e nessuna parte della UI le usava.
+  - **Il blocco**: `#acc-card` dentro `#fc-pane-aree` di `#forecast-details`, sotto la sintesi delle 6 macro-aree. Per ognuna delle 6 aree una riga con nome, `p50` e `max` in mm e una barra orizzontale su **scala fissa 0-30 mm** dichiarata a schermo (oltre 30 mm satura); intestazione con `valid_time` (`HH:MM UTC`), `window_h` e stato dell'eta' del file (`aggiornato N min fa`).
+  - **Attribuzione e validazione**: riga esatta `Fonte: Radar-DPC SRT1 - Dipartimento della Protezione Civile, CC BY-SA 4.0`; riga `Accordo con le centraline: MAE <x> mm - n=<y>` con i numeri da `metrics` di `data/radar/accumulation_validation.json` (fallback ai campi `validation` di `accumulation.json`), sottoinsieme a finestra esatta 1 h quando `n > 0`, e nota in corsivo che SRT1 integra gia' una rete pluviometrica a terra.
+  - **Solo millimetri**: nessuna soglia, nessun colore o parola di pericolo nel blocco.
+  - **Degrado dichiarato**: 404 -> `Accumulo non disponibile (file mancante)`; rete fallita -> `Accumulo non disponibile (lettura non riuscita)`; JSON illeggibile -> `formato non leggibile`; file piu' vecchio di 30 minuti -> dati visibili con badge ambra `dato di N minuti fa`. Zero eccezioni in tutti i casi.
+  - **Una richiesta per sessione**: due richieste in tutto (una per file), avviate alla prima apertura della linguetta Aree e messe in cache in memoria (`accLoadPromise`/`accState`), nessun polling.
+  - **Misure (Edge headless CDP 157.0.4341.46, viewport esatto 1440x900 e 390x844)**: 6/6 aree con p50 e max identici al JSON e barre 2,3/73,2/66,1/75,5/0,0/7,9% sulla scala 0-30 mm; 2 richieste in tutta la sessione; 0 eccezioni JS e 0 `console.error` in 8 scenari; 0 overflow (documento 1440/1440 e 390/390, blocco 340/340 e 326/326, 0 elementi con scroll orizzontale interno); linguette Provincia e 7 giorni con lo stesso testo della 1.2.4.89 (917 e 1271 caratteri, 0 differenze); con Provincia attiva il blocco ha altezza 0 e `offsetParent` null.
 - Contenuto della 1.2.4.89 (release sopra la 1.2.4.88) - **mesociclone ripristinato come etichetta e visibile solo in Sviluppo**. Solo client: nessuna modifica a `scripts/`, dataset, renderer, motore radar o al calcolo (`assessConvOrg` resta `level = o.meso ? 5 : 3`, `detectMesocyclone` e `calcSCPimproved` invariati).
   - **Etichetta Mesociclone**: dove `detectMesocyclone` e' vero la categoria livello 5 torna a chiamarsi `Mesociclone` in `riskR2Reason`, `riskComponentLabel`, `RISK_DEFS` (`mesoLabel`/`mesoTitle`), `riskLevelLine`, `riskLevelImpact`, riepilogo e legenda. Il testo dichiara sempre che e' un ambiente **previsto**, non osservato.
   - **Gate Sviluppo sul livello 5**: con Sviluppo OFF il livello mostrato e' cappato a 4 (rosso) in `getMetricValue` case `risk`, in `zoneRiskComponents`, nell'override di `computeAggregateForStore` e nel badge; la voce di legenda viola e' nascosta, le note statiche e la guida sono condizionate e la parola `mesociclone` non compare nel testo visibile (0 occorrenze misurate in legenda, legenda badge, guida, tooltip, riepilogo e `body.innerText`). Con Sviluppo ON il viola torna, la legenda riporta `Mesociclone` e il riepilogo dice `Mesociclone`.

@@ -1707,6 +1707,34 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .fc-pane .tds-card, .fc-pane .wk-card, .fc-pane .italia-synth { border: 0; background: transparent; padding: 0; border-radius: 0; min-height: 0; }
         .fc-pane .italia-synth .is-cols { grid-template-columns: 1fr; }
         .fc-pane .is-note { margin-top: 8px; }
+        /* === 1.2.4.90 - ACCUMULO OSSERVATO ULTIMA ORA (SRT1, Radar-DPC) ===
+           Blocco nella linguetta Aree di #forecast-details. Scala delle barre FISSA
+           0-30 mm, dichiarata a schermo (oltre 30 mm satura). Solo millimetri e
+           statistica: nessuna soglia e nessuna etichetta di pericolo. Layout a flex
+           con wrap: nessun overflow orizzontale, nessuno scroll orizzontale interno. */
+        .acc-card { min-width: 0; margin-top: 12px; padding-top: 10px; border-top: 1px solid #334155; box-sizing: border-box; }
+        .acc-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px 10px; flex-wrap: wrap; min-width: 0; }
+        .acc-title { font-size: 13px; font-weight: 700; color: #e2e8f0; }
+        .acc-badge { font-size: 11px; color: #94a3b8; }
+        .acc-badge.is-stale { color: #fbbf24; font-weight: 600; }
+        .acc-meta { margin: 3px 0 8px 0; font-size: 10.5px; line-height: 1.35; color: #94a3b8; overflow-wrap: anywhere; }
+        .acc-rows { display: grid; grid-template-columns: minmax(0, max-content) minmax(44px, 1fr) auto; column-gap: 8px; row-gap: 5px; align-items: center; min-width: 0; }
+        .acc-row { display: contents; }
+        .acc-name { font-size: 11px; font-weight: 700; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .acc-bar { height: 8px; box-sizing: border-box; background: #0b1220; border: 1px solid #334155; border-radius: 4px; overflow: hidden; }
+        .acc-bar > i { display: block; height: 100%; background: #38bdf8; border-radius: 3px; }
+        .acc-nums { font-size: 10.5px; color: #cbd5e1; white-space: nowrap; font-variant-numeric: tabular-nums; text-align: right; }
+        .acc-nums b { color: #7dd3fc; }
+        .acc-val { margin-top: 9px; font-size: 11px; line-height: 1.35; color: #cbd5e1; overflow-wrap: anywhere; }
+        .acc-note { margin: 3px 0 0 0; font-size: 10.5px; line-height: 1.35; color: #94a3b8; font-style: italic; }
+        .acc-exact { margin: 3px 0 0 0; font-size: 10px; line-height: 1.35; color: #64748b; }
+        .acc-attr { margin-top: 8px; font-size: 10px; line-height: 1.35; color: #94a3b8; overflow-wrap: anywhere; }
+        .acc-msg { font-size: 11px; line-height: 1.35; color: #cbd5e1; }
+        @media (max-width: 600px) {
+            .acc-title { font-size: 12px; }
+            .acc-name { font-size: 10.5px; }
+            .acc-nums { font-size: 10px; }
+        }
         @media (max-width: 600px) {
             .forecast-details > summary { padding: 8px; }
             .fc-summary-label { font-size: 11px; }
@@ -2651,6 +2679,24 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                         <div class="is-cols" id="italia-synth-cols"></div>
                         <p class="is-note"><b>Sintesi dei punti provincia del dataset, non di un campo continuo.</b> Temperature per fascia altimetrica: pianura &lt;300 m, collina 300-800 m, montagna &gt;800 m; le fasce con meno di tre province sono omesse; una provincia può contribuire a più fasce. Fasce orarie 0-6, 6-12, 12-18, 18-24; mm eq. = equivalente acqua. Cielo dalla copertura nuvolosa reale (cloud_cover); neve solo con equivalente acqua &gt; 0 nelle 24 h; raffiche p50-p90, punte oltre 100 km/h solo se p99 &ge; 100; nessun toponimo nel testo, i nomi restano nei tooltip. Soglie: pioggia debole &le; 14,5 mm (p75), diffusa &le; 39,3 (p90), intensa oltre; rovesci quando la maggioranza dei punti bagnati ha un&rsquo;ora 80-82/95-96/99 e il massimo supera 14,5 mm; quota neve = freezing level &minus; 500 m, &plusmn;300 m.</p>
                     </div>
+                    <!-- 1.2.4.90 - ACCUMULO OSSERVATO ULTIMA ORA (SRT1, Radar-DPC).
+                         Il corpo resta nascosto finche' il JSON non e' leggibile: ogni
+                         valore e ogni statistica arrivano dal file, niente costanti. -->
+                    <div class="acc-card" id="acc-card">
+                        <div class="acc-head">
+                            <span class="acc-title">Accumulo ultima ora</span>
+                            <span class="acc-badge" id="acc-badge">in caricamento&hellip;</span>
+                        </div>
+                        <div id="acc-body" hidden>
+                            <div class="acc-meta" id="acc-meta"></div>
+                            <div class="acc-rows" id="acc-rows"></div>
+                            <div class="acc-val" id="acc-val"></div>
+                            <p class="acc-note">SRT1 integra gi&agrave; una rete pluviometrica a terra: il confronto non &egrave; del tutto indipendente.</p>
+                            <div class="acc-exact" id="acc-exact" hidden></div>
+                            <div class="acc-attr" id="acc-attr">Fonte: Radar-DPC SRT1 &mdash; Dipartimento della Protezione Civile, CC BY-SA 4.0</div>
+                        </div>
+                        <div class="acc-msg" id="acc-msg" role="status" hidden></div>
+                    </div>
                 </div>
                 <div class="fc-pane" id="fc-pane-settimana" role="tabpanel" aria-labelledby="fc-tab-settimana" hidden>
                     <div class="wk-card" id="weekly-summary" aria-label="Prossimi 7 giorni">
@@ -2801,9 +2847,20 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.89';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.90';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-13';
     const APP_CHANGELOG = [
+        { version: '1.2.4.90', date: '2026-11-13', changes: [
+  "ACCUMULO ULTIMA ORA NELLA LINGUETTA AREE= Nuovo blocco #acc-card dentro #forecast-details (linguetta Aree, sotto la sintesi delle 6 macro-aree). Per ognuna delle 6 aree una riga con nome, p50 e max in mm e una barra orizzontale su scala FISSA 0-30 mm, dichiarata a schermo: oltre 30 mm la barra satura. Intestazione con valid_time, finestra in ore e stato dell'eta' del file.",
+  "DATI DAL FILE, NON DAL CLIENT= Legge data/radar/accumulation.json e data/radar/accumulation_validation.json, gia' pubblicati dal motore radar e finora non usati da nessuna parte della UI. Ogni numero mostrato (p50, max, MAE, n) viene dal JSON; nessuna costante nel codice tranne la scala 0-30 mm e la soglia di eta' a 30 minuti.",
+  "ATTRIBUZIONE ESATTA= Nel blocco, riga visibile: Fonte: Radar-DPC SRT1 - Dipartimento della Protezione Civile, CC BY-SA 4.0. Riga di validazione con MAE e n da metrics (mae_mm, n) e sottoinsieme a finestra esatta 1 h quando n > 0; se il file di validazione manca si usano i campi validation di accumulation.json. Nota in corsivo: SRT1 integra gia' una rete pluviometrica a terra, il confronto non e' del tutto indipendente.",
+  "SOLO MILLIMETRI= Nessuna soglia, nessun colore o parola di pericolo nel blocco: nome, p50, max, barra, statistica di confronto e attribuzione.",
+  "DEGRADO DICHIARATO= File mancante o 404: il corpo non si mostra e la riga scrive Accumulo non disponibile (file mancante); lettura di rete fallita: Accumulo non disponibile (lettura non riuscita); JSON illeggibile: Accumulo non disponibile (formato non leggibile); file piu' vecchio di 30 minuti: i dati restano visibili con il badge 'dato di N minuti fa'. Zero eccezioni in tutti i casi.",
+  "UNA RICHIESTA PER SESSIONE= Due richieste in tutto (una per file), avviate alla prima apertura della linguetta Aree e messe in cache in memoria (accLoadPromise/accState): nessun polling, nessun timer, nessun retry periodico.",
+  "MOBILE= A 390x844 le righe sono una griglia con nome, barra flessibile con minimo 44 px e valori su una riga: nessun overflow orizzontale e nessuno scroll orizzontale interno al blocco. A 600 px e sotto i tipi scendono di 1 px.",
+  "MISURE (Edge headless CDP 157.0.4341.46, viewport esatto via Emulation.setDeviceMetricsOverride, 1440x900 e 390x844)= 6/6 aree con p50 e max identici al JSON e barre 2,3/73,2/66,1/75,5/0,0/7,9% sulla scala 0-30 mm; 2 richieste in tutta la sessione (una per file, nessuna dopo il giro completo delle linguette); 0 eccezioni JS e 0 console.error in 8 scenari; 0 overflow (documento 1440/1440 e 390/390, blocco 340/340 e 326/326, 0 elementi con scroll orizzontale interno); le linguette Provincia e 7 giorni hanno lo stesso testo della 1.2.4.89 (917 e 1271 caratteri, 0 differenze); con la linguetta Provincia attiva il blocco ha altezza 0 e offsetParent null (vive solo in Aree). Degrado: 404 -> 'Accumulo non disponibile (file mancante)', rete bloccata -> 'Accumulo non disponibile (lettura non riuscita)', generated_at a -45 minuti -> badge ambra 'dato di 45 minuti fa' con i 6 dati visibili; 0 eccezioni in tutti e tre i casi.",
+  "BUMP= html mri-light-1.2.4.90.html, VERSION (BUILD=90, DATE=2026-11-13, APP_FILE=mri-light-1.2.4.90.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.90), README.md, i 26 test .mjs col nome del file html in entrambe le forme; la 1.2.4.89 va RIMOSSA dal repo (una sola app servita da Pages). NON toccati: scripts/, dataset, renderer, motore radar, le altre linguette del pannello (Provincia, 7 giorni)."
+        ] },
         { version: '1.2.4.89', date: '2026-11-13', changes: [
   "MESOCICLONE RIPRISTINATO COME ETICHETTA, VISIBILE SOLO IN SVILUPPO= La categoria mesociclone (livello 5, viola) torna a chiamarsi con il suo nome dove detectMesocyclone e' vero: riskR2Reason, riskComponentLabel, RISK_DEFS (mesoLabel/mesoTitle), riskLevelLine, riskLevelImpact, riepilogo e legenda. Il calcolo NON e' stato toccato: assessConvOrg resta level = o.meso ? 5 : 3, detectMesocyclone e calcSCPimproved sono invariati. Con Sviluppo OFF il livello mostrato e' 4 (rosso) in getMetricValue case risk, in zoneRiskComponents (push R2), nell'override di computeAggregateForStore e nel badge; la voce di legenda e' nascosta, le note statiche e la guida sono condizionate e la parola mesociclone non compare nel testo visibile. Con Sviluppo ON il viola torna, la legenda riporta Mesociclone e il riepilogo dice Mesociclone.",
   "LA CACHE DUAL VA SVUOTATA AL CAMBIO DI SVILUPPO= La cache dualAggCache e' chiavata per provincia+giorno+ora ma non per modalita': senza invalidarla, dopo il passaggio a Sviluppo ON la provincia restava rossa e con il testo di OFF. Ora toggleSviluppo azzera dualAggCache (e modelStores.__dualAggCache) prima di updateMapColors, quindi il cap e le etichette si vedono subito in entrambe le direzioni.",
@@ -30041,6 +30098,7 @@ function renderContinuousOverlay() {
             if (active) active.focus();
         }
         fcWriteTab(name);
+        if (name === 'aree' && typeof accEnsureLoaded === 'function') accEnsureLoaded();
     }
 
     function fcInitTabs() {
@@ -32404,6 +32462,225 @@ syncSelect('lightning-source-select', [
         else if (!dry.length) s += 'pioggia su tutte le aree.';
         else s += 'pioggia su ' + wet.join(', ') + '; asciutto su ' + dry.join(', ') + '.';
         el.textContent = s;
+    }
+
+    // ============ 1.2.4.90 - ACCUMULO OSSERVATO ULTIMA ORA (SRT1, Radar-DPC) ============
+    // Solo client: legge due file GIA' pubblicati dal motore radar e finora non usati
+    // dalla UI. Una richiesta per file per sessione (cache in memoria, nessun polling,
+    // nessun timer). Scala delle barre FISSA 0-30 mm, dichiarata a schermo: oltre 30 mm
+    // la barra satura. Nessuna soglia e nessuna etichetta di pericolo: millimetri e
+    // statistica. Ogni valore mostrato viene dal JSON, nessun numero scritto a mano.
+    var ACC_URL = 'data/radar/accumulation.json';
+    var ACC_VAL_URL = 'data/radar/accumulation_validation.json';
+    var ACC_SCALE_MM = 30;
+    var ACC_STALE_MIN = 30;
+    var ACC_AREA_ORDER = ['Nord', 'Centro Tirreno', 'Centro Adriatico', 'Sud', 'Sicilia', 'Sardegna'];
+    var accState = { status: 'idle', data: null, val: null, ageMin: null, message: '' };
+    var accLoadStarted = false;
+    var accLoadPromise = null;
+
+    function accEsc(t) {
+        return String(t === null || t === undefined ? '' : t)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // Millimetri come nel JSON: fino a 3 decimali, zeri finali tolti, virgola italiana.
+    function accFmtMm(v) {
+        if (v === null || v === undefined || !isFinite(Number(v))) return 'n/d';
+        var s = Number(v).toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+        if (s === '-0' || s === '') s = '0';
+        return s.replace('.', ',');
+    }
+
+    function accFmtDec(v, d) {
+        if (v === null || v === undefined || !isFinite(Number(v))) return 'n/d';
+        return Number(v).toFixed(d).replace('.', ',');
+    }
+
+    function accAgeMinutes(iso) {
+        var t = Date.parse(String(iso || ''));
+        if (!isFinite(t)) return null;
+        var m = (Date.now() - t) / 60000;
+        if (!isFinite(m)) return null;
+        return Math.max(0, Math.round(m));
+    }
+
+    // Slot piu' recente del payload (il file puo' portarne piu' di uno).
+    function accSlotOf(payload) {
+        var slots = (payload && payload.slots && payload.slots.length) ? payload.slots : [];
+        var best = null, bestT = -Infinity;
+        for (var i = 0; i < slots.length; i++) {
+            var t = Date.parse(String(slots[i].valid_time || ''));
+            if (!isFinite(t)) t = (typeof slots[i].valid_time_ms === 'number') ? slots[i].valid_time_ms : -Infinity;
+            if (best === null || t >= bestT) { bestT = t; best = slots[i]; }
+        }
+        return best;
+    }
+
+    function accWindowText(slot, payload) {
+        var wh = null;
+        if (slot && typeof slot.window_h === 'number') wh = slot.window_h;
+        else if (payload && payload.product && typeof payload.product.window_h === 'number') wh = payload.product.window_h;
+        if (wh === null) return 'n/d';
+        return String(Math.round(wh * 100) / 100).replace('.', ',') + ' h';
+    }
+
+    function accValidText(iso) {
+        var t = Date.parse(String(iso || ''));
+        if (!isFinite(t)) return String(iso || 'n/d');
+        var d = new Date(t);
+        function p2(n) { return (n < 10 ? '0' : '') + n; }
+        return p2(d.getUTCHours()) + ':' + p2(d.getUTCMinutes()) + ' UTC';
+    }
+
+    function accAreaNames(slot) {
+        var out = [], seen = {}, i, k, areas = (slot && slot.areas) ? slot.areas : {};
+        for (i = 0; i < ACC_AREA_ORDER.length; i++) {
+            if (areas[ACC_AREA_ORDER[i]]) { out.push(ACC_AREA_ORDER[i]); seen[ACC_AREA_ORDER[i]] = true; }
+        }
+        var extra = [];
+        for (k in areas) { if (Object.prototype.hasOwnProperty.call(areas, k) && !seen[k]) extra.push(k); }
+        extra.sort();
+        return out.concat(extra);
+    }
+
+    function accRender() {
+        var card = document.getElementById('acc-card');
+        if (!card) return;
+        var badge = document.getElementById('acc-badge');
+        var body = document.getElementById('acc-body');
+        var msg = document.getElementById('acc-msg');
+        var meta = document.getElementById('acc-meta');
+        var rowsEl = document.getElementById('acc-rows');
+        var valEl = document.getElementById('acc-val');
+        var exactEl = document.getElementById('acc-exact');
+        var attrEl = document.getElementById('acc-attr');
+        var st = accState;
+        if (st.status === 'idle' || st.status === 'loading') {
+            if (badge) { badge.className = 'acc-badge'; badge.textContent = 'in caricamento\u2026'; }
+            if (body) body.hidden = true;
+            if (msg) msg.hidden = true;
+            return;
+        }
+        var slot = (st.status === 'ok') ? accSlotOf(st.data) : null;
+        if (!slot || !slot.areas) {
+            if (badge) { badge.className = 'acc-badge'; badge.textContent = ''; }
+            if (body) body.hidden = true;
+            if (msg) {
+                msg.hidden = false;
+                msg.textContent = st.message || 'Accumulo non disponibile (file mancante)';
+            }
+            return;
+        }
+        if (msg) { msg.hidden = true; msg.textContent = ''; }
+        if (body) body.hidden = false;
+        var ag = st.ageMin;
+        if (badge) {
+            if (ag === null) { badge.className = 'acc-badge'; badge.textContent = 'eta non verificabile'; }
+            else if (ag > ACC_STALE_MIN) { badge.className = 'acc-badge is-stale'; badge.textContent = 'dato di ' + ag + ' minuti fa'; }
+            else if (ag <= 0) { badge.className = 'acc-badge'; badge.textContent = 'aggiornato ora'; }
+            else { badge.className = 'acc-badge'; badge.textContent = 'aggiornato ' + ag + ' min fa'; }
+        }
+        if (meta) {
+            meta.textContent = 'Valido ' + accValidText(slot.valid_time) +
+                ' \u00B7 finestra ' + accWindowText(slot, st.data) +
+                ' \u00B7 scala barre 0-' + ACC_SCALE_MM + ' mm (oltre satura)';
+        }
+        var names = accAreaNames(slot);
+        var html = '';
+        for (var i = 0; i < names.length; i++) {
+            var name = names[i], a = slot.areas[name] || {};
+            var p50 = (a.p50_mm === null || a.p50_mm === undefined) ? null : Number(a.p50_mm);
+            var mx = (a.max_mm === null || a.max_mm === undefined) ? null : Number(a.max_mm);
+            var pct = (mx !== null && isFinite(mx)) ? Math.max(0, Math.min(100, mx / ACC_SCALE_MM * 100)) : 0;
+            var tip = name + ': p50 ' + accFmtMm(p50) + ' mm, max ' + accFmtMm(mx) + ' mm, media ' +
+                accFmtMm(a.mean_mm) + ' mm; pixel bagnati ' + (a.wet_px === undefined ? 'n/d' : a.wet_px) +
+                '/' + (a.valid_px === undefined ? 'n/d' : a.valid_px) + '; barra su scala 0-' + ACC_SCALE_MM + ' mm';
+            html += '<div class="acc-row">' +
+                '<span class="acc-name">' + accEsc(name) + '</span>' +
+                '<span class="acc-bar" title="' + accEsc(tip) + '"><i style="width:' + pct.toFixed(1) + '%"></i></span>' +
+                '<span class="acc-nums"><b>p50 ' + accFmtMm(p50) + '</b> \u00B7 max ' + accFmtMm(mx) + ' mm</span>' +
+                '</div>';
+        }
+        if (rowsEl) rowsEl.innerHTML = html;
+        var m = (st.val && st.val.metrics) ? st.val.metrics : null;
+        var n = (m && m.n !== null && m.n !== undefined) ? m.n : null;
+        var mae = (m && m.mae_mm !== null && m.mae_mm !== undefined) ? m.mae_mm : null;
+        if (n === null && st.data && st.data.validation) {
+            n = st.data.validation.n_pairs;
+            mae = st.data.validation.mae_mm;
+        }
+        if (valEl) {
+            if (n === null || mae === null || mae === undefined) {
+                valEl.textContent = 'Accordo con le centraline: dato non disponibile';
+            } else {
+                valEl.textContent = 'Accordo con le centraline: MAE ' + accFmtDec(mae, 2) + ' mm \u00B7 n=' + n;
+            }
+        }
+        var ew = (st.val && st.val.exact_window_1h) ? st.val.exact_window_1h : null;
+        if (exactEl) {
+            if (ew && typeof ew.n === 'number' && ew.n > 0 && ew.mae_mm !== null && ew.mae_mm !== undefined) {
+                exactEl.hidden = false;
+                exactEl.textContent = 'Sottoinsieme a finestra esatta 1 h: MAE ' + accFmtDec(ew.mae_mm, 2) + ' mm \u00B7 n=' + ew.n;
+            } else if (ew && typeof ew.n === 'number') {
+                exactEl.hidden = false;
+                exactEl.textContent = 'Sottoinsieme a finestra esatta 1 h: nessuna coppia con periodo di 60 s (n=' + ew.n + ')';
+            } else {
+                exactEl.hidden = true;
+                exactEl.textContent = '';
+            }
+        }
+        if (attrEl && st.data && st.data.attribution) attrEl.title = String(st.data.attribution);
+    }
+
+    // Una sola partenza per sessione: due richieste (un file ciascuna), nessun polling.
+    function accEnsureLoaded() {
+        if (accLoadStarted) return accLoadPromise;
+        accLoadStarted = true;
+        accState.status = 'loading';
+        accRender();
+        accLoadPromise = (async function () {
+            var data = null, val = null, res = null;
+            try {
+                res = await fetchWithTimeout(ACC_URL, 12000, null);
+            } catch (eNet) {
+                accState.status = 'missing';
+                accState.message = 'Accumulo non disponibile (lettura non riuscita)';
+                accRender();
+                return false;
+            }
+            if (!res || !res.ok) {
+                accState.status = 'missing';
+                accState.message = (res && (res.status === 404 || res.status === 410))
+                    ? 'Accumulo non disponibile (file mancante)'
+                    : 'Accumulo non disponibile (HTTP ' + (res ? res.status : 'n/d') + ')';
+                accRender();
+                return false;
+            }
+            try {
+                data = await res.json();
+            } catch (eJson) {
+                accState.status = 'missing';
+                accState.message = 'Accumulo non disponibile (formato non leggibile)';
+                accRender();
+                return false;
+            }
+            try {
+                var vres = await fetchWithTimeout(ACC_VAL_URL, 12000, null);
+                if (vres && vres.ok) val = await vres.json();
+            } catch (eVal) {
+                val = null;
+            }
+            accState.data = data;
+            accState.val = val;
+            accState.ageMin = accAgeMinutes((data && data.generated_at) || null);
+            accState.status = 'ok';
+            accState.message = '';
+            accRender();
+            return true;
+        })();
+        return accLoadPromise;
     }
 
     function applyStaticDataset(meta, payload) {
