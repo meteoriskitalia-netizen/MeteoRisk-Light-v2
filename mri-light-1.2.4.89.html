@@ -1606,6 +1606,10 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .help-sec b { color: #f1f5f9; }
         .help-scale, .help-order { list-style: none; margin: 4px 0; padding: 0; }
         .help-scale li { display: flex; align-items: flex-start; gap: 6px; font-size: 11px; line-height: 1.35; color: #cbd5e1; padding: 0; }
+        /* 1.2.4.89 - la regola .help-scale li (display:flex) vince sull'attributo
+           hidden del browser: senza questa riga la voce Mesociclone resterebbe
+           visibile con Sviluppo OFF (innerText compreso). */
+        .help-scale li[hidden], .src-item[hidden] { display: none !important; }
         .help-scale .hs-dot { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 50%; margin-top: 4px; border: 1px solid rgba(15,23,42,.6); }
         .help-order { counter-reset: ho; }
         .help-order li { position: relative; counter-increment: ho; padding: 0 0 0 19px; font-size: 11px; line-height: 1.35; color: #cbd5e1; }
@@ -2517,7 +2521,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                     <div class="src-item"><b>EHI</b> = CAPE/1000 · SRH3/150. <span class="src-ref">Rasmussen &amp; Blanchard 1998: &gt;1.0 potenziale cella organizzata · &gt;2.0 alta probabilità. De Martin et al. 2020 (preTEMP, Italia): &gt;0.5 temporale forte · &gt;1.4 estremi.</span></div>
                     <div class="src-item"><b>SCP</b> = CAPE/1000 · min(DLS/20,1) · min(SRH3/50,1.5). <span class="src-ref">Thompson et al. 2003: SCP&gt;1 potenziale cella organizzata.</span></div>
                     <div class="src-item"><b>SHIP</b> — Significant Hail Parameter (formula operativa USA con caps su umidità/shear/T500 e correzioni per CAPE&lt;1300, lapse rate&lt;5.8, freezing level). <span class="src-ref">&lt;1 marginale · 1-2 significativa · &gt;2 marcato rischio grandine &gt;2 cm.</span></div>
-                    <div class="src-item"><b>Convezione organizzata</b> (badge NWP, livello 5): temporale attivo E CAPE≥1000 (o ≥500 con DLS≥22 e SRH3≥120) E DLS≥20 m/s E SRH3≥100 E SCP≥1.0. È una stima ambientale del modello, non un rilevamento radar e non un'osservazione diretta della cella.</div>
+                    <div class="src-item sviluppo-only-item" hidden><b>Mesociclone</b> (badge NWP, livello 5, solo in modalità Sviluppo): temporale attivo E CAPE≥1000 (o ≥500 con DLS≥22 e SRH3≥120) E DLS≥20 m/s E SRH3≥100 E SCP≥1.0. È una stima ambientale del modello, non un rilevamento radar e non un'osservazione diretta della cella.</div>
                     <div class="src-item"><b>Convezione organizzata: potenziale o evento</b> (1.2.4.69). La classe <b>EVENTO</b> esiste solo con un innesco nella <b>stessa ora</b>: weather code WMO 95-99 <b>e</b> pioggia &gt; 0,1 mm/h (oppure cella radar osservata, pannello &laquo;Struttura convettiva&raquo;). Senza innesco la stessa configurazione &egrave; <b>POTENZIALE</b>: classe distinta e neutra (grigio-blu), &laquo;ambiente favorevole &mdash; potenziale, nessun temporale previsto&raquo;. Il gate ambientale ha due sole gambe con fonte: <b>WMAXSHEAR 0-6 km &ge; 1000 m&sup2;/s&sup2;</b> (<span class="src-ref">Taszarek et al. 2017; Gr&uuml;nwald &amp; Brooks 2011</span>) <b>oppure SRH 0-3 km &ge; 100 m&sup2;/s&sup2; con CAPE &ge; 500 J/kg</b> (<span class="src-ref">Ingrosso et al. 2020</span>). <b>WMAXSHEAR 0-3 km &ge; 500 &egrave; stato rimosso</b> (nessuna fonte verificabile). <b>EHI 0-3 km resta solo display</b>: &ge; 1,0 &egrave; una convenzione delle US Plains (<span class="src-ref">Rasmussen &amp; Blanchard 1998</span>) e la soglia europea pubblicata &egrave; 0,065 con SRH 0-1 km, quindi non confrontabile. <b>CAPE saturato a 800 J/kg</b> e <b>veto di umidit&agrave;</b>: con RH 850-700 &lt; 50% la classe scende di un livello con il motivo nel tooltip (<span class="src-ref">Westermayer et al. 2017, Meteorol. Z. 26:59</span>: sopra 800 J/kg la frequenza di fulmini resta al ~20%; RH &lt; 50% &rarr; frequenza &lt; 0,15). Le etichette &laquo;organizzati&raquo;/&laquo;celle organizzate&raquo; compaiono solo se il gate di coerenza passa; altrimenti &laquo;temporali possibili&raquo;. Il livello di rischio si calcola <b>per modello e per ora</b> e poi si prende il massimo: CAPE, shear, SRH, SCP e innesco non vengono mai presi da ore o modelli diversi.</div>
                 </div>
             </div>
@@ -2545,7 +2549,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                 <div class="fl-section-title">Fonti letterarie</div>
                 <div class="src-list">
                     <div class="src-item"><b>Weisman &amp; Klemp (1982)</b> — numero di Bulk Richardson e struttura della cella organizzata (BRN &lt;50). Mon. Wea. Rev., 110(4).</div>
-                    <div class="src-item"><b>Davies-Jones (1984)</b> — elicità storm-relative (SRH), ingrediente della convezione organizzata.</div>
+                    <div class="src-item sviluppo-only-item" hidden><b>Davies-Jones (1984)</b> — elicità storm-relative (SRH) e sviluppo del mesociclone.</div>
                     <div class="src-item"><b>Hart &amp; Korotky (1991)</b> — Energy-Helicity Index (EHI = CAPE·SRH/160000).</div>
                     <div class="src-item"><b>Rasmussen &amp; Blanchard (1998)</b> — climatologia di radiosonde per celle organizzate e tornado (MWR 126): EHI&gt;1.0 potenziale cella organizzata, &gt;2.0 alta probabilità; 90% dei temporali ordinari con EHI&lt;0.77; SRH0-3&lt;100 nella maggior parte degli ordinari.</div>
                     <div class="src-item"><b>Thompson, Edwards &amp; Mead (2003/2004/2007)</b> — SCP e STP con layer "effettivi": SCP = MUCAPE/1000 · (shear eff./20) · (SRH eff./50), shear eff. tagliato 10-20 m/s, SCP&gt;1 = ambiente da cella organizzata.</div>
@@ -2797,9 +2801,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.88';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.89';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-13';
     const APP_CHANGELOG = [
+        { version: '1.2.4.89', date: '2026-11-13', changes: [
+  "MESOCICLONE RIPRISTINATO COME ETICHETTA, VISIBILE SOLO IN SVILUPPO= La categoria mesociclone (livello 5, viola) torna a chiamarsi con il suo nome dove detectMesocyclone e' vero: riskR2Reason, riskComponentLabel, RISK_DEFS (mesoLabel/mesoTitle), riskLevelLine, riskLevelImpact, riepilogo e legenda. Il calcolo NON e' stato toccato: assessConvOrg resta level = o.meso ? 5 : 3, detectMesocyclone e calcSCPimproved sono invariati. Con Sviluppo OFF il livello mostrato e' 4 (rosso) in getMetricValue case risk, in zoneRiskComponents (push R2), nell'override di computeAggregateForStore e nel badge; la voce di legenda e' nascosta, le note statiche e la guida sono condizionate e la parola mesociclone non compare nel testo visibile. Con Sviluppo ON il viola torna, la legenda riporta Mesociclone e il riepilogo dice Mesociclone.",
+  "LA CACHE DUAL VA SVUOTATA AL CAMBIO DI SVILUPPO= La cache dualAggCache e' chiavata per provincia+giorno+ora ma non per modalita': senza invalidarla, dopo il passaggio a Sviluppo ON la provincia restava rossa e con il testo di OFF. Ora toggleSviluppo azzera dualAggCache (e modelStores.__dualAggCache) prima di updateMapColors, quindi il cap e le etichette si vedono subito in entrambe le direzioni.",
+  "MISURE (Edge headless CDP, 1440x900 e 390x844)= Sviluppo OFF: 5 province a livello 5 nella 1.2.4.88 -> 0 viola, le stesse 5 (CE, CS, FR, IS, SA) scendono a livello 4 rosso; distribuzione 1:9, 2:50, 3:27, 4:16, 5:0, nessun dato:5 su 107. Testo visibile con OFF: 0 occorrenze di mesociclone in legenda, legenda badge, guida, tooltip, riepilogo e body.innerText. Sviluppo ON: 5 province viola (CE, CS, FR, IS, SA), etichettate Mesociclone; distribuzione 1:3, 2:28, 3:59, 4:11, 5:5, nessun dato:1. Le altre classi non cambiano: badge per provincia identici alla 1.2.4.88 in OFF e in ON (0 differenze su pioggia, vento, temporale, grandine, caldo, gelo, neve, nebbia, vortici, downburst) e valori della metrica Conv. identici su 107 province x 5 categorie (0 differenze). 0 eccezioni JS, 0 console.error, 0 overflow orizzontale in entrambe le dimensioni; node --check 9/9 blocchi inline.",
+  "BUMP= html mri-light-1.2.4.89.html, VERSION (BUILD=89, DATE=2026-11-13, APP_FILE=mri-light-1.2.4.89.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.89), README.md, i 26 test .mjs col nome del file html in entrambe le forme, i commenti dei 3 workflow; la 1.2.4.88 va RIMOSSA dal repo (una sola app servita da Pages). NON toccati: scripts/, dataset, renderer, motore radar, il layer radar Struttura convettiva."
+        ] },
         { version: '1.2.4.88', date: '2026-11-13', changes: [
   "MAPPA DEI RISCHI - IL LIVELLO 5 NON SI ACCENDE PIU' COL SOLO SCP= Misurato il 2026-11-13 sui dati reali (data/latest/meteorisk-points.json, 257 punti reali, 107 province, 72 ore, modelli best_match + ecmwf_ifs): 7 province su 107 erano colorate al livello 5 (magenta) e il riepilogo attribuiva la convezione organizzata; 2 di esse (LT, OR) non avevano NESSUNA ora con detectMesocyclone vero, perche' assessConvOrg assegnava il livello 5 anche con il solo SCP >= 1. Sulla pagina, che aggiunge 50 punti virtuali (IDW), le province a livello 5 erano 8 (in piu' RM). Ora il livello 5 richiede la stessa condizione di detectMesocyclone (temporale attivo E CAPE >= 1000, oppure >= 500 con DLS >= 22 e SRH3 >= 120, E DLS >= 20 m/s E SRH3 >= 100 E SCP >= 1): restano 5 province (CE, CS, FR, IS, SA), LT scende 5 -> 2 e OR 5 -> 3. Il testo del livello 5 diventa 'convezione organizzata con innesco nella stessa ora (ambiente favorevole NWP)'.",
   "BADGE VORTICI - DA 'TORNADO' A 'AMBIENTE FAVOREVOLE (NWP)', 16 -> 8 PROVINCE= I campi NWP non misurano la vorticità: detectVorticosi non produce piu' un badge che suggerisce un vortice osservato. L'etichetta passa da 'Vortici / tornado (potenziale NWP)' a 'Ambiente favorevole a vortici (NWP)', l'icona e' un'informazione neutra (non la spirale), il colore e' grigio-blu e il livello e' sempre 1; il badge NON entra nel massimo che colora la provincia (zoneRiskComponents lo salta). Il gate richiede nella STESSA ORA CAPE >= 500 J/kg, shear 0-6 km >= 20 m/s, SRH 0-3 km >= 100 m2/s2, LCL <= 1500 m (2500 m in stagione fredda) e temporale attivo (weather code 95-99 E pioggia > 0,1 mm/h). Prima: 16 province col badge sui 257 punti reali (17 sulla pagina con le virtuali), 9 a livello 4 con un testo che annunciava un tornado violento e CAPE 260-690 J/kg. Dopo: 8 province, tutte livello 1 (AV, CE, CS, FR, IS, NA, OR, SA).",
@@ -5273,6 +5283,8 @@ function enabledLightningSourceIds() {
         generic:      { label: 'Avviso meteo',      color: '#f59e0b', title: 'Condizioni meteo potenzialmente avverse' },
         supercell:    { label: 'Convezione organizzata (NWP)', color: '#a855f7',
                         potentialLabel: CONV_POTENTIAL_LABEL, potentialColor: CONV_POTENTIAL_COLOR,
+                        mesoLabel: 'Mesociclone (NWP)',
+                        mesoTitle: 'Mesociclone previsto dal modello NWP (SCP >= 1, shear 0-6 km >= 20 m/s, SRH 0-3 km >= 100 m2/s2): ambiente favorevole, NON osservato',
                         title: 'Convezione organizzata con innesco nella stessa ora (weather code 95-99 con pioggia > 0,1 mm/h): descrizione ambientale del modello NWP, NON un rilevamento radar e NON un\'osservazione diretta dell\'organizzazione della cella',
                         potentialTitle: 'Ambiente favorevole a convezione organizzata SENZA alcun innesco previsto nella stessa ora' },
         vorticosi:    { label: 'Ambiente favorevole a vortici (NWP)', color: '#7d93a8', title: 'Condizioni del modello NWP favorevoli a fenomeni vorticosi: informazione ambientale, non un vortice osservato' },
@@ -5365,10 +5377,16 @@ function enabledLightningSourceIds() {
             label = CONV_POTENTIAL_LABEL;
             title = def.potentialTitle || 'Potenziale ambientale senza innesco';
         } else if (risk.id === 'supercell' && risk.convEvent) {
-            // EVENTO: viola con innesco (livello 5 = mesociclone), rosso se declassato a 4.
+            // EVENTO: viola = mesociclone previsto (livello 5, solo Sviluppo);
+            // rosso = convezione organizzata prevista senza i criteri del meso (4).
             color = (risk.level >= 5) ? '#a855f7' : (risk.level >= 4 ? '#ef4444' : '#f97316');
-            label = def.label;
-            title = def.title;
+            if (risk.level >= 5) {
+                label = (isSviluppoActive && def.mesoLabel) ? def.mesoLabel : def.label;
+                title = (isSviluppoActive && def.mesoTitle) ? def.mesoTitle : def.title;
+            } else {
+                label = def.label;
+                title = def.title;
+            }
         } else if (risk.id === 'vorticosi') {
             // 1.2.4.88 - Ambiente favorevole (NWP): informazione neutra, mai colore di allerta.
             color = def.color;
@@ -5485,9 +5503,14 @@ function enabledLightningSourceIds() {
                 });
             }
             if (convAssess && convAssess.kind !== 'none' && convAssess.level >= 1) {
-                risks.push({ id: 'supercell', level: convAssess.level,
+                var convLvlBadge = convAssess.level;
+                // 1.2.4.89 - con Sviluppo OFF il mesociclone non esiste: cap a 4.
+                if (!isSviluppoActive) convLvlBadge = Math.min(4, convLvlBadge);
+                risks.push({ id: 'supercell', level: convLvlBadge,
                              potential: convAssess.kind === 'potential',
                              convEvent: convAssess.kind === 'event',
+                             meso: convAssess.level >= 5,
+                             mesoCapped: (!isSviluppoActive && convAssess.level >= 5),
                              rhMid: convAssess.rhMid, rhHours: convAssess.rhHours,
                              dryVeto: convAssess.dryVeto, reasons: convAssess.reasons });
             }
@@ -5707,11 +5730,12 @@ function enabledLightningSourceIds() {
                 // Potenziale (grigio-blu): ambiente favorevole, nessun innesco nella stessa ora.
                 // Evento (viola/rosso): code 95-99 + pioggia > 0,1 mm/h nella stessa ora.
                 if (r.potential) return 'Ambiente favorevole a convezione organizzata: potenziale, nessun temporale previsto';
+                if (r.mesoCapped) return 'Innesco presente e ambiente organizzato previsto: convezione organizzata prevista, non osservata (categoria solo in modalita Sviluppo)';
                 var scTxt = {
                     2: 'Innesco presente ma ambiente secco alle quote medie: organizzazione improbabile',
                     3: 'Innesco presente (weather code 95-99 e pioggia > 0,1 mm/h nella stessa ora): possibile organizzazione convettiva',
                     4: 'Innesco presente e ambiente secco alle quote medie: organizzazione improbabile',
-                    5: 'Innesco presente e parametri di organizzazione sopra soglia: convezione organizzata stimata dal modello (ambiente favorevole NWP)'
+                    5: 'Innesco presente e parametri di organizzazione sopra soglia: mesociclone (SCP >= 1, shear >= 20 m/s, SRH >= 100 m2/s2) - ambiente favorevole NWP, non osservato'
                 };
                 return scTxt[r.level] || 'Innesco presente';
             }
@@ -5809,11 +5833,14 @@ function enabledLightningSourceIds() {
                 if (r.potential) {
                     return 'Solo ambiente favorevole: nessun temporale previsto in questa ora. Il colore resta neutro (grigio-blu) finche\' un innesco (weather code 95-99 con pioggia > 0,1 mm/h) non compare nella stessa ora.';
                 }
+                if (r.mesoCapped) {
+                    return 'Ambiente previsto favorevole a convezione organizzata: possibile organizzazione convettiva, non osservata (il dettaglio della categoria e\' solo in modalita Sviluppo). Seguire gli aggiornamenti.';
+                }
                 var scImp = {
                     2: 'Innesco presente ma ambiente secco alle quote medie: possibile rovescio convettivo, organizzazione improbabile.',
                     3: 'Possibile organizzazione convettiva, con rovesci forti, raffiche e grandine.',
                     4: 'Innesco presente e ambiente secco alle quote medie: organizzazione improbabile, restano possibili rovesci forti.',
-                    5: 'Convezione organizzata stimata dal modello: possibili grandine grande e raffiche intense; seguire gli aggiornamenti.'
+                    5: 'Mesociclone previsto dal modello NWP (SCP >= 1, shear 0-6 km >= 20 m/s, SRH 0-3 km >= 100 m2/s2): possibili grandine grande e raffiche intense; non osservato, seguire gli aggiornamenti.'
                 };
                 var txt = scImp[r.level] || 'Possibile cella organizzata; prestare attenzione e seguire gli aggiornamenti.';
                 if (r.dryVeto) txt += ' Motivo del declassamento: aria secca alle quote medie (RH 850-700 ' + (r.rhMid != null ? Math.round(r.rhMid) + '%' : 'n/d') + ').';
@@ -5864,7 +5891,8 @@ function enabledLightningSourceIds() {
                 var def = RISK_DEFS[r.id] || { label: r.id };
                 var infoTag = r.info ? ' <span class="rs-info">(previsione, non critica)</span>' : '';
                 var name = (r.id === 'supercell')
-                    ? (r.potential ? 'Convezione organizzata potenziale' : 'Convezione organizzata (evento)')
+                    ? (r.potential ? 'Convezione organizzata potenziale'
+                        : (r.level >= 5 ? 'Mesociclone' : 'Convezione organizzata (evento)'))
                     : def.label;
                 return '<li><b>' + name + ' — ' + riskLevelLine(r, agg) + '.</b>' + infoTag + '<br><span style="color:#94a3b8;">' +
                     riskLevelImpact(r, agg) + '</span></li>';
@@ -21255,6 +21283,20 @@ function toggleForecastMaps() {
         // Aggiorna l'etichetta accanto allo switch nel footer
         var lab = document.getElementById('sviluppo-label');
         if (lab) lab.textContent = 'Sviluppo ' + (isSviluppoActive ? 'ON' : 'OFF');
+        // 1.2.4.89 - La categoria mesociclone (viola) e il cap a 4 fuori da
+        // Sviluppo cambiano legenda, badge, colori e testi: si ri-renderizza subito.
+        // La cache DUAL (provincia+giorno+ora) conserva l'aggregato calcolato con
+        // la modalita' precedente: va svuotata, altrimenti il cambio non si vede.
+        try {
+            dualAggCache = {};
+            if (typeof modelStores === 'object' && modelStores) modelStores.__dualAggCache = dualAggCache;
+        } catch (eDC) { /* cache non disponibile: nessun blocco */ }
+        var devItems = document.querySelectorAll('.sviluppo-only-item');
+        for (var di = 0; di < devItems.length; di++) devItems[di].hidden = !isSviluppoActive;
+        if (typeof renderLegend === 'function') renderLegend();
+        if (typeof buildBadgeLegendBar === 'function') buildBadgeLegendBar();
+        if (typeof updateMapColors === 'function') updateMapColors();
+        if (typeof refreshRiskSummary === 'function') refreshRiskSummary();
         // Esponi la pipeline colore in console (solo Sviluppo): niente API in produzione
         if (typeof window !== 'undefined') {
             if (isSviluppoActive) {
@@ -24757,7 +24799,9 @@ function toggleForecastMaps() {
         var prob = (o.prob == null || !isFinite(o.prob)) ? 0 : o.prob;
         var code = (o.code == null || !isFinite(o.code)) ? 0 : o.code;
         var cape = (o.cape == null || !isFinite(o.cape)) ? 0 : o.cape;
-        if (o.meso) return 'convezione organizzata con innesco nella stessa ora (ambiente favorevole NWP)';
+        if (o.meso) return isSviluppoActive
+            ? 'mesociclone (SCP >= 1, shear >= 20 m/s, SRH >= 100 m2/s2) - ambiente favorevole NWP, non osservato'
+            : 'convezione organizzata prevista (ambiente favorevole NWP)';
         if (rain > 45) return 'pioggia oltre 45 mm';
         if (gusts > 100) return 'raffiche oltre 100 km/h';
         if (code >= 95 && rain >= 10 && cape >= 300) return 'temporale con pioggia >= 10 mm/h e CAPE >= 300 J/kg nella stessa ora';
@@ -24831,12 +24875,13 @@ function toggleForecastMaps() {
         vorticosi: 'ambiente favorevole a vortici (NWP)', downburst: 'downburst', generic: 'avviso meteo'
     };
     var RISK_LEVEL_WORD = ['', 'lieve', 'moderato', 'forte', 'estremo', 'estremo'];
-    var GATE_LEVEL_WORD = ['', 'Lieve', 'Moderato', 'Mod-Alto', 'Alto', 'Conv. organizzata'];
+    var GATE_LEVEL_WORD = ['', 'Lieve', 'Moderato', 'Mod-Alto', 'Alto', 'Mesociclone'];
     function riskComponentLabel(r) {
         if (!r) return '';
         if (r.id === 'supercell') {
             if (r.potential) return CONV_POTENTIAL_LABEL;
-            return 'convezione organizzata (evento con innesco)';
+            if (r.level >= 5 && isSviluppoActive) return 'Mesociclone (SCP >= 1, shear >= 20 m/s, SRH >= 100 m2/s2) - ambiente favorevole NWP, non osservato';
+            return 'convezione organizzata prevista (evento con innesco)';
         }
         var name = RISK_PLAIN_NAMES[r.id] || r.id;
         if (r.info) return name + ' (informativa)';
@@ -24872,8 +24917,10 @@ function toggleForecastMaps() {
             rain: agg && agg.rain, wind: agg && agg.wind, prob: agg && agg.prob,
             code: agg && agg.code, cape: agg && agg.cape
         });
-        if (r2 > 0) {
-            out.push({ id: 'risk', level: r2, potential: false, convEvent: false, radar: false, info: false,
+        // 1.2.4.89 - fuori da Sviluppo il livello 5 non esiste (cap a 4).
+        var r2Shown = (!isSviluppoActive && r2 > 4) ? 4 : r2;
+        if (r2Shown > 0) {
+            out.push({ id: 'risk', level: r2Shown, potential: false, convEvent: false, radar: false, info: false,
                        label: (agg && agg.r2Reason) ? agg.r2Reason : riskR2Reason(agg) });
         }
         var risks = computeRisksForAgg(agg);
@@ -25977,11 +26024,12 @@ function toggleForecastMaps() {
                 // 1.2.4.69 - COLORE DELLA PROVINCIA = MASSIMO FRA TUTTI I RISCHI ATTIVI.
                 // Valore = indice della fascia: 0 nessun rischio; 0,4 solo potenziale
                 // convettivo (classe neutra grigio-blu); 1..4 livello del rischio che guida;
-                // 5 convezione organizzata con innesco (viola).
+                // 5 mesociclone previsto (viola, solo Sviluppo).
                 var zr = computeZoneRiskSummary(agg);
                 if (!zr.level) return 0;
                 if (zr.driverPotential) return 0.4;
-                return Math.max(1, Math.min(5, zr.level));
+                // 1.2.4.89 - il livello 5 (mesociclone) e' visibile solo in Sviluppo.
+                return Math.max(1, Math.min(isSviluppoActive ? 5 : 4, zr.level));
             }
             case 'thermalrisk': {
                 var scTr = THERMALRISK_SCALES[thermalRiskIndex] || THERMALRISK_SCALES.heatindex;
@@ -26433,7 +26481,13 @@ function toggleForecastMaps() {
             }
             r2 = store.__r2Cache.v;
             if (dm && dm.scLevel >= 5 && dm.scKind === 'event') {
-                r2 = { level: 5, reason: 'convezione organizzata con innesco nella stessa ora (ambiente favorevole NWP)', hour: dm.scHour };
+                // 1.2.4.89 - la categoria mesociclone (livello 5, viola) esiste
+                // solo in Sviluppo; fuori da Sviluppo il livello mostrato e' 4.
+                var convLvl = isSviluppoActive ? 5 : 4;
+                var convWhy = isSviluppoActive
+                    ? 'mesociclone (SCP >= 1, shear >= 20 m/s, SRH >= 100 m2/s2) - ambiente favorevole NWP, non osservato'
+                    : 'convezione organizzata prevista (ambiente favorevole NWP) - dettaglio della categoria solo in modalita Sviluppo';
+                r2 = { level: convLvl, reason: convWhy, hour: dm.scHour };
             }
         }
         // Calcola hailMetrics per la nuova logica rischio (usa stesso idx dei severeIndices)
@@ -27215,7 +27269,9 @@ function renderContinuousOverlay() {
 
     function renderLegend() {
         const legends = {
-            risk: [['#22c55e','Basso'],['#a3e635','Lieve'],['#eab308','Moderato'],['#f97316','Mod-Alto'],['#ef4444','Alto/Estremo'],['#a855f7','Conv. org. (con innesco)'],[CONV_POTENTIAL_COLOR,'Conv. potenziale (nessun temporale)']],
+            risk: (isSviluppoActive
+                ? [['#22c55e','Basso'],['#a3e635','Lieve'],['#eab308','Moderato'],['#f97316','Mod-Alto'],['#ef4444','Alto/Estremo'],['#a855f7','Mesociclone'],[CONV_POTENTIAL_COLOR,'Conv. potenziale (nessun temporale)']]
+                : [['#22c55e','Basso'],['#a3e635','Lieve'],['#eab308','Moderato'],['#f97316','Mod-Alto'],['#ef4444','Alto/Estremo'],[CONV_POTENTIAL_COLOR,'Conv. potenziale (nessun temporale)']]),
             tempmax: [['#3b82f6','≤-10°C'],['#38bdf8','-10/-5°C'],['#22c55e','-5/5°C'],['#84cc16','5-15°C'],['#bef264','15-18°C'],['#eab308','18-22°C'],['#f59e0b','22-25°C'],['#f97316','25-28°C'],['#fb923c','28-30°C'],['#ef4444','30-35°C'],['#dc2626','35-38°C'],['#92400e','38-40°C'],['#a21caf','40-42°C'],['#7c1d6f','42-45°C'],['#3b0764','>45°C']],
             tempmin: [['#7c3aed','≤-10°C'],['#3b82f6','-10/-5°C'],['#38bdf8','-5/0°C'],['#22c55e','0-5°C'],['#84cc16','5-10°C'],['#eab308','10-15°C'],['#f59e0b','15-20°C'],['#f97316','20-25°C'],['#ef4444','25-30°C'],['#a21caf','>30°C']],
             humidity: [['#22c55e','<40%'],['#eab308','40-65%'],['#f97316','65-85%'],['#ef4444','>85%']],
@@ -27250,7 +27306,7 @@ function renderContinuousOverlay() {
         // 1.2.4.69 - la mappa e' un RIASSUNTO: il colore e' il massimo fra tutti i pericoli.
         if (currentMetric === 'risk') {
             document.getElementById('legend-container').insertAdjacentHTML('beforeend',
-                '<div class="legend-item" style="font-style:italic;">Il colore della provincia \u00e8 il rischio pi\u00f9 alto fra tutti i pericoli previsti (pioggia e allagamenti, vento, temporali, grandine, caldo, gelo, neve, nebbia, convezione organizzata, vortici): il dettaglio \u00e8 nelle schede.</div>');
+                '<div class="legend-item" style="font-style:italic;">Il colore della provincia \u00e8 il rischio pi\u00f9 alto fra tutti i pericoli previsti (pioggia e allagamenti, vento, temporali, grandine, caldo, gelo, neve, nebbia' + (isSviluppoActive ? ', convezione organizzata, mesociclone' : '') + ', vortici): il dettaglio \u00e8 nelle schede.</div>');
         }
         // 1.2.4.43: la nebbia NON e' visibilita' misurata. Senza questa riga la scala sembra
         // una misura e chi la confronta con la propria finestra pensa a un errore. Riusa la
@@ -27285,7 +27341,7 @@ function renderContinuousOverlay() {
     function riskBadgeTip(profile) {
         if (!profile) return '';
         var lv = profile.level;
-        var name = (lv >= 1 && lv <= 4 && BADGE_LEVEL_NAME) ? BADGE_LEVEL_NAME[lv] : (lv === 5 ? 'Convezione organizzata' : '');
+        var name = (lv >= 1 && lv <= 4 && BADGE_LEVEL_NAME) ? BADGE_LEVEL_NAME[lv] : (lv === 5 ? (isSviluppoActive ? 'Mesociclone' : 'Convezione organizzata') : '');
         var desc = (lv >= 1 && lv <= 4 && BADGE_LEVEL_DESC) ? BADGE_LEVEL_DESC[lv] : 'Energia e vento in quota da cella organizzata.';
         var t = profile.riskText + (name ? ' ' + '\u2014' + ' livello ' + lv + ' di 5 (' + name + '): ' + desc : '.');
         return t;
@@ -27355,13 +27411,14 @@ function renderContinuousOverlay() {
         if (!tip) return;
         var d = RISK_DEFS[id];
         if (!d) return;
-        var title = d.title || d.label;
+        var shownLabel = (id === 'supercell' && isSviluppoActive && d.mesoLabel) ? d.mesoLabel : d.label;
+        var title = (id === 'supercell' && isSviluppoActive && d.mesoTitle) ? d.mesoTitle : (d.title || d.label);
         var origin = '<span class="bl-tip-origin">Potenziale previsto dal modello (NWP)</span>';
         if (lv >= 1) {
-            tip.innerHTML = '<b>' + d.label + '</b> — Livello ' + lv + ' (' + BADGE_LEVEL_NAME[lv] + ')<br>'
+            tip.innerHTML = '<b>' + shownLabel + '</b> - Livello ' + lv + ' (' + BADGE_LEVEL_NAME[lv] + ')<br>'
                 + BADGE_LEVEL_DESC[lv] + '<br>' + origin + '<br><span class="bl-tip-title">' + title + '</span>';
         } else {
-            tip.innerHTML = '<b>' + d.label + '</b><br>' + origin + '<br>' + title;
+            tip.innerHTML = '<b>' + shownLabel + '</b><br>' + origin + '<br>' + title;
         }
         tip.style.display = 'block';
         positionBadgeLegendTip(evt);
@@ -27380,14 +27437,22 @@ function renderContinuousOverlay() {
         var bar = document.getElementById('badge-legend-bar');
         if (!bar) return;
         var badgeOrder = ['rain','wind','thunderstorm','hail','heat','cold','snow','fog','generic','supercell','vorticosi','downburst'];
+        var convNote = isSviluppoActive
+            ? 'grigio-blu = potenziale (nessun temporale previsto), rosso = convezione organizzata prevista, viola = mesociclone (SCP &ge; 1, shear &ge; 20 m/s, SRH &ge; 100)'
+            : 'grigio-blu = potenziale (nessun temporale previsto), rosso = convezione organizzata prevista';
         bar.innerHTML = '<div class="bl-tip" id="badge-legend-tip"></div>' +
-            '<div class="bl-note">Badge di <b>RISCHIO = potenziale ambientale (modello NWP)</b>: condizioni favorevoli previste, <b>non</b> un evento osservato. <b>Convezione organizzata</b>: grigio-blu = potenziale (nessun temporale previsto), viola = evento con innesco (weather code 95-99 e pioggia &gt; 0,1 mm/h nella stessa ora, oppure cella radar). Gli eventi rilevati dal radar (grandine / struttura asimmetrica / candidati cella organizzata) sono nel pannello <b>Struttura convettiva</b> — etichettati <i>osservato (radar)</i>.</div>';
+            '<div class="bl-note">Badge di <b>RISCHIO = potenziale ambientale (modello NWP)</b>: condizioni favorevoli previste, <b>non</b> un evento osservato. <b>Convezione organizzata</b>: ' + convNote + '. Gli eventi rilevati dal radar (grandine / struttura asimmetrica / candidati cella organizzata) sono nel pannello <b>Struttura convettiva</b> — etichettati <i>osservato (radar)</i>.</div>';
         badgeOrder.forEach(function(id) {
             var d = RISK_DEFS[id];
             if (!d) return;
             var range = BADGE_LEVEL_RANGE[id] || [1,2,3,4];
+            // 1.2.4.89 - fuori da Sviluppo la categoria mesociclone non esiste:
+            // il dischetto di riferimento resta rosso (convezione prevista).
+            var isSup = (id === 'supercell');
+            var refColor = (isSup && !isSviluppoActive) ? '#ef4444' : d.color;
+            var rowLabel = (isSup && isSviluppoActive && d.mesoLabel) ? d.mesoLabel : d.label;
             // Dischetto di riferimento col colore SEMANTICO del badge (come sulla mappa)
-            var ref = '<span class="bl-ref risk-disc" style="background:' + d.color + '">' +
+            var ref = '<span class="bl-ref risk-disc" style="background:' + refColor + '">' +
                 '<svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">' + riskIconSvg(id) + '</svg></span>';
             // Dischi per ognuno dei livelli raggiungibili, colorati col colore del livello
             var lv = range.map(function(l) {
@@ -27401,20 +27466,24 @@ function renderContinuousOverlay() {
             row.className = 'bl-row';
             row.innerHTML =
                 '<span class="bl-head" data-badge="' + id + '" data-lv="0">' + ref +
-                '<span class="badge-legend-name">' + d.label + '</span></span>' +
+                '<span class="badge-legend-name">' + rowLabel + '</span></span>' +
                 '<span class="bl-lvs">' + lv + '</span>';
             bar.appendChild(row);
         });
-        // Delegazione mouse per il tooltip della didascalia
-        bar.addEventListener('mouseleave', hideBadgeLegendTip);
-        bar.addEventListener('mousemove', function(e) {
-            var c = e.target.closest ? e.target.closest('[data-badge]') : null;
-            if (c) {
-                showBadgeLegendTip(c.getAttribute('data-badge'), parseInt(c.getAttribute('data-lv') || '0', 10), e);
-            } else {
-                hideBadgeLegendTip();
-            }
-        });
+        // Delegazione mouse per il tooltip della didascalia. 1.2.4.89: la barra
+        // viene ricostruita al cambio di Sviluppo, quindi i listener si legano UNA volta.
+        if (!bar.__mriBadgeTipBound) {
+            bar.__mriBadgeTipBound = true;
+            bar.addEventListener('mouseleave', hideBadgeLegendTip);
+            bar.addEventListener('mousemove', function(e) {
+                var c = e.target.closest ? e.target.closest('[data-badge]') : null;
+                if (c) {
+                    showBadgeLegendTip(c.getAttribute('data-badge'), parseInt(c.getAttribute('data-lv') || '0', 10), e);
+                } else {
+                    hideBadgeLegendTip();
+                }
+            });
+        }
         // Nascondo anche il tooltip iniziale (niente contenuto)
         hideBadgeLegendTip();
     }
@@ -33080,14 +33149,14 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         <div class="help-body" id="help-body">
             <div class="help-sec">
                 <h3>1. Cosa significa il colore delle province</h3>
-                <p>Ogni provincia prende il colore del <b>rischio pi&ugrave; alto fra tutti i pericoli previsti dal modello</b> (pioggia e allagamenti, vento, temporali, grandine, caldo, gelo, neve, nebbia, convezione organizzata, vortici), non di un temporale in corso. Il dettaglio &egrave; nelle schede; il tooltip dice quale rischio guida il colore. Sette gradini, con le soglie usate dal codice:</p>
+                <p>Ogni provincia prende il colore del <b>rischio pi&ugrave; alto fra tutti i pericoli previsti dal modello</b> (pioggia e allagamenti, vento, temporali, grandine, caldo, gelo, neve, nebbia, convezione organizzata, vortici), non di un temporale in corso. Il dettaglio &egrave; nelle schede; il tooltip dice quale rischio guida il colore. Sette gradini, con le soglie usate dal codice (il viola &egrave; solo in modalit&agrave; Sviluppo):</p>
                 <ul class="help-scale">
                     <li><span class="hs-dot" style="background:#22c55e;"></span><span><b>Verde — Basso</b>: condizioni stabili, nessun fenomeno rilevante.</span></li>
                     <li><span class="hs-dot" style="background:#a3e635;"></span><span><b>Verde chiaro — Lieve</b>: pioggia debole (probabilit&agrave; oltre il 20% o 0,2-1 mm).</span></li>
                     <li><span class="hs-dot" style="background:#eab308;"></span><span><b>Giallo — Moderato</b>: pioggia oltre il 60%, 1-15 mm oppure vento oltre 25 km/h.</span></li>
                     <li><span class="hs-dot" style="background:#f97316;"></span><span><b>Arancione — Moderato-Alto</b>: 15-45 mm, vento 40-60 km/h o rovescio/temporale.</span></li>
                     <li><span class="hs-dot" style="background:#ef4444;"></span><span><b>Rosso — Alto</b>: oltre 45 mm, vento oltre 60 km/h oppure temporale.</span></li>
-                    <li><span class="hs-dot" style="background:#a855f7;"></span><span><b>Viola — Convezione organizzata (con innesco)</b>: ambiente da cella organizzata E temporale previsto con pioggia &gt; 0,1 mm/h nella stessa ora (o cella radar osservata).</span></li>
+                    <li class="sviluppo-only-item" hidden><span class="hs-dot" style="background:#a855f7;"></span><span><b>Viola — Mesociclone</b>: temporale previsto con pioggia &gt; 0,1 mm/h nella stessa ora E criterio del mesociclone soddisfatto (SCP &ge; 1, shear 0-6 km &ge; 20 m/s, SRH 0-3 km &ge; 100 m&sup2;/s&sup2;). &Egrave; un ambiente <b>previsto</b>, non osservato (solo in modalit&agrave; Sviluppo).</span></li>
                     <li><span class="hs-dot" style="background:#7d93a8;"></span><span><b>Grigio-blu — Convezione potenziale</b>: ambiente favorevole ma <b>nessun temporale previsto</b> (nessun innesco nella stessa ora). Non &egrave; un evento.</span></li>
                 </ul>
                 <p class="help-note">Il livello sale solo se il modello vede anche una causa concreta (pioggia o temporale): con il cielo pulito resta basso anche quando l'energia in quota &egrave; alta.</p>
@@ -33292,6 +33361,9 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
     function openHelp() {
         if (!modal || !modal.hidden) return;
         lastFocus = document.activeElement;
+        // 1.2.4.89 - la voce "Mesociclone" della guida esiste solo in Sviluppo.
+        var devHelp = modal.querySelectorAll('.sviluppo-only-item');
+        for (var hi = 0; hi < devHelp.length; hi++) devHelp[hi].hidden = !isSviluppoActive;
         modal.hidden = false;
         if (helpBtn) helpBtn.setAttribute('aria-expanded', 'true');
         if (closeBtn) closeBtn.focus();

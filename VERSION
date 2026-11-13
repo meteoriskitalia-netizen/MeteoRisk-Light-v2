@@ -1,3 +1,14 @@
+MeteoRisk Light - 1.2.4.89 - MESOCICLONE RIPRISTINATO E VISIBILE SOLO IN SVILUPPO: ETICHETTA MESOCICLONE DOVE detectMesocyclone E' VERO, CAP A 4 FUORI DA SVILUPPO (bump da 1.2.4.88)
+VERSION=1.2.4.89
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=89
+RELEASE_TYPE=release
+DATE=2026-11-13
+NOTE=Release 1.2.4.89 (bump da 1.2.4.88) - SOLO CLIENT, MAPPA DEI RISCHI. (1) MESOCICLONE RIPRISTINATO: la categoria livello 5 torna a chiamarsi Mesociclone dove detectMesocyclone e' vero (riskR2Reason, riskComponentLabel, RISK_DEFS con mesoLabel/mesoTitle, riskLevelLine, riskLevelImpact, riepilogo, legenda). Il calcolo non cambia: assessConvOrg resta level = o.meso ? 5 : 3, detectMesocyclone e calcSCPimproved invariati. (2) VISIBILE SOLO IN SVILUPPO: con Sviluppo OFF il livello e' cappato a 4 in getMetricValue case risk, in zoneRiskComponents, nell'override di computeAggregateForStore e nel badge; la voce di legenda e' nascosta, note e guida condizionate, e la parola mesociclone non compare nel testo visibile (0 occorrenze in legenda, legenda badge, guida, tooltip, riepilogo e body.innerText). Con Sviluppo ON il viola torna e l'etichetta e' Mesociclone. La cache dualAggCache viene svuotata in toggleSviluppo, altrimenti il cambio di modalita' non si vedeva. (3) MISURE: Edge headless CDP 1440x900 e 390x844, dataset live; OFF -> 0 viola, le 5 province CE, CS, FR, IS, SA scendono da 5 a 4 (rosso); ON -> 5 viola (CE, CS, FR, IS, SA), etichettate Mesociclone; 0 eccezioni JS, 0 console.error, 0 overflow orizzontale; node --check 9/9 blocchi inline. Le altre classi non cambiano: badge per provincia identici alla 1.2.4.88 in OFF e ON (0 differenze) e metrica Conv. identica su 107 province x 5 categorie. BUMP: html mri-light-1.2.4.89.html, VERSION (BUILD=89, DATE=2026-11-13, APP_FILE=mri-light-1.2.4.89.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.89), README.md, i 26 test .mjs col nome in entrambe le forme, i commenti dei 3 workflow; la 1.2.4.88 va RIMOSSA dal repo. NON toccati: scripts/, dataset, renderer, motore radar, layer radar Struttura convettiva.
+APP_FILE=mri-light-1.2.4.89.html
+
 MeteoRisk Light - 1.2.4.88 - MAPPA DEI RISCHI: NIENTE CONVEZIONE ORGANIZZATA SULLA SOLA PREVISIONE, BADGE VORTICI NEUTRO E LIMITATO ALL'AMBIENTE FAVOREVOLE (bump da 1.2.4.87)
 VERSION=1.2.4.88
 MAJOR=1
