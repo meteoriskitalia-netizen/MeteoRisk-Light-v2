@@ -79,6 +79,14 @@ CONFIG = {
     "opera": {
         "enabled": True,
         "s3_base": "https://s3.waw3-1.cloudferro.com/openradar-24h/",
+        # 2026-11-13 — ENDPOINT DI BACKUP, DOCUMENTATO DAL PRODUTTORE.
+        # MISURATO: dal 12/11 il primario risponde 200 con 0 chiavi (l'intero
+        # bucket ha 2 oggetti di ottobre); il backup dichiarato da EUMETNET
+        # ("ORD Backup") ha 197 DBZH.tiff/13-11 a cadenza 5 min. Si prova il
+        # primario e, se elenca 0 chiavi, il backup: nessun merge fra i due.
+        "s3_fallback_bases": [
+            "https://object-store.os-api.cci1.ecmwf.int/openradar-24h-backup/",
+        ],
         "product": "DBZH",
         "extension": "tiff",
         # Finestra letta dal COG (Italia + Adriatico + Tirreno): 1.294x1.486

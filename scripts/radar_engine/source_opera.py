@@ -46,6 +46,23 @@ import numpy as np
 from . import models
 
 S3_BASE = "https://s3.waw3-1.cloudferro.com/openradar-24h/"
+# 2026-11-13 - ENDPOINT DI BACKUP, DOCUMENTATO DAL PRODUTTORE (MISURATO).
+# Dal 2026-11-12 il bucket primario risponde HTTP 200 con ZERO chiavi sotto
+# `YYYY/MM/DD/OPERA/COMP/`: misurato il 2026-11-13 sui giorni 10, 11, 12 e 13
+# novembre (tutti KeyCount=0, IsTruncated=false) e l'INTERO bucket contiene
+# 2 soli oggetti, entrambi di ottobre (DE/deoft SCAN 2026-10-09 e PL/pluzr
+# PVOL 2026-10-27). La documentazione EUMETNET
+# (eumetnet.github.io/openradardata-documentation, sezione "ORD Backup")
+# dichiara che il servizio e' stato temporaneamente spostato su un endpoint
+# di backup. MISURATO il 2026-11-13 su quell'endpoint: 658 chiavi in
+# `2026/11/13/OPERA/COMP/`, di cui 197 `DBZH.tiff` a cadenza ESATTA di 5
+# minuti (00:00Z..16:20Z, ultima pubblicata alle 16:24Z); un frame letto dal
+# nostro `read_frame` da' 1294x1486 px, 298.434 pixel validi, max 71,5 dBZ.
+# Non e' un surrogato: e' lo stesso prodotto, dall'endpoint che il produttore
+# dichiara. Quando l'incidente rientra, il primario torna a essere usato da
+# solo (il primo endpoint che elenca chiavi vince).
+S3_BACKUP_BASE = ("https://object-store.os-api.cci1.ecmwf.int/"
+                  "openradar-24h-backup/")
 PRODUCT = "DBZH"
 EXTENSION = "tiff"
 USER_AGENT = "MeteoRisk-Light-radar-engine/1.2.4"
@@ -85,6 +102,30 @@ def _http_get(url, timeout_s=60, headers=None):
         raise models.SourceError(f"network:{exc.__class__.__name__}") from exc
 
 
+def normalize_base(base):
+    """Base URL S3 con UNA sola barra finale ('' se vuota)."""
+    b = str(base or "").strip()
+    if not b:
+        return ""
+    return b if b.endswith("/") else b + "/"
+
+
+def candidate_bases(s3_base=None, fallback_bases=None):
+    """Endpoint S3 provati IN ORDINE: primario, poi i fallback documentati.
+
+    Una sola lista, senza duplicati e con la barra finale normalizzata. Il
+    primo endpoint che elenca chiavi utili vince: NON si fondono endpoint
+    diversi, perche' due bucket possono avere la stessa chiave con contenuti
+    diversi e mescolarli produrrebbe un mosaico con provenance falsa.
+    """
+    out = []
+    for b in [s3_base or S3_BASE] + list(fallback_bases or []):
+        nb = normalize_base(b)
+        if nb and nb not in out:
+            out.append(nb)
+    return out or [normalize_base(S3_BASE)]
+
+
 def parse_key_time(key):
     """`OPERA@YYYYMMDDTHHMM@0@DBZH.tiff` -> datetime UTC nominale del prodotto.
 
@@ -105,21 +146,36 @@ def key_time_ms(key):
 # Discovery S3 (ListObjectsV2 anonimo, con paginazione)
 # ---------------------------------------------------------------------------
 def list_day_keys(day, s3_base=S3_BASE, max_keys=1000, timeout_s=60,
-                  max_pages=10):
+                  max_pages=10, attempts=1, retry_wait_s=2.0):
     """Tutte le chiavi sotto `YYYY/MM/DD/OPERA/COMP/` (paginazione inclusa).
 
-    `day` puo' essere una stringa 'YYYY/MM/DD' o un datetime/date UTC."""
+    `day` puo' essere una stringa 'YYYY/MM/DD' o un datetime/date UTC.
+
+    `attempts`/`retry_wait_s`: ritentativo sui soli ERRORI transitori di rete
+    (timeout, 5xx, connessione). Un listing che risponde 200 con zero chiavi
+    NON viene ritentato: un bucket vuoto non diventa pieno aspettando, e
+    ritardare il run non produce dato. Per quel caso esiste il fallback di
+    endpoint (`candidate_bases`)."""
     if not isinstance(day, str):
         day = day.strftime("%Y/%m/%d")
+    s3_base = normalize_base(s3_base)
     prefix = f"{day}/OPERA/COMP/"
     keys = []
     token = None
+    n_attempts = max(1, int(attempts))
     for _ in range(int(max_pages)):
         params = {"list-type": "2", "prefix": prefix, "max-keys": int(max_keys)}
         if token:
             params["continuation-token"] = token
         url = f"{s3_base}?{urllib.parse.urlencode(params)}"
-        _status, body, _hdrs = _http_get(url, timeout_s=timeout_s)
+        for attempt in range(n_attempts):
+            try:
+                _status, body, _hdrs = _http_get(url, timeout_s=timeout_s)
+                break
+            except models.SourceError:
+                if attempt + 1 >= n_attempts:
+                    raise
+                time.sleep(float(retry_wait_s))
         text = body.decode("utf-8", "replace")
         keys.extend(re.findall(r"<Key>([^<]+)</Key>", text))
         if "<IsTruncated>true</IsTruncated>" not in text:
@@ -140,79 +196,123 @@ def list_slot_keys(day, product=PRODUCT, extension=EXTENSION, **kw):
 
 
 def discover_latest(reference_dt=None, product=PRODUCT, extension=EXTENSION,
-                    lookback_days=2, s3_base=S3_BASE, timeout_s=60):
+                    lookback_days=2, s3_base=S3_BASE, timeout_s=60,
+                    s3_bases=None):
     """Chiave COMP piu' recente <= reference_dt (default: adesso UTC).
 
-    Ritorna dict {key,url,time_ms,time_iso,listing_bytes,listing_seconds}.
+    `s3_bases`: endpoint provati IN ORDINE (default: il solo `s3_base`); il
+    primo che elenca chiavi utili vince e il dict ritornato porta `base`.
+    Ritorna dict {key,url,time_ms,time_iso,listing_seconds,base}.
     Solleva SourceError se non trova nulla nel lookback (nessuna chiave
     inventata)."""
     ref = reference_dt or _dt.datetime.now(_dt.timezone.utc)
     if ref.tzinfo is None:
         ref = ref.replace(tzinfo=_dt.timezone.utc)
     ref_ms = int(ref.timestamp() * 1000)
+    bases = [normalize_base(b) for b in (s3_bases or [s3_base])]
+    bases = [b for b in bases if b] or [normalize_base(S3_BASE)]
     best = None
     for back in range(int(lookback_days) + 1):
         day = (ref - _dt.timedelta(days=back)).strftime("%Y/%m/%d")
-        t0 = time.perf_counter()
-        keys = list_slot_keys(day, product=product, extension=extension,
-                              s3_base=s3_base, timeout_s=timeout_s)
-        secs = time.perf_counter() - t0
-        candidates = []
-        for k in keys:
-            try:
-                t_ms = key_time_ms(k)
-            except ValueError:
-                continue
-            if t_ms <= ref_ms:
-                candidates.append((t_ms, k))
-        if candidates:
-            t_ms, key = max(candidates)
-            return {
-                "key": key,
-                "url": s3_base + key,
-                "time_ms": int(t_ms),
-                "time_iso": _iso_ms(t_ms),
-                "listing_seconds": round(secs, 3),
-            }
-        if best is None:
-            best = {"day": day, "n_keys": len(keys)}
+        for base in bases:
+            t0 = time.perf_counter()
+            keys = list_slot_keys(day, product=product, extension=extension,
+                                  s3_base=base, timeout_s=timeout_s)
+            secs = time.perf_counter() - t0
+            candidates = []
+            for k in keys:
+                try:
+                    t_ms = key_time_ms(k)
+                except ValueError:
+                    continue
+                if t_ms <= ref_ms:
+                    candidates.append((t_ms, k))
+            if candidates:
+                t_ms, key = max(candidates)
+                return {
+                    "key": key,
+                    "url": base + key,
+                    "time_ms": int(t_ms),
+                    "time_iso": _iso_ms(t_ms),
+                    "listing_seconds": round(secs, 3),
+                    "base": base,
+                }
+            if best is None:
+                best = {"day": day, "base": base, "n_keys": len(keys)}
     raise models.SourceError(
         f"opera_no_product:{product}.{extension}:lookback={lookback_days}d"
         f":last_day={best}")
 
 
-def resolve_slots(target_times_ms, slot_tolerance_s=300, **kw):
+def resolve_slots(target_times_ms, slot_tolerance_s=300, s3_bases=None,
+                  diag=None, **kw):
     """Mappa ogni istante target all'ultima chiave OPERA entro la tolleranza.
 
     Il composito e' a 5 minuti e la VMI DPC a 5 minuti: si cerca la chiave con
     |t_key - t_target| <= slot_tolerance_s e, a parita', la piu' recente <=
     target. Nessuna chiave -> il target non compare nel risultato (il chiamante
-    degrada a DPC-only per quel frame)."""
+    degrada a DPC-only per quel frame).
+
+    `s3_bases`: endpoint provati IN ORDINE per ogni giorno; il PRIMO che
+    restituisce chiavi vince e ogni slot porta `base` (l'endpoint da cui e'
+    stata elencata la chiave), cosi' il chiamante legge dallo STESSO endpoint
+    che l'ha elencata. Un errore su un endpoint non ferma gli altri.
+    `diag` (dict opzionale): raccoglie `attempts` (per ogni giorno ed endpoint:
+    chiavi elencate o errore) e `bases`, per il degrado esplicito in
+    latest.json."""
+    kw = dict(kw)
+    base0 = kw.pop("s3_base", None) or S3_BASE
+    bases = [normalize_base(b) for b in (s3_bases or [base0])]
+    bases = [b for b in bases if b] or [normalize_base(base0)]
     out = {}
     by_day = {}
     for t_ms in sorted(int(t) for t in target_times_ms):
         day = _dt.datetime.fromtimestamp(t_ms / 1000.0, _dt.timezone.utc)
         by_day.setdefault(day.strftime("%Y/%m/%d"), []).append(t_ms)
     tol_ms = int(slot_tolerance_s) * 1000
+    attempts = [] if diag is not None else None
     for day, targets in by_day.items():
         keys = []
-        for k in list_slot_keys(day, **kw):
+        base_used = None
+        for base in bases:
             try:
-                keys.append((key_time_ms(k), k))
-            except ValueError:
+                day_keys = list_slot_keys(day, s3_base=base, **kw)
+            except Exception as exc:
+                if attempts is not None:
+                    attempts.append({"day": day, "base": base, "keys": None,
+                                     "error": f"{exc.__class__.__name__}:{exc}"[:200]})
                 continue
+            if attempts is not None:
+                attempts.append({"day": day, "base": base,
+                                 "keys": len(day_keys)})
+            if day_keys:
+                keys = day_keys
+                base_used = base
+                break
         if not keys:
             continue
-        keys.sort()
+        parsed = []
+        for k in keys:
+            try:
+                parsed.append((key_time_ms(k), k))
+            except ValueError:
+                continue
+        if not parsed:
+            continue
+        parsed.sort()
         for t_ms in targets:
             best = None
-            for k_ms, k in keys:
+            for k_ms, k in parsed:
                 delta = k_ms - t_ms
                 if abs(delta) <= tol_ms and (best is None or abs(delta) < best[0]):
                     best = (abs(delta), k, k_ms)
             if best is not None:
                 out[t_ms] = {"key": best[1], "time_ms": int(best[2]),
-                             "delta_s": round((best[2] - t_ms) / 1000.0, 1)}
+                             "delta_s": round((best[2] - t_ms) / 1000.0, 1),
+                             "base": base_used}
+    if diag is not None:
+        diag["attempts"] = attempts or []
+        diag["bases"] = bases
     return out
 
 
@@ -443,6 +543,7 @@ def fetch_frame(config, reference_dt=None, target_ms=None, measure_bytes=True):
     OperaFrame con `time_ms` nominale del composito."""
     ocfg = (config or {}).get("opera") or {}
     bbox = ocfg.get("bbox_wgs84") or [6.0, 35.0, 20.0, 48.0]
+    bases = candidate_bases(ocfg.get("s3_base"), ocfg.get("s3_fallback_bases"))
     ref = reference_dt or _dt.datetime.now(_dt.timezone.utc)
     tol = int(ocfg.get("slot_tolerance_s") or 300)
     if target_ms is None:
@@ -450,18 +551,18 @@ def fetch_frame(config, reference_dt=None, target_ms=None, measure_bytes=True):
             ref, product=ocfg.get("product") or PRODUCT,
             extension=ocfg.get("extension") or EXTENSION,
             lookback_days=int(ocfg.get("lookback_days") or 2),
-            s3_base=ocfg.get("s3_base") or S3_BASE,
+            s3_bases=bases,
             timeout_s=int(ocfg.get("timeout_s") or 60))
     else:
         slots = resolve_slots(
             [int(target_ms)], slot_tolerance_s=tol,
-            s3_base=ocfg.get("s3_base") or S3_BASE,
+            s3_bases=bases,
             timeout_s=int(ocfg.get("timeout_s") or 60))
         info = slots.get(int(target_ms))
         if info is None:
             raise models.SourceError(
                 f"opera_no_slot:{_iso_ms(int(target_ms))}:tol={tol}s")
-        info["url"] = (ocfg.get("s3_base") or S3_BASE) + info["key"]
+        info["url"] = (info.get("base") or bases[0]) + info["key"]
     frame = read_frame(
         info["url"], bbox,
         time_ms=info["time_ms"], time_iso=_iso_ms(info["time_ms"]),

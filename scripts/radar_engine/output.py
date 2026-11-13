@@ -78,7 +78,94 @@ def _as_of_summary(bundle):
     return {"as_of_mode": as_of}
 
 
-def build_latest(bundle, engine_meta=None):
+def _read_previous_latest(out_dir):
+    """latest.json del run precedente (None se assente o illeggibile).
+
+    Serve SOLO a trasportare in avanti i campi di degrado di OPERA
+    (`last_ok_utc`, copertura persa): non altera nessun altro valore."""
+    try:
+        with open(os.path.join(out_dir, "latest.json"), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+_OPERA_REASON_TEXT = {
+    "no_slot_for_frame": ("nessuno slot del composito entro la tolleranza "
+                          "fra tutti gli endpoint provati"),
+    "partial_slots_or_errors": "slot o letture mancanti su una parte dei frame",
+}
+
+
+def _opera_note(opera):
+    """Frase leggibile (pannello) sul degrado OPERA. Solo fatti misurati."""
+    status = opera.get("status")
+    reason = opera.get("reason") or "motivo_non_dichiarato"
+    detail = _OPERA_REASON_TEXT.get(reason, reason)
+    tried = opera.get("endpoints_tried") or []
+    n_bases = len(tried) if isinstance(tried, (list, tuple)) else 0
+    last_ok = opera.get("last_ok_utc")
+    lost = opera.get("coverage_lost_km2")
+    parts = [f"OPERA {status}: {detail}."]
+    if n_bases:
+        parts.append(f"Endpoint provati: {n_bases}.")
+    if last_ok:
+        parts.append(f"Ultimo run con OPERA attivo: {last_ok}.")
+    if lost is not None:
+        parts.append(f"Copertura non piu' aggiunta: {lost} km2.")
+    parts.append("Il mosaico resta alla sola VMI DPC.")
+    return " ".join(parts)
+
+
+def _enrich_opera_status(payload, previous):
+    """Rende ESPLICITO il degrado di OPERA in latest.json["opera"].
+
+    Campi aggiunti (tutti additivi, nessun campo esistente cambia):
+      `last_ok_utc`           ultimo run con `opera.status == "ok"`;
+      `coverage_lost_pixels`  pixel che l'ultimo run OK prendeva da OPERA;
+      `coverage_lost_km2`     gli stessi pixel in km^2 (area del pixel della
+                              griglia corrente, MISURATA dal transform);
+      `coverage_lost_basis`   come e' stato calcolato (`last_ok_frame_pixels`);
+      `note`                  frase leggibile per il pannello (solo in degrado).
+
+    In stato "ok" la copertura persa e' 0 per definizione. In degrado i valori
+    vengono TRASPORTATI dal run precedente: con OPERA assente la copertura
+    corrente non e' misurabile, quindi non si stima e non si inventa."""
+    opera = payload.get("opera")
+    if not isinstance(opera, dict) or not opera:
+        return
+    mosaic = payload.get("mosaic") or {}
+    pixel_area = mosaic.get("pixel_area_km2")
+    prev = (previous or {}).get("opera") or {}
+    if opera.get("status") == "ok":
+        opera["last_ok_utc"] = payload.get("generated_at")
+        opera["coverage_lost_pixels"] = 0
+        opera["coverage_lost_km2"] = 0.0
+        opera["coverage_lost_basis"] = "none"
+        return
+    last_ok = prev.get("last_ok_utc")
+    lost_px = prev.get("coverage_lost_pixels")
+    lost_km2 = prev.get("coverage_lost_km2")
+    if prev.get("status") == "ok":
+        # Il run precedente era OK: la copertura che oggi non aggiungiamo e'
+        # ESATTAMENTE quella che quello prendeva da OPERA (il suo
+        # `coverage_lost_pixels` e' 0 per definizione, quindi non si usa).
+        last_ok = last_ok or (previous or {}).get("generated_at")
+        frames = ((previous or {}).get("mosaic") or {}).get("frames") or []
+        px = int(frames[-1].get("pixels_opera") or 0) if frames else 0
+        lost_px = px
+        if pixel_area is not None:
+            lost_km2 = round(px * float(pixel_area), 3)
+    opera["last_ok_utc"] = last_ok
+    opera["coverage_lost_pixels"] = lost_px
+    opera["coverage_lost_km2"] = lost_km2
+    opera["coverage_lost_basis"] = (
+        "last_ok_frame_pixels" if lost_px is not None else None)
+    opera["note"] = _opera_note(opera)
+
+
+def build_latest(bundle, engine_meta=None, previous=None):
     """latest.json (stato del run, mai dati raw)."""
     payload = {
         "status": bundle.status,                 # ok | degraded | error
@@ -145,6 +232,8 @@ def build_latest(bundle, engine_meta=None):
             "bytes_read": mosaic.get("bytes_read"),
             "bytes_file": mosaic.get("bytes_file"),
             "range_requests": mosaic.get("range_requests"),
+            "endpoint": mosaic.get("endpoint"),
+            "pixel_area_km2": mosaic.get("pixel_area_km2"),
             "mixed_cells": getattr(bundle, "mosaic_mixed_cells", None),
             "frames": [{k: f.get(k) for k in (
                 "time_iso", "pixels_dpc", "pixels_opera", "pct_dpc",
@@ -152,6 +241,10 @@ def build_latest(bundle, engine_meta=None):
                 "substitute_reason", "opera_time_iso")}
                 for f in (mosaic.get("frames") or [])],
         }
+    # Degrado OPERA ESPLICITO: `last_ok_utc`, copertura persa e `note` leggibile
+    # per il pannello. Va DOPO il blocco `mosaic` (gli serve `pixel_area_km2`).
+    if "opera" in payload:
+        _enrich_opera_status(payload, previous)
     # 2026-11-12 — TEMPI PER STADIO (additivo): `{unit, total, stages}` con
     # `stages[name] = {ms, calls, pct, parents}` ordinati per ms decrescenti.
     # Presente solo quando il motore ha misurato (bundle.timings_ms assente ->
@@ -586,8 +679,10 @@ def write_outputs(bundle, out_dir, engine_meta=None):
             out_dir, "convective_structures.json"),
     }
     contents = {
-        "latest.json": json.dumps(build_latest(bundle, engine_meta),
-                                  default=_json_default),
+        "latest.json": json.dumps(
+            build_latest(bundle, engine_meta,
+                         previous=_read_previous_latest(out_dir)),
+            default=_json_default),
         "storms.geojson": json.dumps(build_storms_geojson(bundle),
                                      default=_json_default),
         "tracks.json": json.dumps(build_tracks(bundle),

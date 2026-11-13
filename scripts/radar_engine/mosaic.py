@@ -248,6 +248,18 @@ def _reproject(frame, dst_raster, resampling="nearest"):
         (dst_raster.rows, dst_raster.cols), resampling=resampling)
 
 
+def _pixel_area_km2(raster):
+    """Area di un pixel della griglia di destinazione, in km^2 (MISURATA dal
+    transform: |a*e|/1e6). None se il raster non espone un transform."""
+    tr = getattr(raster, "transform", None)
+    if tr is None:
+        return None
+    try:
+        return round(abs(float(tr.a) * float(tr.e)) / 1e6, 6)
+    except (TypeError, ValueError):
+        return None
+
+
 def apply(frames, config, now_ms=None, measure_bytes=True):
     """Applica il merge OPERA a TUTTI i frame di una run.
 
@@ -260,25 +272,39 @@ def apply(frames, config, now_ms=None, measure_bytes=True):
         return MosaicResult([], "disabled", reason="opera_disabled")
 
     t0 = time.perf_counter()
+    bases = source_opera.candidate_bases(ocfg.get("s3_base"),
+                                         ocfg.get("s3_fallback_bases"))
     meta = {"seconds": None, "bytes_file": None, "bytes_read": None,
             "range_requests": None, "slots_resolved": 0, "frames_merged": 0,
-            "opera_keys": [], "errors": []}
+            "opera_keys": [], "errors": [], "endpoint": None,
+            "endpoints_tried": list(bases), "listing": [],
+            "pixel_area_km2": _pixel_area_km2(frames[-1]) if frames else None}
     targets = [int(f.time_ms) for f in frames if f.time_ms is not None]
     if not targets:
         return MosaicResult([], "unavailable", reason="no_frames", meta=meta)
 
+    diag = {}
     try:
         slots = source_opera.resolve_slots(
             targets,
             slot_tolerance_s=int(ocfg.get("slot_tolerance_s", 300)),
-            s3_base=ocfg.get("s3_base") or source_opera.S3_BASE,
+            s3_bases=bases,
+            diag=diag,
             timeout_s=int(ocfg.get("timeout_s", 60)))
     except Exception as exc:
         meta["seconds"] = round(time.perf_counter() - t0, 3)
+        meta["listing"] = diag.get("attempts") or []
         return MosaicResult([], "unavailable",
                             reason=f"listing_failed:{exc}", meta=meta)
 
     meta["slots_resolved"] = len(slots)
+    # Endpoint effettivamente usato: uno solo in condizioni normali. Se i
+    # giorni della run sono serviti da endpoint diversi, `endpoint` resta None
+    # e l'elenco completo sta in `endpoints_used` (nessuna semplificazione).
+    used = sorted({s.get("base") for s in slots.values() if s.get("base")})
+    meta["endpoint"] = used[0] if len(used) == 1 else None
+    meta["endpoints_used"] = used
+    meta["listing"] = diag.get("attempts") or []
     cache_dir = (config or {}).get("source", {}).get("cache_dir")
     loaded = {}
     out = []
@@ -291,10 +317,11 @@ def apply(frames, config, now_ms=None, measure_bytes=True):
         opera_frame = None
         if slot is not None:
             key = slot["key"]
+            base = slot.get("base") or bases[0]
             if key not in loaded:
                 try:
                     loaded[key] = source_opera.read_frame(
-                        (ocfg.get("s3_base") or source_opera.S3_BASE) + key,
+                        base + key,
                         ocfg.get("bbox_wgs84") or [6.0, 35.0, 20.0, 48.0],
                         time_ms=slot["time_ms"],
                         time_iso=source_opera._iso_ms(slot["time_ms"]),
