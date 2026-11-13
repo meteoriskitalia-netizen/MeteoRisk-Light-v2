@@ -490,6 +490,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .wk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
         .wk-title { font-size: 12px; font-weight: 700; color: #e2e8f0; }
         .wk-badge { font-size: 11px; color: #94a3b8; }
+        .wk-scope { font-size: 11px; color: #7dd3fc; font-weight: 600; }
         .wk-scroll { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; max-width: 100%; }
         .wk-row { display: flex; gap: 5px; min-width: 0; }
         .wk-day { flex: 1 1 42px; min-width: 42px; background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 3px 2px; text-align: center; }
@@ -619,6 +620,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .legend { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 10px; font-size: 10px; color: #94a3b8; }
         .legend-item { display: flex; align-items: center; gap: 4px; }
         .legend-color { width: 10px; height: 10px; border-radius: 50%; }
+        .legend-hydro-susp { color: #fbbf24; font-weight: 700; }
 
         /* 1.2.4.64+Doppler - legenda radar compatta sotto la mappa.
            Visibile SOLO quando il layer radar e' attivo (isRadarActive): il
@@ -2702,6 +2704,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                     <div class="wk-card" id="weekly-summary" aria-label="Prossimi 7 giorni">
                         <div class="wk-head">
                             <span class="wk-badge" id="wk-badge">tendenza…</span>
+                            <span class="wk-scope" id="wk-scope"></span>
                         </div>
                         <div class="wk-scroll" id="wk-scroll">
                             <div class="wk-row" id="wk-row"><div class="wk-empty">tendenza in caricamento…</div></div>
@@ -2847,9 +2850,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.90';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.91';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-13';
     const APP_CHANGELOG = [
+        { version: '1.2.4.91', date: '2026-11-13', changes: [
+  "CRITICITA' DPC: LA COLORAZIONE DEI RISCHI SI SOSPENDE= Con lo switch Criticita' DPC attivo i 107 poligoni provinciali passano a uno stile neutro (nessun riempimento di rischio, solo bordo sottile) e la legenda dei rischi mostra l'avviso 'colorazione dei rischi sospesa: attivo il layer Criticita' DPC'. Allo spegnimento i fill tornano IDENTICI a prima (confronto dei 107 path, non solo dei conteggi); se nel frattempo metrica o giorno sono cambiati lo stile viene ricalcolato invece di riapplicare colori vecchi. I badge provinciali e il pannello laterale NON cambiano: si sospende solo la pittura dei poligoni. Lo stato e' salvato per layer, stesso schema di fmHideRiskOverlays/fmRestoreRiskOverlays delle mappe previsionali.",
+  "RIEPILOGO 7 GIORNI: LA LOCALITA' NON PERDE PIU' LA TENDENZA= Le 7 celle seguono la localita' selezionata: un comune usa la sua serie se weekly.json la espone, altrimenti la provincia che lo contiene (LOCAL_COMUNE_TO_SIGLA, point-in-polygon sul GeoJSON delle province o capoluogo piu' vicino: tutti dati gia' in memoria) e l'intestazione dichiara 'provincia di X (comune di Y)'; se la provincia non e' determinabile si usa l'area macro. Un capoluogo resta identico a prima (nessuna intestazione aggiunta). Le 6 frasi nazionali di macro-area restano SEMPRE visibili con gli stessi numeri. 'tendenza non disponibile' compare solo se weekly.json manca davvero, col motivo (es. HTTP 404 / Failed to fetch), e non azzera le frasi nazionali quando il file c'e'. Nessuna richiesta di rete aggiuntiva: weekly.json resta scaricato una volta per sessione.",
+  "MISURE (Edge headless CDP, 1440x900 e 390x844, pagina servita 1.2.4.91)= Idro ON: 187 path idro disegnati, 107 path provinciali con UN SOLO valore di fill (#334155, nessun colore di rischio), avviso presente in legenda. Idro OFF: 107/107 path identici a prima su fill, fill-opacity, stroke, stroke-width e stroke-opacity (0 differenze). 3 cicli ON/OFF + cambio giorno con layer attivo: 0 eccezioni, poligoni sempre neutri. Weekly: nessuna localita' -> celle RM (default invariato); Roma -> celle identiche al default e ai valori RM di weekly.json; Milano -> valori MI; La Caletta -> celle NU (tmax/tmin/prcp di weekly.json) con intestazione 'Prossimi 7 giorni - provincia di Nuoro (comune di La Caletta)'; 6 frasi nazionali identiche nei tre casi; una sola richiesta weekly.json in tutta la sessione. weekly.json bloccato: 'tendenza non disponibile: weekly.json non caricato (Failed to fetch)', 0 eccezioni. 0 overflow orizzontale a 1440x900 e 390x844; node --check 9/9 blocchi inline. Il blocco Accumulo ultima ora (SRT1) della 1.2.4.90 resta invariato.",
+  "BUMP= html mri-light-1.2.4.91.html, VERSION (BUILD=91, DATE=2026-11-13, APP_FILE=mri-light-1.2.4.91.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.91), README.md, i 26 test .mjs col nome del file html in entrambe le forme; la 1.2.4.90 va RIMOSSA dal repo (una sola app servita da Pages). NON toccati: scripts/, dataset, renderer, motore radar, blocco SRT1."
+        ] },
         { version: '1.2.4.90', date: '2026-11-13', changes: [
   "ACCUMULO ULTIMA ORA NELLA LINGUETTA AREE= Nuovo blocco #acc-card dentro #forecast-details (linguetta Aree, sotto la sintesi delle 6 macro-aree). Per ognuna delle 6 aree una riga con nome, p50 e max in mm e una barra orizzontale su scala FISSA 0-30 mm, dichiarata a schermo: oltre 30 mm la barra satura. Intestazione con valid_time, finestra in ore e stato dell'eta' del file.",
   "DATI DAL FILE, NON DAL CLIENT= Legge data/radar/accumulation.json e data/radar/accumulation_validation.json, gia' pubblicati dal motore radar e finora non usati da nessuna parte della UI. Ogni numero mostrato (p50, max, MAE, n) viene dal JSON; nessuna costante nel codice tranne la scala 0-30 mm e la soglia di eta' a 30 minuti.",
@@ -15877,7 +15886,8 @@ stopSyncPlay();
                 daily: data.daily,
                 hourly: data.hourly,
                 lat: CALETTA_LAT,
-                lon: CALETTA_LON
+                lon: CALETTA_LON,
+                admin1: 'Sardegna'
             };
             isCustomCity = true;
             updateMarkerSelection();
@@ -21797,6 +21807,12 @@ function toggleForecastMaps() {
             restyleBorderOverlay();
             return;
         }
+        if (typeof window !== 'undefined' && window.hydroRiskSuspended) {
+            // 1.2.4.91 - layer Criticita' DPC attivo: colorazione dei rischi sospesa,
+            // i poligoni restano neutri (solo bordo). I badge NON cambiano.
+            restyleBorderOverlay();
+            return;
+        }
         if (continuousMode || !mapColorsVisible) {
             // Vista continua o "Colori" OFF: i fill sono gestiti da updateMapColors;
             // qui si aggiorna solo il bordo di selezione.
@@ -27298,6 +27314,17 @@ function renderContinuousOverlay() {
                 renderLegend();
                 return;
             }
+            // 1.2.4.91 - layer Criticita' DPC attivo: la colorazione dei rischi e'
+            // sospesa (nessun riempimento di rischio, solo bordo sottile). Vale per
+            // ogni metrica e ogni giorno; i badge provinciali restano quelli di sempre.
+            if (typeof window !== 'undefined' && window.hydroRiskSuspended) {
+                hideContinuousOverlay();
+                provinceGeoJsonLayer.setStyle({ fillColor: '#334155', fillOpacity: 0, opacity: 1, color: 'transparent', weight: 0 });
+                restyleBorderOverlay();
+                renderLegend();
+                updateRiskBadges();
+                return;
+            }
             // Se le allerte DPC sono attive, non sovrascrivere i colori DPC
             if (dpcAlertMode === 'on') {
                 hideContinuousOverlay();
@@ -27357,9 +27384,14 @@ function renderContinuousOverlay() {
         }
         if (currentMetric === 'hail') legendKey = (hailLevel === 'size') ? 'hail_size' : 'hail_prob';
         const items = legends[legendKey] || legends.risk;
-        document.getElementById('legend-container').innerHTML = items.map(([color, label]) =>
+        var hydroSusp = (typeof window !== 'undefined' && window.hydroRiskSuspended);
+        var legendHtml = items.map(([color, label]) =>
             `<div class="legend-item"><div class="legend-color" style="background:${color}"></div> ${label}</div>`
         ).join('');
+        if (hydroSusp) {
+            legendHtml = '<div class="legend-item legend-hydro-susp">colorazione dei rischi sospesa: attivo il layer Criticità DPC</div>' + legendHtml;
+        }
+        document.getElementById('legend-container').innerHTML = legendHtml;
         // 1.2.4.69 - la mappa e' un RIASSUNTO: il colore e' il massimo fra tutti i pericoli.
         if (currentMetric === 'risk') {
             document.getElementById('legend-container').insertAdjacentHTML('beforeend',
@@ -29702,7 +29734,7 @@ function renderContinuousOverlay() {
     var WK_URL = 'data/latest/weekly.json';
     var WK_DOW = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
     var WK_DOW_LONG = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'];
-    var WK_STATE = { status: 'idle', data: null };
+    var WK_STATE = { status: 'idle', data: null, error: null };
     var WK_RENDERED_KEY = '';
 
     function wkDate(iso) {
@@ -29765,11 +29797,13 @@ function renderContinuousOverlay() {
                 }
                 WK_STATE.data = doc;
                 WK_STATE.status = 'ok';
+                WK_STATE.error = null;
                 WK_RENDERED_KEY = '';
                 weeklyRender();
-            }).catch(function () {
+            }).catch(function (err) {
                 WK_STATE.data = null;
                 WK_STATE.status = 'error';
+                WK_STATE.error = (err && err.message) ? err.message : 'errore di rete';
                 WK_RENDERED_KEY = '';
                 weeklyRender();
             });
@@ -29986,44 +30020,159 @@ function renderContinuousOverlay() {
         return 'pi\u00F9 piovoso ' + wkDow(days[bestDay], true);
     }
 
-    function weeklyRender() {
-        var row = document.getElementById('wk-row');
-        var badge = document.getElementById('wk-badge');
-        var phrase = document.getElementById('wk-phrase');
-        if (!row || !badge || !phrase) return;
-        var sigla = '';
+    function wkEscText(v) {
+        return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function wkMedian(arr) {
+        if (!arr || !arr.length) return null;
+        var a = arr.slice().sort(function (x, y) { return x - y; });
+        var m = Math.floor(a.length / 2);
+        return (a.length % 2) ? a[m] : (a[m - 1] + a[m]) / 2;
+    }
+
+    // 1.2.4.91 - La localita' scelta puo' essere un comune o una frazione che non
+    // ha una riga in weekly.json (il file contiene SOLO le 107 province). La sigla
+    // si ricava con i dati GIA' in memoria, nessuna richiesta di rete:
+    // (1) LOCAL_COMUNE_TO_SIGLA (dataset locale incorporato), (2) point-in-polygon
+    // sul GeoJSON delle province, (3) capoluogo piu' vicino.
+    function wkNormPlace(v) {
+        return String(v == null ? '' : v)
+            .replace(/\s*\([^)]*\)\s*$/, '')
+            .replace(/\s*[\u2022\u00B7]\s*.*$/, '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase();
+    }
+
+    function wkSiglaAt(idx) {
+        if (typeof regionsData === 'undefined' || !regionsData || !regionsData[idx]) return '';
+        return regionsData[idx].sigla || '';
+    }
+
+    function wkNearestSigla(lon, lat) {
+        if (typeof regionsData === 'undefined' || !Array.isArray(regionsData)) return '';
+        var best = null, bestD = null, i;
+        var cosLat = Math.cos(Number(lat) * Math.PI / 180);
+        for (i = 0; i < regionsData.length; i++) {
+            var r = regionsData[i];
+            if (!r || !isFinite(r.lat) || !isFinite(r.lon)) continue;
+            var dy = (Number(r.lat) - Number(lat)) * 111.32;
+            var dx = (Number(r.lon) - Number(lon)) * 111.32 * cosLat;
+            var d = Math.sqrt(dx * dx + dy * dy);
+            if (bestD === null || d < bestD) { bestD = d; best = r; }
+        }
+        return best ? (best.sigla || '') : '';
+    }
+
+    function wkCustomSigla() {
+        if (typeof customCityData === 'undefined' || !customCityData) return '';
+        var name = wkNormPlace(customCityData.cityName);
         try {
-            var isCustom = (typeof isCustomCity !== 'undefined' && isCustomCity);
-            var idx = (typeof selectedIndex === 'number') ? selectedIndex : -1;
-            if (!isCustom && typeof regionsData !== 'undefined' && regionsData && regionsData[idx] && regionsData[idx].sigla) {
-                sigla = regionsData[idx].sigla;
+            if (name && typeof LOCAL_COMUNE_TO_SIGLA !== 'undefined' && LOCAL_COMUNE_TO_SIGLA &&
+                LOCAL_COMUNE_TO_SIGLA[name]) return LOCAL_COMUNE_TO_SIGLA[name];
+        } catch (eMap) {}
+        var lon = Number(customCityData.lon), lat = Number(customCityData.lat);
+        if (!isFinite(lon) || !isFinite(lat)) return '';
+        try {
+            if (typeof densifyFindProvince === 'function') {
+                var idx = densifyFindProvince({ lat: lat, lon: lon });
+                var sigla = wkSiglaAt(idx);
+                if (sigla) return sigla;
             }
-        } catch (eSel) {
-            sigla = '';
+        } catch (ePip) {}
+        return wkNearestSigla(lon, lat);
+    }
+
+    function wkCustomArea() {
+        if (typeof customCityData === 'undefined' || !customCityData) return '';
+        if (typeof ITALIA_AREAS === 'undefined' || !ITALIA_AREAS) return '';
+        var region = String(customCityData.admin1 || '');
+        if (!region) {
+            var m = String(customCityData.cityName || '').match(/\(([^)]+)\)\s*$/);
+            if (m) region = m[1];
         }
-        var key = WK_STATE.status + '|' + sigla;
-        if (WK_RENDERED_KEY === key) return;
-        WK_RENDERED_KEY = key;
-        if (WK_STATE.status === 'idle' || WK_STATE.status === 'loading') {
-            badge.textContent = 'caricamento\u2026';
-            row.innerHTML = '<div class="wk-empty">tendenza in caricamento\u2026</div>';
-            phrase.textContent = '';
-            return;
+        if (!region) return '';
+        for (var i = 0; i < ITALIA_AREAS.length; i++) {
+            if (ITALIA_AREAS[i] && ITALIA_AREAS[i].regions && ITALIA_AREAS[i].regions[region]) return ITALIA_AREAS[i].name;
         }
-        if (WK_STATE.status !== 'ok' || !WK_STATE.data) {
-            badge.textContent = 'tendenza non disponibile';
-            row.innerHTML = '<div class="wk-empty">tendenza non disponibile</div>';
-            phrase.textContent = 'tendenza non disponibile';
-            return;
+        return '';
+    }
+
+    // Serie "di area": sola aggregazione delle righe provinciali GIA' nel file.
+    // tmax/tmin = mediana delle province dell'area, prcp = massimo (worst case),
+    // codice = moda. Fallback dichiarato solo se la provincia non e' determinabile.
+    function wkAreaSeries(areaName) {
+        if (!areaName || !WK_STATE.data || typeof ITALIA_AREAS === 'undefined') return null;
+        var area = null, i;
+        for (i = 0; i < ITALIA_AREAS.length; i++) {
+            if (ITALIA_AREAS[i] && ITALIA_AREAS[i].name === areaName) { area = ITALIA_AREAS[i]; break; }
         }
-        var recs = wkFindProvince(sigla);
-        if (!recs) {
-            badge.textContent = 'tendenza non disponibile';
-            row.innerHTML = '<div class="wk-empty">tendenza non disponibile per questa localit\u00E0</div>';
-            phrase.textContent = '';
-            return;
+        if (!area) return null;
+        var siglaRegion = {};
+        if (typeof regionsData !== 'undefined' && regionsData) {
+            for (i = 0; i < regionsData.length; i++) {
+                if (regionsData[i] && regionsData[i].sigla) siglaRegion[regionsData[i].sigla] = regionsData[i].region;
+            }
         }
+        var rows = WK_STATE.data.provinces || [];
         var days = WK_STATE.data.days || [];
+        var acc = [], d;
+        for (d = 0; d < days.length; d++) acc.push({ tmax: [], tmin: [], prcp: [], codes: {} });
+        var used = 0;
+        for (i = 0; i < rows.length; i++) {
+            var row = rows[i];
+            if (!Array.isArray(row) || !row[0]) continue;
+            if (!area.regions[siglaRegion[row[0]] || '']) continue;
+            var recs = wkRecords(row);
+            if (!recs) continue;
+            used++;
+            for (d = 0; d < recs.length && d < acc.length; d++) {
+                var rec = recs[d] || {};
+                if (rec.tmax !== null && rec.tmax !== undefined && isFinite(rec.tmax)) acc[d].tmax.push(Number(rec.tmax));
+                if (rec.tmin !== null && rec.tmin !== undefined && isFinite(rec.tmin)) acc[d].tmin.push(Number(rec.tmin));
+                if (rec.prcp !== null && rec.prcp !== undefined && isFinite(rec.prcp)) acc[d].prcp.push(Number(rec.prcp));
+                var code = Number(rec.code);
+                if (isFinite(code)) acc[d].codes[code] = (acc[d].codes[code] || 0) + 1;
+            }
+        }
+        if (!used) return null;
+        var out = [];
+        for (d = 0; d < acc.length; d++) {
+            var topCode = 0, topN = -1, k;
+            for (k in acc[d].codes) {
+                if (Object.prototype.hasOwnProperty.call(acc[d].codes, k) && acc[d].codes[k] > topN) {
+                    topN = acc[d].codes[k]; topCode = Number(k);
+                }
+            }
+            out.push({
+                tmax: acc[d].tmax.length ? wkMedian(acc[d].tmax) : null,
+                tmin: acc[d].tmin.length ? wkMedian(acc[d].tmin) : null,
+                prcp: acc[d].prcp.length ? Math.max.apply(null, acc[d].prcp) : null,
+                code: topCode
+            });
+        }
+        return { records: out, provinces: used };
+    }
+
+    // Serie del comune, se un giorno weekly.json la esporra' (oggi: no). Riconosce
+    // doc.comuni / doc.locations come elenco [nome, [7 record]].
+    function wkFindLocationSeries(name) {
+        if (!name || !WK_STATE.data) return null;
+        var rows = Array.isArray(WK_STATE.data.comuni) ? WK_STATE.data.comuni :
+            (Array.isArray(WK_STATE.data.locations) ? WK_STATE.data.locations : null);
+        if (!rows) return null;
+        var want = wkNormPlace(name);
+        for (var i = 0; i < rows.length; i++) {
+            var row = rows[i];
+            if (!Array.isArray(row) || !row[0]) continue;
+            if (wkNormPlace(row[0]) === want) return wkRecords(row);
+        }
+        return null;
+    }
+
+    function wkSeriesCells(recs, days) {
         var cells = '';
         for (var i = 0; i < days.length && i < recs.length; i++) {
             var rec = recs[i] || {};
@@ -30041,9 +30190,88 @@ function renderContinuousOverlay() {
                 '<div class="wk-t">' + wkNum(rec.tmax, 0) + '\u00B0/' + wkNum(rec.tmin, 0) + '\u00B0</div>' +
                 '<div class="wk-p">' + wkNum(rec.prcp, 1) + 'mm</div></div>';
         }
-        row.innerHTML = cells;
-        badge.textContent = wkWeeklySummary(WK_STATE.data);
-        badge.title = (WK_STATE.data.count || 107) + ' province nel file weekly.json';
+        return cells;
+    }
+
+    function weeklyRender() {
+        var row = document.getElementById('wk-row');
+        var badge = document.getElementById('wk-badge');
+        var phrase = document.getElementById('wk-phrase');
+        var scopeEl = document.getElementById('wk-scope');
+        if (!row || !badge || !phrase) return;
+        var isCustom = false, idx = -1, sigla = '', cityName = '';
+        try {
+            isCustom = (typeof isCustomCity !== 'undefined' && isCustomCity && typeof customCityData !== 'undefined' && !!customCityData);
+            idx = (typeof selectedIndex === 'number') ? selectedIndex : -1;
+            if (isCustom) {
+                cityName = String(customCityData.cityName || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
+                sigla = wkCustomSigla();
+            } else if (typeof regionsData !== 'undefined' && regionsData && regionsData[idx] && regionsData[idx].sigla) {
+                sigla = regionsData[idx].sigla;
+            }
+        } catch (eSel) {
+            sigla = '';
+        }
+        var key = WK_STATE.status + '|' + (isCustom ? 'C:' + cityName + ':' + sigla : 'P:' + sigla);
+        if (WK_RENDERED_KEY === key) return;
+        WK_RENDERED_KEY = key;
+        if (scopeEl) scopeEl.textContent = '';
+        if (WK_STATE.status === 'idle' || WK_STATE.status === 'loading') {
+            badge.textContent = 'caricamento\u2026';
+            row.innerHTML = '<div class="wk-empty">tendenza in caricamento\u2026</div>';
+            phrase.textContent = '';
+            return;
+        }
+        if (WK_STATE.status !== 'ok' || !WK_STATE.data) {
+            var errTxt = WK_STATE.error ? (' (' + wkEscText(WK_STATE.error) + ')') : '';
+            badge.textContent = 'tendenza non disponibile';
+            badge.title = '';
+            row.innerHTML = '<div class="wk-empty">tendenza non disponibile: weekly.json non caricato' + errTxt + '</div>';
+            phrase.textContent = '';
+            return;
+        }
+        var days = WK_STATE.data.days || [];
+        var recs = null, scopeLabel = '';
+        if (isCustom) {
+            // 1) serie del comune (se esiste nel file); 2) provincia di appartenenza;
+            // 3) area macro dichiarata. Nessuna richiesta di rete.
+            recs = wkFindLocationSeries(cityName);
+            if (recs) { scopeLabel = 'comune di ' + cityName; }
+            if (!recs && sigla) {
+                recs = wkFindProvince(sigla);
+                if (recs) {
+                    var prov = wkProvName(sigla);
+                    scopeLabel = (wkNormPlace(cityName) === wkNormPlace(prov))
+                        ? '' : ('provincia di ' + prov + ' (comune di ' + cityName + ')');
+                }
+            }
+            if (!recs) {
+                var areaName = wkCustomArea();
+                var areaSeries = areaName ? wkAreaSeries(areaName) : null;
+                if (areaSeries) {
+                    recs = areaSeries.records;
+                    scopeLabel = 'area ' + areaName + ' (comune di ' + cityName + ')';
+                }
+            }
+        } else {
+            recs = wkFindProvince(sigla);
+        }
+        if (scopeEl && scopeLabel) scopeEl.textContent = 'Prossimi 7 giorni \u2014 ' + scopeLabel;
+        var cells = '';
+        if (recs) cells = wkSeriesCells(recs, days);
+        if (!cells) {
+            var why = isCustom ? ('comune di ' + wkEscText(cityName)) : 'questa localit\u00E0';
+            badge.textContent = 'tendenza non disponibile';
+            badge.title = '';
+            row.innerHTML = '<div class="wk-empty">tendenza non disponibile: nessuna serie per ' + why +
+                (isCustom && sigla ? ' (provincia ' + wkEscText(wkProvName(sigla)) + ')' : '') + '</div>';
+        } else {
+            row.innerHTML = cells;
+            badge.textContent = wkWeeklySummary(WK_STATE.data);
+            badge.title = (WK_STATE.data.count || 107) + ' province nel file weekly.json';
+        }
+        // 1.2.4.91 - le 6 frasi di macro-area sono NAZIONALI: restano visibili con
+        // qualunque localita' selezionata e con gli stessi numeri.
         var areaPhrases = [];
         try { areaPhrases = wkAreaPhrases(WK_STATE.data); } catch (eWkA) { areaPhrases = []; }
         if (!areaPhrases.length) {
@@ -31507,7 +31735,8 @@ function renderContinuousOverlay() {
                 daily: data.daily, 
                 hourly: data.hourly,
                 lat: city.latitude,
-                lon: city.longitude
+                lon: city.longitude,
+                admin1: city.admin1 || ''
             };
             isCustomCity = true;
             closeRiskSummary(); // il riepilogo è basato sulla provincia: nascondilo selezionando un comune personalizzato
@@ -33962,6 +34191,85 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         });
     }
 
+    // 1.2.4.91 - SOSPENSIONE DELLA COLORAZIONE DEI RISCHI (stesso schema del
+    // meccanismo fmHideRiskOverlays/fmRestoreRiskOverlays delle mappe previsionali:
+    // stato salvato PER LAYER, nessun booleano globale). Qui pero' i poligoni non
+    // vengono nascosti: passano a uno stile neutro (nessun riempimento di rischio)
+    // e al ritorno si ripristina ESATTAMENTE lo stile salvato. Se nel frattempo
+    // metrica/giorno/modalita' sono cambiati, si ricalcola con updateMapColors()
+    // invece di riapplicare colori vecchi.
+    var HYDRO_PAINT = { suspended: false, saved: null, signature: null };
+
+    function hydroPaintSignature() {
+        try {
+            return [
+                typeof currentMetric !== 'undefined' ? currentMetric : '',
+                typeof currentDay !== 'undefined' ? currentDay : '',
+                typeof selectedWeatherModel !== 'undefined' ? selectedWeatherModel : '',
+                (typeof isHighRiskFilterActive !== 'undefined' && isHighRiskFilterActive) ? 1 : 0,
+                typeof convCategory !== 'undefined' ? convCategory : '',
+                typeof hailLevel !== 'undefined' ? hailLevel : '',
+                (typeof mapColorsVisible !== 'undefined' && mapColorsVisible) ? 1 : 0,
+                (typeof continuousMode !== 'undefined' && continuousMode) ? 1 : 0,
+                typeof dpcAlertMode !== 'undefined' ? dpcAlertMode : '',
+                (typeof forecastActive !== 'undefined' && forecastActive) ? 1 : 0,
+                typeof selectedIndex !== 'undefined' ? selectedIndex : '',
+                (typeof isCustomCity !== 'undefined' && isCustomCity) ? 1 : 0
+            ].join('|');
+        } catch (e) { return 'unknown'; }
+    }
+
+    function suspendRiskPaint() {
+        if (HYDRO_PAINT.suspended) return;
+        HYDRO_PAINT.saved = [];
+        try {
+            if (typeof provinceGeoJsonLayer !== 'undefined' && provinceGeoJsonLayer && provinceGeoJsonLayer.eachLayer) {
+                provinceGeoJsonLayer.eachLayer(function (layer) {
+                    if (!layer || !layer.options) return;
+                    HYDRO_PAINT.saved.push({
+                        layer: layer,
+                        fillColor: layer.options.fillColor,
+                        fillOpacity: layer.options.fillOpacity,
+                        color: layer.options.color,
+                        weight: layer.options.weight,
+                        opacity: layer.options.opacity
+                    });
+                });
+            }
+        } catch (eSave) { HYDRO_PAINT.saved = []; }
+        HYDRO_PAINT.signature = hydroPaintSignature();
+        HYDRO_PAINT.suspended = true;
+        window.hydroRiskSuspended = true;
+        if (typeof updateMapColors === 'function') { updateMapColors(); }
+    }
+
+    function resumeRiskPaint() {
+        if (!HYDRO_PAINT.suspended) { window.hydroRiskSuspended = false; return; }
+        HYDRO_PAINT.suspended = false;
+        window.hydroRiskSuspended = false;
+        var same = (hydroPaintSignature() === HYDRO_PAINT.signature);
+        if (same && HYDRO_PAINT.saved) {
+            for (var i = 0; i < HYDRO_PAINT.saved.length; i++) {
+                var sv = HYDRO_PAINT.saved[i];
+                if (!sv || !sv.layer || !sv.layer.setStyle) continue;
+                sv.layer.setStyle({
+                    fillColor: sv.fillColor,
+                    fillOpacity: sv.fillOpacity,
+                    color: sv.color,
+                    weight: sv.weight,
+                    opacity: sv.opacity
+                });
+            }
+            if (typeof restyleBorderOverlay === 'function') { restyleBorderOverlay(); }
+            if (typeof renderLegend === 'function') { renderLegend(); }
+            if (typeof updateRiskBadges === 'function') { updateRiskBadges(); }
+        } else if (typeof updateMapColors === 'function') {
+            updateMapColors();
+        }
+        HYDRO_PAINT.saved = null;
+        HYDRO_PAINT.signature = null;
+    }
+
     window.toggleHydroLayer = function (on) {
         var cb = byId('switch-hydro');
         if (cb && cb.checked !== !!on) { cb.checked = !!on; }
@@ -33971,9 +34279,11 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
             if (panel) { panel.hidden = true; }
             if (wrap) { wrap.style.display = 'none'; }
             if (st.layer && mapReady() && map.hasLayer(st.layer)) { map.removeLayer(st.layer); }
+            resumeRiskPaint();
             return;
         }
         if (panel) { panel.hidden = false; }
+        suspendRiskPaint();
         renderPanel();
         if (!mapReady()) {
             st.error = 'mappa non pronta (Leaflet non caricato)';

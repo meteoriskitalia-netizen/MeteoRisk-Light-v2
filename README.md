@@ -6,15 +6,19 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.90
+## Versione attiva: 1.2.4.91
 
-- File applicativo: `mri-light-1.2.4.90.html` (`APP_VERSION = '1.2.4.90'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.90', date: '2026-11-13' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.90'`, `TILE_CACHE = 'mri-tiles-1.2.4.90'`,
-  `FRAME_CACHE = 'mri-frames-1.2.4.90'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.91.html` (`APP_VERSION = '1.2.4.91'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.91', date: '2026-11-13' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.91'`, `TILE_CACHE = 'mri-tiles-1.2.4.91'`,
+  `FRAME_CACHE = 'mri-frames-1.2.4.91'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
-- Contenuto della 1.2.4.90 (release sopra la 1.2.4.89) - **accumulo osservato dell'ultima ora (SRT1, Radar-DPC) nella linguetta Aree**. Solo client: nessuna modifica a `scripts/`, dataset, renderer o motore radar; le due sorgenti erano gia' pubblicate e nessuna parte della UI le usava.
+- Contenuto della 1.2.4.91 (release sopra la 1.2.4.90) - **Criticita' DPC sospende la colorazione dei rischi; riepilogo 7 giorni ancorato alla localita'**. Solo client: nessuna modifica a `scripts/`, dataset, renderer, motore radar o al blocco Accumulo SRT1 della 1.2.4.90.
+  - **Sovrapposizione idro/rischi risolta**: con `#switch-hydro` ON i 107 poligoni provinciali passano a uno stile neutro (nessun riempimento di rischio, solo bordo sottile) e la legenda dei rischi mostra l'avviso `colorazione dei rischi sospesa: attivo il layer Criticita' DPC`; allo spegnimento i `fill` dei 107 path tornano **identici** a prima (confronto completo, non solo dei conteggi). Se metrica o giorno sono cambiati con il layer attivo lo stile viene ricalcolato. Badge provinciali e pannello laterale **non cambiano**. Lo stato e' salvato per layer, stesso schema di `fmHideRiskOverlays`/`fmRestoreRiskOverlays`.
+  - **Riepilogo settimanale**: le 7 celle seguono la localita' selezionata. Un comune usa la sua serie se `weekly.json` la espone, altrimenti la **provincia che lo contiene** (`LOCAL_COMUNE_TO_SIGLA`, point-in-polygon sul GeoJSON o capoluogo piu' vicino: dati gia' in memoria) e l'intestazione dichiara `provincia di X (comune di Y)`; se la provincia non e' determinabile si usa l'area macro. Un capoluogo e il caso senza localita' restano **identici a prima**. Le 6 frasi nazionali restano **sempre** visibili con gli stessi numeri; `tendenza non disponibile` compare solo se `weekly.json` manca davvero, col motivo. Nessuna richiesta di rete aggiuntiva.
+  - **Misure (Edge headless CDP, 1440x900 e 390x844)**: idro ON -> **187 path idro**, **1 solo fill** sui 107 provinciali (`#334155`), avviso in legenda; idro OFF -> **107/107 path identici** su fill/fill-opacity/stroke/stroke-width/stroke-opacity; 3 cicli ON/OFF + cambio giorno -> **0 eccezioni** e poligoni sempre neutri. Weekly: nessuna localita' -> celle RM (default); Roma -> identiche a default e ai valori RM; Milano -> valori MI; La Caletta -> valori NU con intestazione `Prossimi 7 giorni - provincia di Nuoro (comune di La Caletta)`; 6 frasi nazionali identiche; **1 sola richiesta** `weekly.json`; bloccato -> messaggio col motivo e 0 eccezioni. **0 overflow** orizzontale; `node --check` **9/9** blocchi inline.
+- Contenuto della 1.2.4.90 (release precedente, sopra la 1.2.4.89) - **accumulo osservato dell'ultima ora (SRT1, Radar-DPC) nella linguetta Aree**. Solo client: nessuna modifica a `scripts/`, dataset, renderer o motore radar; le due sorgenti erano gia' pubblicate e nessuna parte della UI le usava.
   - **Il blocco**: `#acc-card` dentro `#fc-pane-aree` di `#forecast-details`, sotto la sintesi delle 6 macro-aree. Per ognuna delle 6 aree una riga con nome, `p50` e `max` in mm e una barra orizzontale su **scala fissa 0-30 mm** dichiarata a schermo (oltre 30 mm satura); intestazione con `valid_time` (`HH:MM UTC`), `window_h` e stato dell'eta' del file (`aggiornato N min fa`).
   - **Attribuzione e validazione**: riga esatta `Fonte: Radar-DPC SRT1 - Dipartimento della Protezione Civile, CC BY-SA 4.0`; riga `Accordo con le centraline: MAE <x> mm - n=<y>` con i numeri da `metrics` di `data/radar/accumulation_validation.json` (fallback ai campi `validation` di `accumulation.json`), sottoinsieme a finestra esatta 1 h quando `n > 0`, e nota in corsivo che SRT1 integra gia' una rete pluviometrica a terra.
   - **Solo millimetri**: nessuna soglia, nessun colore o parola di pericolo nel blocco.

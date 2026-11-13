@@ -1,3 +1,14 @@
+MeteoRisk Light - 1.2.4.91 - CRITICITA' DPC SOSPENDE LA COLORAZIONE DEI RISCHI E RIEPILOGO 7 GIORNI ANCORATO ALLA LOCALITA' (bump da 1.2.4.90)
+VERSION=1.2.4.91
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=91
+RELEASE_TYPE=release
+DATE=2026-11-13
+NOTE=Release 1.2.4.91 (bump da 1.2.4.90) - SOLO CLIENT. (1) CRITICITA' DPC: con lo switch attivo la colorazione dei rischi sui 107 poligoni provinciali e' SOSPESA (stile neutro, nessun fill di rischio, solo bordo) e la legenda mostra l'avviso; allo spegnimento i fill tornano identici a prima (confronto dei 107 path) o vengono ricalcolati se metrica/giorno sono cambiati; badge e pannello laterale invariati; stato salvato per layer come fmHideRiskOverlays/fmRestoreRiskOverlays. (2) RIEPILOGO 7 GIORNI: le 7 celle seguono la localita' (comune -> sua serie se esiste, altrimenti provincia che lo contiene con intestazione 'provincia di X (comune di Y)', altrimenti area macro); capoluogo e nessuna localita' identici a prima; le 6 frasi nazionali restano sempre visibili; 'tendenza non disponibile' solo se weekly.json manca davvero, col motivo; nessuna richiesta di rete aggiuntiva. (3) MISURE: Edge headless CDP 1440x900 e 390x844; idro ON -> 187 path idro, 1 solo fill sui 107 provinciali, avviso in legenda; idro OFF -> 107/107 path identici; 3 cicli + cambio giorno -> 0 eccezioni; weekly Roma/Milano/La Caletta -> valori RM/MI/NU di weekly.json, 6 frasi identiche, 1 sola richiesta weekly.json; bloccato -> messaggio col motivo e 0 eccezioni; 0 overflow; node --check 9/9. Il blocco SRT1 della 1.2.4.90 resta invariato. BUMP: html mri-light-1.2.4.91.html, VERSION (BUILD=91, DATE=2026-11-13, APP_FILE=mri-light-1.2.4.91.html), sw.js (3 cache), README.md, i 26 test .mjs; la 1.2.4.90 va RIMOSSA dal repo. NON toccati: scripts/, dataset, renderer, motore radar.
+APP_FILE=mri-light-1.2.4.91.html
+
 MeteoRisk Light - 1.2.4.90 - ACCUMULO OSSERVATO ULTIMA ORA (SRT1 RADAR-DPC) NELLA LINGUETTA AREE: SEI MACRO-AREE CON p50, MAX E BARRA SU SCALA FISSA 0-30 mm, ATTRIBUZIONE E ACCORDO CON LE CENTRALINE (bump da 1.2.4.89)
 VERSION=1.2.4.90
 MAJOR=1
