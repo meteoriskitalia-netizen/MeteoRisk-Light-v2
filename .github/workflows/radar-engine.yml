@@ -196,6 +196,23 @@ jobs:
           fi
           tmark end:engine
 
+      # ── ACCUMULO SRT1 + TRIANGOLAZIONE (2026-11-13) ─────────────────────
+      # Additivo: pubblica data/radar/accumulation.json (mm per macro-area) e
+      # data/radar/accumulation_validation.json (confronto con le centraline).
+      # Un SRT1 non disponibile NON ferma il run radar: il modulo scrive
+      # status=unavailable con il motivo ed esce 0; un guasto imprevisto e'
+      # un [WARN] e il run prosegue (i derivati radar restano validi).
+      - name: Accumulo SRT1 (mm, 1 h) + triangolazione centraline
+        if: success()
+        timeout-minutes: 5
+        run: |
+          tmark() { printf '%s\t%s\n' "$1" "$(date +%s%3N)" >> "$RUNNER_TEMP/timings/marks.tsv"; }
+          tmark begin:accumulation
+          python scripts/radar_engine/accumulation.py --out-dir data/radar \
+            --stations data/stations/latest.json --max-stations 200 \
+            || echo "[WARN] accumulo SRT1 non disponibile: run radar invariato"
+          tmark end:accumulation
+
       # ── TIMINGS -> latest.json (2026-11-12) ──────────────────────────────
       # PRIMA del commit: un campo scritto dopo il commit non verrebbe
       # committato (e quindi non sarebbe ne' su main ne' su Pages).
@@ -228,7 +245,8 @@ jobs:
               print("[WARN] marks non leggibili (%s): timings_ms non pubblicato" % exc)
               sys.exit(0)
 
-          ORDER = ["install_deps", "unit_tests", "restore_history", "engine"]
+          ORDER = ["install_deps", "unit_tests", "restore_history", "engine",
+                   "accumulation"]
 
           def span(name):
               b = marks.get("begin:" + name)
@@ -349,7 +367,8 @@ jobs:
           # esistenza per il ramo status-only (rc 4: solo latest.json).
           for f in latest.json storms.geojson tracks.json storm_objects.geojson \
                    storm_tracks.json convective_structures.json \
-                   doppler_coverage.geojson; do
+                   doppler_coverage.geojson accumulation.json \
+                   accumulation_validation.json; do
             if [ -f "data/radar/$f" ]; then git add "data/radar/$f"; fi
           done
           # Registro append-only delle predizioni (data/state, rotazione 30 gg).
