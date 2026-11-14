@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.2.4.93 - FRASI DELLE AREE SENZA TETTO DI 60 PAROLE: CONTENUTO COMPLETO (bump da 1.2.4.92)
+VERSION=1.2.4.93
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=93
+RELEASE_TYPE=release
+DATE=2026-11-14
+NOTE=Release 1.2.4.93 (bump da 1.2.4.92) - SOLO CLIENT, FRASI DELLE AREE. Il limite di 60 parole non era una regola dell'utente: era stato deciso nella 1.2.4.92. Rimosso il budget che scartava trend termico, importo neve, eccezione di quota e nota delle fasce; la frase contiene sempre tutti i pezzi nell'ordine cielo -> fenomeni -> fasce -> temperature -> gelate -> neve -> vento -> trend. Guardia diagnostica a 110 parole: se superata, UNA riga in console (non in UI) e testo integrale. Misure A/B sullo stesso dataset 2026-11-14T07:45Z (18 frasi): Oggi Nord 52->52, Centro Tirreno 49->49, Centro Adriatico 43->43, Sud 48->48, Sicilia 56->63, Sardegna 35->35; Domani Nord 66->82; Dopodomani Nord 60->79; Dopodomani Centro Adriatico 59->67. 0 eccezioni JS, 0 overflow a 1440x900 e 390x844. BUMP: html mri-light-1.2.4.93.html, VERSION (BUILD=93, DATE=2026-11-14, APP_FILE=mri-light-1.2.4.93.html), sw.js (3 cache), README, 26 .mjs; la 1.2.4.92 va rimossa. NON toccati: scripts/, dataset, renderer, motore radar.
+APP_FILE=mri-light-1.2.4.93.html
 MeteoRisk Light - 1.2.4.92 - GELO ANCORATO AL PUNTO PIU' BASSO DELLA PROVINCIA E FRASI DELLE AREE RISCRITTE (bump da 1.2.4.91)
 VERSION=1.2.4.92
 MAJOR=1

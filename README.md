@@ -6,15 +6,21 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.92
+## Versione attiva: 1.2.4.93
 
-- File applicativo: `mri-light-1.2.4.92.html` (`APP_VERSION = '1.2.4.92'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.92', date: '2026-11-14' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.92'`, `TILE_CACHE = 'mri-tiles-1.2.4.92'`,
-  `FRAME_CACHE = 'mri-frames-1.2.4.92'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.93.html` (`APP_VERSION = '1.2.4.93'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.93', date: '2026-11-14' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.93'`, `TILE_CACHE = 'mri-tiles-1.2.4.93'`,
+  `FRAME_CACHE = 'mri-frames-1.2.4.93'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
-- Contenuto della 1.2.4.92 (release sopra la 1.2.4.91) - **Gelo non piu' esagerato; frasi delle aree riscritte (massime/minime comprese, gelate per fascia, quota neve per zona)**. Solo client: nessuna modifica a `scripts/`, dataset, renderer o motore radar.
+- Contenuto della 1.2.4.93 (release sopra la 1.2.4.92) - **Frasi delle aree senza tetto di 60 parole: contenuto completo**. Solo client: nessuna modifica a `scripts/`, dataset, renderer o motore radar.
+  - **Il limite di 60 parole non era una regola utente**: era stato deciso nella 1.2.4.92. `italiaAreaSentence` non prova piu' sei varianti per rientrare nel budget: costruisce sempre la frase completa, con trend termico, importo neve, eccezione di quota e nota delle fasce.
+  - **Ordine naturale dei pezzi**: cielo -> fenomeni -> fasce -> temperature -> gelate -> neve -> vento -> trend (`italiaAreaSentenceBuild`). Prima il vento stava fra temperature e neve e il trend era attaccato alla temperatura.
+  - **Guardia diagnostica a 110 parole**: se la frase supera 110 parole viene scritto **una sola volta** un `console.warn` (non in UI) e il testo resta **integrale**; nessun taglio.
+  - **Misure A/B (stessi oggetti `st` del dataset 2026-11-14T07:45Z, 18 frasi su 3 giorni)**: 6 frasi cambiano; 2 solo per l'ordine neve/vento (Nord e Centro Tirreno di oggi, 52 e 49 parole invariate) e 4 recuperano pezzi prima scartati. Oggi: Centro Adriatico 43, Sud 48, Sicilia **56 -> 63** (torna `con le minime piu' basse in montagna`), Sardegna 35. Domani Nord **66 -> 82** (tornano `Massime in calo di 3 gradi in montagna` e `1,4-7,0 mm eq`); Dopodomani Nord **60 -> 79** (tornano trend, importo neve e `fino a 990 m`); Dopodomani Centro Adriatico **59 -> 67** (torna il trend). Ordine verificato su Domani Nord: cielo 0, piogge 22, piu' piovoso 86, massime 125, gelate 188, neve 224, vento 302, trend 402.
+  - **Misure pagina servita**: 0 eccezioni JS, 0 `console.error`, 0 overflow orizzontale a 1440x900 e 390x844; `node --check` 9/9 blocchi inline; `pytest scripts/tests/test_html_js_syntax.py -q` PASS; `yaml.safe_load` 3/3 workflow.
+- Contenuto della 1.2.4.92 (release precedente, sopra la 1.2.4.91) - **Gelo non piu' esagerato; frasi delle aree riscritte (massime/minime comprese, gelate per fascia, quota neve per zona)**. Solo client: nessuna modifica a `scripts/`, dataset, renderer o motore radar.
   - **Badge gelo/caldo**: il livello usa il **punto reale piu' basso della provincia** (pianura/valle) per entrambi i modelli, non il punto "peggiore in ottica convettiva" (in inverno una cima a 1.800-2.300 m) ne' il minimo fra due modelli calcolato su punti diversi. Soglie invariate e simmetriche: gelo `0/-2/-5/-8 °C`, caldo `30/32/35/38 °C`; il livello 4 (**estremo**) e' riservato alle fasce sotto 800 m (in montagna il massimo e' 3). Il pannello e il tooltip dicono la temperatura e la soglia che hanno deciso il livello.
   - **Misure (dataset 2026-11-14T06:05Z, 107 province, Edge headless CDP)**: prima **10 province** con badge gelo (1 lieve, 4 moderato, 1 forte, **4 estremo**: BL -9,1, PN -8,8, SO -10,8, VB -12,9 °C, tutti da un punto di montagna; VB aveva la pianura a +6,6 °C); dopo **3 province**, tutte a livello 2 (BL -2,8 °C a 864 m, BZ -4,6 °C a 1.382 m, SO -4,2 °C a 1.661 m), **0 estreme**.
   - **Frasi delle 6 aree**: `Massime comprese tra X e Y °C` e `minime comprese tra A e B °C` (X/A minimo, Y/B massimo fra le fasce mostrate), con la posizione dell'estremo freddo solo se utile; gelate nominate solo per le fasce con minima <= 0 °C (`in pianura` / `nelle vallate` / `in montagna` / `ovunque`) e non piu' "solo in montagna" quando ne gelano due; quota neve calcolata **solo nelle ore con neve** (`snowfall_water_equivalent > 0`, freezing level - 500 m) e distinta per zona quando la forbice supera 400 m (altrimenti una quota "circa"). Budget di 60 parole per area; cielo, fenomeni e vento invariati. Nota metodologica aggiornata.

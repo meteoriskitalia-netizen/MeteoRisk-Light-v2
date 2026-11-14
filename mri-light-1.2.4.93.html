@@ -2850,9 +2850,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.92';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.93';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-14';
     const APP_CHANGELOG = [
+        { version: '1.2.4.93', date: '2026-11-14', changes: [
+  "FRASI DELLE AREE: VIA IL TETTO DI 60 PAROLE= Il limite di 60 parole per frase di macro-area non era una regola dell'utente: era stato deciso da noi nella 1.2.4.92. Rimosso il budget che scartava trend termico, importo neve, eccezione di quota e nota delle fasce per rientrare. La frase ora contiene sempre tutti i pezzi, nell'ordine cielo -> fenomeni -> fasce -> temperature -> gelate -> neve -> vento -> trend. Resta solo una guardia diagnostica a 110 parole: se superata, il testo viene scritto UNA volta in console (non in UI) e resta integrale. Soglie, gelate per fascia, quota neve distinta e formattazione numerica non cambiano.",
+  "MISURE (stessi oggetti st del dataset 2026-11-14T07:45Z, confronto 1.2.4.92 vs 1.2.4.93)= 18 frasi su 3 giorni; 6 cambiano: 2 solo per l'ordine neve/vento, 4 recuperano pezzi prima scartati. Oggi: Nord 52->52 parole, Centro Tirreno 49->49, Centro Adriatico 43->43, Sud 48->48, Sicilia 56->63 (torna 'con le minime piu' basse in montagna'), Sardegna 35->35. Domani Nord 66->82 (tornano 'Massime in calo di 3 gradi in montagna' e '1,4-7,0 mm eq'). Dopodomani Nord 60->79 (tornano trend, importo neve e 'fino a 990 m'). Dopodomani Centro Adriatico 59->67 (torna il trend). Guardia 110: caso sintetico da 202 parole -> 1 solo warn in console, testo integrale. Ordine verificato su Domani Nord: cielo 0, piogge 22, piu' piovoso 86, massime 125, gelate 188, neve 224, vento 302, trend 402.",
+  "PAGINA SERVITA= 0 eccezioni JS, 0 console.error, 0 overflow orizzontale a 1440x900 e 390x844; node --check 9/9 blocchi inline; pytest scripts/tests/test_html_js_syntax.py PASS; yaml.safe_load 3/3 workflow.",
+  "BUMP= html mri-light-1.2.4.93.html, VERSION (BUILD=93, DATE=2026-11-14, APP_FILE=mri-light-1.2.4.93.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.93), README.md, i 26 test .mjs col nome del file html in entrambe le forme; la 1.2.4.92 va RIMOSSA dal repo (una sola app servita da Pages). NON toccati: scripts/, dataset, renderer, motore radar, blocco SRT1."
+        ] },
         { version: '1.2.4.92', date: '2026-11-14', changes: [
   "GELO MENO ESAGERATO= Il badge caldo/gelo non usa piu' la temperatura del punto 'peggiore in ottica convettiva' (in inverno una cima a 1.800-2.300 m) ne' il minimo fra due modelli calcolato su punti diversi: usa il PUNTO REALE PIU' BASSO della provincia (pianura/valle), per entrambi i modelli, in vista giornaliera (minima/massima del giorno) e oraria (temperatura della stessa ora). Le soglie restano quelle simmetriche caldo/gelo (gelo 0/-2/-5/-8 °C, caldo 30/32/35/38 °C) ma il livello 4 'estremo' e' riservato alle fasce sotto 800 m: in montagna il massimo e' 3. Il pannello e il tooltip dell'icona dicono la temperatura e la soglia che hanno deciso il livello (es. 'minima -2,8 °C, soglia <= -2 °C in montagna a 864 m'), non solo la parola 'estremo'.",
   "MISURE GELO (dataset 2026-11-14T06:05Z, 107 province, Edge headless CDP)= Prima: 10 province con badge gelo (1 lieve, 4 moderato, 1 forte, 4 estremo); i 4 'estremo' erano BL -9,1, PN -8,8, SO -10,8, VB -12,9 °C, tutti da un punto di montagna e dal minimo fra best_match ed ecmwf_ifs su punti diversi (VB: pianura +6,6 °C, cima -12,9 °C). Dopo: 3 province, tutte a livello 2 'gelate diffuse' (BL -2,8 °C a 864 m, BZ -4,6 °C a 1.382 m, SO -4,2 °C a 1.661 m); 0 livelli estremi. AO, PN, VB, UD, VA, TN, VI, BG non hanno piu' il badge gelo: la loro pianura/valle e' sopra zero.",
@@ -32855,11 +32861,17 @@ syncSelect('lightning-source-select', [
                 }
             }
         }
-        if (st.bandText) {
-            var t = italiaTempPhrase(st, opt);
-            if (st.gelateText) t += ' ' + st.gelateText;
-            if (opt.trend && st.bandTrendText) t += ' ' + st.bandTrendText;
-            parts.push(t);
+        // 1.2.4.93 - ordine naturale: temperature, gelate, neve, vento, trend.
+        if (st.bandText) parts.push(st.bandText);
+        if (st.gelateText) parts.push(st.gelateText);
+        var sp = italiaSnowParts(st, opt);
+        if (sp) {
+            var sn = sp.core;
+            if (opt.exception && sp.exception) sn += sp.exception;
+            if (opt.amount && sp.amount) sn += sp.amount;
+            parts.push(sn + '.');
+        } else if (st.snowAmountP25 !== null) {
+            parts.push('Neve, ' + italiaFmtRange(st.snowAmountP25, st.snowAmountP75, ' mm', 1) + ' eq.');
         }
         if (st.p90Gust !== null) {
             var w = 'Vento';
@@ -32880,41 +32892,25 @@ syncSelect('lightning-source-select', [
                 parts.push(dis);
             }
         }
-        var sp = italiaSnowParts(st, opt);
-        if (sp) {
-            var sn = sp.core;
-            if (opt.exception && sp.exception) sn += sp.exception;
-            if (opt.amount && sp.amount) sn += sp.amount;
-            parts.push(sn + '.');
-        } else if (st.snowAmountP25 !== null) {
-            parts.push('Neve, ' + italiaFmtRange(st.snowAmountP25, st.snowAmountP75, ' mm', 1) + ' eq.');
-        }
+        if (opt.trend && st.bandTrendText) parts.push(st.bandTrendText);
         if (!parts.length) return 'dato non disponibile';
         return parts.join(' ');
     }
+    var italiaAreaSentenceOverBudget = false;
     function italiaAreaSentence(st) {
-        // 1.2.4.92 - budget di 60 parole: si sacrificano prima le parti OPZIONALI
-        // della temperatura/neve (trend termico, importo neve, eccezione di quota);
-        // cielo, fenomeni e vento restano invariati.
-        var modes = [
-            { trend: true, amount: true, exception: true, bandNote: true },
-            { trend: false, amount: true, exception: true, bandNote: true },
-            { trend: false, amount: false, exception: true, bandNote: true },
-            { trend: false, amount: false, exception: true, bandNote: false },
-            { trend: false, amount: false, exception: true, bandNote: false, compactSnow: true },
-            { trend: false, amount: false, exception: false, bandNote: false }
-        ];
-        var text = '';
-        var withException = '';
-        for (var i = 0; i < modes.length; i++) {
-            text = italiaAreaSentenceBuild(st, modes[i]);
-            if (modes[i].exception) withException = text;
-            if (italiaWordCount(text) <= 60) return text;
+        // 1.2.4.93 - nessun taglio per budget: la frase contiene SEMPRE trend
+        // termico, importo neve ed eccezione di quota (il limite di 60 parole non
+        // era una regola utente). 110 parole e' solo una guardia diagnostica:
+        // se viene superata si annota UNA volta in console e il testo resta intero.
+        var text = italiaAreaSentenceBuild(st, { trend: true, amount: true, exception: true, bandNote: true });
+        var words = italiaWordCount(text);
+        if (words > 110 && !italiaAreaSentenceOverBudget) {
+            italiaAreaSentenceOverBudget = true;
+            if (typeof console !== 'undefined' && console && typeof console.warn === 'function') {
+                console.warn('[aree] frase oltre 110 parole (' + words + '), testo integrale: ' + text);
+            }
         }
-        // Se nemmeno la forma compatta sta in 60, si tiene la zona neve (requisito
-        // funzionale) e si dichiara lo sforamento: le parti cielo/fenomeni/vento
-        // non sono comprimibili.
-        return withException || text;
+        return text;
     }
 
     function renderItaliaSynthesis() {
