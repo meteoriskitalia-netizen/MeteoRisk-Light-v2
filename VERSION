@@ -1,3 +1,14 @@
+MeteoRisk Light - 1.2.4.92 - GELO ANCORATO AL PUNTO PIU' BASSO DELLA PROVINCIA E FRASI DELLE AREE RISCRITTE (bump da 1.2.4.91)
+VERSION=1.2.4.92
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=92
+RELEASE_TYPE=release
+DATE=2026-11-14
+NOTE=Release 1.2.4.92 (bump da 1.2.4.91) - DUE DIFETTI CLIENT. (1) GELO: il badge usa il PUNTO REALE PIU' BASSO della provincia (pianura/valle) per entrambi i modelli, non la cima piu' fredda ne' il minimo fra punti diversi; soglie invariate e simmetriche (0/-2/-5/-8), livello 4 riservato sotto 800 m; tooltip con temperatura e soglia. Misura: da 10 province (4 estreme) a 3 province a livello 2, 0 estreme. (2) FRASI AREE: massime/minime comprese fra le fasce, gelate per fascia con minima <= 0, quota neve dalle sole ore con neve e distinta per zona se la forbice supera 400 m, budget 60 parole; nota metodologica aggiornata. BUMP: html mri-light-1.2.4.92.html, VERSION (BUILD=92, DATE=2026-11-14, APP_FILE=mri-light-1.2.4.92.html), sw.js (3 cache), README, 26 .mjs; la 1.2.4.91 va rimossa. NON toccati: scripts/, dataset, renderer, motore radar.
+APP_FILE=mri-light-1.2.4.92.html
+
 MeteoRisk Light - 1.2.4.91 - CRITICITA' DPC SOSPENDE LA COLORAZIONE DEI RISCHI E RIEPILOGO 7 GIORNI ANCORATO ALLA LOCALITA' (bump da 1.2.4.90)
 VERSION=1.2.4.91
 MAJOR=1

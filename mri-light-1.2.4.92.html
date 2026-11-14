@@ -2679,7 +2679,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                             <span class="is-badge" id="italia-synth-badge">in attesa del dataset…</span>
                         </div>
                         <div class="is-cols" id="italia-synth-cols"></div>
-                        <p class="is-note"><b>Sintesi dei punti provincia del dataset, non di un campo continuo.</b> Temperature per fascia altimetrica: pianura &lt;300 m, collina 300-800 m, montagna &gt;800 m; le fasce con meno di tre province sono omesse; una provincia può contribuire a più fasce. Fasce orarie 0-6, 6-12, 12-18, 18-24; mm eq. = equivalente acqua. Cielo dalla copertura nuvolosa reale (cloud_cover); neve solo con equivalente acqua &gt; 0 nelle 24 h; raffiche p50-p90, punte oltre 100 km/h solo se p99 &ge; 100; nessun toponimo nel testo, i nomi restano nei tooltip. Soglie: pioggia debole &le; 14,5 mm (p75), diffusa &le; 39,3 (p90), intensa oltre; rovesci quando la maggioranza dei punti bagnati ha un&rsquo;ora 80-82/95-96/99 e il massimo supera 14,5 mm; quota neve = freezing level &minus; 500 m, &plusmn;300 m.</p>
+                        <p class="is-note"><b>Sintesi dei punti provincia del dataset, non di un campo continuo.</b> Temperature per fascia altimetrica: pianura &lt;300 m, collina 300-800 m, montagna &gt;800 m; le fasce con meno di tre province sono omesse; una provincia può contribuire a più fasce. Fasce orarie 0-6, 6-12, 12-18, 18-24; mm eq. = equivalente acqua. Cielo dalla copertura nuvolosa reale (cloud_cover); neve solo con equivalente acqua &gt; 0 nelle 24 h; raffiche p50-p90, punte oltre 100 km/h solo se p99 &ge; 100; nessun toponimo nel testo, i nomi restano nei tooltip. Soglie: pioggia debole &le; 14,5 mm (p75), diffusa &le; 39,3 (p90), intensa oltre; rovesci quando la maggioranza dei punti bagnati ha un&rsquo;ora 80-82/95-96/99 e il massimo supera 14,5 mm; quota neve = freezing level &minus; 500 m, &plusmn;300 m. Temperature e gelate: massime e minime comprese fra le fasce mostrate; gelate indicate solo per le fasce con minima &le; 0 &deg;C (pianura, vallate, montagna); quota neve dalle sole ore con neve, distinta per zona quando la forbice supera 400 m, altrimenti una quota &laquo;circa&raquo;.</p>
                     </div>
                     <!-- 1.2.4.90 - ACCUMULO OSSERVATO ULTIMA ORA (SRT1, Radar-DPC).
                          Il corpo resta nascosto finche' il JSON non e' leggibile: ogni
@@ -2850,9 +2850,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.91';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-11-13';
+    const APP_VERSION = '1.2.4.92';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-11-14';
     const APP_CHANGELOG = [
+        { version: '1.2.4.92', date: '2026-11-14', changes: [
+  "GELO MENO ESAGERATO= Il badge caldo/gelo non usa piu' la temperatura del punto 'peggiore in ottica convettiva' (in inverno una cima a 1.800-2.300 m) ne' il minimo fra due modelli calcolato su punti diversi: usa il PUNTO REALE PIU' BASSO della provincia (pianura/valle), per entrambi i modelli, in vista giornaliera (minima/massima del giorno) e oraria (temperatura della stessa ora). Le soglie restano quelle simmetriche caldo/gelo (gelo 0/-2/-5/-8 °C, caldo 30/32/35/38 °C) ma il livello 4 'estremo' e' riservato alle fasce sotto 800 m: in montagna il massimo e' 3. Il pannello e il tooltip dell'icona dicono la temperatura e la soglia che hanno deciso il livello (es. 'minima -2,8 °C, soglia <= -2 °C in montagna a 864 m'), non solo la parola 'estremo'.",
+  "MISURE GELO (dataset 2026-11-14T06:05Z, 107 province, Edge headless CDP)= Prima: 10 province con badge gelo (1 lieve, 4 moderato, 1 forte, 4 estremo); i 4 'estremo' erano BL -9,1, PN -8,8, SO -10,8, VB -12,9 °C, tutti da un punto di montagna e dal minimo fra best_match ed ecmwf_ifs su punti diversi (VB: pianura +6,6 °C, cima -12,9 °C). Dopo: 3 province, tutte a livello 2 'gelate diffuse' (BL -2,8 °C a 864 m, BZ -4,6 °C a 1.382 m, SO -4,2 °C a 1.661 m); 0 livelli estremi. AO, PN, VB, UD, VA, TN, VI, BG non hanno piu' il badge gelo: la loro pianura/valle e' sopra zero.",
+  "FRASI DELLE AREE= Le 6 macro-aree non usano piu' la terna 'pianura/collina/montagna': dicono 'Massime comprese tra X e Y °C' e 'minime comprese tra A e B °C' (X/A minimo, Y/B massimo fra le fasce mostrate), con la posizione dell'estremo freddo solo se utile. Le gelate sono nominate solo per le fasce con minima <= 0 °C (in pianura / nelle vallate / in montagna / ovunque) e non piu' 'solo in montagna' quando ne gelano due. Quota neve calcolata SOLO nelle ore con snowfall_water_equivalent > 0 (freezing level - 500 m): prima il min/max su tutte le 24 h produceva '700-1800 m' con neve reale a 1.360-1.530 m; se la forbice e' < 400 m una quota 'circa', altrimenti quota principale (p25-p75) piu' l'eccezione piu' fredda. Budget di 60 parole per area: si sacrificano prima trend termico, importo neve ed eccezione di quota, mai cielo/fenomeni/vento. Nota metodologica aggiornata nella linguetta Aree e nella guida.",
+  "BUMP= html mri-light-1.2.4.92.html, VERSION (BUILD=92, DATE=2026-11-14, APP_FILE=mri-light-1.2.4.92.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.92), README.md, i 26 test .mjs col nome del file html in entrambe le forme; la 1.2.4.91 va RIMOSSA dal repo (una sola app servita da Pages). NON toccati: scripts/, dataset, renderer, motore radar, blocco SRT1."
+        ] },
         { version: '1.2.4.91', date: '2026-11-13', changes: [
   "CRITICITA' DPC: LA COLORAZIONE DEI RISCHI SI SOSPENDE= Con lo switch Criticita' DPC attivo i 107 poligoni provinciali passano a uno stile neutro (nessun riempimento di rischio, solo bordo sottile) e la legenda dei rischi mostra l'avviso 'colorazione dei rischi sospesa: attivo il layer Criticita' DPC'. Allo spegnimento i fill tornano IDENTICI a prima (confronto dei 107 path, non solo dei conteggi); se nel frattempo metrica o giorno sono cambiati lo stile viene ricalcolato invece di riapplicare colori vecchi. I badge provinciali e il pannello laterale NON cambiano: si sospende solo la pittura dei poligoni. Lo stato e' salvato per layer, stesso schema di fmHideRiskOverlays/fmRestoreRiskOverlays delle mappe previsionali.",
   "RIEPILOGO 7 GIORNI: LA LOCALITA' NON PERDE PIU' LA TENDENZA= Le 7 celle seguono la localita' selezionata: un comune usa la sua serie se weekly.json la espone, altrimenti la provincia che lo contiene (LOCAL_COMUNE_TO_SIGLA, point-in-polygon sul GeoJSON delle province o capoluogo piu' vicino: tutti dati gia' in memoria) e l'intestazione dichiara 'provincia di X (comune di Y)'; se la provincia non e' determinabile si usa l'area macro. Un capoluogo resta identico a prima (nessuna intestazione aggiunta). Le 6 frasi nazionali di macro-area restano SEMPRE visibili con gli stessi numeri. 'tendenza non disponibile' compare solo se weekly.json manca davvero, col motivo (es. HTTP 404 / Failed to fetch), e non azzera le frasi nazionali quando il file c'e'. Nessuna richiesta di rete aggiuntiva: weekly.json resta scaricato una volta per sessione.",
@@ -5462,6 +5468,9 @@ function enabledLightningSourceIds() {
             color = risk.info ? '#94a3b8' : ((BADGE_LEVEL_COLOR && risk.level >= 1 && risk.level <= 4) ? BADGE_LEVEL_COLOR[risk.level] : def.color);
             label = def.label;
             title = risk.info ? 'pioggia debole prevista, non critica' : def.title;
+            // 1.2.4.92 - tooltip con la temperatura e la soglia che hanno deciso il livello.
+            var tempDetail = riskTempDetail(risk);
+            if (tempDetail) title += ' — ' + tempDetail;
         }
         var lvl = (!risk.info && risk.id !== 'vorticosi' && risk.level && risk.level > 1) ? '<span class="risk-lvl"></span>' : '';
         return '<div class="risk-disc" style="background:' + color + '" title="' + label + ': ' + title + '">' +
@@ -5494,7 +5503,18 @@ function enabledLightningSourceIds() {
                 var r = list[i], cur = byId[r.id];
                 if (!cur) { byId[r.id] = r; order.push(r.id); continue; }
                 if ((r.level || 0) > (cur.level || 0)) { byId[r.id] = r; }
-                else if ((r.level || 0) === (cur.level || 0) && r.organized && !cur.organized) { byId[r.id] = r; }
+                else if ((r.level || 0) === (cur.level || 0)) {
+                    // 1.2.4.92 - stesso livello: per caldo/gelo si tiene il valore piu'
+                    // estremo dei due modelli (minimo per il gelo, massimo per il caldo).
+                    if (r.id === 'cold' && r.temp != null && (cur.temp == null || r.temp < cur.temp)) {
+                        cur.temp = r.temp; cur.threshold = r.threshold; cur.band = r.band;
+                        cur.refElev = r.refElev; cur.capped = r.capped; cur.uncappedLevel = r.uncappedLevel;
+                    } else if (r.id === 'heat' && r.temp != null && (cur.temp == null || r.temp > cur.temp)) {
+                        cur.temp = r.temp; cur.threshold = r.threshold; cur.band = r.band;
+                        cur.refElev = r.refElev; cur.capped = r.capped; cur.uncappedLevel = r.uncappedLevel;
+                    }
+                    if (r.organized && !cur.organized) byId[r.id] = r;
+                }
             }
         };
         push(a); push(b);
@@ -5680,10 +5700,31 @@ function enabledLightningSourceIds() {
         // massimi/minimi giornalieri: selezionando un'ora mite in un giorno torrido (o l'ora
         // calda in un giorno gelido) il badge caldo/freddo restava comunque attivo, in
         // contraddizione con gli altri rischi (pioggia/vento/codice/CAPE) che seguono l'ora.
-        var heatTemp = currentHour === 'all' ? agg.tempMax : agg.singleTemp;
-        var coldTemp = currentHour === 'all' ? agg.tempMin : agg.singleTemp;
-        if (heatTemp !== null && heatTemp !== undefined && heatTemp >= 30) risks.push({ id: 'heat', level: heatTemp >= 38 ? 4 : heatTemp >= 35 ? 3 : heatTemp >= 32 ? 2 : 1 });
-        if (coldTemp !== null && coldTemp !== undefined && coldTemp <= 0) risks.push({ id: 'cold', level: coldTemp <= -8 ? 4 : coldTemp <= -5 ? 3 : coldTemp <= -2 ? 2 : 1 });
+        // 1.2.4.92 - il riferimento termico e' il PUNTO PIU' BASSO della provincia
+        // (pianura/valle), non il punto "peggiore in ottica convettiva": una cima a
+        // 2.300 m non puo' portare la provincia a "gelo estremo" con la pianura mite.
+        // Le soglie restano quelle simmetriche caldo/gelo; il livello "estremo" (4)
+        // richiede una fascia sotto 800 m, dove il fenomeno e' realmente critico.
+        var tempBand = agg.tempRefBand || null;
+        var heatTemp = currentHour === 'all'
+            ? (agg.tempMaxRef !== null && agg.tempMaxRef !== undefined ? agg.tempMaxRef : agg.tempMax)
+            : (agg.singleTempRef !== null && agg.singleTempRef !== undefined ? agg.singleTempRef : agg.singleTemp);
+        var coldTemp = currentHour === 'all'
+            ? (agg.tempMinRef !== null && agg.tempMinRef !== undefined ? agg.tempMinRef : agg.tempMin)
+            : (agg.singleTempRef !== null && agg.singleTempRef !== undefined ? agg.singleTempRef : agg.singleTemp);
+        var tempCap = (tempBand === 'montagna') ? 3 : 4;
+        if (heatTemp !== null && heatTemp !== undefined && heatTemp >= 30) {
+            var heatLvl = heatTemp >= 38 ? 4 : heatTemp >= 35 ? 3 : heatTemp >= 32 ? 2 : 1;
+            risks.push({ id: 'heat', level: Math.min(heatLvl, tempCap), uncappedLevel: heatLvl,
+                         temp: heatTemp, threshold: heatLvl >= 4 ? 38 : heatLvl >= 3 ? 35 : heatLvl >= 2 ? 32 : 30,
+                         band: tempBand, refElev: agg.tempRefElev, capped: heatLvl > tempCap });
+        }
+        if (coldTemp !== null && coldTemp !== undefined && coldTemp <= 0) {
+            var coldLvl = coldTemp <= -8 ? 4 : coldTemp <= -5 ? 3 : coldTemp <= -2 ? 2 : 1;
+            risks.push({ id: 'cold', level: Math.min(coldLvl, tempCap), uncappedLevel: coldLvl,
+                         temp: coldTemp, threshold: coldLvl >= 4 ? -8 : coldLvl >= 3 ? -5 : coldLvl >= 2 ? -2 : 0,
+                         band: tempBand, refElev: agg.tempRefElev, capped: coldLvl > tempCap });
+        }
         // NEVE: attiva se il codice meteo indica neve e la quota gelo è abbastanza bassa
         // da consentire accumuli. Se la quota neve è troppo alta (solo cime), non comparire.
         if (isSnowCode(agg.code)) {
@@ -5725,6 +5766,8 @@ function enabledLightningSourceIds() {
         var s = computeZoneRiskSummary(agg);
         if (!s.level) return 'Nessun rischio rilevante';
         var head = 'Colore dovuto a: ' + s.driverLabel + ' (livello ' + s.level + ')';
+        var tempDetail = riskTempDetail(s.components[0]);
+        if (tempDetail) head += ' — ' + tempDetail;
         // 1.2.4.72 - "osservato dal radar" SOLO se il livello deriva da una cella
         // radar osservata. Oggi la scala provincia e' calcolata solo su NWP (regola
         // 1.2.4.71): nessun componente imposta radar=true, quindi il tag non compare
@@ -5767,6 +5810,26 @@ function enabledLightningSourceIds() {
         return riskSummaryEl;
     }
 
+    // 1.2.4.92 - il testo del badge dice il VALORE e la SOGLIA, non solo la parola
+    // "estremo": la temperatura e' quella del punto piu' basso della provincia.
+    function riskTempDetail(r) {
+        if (!r || (r.id !== 'cold' && r.id !== 'heat')) return '';
+        if (r.temp === null || r.temp === undefined || !isFinite(r.temp)) return '';
+        var t = italiaNum(r.temp, 1);
+        var thr = (r.threshold === null || r.threshold === undefined) ? null : italiaNum(r.threshold, 0);
+        var band = r.band === 'montagna' ? 'in montagna' : (r.band === 'collina' ? 'in collina' : (r.band === 'pianura' ? 'in pianura' : ''));
+        var out = (r.id === 'cold' ? 'minima ' : 'massima ') + t + ' °C';
+        if (thr !== null) out += ', soglia ' + (r.id === 'cold' ? '≤ ' : '≥ ') + thr + ' °C';
+        if (band) out += ' ' + band;
+        if (r.refElev !== null && r.refElev !== undefined) out += ' a ' + Math.round(r.refElev) + ' m';
+        if (r.capped) out += '; livello 4 riservato sotto 800 m';
+        return out;
+    }
+    function riskLevelLineTemp(text, r) {
+        var d = riskTempDetail(r);
+        return d ? text + ' (' + d + ')' : text;
+    }
+
     // Descrizione dedicata per OGNI livello di rischio (nessuno/lieve/moderato/forte/estremo).
     // Usata nell'elenco della barra riepilogo.
     function riskLevelLine(r, agg) {
@@ -5784,8 +5847,8 @@ function enabledLightningSourceIds() {
                 return ['Temporale isolato', 'Temporali sparsi', 'Temporali forti senza organizzazione prevista', 'Temporali estremi senza organizzazione prevista'][r.level - 1];
             }
             case 'hail':         return ['Grandine piccola possibile', 'Grandinata con chicchi medio-piccoli', 'Grandine grande', 'Grandine molto grande e distruttiva'][r.level - 1];
-            case 'heat':         return ['Caldo moderato', 'Caldo intenso', 'Ondata di calore forte', 'Caldo estremo e pericoloso'][r.level - 1];
-            case 'cold':         return ['Freddo con minime attorno allo zero', 'Gelate diffuse', 'Freddo intenso con gelate marcate', 'Freddo estremo con gelate severe'][r.level - 1];
+            case 'heat':         return riskLevelLineTemp(['Caldo moderato', 'Caldo intenso', 'Ondata di calore forte', 'Caldo estremo e pericoloso'][r.level - 1], r);
+            case 'cold':         return riskLevelLineTemp(['Freddo con minime attorno allo zero', 'Gelate diffuse', 'Freddo intenso con gelate marcate', 'Freddo estremo con gelate severe'][r.level - 1], r);
             case 'snow':         return ['Neve debole possibile', 'Neve moderata con accumuli', 'Neve abbondante, accumuli significativi', 'Neve diffusa e persistente'][r.level - 1];
             // 1.2.4.46: la nebbia non aveva il caso e cadeva nel default vuoto, quindi il
             // riepilogo provinciale stampava "Nebbia - ." senza alcuna descrizione.
@@ -5866,20 +5929,26 @@ function enabledLightningSourceIds() {
                     'Grandine grande: possibili danni a colture, coperture di edifici e automezzi.',
                     'Grandine molto grande: danni estesi a edifici, veicoli, colture e impianti.'
                 ][r.level - 1];
-            case 'heat':
-                return [
+            case 'heat': {
+                var hImp = [
                     'Caldo moderato: possibile lieve disagio, soprattutto nelle ore centrali.',
                     'Caldo intenso: maggiore disagio fisiologico, specie nelle aree urbane; idratarsi.',
                     'Ondata di calore: rischio di colpo di calore nelle aree urbane, specie per anziani e bambini.',
                     'Caldo estremo: rischio molto elevato di colpo di calore e malori, adottare massima cautela.'
                 ][r.level - 1];
-            case 'cold':
-                return [
+                var hDet = riskTempDetail(r);
+                return hDet ? hImp + ' Valore previsto: ' + hDet + '.' : hImp;
+            }
+            case 'cold': {
+                var cImp = [
                     'Minime attorno allo zero: possibili gelate deboli nelle aree più basse.',
                     'Gelate diffuse: possibili formazioni di ghiaccio sulle strade in bassa quota.',
                     'Freddo intenso: gelate marcate nelle valli e nelle conche, ghiaccio diffuso sulla viabilità.',
                     'Freddo estremo: gelate severe e ghiaccio pericoloso, rischio per strade e persone.'
                 ][r.level - 1];
+                var cDet = riskTempDetail(r);
+                return cDet ? cImp + ' Valore previsto: ' + cDet + '.' : cImp;
+            }
             case 'snow':
                 return [
                     'Neve debole: leggera spolverata' + (qNeve ? '. ' + qNeve : '.'),
@@ -5943,7 +6012,7 @@ function enabledLightningSourceIds() {
 
         var head = '<div class="rs-head">' +
             '<span class="rs-title">' + 'Provincia di ' + item.prov + '</span>' +
-            '<span class="rs-badge" style="background:' + zrColor + '">' + zrText + '</span>' +
+            '<span class="rs-badge" style="background:' + zrColor + '" title="' + escapeHtml(zrText + (riskTempDetail(zr.components[0]) ? ' — ' + riskTempDetail(zr.components[0]) : '')) + '">' + zrText + '</span>' +
             '<div class="risk-disc-row" style="margin-top:0;">' + risks.map(riskDiscHtml).join('') + '</div>' +
             '<button class="rs-close" title="Chiudi">✕</button>' +
             '</div>';
@@ -22678,6 +22747,7 @@ function toggleForecastMaps() {
                 if (bestIsVirtual && bestData._provenance === undefined) bestData._provenance = 'virtual';
                 bestData.elevation = bestElevation;
                 newStore[p] = bestData;
+                attachProvinceTempRef(bestData, pts, p);
             }
         }
         weatherStore = newStore;
@@ -23284,6 +23354,14 @@ function toggleForecastMaps() {
             showers: Math.max(aggA.showers || 0, aggB.showers || 0),
             tempMax: Math.max(aggA.tempMax ?? -999, aggB.tempMax ?? -999),
             tempMin: Math.min(aggA.tempMin ?? 999, aggB.tempMin ?? 999),
+            // 1.2.4.92 - il riferimento termico e' lo stesso punto basso per entrambi i
+            // modelli: si prende il piu' freddo/caldo dei due, mai il punto di un modello
+            // contro il punto diverso dell'altro.
+            tempMaxRef: (aggA.tempMaxRef == null) ? (aggB.tempMaxRef ?? null) : ((aggB.tempMaxRef == null) ? aggA.tempMaxRef : Math.max(aggA.tempMaxRef, aggB.tempMaxRef)),
+            tempMinRef: (aggA.tempMinRef == null) ? (aggB.tempMinRef ?? null) : ((aggB.tempMinRef == null) ? aggA.tempMinRef : Math.min(aggA.tempMinRef, aggB.tempMinRef)),
+            singleTempRef: (aggA.singleTempRef == null) ? (aggB.singleTempRef ?? null) : ((aggB.singleTempRef == null) ? aggA.singleTempRef : Math.min(aggA.singleTempRef, aggB.singleTempRef)),
+            tempRefBand: aggA.tempRefBand || aggB.tempRefBand || null,
+            tempRefElev: (aggA.tempRefElev == null) ? (aggB.tempRefElev ?? null) : aggA.tempRefElev,
             humidity: aggA.humidity,   // display: primary model (stable)
             singleTemp: aggA.singleTemp,
             dewPoint: aggA.dewPoint,
@@ -23425,6 +23503,37 @@ function toggleForecastMaps() {
     }
     //#pure# END dualCache
 
+    // 1.2.4.92 - RIFERIMENTO TERMICO DELLA PROVINCIA.
+    // Il badge caldo/gelo NON usa la temperatura del punto "peggiore in ottica
+    // convettiva" (che in inverno puo' essere una cima a 2.300 m): usa il PUNTO
+    // PIU' BASSO della provincia, cioe' quello che rappresenta la pianura/valle
+    // dove il gelo e il caldo hanno impatto. Le soglie restano quelle di sempre.
+    function attachProvinceTempRef(store, rawPts, provIdx) {
+        if (!store || !rawPts) return store;
+        var ref = null, refElev = null;
+        for (var i = 0; i < provinceSamplePoints.length; i++) {
+            var slot = provinceSamplePoints[i];
+            if (slot.provinceIdx !== provIdx) continue;
+            // Solo punti REALI: un virtuale IDW ha una temperatura levigata e una quota
+            // interpolata, non e' una stazione/valle osservata dal modello.
+            if (slot.is_virtual) continue;
+            var d = rawPts[slot.index];
+            if (!d || !d.daily || !d.hourly) continue;
+            var e = (d.elevation !== null && d.elevation !== undefined && isFinite(d.elevation)) ? Number(d.elevation) : null;
+            if (e === null) continue;
+            if (ref === null || e < refElev) { ref = d; refElev = e; }
+        }
+        if (!ref) return store;
+        store._tempRef = {
+            elev: Math.round(refElev),
+            band: (typeof italiaElevBand === 'function') ? italiaElevBand(refElev) : null,
+            tmin: ref.daily.temperature_2m_min || null,
+            tmax: ref.daily.temperature_2m_max || null,
+            temp: ref.hourly.temperature_2m || null
+        };
+        return store;
+    }
+
     // Calcola il worst-point convettivo per una provincia da un rawPointStores
     function worstPointForProvince(rawPts, provIdx) {
         var bestData = null, bestScore = -1;
@@ -23537,7 +23646,10 @@ function toggleForecastMaps() {
         for (var p = 0; p < provinces2; p++) {
             if (weatherStore[p]) collapsedA[p] = weatherStore[p];
             var bB = worstPointForProvince(rawB, p);
-            if (bB) collapsedB[p] = bB;
+            if (bB) {
+                collapsedB[p] = bB;
+                attachProvinceTempRef(bB, rawB, p);
+            }
         }
         var countA = Object.keys(collapsedA).length, countB = Object.keys(collapsedB).length;
         if (countA === 0 && countB === 0) {
@@ -25012,6 +25124,8 @@ function toggleForecastMaps() {
             if (r.id === 'supercell' && !r.potential) continue;
             out.push({ id: r.id, level: r.level, potential: !!r.potential,
                        convEvent: !!r.convEvent, radar: !!r.radar, info: !!r.info,
+                       temp: r.temp, threshold: r.threshold, band: r.band,
+                       refElev: r.refElev, capped: !!r.capped, uncappedLevel: r.uncappedLevel,
                        label: riskComponentLabel(r) });
         }
         return out;
@@ -25023,11 +25137,24 @@ function toggleForecastMaps() {
                 var c = list[i], cur = byId[c.id];
                 if (!cur) {
                     byId[c.id] = { id: c.id, level: c.level, potential: c.potential,
-                                   convEvent: c.convEvent, radar: c.radar, info: c.info, label: c.label };
+                                   convEvent: c.convEvent, radar: c.radar, info: c.info, label: c.label,
+                                   temp: c.temp, threshold: c.threshold, band: c.band,
+                                   refElev: c.refElev, capped: !!c.capped, uncappedLevel: c.uncappedLevel };
                     order.push(c.id);
                 } else if (c.level > cur.level) {
                     cur.level = c.level; cur.potential = c.potential;
                     cur.convEvent = c.convEvent; cur.radar = c.radar; cur.label = c.label;
+                    cur.temp = c.temp; cur.threshold = c.threshold; cur.band = c.band;
+                    cur.refElev = c.refElev; cur.capped = !!c.capped; cur.uncappedLevel = c.uncappedLevel;
+                } else if (c.level === cur.level && (c.id === 'cold' || c.id === 'heat')) {
+                    // 1.2.4.92 - stesso livello: il valore mostrato e' il piu' estremo
+                    // dei due modelli (minimo per il gelo, massimo per il caldo).
+                    if (c.temp != null && (cur.temp == null ||
+                        (c.id === 'cold' && c.temp < cur.temp) ||
+                        (c.id === 'heat' && c.temp > cur.temp))) {
+                        cur.temp = c.temp; cur.threshold = c.threshold; cur.band = c.band;
+                        cur.refElev = c.refElev; cur.capped = !!c.capped; cur.uncappedLevel = c.uncappedLevel;
+                    }
                 }
             }
         };
@@ -26663,6 +26790,13 @@ function toggleForecastMaps() {
             code: aggCode,
             tempMax: daily.temperature_2m_max[currentDay] ?? null,
             tempMin: daily.temperature_2m_min[currentDay] ?? null,
+            // 1.2.4.92 - riferimento termico della provincia (punto piu' basso):
+            // alimenta SOLO i badge caldo/gelo, non le metriche di temperatura mostrate.
+            tempMaxRef: (store._tempRef && store._tempRef.tmax && store._tempRef.tmax[currentDay] != null) ? store._tempRef.tmax[currentDay] : null,
+            tempMinRef: (store._tempRef && store._tempRef.tmin && store._tempRef.tmin[currentDay] != null) ? store._tempRef.tmin[currentDay] : null,
+            singleTempRef: (store._tempRef && store._tempRef.temp && currentHour !== 'all') ? (store._tempRef.temp[currentDay * 24 + parseInt(currentHour, 10)] ?? null) : null,
+            tempRefBand: store._tempRef ? store._tempRef.band : null,
+            tempRefElev: store._tempRef ? store._tempRef.elev : null,
             humidity: aggHumidity,
             pressure: hourData.pressure ?? null,
             singleTemp: aggTemp,
@@ -32223,6 +32357,7 @@ syncSelect('lightning-source-select', [
                     cloudBandSum: [0, 0, 0, 0], cloudBandN: [0, 0, 0, 0],
                     freezeMin: null, freezeMax: null,
                     snowSum: null, snowN: 0,
+                    snowPoints: [],
                     windU: 0, windV: 0, windW: 0,
                     hourly: null, hourlySum: null,
                     bands: {
@@ -32255,7 +32390,7 @@ syncSelect('lightning-source-select', [
                         if (bAcc.tmax === null || Number(tx) > bAcc.tmax) bAcc.tmax = Number(tx);
                     }
                 }
-                var convH = 0, hourSum = 0, hourSeen = false, snowSum = 0, snowSeen = false;
+                var convH = 0, hourSum = 0, hourSeen = false, snowSum = 0, snowSeen = false, snowQ = [];
                 var hg = hourly.windgusts_10m || [], hw = hourly.weathercode || [];
                 var hgEc = (recEc && recEc.hourly) ? (recEc.hourly.windgusts_10m || []) : [];
                 for (h = a; h < b; h++) {
@@ -32290,6 +32425,12 @@ syncSelect('lightning-source-select', [
                     if (fl !== null && fl !== undefined && isFinite(fl)) {
                         if (acc[d].freezeMin === null || Number(fl) < acc[d].freezeMin) acc[d].freezeMin = Number(fl);
                         if (acc[d].freezeMax === null || Number(fl) > acc[d].freezeMax) acc[d].freezeMax = Number(fl);
+                        // 1.2.4.92 - quota neve SOLO nelle ore con neve (prima si usava il
+                        // min/max del freezing level su tutte le 24 h: 700-1800 m era
+                        // l'escursione giornaliera, non la quota della neve).
+                        if (sw !== null && sw !== undefined && isFinite(sw) && Number(sw) > 0) {
+                            snowQ.push(Number(fl) - 500);
+                        }
                     }
                     var ws = hourly.windspeed_10m ? hourly.windspeed_10m[h] : null;
                     var wd = hourly.winddirection_10m ? hourly.winddirection_10m[h] : null;
@@ -32303,6 +32444,9 @@ syncSelect('lightning-source-select', [
                 if (convH > acc[d].conv) acc[d].conv = convH;
                 // Massimo fra i punti della provincia (stessa convenzione della pioggia).
                 if (snowSeen && (acc[d].snowSum === null || snowSum > acc[d].snowSum)) acc[d].snowSum = snowSum;
+                if (snowSeen && snowSum > 0 && snowQ.length) {
+                    acc[d].snowPoints.push({ idx: pt.provinceIdx, elev: pt.elevation, band: pointBand, qs: snowQ, sum: snowSum });
+                }
                 if (hourSeen && (acc[d].hourlySum === null || hourSum > acc[d].hourlySum)) {
                     acc[d].hourlySum = hourSum;
                     var series = [];
@@ -32333,7 +32477,10 @@ syncSelect('lightning-source-select', [
                     tmin: null, tmax: null, tminProvIdx: null, tmaxProvIdx: null,
                     cloudSum: 0, cloudN: 0, cloudBandSum: [0, 0, 0, 0], cloudBandN: [0, 0, 0, 0],
                     freezeMin: null, freezeMax: null,
-                    snowProvs: [], snowQuotaMin: null, snowQuotaMax: null,
+                    snowProvs: [], snowPoints: [], snowQuotas: [],
+                    snowQMin: null, snowQMax: null, snowP25: null, snowP50: null, snowP75: null,
+                    snowLowBand: null, snowLowElev: null,
+                    snowQuotaMin: null, snowQuotaMax: null,
                     snowAmountP25: null, snowAmountP75: null, snowMax: null, snowProvIdx: null,
                     windU: 0, windV: 0, windW: 0,
                     hourly: null, bands: [0, 0, 0, 0], peakHour: null, peakVal: null,
@@ -32396,6 +32543,13 @@ syncSelect('lightning-source-select', [
                     if (dayAcc.snowSum !== null && dayAcc.snowSum > 0) {
                         st.snowProvs.push({ sum: dayAcc.snowSum, freezeMin: dayAcc.freezeMin, freezeMax: dayAcc.freezeMax, idx: idx });
                     }
+                    if (dayAcc.snowPoints && dayAcc.snowPoints.length) {
+                        for (var sq = 0; sq < dayAcc.snowPoints.length; sq++) {
+                            var spq = dayAcc.snowPoints[sq];
+                            st.snowPoints.push(spq);
+                            for (var qi = 0; qi < spq.qs.length; qi++) st.snowQuotas.push(spq.qs[qi]);
+                        }
+                    }
                     st.cloudSum += dayAcc.cloudSum;
                     st.cloudN += dayAcc.cloudN;
                     for (var bb = 0; bb < 4; bb++) { st.cloudBandSum[bb] += dayAcc.cloudBandSum[bb]; st.cloudBandN[bb] += dayAcc.cloudBandN[bb]; }
@@ -32435,37 +32589,59 @@ syncSelect('lightning-source-select', [
                 }
                 st.windDir = st.windW > 0 ? italiaCompass(Math.atan2(st.windU, st.windV) * 180 / Math.PI) : null;
                 // Quota neve: solo per le province con equivalente acqua > 0.
+                // 1.2.4.92 - la quota si calcola SOLO nelle ore in cui nevica
+                // (snowfall_water_equivalent > 0, freezing level - 500 m). Il min/max
+                // su tutte le 24 h univa escursione diurna e province diverse.
                 if (st.snowProvs.length) {
-                    var quotas = [], amounts = [];
+                    var amounts = [];
                     for (var sp = 0; sp < st.snowProvs.length; sp++) {
                         var spv = st.snowProvs[sp];
                         amounts.push(spv.sum);
-                        if (spv.freezeMin !== null) quotas.push(spv.freezeMin - 500);
-                        if (spv.freezeMax !== null) quotas.push(spv.freezeMax - 500);
                         if (st.snowMax === null || spv.sum > st.snowMax) { st.snowMax = spv.sum; st.snowProvIdx = spv.idx; }
-                    }
-                    if (quotas.length) {
-                        st.snowQuotaMin = Math.max(0, Math.round(Math.min.apply(null, quotas) / 100) * 100);
-                        st.snowQuotaMax = Math.max(0, Math.round(Math.max.apply(null, quotas) / 100) * 100);
                     }
                     st.snowAmountP25 = italiaPercentile(amounts, 0.25);
                     st.snowAmountP75 = italiaPercentile(amounts, 0.75);
                 }
+                if (st.snowQuotas.length) {
+                    var qsSorted = st.snowQuotas.slice().sort(function (a, b) { return a - b; });
+                    st.snowQMin = qsSorted[0];
+                    st.snowQMax = qsSorted[qsSorted.length - 1];
+                    st.snowP25 = italiaPercentile(qsSorted, 0.25);
+                    st.snowP50 = italiaPercentile(qsSorted, 0.50);
+                    st.snowP75 = italiaPercentile(qsSorted, 0.75);
+                    var qLow = null;
+                    for (var sq2 = 0; sq2 < st.snowPoints.length; sq2++) {
+                        var sp2 = st.snowPoints[sq2];
+                        var mn = Math.min.apply(null, sp2.qs);
+                        if (qLow === null || mn < qLow.q) qLow = { q: mn, band: sp2.band, elev: sp2.elev };
+                    }
+                    st.snowLowBand = qLow ? qLow.band : null;
+                    st.snowLowElev = qLow ? qLow.elev : null;
+                    st.snowQuotaMin = Math.max(0, Math.round(st.snowQMin / 100) * 100);
+                    st.snowQuotaMax = Math.max(0, Math.round(st.snowQMax / 100) * 100);
+                }
                 // Fasce mostrate: solo quelle con almeno 3 province dell'area.
+                // 1.2.4.92 - la frase non elenca piu' pianura/collina/montagna: da' le
+                // massime e le minime COMPRESE fra le fasce mostrate e dice dove sono
+                // le gelate (pianura/vallate/montagna) solo per le fasce con minima <= 0.
                 var bandOrder = ['pianura', 'collina', 'montagna'];
-                var bandParts = [], subzero = [];
+                var subzero = [];
                 for (var bo = 0; bo < bandOrder.length; bo++) {
                     var bkey2 = bandOrder[bo];
                     var bval = st.tempBands[bkey2];
                     if (!bval || bval.n <= 0) continue;
-                    if (bval.tmin !== null && bval.tmin < 0) subzero.push({ band: bkey2, tmin: bval.tmin });
-                    if (bval.n >= 3 && bval.tmin !== null && bval.tmax !== null) {
-                        st.bandShown.push(bkey2);
-                        bandParts.push(bkey2 + ' ' + italiaBandTemp(bval.tmin, bval.tmax));
-                    }
+                    if (bval.tmin !== null && bval.tmin <= 0) subzero.push({ band: bkey2, tmin: bval.tmin });
+                    if (bval.n >= 3 && bval.tmin !== null && bval.tmax !== null) st.bandShown.push(bkey2);
                 }
-                st.bandText = bandParts.length ? 'Temperature: ' + bandParts.join(', ') + '.' : '';
-                if (subzero.length === 1) { st.gelateBand = subzero[0].band; st.gelateMin = subzero[0].tmin; }
+                st.subzeroBands = subzero;
+                st.bandText = italiaTempPhrase(st);
+                st.gelateText = italiaGelatePhrase(subzero);
+                if (subzero.length) {
+                    var gmin = subzero[0];
+                    for (var gz = 1; gz < subzero.length; gz++) if (subzero[gz].tmin < gmin.tmin) gmin = subzero[gz];
+                    st.gelateBand = gmin.band;
+                    st.gelateMin = gmin.tmin;
+                }
                 var prevBands = prevAreaBands[area.name];
                 if (prevBands) st.bandTrendText = italiaBandTrendText(st.tempBands, prevBands);
                 prevAreaBands[area.name] = st.tempBands;
@@ -32572,7 +32748,86 @@ syncSelect('lightning-source-select', [
         return '';
     }
 
-    function italiaAreaSentence(st) {
+    // 1.2.4.92 - temperatura in stile bollettino: massime e minime COMPRESE fra le
+    // fasce mostrate, con la posizione dell'estremo freddo solo se utile.
+    function italiaBandPhrase(b) {
+        return b === 'pianura' ? 'in pianura' : (b === 'collina' ? 'in collina' : 'in montagna');
+    }
+    function italiaTempVal(v) {
+        if (v === null || v === undefined || !isFinite(v)) return 'n/d';
+        // Un decimale solo per i valori negativi vicini allo zero (evita −0);
+        // per il resto si arrotonda all'intero, come nelle frasi storiche.
+        var d = (Number(v) < 0 && Math.abs(Number(v)) < 1) ? 1 : 0;
+        return italiaNum(v, d);
+    }
+    function italiaTempPhrase(st, opt) {
+        opt = opt || {};
+        var shown = st.bandShown || [];
+        var tmaxLo = null, tmaxHi = null, tminLo = null, tminHi = null, tminLoBand = null;
+        for (var i = 0; i < shown.length; i++) {
+            var b = st.tempBands[shown[i]];
+            if (!b || b.tmin === null || b.tmax === null) continue;
+            if (tmaxLo === null || b.tmax < tmaxLo) tmaxLo = b.tmax;
+            if (tmaxHi === null || b.tmax > tmaxHi) tmaxHi = b.tmax;
+            if (tminLo === null || b.tmin < tminLo) { tminLo = b.tmin; tminLoBand = shown[i]; }
+            if (tminHi === null || b.tmin > tminHi) tminHi = b.tmin;
+        }
+        if (tminLo === null) return '';
+        var s = 'Massime comprese tra ' + italiaTempVal(tmaxLo) + ' e ' + italiaTempVal(tmaxHi) +
+                ' \u00B0C, minime comprese tra ' + italiaTempVal(tminLo) + ' e ' + italiaTempVal(tminHi) + ' \u00B0C.';
+        var gb = [];
+        for (var k = 0; k < (st.subzeroBands || []).length; k++) gb.push(st.subzeroBands[k].band);
+        if (opt.bandNote !== false && tminLoBand && gb.indexOf(tminLoBand) < 0 && (tminHi - tminLo) >= 3) {
+            s = s.replace(/\.$/, ', con le minime pi\u00F9 basse ' + italiaBandPhrase(tminLoBand) + '.');
+        }
+        return s;
+    }
+    function italiaGelatePhrase(subzero) {
+        if (!subzero || !subzero.length) return '';
+        var order = ['pianura', 'collina', 'montagna'];
+        var bands = [];
+        for (var i = 0; i < subzero.length; i++) if (bands.indexOf(subzero[i].band) < 0) bands.push(subzero[i].band);
+        bands.sort(function (a, b) { return order.indexOf(a) - order.indexOf(b); });
+        if (bands.length === 3) return 'Gelate ovunque.';
+        var words = [];
+        for (var k = 0; k < bands.length; k++) {
+            words.push(bands[k] === 'pianura' ? 'in pianura' : (bands[k] === 'collina' ? 'nelle vallate' : 'in montagna'));
+        }
+        var where = words.length === 1 ? words[0] : (words.slice(0, -1).join(', ') + ' e ' + words[words.length - 1]);
+        return 'Gelate ' + where + '.';
+    }
+    function italiaRound100(v) { return Math.max(0, Math.round(Number(v) / 100) * 100); }
+    function italiaSnowParts(st, opt) {
+        opt = opt || {};
+        if (st.snowQMin === null || st.snowQMin === undefined) return null;
+        var out = { core: '', exception: '', amount: '' };
+        var oltre = opt.compactSnow ? '' : 'oltre ';
+        if (st.snowQMax - st.snowQMin < 400) {
+            out.core = 'Neve ' + oltre + italiaRound100(st.snowP50) + ' m circa';
+        } else {
+            var lo = italiaRound100(st.snowP25), hi = italiaRound100(st.snowP75);
+            out.core = 'Neve ' + oltre + lo + (hi > lo ? '-' + hi : '') + ' m';
+            var zone = opt.compactSnow ? '' :
+                (' ' + (st.snowLowBand === 'montagna' ? 'sui versanti pi\u00F9 freddi' : 'nelle valli pi\u00F9 fredde'));
+            if (st.snowQMin < st.snowP25 - 150) {
+                out.exception = ', fino a ' + italiaRound100(st.snowQMin) + ' m' + zone;
+            } else if (st.snowQMax > st.snowP75 + 150) {
+                out.exception = ', fino a ' + italiaRound100(st.snowQMax) + ' m' + (opt.compactSnow ? '' : ' sui rilievi pi\u00F9 alti');
+            }
+        }
+        if (st.snowAmountP25 !== null && st.snowAmountP75 !== null) {
+            var amt = italiaFmtRange(st.snowAmountP25, st.snowAmountP75, ' mm', 1);
+            if (amt) out.amount = ', ' + amt + ' eq';
+        }
+        return out;
+    }
+    function italiaWordCount(s) {
+        s = String(s || '').replace(/\s+/g, ' ').trim();
+        return s ? s.split(' ').length : 0;
+    }
+
+    function italiaAreaSentenceBuild(st, opt) {
+        opt = opt || {};
         var parts = [];
         if (st.skyPhrase) parts.push(st.skyPhrase);
         if (st.maxP !== null) {
@@ -32601,14 +32856,10 @@ syncSelect('lightning-source-select', [
             }
         }
         if (st.bandText) {
-            var t = st.bandText;
-            if (st.bandTrendText) t += ' ' + st.bandTrendText;
+            var t = italiaTempPhrase(st, opt);
+            if (st.gelateText) t += ' ' + st.gelateText;
+            if (opt.trend && st.bandTrendText) t += ' ' + st.bandTrendText;
             parts.push(t);
-        }
-        if (st.gelateBand !== null) {
-            var gm = st.gelateMin;
-            var gmTxt = italiaNum(gm, Math.abs(gm) < 1 ? 1 : 0);
-            parts.push('Gelate solo in ' + st.gelateBand + ' (minima ' + gmTxt + ' \u00B0C).');
         }
         if (st.p90Gust !== null) {
             var w = 'Vento';
@@ -32629,18 +32880,41 @@ syncSelect('lightning-source-select', [
                 parts.push(dis);
             }
         }
-        if (st.snowQuotaMin !== null) {
-            var sn = 'Neve oltre ' + italiaFmtRange(st.snowQuotaMin, st.snowQuotaMax, ' m', 0);
-            if (st.snowAmountP25 !== null && st.snowAmountP75 !== null) {
-                var amt = italiaFmtRange(st.snowAmountP25, st.snowAmountP75, ' mm', 1);
-                if (amt) sn += ', ' + amt + ' eq';
-            }
+        var sp = italiaSnowParts(st, opt);
+        if (sp) {
+            var sn = sp.core;
+            if (opt.exception && sp.exception) sn += sp.exception;
+            if (opt.amount && sp.amount) sn += sp.amount;
             parts.push(sn + '.');
         } else if (st.snowAmountP25 !== null) {
             parts.push('Neve, ' + italiaFmtRange(st.snowAmountP25, st.snowAmountP75, ' mm', 1) + ' eq.');
         }
         if (!parts.length) return 'dato non disponibile';
         return parts.join(' ');
+    }
+    function italiaAreaSentence(st) {
+        // 1.2.4.92 - budget di 60 parole: si sacrificano prima le parti OPZIONALI
+        // della temperatura/neve (trend termico, importo neve, eccezione di quota);
+        // cielo, fenomeni e vento restano invariati.
+        var modes = [
+            { trend: true, amount: true, exception: true, bandNote: true },
+            { trend: false, amount: true, exception: true, bandNote: true },
+            { trend: false, amount: false, exception: true, bandNote: true },
+            { trend: false, amount: false, exception: true, bandNote: false },
+            { trend: false, amount: false, exception: true, bandNote: false, compactSnow: true },
+            { trend: false, amount: false, exception: false, bandNote: false }
+        ];
+        var text = '';
+        var withException = '';
+        for (var i = 0; i < modes.length; i++) {
+            text = italiaAreaSentenceBuild(st, modes[i]);
+            if (modes[i].exception) withException = text;
+            if (italiaWordCount(text) <= 60) return text;
+        }
+        // Se nemmeno la forma compatta sta in 60, si tiene la zona neve (requisito
+        // funzionale) e si dichiara lo sforamento: le parti cielo/fenomeni/vento
+        // non sono comprimibili.
+        return withException || text;
     }
 
     function renderItaliaSynthesis() {
@@ -33000,7 +33274,10 @@ syncSelect('lightning-source-select', [
                 m = covered[i];
                 if (m === dualModel) continue;
                 var b = worstPointForProvince(rawPointStores[m], pr);
-                if (b) collapsed[m][pr] = b;
+                if (b) {
+                    collapsed[m][pr] = b;
+                    attachProvinceTempRef(b, rawPointStores[m], pr);
+                }
             }
         }
         var filled = 0;
@@ -33666,6 +33943,7 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
                     <li><span class="hs-dot" style="background:#7d93a8;"></span><span><b>Grigio-blu — Convezione potenziale</b>: ambiente favorevole ma <b>nessun temporale previsto</b> (nessun innesco nella stessa ora). Non &egrave; un evento.</span></li>
                 </ul>
                 <p class="help-note">Il livello sale solo se il modello vede anche una causa concreta (pioggia o temporale): con il cielo pulito resta basso anche quando l'energia in quota &egrave; alta.</p>
+                <p class="help-note"><b>Caldo e gelo</b>: il livello usa la massima/minima del <b>punto pi&ugrave; basso della provincia</b> (pianura o valle), non della cima pi&ugrave; fredda; il livello <b>Estremo</b> (4) &egrave; riservato alle fasce sotto 800 m.</p>
             </div>
             <div class="help-sec">
                 <h3>2. Potenziale del modello o evento osservato?</h3>
