@@ -6,15 +6,21 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.93
+## Versione attiva: 1.2.4.94
 
-- File applicativo: `mri-light-1.2.4.93.html` (`APP_VERSION = '1.2.4.93'`; ultimo blocco
-  changelog in-app `{ version: '1.2.4.93', date: '2026-11-14' }`) + `sw.js` (Service Worker,
-  `CACHE_NAME = 'mri-1.2.4.93'`, `TILE_CACHE = 'mri-tiles-1.2.4.93'`,
-  `FRAME_CACHE = 'mri-frames-1.2.4.93'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
+- File applicativo: `mri-light-1.2.4.94.html` (`APP_VERSION = '1.2.4.94'`; ultimo blocco
+  changelog in-app `{ version: '1.2.4.94', date: '2026-11-15' }`) + `sw.js` (Service Worker,
+  `CACHE_NAME = 'mri-1.2.4.94'`, `TILE_CACHE = 'mri-tiles-1.2.4.94'`,
+  `FRAME_CACHE = 'mri-frames-1.2.4.94'`, `NETWORK_TIMEOUT_MS = 10000`, `INDEX_TIMEOUT_MS = 2000`,
   servito come `/sw.js` e copiato in `_site/sw.js` da `deploy-pages.yml`, `radar-engine.yml`,
   `update-weather-data.yml`).
-- Contenuto della 1.2.4.93 (release sopra la 1.2.4.92) - **Frasi delle aree senza tetto di 60 parole: contenuto completo**. Solo client: nessuna modifica a `scripts/`, dataset, renderer o motore radar.
+- Contenuto della 1.2.4.94 (release sopra la 1.2.4.93) - **Organizzazione del temporale in tre livelli (solo testo)**. Solo client: nessuna modifica a `scripts/`, dataset, renderer, motore radar o al calcolo di CAPE/shear/SRH/SCP.
+  - **Il difetto**: il riepilogo diceva `senza organizzazione prevista` ogni volta che il bit unico `r.organized` era falso, cioe' senza un innesco nella stessa ora **e** `WMAXSHEAR >= 1000` oppure `SRH >= 100` con `CAPE >= 500`. Con shear 0-6 km 18-20 m/s e `WMAXSHEAR` 800-999 l'ambiente e' organizzato: la frase era falsa.
+  - **La regola nuova (tre livelli)**: (1) meso vero, stessi gate di `detectMesocyclone` (CAPE/DLS/SRH/SCP) -> `con organizzazione (mesociclone possibile)` in Sviluppo e `con organizzazione (cella organizzata possibile)` con Sviluppo spento; (2) altrimenti almeno una fra **`WMAXSHEAR` 0-6 km >= 800 m2/s2** (Taszarek et al. 2017/2020: 800-1200 e' la fascia favorevole a celle organizzate), **shear 0-6 km >= 18 m/s** (DLS 15-18 m/s = convezione organizzata), **SRH 0-3 km >= 100 m2/s2** -> `con possibile organizzazione (ambiente favorevole)`; (3) altrimenti `senza organizzazione prevista`. Nessuna soglia nuova: sono quelle gia' nel progetto.
+  - **Superfici aggiornate**: riepilogo sticky (`riskLevelLine` + `riskLevelImpact` con i valori `WMAXSHEAR`/shear/`SRH3` e le soglie), tooltip provincia (riga `Temporali: ...` con le soglie), badge (versione breve), riquadro `Colore dovuto a` (versione breve quando il colore lo decide un temporale), `title` del disco, `riskComponentLabel`, nota metodologica in Fonti & Metodologie. Se i due modelli non concordano la classe di testo e' la piu' forte dei due (meso > ambiente favorevole > senza organizzazione), sempre calcolata con i campi del suo modello.
+  - **Misure (pagina servita, dataset 2026-11-15, 107 province, Sviluppo OFF)**: **prima 22 province** con `senza organizzazione` (12 con la frase del riepilogo, 10 con `senza organizzazione marcata` nel dettaglio dei temporali possibili), **dopo 0**. Dopo: **15** `con possibile organizzazione (ambiente favorevole)` nel riepilogo (RM, AV, CE, GR, LT, NA, OR, PZ, SA, SS, SU, TA, TP, VT, VV) + **11** con la stessa classe solo nel dettaglio (livello 1-2), **0** `mesociclone`. Delle 12 province che prima dicevano `senza organizzazione prevista`, tutte e 12 avevano almeno una gamba sopra soglia (10 `SRH >= 100`, 10 `shear >= 18`, 1 `WMAXSHEAR >= 800`).
+  - **Misure pagina servita**: 0 eccezioni JS, 0 `console.error`, 0 overflow orizzontale a 1440x900 e 390x844; `node --check` su ogni blocco inline; `pytest scripts/tests/test_html_js_syntax.py -q` PASS; `yaml.safe_load` 3/3 workflow.
+- Contenuto della 1.2.4.93 (release precedente, sopra la 1.2.4.92) - **Frasi delle aree senza tetto di 60 parole: contenuto completo**. Solo client: nessuna modifica a `scripts/`, dataset, renderer o motore radar.
   - **Il limite di 60 parole non era una regola utente**: era stato deciso nella 1.2.4.92. `italiaAreaSentence` non prova piu' sei varianti per rientrare nel budget: costruisce sempre la frase completa, con trend termico, importo neve, eccezione di quota e nota delle fasce.
   - **Ordine naturale dei pezzi**: cielo -> fenomeni -> fasce -> temperature -> gelate -> neve -> vento -> trend (`italiaAreaSentenceBuild`). Prima il vento stava fra temperature e neve e il trend era attaccato alla temperatura.
   - **Guardia diagnostica a 110 parole**: se la frase supera 110 parole viene scritto **una sola volta** un `console.warn` (non in UI) e il testo resta **integrale**; nessun taglio.

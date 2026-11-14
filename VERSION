@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.2.4.94 - ORGANIZZAZIONE DEL TEMPORALE IN TRE LIVELLI (bump da 1.2.4.93)
+VERSION=1.2.4.94
+MAJOR=1
+MINOR=2
+PATCH=4
+BUILD=94
+RELEASE_TYPE=release
+DATE=2026-11-15
+NOTE=Release 1.2.4.94 (bump da 1.2.4.93) - SOLO CLIENT, TESTO DEI RISCHI. Il riepilogo della provincia diceva 'senza organizzazione prevista' ogni volta che il bit unico r.organized era falso (innesco nella stessa ora E WMAXSHEAR >= 1000 oppure SRH >= 100 con CAPE >= 500): con shear 0-6 km 18-20 m/s e WMAXSHEAR 800-999 la frase era falsa. Ora tre livelli: meso vero -> 'con organizzazione (mesociclone possibile)' in Sviluppo / 'con organizzazione (cella organizzata possibile)' fuori; altrimenti WMAXSHEAR >= 800 oppure shear >= 18 m/s oppure SRH3 >= 100 -> 'con possibile organizzazione (ambiente favorevole)'; altrimenti 'senza organizzazione prevista'. Soglie dichiarate nel tooltip e nella nota metodologica. Superfici: riepilogo sticky, tooltip provincia, badge, 'Colore dovuto a', title del disco, riskComponentLabel, nota Fonti & Metodologie. Misure (107 province, dataset 2026-11-15, Sviluppo OFF): prima 22 'senza organizzazione' (12 riepilogo + 10 dettaglio), dopo 0; 15 'con possibile organizzazione' nel riepilogo + 11 nel solo dettaglio; 0 'mesociclone'. 0 eccezioni JS, 0 overflow 1440x900 e 390x844. BUMP: html mri-light-1.2.4.94.html, VERSION (BUILD=94, DATE=2026-11-15, APP_FILE=mri-light-1.2.4.94.html), sw.js (3 cache), README, 26 .mjs; la 1.2.4.93 va rimossa. NON toccati: scripts/, dataset, renderer, motore radar, calcolo CAPE/shear/SRH/SCP.
+APP_FILE=mri-light-1.2.4.94.html
 MeteoRisk Light - 1.2.4.93 - FRASI DELLE AREE SENZA TETTO DI 60 PAROLE: CONTENUTO COMPLETO (bump da 1.2.4.92)
 VERSION=1.2.4.93
 MAJOR=1

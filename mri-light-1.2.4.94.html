@@ -2552,7 +2552,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                     <div class="src-item"><b>SCP</b> = CAPE/1000 · min(DLS/20,1) · min(SRH3/50,1.5). <span class="src-ref">Thompson et al. 2003: SCP&gt;1 potenziale cella organizzata.</span></div>
                     <div class="src-item"><b>SHIP</b> — Significant Hail Parameter (formula operativa USA con caps su umidità/shear/T500 e correzioni per CAPE&lt;1300, lapse rate&lt;5.8, freezing level). <span class="src-ref">&lt;1 marginale · 1-2 significativa · &gt;2 marcato rischio grandine &gt;2 cm.</span></div>
                     <div class="src-item sviluppo-only-item" hidden><b>Mesociclone</b> (badge NWP, livello 5, solo in modalità Sviluppo): temporale attivo E CAPE≥1000 (o ≥500 con DLS≥22 e SRH3≥120) E DLS≥20 m/s E SRH3≥100 E SCP≥1.0. È una stima ambientale del modello, non un rilevamento radar e non un'osservazione diretta della cella.</div>
-                    <div class="src-item"><b>Convezione organizzata: potenziale o evento</b> (1.2.4.69). La classe <b>EVENTO</b> esiste solo con un innesco nella <b>stessa ora</b>: weather code WMO 95-99 <b>e</b> pioggia &gt; 0,1 mm/h (oppure cella radar osservata, pannello &laquo;Struttura convettiva&raquo;). Senza innesco la stessa configurazione &egrave; <b>POTENZIALE</b>: classe distinta e neutra (grigio-blu), &laquo;ambiente favorevole &mdash; potenziale, nessun temporale previsto&raquo;. Il gate ambientale ha due sole gambe con fonte: <b>WMAXSHEAR 0-6 km &ge; 1000 m&sup2;/s&sup2;</b> (<span class="src-ref">Taszarek et al. 2017; Gr&uuml;nwald &amp; Brooks 2011</span>) <b>oppure SRH 0-3 km &ge; 100 m&sup2;/s&sup2; con CAPE &ge; 500 J/kg</b> (<span class="src-ref">Ingrosso et al. 2020</span>). <b>WMAXSHEAR 0-3 km &ge; 500 &egrave; stato rimosso</b> (nessuna fonte verificabile). <b>EHI 0-3 km resta solo display</b>: &ge; 1,0 &egrave; una convenzione delle US Plains (<span class="src-ref">Rasmussen &amp; Blanchard 1998</span>) e la soglia europea pubblicata &egrave; 0,065 con SRH 0-1 km, quindi non confrontabile. <b>CAPE saturato a 800 J/kg</b> e <b>veto di umidit&agrave;</b>: con RH 850-700 &lt; 50% la classe scende di un livello con il motivo nel tooltip (<span class="src-ref">Westermayer et al. 2017, Meteorol. Z. 26:59</span>: sopra 800 J/kg la frequenza di fulmini resta al ~20%; RH &lt; 50% &rarr; frequenza &lt; 0,15). Le etichette &laquo;organizzati&raquo;/&laquo;celle organizzate&raquo; compaiono solo se il gate di coerenza passa; altrimenti &laquo;temporali possibili&raquo;. Il livello di rischio si calcola <b>per modello e per ora</b> e poi si prende il massimo: CAPE, shear, SRH, SCP e innesco non vengono mai presi da ore o modelli diversi.</div>
+                    <div class="src-item"><b>Convezione organizzata: potenziale o evento</b> (1.2.4.69). La classe <b>EVENTO</b> esiste solo con un innesco nella <b>stessa ora</b>: weather code WMO 95-99 <b>e</b> pioggia &gt; 0,1 mm/h (oppure cella radar osservata, pannello &laquo;Struttura convettiva&raquo;). Senza innesco la stessa configurazione &egrave; <b>POTENZIALE</b>: classe distinta e neutra (grigio-blu), &laquo;ambiente favorevole &mdash; potenziale, nessun temporale previsto&raquo;. Il gate ambientale ha due sole gambe con fonte: <b>WMAXSHEAR 0-6 km &ge; 1000 m&sup2;/s&sup2;</b> (<span class="src-ref">Taszarek et al. 2017; Gr&uuml;nwald &amp; Brooks 2011</span>) <b>oppure SRH 0-3 km &ge; 100 m&sup2;/s&sup2; con CAPE &ge; 500 J/kg</b> (<span class="src-ref">Ingrosso et al. 2020</span>). <b>WMAXSHEAR 0-3 km &ge; 500 &egrave; stato rimosso</b> (nessuna fonte verificabile). <b>EHI 0-3 km resta solo display</b>: &ge; 1,0 &egrave; una convenzione delle US Plains (<span class="src-ref">Rasmussen &amp; Blanchard 1998</span>) e la soglia europea pubblicata &egrave; 0,065 con SRH 0-1 km, quindi non confrontabile. <b>CAPE saturato a 800 J/kg</b> e <b>veto di umidit&agrave;</b>: con RH 850-700 &lt; 50% la classe scende di un livello con il motivo nel tooltip (<span class="src-ref">Westermayer et al. 2017, Meteorol. Z. 26:59</span>: sopra 800 J/kg la frequenza di fulmini resta al ~20%; RH &lt; 50% &rarr; frequenza &lt; 0,15). Le etichette &laquo;organizzati&raquo;/&laquo;celle organizzate&raquo; compaiono solo se il gate di coerenza passa; altrimenti &laquo;temporali possibili&raquo;. Il livello di rischio si calcola <b>per modello e per ora</b> e poi si prende il massimo: CAPE, shear, SRH, SCP e innesco non vengono mai presi da ore o modelli diversi. <b>Classificazione dell'organizzazione in TRE livelli (1.2.4.94)</b>: il testo del temporale non dipende pi&ugrave; dal solo innesco. <b>Con organizzazione</b> (la classe pi&ugrave; forte<span class="sviluppo-only-item" hidden>: &laquo;mesociclone possibile&raquo;</span>) se i gate di detectMesocyclone sono soddisfatti (CAPE/DLS/SRH/SCP); altrimenti <b>con possibile organizzazione (ambiente favorevole)</b> se almeno una fra <b>WMAXSHEAR 0-6 km &ge; 800 m&sup2;/s&sup2;</b> (Taszarek et al. 2017/2020: 800-1200 &egrave; la fascia favorevole a celle organizzate), <b>shear 0-6 km &ge; 18 m/s</b> (15-18 m/s &egrave; convezione organizzata), <b>SRH 0-3 km &ge; 100 m&sup2;/s&sup2;</b>; altrimenti <b>senza organizzazione prevista</b>. Con la modalit&agrave; Sviluppo spenta la categoria del livello 5 non si nomina: la stessa classe si legge &laquo;cella organizzata possibile&raquo;. Il calcolo di CAPE, shear, SRH e SCP non cambia: cambia solo la classificazione del testo. Se i due modelli non concordano, il testo mostra la classe pi&ugrave; forte (meso &gt; ambiente favorevole &gt; senza organizzazione): ogni classe &egrave; calcolata con i campi del suo modello, nessun campo viene mescolato fra i due.</div>
                 </div>
             </div>
             <div class="fl-section">
@@ -2850,9 +2850,16 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.93';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-11-14';
+    const APP_VERSION = '1.2.4.94';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-11-15';
     const APP_CHANGELOG = [
+        { version: '1.2.4.94', date: '2026-11-15', changes: [
+  "ORGANIZZAZIONE DEL TEMPORALE IN TRE LIVELLI (SOLO TESTO)= Il riepilogo diceva 'senza organizzazione prevista' ogni volta che il bit unico r.organized era falso: quel bit richiedeva un innesco nella stessa ora E WMAXSHEAR >= 1000 oppure SRH >= 100 con CAPE >= 500. Con shear 0-6 km 18-20 m/s e WMAXSHEAR 800-999 l'ambiente e' organizzato e la frase era falsa. Ora la classificazione ha tre livelli: (1) meso vero (stessi gate di detectMesocyclone: CAPE/DLS/SRH/SCP) -> 'con organizzazione (mesociclone possibile)' in Sviluppo, 'con organizzazione (cella organizzata possibile)' con Sviluppo spento; (2) altrimenti almeno una fra WMAXSHEAR 0-6 km >= 800 m2/s2, shear 0-6 km >= 18 m/s, SRH 0-3 km >= 100 m2/s2 -> 'con possibile organizzazione (ambiente favorevole)'; (3) altrimenti 'senza organizzazione prevista'. Le soglie sono quelle gia' nel progetto (Taszarek et al. 2017/2020, DLS 15-18 m/s, Ingrosso et al. 2020) e sono dichiarate nel tooltip provincia e nella nota metodologica. Il calcolo di CAPE/shear/SRH/SCP NON e' stato toccato.",
+  "SUPERFICI AGGIORNATE= riepilogo sticky (riskLevelLine + riskLevelImpact con i valori WMAXSHEAR/shear/SRH3 e le soglie), tooltip provincia (riga 'Temporali: ...' con le soglie), badge (versione breve), riquadro 'Colore dovuto a' (versione breve quando il colore lo decide un temporale), title del disco, riskComponentLabel, nota metodologica in Fonti & Metodologie. Quando i due modelli non concordano la classe di testo e' la piu' forte dei due (meso > ambiente favorevole > senza organizzazione), sempre calcolata con i campi del suo modello: nessun CAPE di uno con lo shear dell'altro.",
+  "MISURE (pagina servita, dataset 2026-11-15, 107 province, Sviluppo OFF)= PRIMA: 22 province con 'senza organizzazione' (12 con la frase del riepilogo 'Temporali forti senza organizzazione prevista' e 10 con 'senza organizzazione marcata' nel dettaglio dei temporali possibili). DOPO: 0 'senza organizzazione' nel riepilogo, 15 'con possibile organizzazione (ambiente favorevole)' (RM, AV, CE, GR, LT, NA, OR, PZ, SA, SS, SU, TA, TP, VT, VV), 11 province con la stessa classe solo nel dettaglio (livello 1-2), 0 'mesociclone'. Delle 12 province che prima dicevano 'senza organizzazione prevista' tutte e 12 avevano almeno una gamba sopra soglia (10 SRH >= 100, 10 shear >= 18, 1 WMAXSHEAR >= 800): nessuna resta 'senza organizzazione'.",
+  "PAGINA SERVITA= 0 eccezioni JS, 0 console.error, 0 overflow orizzontale a 1440x900 e 390x844; node --check su ogni blocco inline; pytest scripts/tests/test_html_js_syntax.py PASS; yaml.safe_load 3/3 workflow.",
+  "BUMP= html mri-light-1.2.4.94.html, VERSION (BUILD=94, DATE=2026-11-15, APP_FILE=mri-light-1.2.4.94.html), sw.js (CACHE_NAME/TILE_CACHE/FRAME_CACHE 1.2.4.94), README.md, i 26 test .mjs; la 1.2.4.93 va RIMOSSA dal repo (una sola app servita da Pages). NON toccati: scripts/, dataset, renderer, motore radar, calcolo di CAPE/shear/SRH/SCP."
+        ] },
         { version: '1.2.4.93', date: '2026-11-14', changes: [
   "FRASI DELLE AREE: VIA IL TETTO DI 60 PAROLE= Il limite di 60 parole per frase di macro-area non era una regola dell'utente: era stato deciso da noi nella 1.2.4.92. Rimosso il budget che scartava trend termico, importo neve, eccezione di quota e nota delle fasce per rientrare. La frase ora contiene sempre tutti i pezzi, nell'ordine cielo -> fenomeni -> fasce -> temperature -> gelate -> neve -> vento -> trend. Resta solo una guardia diagnostica a 110 parole: se superata, il testo viene scritto UNA volta in console (non in UI) e resta integrale. Soglie, gelate per fascia, quota neve distinta e formattazione numerica non cambiano.",
   "MISURE (stessi oggetti st del dataset 2026-11-14T07:45Z, confronto 1.2.4.92 vs 1.2.4.93)= 18 frasi su 3 giorni; 6 cambiano: 2 solo per l'ordine neve/vento, 4 recuperano pezzi prima scartati. Oggi: Nord 52->52 parole, Centro Tirreno 49->49, Centro Adriatico 43->43, Sud 48->48, Sicilia 56->63 (torna 'con le minime piu' basse in montagna'), Sardegna 35->35. Domani Nord 66->82 (tornano 'Massime in calo di 3 gradi in montagna' e '1,4-7,0 mm eq'). Dopodomani Nord 60->79 (tornano trend, importo neve e 'fino a 990 m'). Dopodomani Centro Adriatico 59->67 (torna il trend). Guardia 110: caso sintetico da 202 parole -> 1 solo warn in console, testo integrale. Ordine verificato su Domani Nord: cielo 0, piogge 22, piu' piovoso 86, massime 125, gelate 188, neve 224, vento 302, trend 402.",
@@ -5476,7 +5483,9 @@ function enabledLightningSourceIds() {
             title = risk.info ? 'pioggia debole prevista, non critica' : def.title;
             // 1.2.4.92 - tooltip con la temperatura e la soglia che hanno deciso il livello.
             var tempDetail = riskTempDetail(risk);
-            if (tempDetail) title += ' — ' + tempDetail;
+            if (tempDetail) title += ' - ' + tempDetail;
+            // 1.2.4.94 - il disco del temporale porta nel title anche la classe di organizzazione.
+            if (risk.id === 'thunderstorm' && risk.orgClass) title += ' - ' + orgPhrase(risk);
         }
         var lvl = (!risk.info && risk.id !== 'vorticosi' && risk.level && risk.level > 1) ? '<span class="risk-lvl"></span>' : '';
         return '<div class="risk-disc" style="background:' + color + '" title="' + label + ': ' + title + '">' +
@@ -5496,9 +5505,35 @@ function enabledLightningSourceIds() {
         // DUAL MODEL: ogni modello produce i SUOI badge (stessa ora, stessi campi) e poi
         // si tiene il livello massimo per ciascun rischio. Nessun campo mescolato.
         if (agg._modelAggA && agg._modelAggB) {
-            return mergeRiskLists(computeRisksForAgg(agg._modelAggA), computeRisksForAgg(agg._modelAggB));
+            var listA = computeRisksForAgg(agg._modelAggA);
+            var listB = computeRisksForAgg(agg._modelAggB);
+            return mergeOrgClass(mergeRiskLists(listA, listB), agg._modelAggA, agg._modelAggB);
         }
         return computeRisksForAgg(agg);
+    }
+    // 1.2.4.94 - UNICA cosa che si combina fra i due modelli: la classe di TESTO
+    // dell'organizzazione, presa come "la piu' forte dei due" (meso > ambiente favorevole >
+    // senza organizzazione). Ogni classe resta calcolata con i campi del SUO modello (nessun
+    // CAPE di uno con lo shear dell'altro): serve solo a non scrivere "senza organizzazione"
+    // quando uno dei due modelli mostra un ambiente organizzato.
+    function mergeOrgClass(merged, aggA, aggB) {
+        var cand = [orgFromAgg(aggA), orgFromAgg(aggB)];
+        var best = null, bestRank = 0;
+        for (var i = 0; i < cand.length; i++) {
+            var x = cand[i];
+            if (!x) continue;
+            var rk = x.orgClass === 'meso' ? 3 : (x.orgClass === 'env' ? 2 : 1);
+            if (rk > bestRank) { bestRank = rk; best = x; }
+        }
+        if (best) {
+            for (var k = 0; k < merged.length; k++) {
+                if (merged[k] && merged[k].id === 'thunderstorm') {
+                    merged[k].orgClass = best.orgClass; merged[k].orgMeso = best.orgMeso;
+                    merged[k].orgWms = best.orgWms; merged[k].orgShear = best.orgShear; merged[k].orgSrh = best.orgSrh;
+                }
+            }
+        }
+        return merged;
     }
     // Unione di due liste di rischi per id: vince il livello piu' alto; a parita' vince
     // chi ha l'organizzazione/innesco. Serve al merge dual (max dei livelli per modello).
@@ -5519,7 +5554,15 @@ function enabledLightningSourceIds() {
                         cur.temp = r.temp; cur.threshold = r.threshold; cur.band = r.band;
                         cur.refElev = r.refElev; cur.capped = r.capped; cur.uncappedLevel = r.uncappedLevel;
                     }
-                    if (r.organized && !cur.organized) byId[r.id] = r;
+                    // 1.2.4.94 - a parita' di livello vince la classificazione PIU' FORTE
+                    // (meso > ambiente favorevole > senza organizzazione). Il record scelto
+                    // resta di UN solo modello: non si mescolano campi fra i due.
+                    var orgRank = function(x) {
+                        var c = orgClassOf(x);
+                        return c === 'meso' ? 3 : (c === 'env' ? 2 : (c === 'none' ? 1 : 0));
+                    };
+                    if (orgRank(r) > orgRank(cur)) byId[r.id] = r;
+                    else if (orgRank(r) === orgRank(cur) && r.organized && !cur.organized) byId[r.id] = r;
                 }
             }
         };
@@ -5553,6 +5596,16 @@ function enabledLightningSourceIds() {
         var si = agg.severeIndices || {};
         var isMeso = dev && detectMesocyclone(agg.cape || 0, si.shear06 || 0, si.srh3 || 0, si.scp || 0, agg.code, agg.rain);
         var h = agg.hailMetrics;
+        // 1.2.4.94 - CLASSIFICAZIONE A TRE LIVELLI dell'organizzazione del temporale
+        // (SOLO TESTO). Calcolata QUI una volta, con i campi di QUESTA ora e di QUESTO
+        // modello, e usata sia dal temporale attivo sia da quello "possibile".
+        //   meso vero  -> stesso gate di detectMesocyclone (CAPE/DLS/SRH/SCP)
+        //   env        -> almeno una fra WMAXSHEAR 0-6 km >= 800 m2/s2 (Taszarek 2017/2020),
+        //                 shear 0-6 km >= 18 m/s (DLS 15-18 = convezione organizzata),
+        //                 SRH 0-3 km >= 100 m2/s2 (Ingrosso 2020)
+        //   none       -> nessuna delle tre
+        // Il calcolo di CAPE/shear/SRH/SCP non cambia: cambia solo la classificazione.
+        var orgFields = orgFromAgg(agg);
         // Separazione TEMPORALE DI CALORE vs CONVEZIONE FORZATA.
         // Un rovescio convettivo (showers) con SHEAR/indici severi BASSI è quasi sempre un
         // temporale DI CALORE (aria umida e instabile da riscaldamento pomeridiano, ma SENZA
@@ -5670,7 +5723,10 @@ function enabledLightningSourceIds() {
             else if (dev && si.scp > 0.5) tlvl = Math.max(tlvl, 3);
             // 1.2.4.69: le etichette con "organizzati"/"celle organizzate" valgono SOLO se
             // il gate di coerenza (stessa ora, stesso modello) e' passato in questa classe.
-            risks.push({ id: 'thunderstorm', level: tlvl, organized: !!(convAssess && convAssess.kind === 'event') });
+            // 1.2.4.94 - la classe di testo (orgClass) e' calcolata sopra, una volta per modello.
+            risks.push({ id: 'thunderstorm', level: tlvl, organized: !!(convAssess && convAssess.kind === 'event'),
+                         orgClass: orgFields.orgClass, orgMeso: orgFields.orgMeso,
+                         orgWms: orgFields.orgWms, orgShear: orgFields.orgShear, orgSrh: orgFields.orgSrh });
         } else if (conv) {
             // TEMPORALI POSSIBILI da ambiente CONVETTIVO (v10.52.3.0) — chiude il buco
             // dei rovesci convettivi: un rovescio convettivo reale (showers>0.1) in un
@@ -5690,7 +5746,9 @@ function enabledLightningSourceIds() {
             var capped = (cinC != null && isFinite(cinC)) ? Math.abs(cinC) > 150 : false;
             if (envConv && !capped) {
                 var tlvlPos = ((agg.cape || 0) >= 1000 || (liC != null && liC <= -6) || (kC != null && kC >= 31)) ? 2 : 1;
-                risks.push({ id: 'thunderstorm', level: tlvlPos, poss: true });
+                risks.push({ id: 'thunderstorm', level: tlvlPos, poss: true,
+                             orgClass: orgFields.orgClass, orgMeso: orgFields.orgMeso,
+                             orgWms: orgFields.orgWms, orgShear: orgFields.orgShear, orgSrh: orgFields.orgSrh });
             }
         }
         // Grandine: gate convettivo (in sviluppo una cella organizzata forza almeno grandine grande)
@@ -5768,10 +5826,18 @@ function enabledLightningSourceIds() {
     // Riga che dice QUALE rischio guida il colore della provincia (1.2.4.69).
     // Il colore e' il massimo fra TUTTI i rischi attivi: senza questa riga "rosso" e'
     // un'informazione senza causa. Ordine: livello decrescente (vedi computeZoneRiskSummary).
-    function riskDriverLine(agg) {
+    function riskDriverLine(agg, risks) {
         var s = computeZoneRiskSummary(agg);
         if (!s.level) return 'Nessun rischio rilevante';
         var head = 'Colore dovuto a: ' + s.driverLabel + ' (livello ' + s.level + ')';
+        // 1.2.4.94 - se il colore lo decide un temporale, la riga dice anche la classe di
+        // organizzazione in forma breve ("senza organizzazione" / "possibile organizzazione"
+        // / "con organizzazione"); il dettaglio con le soglie sta nel tooltip provincia.
+        if (/temporale/i.test(s.driverLabel || '')) {
+            var tsOrgDrv = thunderOrgRisk(risks);
+            var orgSDrv = tsOrgDrv ? orgShortOf(tsOrgDrv) : '';
+            if (orgSDrv) head += ' - ' + orgSDrv;
+        }
         var tempDetail = riskTempDetail(s.components[0]);
         if (tempDetail) head += ' — ' + tempDetail;
         // 1.2.4.72 - "osservato dal radar" SOLO se il livello deriva da una cella
@@ -5792,13 +5858,22 @@ function enabledLightningSourceIds() {
         var base = '<b>' + 'Provincia di ' + item.prov + '</b><br><span style="color:#94a3b8;">' + item.region + ' · criticità previste</span>';
         var risks = computeActiveRisks(idx);
         var agg = getAggregateForZone(idx);
-        var driver = agg ? riskDriverLine(agg) : 'Nessun rischio rilevante';
+        var driver = agg ? riskDriverLine(agg, risks) : 'Nessun rischio rilevante';
         var line = '<div class="risk-driver" style="margin:4px 0 2px 0;font-size:10px;color:#cbd5e1;">' + driver + '</div>';
+        // 1.2.4.94 - classe di organizzazione del temporale nel TOOLTIP, con le soglie in chiaro
+        // (WMAXSHEAR 800 / shear 18 m/s / SRH3 100): la superficie corta (badge) usa la
+        // versione breve, qui c'e' il dettaglio.
+        var tsOrgRisk = thunderOrgRisk(risks), orgLine = '';
+        if (tsOrgRisk) {
+            var orgEv = orgEvidence(tsOrgRisk);
+            orgLine = '<div class="risk-org" style="margin:0 0 2px 0;font-size:10px;color:#cbd5e1;">Temporali: <b>' +
+                escapeHtml(orgPhrase(tsOrgRisk)) + '</b>' + (orgEv ? ' - ' + escapeHtml(orgEv) : '') + '</div>';
+        }
         if (!risks.length) {
             return '<div title="' + escapeHtml(driver) + '">' + base + line +
                 '<div class="risk-disc-row"><span style="color:#64748b;font-size:10px;font-style:italic;">Nessuna criticità rilevante</span></div></div>';
         }
-        return '<div title="' + escapeHtml(driver) + '">' + base + line +
+        return '<div title="' + escapeHtml(driver) + '">' + base + line + orgLine +
             '<div class="risk-disc-row">' + risks.map(riskDiscHtml).join('') + '</div></div>';
     }
 
@@ -5849,8 +5924,12 @@ function enabledLightningSourceIds() {
                 // 1.2.4.69 - "organizzati"/"celle organizzate" SOLO se il gate di coerenza
                 // (stessa ora, stesso modello) e' passato; altrimenti linguaggio neutro.
                 if (r.poss) return ['Possibili temporali isolati', 'Temporali sparsi', 'Temporali forti possibili', 'Temporali estremi possibili'][r.level - 1];
-                if (r.organized) return ['Temporale isolato', 'Temporali sparsi', 'Temporali forti, anche organizzati', 'Temporali estremi con celle organizzate'][r.level - 1];
-                return ['Temporale isolato', 'Temporali sparsi', 'Temporali forti senza organizzazione prevista', 'Temporali estremi senza organizzazione prevista'][r.level - 1];
+                // 1.2.4.94 - TRE livelli (meso / ambiente favorevole / senza organizzazione):
+                // la frase non dipende piu' dal solo bit "innesco nella stessa ora".
+                // I livelli 1-2 restano neutri (non nominavano l'organizzazione).
+                var orgP = orgPhrase(r);
+                return ['Temporale isolato', 'Temporali sparsi',
+                        'Temporali forti ' + orgP, 'Temporali estremi ' + orgP][r.level - 1];
             }
             case 'hail':         return ['Grandine piccola possibile', 'Grandinata con chicchi medio-piccoli', 'Grandine grande', 'Grandine molto grande e distruttiva'][r.level - 1];
             case 'heat':         return riskLevelLineTemp(['Caldo moderato', 'Caldo intenso', 'Ondata di calore forte', 'Caldo estremo e pericoloso'][r.level - 1], r);
@@ -5917,17 +5996,17 @@ function enabledLightningSourceIds() {
                 ][r.level - 1];
             case 'thunderstorm':
                 if (r.poss) return [
-                    'Possibile temporale isolato da convezione locale: rovescio convettivo con qualche fulminazione sparsa, senza organizzazione marcata.',
+                    'Possibile temporale isolato da convezione locale: rovescio convettivo con qualche fulminazione sparsa.',
                     'Possibili temporali sparsi da convezione locale: rovesci convettivi con fulminazioni sparse e possibili raffiche.',
                     'Possibili temporali forti da convezione locale: frequenti fulminazioni, rovesci intensi e possibili grandinate locali.',
                     'Possibili temporali estremi da convezione locale: celle organizzate con grandine grande, rovesci torrenziali e intensa attività elettrica.'
-                ][r.level - 1];
+                ][r.level - 1] + orgImpactNote(r);
                 return [
                     'Temporale isolato: possibile un solo rovescio breve.',
                     'Temporali sparsi: possibili fulmini e rovesci intensi localizzati.',
                     'Temporali forti: possibili fulmini frequenti, rovesci forti con allagamenti localizzati e locali grandinate.',
                     'Temporali estremi: possibili celle organizzate con grandine grande, rovesci torrenziali e allagamenti rapidi, raffiche distruttive e intensa attività elettrica.'
-                ][r.level - 1];
+                ][r.level - 1] + orgImpactNote(r);
             case 'hail':
                 return [
                     'Grandine piccola: chicchi piccoli, impatto trascurabile su colture e veicoli.',
@@ -6015,6 +6094,14 @@ function enabledLightningSourceIds() {
         var zrText = zr.level
             ? ((zr.driverPotential ? 'Potenziale' : GATE_LEVEL_WORD[Math.min(5, zr.level)]) + ' \u00b7 ' + zr.driverLabel)
             : 'Nessun rischio rilevante';
+        // 1.2.4.94 - il badge e' la superficie corta: se il colore lo decide un temporale
+        // aggiunge la classe di organizzazione in forma breve (mai il dettaglio, che sta
+        // nel tooltip). Nessun'altra metrica viene toccata.
+        if (zr.level && /temporale/i.test(zr.driverLabel || '')) {
+            var tsOrgBadge = thunderOrgRisk(risks);
+            var orgSBadge = tsOrgBadge ? orgShortOf(tsOrgBadge) : '';
+            if (orgSBadge) zrText += ' - ' + orgSBadge;
+        }
 
         var head = '<div class="rs-head">' +
             '<span class="rs-title">' + 'Provincia di ' + item.prov + '</span>' +
@@ -6038,7 +6125,7 @@ function enabledLightningSourceIds() {
                 return '<li><b>' + name + ' — ' + riskLevelLine(r, agg) + '.</b>' + infoTag + '<br><span style="color:#94a3b8;">' +
                     riskLevelImpact(r, agg) + '</span></li>';
             }).join('');
-            note = '<div class="rs-note"><b>Colore = rischio piu\' alto fra TUTTI i pericoli previsti</b> (livello = massimo dei livelli): ' + escapeHtml(riskDriverLine(agg)) + '. Riferito a ' + (currentHour === 'all' ? 'tutta la giornata selezionata' : 'ore ' + String(currentHour).padStart(2, '0') + ':00') + '.</div>';
+            note = '<div class="rs-note"><b>Colore = rischio piu\' alto fra TUTTI i pericoli previsti</b> (livello = massimo dei livelli): ' + escapeHtml(riskDriverLine(agg, risks)) + '. Riferito a ' + (currentHour === 'all' ? 'tutta la giornata selezionata' : 'ore ' + String(currentHour).padStart(2, '0') + ':00') + '.</div>';
         }
 
         el.innerHTML = head + '<ul class="rs-list">' + list + '</ul>' + note;
@@ -25067,6 +25154,96 @@ function toggleForecastMaps() {
     };
     var RISK_LEVEL_WORD = ['', 'lieve', 'moderato', 'forte', 'estremo', 'estremo'];
     var GATE_LEVEL_WORD = ['', 'Lieve', 'Moderato', 'Mod-Alto', 'Alto', 'Mesociclone'];
+
+    // ========================================================================
+    // 1.2.4.94 - ORGANIZZAZIONE DEL TEMPORALE IN TRE LIVELLI (SOLO TESTO).
+    // ========================================================================
+    // Prima esisteva UN solo bit: r.organized = (convAssess.kind === 'event'), che
+    // richiede un innesco nella stessa ora E WMAXSHEAR >= 1000 oppure SRH >= 100 con
+    // CAPE >= 500. Con shear 0-6 km 18-20 m/s e WMAXSHEAR 800-999 la frase scendeva a
+    // "senza organizzazione prevista": falso, perche' l'ambiente e' organizzato.
+    // Misurato il 2026-11-15 sulle 107 province: 12 dicevano "senza organizzazione" e
+    // TUTTE e 12 avevano almeno una gamba sopra soglia (10 con SRH >= 100, 10 con
+    // shear >= 18, 1 con WMAXSHEAR >= 800).
+    // Le soglie NON sono nuove: sono quelle gia' usate nel file.
+    //   WMAXSHEAR 0-6 km >= 800 m2/s2   Taszarek et al. 2017 (MWR 145:1511) / 2020:
+    //                                  800-1200 = fascia favorevole a celle organizzate
+    //   shear 0-6 km >= 18 m/s          DLS 15-18 m/s = convezione organizzata
+    //   SRH 0-3 km >= 100 m2/s2         elicitazione significativa (Ingrosso et al. 2020)
+    // Il calcolo di CAPE/shear/SRH/SCP NON cambia: cambia solo la classificazione del testo.
+    var ORG_WMS_MIN = 800, ORG_SHEAR_MIN = 18, ORG_SRH_MIN = 100;
+    function orgClassOf(r) {
+        if (!r) return null;
+        if (r.orgClass) return r.orgClass;
+        // Compatibilita': i record senza orgClass (es. temporale "possibile") usano il
+        // vecchio bit, che corrisponde alla classe "ambiente favorevole".
+        return r.organized ? 'env' : null;
+    }
+    function orgPhrase(r) {
+        var c = orgClassOf(r);
+        if (c === 'meso') return isSviluppoActive
+            ? 'con organizzazione (mesociclone possibile)'
+            : 'con organizzazione (cella organizzata possibile)';
+        if (c === 'env') return 'con possibile organizzazione (ambiente favorevole)';
+        if (c === 'none') return 'senza organizzazione prevista';
+        return '';
+    }
+    function orgShortOf(r) {
+        var c = orgClassOf(r);
+        if (c === 'meso') return 'con organizzazione';
+        if (c === 'env') return 'possibile organizzazione';
+        if (c === 'none') return 'senza organizzazione';
+        return '';
+    }
+    // Classe di organizzazione di UN aggregato (una provincia, UN modello): i campi sono
+    // quelli dell'aggregato, mai presi da modelli diversi.
+    function orgFromAgg(a) {
+        if (!a) return null;
+        var s = a.severeIndices || {}, h = a.hailMetrics || {};
+        var shear = (s.shear06 != null && isFinite(s.shear06)) ? s.shear06 : null;
+        var srh = (s.srh3 != null && isFinite(s.srh3)) ? s.srh3 : null;
+        var wms = (h.wmaxshear != null && isFinite(h.wmaxshear)) ? h.wmaxshear : null;
+        var scp = (s.scp != null && isFinite(s.scp)) ? s.scp : 0;
+        var meso = detectMesocyclone(a.cape || 0, shear || 0, srh || 0, scp, a.code, a.rain);
+        var cls = meso ? 'meso'
+            : (((wms != null && wms >= ORG_WMS_MIN) ||
+                (shear != null && shear >= ORG_SHEAR_MIN) ||
+                (srh != null && srh >= ORG_SRH_MIN)) ? 'env' : 'none');
+        return { orgClass: cls, orgMeso: meso, orgWms: wms, orgShear: shear, orgSrh: srh };
+    }
+    function orgEvidence(r) {
+        var bits = [];
+        if (r && r.orgWms != null && isFinite(r.orgWms)) bits.push('WMAXSHEAR 0-6 km ' + Math.round(r.orgWms) + ' m2/s2 (soglia ' + ORG_WMS_MIN + ')');
+        if (r && r.orgShear != null && isFinite(r.orgShear)) bits.push('shear 0-6 km ' + italiaNum(r.orgShear, 1) + ' m/s (soglia ' + ORG_SHEAR_MIN + ')');
+        if (r && r.orgSrh != null && isFinite(r.orgSrh)) bits.push('SRH 0-3 km ' + Math.round(r.orgSrh) + ' m2/s2 (soglia ' + ORG_SRH_MIN + ')');
+        return bits.join(', ');
+    }
+    function orgImpactNote(r) {
+        if (!r || r.id !== 'thunderstorm') return '';
+        var c = orgClassOf(r);
+        if (!c) return '';
+        var ev = orgEvidence(r);
+        if (c === 'meso') return ' Organizzazione: ' + (isSviluppoActive ? 'mesociclone possibile' : 'cella organizzata possibile') +
+            ' (SCP >= 1 con shear 0-6 km >= 20 m/s e SRH 0-3 km >= 100 m2/s2); soglia di ambiente favorevole WMAXSHEAR 0-6 km >= ' + ORG_WMS_MIN + ' m2/s2.' + (ev ? ' Valori: ' + ev + '.' : '');
+        if (c === 'env') return ' Organizzazione: ambiente favorevole (almeno una gamba sopra soglia: WMAXSHEAR 0-6 km >= ' + ORG_WMS_MIN + ' m2/s2, shear 0-6 km >= ' + ORG_SHEAR_MIN + ' m/s, SRH 0-3 km >= ' + ORG_SRH_MIN + ' m2/s2).' + (ev ? ' Valori: ' + ev + '.' : '');
+        return ' Organizzazione: nessuna delle tre gambe sopra soglia (WMAXSHEAR 0-6 km < ' + ORG_WMS_MIN + ' m2/s2, shear 0-6 km < ' + ORG_SHEAR_MIN + ' m/s, SRH 0-3 km < ' + ORG_SRH_MIN + ' m2/s2).' + (ev ? ' Valori: ' + ev + '.' : '');
+    }
+    // Un solo record per provincia: se i due modelli non concordano si mostra la classe PIU'
+    // FORTE (meso > ambiente favorevole > senza organizzazione). Ogni classe e' calcolata con
+    // i campi del SUO modello: non si mescolano CAPE di uno e shear dell'altro. La scelta e'
+    // "almeno un modello vede ambiente organizzato", quindi il testo non afferma mai
+    // "senza organizzazione" quando uno dei due modelli la smentisce.
+    function thunderOrgRisk(risks) {
+        if (!risks) return null;
+        var best = null, bestRank = 0;
+        for (var i = 0; i < risks.length; i++) {
+            var x = risks[i];
+            if (!x || x.id !== 'thunderstorm' || !x.orgClass) continue;
+            var rk = x.orgClass === 'meso' ? 3 : (x.orgClass === 'env' ? 2 : 1);
+            if (rk > bestRank) { bestRank = rk; best = x; }
+        }
+        return best;
+    }
     function riskComponentLabel(r) {
         if (!r) return '';
         if (r.id === 'supercell') {
@@ -25077,7 +25254,7 @@ function toggleForecastMaps() {
         var name = RISK_PLAIN_NAMES[r.id] || r.id;
         if (r.info) return name + ' (informativa)';
         if (r.id === 'thunderstorm' && r.poss) return 'temporale possibile';
-        if (r.id === 'thunderstorm' && !r.organized) return 'temporale (senza organizzazione prevista)';
+        if (r.id === 'thunderstorm') { var orgC = orgPhrase(r); if (orgC) return 'temporale (' + orgC + ')'; }
         return name + ' ' + (RISK_LEVEL_WORD[r.level] || '');
     }
     function zoneRiskRank(c) {
