@@ -2850,9 +2850,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.100';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.101';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-15';
     const APP_CHANGELOG = [
+    { version: '1.2.4.101', date: '2026-11-15', changes: [
+        'Soglie vortici/tornado ricalibrate su letteratura europea (Taszarek, Kaltenboeck, Ingrosso).',
+        'CAPE gate 1000 rimosso (HSLC), SRH 100->80, shear 20->18, EHI 1.0->0.5, SCP saturazione 75->150.',
+        'Nuovi indici: STP europeo, probabilita tornado (Ingrosso 2023), WMAXSHEAR 0-3 km, Craven.',
+        'Riepilogo scheda: eliminata ripetizione nome rischio. Nuovi Indici persistenti (localStorage).',
+    ]},
     { version: '1.2.4.100', date: '2026-11-15', changes: [
         'Riepilogo scheda: eliminata la ripetizione del nome del rischio ("Temporali — Temporali forti...").',
         'Pulsante "Nuovi Indici" con tooltip esplicativo e scelta persistente (localStorage).',
@@ -24953,7 +24959,25 @@ function toggleForecastMaps() {
         // SCP Thompson 2004: (CAPE/1000) * f(shear06) * f(SRH3km)
         var scp = calcSCPimproved(cape, shear06, srh3);
 
-        return { shear06: shear06, srh3: srh3, scp: scp, dls03: dls03, stormMotion: sm, z06agl: z06agl, z03agl: z03agl, shear01: shear01, srh1: srh1 };
+        // --- Nuovi indici (ricerca 2026-11-13, soglie europee) ---
+        var stp = 0;
+        if (cape != null && cape > 0 && shear06 >= 10 && srh3 >= 50) {
+            var lclTerm = (lcl != null && lcl > 0) ? Math.max(0, Math.min(1, (2000 - lcl) / 1000)) : 0.5;
+            var cinAbs = (cin != null && isFinite(cin)) ? Math.abs(cin) : 0;
+            var cinTerm = Math.max(0, Math.min(1, (200 - cinAbs) / 150));
+            stp = (cape / 1000) * Math.min(srh3 / 50, 2) * Math.min(shear06 / 20, 1) * lclTerm * cinTerm;
+        }
+        var probTornado = 0;
+        if (cape != null && cape > 0 && shear06 > 0) {
+            var wmax = Math.sqrt(2 * cape);
+            var logP = -6.6 + wmax / 3.1 + 5.2 * wmax / shear06;
+            probTornado = Math.max(0, Math.min(1, Math.pow(10, logP)));
+        }
+        var wmaxshear03 = (cape != null && srh3 != null) ? Math.sqrt(2 * cape) * (srh3 / 100) * 10 : null;
+        var craven = (cape != null && shear06 != null) ? cape * shear06 : null;
+        return { shear06: shear06, srh3: srh3, scp: scp, dls03: dls03, stormMotion: sm, z06agl: z06agl, z03agl: z03agl, shear01: shear01, srh1: srh1,
+            stp: stp, probTornado: probTornado, wmaxshear03: wmaxshear03, craven: craven };
+
     }
 
     // SCP migliorato: (CAPE/1000) * f(shear06) * f(SRH3km) — Thompson 2004
@@ -24963,7 +24987,7 @@ function toggleForecastMaps() {
         if (cape == null || cape < 100) return 0;
         var capeTerm = cape / 1000;
         var shearTerm = shear06Ms < 10 ? 0 : Math.min(shear06Ms / 20, 1);
-        var srhTerm = srh3 < 50 ? 0 : Math.min(srh3 / 50, 1.5);
+        var srhTerm = srh3 < 50 ? 0 : Math.min(srh3 / 100, 1.5);
         return capeTerm * shearTerm * srhTerm;
     }
 
@@ -24998,8 +25022,11 @@ function toggleForecastMaps() {
     function mesocycloneEnvironment(cape, shear06Ms, srh3, scp) {
         if (cape == null || !isFinite(cape)) return false;
         // HSLC italiano: permette CAPE più basso se shear+elicità sono intense
-        var capeOK = cape >= 1000 ? true : (cape >= 500 && shear06Ms >= 22 && srh3 >= 120);
-        return capeOK && shear06Ms >= 20 && srh3 >= 100 && scp >= 1.0;
+        // HSLC (Avolio 2023, Mediterraneo): CAPE basso ma shear/SRH intensi.
+        // CAPE>=1000 gate rimosso: mediana EU F2+ = 470 J/kg (Taszarek 2017).
+        var capeOK = (cape >= 500) || (cape >= 150 && shear06Ms >= 18 && srh3 >= 80);
+        var ehi = computeEHI(cape, srh3);
+        return capeOK && shear06Ms >= 18 && srh3 >= 80 && (scp >= 1.0 || ehi >= 0.5);
     }
     function detectMesocyclone(cape, shear06Ms, srh3, scp, code, rain) {
         return mesocycloneEnvironment(cape, shear06Ms, srh3, scp) && isThunderstormCode(code);
@@ -25050,10 +25077,13 @@ function toggleForecastMaps() {
         var trigger = isThunderstormCode(o.code);
         var mesoPotential = !!o.mesoPotential;
         var envWms = wms6 >= 1000;
-        var envSrh = (srh3 != null && srh3 >= 100) && (cape != null && cape >= 500);
+        var envWmsLow = wms6 >= 500;
+        var envSrh = (srh3 != null && srh3 >= 80) && (cape != null && cape >= 150);
+        var env = envWms || envWmsLow || envSrh;
         var env = envWms || envSrh;
         var reasons = [];
         if (envWms) reasons.push('WMAXSHEAR 0-6 km ' + Math.round(wms6) + ' m2/s2 (>=1000)');
+        if (!envWms && envWmsLow) reasons.push('WMAXSHEAR 0-6 km ' + Math.round(wms6) + ' m2/s2 (>=500, severo probabile)');
         if (envSrh) reasons.push('SRH 0-3 km ' + Math.round(srh3) + ' m2/s2 con CAPE ' + Math.round(cape) + ' J/kg');
         if (cape != null && cape > CONV_CAPE_SAT) reasons.push('CAPE oltre 800 J/kg: saturato per la classificazione');
         if (trigger) reasons.push('Segnale temporalesco istantaneo nella stessa ora: weather code ' + o.code +
@@ -25728,7 +25758,7 @@ function toggleForecastMaps() {
         // Il vecchio canale low-level (shear01/SRH1) produceva il livello 4 con CAPE
         // 260-550 J/kg: misurato il 2026-11-13, 9 province su 107 marcate "tornado
         // violento" e 16 con il badge. Con questo gate restano 8.
-        if (cape < 500 || shear06 < 20 || srh3 < 100) return out;
+        if (cape < 150 || shear06 < 15 || srh3 < 80) return out;
         var isThunder = isThunderstormCode(code);
         out.trigger = isThunder;
         if (lcl == null || lcl > (cold ? 2500 : 1500)) return out;

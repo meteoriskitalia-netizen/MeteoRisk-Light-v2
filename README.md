@@ -6,9 +6,9 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.100
+## Versione attiva: 1.2.4.101
 
-- File applicativo: `mri-light-1.2.4.100.html` (`APP_VERSION = '1.2.4.100'`; changelog in-app .95) + `sw.js` (`CACHE_NAME = 'mri-1.2.4.100'`, `TILE_CACHE = 'mri-tiles-1.2.4.100'`, `FRAME_CACHE = 'mri-frames-1.2.4.100'`).
+- File applicativo: `mri-light-1.2.4.101.html` (`APP_VERSION = '1.2.4.101'`; changelog in-app .95) + `sw.js` (`CACHE_NAME = 'mri-1.2.4.101'`, `TILE_CACHE = 'mri-tiles-1.2.4.101'`, `FRAME_CACHE = 'mri-frames-1.2.4.101'`).
 - **Revisione logica convettiva**: potenziale NWP e innesco temporalesco sono distinti. Sviluppo espone i badge di potenziale mesociclonico anche senza attivare Nuovi Indici. Il codice WMO identifica il fenomeno istantaneo e non richiede anche pioggia cumulata; il downburst riconosce anche i rovesci convettivi. Il detector a livello zero non produce piu' livelli artificiali.
 - **Grandine e nebbia**: massimi giornalieri per dimensione/probabilita' grandine indipendenti dall'ora rappresentativa CAPE; precipitazione convettiva distinta dalla pioggia totale. Codici WMO 45/48 conservati anche senza T/Td e descritti come indice euristico non probabilistico.
 - **Tracking e riepiloghi**: ora del sistema organizzato allineata al segnale; abbinamenti SOI-cella entro 10 km e solo sull'ultimo frame, con indicazione esplicita quando manca un'associazione.
