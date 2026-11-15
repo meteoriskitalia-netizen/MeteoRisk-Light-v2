@@ -1,13 +1,19 @@
-MeteoRisk Light - 1.2.4.94 - ORGANIZZAZIONE DEL TEMPORALE IN TRE LIVELLI (bump da 1.2.4.93)
-VERSION=1.2.4.94
+MeteoRisk Light - 1.2.4.95 - LOGICA CONVETTIVA, GRANDINE, NEBBIA E TRACKING (bump da 1.2.4.94)
+VERSION=1.2.4.95
 MAJOR=1
 MINOR=2
 PATCH=4
-BUILD=94
+BUILD=95
 RELEASE_TYPE=release
 DATE=2026-11-15
-NOTE=Release 1.2.4.94 (bump da 1.2.4.93) - SOLO CLIENT, TESTO DEI RISCHI. Il riepilogo della provincia diceva 'senza organizzazione prevista' ogni volta che il bit unico r.organized era falso (innesco nella stessa ora E WMAXSHEAR >= 1000 oppure SRH >= 100 con CAPE >= 500): con shear 0-6 km 18-20 m/s e WMAXSHEAR 800-999 la frase era falsa. Ora tre livelli: meso vero -> 'con organizzazione (mesociclone possibile)' in Sviluppo / 'con organizzazione (cella organizzata possibile)' fuori; altrimenti WMAXSHEAR >= 800 oppure shear >= 18 m/s oppure SRH3 >= 100 -> 'con possibile organizzazione (ambiente favorevole)'; altrimenti 'senza organizzazione prevista'. Soglie dichiarate nel tooltip e nella nota metodologica. Superfici: riepilogo sticky, tooltip provincia, badge, 'Colore dovuto a', title del disco, riskComponentLabel, nota Fonti & Metodologie. Misure (107 province, dataset 2026-11-15, Sviluppo OFF): prima 22 'senza organizzazione' (12 riepilogo + 10 dettaglio), dopo 0; 15 'con possibile organizzazione' nel riepilogo + 11 nel solo dettaglio; 0 'mesociclone'. 0 eccezioni JS, 0 overflow 1440x900 e 390x844. BUMP: html mri-light-1.2.4.94.html, VERSION (BUILD=94, DATE=2026-11-15, APP_FILE=mri-light-1.2.4.94.html), sw.js (3 cache), README, 26 .mjs; la 1.2.4.93 va rimossa. NON toccati: scripts/, dataset, renderer, motore radar, calcolo CAPE/shear/SRH/SCP.
+NOTE=Release 1.2.4.95 (bump da 1.2.4.94) - Revisione della logica convettiva. Il potenziale ambientale NWP e' separato dall'innesco temporalesco; Sviluppo espone i badge di potenziale mesociclonico indipendentemente dal toggle Nuovi Indici. Il codice WMO temporalesco e' trattato come segnale istantaneo e non richiede anche pioggia cumulata nell'ora; downburst considera rovesci convettivi. Rimossi livelli artificiali quando il detector e' a zero. Grandine e probabilita' giornaliere conservano i rispettivi massimi orari; Nebbia WMO 45/48 resta segnale senza T/Td, con indice dichiarato euristico e non probabilistico. Ora rappresentativa del sistema organizzato allineata all'ora del segnale. Associazioni SOI-cella limitate a 10 km e solo frame piu' recente. BUMP: nuovo HTML mri-light-1.2.4.95.html, VERSION BUILD=95, cache Service Worker .95 e README. La .94 resta invariata.
+APP_FILE=mri-light-1.2.4.95.html
+MeteoRisk Light - 1.2.4.94 - ORGANIZZAZIONE DEL TEMPORALE IN TRE LIVELLI (release precedente)
+VERSION=1.2.4.94
+BUILD=94
+DATE=2026-11-15
 APP_FILE=mri-light-1.2.4.94.html
+NOTE=Storico: classificazione testuale dell'organizzazione in tre livelli (mesociclone, ambiente favorevole, senza organizzazione) e allineamento dei riepiloghi, tooltip, badge e note metodologiche. La release .95 amplia la correzione alla logica dei badge e ai gate temporali; i file originali .94 restano invariati.
 MeteoRisk Light - 1.2.4.93 - FRASI DELLE AREE SENZA TETTO DI 60 PAROLE: CONTENUTO COMPLETO (bump da 1.2.4.92)
 VERSION=1.2.4.93
 MAJOR=1

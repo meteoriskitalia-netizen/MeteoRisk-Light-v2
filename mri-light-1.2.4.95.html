@@ -2552,7 +2552,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                     <div class="src-item"><b>SCP</b> = CAPE/1000 · min(DLS/20,1) · min(SRH3/50,1.5). <span class="src-ref">Thompson et al. 2003: SCP&gt;1 potenziale cella organizzata.</span></div>
                     <div class="src-item"><b>SHIP</b> — Significant Hail Parameter (formula operativa USA con caps su umidità/shear/T500 e correzioni per CAPE&lt;1300, lapse rate&lt;5.8, freezing level). <span class="src-ref">&lt;1 marginale · 1-2 significativa · &gt;2 marcato rischio grandine &gt;2 cm.</span></div>
                     <div class="src-item sviluppo-only-item" hidden><b>Mesociclone</b> (badge NWP, livello 5, solo in modalità Sviluppo): temporale attivo E CAPE≥1000 (o ≥500 con DLS≥22 e SRH3≥120) E DLS≥20 m/s E SRH3≥100 E SCP≥1.0. È una stima ambientale del modello, non un rilevamento radar e non un'osservazione diretta della cella.</div>
-                    <div class="src-item"><b>Convezione organizzata: potenziale o evento</b> (1.2.4.69). La classe <b>EVENTO</b> esiste solo con un innesco nella <b>stessa ora</b>: weather code WMO 95-99 <b>e</b> pioggia &gt; 0,1 mm/h (oppure cella radar osservata, pannello &laquo;Struttura convettiva&raquo;). Senza innesco la stessa configurazione &egrave; <b>POTENZIALE</b>: classe distinta e neutra (grigio-blu), &laquo;ambiente favorevole &mdash; potenziale, nessun temporale previsto&raquo;. Il gate ambientale ha due sole gambe con fonte: <b>WMAXSHEAR 0-6 km &ge; 1000 m&sup2;/s&sup2;</b> (<span class="src-ref">Taszarek et al. 2017; Gr&uuml;nwald &amp; Brooks 2011</span>) <b>oppure SRH 0-3 km &ge; 100 m&sup2;/s&sup2; con CAPE &ge; 500 J/kg</b> (<span class="src-ref">Ingrosso et al. 2020</span>). <b>WMAXSHEAR 0-3 km &ge; 500 &egrave; stato rimosso</b> (nessuna fonte verificabile). <b>EHI 0-3 km resta solo display</b>: &ge; 1,0 &egrave; una convenzione delle US Plains (<span class="src-ref">Rasmussen &amp; Blanchard 1998</span>) e la soglia europea pubblicata &egrave; 0,065 con SRH 0-1 km, quindi non confrontabile. <b>CAPE saturato a 800 J/kg</b> e <b>veto di umidit&agrave;</b>: con RH 850-700 &lt; 50% la classe scende di un livello con il motivo nel tooltip (<span class="src-ref">Westermayer et al. 2017, Meteorol. Z. 26:59</span>: sopra 800 J/kg la frequenza di fulmini resta al ~20%; RH &lt; 50% &rarr; frequenza &lt; 0,15). Le etichette &laquo;organizzati&raquo;/&laquo;celle organizzate&raquo; compaiono solo se il gate di coerenza passa; altrimenti &laquo;temporali possibili&raquo;. Il livello di rischio si calcola <b>per modello e per ora</b> e poi si prende il massimo: CAPE, shear, SRH, SCP e innesco non vengono mai presi da ore o modelli diversi. <b>Classificazione dell'organizzazione in TRE livelli (1.2.4.94)</b>: il testo del temporale non dipende pi&ugrave; dal solo innesco. <b>Con organizzazione</b> (la classe pi&ugrave; forte<span class="sviluppo-only-item" hidden>: &laquo;mesociclone possibile&raquo;</span>) se i gate di detectMesocyclone sono soddisfatti (CAPE/DLS/SRH/SCP); altrimenti <b>con possibile organizzazione (ambiente favorevole)</b> se almeno una fra <b>WMAXSHEAR 0-6 km &ge; 800 m&sup2;/s&sup2;</b> (Taszarek et al. 2017/2020: 800-1200 &egrave; la fascia favorevole a celle organizzate), <b>shear 0-6 km &ge; 18 m/s</b> (15-18 m/s &egrave; convezione organizzata), <b>SRH 0-3 km &ge; 100 m&sup2;/s&sup2;</b>; altrimenti <b>senza organizzazione prevista</b>. Con la modalit&agrave; Sviluppo spenta la categoria del livello 5 non si nomina: la stessa classe si legge &laquo;cella organizzata possibile&raquo;. Il calcolo di CAPE, shear, SRH e SCP non cambia: cambia solo la classificazione del testo. Se i due modelli non concordano, il testo mostra la classe pi&ugrave; forte (meso &gt; ambiente favorevole &gt; senza organizzazione): ogni classe &egrave; calcolata con i campi del suo modello, nessun campo viene mescolato fra i due.</div>
+                    <div class="src-item"><b>Convezione organizzata: potenziale o evento</b> (logica aggiornata in 1.2.4.95). La classe <b>EVENTO</b> usa il codice WMO 95-99 nell'ora valida oppure una cella radar osservata, nel pannello &laquo;Struttura convettiva&raquo;. Il codice WMO descrive il fenomeno istantaneo; la pioggia &gt; 0,1 mm/h e' un accumulo orario separato, non un secondo gate. Senza innesco la stessa configurazione &egrave; <b>POTENZIALE</b>: classe distinta e neutra (grigio-blu), &laquo;ambiente favorevole &mdash; potenziale, nessun temporale previsto&raquo;. Il gate ambientale ha due sole gambe con fonte: <b>WMAXSHEAR 0-6 km &ge; 1000 m&sup2;/s&sup2;</b> (<span class="src-ref">Taszarek et al. 2017; Gr&uuml;nwald &amp; Brooks 2011</span>) <b>oppure SRH 0-3 km &ge; 100 m&sup2;/s&sup2; con CAPE &ge; 500 J/kg</b> (<span class="src-ref">Ingrosso et al. 2020</span>). <b>WMAXSHEAR 0-3 km &ge; 500 &egrave; stato rimosso</b> (nessuna fonte verificabile). <b>EHI 0-3 km resta solo display</b>: &ge; 1,0 &egrave; una convenzione delle US Plains (<span class="src-ref">Rasmussen &amp; Blanchard 1998</span>) e la soglia europea pubblicata &egrave; 0,065 con SRH 0-1 km, quindi non confrontabile. <b>CAPE saturato a 800 J/kg</b> e <b>veto di umidit&agrave;</b>: con RH 850-700 &lt; 50% la classe scende di un livello con il motivo nel tooltip (<span class="src-ref">Westermayer et al. 2017, Meteorol. Z. 26:59</span>: sopra 800 J/kg la frequenza di fulmini resta al ~20%; RH &lt; 50% &rarr; frequenza &lt; 0,15). Le etichette &laquo;organizzati&raquo;/&laquo;celle organizzate&raquo; compaiono solo se il gate di coerenza passa; altrimenti &laquo;temporali possibili&raquo;. Il livello di rischio si calcola <b>per modello e per ora</b> e poi si prende il massimo: CAPE, shear, SRH, SCP e innesco non vengono mai presi da ore o modelli diversi. <b>Classificazione dell'organizzazione in TRE livelli (1.2.4.94)</b>: il testo del temporale non dipende pi&ugrave; dal solo innesco. <b>Con organizzazione</b> (la classe pi&ugrave; forte<span class="sviluppo-only-item" hidden>: &laquo;mesociclone possibile&raquo;</span>) se i gate di detectMesocyclone sono soddisfatti (CAPE/DLS/SRH/SCP); altrimenti <b>con possibile organizzazione (ambiente favorevole)</b> se almeno una fra <b>WMAXSHEAR 0-6 km &ge; 800 m&sup2;/s&sup2;</b> (Taszarek et al. 2017/2020: 800-1200 &egrave; la fascia favorevole a celle organizzate), <b>shear 0-6 km &ge; 18 m/s</b> (15-18 m/s &egrave; convezione organizzata), <b>SRH 0-3 km &ge; 100 m&sup2;/s&sup2;</b>; altrimenti <b>senza organizzazione prevista</b>. Con la modalit&agrave; Sviluppo spenta la categoria del livello 5 non si nomina: la stessa classe si legge &laquo;cella organizzata possibile&raquo;. Il calcolo di CAPE, shear, SRH e SCP non cambia: cambia solo la classificazione del testo. Se i due modelli non concordano, il testo mostra la classe pi&ugrave; forte (meso &gt; ambiente favorevole &gt; senza organizzazione): ogni classe &egrave; calcolata con i campi del suo modello, nessun campo viene mescolato fra i due.</div>
                 </div>
             </div>
             <div class="fl-section">
@@ -2850,9 +2850,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.94';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.95';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-15';
     const APP_CHANGELOG = [
+        { version: '1.2.4.95', date: '2026-11-15', changes: [
+  "LOGICA CONVETTIVA E BADGE= Separato il potenziale ambientale NWP dall'innesco temporalesco: Sviluppo abilita i badge di potenziale mesociclonico senza richiedere un temporale attivo, mentre il profilo Nuovi Indici resta indipendente. Il codice WMO temporalesco identifica l'evento istantaneo; la pioggia oraria non viene piu' richiesta in aggiunta. Downburst considera anche rovesci convettivi. Nessun livello viene inventato quando il detector non rileva rischio.",
+  "GRANDINE, NEBBIA E RIEPILOGHI GIORNALIERI= Grandine e probabilita' usano il massimo giornaliero specifico, senza ereditare l'ora scelta per CAPE; l'input precipitativo convettivo e' distinto dalla pioggia totale. Nebbia WMO 45/48 resta segnale anche senza temperatura/dew point e viene descritta come indice euristico non probabilistico, senza visibilita' osservata. L'ora rappresentativa dei sistemi organizzati ora corrisponde all'ora del segnale di organizzazione.",
+  "SOI E CONFRONTO RADAR= Abbinamento fenomeno-cella limitato a 10 km e solo a candidati presenti nell'ultimo frame; il pannello dichiara quando non esiste un abbinamento. Confidenza non calibrata esposta come tale.",
+  "BUMP= nuova copia autonoma .95; release precedenti lasciate inalterate."
+        ] },
         { version: '1.2.4.94', date: '2026-11-15', changes: [
   "ORGANIZZAZIONE DEL TEMPORALE IN TRE LIVELLI (SOLO TESTO)= Il riepilogo diceva 'senza organizzazione prevista' ogni volta che il bit unico r.organized era falso: quel bit richiedeva un innesco nella stessa ora E WMAXSHEAR >= 1000 oppure SRH >= 100 con CAPE >= 500. Con shear 0-6 km 18-20 m/s e WMAXSHEAR 800-999 l'ambiente e' organizzato e la frase era falsa. Ora la classificazione ha tre livelli: (1) meso vero (stessi gate di detectMesocyclone: CAPE/DLS/SRH/SCP) -> 'con organizzazione (mesociclone possibile)' in Sviluppo, 'con organizzazione (cella organizzata possibile)' con Sviluppo spento; (2) altrimenti almeno una fra WMAXSHEAR 0-6 km >= 800 m2/s2, shear 0-6 km >= 18 m/s, SRH 0-3 km >= 100 m2/s2 -> 'con possibile organizzazione (ambiente favorevole)'; (3) altrimenti 'senza organizzazione prevista'. Le soglie sono quelle gia' nel progetto (Taszarek et al. 2017/2020, DLS 15-18 m/s, Ingrosso et al. 2020) e sono dichiarate nel tooltip provincia e nella nota metodologica. Il calcolo di CAPE/shear/SRH/SCP NON e' stato toccato.",
   "SUPERFICI AGGIORNATE= riepilogo sticky (riskLevelLine + riskLevelImpact con i valori WMAXSHEAR/shear/SRH3 e le soglie), tooltip provincia (riga 'Temporali: ...' con le soglie), badge (versione breve), riquadro 'Colore dovuto a' (versione breve quando il colore lo decide un temporale), title del disco, riskComponentLabel, nota metodologica in Fonti & Metodologie. Quando i due modelli non concordano la classe di testo e' la piu' forte dei due (meso > ambiente favorevole > senza organizzazione), sempre calcolata con i campi del suo modello: nessun CAPE di uno con lo shear dell'altro.",
@@ -5353,7 +5359,7 @@ function enabledLightningSourceIds() {
     // R = colore del disco, G = colore glifo (bianco di default).
     // 1.2.4.69 - POTENZIALE != EVENTO: due classi distinte per la convezione organizzata.
     // La classe POTENZIALE e' neutra (grigio-blu) e non e' un pericolo in atto: nessuna
-    // eccezione, viola e rosso restano SOLO con un innesco (weather code 95-99 con pioggia
+    // eccezione, viola e rosso restano SOLO con un innesco (codice WMO 95-99; la pioggia oraria
     // > 0,1 mm/h nella stessa ora, oppure cella radar osservata nel pannello dedicato).
     var CONV_POTENTIAL_COLOR = '#7d93a8';
     var CONV_POTENTIAL_LABEL = 'Ambiente favorevole a convezione organizzata \u2014 potenziale, nessun temporale previsto';
@@ -5370,7 +5376,7 @@ function enabledLightningSourceIds() {
                         potentialLabel: CONV_POTENTIAL_LABEL, potentialColor: CONV_POTENTIAL_COLOR,
                         mesoLabel: 'Mesociclone (NWP)',
                         mesoTitle: 'Mesociclone previsto dal modello NWP (SCP >= 1, shear 0-6 km >= 20 m/s, SRH 0-3 km >= 100 m2/s2): ambiente favorevole, NON osservato',
-                        title: 'Convezione organizzata con innesco nella stessa ora (weather code 95-99 con pioggia > 0,1 mm/h): descrizione ambientale del modello NWP, NON un rilevamento radar e NON un\'osservazione diretta dell\'organizzazione della cella',
+                        title: 'Convezione organizzata con codice WMO temporalesco nella stessa ora: descrizione ambientale del modello NWP, NON un rilevamento radar e NON un\'osservazione diretta dell\'organizzazione della cella',
                         potentialTitle: 'Ambiente favorevole a convezione organizzata SENZA alcun innesco previsto nella stessa ora' },
         vorticosi:    { label: 'Ambiente favorevole a vortici (NWP)', color: '#7d93a8', title: 'Condizioni del modello NWP favorevoli a fenomeni vorticosi: informazione ambientale, non un vortice osservato' },
         downburst:    { label: 'Downburst / raffiche (potenziale NWP)', color: '#f43f5e', title: 'Possibile downburst con raffiche convettive intense secondo il modello' },
@@ -5562,6 +5568,7 @@ function enabledLightningSourceIds() {
                         return c === 'meso' ? 3 : (c === 'env' ? 2 : (c === 'none' ? 1 : 0));
                     };
                     if (orgRank(r) > orgRank(cur)) byId[r.id] = r;
+                    else if (r.mesoPotential && !cur.mesoPotential) byId[r.id] = r;
                     else if (orgRank(r) === orgRank(cur) && r.organized && !cur.organized) byId[r.id] = r;
                 }
             }
@@ -5576,25 +5583,27 @@ function enabledLightningSourceIds() {
     // Cosi' i campi non vengono MAI mescolati fra modelli/ore diverse.
     function computeRisksForAgg(agg) {
         var risks = [];
-        // P1: DEFINIZIONE UNICA centralizzata negli shared helpers (isThunderstormCode /
-        // hasSignificantRain). Un temporale "ATTIVO" richiede il codice WMO 95-99 (thunderCode)
-        // E un segnale di pioggia (rainSignal): il centro decisionale resta invariato rispetto
-        // alla vecchia espressione (comportamento dei layer non cambia), ma la SEMANTICA e'
-        // ora separata e documentata (un codice 95-99 resta un temporale anche senza pioggia).
-        var isThunder = isThunderstormCode(agg.code) && hasSignificantRain(agg.rain);
+        // Il codice WMO 95-99 segnala il fenomeno istantaneo. La precipitazione è
+        // l'accumulo sull'ora precedente: non è un requisito aggiuntivo per l'innesco.
+        var isThunder = isThunderstormCode(agg.code);
         // Rovescio CONVETTIVO: precipitazione a carattere di rovescio/temporale
         // (parametro showers di Open-Meteo, >0.1mm). Distingue la pioggia convettiva
         // (più rilevante) dalla stratiforme estesa. In vista giornaliera è il MAX delle
         // 24 ore (presenza di almeno un rovescio convettivo nel giorno).
         var conv = agg.showers > 0.1;
-        // In modalità Sviluppo (Nuovi Indici) si considerano anche i livelli SEVERI:
+        // In modalità Sviluppo si considerano anche i livelli SEVERI:
         // celle organizzate/mesocicloni (via getRiskProfileNew) invece del solo profilo base.
-        var dev = !!(isNewIndicesActive && agg.hailMetrics);
-        var prof = dev
+        // Sviluppo governa i badge dei fenomeni severi; Nuovi Indici resta la
+        // scelta del profilo numerico generale. I due controlli non devono
+        // nascondere i badge quando Sviluppo e' ON.
+        var dev = !!(isSviluppoActive && agg.hailMetrics);
+        var useNewIndices = !!(isNewIndicesActive && agg.hailMetrics);
+        var prof = useNewIndices
             ? getRiskProfileNew(agg.prob, agg.rain, agg.wind, agg.code, agg.cape, agg.severeIndices, agg.hailMetrics)
             : getRiskProfile(agg.prob, agg.rain, agg.wind, agg.code, agg.cape, agg.severeIndices);
         var si = agg.severeIndices || {};
         var isMeso = dev && detectMesocyclone(agg.cape || 0, si.shear06 || 0, si.srh3 || 0, si.scp || 0, agg.code, agg.rain);
+        var mesoEnv = dev && mesocycloneEnvironment(agg.cape, si.shear06, si.srh3, si.scp);
         var h = agg.hailMetrics;
         // 1.2.4.94 - CLASSIFICAZIONE A TRE LIVELLI dell'organizzazione del temporale
         // (SOLO TESTO). Calcolata QUI una volta, con i campi di QUESTA ora e di QUESTO
@@ -5626,8 +5635,8 @@ function enabledLightningSourceIds() {
         // il livello provincia e' R2 (pioggia/vento/temporale/probabilita) PIU' il massimo
         // con gli altri pericoli, e la classe potenziale deve poter essere nominata.
         // Il badge resta subordinato a hasConvEnv.
-        // Evento = innesco NELLA STESSA ORA (code 95-99 + pioggia > 0,1 mm/h); altrimenti
-        // potenziale. Vedi assessConvOrg per gate, veto RH e CAPE saturato.
+        // Evento = codice WMO 95-99 nell'ora valida; la pioggia è un accumulo orario
+        // separato e non è richiesta in aggiunta. Vedi assessConvOrg per gate e veto RH.
         var convAssess = null;
         if (hasConvEnv) {
             if (currentHour === 'all' && (agg.scLevel || 0) >= 1) {
@@ -5638,13 +5647,13 @@ function enabledLightningSourceIds() {
                     level: agg.scLevel, trigger: !!agg.scReal,
                     rhMid: (agg.scRhMid == null ? null : agg.scRhMid),
                     rhHours: agg.scRhHours || 0, dryVeto: !!agg.scDryVeto,
-                    reasons: agg.scReasons || []
+                    reasons: agg.scReasons || [], mesoPotential: !!agg.scMesoPotential
                 };
             } else {
                 convAssess = assessConvOrg({
                     code: agg.code, rain: agg.rain, cape: agg.cape,
                     srh3: si.srh3, wms6: (h ? h.wmaxshear : null), scp: si.scp,
-                    rh850: agg.rh850, rh700: agg.rh700, meso: isMeso
+                    rh850: agg.rh850, rh700: agg.rh700, meso: isMeso, mesoPotential: mesoEnv
                 });
             }
             if (convAssess && convAssess.kind !== 'none' && convAssess.level >= 1) {
@@ -5655,6 +5664,7 @@ function enabledLightningSourceIds() {
                              potential: convAssess.kind === 'potential',
                              convEvent: convAssess.kind === 'event',
                              meso: convAssess.level >= 5,
+                             mesoPotential: !!convAssess.mesoPotential,
                              mesoCapped: (!isSviluppoActive && convAssess.level >= 5),
                              rhMid: convAssess.rhMid, rhHours: convAssess.rhHours,
                              dryVeto: convAssess.dryVeto, reasons: convAssess.reasons });
@@ -5752,8 +5762,9 @@ function enabledLightningSourceIds() {
             }
         }
         // Grandine: gate convettivo (in sviluppo una cella organizzata forza almeno grandine grande)
-        if (h && h.category && h.category !== 'none' && hasConvEnv) {
-            var hlvl = (h.category === 'very-large') ? 4 : (h.category === 'large') ? 3 : (h.category === 'medium-large') ? 2 : 1;
+        var hailForDay = agg.hailSizeMetrics || h;
+        if (hailForDay && hailForDay.category && hailForDay.category !== 'none' && hasConvEnv) {
+            var hlvl = (hailForDay.category === 'very-large') ? 4 : (hailForDay.category === 'large') ? 3 : (hailForDay.category === 'medium-large') ? 2 : 1;
             if (dev && isMeso && hlvl < 4) hlvl = Math.max(hlvl, 3);
             risks.push({ id: 'hail', level: hlvl });
         }
@@ -5808,11 +5819,13 @@ function enabledLightningSourceIds() {
             if (vor && vor.level >= 1) {
                 // 1.2.4.88 - informazione ambientale, livello 1 fisso: non e' un vortice
                 // osservato e non deve alzare il livello di rischio della provincia.
-                risks.push({ id: 'vorticosi', level: 1, env: true });
+                risks.push({ id: 'vorticosi', level: 1, env: true,
+                             potential: !vor.trigger });
             }
             var dnw = agg.downburst;
             if (dnw && dnw.level >= 1) {
-                risks.push({ id: 'downburst', level: dnw.level });
+                risks.push({ id: 'downburst', level: dnw.level,
+                             potential: !dnw.trigger });
             }
         }
         // FALLBACK: se il profilo generale indica rischio moderato+ ma nessun rischio
@@ -5942,12 +5955,12 @@ function enabledLightningSourceIds() {
             case 'supercell': {
                 // 1.2.4.69 - POTENZIALE e EVENTO sono classi distinte.
                 // Potenziale (grigio-blu): ambiente favorevole, nessun innesco nella stessa ora.
-                // Evento (viola/rosso): code 95-99 + pioggia > 0,1 mm/h nella stessa ora.
+                // Evento (viola/rosso): codice WMO 95-99 nella stessa ora; pioggia cumulata oraria separata.
                 if (r.potential) return 'Ambiente favorevole a convezione organizzata: potenziale, nessun temporale previsto';
                 if (r.mesoCapped) return 'Innesco presente e ambiente organizzato previsto: convezione organizzata prevista, non osservata (categoria solo in modalita Sviluppo)';
                 var scTxt = {
                     2: 'Innesco presente ma ambiente secco alle quote medie: organizzazione improbabile',
-                    3: 'Innesco presente (weather code 95-99 e pioggia > 0,1 mm/h nella stessa ora): possibile organizzazione convettiva',
+                    3: 'Innesco presente (codice WMO 95-99 nella stessa ora): possibile organizzazione convettiva',
                     4: 'Innesco presente e ambiente secco alle quote medie: organizzazione improbabile',
                     5: 'Innesco presente e parametri di organizzazione sopra soglia: mesociclone (SCP >= 1, shear >= 20 m/s, SRH >= 100 m2/s2) - ambiente favorevole NWP, non osservato'
                 };
@@ -6051,7 +6064,7 @@ function enabledLightningSourceIds() {
                 return 'Condizioni meteo potenzialmente avverse nella zona: seguire gli aggiornamenti e prestare attenzione.';
             case 'supercell': {
                 if (r.potential) {
-                    return 'Solo ambiente favorevole: nessun temporale previsto in questa ora. Il colore resta neutro (grigio-blu) finche\' un innesco (weather code 95-99 con pioggia > 0,1 mm/h) non compare nella stessa ora.';
+                    return 'Solo ambiente favorevole: nessun temporale previsto in questa ora. Il colore resta neutro (grigio-blu) finche\' un codice WMO 95-99 non compare nella stessa ora.';
                 }
                 if (r.mesoCapped) {
                     return 'Ambiente previsto favorevole a convezione organizzata: possibile organizzazione convettiva, non osservata (il dettaglio della categoria e\' solo in modalita Sviluppo). Seguire gli aggiornamenti.';
@@ -13705,10 +13718,12 @@ removeLightningTile();
         return ring;
     }
 
-    // Matching badge->candidato più vicino entro maxKm (default 30 km).
+    // Matching badge->candidato più vicino entro maxKm (default 10 km).
+    // Esclude strutture non sull'ultimo frame: un fenomeno osservato non va
+    // agganciato a una cella in posizione precedente.
     // Ritorna { candidate, distance_km } oppure null.
     function scMatchBadgeCandidate(badge, candidates, maxKm) {
-        var limit = (maxKm === undefined || maxKm === null) ? 30 : maxKm;
+        var limit = (maxKm === undefined || maxKm === null) ? 10 : maxKm;
         var pos = badge && badge.position;
         if (!(pos && pos.length === 2)) return null;
         if (!Array.isArray(candidates)) return null;
@@ -13716,6 +13731,7 @@ removeLightningTile();
         for (var i = 0; i < candidates.length; i++) {
             var c = candidates[i];
             if (!(c && c.position && c.position.length === 2)) continue;
+            if (c.on_latest_frame === false) continue;
             var d = scHaversineKm(pos, c.position);
             if (d === null) continue;
             if (bestKm === null || d < bestKm) { bestKm = d; best = c; }
@@ -14664,7 +14680,7 @@ removeLightningTile();
         return '<div class="sc-phenomena-row"' + (detailText ? ' title="' + detailText.replace(/"/g, '&quot;') + '"' : '') + '>' +
             '<span class="sc-phenomena-glyph" style="color:' + color + ';">' + glyph + '</span>' +
             '<span class="sc-phenomena-head"><b>' + scPhenomenaTypeLabel(b.type) + '</b> · ' + scPhenomenaStateLabel(b.state) +
-            (match ? ' · ' + match.distance_km + ' km' : '') + '</span>' +
+            (match ? ' · cella più vicina ' + match.distance_km + ' km' : ' · nessuna cella abbinata entro 10 km') + '</span>' +
             '<div class="sc-phenomena-detail">' + detailHtml + '</div></div>';
     }
 
@@ -23461,6 +23477,8 @@ function toggleForecastMaps() {
             freezingLevel: aggA.freezingLevel,
             severeIndices: aggA.severeIndices,
             hailMetrics: (aggB.hailMetrics && aggB.hailMetrics.wmaxshear > (aggA.hailMetrics?.wmaxshear || 0)) ? aggB.hailMetrics : aggA.hailMetrics,
+            hailSizeMetrics: (aggB.hailSizeMetrics && aggB.hailSizeMetrics.size_mm > (aggA.hailSizeMetrics?.size_mm || 0)) ? aggB.hailSizeMetrics : aggA.hailSizeMetrics,
+            hailProb: (aggB.hailProb && aggB.hailProb.score > (aggA.hailProb?.score || 0)) ? aggB.hailProb : aggA.hailProb,
             vorticosi: (aggB.vorticosi && aggB.vorticosi.level > (aggA.vorticosi?.level || 0)) ? aggB.vorticosi : aggA.vorticosi,
             downburst: (aggB.downburst && aggB.downburst.level > (aggA.downburst?.level || 0)) ? aggB.downburst : aggA.downburst,
             // 1.2.4.43: la nebbia mancava nel merge DUAL MODEL. Senza questa riga, in modo
@@ -23484,6 +23502,7 @@ function toggleForecastMaps() {
             scRhMid: ((aggB.scLevel || 0) > (aggA.scLevel || 0)) ? (aggB.scRhMid == null ? null : aggB.scRhMid) : (aggA.scRhMid == null ? null : aggA.scRhMid),
             scRhHours: ((aggB.scLevel || 0) > (aggA.scLevel || 0)) ? (aggB.scRhHours || 0) : (aggA.scRhHours || 0),
             scDryVeto: ((aggB.scLevel || 0) > (aggA.scLevel || 0)) ? !!aggB.scDryVeto : !!aggA.scDryVeto,
+            scMesoPotential: !!(aggA.scMesoPotential || aggB.scMesoPotential),
             scReasons: ((aggB.scLevel || 0) > (aggA.scLevel || 0)) ? (aggB.scReasons || []) : (aggA.scReasons || []),
             r2Level: Math.max(aggA.r2Level || 0, aggB.r2Level || 0),
             r2Reason: ((aggB.r2Level || 0) > (aggA.r2Level || 0)) ? (aggB.r2Reason || '') : (aggA.r2Reason || ''),
@@ -24936,7 +24955,7 @@ function toggleForecastMaps() {
     // molto elevati con ML CAPE > 500 J/kg. Quindi il gate CAPE è abbassato rispetto alle US
     // (dove si richiede CAPE>=1000-1500) purché SRH/shear siano forti.
     // Thompson 2004: SCP > 1 discrimina celle organizzate da non-celle organizzate (solo casi discreti).
-    // Si richiede inoltre un temporale attivo (weathercode 95-99 con pioggia) come innesco reale.
+    // L'innesco temporalesco usa il codice WMO 95-99; non richiede un accumulo di pioggia associato.
     // 1.2.4.69 - L'EHI NON E' PIU' UN GATE, e' SOLO DISPLAY. Rasmussen & Blanchard (1998,
     // MWR 126) e' una convenzione delle US Plains; la soglia europea pubblicata e' 0,065
     // con SRH 0-1 km (non 0-3 km), quindi non e' confrontabile con l'EHI 0-3 km usato qui.
@@ -24945,13 +24964,16 @@ function toggleForecastMaps() {
     // Il gate resta il solo SCP>=1.0 (Thompson et al. 2003), che misura l'organizzazione
     // con ingredienti coerenti: la funzione va chiamata con campi della STESSA ora e dello
     // STESSO modello (mai sul merge, vedi mergeModelAnalyses).
-    function detectMesocyclone(cape, shear06Ms, srh3, scp, code, rain) {
-        if (cape == null) return false;
-        var isThunder = isThunderstormCode(code) && hasSignificantRain(rain);
-        if (!isThunder) return false;
+    // Potenziale ambientale del mesociclone, indipendente dall'innesco.
+    // Il gate temporale qualifica l'evento previsto, non il potenziale.
+    function mesocycloneEnvironment(cape, shear06Ms, srh3, scp) {
+        if (cape == null || !isFinite(cape)) return false;
         // HSLC italiano: permette CAPE più basso se shear+elicità sono intense
         var capeOK = cape >= 1000 ? true : (cape >= 500 && shear06Ms >= 22 && srh3 >= 120);
         return capeOK && shear06Ms >= 20 && srh3 >= 100 && scp >= 1.0;
+    }
+    function detectMesocyclone(cape, shear06Ms, srh3, scp, code, rain) {
+        return mesocycloneEnvironment(cape, shear06Ms, srh3, scp) && isThunderstormCode(code);
     }
 
     // ========================================================================
@@ -24995,7 +25017,9 @@ function toggleForecastMaps() {
         if (rh850 != null && rh700 != null) { rhMid = (rh850 + rh700) / 2; rhHours = 2; }
         else if (rh850 != null) { rhMid = rh850; rhHours = 1; }
         else if (rh700 != null) { rhMid = rh700; rhHours = 1; }
-        var trigger = isThunderstormCode(o.code) && hasSignificantRain(o.rain);
+        // Il codice WMO è istantaneo; il totale di pioggia è sull'ora precedente.
+        var trigger = isThunderstormCode(o.code);
+        var mesoPotential = !!o.mesoPotential;
         var envWms = wms6 >= 1000;
         var envSrh = (srh3 != null && srh3 >= 100) && (cape != null && cape >= 500);
         var env = envWms || envSrh;
@@ -25003,7 +25027,8 @@ function toggleForecastMaps() {
         if (envWms) reasons.push('WMAXSHEAR 0-6 km ' + Math.round(wms6) + ' m2/s2 (>=1000)');
         if (envSrh) reasons.push('SRH 0-3 km ' + Math.round(srh3) + ' m2/s2 con CAPE ' + Math.round(cape) + ' J/kg');
         if (cape != null && cape > CONV_CAPE_SAT) reasons.push('CAPE oltre 800 J/kg: saturato per la classificazione');
-        if (trigger) reasons.push('Innesco nella stessa ora: weather code ' + o.code + ' con ' + Number(o.rain || 0).toFixed(1) + ' mm/h');
+        if (trigger) reasons.push('Segnale temporalesco istantaneo nella stessa ora: weather code ' + o.code +
+            (Number(o.rain || 0) > 0.1 ? ' (pioggia oraria ' + Number(o.rain).toFixed(1) + ' mm, dato separato)' : ' (senza accumulo orario associato)'));
         var level = 0, kind = 'none';
         if (env) {
             if (trigger) {
@@ -25019,6 +25044,7 @@ function toggleForecastMaps() {
                 // ordinario di pari livello (vedi zoneRiskRank): dipinge la provincia solo
                 // quando non c'e' nulla di piu' concreto.
                 kind = 'potential'; level = 1;
+                if (mesoPotential) reasons.push('Ambiente compatibile con potenziale mesociclonico; temporale non ancora previsto in questa ora');
             }
             if (rhMid != null && rhMid < CONV_RH_DRY) {
                 level = Math.max(1, level - 1);
@@ -25028,6 +25054,7 @@ function toggleForecastMaps() {
         return { kind: kind, level: level, trigger: trigger, env: env,
                  capeEff: capeEff, cape: cape, wms6: wms6, srh3: srh3, scp: scp,
                  rhMid: rhMid, rhHours: rhHours, dryVeto: (rhMid != null && rhMid < CONV_RH_DRY),
+                 mesoPotential: mesoPotential,
                  reasons: reasons };
     }
 
@@ -25247,6 +25274,7 @@ function toggleForecastMaps() {
     function riskComponentLabel(r) {
         if (!r) return '';
         if (r.id === 'supercell') {
+            if (r.potential && r.mesoPotential) return 'Potenziale mesociclonico (ambiente NWP; innesco non richiesto)';
             if (r.potential) return CONV_POTENTIAL_LABEL;
             if (r.level >= 5 && isSviluppoActive) return 'Mesociclone (SCP >= 1, shear >= 20 m/s, SRH >= 100 m2/s2) - ambiente favorevole NWP, non osservato';
             return 'convezione organizzata prevista (evento con innesco)';
@@ -25306,6 +25334,7 @@ function toggleForecastMaps() {
             // classe POTENZIALE, che R2 non rappresenta.
             if (r.id === 'supercell' && !r.potential) continue;
             out.push({ id: r.id, level: r.level, potential: !!r.potential,
+                       mesoPotential: !!r.mesoPotential,
                        convEvent: !!r.convEvent, radar: !!r.radar, info: !!r.info,
                        temp: r.temp, threshold: r.threshold, band: r.band,
                        refElev: r.refElev, capped: !!r.capped, uncappedLevel: r.uncappedLevel,
@@ -25319,13 +25348,14 @@ function toggleForecastMaps() {
             for (var i = 0; i < list.length; i++) {
                 var c = list[i], cur = byId[c.id];
                 if (!cur) {
-                    byId[c.id] = { id: c.id, level: c.level, potential: c.potential,
+                    byId[c.id] = { id: c.id, level: c.level, potential: c.potential, mesoPotential: c.mesoPotential,
                                    convEvent: c.convEvent, radar: c.radar, info: c.info, label: c.label,
                                    temp: c.temp, threshold: c.threshold, band: c.band,
                                    refElev: c.refElev, capped: !!c.capped, uncappedLevel: c.uncappedLevel };
                     order.push(c.id);
                 } else if (c.level > cur.level) {
                     cur.level = c.level; cur.potential = c.potential;
+                    cur.mesoPotential = c.mesoPotential;
                     cur.convEvent = c.convEvent; cur.radar = c.radar; cur.label = c.label;
                     cur.temp = c.temp; cur.threshold = c.threshold; cur.band = c.band;
                     cur.refElev = c.refElev; cur.capped = !!c.capped; cur.uncappedLevel = c.uncappedLevel;
@@ -25338,6 +25368,8 @@ function toggleForecastMaps() {
                         cur.temp = c.temp; cur.threshold = c.threshold; cur.band = c.band;
                         cur.refElev = c.refElev; cur.capped = !!c.capped; cur.uncappedLevel = c.uncappedLevel;
                     }
+                } else if (c.level === cur.level && c.id === 'supercell' && c.mesoPotential && !cur.mesoPotential) {
+                    cur.mesoPotential = true; cur.label = c.label;
                 }
             }
         };
@@ -25413,8 +25445,10 @@ function toggleForecastMaps() {
 
         // Gate 1: no CAPE o no precipitazione (maschera precip)
         if (!cape || cape < 100) return result;
-        if (precip < 0.1 && code < 95) {
-            // Senza precipitazione né temporale: calcola solo DLS/WMS/fzl per display, niente SHIP
+        var convPrecip = hourly.showers?.[idx] ?? 0;
+        if (convPrecip < 0.1 && code < 95) {
+            // Senza rovescio convettivo né codice temporalesco: stima solo l'ambiente,
+            // niente classe/dimensione grandine da pioggia stratiforme.
             var w10g = hourly.windspeed_10m?.[idx] ?? 0;
             var d10g = hourly.winddirection_10m?.[idx] ?? 0;
             var sfcg = windToUVms(w10g, d10g);
@@ -25470,7 +25504,7 @@ function toggleForecastMaps() {
         var td2m = hourly.dew_point_2m?.[idx] ?? null;
         var pmsl = hourly.pressure_msl?.[idx] ?? hourly.pressure?.[idx] ?? null;
 
-        return computeHailFromParams(cape, dls, precip, code, t700, t500, z700, z500, td2m, pmsl, fzl_agl, terrainElevation);
+        return computeHailFromParams(cape, dls, convPrecip, code, t700, t500, z700, z500, td2m, pmsl, fzl_agl, terrainElevation);
     }
 
     // Calcola WMAXSHEAR + SHIP dai parametri già estratti
@@ -25673,13 +25707,13 @@ function toggleForecastMaps() {
         // compresenza NELLA STESSA ORA di tutti gli ingredienti verificabili:
         //   CAPE >= 500 J/kg, shear 0-6 km >= 20 m/s, SRH 0-3 km >= 100 m2/s2,
         //   LCL <= 1500 m (2500 m in stagione fredda per la convezione elevated),
-        //   temporale ATTIVO (weather code 95-99 E pioggia > 0,1 mm/h).
+        //   codice temporalesco WMO 95-99 (la pioggia è un accumulo orario separato).
         // Il vecchio canale low-level (shear01/SRH1) produceva il livello 4 con CAPE
         // 260-550 J/kg: misurato il 2026-11-13, 9 province su 107 marcate "tornado
         // violento" e 16 con il badge. Con questo gate restano 8.
         if (cape < 500 || shear06 < 20 || srh3 < 100) return out;
-        var isThunder = isThunderstormCode(code) && hasSignificantRain(rain);
-        if (!isThunder) return out;
+        var isThunder = isThunderstormCode(code);
+        out.trigger = isThunder;
         if (lcl == null || lcl > (cold ? 2500 : 1500)) return out;
         out.level = 1;
         return out;
@@ -25734,9 +25768,11 @@ function toggleForecastMaps() {
         var mwpi = cape / 100 + lrTerm + (dd850 - dd700);
         out.mwpi = mwpi; out.lr = lr; out.dd850 = dd850; out.dd700 = dd700;
 
-        var isThunder = isThunderstormCode(code) && hasSignificantRain(rain);
-        var trigger = isThunder || rain > 1;
-        if (!trigger || lr < 5) return out;
+        var convRain = hourly.showers?.[idx] ?? 0;
+        var isThunder = isThunderstormCode(code);
+        var trigger = isThunder || convRain > 1;
+        out.trigger = trigger;
+        if (lr < 5) return out;
 
         // Score composito 0..1 con pesi fisici (Miglietta 2025 + MWPI Pryor)
         // SCIAUDIT MIGLIORAMENTO (§4.9): caps e coefficienti di questo score SOMMANO a 1.0 e
@@ -25752,7 +25788,7 @@ function toggleForecastMaps() {
         var sLr   = Math.min(Math.max((lr - 5.5) / 3, 0), 1);                // lapse rate 850-700
         var sDd   = Math.min(Math.max((dd700 - dd850 - 2) / 6, 0), 1);       // "inverted-V" (secco in quota, umido in basso)
         var sWbz  = (fzl != null) ? ((fzl >= 2200 && fzl <= 4500) ? 1 : 0.35) : 0.7;
-        var sTrig = isThunder ? 1 : (rain > 5 ? 0.85 : 0.6);
+        var sTrig = isThunder ? 1 : (convRain > 5 ? 0.85 : (convRain > 1 ? 0.6 : 0.35));
         var score = 0.30 * sCape + 0.20 * sDry + 0.20 * sLr + 0.10 * sDd + 0.10 * sWbz + 0.10 * sTrig;
 
         if (score >= 0.5 && sDry >= 0.4 && lr >= 6.0) {
@@ -25779,7 +25815,7 @@ function toggleForecastMaps() {
         var capeVal = cape ?? 0;
         var wms = hailMetrics?.wmaxshear ?? 0;
         var ship = hailMetrics?.ship ?? 0;
-        var isThunder = isThunderstormCode(code) && hasSignificantRain(rain);
+        var isThunder = isThunderstormCode(code);
         // detectMesocyclone è una funzione pura: se il chiamante ha già calcolato il
         // mesociclone per questa ora/zona, lo riusa (evita ricalcoli ridondanti col
         // detect interno a getRiskProfile e la divergenza silenziosa tra i punti).
@@ -25882,8 +25918,8 @@ function toggleForecastMaps() {
             // --- Distinzione origine del livello 4 (per non confondere idro e convettivo) ---
             // Solo fenomeni REALE (cumulata, raffiche, temporale): la probabilità da sola
             // non dà più il livello 4 (allineato a getRiskProfile).
-            // 1.2.4.69 - il solo codice 95-99 non basta: serve pioggia > 0,1 mm/h (stessa ora).
-            var baseHighIdro = (rain > 45 || wind > 60 || (isThunderstormCode(code) && hasSignificantRain(rain)));
+            // 1.2.4.69 - il codice 95-99 identifica il fenomeno istantaneo e non richiede pioggia cumulata come gate aggiuntivo.
+            var baseHighIdro = (rain > 45 || wind > 60 || isThunderstormCode(code));
             if (level === 5) {
                 riskText = "Rischio Estremo / Convezione organizzata";
                 badgeClass = "bg-high"; color = "#a855f7";
@@ -25935,7 +25971,7 @@ function toggleForecastMaps() {
         if (isMeso) {
             riskText = "Rischio Estremo / Convezione organizzata"; badgeClass = "bg-high"; color = "#a855f7"; level = 5;
             summary = "Condizioni estreme: CAPE elevatissimo + wind shear intenso + temporali. Possibili celle organizzate e grandine grande.";
-        } else if (rain > 45 || wind > 60 || (isThunderstormCode(code) && hasSignificantRain(rain))) {
+        } else if (rain > 45 || wind > 60 || isThunderstormCode(code)) {
             // 1.2.4.69 - il solo codice 95-99 NON basta piu' per il livello 4 (rosso):
             // serve la pioggia > 0,1 mm/h NELLA STESSA ORA (qui il dato e' gia' quello
             // dell'ora/modello, non un massimo mescolato). Senza pioggia resta il livello 3.
@@ -26244,17 +26280,19 @@ function toggleForecastMaps() {
         // SCORE DI FAMIGLIA ponderato (NO Math.max di proxy correlati)
         // Pesi: rotazionale 0.45 (discriminante mesociclonico), cinematico 0.35, termodinamico 0.20
         var score = 0.45 * rot + 0.35 * cin + 0.20 * termo;
-        // Attenuazione da evidenza convettiva (gate): senza innesco reale il potenziale si abbassa
-        var confidence = 0.35 * (cape != null ? 1 : 0) + 0.30 * (shear06 != null ? 1 : 0)
-                       + 0.20 * (srh3 != null ? 1 : 0) + 0.15 * (evidence > 0 ? 1 : 0);
-        if (evidence === 0 && rot > 0) { score *= 0.5; reasons.push('Mancanza di innesco convettivo in atto (gate attenuato)'); }
+        // La completezza dei campi non e' una confidenza statistica. L'assenza
+        // di un temporale codificato non dimezza il potenziale ambientale.
+        var dataCompleteness = 0.35 * (cape != null ? 1 : 0) + 0.30 * (shear06 != null ? 1 : 0)
+                             + 0.20 * (srh3 != null ? 1 : 0) + 0.15 * (evidence > 0 ? 1 : 0);
+        if (evidence === 0 && rot > 0) reasons.push('Nessun temporale codificato in quest\'ora; potenziale ambientale mantenuto');
         score = Math.max(0, Math.min(1, score));
 
         var level = levelFromScore(score);
         var missingInputs = [];
         if (cape == null) missingInputs.push('cape'); if (srh3 == null) missingInputs.push('srh'); if (shear06 == null) missingInputs.push('shear');
         return { kind: 'potential', score: Math.round(score * 100) / 100, prob: Math.round(score * 100) / 100, level: level, color: cols[Math.max(1, level)], label: HAZARD_LABELS[Math.max(1, level)],
-                 confidence: confidence, reasons: reasons, missingInputs: missingInputs, peakTimestamp: null };
+                 confidence: null, dataCompleteness: dataCompleteness, confidenceType: 'non calibrata',
+                 reasons: reasons, missingInputs: missingInputs, peakTimestamp: null };
     }
 
     // --- POTENZIALE di FENOMENI VORTICOSI (tornado/tromba marina) ---
@@ -26271,16 +26309,17 @@ function toggleForecastMaps() {
                      missingInputs: ['cape','vorticosi'], peakTimestamp: null };
         }
         // Mappa calibrata del livello 0-4 -> score continuo (bande non sovrapposte ma NON inventa %)
-        var score = lv >= 4 ? 0.9 : lv === 3 ? 0.68 : lv === 2 ? 0.45 : lv === 1 ? 0.22 : 0.05;
+        var score = lv >= 4 ? 0.6 : lv === 3 ? 0.4 : lv === 2 ? 0.2 : lv === 1 ? 0.1 : 0;
         var reasons = [];
         if (vor.ehi != null && isFinite(vor.ehi)) reasons.push('EHI=' + vor.ehi.toFixed(2));
         if (vor.srh3 != null && isFinite(vor.srh3)) reasons.push('SRH3=' + Math.round(vor.srh3) + ' m2/s2');
         if (vor.shear06 != null && isFinite(vor.shear06)) reasons.push('Shear 0-6 km=' + vor.shear06.toFixed(0) + ' m/s');
         if (vor.lcl != null && isFinite(vor.lcl)) reasons.push('LCL=' + Math.round(vor.lcl) + ' m');
-        if (lv === 0) reasons.push('Nessun livello vorticoso superato (fail-closed LCL/trigger)');
-        var level = levelFromScore(score);
-        return { kind: 'potential', score: Math.round(score * 100) / 100, prob: Math.round(score * 100) / 100, level: level, color: cols[Math.max(1, level)], label: HAZARD_LABELS[Math.max(1, level)],
-                 confidence: vor.ehi != null && isFinite(vor.ehi) ? 0.75 : 0.45, reasons: reasons, missingInputs: [], peakTimestamp: null };
+        if (lv === 0) reasons.push('Nessuna soglia ambientale superata');
+        // Il livello del detector resta lo stesso livello mostrato; score è un indice
+        // ordinale interno, non una probabilità né una confidenza calibrata.
+        return { kind: 'potential', score: Math.round(score * 100) / 100, prob: Math.round(score * 100) / 100, level: lv, color: cols[lv], label: HAZARD_LABELS[lv],
+                 confidence: null, confidenceType: 'non calibrata', reasons: reasons, missingInputs: [], peakTimestamp: null };
     }
 
     // --- POTENZIALE di DOWNBURST (raffiche convettive discendenti) ---
@@ -26295,16 +26334,15 @@ function toggleForecastMaps() {
                      confidence: 0, reasons: ['Nessuna evidenza downburst (mancano CAPE/rilevamento)'],
                      missingInputs: ['cape','downburst'], peakTimestamp: null };
         }
-        var score = lv >= 4 ? 0.9 : lv === 3 ? 0.68 : lv === 2 ? 0.45 : lv === 1 ? 0.22 : 0.05;
+        var score = lv >= 4 ? 0.6 : lv === 3 ? 0.4 : lv === 2 ? 0.2 : lv === 1 ? 0.1 : 0;
         var reasons = [];
         if (dnw.mwpi != null && isFinite(dnw.mwpi)) reasons.push('MWPI=' + dnw.mwpi.toFixed(1));
         if (dnw.lr != null && isFinite(dnw.lr)) reasons.push('Lapse 850-700=' + dnw.lr.toFixed(1) + ' C/km');
         if (dnw.dd850 != null && isFinite(dnw.dd850)) reasons.push('Depressione 850=' + dnw.dd850.toFixed(0) + ' C');
         if (dnw.dd700 != null && isFinite(dnw.dd700)) reasons.push('Depressione 700=' + dnw.dd700.toFixed(0) + ' C');
-        if (lv === 0) reasons.push('Nessun livello downburst superato (fail-closed trigger/Gamma)');
-        var level = levelFromScore(score);
-        return { kind: 'potential', score: Math.round(score * 100) / 100, prob: Math.round(score * 100) / 100, level: level, color: cols[Math.max(1, level)], label: HAZARD_LABELS[Math.max(1, level)],
-                 confidence: dnw.mwpi != null && isFinite(dnw.mwpi) ? 0.7 : 0.4, reasons: reasons, missingInputs: [], peakTimestamp: null };
+        if (lv === 0) reasons.push('Nessuna soglia ambientale del profilo superata');
+        return { kind: 'potential', score: Math.round(score * 100) / 100, prob: Math.round(score * 100) / 100, level: lv, color: cols[lv], label: HAZARD_LABELS[lv],
+                 confidence: null, confidenceType: 'non calibrata', reasons: reasons, missingInputs: [], peakTimestamp: null };
     }
 
     //#pure# BEGIN metricValueContract
@@ -26369,8 +26407,8 @@ function toggleForecastMaps() {
         var trigger;
         if (hailCode)            trigger = 1;
         else if (thunderCode)    trigger = 0.75;
-        else if (rainSignal)     trigger = 0.5 + 0.3 * env;
-        else if (showers > 0.1)  trigger = 0.35 + 0.3 * env;
+        else if (showers > 0.1)  trigger = 0.5 + 0.3 * env;
+        else if (rainSignal)     trigger = 0.25 + 0.2 * env; // pioggia totale: segnale debole, non necessariamente convettivo
         else                     trigger = 0.15 * env;
         var score = Math.max(0, Math.min(1, trigger * (0.45 + 0.55 * env)));
         if (fzl != null && fzl > 4500) score *= 0.25;
@@ -26432,12 +26470,12 @@ function toggleForecastMaps() {
             }
             case 'hail': {
                 if (typeof hailLevel !== 'undefined' && hailLevel === 'size') {
-                    var hmS = agg && agg.hailMetrics;
+                var hmS = agg && (agg.hailSizeMetrics || agg.hailMetrics);
                     if (!hmS || !Number.isFinite(hmS.size_mm)) return null;
                     var sz = hmS.size_mm;
                     return sz >= 80 ? 5 : sz >= 50 ? 4 : sz >= 35 ? 3 : sz >= 20 ? 2 : sz >= 10 ? 1 : 0;
                 }
-                var hp = computeHailProb(agg);
+                var hp = (agg && agg.hailProb) || computeHailProb(agg);
                 return hp ? hp.level : 0;
             }
             case 'fog': {
@@ -26658,7 +26696,9 @@ function toggleForecastMaps() {
         }
         var scLevel = 0, scHour = -1, scReal = false, scKind = 'none';
         var scRhMid = null, scRhHours = 0, scDryVeto = false, scReasons = [];
-        var vorLv = 0, dnwLv = 0, vorHour = -1, dnwHour = -1;
+        var vorLv = 0, dnwLv = 0, vorHour = -1, dnwHour = -1, vorPeak = null, dnwPeak = null;
+        var hailSizePeak = null, hailSizeHour = -1, hailProbPeak = null, hailProbHour = -1;
+        var scMesoPotential = false;
         for (h = 0; h < 24; h++) {
             var ix = d * 24 + h;
             var code = hourly.weathercode?.[ix] ?? 0;
@@ -26674,10 +26714,20 @@ function toggleForecastMaps() {
             // P6: picco PER-INDICATORE di pericolo (non un singolo repIdx). Ogni hazard ha
             // il SUO ora di massimo: l'ora del downburst puo' differire da quella della
             // vorticosi o della cella organizzata. Qui si conservano livello E ora del picco.
-            if (vor && vor.level > vorLv) { vorLv = vor.level; vorHour = ix; }
-            if (dnw && dnw.level > dnwLv) { dnwLv = dnw.level; dnwHour = ix; }
+            if (vor && vor.level > vorLv) { vorLv = vor.level; vorHour = ix; vorPeak = Object.assign({}, vor, { peakHour: ix }); }
+        if (dnw && dnw.level > dnwLv) { dnwLv = dnw.level; dnwHour = ix; dnwPeak = Object.assign({}, dnw, { peakHour: ix }); }
+            // La vista giornaliera conserva il massimo grandine della giornata,
+            // indipendentemente dall'ora scelta per la convezione organizzata.
+            var hProb = computeHailProb({ cape: capeM, code: code, rain: rain,
+                showers: hourly.showers?.[ix] ?? 0, hailMetrics: hm, severeIndices: si });
+            if (hm && (hailSizePeak == null || (hm.size_mm || 0) > (hailSizePeak.size_mm || 0))) {
+                hailSizePeak = Object.assign({}, hm, { peakHour: ix }); hailSizeHour = ix;
+            }
+            if (hProb && (hailProbPeak == null || hProb.score > hailProbPeak.score)) {
+                hailProbPeak = hProb; hailProbHour = ix;
+            }
             // 1.2.4.69 - COERENZA ORARIA (nessun ingrediente mescolato): CAPE, shear 0-6,
-            // SRH 0-3, SCP, RH 850/700 e l'innesco (code 95-99 + pioggia > 0,1 mm/h)
+            // SRH 0-3, SCP, RH 850/700 e l'innesco (codice WMO 95-99)
             // appartengono TUTTI a questa ora di QUESTO store/modello. Il vecchio codice
             // fondeva CAPE di un modello/ora con shear e SRH di un altro: misurato il
             // 2026-11-10, 4-5 province viola su 107 e 0/107 con una sola ora coerente.
@@ -26689,17 +26739,19 @@ function toggleForecastMaps() {
                 srh3: si.srh3, wms6: hm.wmaxshear || 0, scp: si.scp,
                 rh850: hourly.relative_humidity_850hPa ? hourly.relative_humidity_850hPa[ix] : null,
                 rh700: hourly.relative_humidity_700hPa ? hourly.relative_humidity_700hPa[ix] : null,
-                meso: meso
+                meso: meso,
+                mesoPotential: mesocycloneEnvironment(capeM, si.shear06, si.srh3, si.scp)
             });
             if (ca.level > scLevel) {
                 scLevel = ca.level; scHour = ix; scReal = ca.kind === 'event';
                 scKind = ca.kind; scRhMid = ca.rhMid; scRhHours = ca.rhHours;
                 scDryVeto = ca.dryVeto; scReasons = ca.reasons;
             }
+            scMesoPotential = scMesoPotential || !!ca.mesoPotential;
         }
-        // Ora rappresentativa: quella del badge cella organizzata se attiva (lv>=2), altrimenti
+        // Ora rappresentativa: quella del badge cella organizzata se attivo (lv>=1), altrimenti
         // l'ora a CAPE massimo (comportamento pre-v10.52.0.2, comune nelle giornate clear).
-        var repIdx = (scLevel >= 2 && scHour >= 0) ? scHour : bestIdx;
+        var repIdx = (scLevel >= 1 && scHour >= 0) ? scHour : bestIdx;
         var siRep = computeSevereIndices(hourly, repIdx, elev);
         var hmRep = computeHailMetrics(hourly, repIdx, elev);
         hmRep.cin = hourly.convective_inhibition?.[repIdx] ?? null;
@@ -26709,11 +26761,13 @@ function toggleForecastMaps() {
             repIdx: repIdx,
             severeIndices: siRep,
             hailMetrics: hmRep,
-            vorticosi: { level: vorLv, peakHour: vorHour },
-            downburst: { level: dnwLv, peakHour: dnwHour },
+            hailSizeMetrics: hailSizePeak || hmRep, hailSizeHour: hailSizeHour,
+            hailProb: hailProbPeak, hailProbHour: hailProbHour,
+            vorticosi: vorPeak || { level: vorLv, peakHour: vorHour },
+            downburst: dnwPeak || { level: dnwLv, peakHour: dnwHour },
             scLevel: scLevel, scHour: scHour, scReal: scReal,
             scKind: scKind, scRhMid: scRhMid, scRhHours: scRhHours,
-            scDryVeto: scDryVeto, scReasons: scReasons
+            scDryVeto: scDryVeto, scReasons: scReasons, scMesoPotential: scMesoPotential
         };
     }
 
@@ -26772,7 +26826,11 @@ function toggleForecastMaps() {
             var fW = store.hourly.windspeed_10m ? store.hourly.windspeed_10m[fi] : null;
             var fH = store.hourly.relativehumidity_2m ? store.hourly.relativehumidity_2m[fi] : null;
             var fC = store.hourly.weathercode ? store.hourly.weathercode[fi] : null;
-            var s = (fT == null || fD == null) ? 0 : fogScoreC(fT - fD, fW, fH, fC);
+            // Un codice WMO di nebbia resta evidenza anche se T/Td mancano.
+            // Senza codice e senza T/Td l'ora resta non valutabile (score 0).
+            var s = (fT == null || fD == null)
+                ? ((fC === 45 || fC === 48) ? 85 : 0)
+                : fogScoreC(fT - fD, fW, fH, fC);
             scores[fh] = s;
             if (s > best) { best = s; bestHour = fh; }
         }
@@ -26809,7 +26867,7 @@ function toggleForecastMaps() {
         // 1.2.4.46: "77/100" da solo si legge "77%". Il numero e' un INDICE di potenziale,
         // non una probabilita': va scritto, altrimenti l'unico numero mostrato diventa una
         // probabilita' agli occhi di chi legge (segnalazione dell'utente del 2026-10-26).
-        return 'Nebbia' + when + ' — indice ' + sc + '/100' + extra + ' (potenziale del modello, non probabilità)';
+        return 'Nebbia' + when + ' — indice euristico ' + sc + '/100' + extra + ' (non è una probabilità; la visibilità non è disponibile nel calcolo)';
     }
 
     function r2o_cape(store, ix) {
@@ -26988,6 +27046,8 @@ function toggleForecastMaps() {
             freezingLevel: hourData.freezingLevel ?? null,
             severeIndices: severeIndices,
             hailMetrics: hailMetrics,
+            hailSizeMetrics: (dm && dm.hailSizeMetrics) ? dm.hailSizeMetrics : hailMetrics,
+            hailProb: dm ? dm.hailProb : null,
             vorticosi: vorticosi,
             downburst: downburst,
             scLevel: dm ? dm.scLevel : 0,
@@ -26997,6 +27057,7 @@ function toggleForecastMaps() {
             scRhMid: dm ? (dm.scRhMid == null ? null : dm.scRhMid) : null,
             scRhHours: dm ? (dm.scRhHours || 0) : 0,
             scDryVeto: dm ? !!dm.scDryVeto : false,
+            scMesoPotential: dm ? !!dm.scMesoPotential : false,
             scReasons: dm ? (dm.scReasons || []) : [],
             // RH alle quote medie dell'ora rappresentativa (stesso modello/ora): usata per
             // il veto di umidita' nella vista ORARIA (in quella giornaliera arriva da dm).
@@ -30835,7 +30896,8 @@ function renderContinuousOverlay() {
         if (isNewIndicesActive) {
             profile = getRiskProfileNew(prob, rain, wind, code, cape, severeIndices, hailMetrics, dataSource.hourly, bestIdx);
             // isThunder locale per coerenza (con gate rain > 0.1)
-            var isThunder = isThunderstormCode(code) && hasSignificantRain(rain);
+            // Il codice WMO descrive il fenomeno istantaneo; la pioggia e' un accumulo orario separato.
+            var isThunder = isThunderstormCode(code);
             // === COERENZA RISCHIO <-> GRANDINE (SOLO direzione fisica -> classificazione) ===
             // NOTA AUDIT: la direzione INVERSA (rischio -> fisica) e' VIETATA: un livello di
             // rischio NON puo' inventare grandine/wmaxshear fisici. Il rischio NON scrive piu'
@@ -34112,7 +34174,7 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
                     <li><span class="hs-dot" style="background:#eab308;"></span><span><b>Giallo — Moderato</b>: pioggia oltre il 60%, 1-15 mm oppure vento oltre 25 km/h.</span></li>
                     <li><span class="hs-dot" style="background:#f97316;"></span><span><b>Arancione — Moderato-Alto</b>: 15-45 mm, vento 40-60 km/h o rovescio/temporale.</span></li>
                     <li><span class="hs-dot" style="background:#ef4444;"></span><span><b>Rosso — Alto</b>: oltre 45 mm, vento oltre 60 km/h oppure temporale.</span></li>
-                    <li class="sviluppo-only-item" hidden><span class="hs-dot" style="background:#a855f7;"></span><span><b>Viola — Mesociclone</b>: temporale previsto con pioggia &gt; 0,1 mm/h nella stessa ora E criterio del mesociclone soddisfatto (SCP &ge; 1, shear 0-6 km &ge; 20 m/s, SRH 0-3 km &ge; 100 m&sup2;/s&sup2;). &Egrave; un ambiente <b>previsto</b>, non osservato (solo in modalit&agrave; Sviluppo).</span></li>
+                    <li class="sviluppo-only-item" hidden><span class="hs-dot" style="background:#a855f7;"></span><span><b>Viola — Mesociclone</b>: codice temporalesco WMO nella stessa ora E criterio del mesociclone soddisfatto (SCP &ge; 1, shear 0-6 km &ge; 20 m/s, SRH 0-3 km &ge; 100 m&sup2;/s&sup2;). &Egrave; un ambiente <b>previsto</b>, non osservato (solo in modalit&agrave; Sviluppo).</span></li>
                     <li><span class="hs-dot" style="background:#7d93a8;"></span><span><b>Grigio-blu — Convezione potenziale</b>: ambiente favorevole ma <b>nessun temporale previsto</b> (nessun innesco nella stessa ora). Non &egrave; un evento.</span></li>
                 </ul>
                 <p class="help-note">Il livello sale solo se il modello vede anche una causa concreta (pioggia o temporale): con il cielo pulito resta basso anche quando l'energia in quota &egrave; alta.</p>
