@@ -38,12 +38,12 @@ jobs:
     # deploy veniva cancellato. L'artefatto _site resta ~37 MB perche' NON
     # copiamo data/fm2 ne' data/fm2-rendered (letti dal client via raw).
     timeout-minutes: 30
-    # Stesso group "pages-deploy" usato da radar-engine A LIVELLO DI JOB: i
+    # Stesso group "pages-deploy-2" usato da radar-engine A LIVELLO DI JOB: i
     # deploy dei workflow che pubblicano su Pages si serializzano tra loro
     # (cancel-in-progress: false -> le run in coda proseguono).
     concurrency:
       queue: max
-      group: pages-deploy
+      group: pages-deploy-2
       cancel-in-progress: false
     steps:
       - name: Checkout
