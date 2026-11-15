@@ -2850,9 +2850,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.101';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.102';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-15';
     const APP_CHANGELOG = [
+    { version: '1.2.4.102', date: '2026-11-15', changes: [
+        'Riparato il caricamento del dataset derivato: il calcolo STP usava LCL e CIN non dichiarati, la ReferenceError annullava il caricamento e la mappa dei rischi restava vuota (0 badge).',
+        'Ora LCL e CIN sono letti dai dati orari (temperature_2m/dew_point_2m e convective_inhibition), con fallback neutro: LCL mancante -> 0.5, CIN mancante -> nessuna penalizzazione.',
+        'Logica e soglie invariate; la .101 resta inalterata.',
+    ]},
     { version: '1.2.4.101', date: '2026-11-15', changes: [
         'Soglie vortici/tornado ricalibrate su letteratura europea (Taszarek, Kaltenboeck, Ingrosso).',
         'CAPE gate 1000 rimosso (HSLC), SRH 100->80, shear 20->18, EHI 1.0->0.5, SCP saturazione 75->150.',
@@ -24960,8 +24965,14 @@ function toggleForecastMaps() {
         var scp = calcSCPimproved(cape, shear06, srh3);
 
         // --- Nuovi indici (ricerca 2026-11-13, soglie europee) ---
+        // FIX 1.2.4.102: fino alla 1.2.4.101 il blocco STP usava lcl e cin senza dichiararli:
+        // ReferenceError a ogni chiamata, loadStaticDataset annullava il caricamento del dataset,
+        // mappa dei rischi e card "Zona selezionata" restavano vuote. Ora LCL e CIN sono letti
+        // dai dati orari, con fallback neutro (LCL mancante -> 0.5; CIN mancante -> nessuna penalizzazione).
         var stp = 0;
         if (cape != null && cape > 0 && shear06 >= 10 && srh3 >= 50) {
+            var lcl = computeLclApprox(hourly.temperature_2m?.[idx] ?? null, hourly.dew_point_2m?.[idx] ?? null);
+            var cin = hourly.convective_inhibition?.[idx] ?? null;
             var lclTerm = (lcl != null && lcl > 0) ? Math.max(0, Math.min(1, (2000 - lcl) / 1000)) : 0.5;
             var cinAbs = (cin != null && isFinite(cin)) ? Math.abs(cin) : 0;
             var cinTerm = Math.max(0, Math.min(1, (200 - cinAbs) / 150));

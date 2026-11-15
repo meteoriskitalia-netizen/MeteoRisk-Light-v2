@@ -60,7 +60,7 @@
  * ===== FASE 4 (1.2.4.77): PWA INSTALLABILE E OFFLINE PARZIALE =====
  *
  * TRE cache separate (la potatura di una non tocca le altre):
- *   CACHE_NAME   'mri-1.2.4.101'          html, manifest, offline.html, indici e WebP
+ *   CACHE_NAME   'mri-1.2.4.102'          html, manifest, offline.html, indici e WebP
  *                                        previsionali, JSON di data/radar. INVARIATA.
  *   TILE_CACHE   'mri-tiles-1.2.4.95'    tile della mappa base (OpenStreetMap)
  *   FRAME_CACHE  'mri-frames-1.2.4.95'   frame radar (DPC / RainViewer) e satellite
@@ -107,7 +107,7 @@
  */
 'use strict';
 
-var CACHE_NAME = 'mri-1.2.4.101';
+var CACHE_NAME = 'mri-1.2.4.102';
 var TILE_CACHE = 'mri-tiles-1.2.4.95';
 var FRAME_CACHE = 'mri-frames-1.2.4.95';
 var APP_CACHES = [CACHE_NAME, TILE_CACHE, FRAME_CACHE];
