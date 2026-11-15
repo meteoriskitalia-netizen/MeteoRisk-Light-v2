@@ -53,7 +53,7 @@ concurrency:
 # due workflow che si accodano l'uno all'altro fanno slittare gli schedule
 # (run partito con decine di minuti di ritardo). La serializzazione vive
 # ORA SOLO sul job deploy-pages (concurrency a livello di job, group
-# "pages-deploy", cancel-in-progress: false): il job dati/motore parte
+# "pages-deploy-2", cancel-in-progress: false): il job dati/motore parte
 # subito, il deploy si accoda solo ad altri deploy.
 # NOTA (tracking 2h + nowcast): aggiunta inoltre una concurrency a livello
 # di JOB sul SOLO radar-engine (group proprio "radar-history", cancel-in-
@@ -61,7 +61,7 @@ concurrency:
 # sovrappongono e gareggerebbero sul fetch+push dell'archivio rolling
 # radar-history (stesso race "fetch first" gia' osservato su main, che
 # rischiava di corrompere la finestra): qui le run del motore si
-# SERIALIZZANO tra loro. Il group "pages-deploy" e la struttura a livello
+# SERIALIZZANO tra loro. Il group "pages-deploy-2" e la struttura a livello
 # di workflow NON vengono toccati.
 
 jobs:
@@ -512,7 +512,7 @@ jobs:
       # _workdir / payload esterni. Senza questa build il pannello "Struttura
       # convettiva" non troverebbe convective_structures.json su Pages (Pages
       # serve _site, non il repo root).
-      # Serializzazione SOLO sul deploy (job deploy-pages, group "pages-deploy",
+      # Serializzazione SOLO sul deploy (job deploy-pages, group "pages-deploy-2",
       # condiviso con update-weather-data e satellite-engine, cancel-in-progress:
       # false). Questo job (dati/motore) ha concurrency SOLO sul group PROPRIO
       # "radar-history" (le 2 cron del motore si serializzano tra loro per
@@ -636,7 +636,7 @@ jobs:
           PY
 
   # JOB DI DEPLOY PAGES — unico punto serializzato del workflow.
-  # group "pages-deploy" condiviso con update-weather-data e satellite-engine:
+  # group "pages-deploy-2" condiviso con update-weather-data e satellite-engine:
   # i deploy si serializzano tra loro (cancel-in-progress: false) SENZA bloccare
   # i job dati/motore. NOTA: la condivisione vale SOLO se anche gli altri due
   # workflow adottano lo stesso group a livello di job (fase A4).
@@ -648,7 +648,7 @@ jobs:
     timeout-minutes: 10
     concurrency:
       queue: max
-      group: pages-deploy
+      group: pages-deploy-2
       cancel-in-progress: false
     steps:
       - name: Deploy su GitHub Pages
