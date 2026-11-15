@@ -1,6 +1,13 @@
 # MeteoRisk Light — dashboard meteorologica statica-first
 
-## Versione attiva: 1.2.4.96
+## Versione attiva: 1.2.4.97
+
+- Applicazione: `mri-light-1.2.4.97.html`; Service Worker e cache aggiornati alla .97.
+- Riepilogo temporali in italiano semplice: niente sigle, soglie o valori numerici nel testo pubblico o nei tooltip.
+- L'app chiarisce che un ambiente potenzialmente favorevole non equivale a una cella temporalesca osservata.
+- Le soglie e la metodologia restano in Fonti & Metodologie.
+
+## Versione precedente: 1.2.4.96
 
 - File applicativo: `mri-light-1.2.4.96.html` (`APP_VERSION = '1.2.4.96'`) + `sw.js` (cache applicativa, tile e frame .96).
 - **Nebbia**: il badge usa solo codici WMO 45/48. L'indice ambientale è separato, richiede T, dew point, vento e umidità, e non è una probabilità né una misura di visibilità. Se i modelli divergono, il pannello lo dichiara.
@@ -19,7 +26,7 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.95
+## Versione 1.2.4.95 (storica)
 
 - File applicativo: `mri-light-1.2.4.95.html` (`APP_VERSION = '1.2.4.95'`; changelog in-app .95) + `sw.js` (`CACHE_NAME = 'mri-1.2.4.95'`, `TILE_CACHE = 'mri-tiles-1.2.4.95'`, `FRAME_CACHE = 'mri-frames-1.2.4.95'`).
 - **Revisione logica convettiva**: potenziale NWP e innesco temporalesco sono distinti. Sviluppo espone i badge di potenziale mesociclonico anche senza attivare Nuovi Indici. Il codice WMO identifica il fenomeno istantaneo e non richiede anche pioggia cumulata; il downburst riconosce anche i rovesci convettivi. Il detector a livello zero non produce piu' livelli artificiali.
