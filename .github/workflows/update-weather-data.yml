@@ -57,14 +57,14 @@ jobs:
   pipeline:
     runs-on: ubuntu-latest
     # Deploy Pages serializzato con TUTTI gli altri workflow che pubblicano su
-    # Pages: stesso group "pages-deploy" a livello di job usato da radar-engine
+    # Pages: stesso group "pages-deploy-2" a livello di job usato da radar-engine
     # (cancel-in-progress: false -> le run in coda proseguono). Sostituisce la
     # vecchia concurrency a livello di workflow (group "pages"), che non si
-    # sincronizzava con il group "pages-deploy" di radar-engine e lasciava i
+    # sincronizzava con il group "pages-deploy-2" di radar-engine e lasciava i
     # due deploy girare in parallelo.
     concurrency:
       queue: max
-      group: pages-deploy
+      group: pages-deploy-2
       cancel-in-progress: false
     steps:
       - name: Checkout
