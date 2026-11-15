@@ -1,10 +1,10 @@
 # MeteoRisk Light — dashboard meteorologica statica-first
 
-## Versione attiva: 1.2.4.98
+## Versione attiva: 1.2.4.99
 
-- Applicazione: `mri-light-1.2.4.98.html`; Service Worker e cache aggiornati alla .98.
-- Riepilogo convettivo: ambiente favorevole e possibile mesociclone sono indicati solo quando previsti e restano distinti.
-- Rimossi i disclaimer sull’osservazione e le frasi sull’assenza di fenomeni.
+- Applicazione: `mri-light-1.2.4.99.html`; Service Worker e cache aggiornati alla .99.
+- La sintesi separa il livello dal segnale previsto con un trattino chiaro.
+- Logica e soglie invariate; la .98 resta nello storico.
 
 ## Versione precedente: 1.2.4.96
 
