@@ -1,11 +1,10 @@
 # MeteoRisk Light — dashboard meteorologica statica-first
 
-## Versione attiva: 1.2.4.97
+## Versione attiva: 1.2.4.98
 
-- Applicazione: `mri-light-1.2.4.97.html`; Service Worker e cache aggiornati alla .97.
-- Riepilogo temporali in italiano semplice: niente sigle, soglie o valori numerici nel testo pubblico o nei tooltip.
-- L'app chiarisce che un ambiente potenzialmente favorevole non equivale a una cella temporalesca osservata.
-- Le soglie e la metodologia restano in Fonti & Metodologie.
+- Applicazione: `mri-light-1.2.4.98.html`; Service Worker e cache aggiornati alla .98.
+- Riepilogo convettivo: ambiente favorevole e possibile mesociclone sono indicati solo quando previsti e restano distinti.
+- Rimossi i disclaimer sull’osservazione e le frasi sull’assenza di fenomeni.
 
 ## Versione precedente: 1.2.4.96
 
