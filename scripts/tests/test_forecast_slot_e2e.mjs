@@ -15,7 +15,7 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.97.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.100.html');
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -42,9 +42,6 @@ pure += '\n' + rb[0];
 const asd = src.match(/function applyStaticDataset\(meta, payload\) \{[\s\S]*?\n    \}/);
 failFast('applyStaticDataset non trovata', !!asd);
 pure += '\n' + asd[0];
-const attachRef = src.match(/function attachProvinceTempRef\(store, rawPts, provIdx\) \{[\s\S]*?\n    \}/);
-failFast('attachProvinceTempRef non trovata', !!attachRef);
-pure += '\n' + attachRef[0];
 // applyStaticDataset ora chiama updateDayButtonLabels -> datasetIndexForDayLabel/
 // dateKeyInTimeZone: carico il blocco puro reale dayMapping e i wrapper DOM.
 pure += '\n' + extractPure('//#pure# BEGIN dayMapping', '//#pure# END dayMapping');

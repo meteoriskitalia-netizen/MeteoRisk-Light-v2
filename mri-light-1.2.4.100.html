@@ -1889,7 +1889,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <button class="tool-btn" id="btn-caletta" onclick="showCaletta()" style="display:none;">🍽️ La Caletta</button>
         <button class="tool-btn" id="btn-high-risk" onclick="toggleHighRiskFilter()">🚨 Evidenzia Zone a Rischio</button>
         <button class="tool-btn" id="btn-live" onclick="toggleLivePanel()" style="border-color:#fbbf24;">🔴 LIVE Panel (OFF)</button>
-        <button class="tool-btn" id="btn-newindices" onclick="toggleNewIndices()" style="border-color:#06b6d4; display:none;">🔬 Nuovi Indici (OFF)</button>
+        <button class="tool-btn" id="btn-newindices" onclick="toggleNewIndices()" style="border-color:#06b6d4; display:none;" title="Nuovi Indici: aggiunge escalation continua (WMAXSHEAR, SCP, SHIP, HSLC) alla logica base. Disponibile solo in Sviluppo. Default OFF.">🔬 Nuovi Indici (OFF)</button>
         <button class="tool-btn" id="btn-sources" onclick="toggleSourcesPanel()" style="border-color:#a855f7;">📚 Fonti &amp; Metodologie</button>
         <!-- 1.2.3.1: attivazione Celle organizzate spostata nel pannello LIVE (#live-toggle-supercells) -->
         <!-- Toggle Sviluppo spostato nel footer: switch vicino al badge versione -->
@@ -2850,9 +2850,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.99';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.2.4.100';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-15';
     const APP_CHANGELOG = [
+    { version: '1.2.4.100', date: '2026-11-15', changes: [
+        'Riepilogo scheda: eliminata la ripetizione del nome del rischio ("Temporali — Temporali forti...").',
+        'Pulsante "Nuovi Indici" con tooltip esplicativo e scelta persistente (localStorage).',
+    ]},
         { version: '1.2.4.99', date: '2026-11-15', changes: [
             "SINTESI TEMPORALI: separato chiaramente il livello del temporale dal segnale di organizzazione. Esempi: 'Temporali forti — ambiente favorevole' e 'Temporali forti — possibile mesociclone'. Logica e soglie invariate.",
             "BUMP: release autonoma .99; la .98 e le precedenti restano inalterate."
@@ -6148,7 +6152,9 @@ function enabledLightningSourceIds() {
                     ? (r.potential ? 'Convezione organizzata potenziale'
                         : (r.level >= 5 ? 'Mesociclone' : 'Convezione organizzata (evento)'))
                     : def.label;
-                return '<li><b>' + name + ' — ' + riskLevelLine(r, agg) + '.</b>' + infoTag + '<br><span style="color:#94a3b8;">' +
+                var _rl = riskLevelLine(r, agg);
+                var _head = (_rl && _rl.toLowerCase().indexOf((name || '').toLowerCase()) === 0) ? _rl : (name + ' — ' + _rl);
+                return '<li><b>' + _head + '.</b>' + infoTag + '<br><span style="color:#94a3b8;">' +
                     riskLevelImpact(r, agg) + '</span></li>';
             }).join('');
             note = '<div class="rs-note"><b>Colore = rischio piu\' alto fra TUTTI i pericoli previsti</b> (livello = massimo dei livelli): ' + escapeHtml(riskDriverLine(agg, risks)) + '. Riferito a ' + (currentHour === 'all' ? 'tutta la giornata selezionata' : 'ore ' + String(currentHour).padStart(2, '0') + ':00') + '.</div>';
@@ -21532,6 +21538,7 @@ function toggleForecastMaps() {
         // Se Sviluppo viene spento, forza Nuovi Indici su OFF
         if (!isSviluppoActive && isNewIndicesActive) {
             isNewIndicesActive = false;
+            try { localStorage.setItem('mri.newIndices', '0'); } catch (e) {}
             if (ni) {
                 ni.innerText = '🔬 Nuovi Indici (OFF)';
                 ni.classList.remove('active');
@@ -21576,11 +21583,13 @@ function toggleForecastMaps() {
 
     // --- Toggle Nuovi Indici: WMAXSHEAR+SHIP vs vecchia logica ---
     var isNewIndicesActive = false;  // default OFF (viene attivato dall'utente tramite toggle Sviluppo)
+    try { if (localStorage.getItem('mri.newIndices') === '1') isNewIndicesActive = true; } catch (e) {}
     function toggleNewIndices() {
         isNewIndicesActive = !isNewIndicesActive;
         var btn = document.getElementById('btn-newindices');
         btn.innerText = '🔬 Nuovi Indici (' + (isNewIndicesActive ? 'ON' : 'OFF') + ')';
         btn.classList.toggle('active', isNewIndicesActive);
+        try { localStorage.setItem('mri.newIndices', isNewIndicesActive ? '1' : '0'); } catch (e) {}
         updateUI();
         refreshRiskSummary(); // ri-renderizza il riepilogo aperto con il profilo del nuovo stato
     }

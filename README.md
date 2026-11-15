@@ -1,33 +1,14 @@
 # MeteoRisk Light — dashboard meteorologica statica-first
 
-## Versione attiva: 1.2.4.99
-
-- Applicazione: `mri-light-1.2.4.99.html`; Service Worker e cache aggiornati alla .99.
-- La sintesi separa il livello dal segnale previsto con un trattino chiaro.
-- Logica e soglie invariate; la .98 resta nello storico.
-
-## Versione precedente: 1.2.4.96
-
-- File applicativo: `mri-light-1.2.4.96.html` (`APP_VERSION = '1.2.4.96'`) + `sw.js` (cache applicativa, tile e frame .96).
-- **Nebbia**: il badge usa solo codici WMO 45/48. L'indice ambientale è separato, richiede T, dew point, vento e umidità, e non è una probabilità né una misura di visibilità. Se i modelli divergono, il pannello lo dichiara.
-- **Grandine**: il punteggio non calibrato è indicato come indice di potenziale, non probabilità.
-- **Temporali**: nel riepilogo giornaliero un codice WMO 95-99 non è subordinato all'accumulo di pioggia dell'ora precedente.
-- La .95 e le release precedenti restano inalterate.
-
-
-## Documentazione storica
-
-# MeteoRisk Light — dashboard meteorologica statica-first
-
 Dashboard meteorologica statica-first per l'Italia: radar delle tempeste (DPC),
 satellite EUMETSAT e dati Open-Meteo, servita interamente da GitHub Pages — nessun
 back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione 1.2.4.95 (storica)
+## Versione attiva: 1.2.4.100
 
-- File applicativo: `mri-light-1.2.4.95.html` (`APP_VERSION = '1.2.4.95'`; changelog in-app .95) + `sw.js` (`CACHE_NAME = 'mri-1.2.4.95'`, `TILE_CACHE = 'mri-tiles-1.2.4.95'`, `FRAME_CACHE = 'mri-frames-1.2.4.95'`).
+- File applicativo: `mri-light-1.2.4.100.html` (`APP_VERSION = '1.2.4.100'`; changelog in-app .95) + `sw.js` (`CACHE_NAME = 'mri-1.2.4.100'`, `TILE_CACHE = 'mri-tiles-1.2.4.100'`, `FRAME_CACHE = 'mri-frames-1.2.4.100'`).
 - **Revisione logica convettiva**: potenziale NWP e innesco temporalesco sono distinti. Sviluppo espone i badge di potenziale mesociclonico anche senza attivare Nuovi Indici. Il codice WMO identifica il fenomeno istantaneo e non richiede anche pioggia cumulata; il downburst riconosce anche i rovesci convettivi. Il detector a livello zero non produce piu' livelli artificiali.
 - **Grandine e nebbia**: massimi giornalieri per dimensione/probabilita' grandine indipendenti dall'ora rappresentativa CAPE; precipitazione convettiva distinta dalla pioggia totale. Codici WMO 45/48 conservati anche senza T/Td e descritti come indice euristico non probabilistico.
 - **Tracking e riepiloghi**: ora del sistema organizzato allineata al segnale; abbinamenti SOI-cella entro 10 km e solo sull'ultimo frame, con indicazione esplicita quando manca un'associazione.
@@ -1513,3 +1494,4 @@ Comandi e conteggi aggiornati sono quelli documentati in `C:\Users\aless\Desktop
 - `data/latest/` — dataset derivato (nello snapshot locale solo `.gitkeep`: il dataset
   reale e' generato e committato dai workflow)
 - `docs/` — report e documentazione storica
+

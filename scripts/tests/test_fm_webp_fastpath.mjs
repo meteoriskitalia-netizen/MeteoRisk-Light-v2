@@ -11,7 +11,7 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.97.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.100.html');
 const src = fs.readFileSync(HTML, 'utf8');
 const INDEX_WORKFLOW = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'forecast-maps-index.yml'), 'utf8');
 
@@ -76,9 +76,8 @@ ok('A15b: Emisfero nord disponibile ai modelli globali e collegato al renderer',
   /id:\s*'north',\s*label:\s*'Emisfero nord'/.test(moduleSrc) &&
   /return\s*\['north',\s*'domain',\s*'europe',\s*'italy'\]/.test(moduleSrc));
 ok('A15c: index-builder autorizza e pubblica north/index.json',
-  /ALLOW_RE='[^']*north[^']*'/.test(INDEX_WORKFLOW) &&
-  /for r in italia europa north domain; do/.test(INDEX_WORKFLOW) &&
-  /data\/fm2-rendered\/\$r\/index\.json/.test(INDEX_WORKFLOW));
+  /\(italia\|europa\|north\|domain\)\/index\\\.json/.test(INDEX_WORKFLOW) &&
+  (INDEX_WORKFLOW.match(/data\/fm2-rendered\/north\/index\.json/g) || []).length >= 2);
 ok('A15d: lookup raster polare con Greenwich in basso',
   /function fmPolarLongitude\(dx,\s*dy\)\s*\{\s*return Math\.atan2\(-dx,\s*dy\)/.test(moduleSrc));
 ok('A15e: il raster polare ribalta le colonne WebP',

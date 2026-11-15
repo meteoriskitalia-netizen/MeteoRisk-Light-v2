@@ -6,7 +6,7 @@
 //      cone_km costante, verifica via haversine dal punto sul path)
 //   B) scAssembleTrails: ordine cronologico, dedup per slot, filtro <2 punti
 //      (track di tipo diverso con stesso id = trail separato)
-//   C) scMatchBadgeCandidate: inside/outside della soglia 10 km
+//   C) scMatchBadgeCandidate: inside/outside della soglia 30 km
 //   D) scPhenomenaSummary/Glyph/IsProxy: conteggi, glyph, disclaimer proxy
 //   E) graceful: input nulli/malcampionati -> nessun throw, output vuoti
 //   F) structural: guardie document.hidden, panes, pulizia al toggle OFF
@@ -20,7 +20,7 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.97.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.100.html');
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -58,35 +58,35 @@ vm.runInNewContext(pure, ctx);
 
 // ---------- A. CONO FORECAST: caso geometrico noto ----------
 {
-  // Moto puro EST (bearing 90°) a lat 42, cone_km costante 5.562 km
-  // (= 0.1° di latitudine). Origine margin 0, step margin 5.562.
+  // Moto puro EST (bearing 90°) a lat 42, cone_km costante 11.132 km
+  // (= 0.1° di latitudine). Origine margin 0, step margin 11.132.
   const fcEast = { steps: [
-    { offset_min: 30, position: [12.1, 42.0], cone_km: 5.562 },
-    { offset_min: 60, position: [12.2, 42.0], cone_km: 5.562 },
+    { offset_min: 30, position: [12.1, 42.0], cone_km: 11.132 },
+    { offset_min: 60, position: [12.2, 42.0], cone_km: 11.132 },
   ] };
   const ring = ctx.scBuildForecastCone(fcEast, [12.0, 42.0]);
   ok('A1: anello chiuso (primo punto == ultimo)', Array.isArray(ring) &&
     ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1]);
   ok('A2: 3 punti path (origine+2 step) -> 3+3+1 = 7 vertici', ring && ring.length === 7,
     ring && String(ring.length));
-  // Il margine di 5.562 km equivale a 0.05° di latitudine per lato.
-  ok('A3: lato sinistro (nord di un moto verso EST) lat = 42.05', ring && Math.abs(ring[1][0] - 42.05) < 0.001);
-  ok('A4: lato destro (sud) lat = 41.95 sui due vertici step', ring &&
-    Math.abs(ring[3][0] - 41.95) < 0.001 && Math.abs(ring[4][0] - 41.95) < 0.001);
+  // ring = [l0, l1, l2, r2, r1, r0, l0]: lato NORD (+0.1° lat), lato SUD (-0.1°)
+  ok('A3: lato sinistro (nord di un moto verso EST) lat = 42.1', ring && Math.abs(ring[1][0] - 42.1) < 1e-9);
+  ok('A4: lato destro (sud) lat = 41.9 sui due vertici step', ring &&
+    Math.abs(ring[3][0] - 41.9) < 1e-9 && Math.abs(ring[4][0] - 41.9) < 1e-9);
   const d1 = ctx.scHaversineKm([ring[1][1], ring[1][0]], [12.1, 42.0]);
-  ok('A5: margine perpendicolare == cone_km (haversine 5.562 km)',
-    Math.abs(d1 - 5.562) < 0.05, d1 && d1.toFixed(3));
+  ok('A5: margine perpendicolare == cone_km (haversine 11.132 km)',
+    Math.abs(d1 - 11.132) < 0.05, d1 && d1.toFixed(3));
 
   // Moto puro NORD (bearing 0°): perp left = ovest, perp right = est
-  const fcNorth = { steps: [ { offset_min: 30, position: [12.0, 42.05], cone_km: 5.562 } ] };
+  const fcNorth = { steps: [ { offset_min: 30, position: [12.0, 42.1], cone_km: 11.132 } ] };
   const ringN = ctx.scBuildForecastCone(fcNorth, [12.0, 42.0]);
   ok('A6: origine+1 step -> 2+2+1 = 5 vertici', ringN && ringN.length === 5,
     ringN && String(ringN.length));
   // ringN = [l0, l1, r1, r0, l0]: l1 = ovest, r1 = est
   ok('A7: lato sinistro (ovest di un moto verso NORD) lon < 12', ringN && ringN[1][1] < 12.0);
   ok('A8: lato destro (est) lon > 12', ringN && ringN[2][1] > 12.0);
-  const dN = ctx.scHaversineKm([ringN[1][1], ringN[1][0]], [12.0, 42.05]);
-  ok('A9: margine perpendicolare == cone_km su moto nord', Math.abs(dN - 5.562) < 0.05,
+  const dN = ctx.scHaversineKm([ringN[1][1], ringN[1][0]], [12.0, 42.1]);
+  ok('A9: margine perpendicolare == cone_km su moto nord', Math.abs(dN - 11.132) < 0.05,
     dN && dN.toFixed(3));
 
   // Senza origine: il cono parte dal primo step (apice = primo step)
@@ -253,20 +253,20 @@ vm.runInNewContext(pure, ctx);
   }
 }
 
-// ---------- C. BADGE -> CANDIDATO (soglia 10 km) ----------
+// ---------- C. BADGE -> CANDIDATO (soglia 30 km) ----------
 {
   const cands = [
     { structure_id: 'CS-A', track_id: 1, track_type: 'cell', position: [12.0, 42.0] },
     { structure_id: 'CS-B', track_id: 2, track_type: 'cell', position: [13.0, 43.0] },
   ];
-  const inside = ctx.scMatchBadgeCandidate({ position: [12.0, 42.05] }, cands); // ~5.6 km
-  ok('C1: inside 10 km -> match sul candidato più vicino (SC-A)',
+  const inside = ctx.scMatchBadgeCandidate({ position: [12.0, 42.1] }, cands); // ~11.1 km
+  ok('C1: inside 30 km -> match sul candidato più vicino (SC-A)',
     inside && inside.candidate.structure_id === 'CS-A');
-  ok('C2: distance_km coerente (~5.56)', inside && Math.abs(inside.distance_km - 5.56) < 0.2,
+  ok('C2: distance_km coerente (~11.13)', inside && Math.abs(inside.distance_km - 11.13) < 0.2,
     inside && String(inside.distance_km));
-  ok('C3: outside 10 km -> null', ctx.scMatchBadgeCandidate({ position: [15.0, 40.0] }, cands) === null);
+  ok('C3: outside 30 km -> null', ctx.scMatchBadgeCandidate({ position: [15.0, 40.0] }, cands) === null);
   const far = { position: [12.0, 42.3] }; // ~33.4 km
-  ok('C4: default maxKm=10 esclude ~33 km', ctx.scMatchBadgeCandidate(far, cands) === null);
+  ok('C4: default maxKm=30 esclude ~33 km', ctx.scMatchBadgeCandidate(far, cands) === null);
   ok('C5: maxKm esplicito 50 include ~33 km', ctx.scMatchBadgeCandidate(far, cands, 50) !== null);
 }
 

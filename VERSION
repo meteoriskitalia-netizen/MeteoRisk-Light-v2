@@ -1,53 +1,13 @@
-MeteoRisk Light - 1.2.4.99 - SINTESI TEMPORALI PIU' LEGGIBILE (bump da 1.2.4.98)
-VERSION=1.2.4.99
+MeteoRisk Light - 1.2.4.100 - LOGICA CONVETTIVA, GRANDINE, NEBBIA E TRACKING (bump da 1.2.4.94)
+VERSION=1.2.4.100
 MAJOR=1
 MINOR=2
 PATCH=4
-BUILD=99
-RELEASE_TYPE=release
-DATE=2026-11-15
-NOTE=Nel riepilogo temporali il livello e il segnale previsto sono separati con punteggiatura chiara. Esempio: Temporali forti — ambiente favorevole. Logica e soglie invariate; la .98 resta intatta.
-APP_FILE=mri-light-1.2.4.99.html
-MeteoRisk Light - 1.2.4.98 - TESTI PREVISIONALI CONVETTIVI (bump da 1.2.4.97)
-VERSION=1.2.4.98
-MAJOR=1
-MINOR=2
-PATCH=4
-BUILD=98
-RELEASE_TYPE=release
-DATE=2026-11-15
-NOTE=Il riepilogo convettivo riporta solo i segnali previsti: ambiente favorevole oppure possibile mesociclone quando il criterio dedicato è soddisfatto. Rimossi i disclaimer su assenza e osservazione live. La .97 resta inalterata.
-APP_FILE=mri-light-1.2.4.98.html
-MeteoRisk Light - 1.2.4.97 - RIEPILOGO TEMPORALI SEMPLIFICATO (bump da 1.2.4.96)
-VERSION=1.2.4.97
-MAJOR=1
-MINOR=2
-PATCH=4
-BUILD=97
-RELEASE_TYPE=release
-DATE=2026-11-15
-NOTE=Release 1.2.4.97. Riepilogo pubblico dei temporali semplificato: niente sigle, soglie o valori numerici nel testo di rischio o tooltip; viene chiarito che un ambiente favorevole non significa una cella osservata. Soglie e metodologia restano nella sezione Fonti & Metodologie. La .96 e le precedenti restano inalterate.
-APP_FILE=mri-light-1.2.4.97.html
-MeteoRisk Light - 1.2.4.96 - NEBBIA, INDICI E COERENZA EVENTI GIORNALIERI (bump da 1.2.4.95)
-VERSION=1.2.4.96
-MAJOR=1
-MINOR=2
-PATCH=4
-BUILD=96
-RELEASE_TYPE=release
-DATE=2026-11-15
-NOTE=Release 1.2.4.96 (bump da 1.2.4.95). Nebbia: badge solo con codice WMO 45/48 esplicito, indice ambientale separato e disponibile solo quando T/Td, vento e umidita' sono presenti; legenda e testi non attribuiscono visibilita' o probabilita' non misurate. Nel confronto modelli il badge dichiara il segnale singolo e non lo presenta come consenso. Grandine: il punteggio euristico e' chiamato indice di potenziale, non probabilita'. Vista giornaliera: il codice WMO 95-99 non e' piu' filtrato da una condizione di pioggia cumulata sull'ora precedente. BUMP: html mri-light-1.2.4.96.html, VERSION BUILD=96, cache SW .96; le release .95 e precedenti restano inalterate.
-APP_FILE=mri-light-1.2.4.96.html
-MeteoRisk Light - 1.2.4.95 - LOGICA CONVETTIVA, GRANDINE, NEBBIA E TRACKING (bump da 1.2.4.94)
-VERSION=1.2.4.95
-MAJOR=1
-MINOR=2
-PATCH=4
-BUILD=95
+BUILD=100
 RELEASE_TYPE=release
 DATE=2026-11-15
 NOTE=Release 1.2.4.95 (bump da 1.2.4.94) - Revisione della logica convettiva. Il potenziale ambientale NWP e' separato dall'innesco temporalesco; Sviluppo espone i badge di potenziale mesociclonico indipendentemente dal toggle Nuovi Indici. Il codice WMO temporalesco e' trattato come segnale istantaneo e non richiede anche pioggia cumulata nell'ora; downburst considera rovesci convettivi. Rimossi livelli artificiali quando il detector e' a zero. Grandine e probabilita' giornaliere conservano i rispettivi massimi orari; Nebbia WMO 45/48 resta segnale senza T/Td, con indice dichiarato euristico e non probabilistico. Ora rappresentativa del sistema organizzato allineata all'ora del segnale. Associazioni SOI-cella limitate a 10 km e solo frame piu' recente. BUMP: nuovo HTML mri-light-1.2.4.95.html, VERSION BUILD=95, cache Service Worker .95 e README. La .94 resta invariata.
-APP_FILE=mri-light-1.2.4.95.html
+APP_FILE=mri-light-1.2.4.100.html
 MeteoRisk Light - 1.2.4.94 - ORGANIZZAZIONE DEL TEMPORALE IN TRE LIVELLI (release precedente)
 VERSION=1.2.4.94
 BUILD=94
