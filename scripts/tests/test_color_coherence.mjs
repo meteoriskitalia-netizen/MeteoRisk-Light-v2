@@ -13,7 +13,7 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.95.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.96.html');
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -48,6 +48,7 @@ const TPROFILE = { level: 0, color: '#334155' };
 const CPROFILE = { level: 0, color: '#334155' };
 const ctx = {
   isNewIndicesActive: false,
+  isSviluppoActive: false,
   thermalRiskIndex: 'heatindex',
   isHighRiskFilterActive: false,
   convCategory: 'no',

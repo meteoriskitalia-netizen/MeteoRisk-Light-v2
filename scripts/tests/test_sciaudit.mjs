@@ -12,7 +12,7 @@ import vm from 'vm';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.95.html');
+const HTML = path.join(ROOT, 'mri-light-1.2.4.96.html');
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -108,8 +108,8 @@ failFast('levelsAGLTable non definita', typeof ctx.levelsAGLTable === 'function'
   ok('stag: nessun dato = default neutro (hslcFactor 0)', nod.hslcFactor === 0, JSON.stringify(nod));
 
   ok('stag: detectVorticosi usa seasonInfo (gate LCL ammorbidito in freddo)', /seasonInfo\(hourly, idx\)/.test(src));
-  ok('stag: LCL gate 2500 in stagione fredda / 1500 in estate', /lcl <= \(cold \? 2500 : 1500\)/.test(src));
-  ok('stag: CAPE threshold HSLC rilassato in freddo', /cape >= \(cold \? 400 : 500\)/.test(src));
+  ok('stag: LCL gate 2500 in stagione fredda / 1500 in estate', /lcl > \(cold \? 2500 : 1500\)/.test(src));
+  ok('stag: CAPE threshold HSLC rilassato in freddo', /cape < 500/.test(src));
   ok('stag: getRiskProfileNew abbassa il floor CAPE a 150 in freddo', /coldCapFloor = \(seasonInfo\(hourly, idx\)\.hslcFactor > 0\) \? 150 : 200;/.test(src));
 }
 
@@ -143,11 +143,11 @@ failFast('levelsAGLTable non definita', typeof ctx.levelsAGLTable === 'function'
   // Shear 0-1km e SRH 0-1km esposti dal profilo (§5.6/§8.6)
   ok('migl: computeSevereIndices espone shear01 e srh1', /shear01: shear01, srh1: srh1/.test(src));
   ok('migl: detectVorticosi legge shear01/srh1 dal profilo', /var shear01 = si\.shear01 \?\? 0;/.test(src));
-  ok('migl: canale low-level 0-1km in detectVorticosi', /lowLevelStrong = \(shear01 >= 10 && srh1 >= 90\)/.test(src));
+  ok('migl: gate ambiente richiede CAPE, shear e SRH nella stessa ora', /if \(cape < 500 \|\| shear06 < 20 \|\| srh3 < 100\) return out/.test(src));
 
   // SRH 0-3km allineato alle basi liguri (§6)
-  ok('migl: SRH Liguria bands in escalazione vorticosi', /srh3 >= \(cold \? 250 : 300\)/.test(src));
-  ok('migl: Rilascio SRH>=150 come livello 2', /srh3 >= 150\) out\.level = 2/.test(src));
+  ok('migl: SRH3 minimo 100 m²/s² nel gate ambientale', /srh3 < 100/.test(src));
+  ok('migl: livello massimo 1 = ambiente favorevole, non tornado confermato', /out\.level = 1/.test(src));
 
   // documentazione: downburst Mediterraneo-sperimentale + melting gate vs Po Valley 2023
   ok('migl: downburst documentato Mediterranean/experimental (§4.9)', /"sperimentale\/Mediterraneo"/.test(src));

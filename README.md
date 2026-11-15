@@ -1,5 +1,18 @@
 # MeteoRisk Light — dashboard meteorologica statica-first
 
+## Versione attiva: 1.2.4.96
+
+- File applicativo: `mri-light-1.2.4.96.html` (`APP_VERSION = '1.2.4.96'`) + `sw.js` (cache applicativa, tile e frame .96).
+- **Nebbia**: il badge usa solo codici WMO 45/48. L'indice ambientale è separato, richiede T, dew point, vento e umidità, e non è una probabilità né una misura di visibilità. Se i modelli divergono, il pannello lo dichiara.
+- **Grandine**: il punteggio non calibrato è indicato come indice di potenziale, non probabilità.
+- **Temporali**: nel riepilogo giornaliero un codice WMO 95-99 non è subordinato all'accumulo di pioggia dell'ora precedente.
+- La .95 e le release precedenti restano inalterate.
+
+
+## Documentazione storica
+
+# MeteoRisk Light — dashboard meteorologica statica-first
+
 Dashboard meteorologica statica-first per l'Italia: radar delle tempeste (DPC),
 satellite EUMETSAT e dati Open-Meteo, servita interamente da GitHub Pages — nessun
 back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
@@ -1494,4 +1507,3 @@ Comandi e conteggi aggiornati sono quelli documentati in `C:\Users\aless\Desktop
 - `data/latest/` — dataset derivato (nello snapshot locale solo `.gitkeep`: il dataset
   reale e' generato e committato dai workflow)
 - `docs/` — report e documentazione storica
-
