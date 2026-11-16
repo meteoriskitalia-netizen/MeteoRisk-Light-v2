@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.3.0.2 - FIX MOTORISTICI E UI A2-A8 E MAPPA RISCHI DALLE ORE CORRENTI (bump da 1.3.0.0)
+VERSION=1.3.0.2
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=132
+RELEASE_TYPE=release
+DATE=2026-11-17
+NOTE=Release 1.3.0.2 (bump da 1.3.0.0). Otto interventi verificati. A2: copertura Doppler non azzerata senza VRADH, per-sito stale con null_reason, nessuna geometria inventata. A3: doppler_analysis.json e mesocyclone_tracks.json scritti sempre con status unavailable e null_reason no_opera_vradh_data. A4: assessConvOrg con un solo var env e soglia WMAXSHEAR unificata a 800 (CONV_WMS_MIN=ORG_WMS_MIN). A5: possibile mesociclone solo con Sviluppo attivo, anche nei title. A6: path separata dell harness manuale (doppler_coverage_harness.geojson, schema_version 2) nel modulo e nel workflow radar-collimation. A7: volume degradato non sovrascrive volume.json valido, guard senza CAPPI in main.py, path relativo in latest.json. A8: commento nebbia corretto. Richiesta ore future: livello del giorno 0 calcolato solo dalle ore correnti in poi, giorni 1-2 integrali, etichetta dalle HH:MM in poi; 631 test radar, 1 test sintassi html, node --check 9/9, 0 eccezioni/overflow. Nessun dato simulato, nessuna etichetta di mesociclone confermato, nessun ripristino di comportamenti vecchi.
+APP_FILE=mri-light-1.3.0.2.html
 MeteoRisk Light - 1.3.0.0 - DOPPLER ANALYSIS, MESOCYCLONE TRACKING E VOLUME 3D (bump da 1.2.4.102)
 VERSION=1.3.0.0
 MAJOR=1

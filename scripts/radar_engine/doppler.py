@@ -72,6 +72,7 @@ La confidenza dipende SOLO dall'altezza del fascio: < 3 km = high,
 
 import datetime as _dt
 import io
+import copy
 import json
 import math
 import os
@@ -1255,6 +1256,123 @@ def point_in_ring(lon, lat, ring):
     return inside
 
 
+# ---------------------------------------------------------------------------
+# Stato ESPLICITO della copertura Doppler (fix 16/11/2026)
+# ---------------------------------------------------------------------------
+COVERAGE_NULL_REASON = "no_vradh_scan_for_doppler_coverage"
+COVERAGE_STALE_REASON = "no_vradh_scan_for_site"
+COVERAGE_STATUS_VALUES = ("ok", "unavailable", "stale")
+
+
+def _coverage_age_seconds(scan_iso, now):
+    """Eta' (s) di uno scan rispetto a `now`; None se il timestamp e' invalido."""
+    d = _parse_iso(scan_iso)
+    if d is None or now is None:
+        return None
+    return round(max(0.0, (now - d).total_seconds()), 1)
+
+
+def finalize_coverage(doc, previous_doc=None, generated_at=None):
+    """Aggiunge lo stato leggibile al GeoJSON e conserva, PER SITO, l'ultimo
+    inviluppo valido quando gli SCAN VRADH non arrivano.
+
+    Perche' esiste: il 16/11/2026 un run con il solo composito CIRRUS (nessuno
+    SCAN VRADH per sito) ha pubblicato `features: []` sovrascrivendo i 134
+    poligoni validi. Il calcolo di ZERO geometrie e' CORRETTO; il difetto era
+    pubblicare il file senza dichiarare il degrado in modo leggibile.
+
+    Garanzie:
+      - `coverage_status` e' SEMPRE presente: ok | unavailable | stale;
+      - `coverage_null_reason` e' il motivo vero nello stato `unavailable`
+        (mai una scusa generica), None negli altri stati;
+      - una geometria riutilizzata porta `stale: true`, `last_valid_scan`
+        (timestamp REALE dello scan) e `stale_age_seconds`: nessuna geometria
+        vecchia viene mostrata come attuale;
+      - la conservazione e' PER SITO: i siti con SCAN validi restano correnti e
+        solo quelli mancanti vengono degradati.
+    """
+    if not isinstance(doc, dict):
+        return doc
+    now = (_parse_iso(generated_at or doc.get("generated_at"))
+           or _dt.datetime.now(_dt.timezone.utc))
+    feats = [f for f in (doc.get("features") or [])
+             if isinstance(f, dict) and (f.get("properties") or {}).get("kind")]
+    known_sites = {f["properties"].get("site") for f in feats}
+    current_sites = {f["properties"].get("site") for f in feats
+                     if not f["properties"].get("stale")}
+    carried = []
+    if isinstance(previous_doc, dict):
+        for f in (previous_doc.get("features") or []):
+            if not isinstance(f, dict):
+                continue
+            p = f.get("properties") or {}
+            site = p.get("site")
+            if site is None or site in known_sites:
+                continue
+            g = copy.deepcopy(f)
+            gp = g.setdefault("properties", {})
+            last = gp.get("last_valid_scan") or gp.get("scan_time")
+            gp["stale"] = True
+            gp["last_valid_scan"] = last
+            gp["stale_age_seconds"] = _coverage_age_seconds(last, now)
+            gp["stale_reason"] = COVERAGE_STALE_REASON
+            gp["carried_forward_at"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+            carried.append(g)
+    for f in feats:
+        f["properties"].setdefault("stale", False)
+    all_feats = feats + carried
+    n_current = sum(1 for f in all_feats if not f["properties"].get("stale"))
+    n_stale = len(all_feats) - n_current
+    if n_current == 0 and n_stale == 0:
+        status, null_reason = "unavailable", COVERAGE_NULL_REASON
+    elif n_stale:
+        status, null_reason = "stale", None
+    else:
+        status, null_reason = "ok", None
+    scans = [f["properties"].get("last_valid_scan")
+             or f["properties"].get("scan_time") for f in all_feats]
+    scans = [s for s in scans if s]
+    last_valid = max(scans) if scans else None
+    stale_sites = sorted({f["properties"].get("site") for f in all_feats
+                          if f["properties"].get("stale")})
+    doc["current_sites"] = sorted({f["properties"].get("site") for f in all_feats
+                                   if not f["properties"].get("stale")})
+    if status == "unavailable":
+        note = ("Copertura Doppler non disponibile: nessuno scan VRADH per "
+                "sito. Il composito OPERA CIRRUS NON e' uno scan Doppler e "
+                "non puo' sostituirlo.")
+    elif status == "stale":
+        note = ("Copertura Doppler parzialmente aggiornata: "
+                f"{len(stale_sites)} sito/i senza scan VRADH "
+                f"({', '.join(stale_sites)}). La geometria di quei siti e' "
+                f"conservata dall'ultima scansione valida ({last_valid}) e "
+                "NON e' uno stato corrente.")
+    else:
+        note = None
+    doc["features"] = all_feats
+    doc["coverage_status"] = status
+    doc["coverage_null_reason"] = null_reason
+    doc["stale"] = status == "stale"
+    doc["last_valid_scan"] = last_valid
+    doc["stale_age_seconds"] = _coverage_age_seconds(last_valid, now)
+    doc["stale_sites"] = stale_sites
+    doc["status_note"] = note
+    kinds = {}
+    for f in all_feats:
+        k = f["properties"].get("kind")
+        kinds[k] = kinds.get(k, 0) + 1
+    counts = doc.get("counts") or {}
+    counts["geometric"] = kinds.get("geometric", 0)
+    counts["observed"] = kinds.get("observed", 0)
+    counts["current"] = n_current
+    counts["stale"] = n_stale
+    counts["polygons"] = len(all_feats)
+    counts["sites_current"] = len(doc["current_sites"])
+    counts["sites_stale"] = len(stale_sites)
+    doc["counts"] = counts
+    return doc
+
+
 def build_coverage(coverage_inputs, cfg, previous_doc=None):
     """FeatureCollection con due layer: `min_elevation` e `any_elevation`.
 
@@ -1442,7 +1560,10 @@ def build_coverage(coverage_inputs, cfg, previous_doc=None):
                    "sites": len({f["properties"]["site"] for f in features})},
         "features": features,
     }
-    return doc
+    # Stato esplicito + conservazione per sito: un run senza SCAN VRADH non
+    # azzera piu' il coverage valido precedente e non lo pubblica come attuale.
+    return finalize_coverage(doc, previous_doc=previous_doc,
+                             generated_at=generated)
 
 
 def distance_to_ring_km(lon, lat, ring):
@@ -1667,6 +1788,23 @@ def attach(bundle, config=None, out_dir=None):
     result["null_reasons"] = reasons
     cov = result.get("coverage")
     if cov:
+        # 16/11/2026: uno SCAN mancante produce ZERO geometrie, ed e' corretto.
+        # Il difetto era sovrascrivere il file buono senza dichiarare il
+        # degrado. Ogni coverage pubblicato porta uno stato esplicito e,
+        # quando e' possibile, l'ultimo inviluppo valido per sito (stale).
+        if cov.get("coverage_status") not in COVERAGE_STATUS_VALUES:
+            prev = (load_previous_coverage(
+                os.path.join(out_dir, "doppler_coverage.geojson"))
+                if out_dir else None)
+            cov = finalize_coverage(cov, previous_doc=prev)
+            result["coverage"] = cov
+        result["coverage_status"] = cov.get("coverage_status")
+        result["coverage_null_reason"] = cov.get("coverage_null_reason")
+        result["coverage_stale"] = bool(cov.get("stale"))
+        result["coverage_last_valid_scan"] = cov.get("last_valid_scan")
+        result["coverage_stale_age_seconds"] = cov.get("stale_age_seconds")
+        result["coverage_status_note"] = cov.get("status_note")
+        result["coverage_counts"] = cov.get("counts")
         st74 = coverage_status(cov, 12.48, 41.89)
         result["coverage_rome"] = st74
         result["coverage_rome_geometric_inside"] = st74.get(

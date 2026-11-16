@@ -529,10 +529,51 @@ def build_volume_payload(volume, vmi, *, timestamp_utc,
     return payload
 
 
+def _age_seconds(now_iso, older_iso):
+    """Eta' in secondi fra due ISO8601 (Z -> +00:00). None se non parsabile."""
+    try:
+        a = datetime.fromisoformat(str(now_iso).replace("Z", "+00:00"))
+        b = datetime.fromisoformat(str(older_iso).replace("Z", "+00:00"))
+        return max(0, int((a - b).total_seconds()))
+    except Exception:
+        return None
+
+
 def write_volume_payload(payload, out_dir):
-    """Scrive `volume.json` in modo atomico (tmp + os.replace). Ritorna la path."""
+    """Scrive `volume.json` in modo atomico (tmp + os.replace). Ritorna la path.
+
+    17/11/2026 (A7): un payload degradato (`volume_available` non True) NON
+    deve cancellare un volume valido gia' pubblicato. In quel caso il documento
+    precedente viene conservato byte per byte e marcato `stale: true`, con
+    `last_valid_scan` (data dell'ultimo volume valido), `stale_age_seconds` e
+    `stale_reason` (il null_reason del run che non ha prodotto dati). Nessuna
+    geometria/valore inventato: i dati del volume restano quelli reali del run
+    valido piu' recente, dichiarati come non correnti.
+    """
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, "volume.json")
+    is_empty = (not isinstance(payload, dict)
+                or payload.get("volume_available") is not True)
+    if is_empty and os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                previous = json.load(fh)
+        except (OSError, ValueError):
+            previous = None
+        if isinstance(previous, dict) and previous.get("volume_available") is True:
+            carried = dict(previous)
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            last = (carried.get("generated_at_utc")
+                    or carried.get("volume_timestamp_utc")
+                    or carried.get("timestamp"))
+            carried["stale"] = True
+            carried["last_valid_scan"] = last
+            carried["stale_age_seconds"] = _age_seconds(now, last)
+            carried["stale_reason"] = (
+                payload.get("null_reason") or "volume_unavailable")
+            carried["carried_forward_at"] = now
+            carried["carried_forward_from"] = "volume.json (ultimo volume valido)"
+            payload = carried
     text = json.dumps(payload, ensure_ascii=False, allow_nan=False,
                       separators=(",", ":"))
     json.loads(text)  # validazione prima della replace

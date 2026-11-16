@@ -2850,9 +2850,19 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.0';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-11-16';
+    const APP_VERSION = '1.3.0.2';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-11-17';
     const APP_CHANGELOG = [
+    { version: '1.3.0.2', date: '2026-11-17', changes: [
+        'A2: copertura Doppler non azzerata senza VRADH: ogni sito conserva il suo inviluppo valido piu recente con stale, last_valid_scan e coverage_status, senza geometrie inventate.',
+        'A3: doppler_analysis.json e mesocyclone_tracks.json scritti sempre; senza scan VRADH contengono status unavailable e null_reason no_opera_vradh_data, mai un dato inventato.',
+        'A4: assessConvOrg usa una sola dichiarazione di env e la soglia WMAXSHEAR unificata a 800 (CONV_WMS_MIN e ORG_WMS_MIN); rimosso il ramo che annunciava una severita non entrata nel calcolo.',
+        'A5: la frase possibile mesociclone compare solo con Sviluppo attivo, in testo, tooltip, badge e title; con Sviluppo disattivato resta possibile cella organizzata.',
+        'A6: separata la path dell harness manuale da quella del run radar automatico (doppler_coverage_harness.geojson, schema_version 2, channel manual_harness) anche nel workflow radar-collimation.',
+        'A7: un volume degradato non sovrascrive piu volume.json valido; restano celle e date dell ultimo volume valido con marcatori stale, guard anche senza CAPPI e path relativo in latest.json.',
+        'A8: corretto il commento sulla nebbia; codice, legenda e colori invariati (75/50/25).',
+        'Mappa rischi del giorno corrente: il livello delle province e calcolato solo dalle ore correnti in poi nel giorno 0, con somme di precipitazione residue; giorni 1 e 2 integrali e invariati; etichetta dalle HH:MM in poi nel tooltip e nel riepilogo.',
+    ]},
     { version: '1.3.0.0', date: '2026-11-16', changes: [
         'Nuovo Doppler Analysis Engine: velocity couplets VRADH reali (OPERA FR), Nyquist verificato, dealiasing region-based e 4 stati (NO_ROTATION, ROTATION_SUSPECTED, ROTATION_DETECTED, MESOCYCLONE_CANDIDATE) con quality e null_reason espliciti.',
         'Nuovo Mesocyclone Detection Engine: tracking della firma rotante fra scansioni, eventi di intensificazione e spostamento, coerenza con la cella. Nessuna etichetta di mesociclone confermato o tornado senza velocita radiale verificata.',
@@ -5910,6 +5920,12 @@ function enabledLightningSourceIds() {
         var agg = getAggregateForZone(idx);
         var driver = agg ? riskDriverLine(agg, risks) : 'Nessun rischio rilevante';
         var line = '<div class="risk-driver" style="margin:4px 0 2px 0;font-size:10px;color:#cbd5e1;">' + driver + '</div>';
+        // NUOVA RICHIESTA — il colore del giorno 0 non copre tutta la giornata: dirlo
+        // esplicitamente nell'hover, non solo nel riepilogo.
+        var cutLine = (agg && agg.riskWindow)
+            ? '<div class="risk-cut" style="margin:2px 0;font-size:10px;color:#93c5fd;">Colore: ' +
+              escapeHtml(riskWindowText(agg.riskWindow)) + '</div>'
+            : '';
         // 1.2.4.97 - riepilogo breve e leggibile; i valori tecnici sono nella metodologia.
         var tsOrgRisk = thunderOrgRisk(risks), orgLine = '';
         if (tsOrgRisk) {
@@ -5917,10 +5933,10 @@ function enabledLightningSourceIds() {
                 escapeHtml(orgPhrase(tsOrgRisk)) + '</b></div>';
         }
         if (!risks.length) {
-            return '<div title="' + escapeHtml(driver) + '">' + base + line +
+            return '<div title="' + escapeHtml(driver + (cutLine ? ' · ' + riskWindowText(agg.riskWindow) : '')) + '">' + base + line + cutLine +
                 '<div class="risk-disc-row"><span style="color:#64748b;font-size:10px;font-style:italic;">Nessuna criticità rilevante</span></div></div>';
         }
-        return '<div title="' + escapeHtml(driver) + '">' + base + line + orgLine +
+        return '<div title="' + escapeHtml(driver + (cutLine ? ' · ' + riskWindowText(agg.riskWindow) : '')) + '">' + base + line + cutLine + orgLine +
             '<div class="risk-disc-row">' + risks.map(riskDiscHtml).join('') + '</div></div>';
     }
 
@@ -6174,7 +6190,12 @@ function enabledLightningSourceIds() {
                 return '<li><b>' + _head + '.</b>' + infoTag + '<br><span style="color:#94a3b8;">' +
                     riskLevelImpact(r, agg) + '</span></li>';
             }).join('');
-            note = '<div class="rs-note"><b>Colore = rischio piu\' alto fra TUTTI i pericoli previsti</b> (livello = massimo dei livelli): ' + escapeHtml(riskDriverLine(agg, risks)) + '. Riferito a ' + (currentHour === 'all' ? 'tutta la giornata selezionata' : 'ore ' + String(currentHour).padStart(2, '0') + ':00') + '.</div>';
+            // NUOVA RICHIESTA — il colore del giorno 0 vale solo dalle HH:MM correnti:
+            // dichiararlo qui evita che l'utente legga il rosso come "tutto il giorno".
+            var dayRef = currentHour === 'all'
+                ? (agg && agg.riskWindow ? riskWindowText(agg.riskWindow) + ' (non tutta la giornata)' : 'tutta la giornata selezionata')
+                : 'ore ' + String(currentHour).padStart(2, '0') + ':00';
+            note = '<div class="rs-note"><b>Colore = rischio piu\' alto fra TUTTI i pericoli previsti</b> (livello = massimo dei livelli): ' + escapeHtml(riskDriverLine(agg, risks)) + '. Riferito a ' + escapeHtml(dayRef) + '.</div>';
         }
 
         el.innerHTML = head + '<ul class="rs-list">' + list + '</ul>' + note;
@@ -23553,6 +23574,10 @@ function toggleForecastMaps() {
             r2Level: Math.max(aggA.r2Level || 0, aggB.r2Level || 0),
             r2Reason: ((aggB.r2Level || 0) > (aggA.r2Level || 0)) ? (aggB.r2Reason || '') : (aggA.r2Reason || ''),
             r2Hour: ((aggB.r2Level || 0) > (aggA.r2Level || 0)) ? aggB.r2Hour : aggA.r2Hour,
+            // NUOVA RICHIESTA — la finestra oraria NON e' specifica del modello: va
+            // propagata attraverso il merge dual, altrimenti tooltip e riepilogo
+            // non mostrerebbero mai "dalle HH:MM in poi".
+            riskWindow: (aggA && aggA.riskWindow) || (aggB && aggB.riskWindow) || null,
             _dualDominant: dominant,
             _dualDisagreement: disagreement,
             _dualSources: { a: sourceA, b: sourceB },
@@ -23640,6 +23665,15 @@ function toggleForecastMaps() {
     // Chiave tempo della cache DUAL: 'all' per la vista giornaliera, altrimenti l'ora come
     // stringa ('0'..'23'). La cache dualAggCache vive per (provinceIdx, day, hour).
     function dualHourKey() {
+        // NUOVA RICHIESTA — in vista giornaliera del giorno 0 la cache dipende anche
+        // dall'ora corrente: senza questo, il merge verrebbe riusato con il taglio
+        // del mattino anche quando l'utente apre la pagina la sera.
+        if (currentHour === 'all' && currentDay === 0 && typeof weatherStore !== 'undefined' && weatherStore) {
+            var ks = Object.keys(weatherStore);
+            var ref = weatherStore[0] || (ks.length ? weatherStore[ks[0]] : null);
+            var w = riskDayWindow(ref);
+            if (w.active) return 'all@' + w.fromHour + (w.pastEnd ? 'e' : '');
+        }
         return (currentHour === 'all') ? 'all' : String(currentHour);
     }
 
@@ -25077,6 +25111,14 @@ function toggleForecastMaps() {
     // la classe scende di UN livello, con il motivo scritto nel tooltip.
     var CONV_CAPE_SAT = 800;
     var CONV_RH_DRY = 50;
+    // A4 — WMAXSHEAR: UNA sola soglia condivisa (CONV_WMS_MIN). Prima c'erano tre
+    // valori diversi: 500 (envWmsLow), 800 (ORG_WMS_MIN usata da orgFromAgg) e
+    // 1000 (envWms), e `var env` era dichiarato DUE volte: il ramo >=500 costruiva
+    // un motivo che annunciava l'organizzazione ma non entrava in `env`, perche'
+    // la seconda dichiarazione lo sovrascriveva. Scelta: 800 — e' la soglia usata
+    // dalla classificazione dell'organizzazione ATTIVA (ORG_WMS_MIN), quindi la si
+    // adotta anche qui invece dei 1000/500 storici.
+    var CONV_WMS_MIN = 800;
     function assessConvOrg(o) {
         o = o || {};
         var cape = (o.cape == null || !isFinite(o.cape)) ? null : o.cape;
@@ -25093,14 +25135,12 @@ function toggleForecastMaps() {
         // Il codice WMO è istantaneo; il totale di pioggia è sull'ora precedente.
         var trigger = isThunderstormCode(o.code);
         var mesoPotential = !!o.mesoPotential;
-        var envWms = wms6 >= 1000;
-        var envWmsLow = wms6 >= 500;
+        // A4 — unico gate WMAXSHEAR condiviso; niente ramo "basso" parallelo.
+        var envWms = wms6 >= CONV_WMS_MIN;
         var envSrh = (srh3 != null && srh3 >= 80) && (cape != null && cape >= 150);
-        var env = envWms || envWmsLow || envSrh;
         var env = envWms || envSrh;
         var reasons = [];
-        if (envWms) reasons.push('WMAXSHEAR 0-6 km ' + Math.round(wms6) + ' m2/s2 (>=1000)');
-        if (!envWms && envWmsLow) reasons.push('WMAXSHEAR 0-6 km ' + Math.round(wms6) + ' m2/s2 (>=500, severo probabile)');
+        if (envWms) reasons.push('WMAXSHEAR 0-6 km ' + Math.round(wms6) + ' m2/s2 (>=' + CONV_WMS_MIN + ')');
         if (envSrh) reasons.push('SRH 0-3 km ' + Math.round(srh3) + ' m2/s2 con CAPE ' + Math.round(cape) + ' J/kg');
         if (cape != null && cape > CONV_CAPE_SAT) reasons.push('CAPE oltre 800 J/kg: saturato per la classificazione');
         if (trigger) reasons.push('Segnale temporalesco istantaneo nella stessa ora: weather code ' + o.code +
@@ -25120,7 +25160,10 @@ function toggleForecastMaps() {
                 // ordinario di pari livello (vedi zoneRiskRank): dipinge la provincia solo
                 // quando non c'e' nulla di piu' concreto.
                 kind = 'potential'; level = 1;
-                if (mesoPotential) reasons.push('Ambiente compatibile con potenziale mesociclonico; temporale non ancora previsto in questa ora');
+                // A5 — stessa terminologia neutrale fuori da Sviluppo.
+                if (mesoPotential) reasons.push(isSviluppoActive
+                    ? 'Ambiente compatibile con potenziale mesociclonico; temporale non ancora previsto in questa ora'
+                    : 'Ambiente compatibile con potenziale cella organizzata; temporale non ancora previsto in questa ora');
             }
             if (rhMid != null && rhMid < CONV_RH_DRY) {
                 level = Math.max(1, level - 1);
@@ -25210,6 +25253,74 @@ function toggleForecastMaps() {
     // null (mai il massimo del giorno: sarebbe lo stesso errore) e la condizione
     // che lo usa non scatta. I termini aggregati del giorno (rain/gustMax/probMax)
     // restano i massimi giornalieri: sono corretti per la vista giornaliera.
+    // ========================================================================
+    // NUOVA RICHIESTA — MAPPA RISCHI, GIORNO 0: SOLO DALL'ORA CORRENTE IN POI.
+    // Il livello del giorno 0 si decide nei loop 0..23 di computeR2ForStore e
+    // computeDayMaxForStore: prima prendevano il massimo su TUTTE le 24 ore, quindi
+    // a sera la mappa mostrava ancora le criticita' della mattina. I giorni 1 e 2
+    // (currentDay !== 0) e la vista oraria restano INTEGRALI: nessun taglio.
+    // L'ora e' quella LOCALE del browser (Date); l'indice di partenza si ricava dai
+    // valid_time del dataset (store.hourly.time, orario locale Europe/Rome secondo
+    // metadata.timezone): prima ora con valid_time >= ora corrente.
+    // Se l'ora corrente supera l'ULTIMO valid_time del giorno 0 si mostra comunque
+    // l'ultima ora disponibile con etichetta "fine previsione": mai un colore vuoto
+    // silenzioso, e mai un indice fuori dagli array.
+    // ========================================================================
+    function riskValidTimeParts(iso) {
+        if (typeof iso !== 'string') return null;
+        var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{1,2}):(\d{2})/.exec(iso);
+        if (!m) return null;
+        var y = +m[1], mo = +m[2], da = +m[3], hh = +m[4], mm = +m[5];
+        if (!isFinite(y) || !isFinite(mo) || !isFinite(da) || !isFinite(hh) || !isFinite(mm)) return null;
+        if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+        return { ms: new Date(y, mo - 1, da, hh, mm).getTime(), hh: hh, mm: mm };
+    }
+    function riskDayWindow(store) {
+        var none = { active: false, fromHour: 0, fromLabel: '', pastEnd: false };
+        // Solo giorno 0 e solo vista giornaliera (e' li' che si fa il max delle 24 ore).
+        if (currentDay !== 0 || currentHour !== 'all') return none;
+        var nowMs = Date.now();
+        var nd = new Date(nowMs);
+        // "Dall'ora corrente in poi": si include l'ORA in corso, non solo le successive.
+        var nowHourMs = new Date(nd.getFullYear(), nd.getMonth(), nd.getDate(), nd.getHours(), 0, 0, 0).getTime();
+        // Il dataset derivato NON porta `hourly.time`: i valid_time orari si
+        // ricostruiscono da datasetState.day0 (stessa fonte usata da datasetDateKey
+        // e da ensDetFromDataset). Se una store ha `hourly.time` esplicito lo si usa.
+        var times = (store && store.hourly && store.hourly.time) ? store.hourly.time : null;
+        var dayKey = (typeof datasetDateKey === 'function') ? datasetDateKey(0) : '';
+        if (!dayKey && typeof datasetState !== 'undefined' && datasetState && datasetState.day0) dayKey = datasetState.day0;
+        var from = -1, lastIdx = -1, fromHh = 0, fromMm = 0;
+        for (var h = 0; h < 24; h++) {
+            var hh = h, mm = 0;
+            var v = (times && h < times.length) ? riskValidTimeParts(times[h]) : null;
+            if (v) { hh = v.hh; mm = v.mm; }
+            // Date.parse senza "Z" e' ORA LOCALE: coerente con new Date() del browser.
+            var validMs = v ? v.ms : (dayKey ? Date.parse(dayKey + 'T' + String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0') + ':00') : NaN);
+            if (!isFinite(validMs)) continue;
+            lastIdx = h;
+            // Prima ora il cui valid_time e' l'ora corrente o una successiva
+            // (alle 08:00 e alle 08:30 -> 08:00; l'ora in corso e' inclusa).
+            if (from < 0 && validMs >= nowHourMs) { from = h; fromHh = hh; fromMm = mm; }
+        }
+        var pastEnd = false;
+        if (from < 0) {
+            // ora corrente oltre l'ultimo valid_time del giorno 0 (dataset fermo):
+            // si usa l'ULTIMA ora disponibile, dichiarandolo con l'etichetta.
+            from = lastIdx >= 0 ? lastIdx : 23;
+            pastEnd = true;
+            var vEnd = (times && from < times.length) ? riskValidTimeParts(times[from]) : null;
+            if (vEnd) { fromHh = vEnd.hh; fromMm = vEnd.mm; }
+            else if (dayKey) { fromHh = from; fromMm = 0; }
+        }
+        var label = String(fromHh).padStart(2, '0') + ':' + String(fromMm).padStart(2, '0');
+        return { active: true, fromHour: from, fromLabel: label, pastEnd: pastEnd };
+    }
+    function riskWindowText(w) {
+        if (!w || !w.active) return '';
+        return w.pastEnd
+            ? 'ultima ora disponibile (fine previsione, ' + w.fromLabel + ')'
+            : 'dalle ' + w.fromLabel + ' in poi';
+    }
     function r2HourlyInput(store, ix) {
         var h = store.hourly || {};
         return {
@@ -25222,9 +25333,14 @@ function toggleForecastMaps() {
     }
     function computeR2ForStore(store) {
         var d = currentDay, h = store.hourly, daily = store.daily || {};
+        // NUOVA RICHIESTA — giorno 0: si tagliano BOTH i loop qui sotto, non solo il
+        // riepilogo. E' QUI che si decide il livello della provincia (bestLevel),
+        // quindi e' qui che va applicata la finestra "dall'ora corrente in poi".
+        var win = riskDayWindow(store);
+        var hStart = win.active ? win.fromHour : 0;
         var rainSum = 0, gustMax = 0, probMax = 0;
         var k, ix;
-        for (k = 0; k < 24; k++) {
+        for (k = hStart; k < 24; k++) {
             ix = d * 24 + k;
             var rv = h.precipitation ? h.precipitation[ix] : null;
             if (rv != null) rainSum += rv;
@@ -25236,16 +25352,24 @@ function toggleForecastMaps() {
         }
         var rain = (daily.precipitation_sum && daily.precipitation_sum[d] != null) ? daily.precipitation_sum[d] : rainSum;
         var prob = (daily.precipitation_probability_max && daily.precipitation_probability_max[d] != null) ? daily.precipitation_probability_max[d] : probMax;
+        if (win.active) {
+            // I totali del dataset coprono l'intera giornata: con il taglio si usano
+            // le somme delle SOLE ore residue, altrimenti la minima del mattino
+            // resterebbe dentro il livello anche a sera.
+            rain = rainSum; prob = probMax;
+        }
         var aggLevel = riskLevelR2({ rain: rain, gusts: gustMax, prob: prob });
         var aggReason = riskR2Reason({ rain: rain, gusts: gustMax, prob: prob });
         var bestLevel = aggLevel, bestReason = aggReason, bestHour = -1;
-        for (k = 0; k < 24; k++) {
+        for (k = hStart; k < 24; k++) {
             ix = d * 24 + k;
             var o = r2HourlyInput(store, ix);
             var lv = riskLevelR2(o);
             if (lv > bestLevel) { bestLevel = lv; bestReason = riskR2Reason(o); bestHour = ix; }
         }
-        return { level: bestLevel, reason: bestReason, hour: bestHour };
+        return { level: bestLevel, reason: bestReason, hour: bestHour,
+                 cutFromHour: win.active ? win.fromHour : -1,
+                 cutText: riskWindowText(win), cutPastEnd: win.active ? win.pastEnd : false };
     }
 
     // Etichette in parole per il riepilogo del colore provincia.
@@ -25274,7 +25398,9 @@ function toggleForecastMaps() {
     //   shear 0-6 km >= 18 m/s          DLS 15-18 m/s = convezione organizzata
     //   SRH 0-3 km >= 100 m2/s2         elicitazione significativa (Ingrosso et al. 2020)
     // Il calcolo di CAPE/shear/SRH/SCP NON cambia: cambia solo la classificazione del testo.
-    var ORG_WMS_MIN = 800, ORG_SHEAR_MIN = 18, ORG_SRH_MIN = 100;
+    // A4 — ORG_WMS_MIN e' la stessa costante condivisa di assessConvOrg: una sola
+    // soglia WMAXSHEAR (800) in tutta la classificazione dell'organizzazione.
+    var ORG_WMS_MIN = CONV_WMS_MIN, ORG_SHEAR_MIN = 18, ORG_SRH_MIN = 100;
     function orgClassOf(r) {
         if (!r) return null;
         if (r.orgClass) return r.orgClass;
@@ -25282,16 +25408,20 @@ function toggleForecastMaps() {
         // vecchio bit, che corrisponde alla classe "ambiente favorevole".
         return r.organized ? 'env' : null;
     }
+    // A5 — la parola "mesociclone" non deve comparire con Sviluppo OFF, NEI testi
+    // NEGLI attributi title. orgPhrase/orgShortOf sono l'unico punto che emette
+    // "possibile mesociclone": il gate e' messo qui, alla fonte, cosi' copre anche
+    // riskDiscHtml:5532, il riepilogo hover e il badge sticky.
     function orgPhrase(r) {
         var c = orgClassOf(r);
-        if (c === 'meso') return 'possibile mesociclone';
+        if (c === 'meso') return isSviluppoActive ? 'possibile mesociclone' : 'possibile cella organizzata';
         if (c === 'env') return 'ambiente favorevole';
         if (c === 'none') return '';
         return '';
     }
     function orgShortOf(r) {
         var c = orgClassOf(r);
-        if (c === 'meso') return 'possibile mesociclone';
+        if (c === 'meso') return isSviluppoActive ? 'possibile mesociclone' : 'possibile cella organizzata';
         if (c === 'env') return 'ambiente favorevole';
         if (c === 'none') return '';
         return '';
@@ -25316,7 +25446,8 @@ function toggleForecastMaps() {
         if (!r || r.id !== 'thunderstorm') return '';
         var c = orgClassOf(r);
         if (!c) return '';
-        if (c === 'meso') return ' Possibile mesociclone previsto.';
+        // A5 — stessa regola di orgPhrase/orgShortOf, anche nella nota d'impatto.
+        if (c === 'meso') return isSviluppoActive ? ' Possibile mesociclone previsto.' : ' Possibile cella organizzata prevista.';
         if (c === 'env') return ' Ambiente favorevole.';
         return '';
     }    // Un solo record per provincia: se i due modelli non concordano si mostra la classe PIU'
@@ -25338,7 +25469,11 @@ function toggleForecastMaps() {
     function riskComponentLabel(r) {
         if (!r) return '';
         if (r.id === 'supercell') {
-            if (r.potential && r.mesoPotential) return 'Potenziale mesociclonico (ambiente NWP; innesco non richiesto)';
+            // A5 — il potenziale e' visibile anche con Sviluppo OFF: niente
+            // "mesociclonico" nel testo della componente in quel caso.
+            if (r.potential && r.mesoPotential) return isSviluppoActive
+                ? 'Potenziale mesociclonico (ambiente NWP; innesco non richiesto)'
+                : 'Potenziale di cella organizzata (ambiente NWP; innesco non richiesto)';
             if (r.potential) return CONV_POTENTIAL_LABEL;
             if (r.level >= 5 && isSviluppoActive) return 'Mesociclone (SCP >= 1, shear >= 20 m/s, SRH >= 100 m2/s2) - ambiente favorevole NWP, non osservato';
             return 'convezione organizzata prevista (evento con innesco)';
@@ -26588,9 +26723,13 @@ function toggleForecastMaps() {
                 return scH[hi];
             }
             case 'fog': {
-                // Soglie IDENTICHE a computeActiveRisks (1.2.4.46: 70 / 85 / 95): un punteggio
-                // che da' il badge di livello N dipinge la provincia con il colore del livello N.
-                // Sotto 70 nessun colore (grigio neutro): come le altre metriche senza dato.
+                // A8 — COMMENTO CORRETTO (codice invariato). Le soglie della scala nebbia
+                // sono 75 / 50 / 25, coerenti con la legenda (riga ~27772: indice 0-24,
+                // 25-49, 50-74, 75-100) e con FOG_BAND_COLORS[0..3]. Il vecchio commento
+                // diceva "IDENTICHE a computeActiveRisks (70/85/95)" ed era falso:
+                // computeActiveRisks non ha SOGLIE di punteggio, emette il badge di nebbia
+                // solo con codice WMO 45/48 e livello 1 (riga ~5762). Sotto 25 nessun
+                // colore (grigio neutro): come le altre metriche senza dato.
                 var fogLv = (value >= 75) ? 3 : (value >= 50) ? 2 : (value >= 25) ? 1 : 0;
                 return FOG_BAND_COLORS[fogLv];
             }
@@ -26747,8 +26886,13 @@ function toggleForecastMaps() {
         var daily = store.daily;
         var elev = store.elevation || 0;
         var d = currentDay;
+        // NUOVA RICHIESTA — giorno 0: anche i picchi convettivi/giandine/vorticosi
+        // devono venire dalle sole ore residue, altrimenti l'override del livello
+        // (dm.scLevel >= 5) riporterebbe il mesociclone del mattino a sera.
+        var winDM = riskDayWindow(store);
+        var hStartDM = winDM.active ? winDM.fromHour : 0;
         var bestIdx = -1, bestCape = 0, h;
-        for (h = 0; h < 24; h++) {
+        for (h = hStartDM; h < 24; h++) {
             var ci0 = d * 24 + h;
             var cv0 = hourly.cape?.[ci0] ?? 0;
             if (cv0 > bestCape) { bestCape = cv0; bestIdx = ci0; }
@@ -26763,7 +26907,7 @@ function toggleForecastMaps() {
         var vorLv = 0, dnwLv = 0, vorHour = -1, dnwHour = -1, vorPeak = null, dnwPeak = null;
         var hailSizePeak = null, hailSizeHour = -1, hailProbPeak = null, hailProbHour = -1;
         var scMesoPotential = false;
-        for (h = 0; h < 24; h++) {
+        for (h = hStartDM; h < 24; h++) {
             var ix = d * 24 + h;
             var code = hourly.weathercode?.[ix] ?? 0;
             var rain = hourly.precipitation?.[ix] ?? 0;
@@ -26831,7 +26975,8 @@ function toggleForecastMaps() {
             downburst: dnwPeak || { level: dnwLv, peakHour: dnwHour },
             scLevel: scLevel, scHour: scHour, scReal: scReal,
             scKind: scKind, scRhMid: scRhMid, scRhHours: scRhHours,
-            scDryVeto: scDryVeto, scReasons: scReasons, scMesoPotential: scMesoPotential
+            scDryVeto: scDryVeto, scReasons: scReasons, scMesoPotential: scMesoPotential,
+            cutFromHour: winDM.active ? winDM.fromHour : -1, cutText: riskWindowText(winDM)
         };
     }
 
@@ -26916,8 +27061,13 @@ function toggleForecastMaps() {
             // vorticosi e downburst col max sulle ore convettive, ora rappresentativa
             // coerente con l'eventuale badge. Cache per store+giorno: evita di ricalcolare
             // 24h a ogni render/aggiornamento metrica.
-            if (!store.__dmCache || store.__dmCache.day !== currentDay) {
-                store.__dmCache = { day: currentDay, v: computeDayMaxForStore(store) };
+            var _dw = riskDayWindow(store);
+            if (!store.__dmCache || store.__dmCache.day !== currentDay ||
+                store.__dmCache.from !== _dw.fromHour || !!store.__dmCache.pastEnd !== _dw.pastEnd) {
+                // NUOVA RICHIESTA — la cache deve dipendere anche dalla finestra oraria:
+                // altrimenti, cambiando ora, verrebbe riusato il massimo del mattino.
+                store.__dmCache = { day: currentDay, from: _dw.fromHour, pastEnd: _dw.pastEnd,
+                                    v: computeDayMaxForStore(store) };
             }
             dm = store.__dmCache.v;
             if (dm && dm.repIdx >= 0) {
@@ -26944,8 +27094,12 @@ function toggleForecastMaps() {
             };
             r2 = { level: riskLevelR2(r2o), reason: riskR2Reason(r2o), hour: r2ix };
         } else {
-            if (!store.__r2Cache || store.__r2Cache.day !== currentDay) {
-                store.__r2Cache = { day: currentDay, v: computeR2ForStore(store) };
+            var _rw = riskDayWindow(store);
+            if (!store.__r2Cache || store.__r2Cache.day !== currentDay ||
+                store.__r2Cache.from !== _rw.fromHour || !!store.__r2Cache.pastEnd !== _rw.pastEnd) {
+                // NUOVA RICHIESTA — vedi __dmCache: ricalcola al cambiare della finestra.
+                store.__r2Cache = { day: currentDay, from: _rw.fromHour, pastEnd: _rw.pastEnd,
+                                    v: computeR2ForStore(store) };
             }
             r2 = store.__r2Cache.v;
             if (dm && dm.scLevel >= 5 && dm.scKind === 'event') {
@@ -27092,6 +27246,9 @@ function toggleForecastMaps() {
             r2Level: r2 ? r2.level : 0,
             r2Reason: r2 ? r2.reason : 'nessun rischio rilevante',
             r2Hour: r2 ? r2.hour : -1,
+            // NUOVA RICHIESTA — finestra oraria del giorno 0, usata per le etichette
+            // visive (tooltip hover e nota del riepilogo). null quando non e' attiva.
+            riskWindow: (function () { var w = riskDayWindow(store); return w.active ? w : null; })(),
             fog: (function () {
                 // Separare il segnale WMO del modello dall'indice ambientale euristico.
                 var fv = fogViewForStore(store);
@@ -30883,8 +31040,11 @@ function renderContinuousOverlay() {
             bestIdx = currentDay * 24 + parseInt(currentHour, 10);
             severeIndices = computeSevereIndices(dataSource.hourly, bestIdx);
         } else {
-            if (!dataSource.__dmCache || dataSource.__dmCache.day !== currentDay) {
-                dataSource.__dmCache = { day: currentDay, v: computeDayMaxForStore(dataSource) };
+            var _dwu = riskDayWindow(dataSource);
+            if (!dataSource.__dmCache || dataSource.__dmCache.day !== currentDay ||
+                dataSource.__dmCache.from !== _dwu.fromHour || !!dataSource.__dmCache.pastEnd !== _dwu.pastEnd) {
+                dataSource.__dmCache = { day: currentDay, from: _dwu.fromHour, pastEnd: _dwu.pastEnd,
+                                         v: computeDayMaxForStore(dataSource) };
             }
             var dmU = dataSource.__dmCache.v;
             if (dmU && dmU.repIdx >= 0) {

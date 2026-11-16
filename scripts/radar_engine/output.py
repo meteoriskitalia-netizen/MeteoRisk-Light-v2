@@ -165,6 +165,49 @@ def _enrich_opera_status(payload, previous):
     opera["note"] = _opera_note(opera)
 
 
+def _doppler_coverage_summary(bundle, previous):
+    """Riepilogo dello stato della copertura Doppler per latest.json.
+
+    `opera.status` parla del MOSAICO CIRRUS: NON e' la copertura Doppler.
+    Questa nasce dagli SCAN VRADH per sito e vive in un blocco separato, con
+    stato esplicito (ok | unavailable | stale), motivo vero ETA' dell'ultima
+    geometria valida. Nessuna feature/array di raggi entra in latest.json.
+    """
+    dop = getattr(bundle, "doppler", None)
+    if not isinstance(dop, dict) or not dop:
+        return None
+    status = dop.get("coverage_status")
+    if status not in ("ok", "unavailable", "stale"):
+        return None
+    prev = (previous or {}).get("doppler_coverage") or {}
+    last_ok = prev.get("last_ok_utc")
+    if status == "ok":
+        last_ok = getattr(bundle, "generated_at_iso", None) or last_ok
+    counts = dop.get("coverage_counts") or {}
+    note = dop.get("coverage_status_note") or {
+        "ok": "Copertura Doppler calcolata dagli scan VRADH correnti.",
+        "unavailable": ("Copertura Doppler non disponibile: nessuno scan "
+                        "VRADH per sito."),
+        "stale": ("Copertura Doppler parzialmente conservata: siti senza "
+                  "scan VRADH; la geometria non e' corrente."),
+    }.get(status)
+    return {
+        "coverage_status": status,
+        "coverage_null_reason": dop.get("coverage_null_reason"),
+        "stale": bool(dop.get("coverage_stale")),
+        "last_valid_scan": dop.get("coverage_last_valid_scan"),
+        "stale_age_seconds": dop.get("coverage_stale_age_seconds"),
+        "last_ok_utc": last_ok,
+        "sites_ok": counts.get("sites_current"),
+        "sites_stale": counts.get("sites_stale"),
+        "polygons": counts.get("polygons"),
+        "note": note,
+        "scope": ("copertura VRADH per sito (SCAN OPERA): NON il mosaico "
+                  "CIRRUS descritto nel blocco 'opera'"),
+        "detail_path": "data/radar/doppler_coverage.geojson",
+    }
+
+
 def build_latest(bundle, engine_meta=None, previous=None):
     """latest.json (stato del run, mai dati raw)."""
     payload = {
@@ -295,8 +338,17 @@ def build_latest(bundle, engine_meta=None, previous=None):
             "volume_source": vol.get("volume_source"),
             "volume_acquisition": vol.get("volume_acquisition"),
             "cells_count": len(vol.get("cells") or []),
-            "path": getattr(bundle, "volume_path", None),
+            # 17/11/2026 (A7): MAI il path assoluto del runner. Il file live e'
+            # sempre data/radar/volume.json (coerente con i detail_path qui
+            # sopra). Se il volume non e' stato pubblicato resta null.
+            "path": ("data/radar/volume.json"
+                     if getattr(bundle, "volume_path", None) else None),
         }
+    # 16/11/2026 — COPERTURA DOPPLER: stato esplicito, separato da `opera`
+    # (che descrive il mosaico CIRRUS, non gli SCAN VRADH per sito).
+    covsum = _doppler_coverage_summary(bundle, previous)
+    if covsum is not None:
+        payload["doppler_coverage"] = covsum
     return payload
 
 

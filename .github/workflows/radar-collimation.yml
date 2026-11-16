@@ -2,7 +2,7 @@ name: Radar - Doppler coverage e collimazione OPERA
 
 # 1.2.4.27 — Harness MANUALE (workflow_dispatch), nessun cron.
 # Produce:
-#   data/radar/doppler_coverage.geojson  (confine della copertura VRADH)
+#   data/radar/doppler_coverage_harness.geojson  (confine VRADH, HARNESS MANUALE)
 #   data/radar/collimation.json          (confronto DPC <-> OPERA per anello)
 # e li pubblica come artifact. Il commit su main e' OPZIONALE (input
 # `commit`, default false): main riceve gia' commit automatici dai workflow
@@ -59,7 +59,7 @@ jobs:
           fi
           python -m radar_engine.doppler_coverage \
             --day "$DAY" \
-            --out ../data/radar/doppler_coverage.geojson
+            --out ../data/radar/doppler_coverage_harness.geojson
 
       - name: Collimazione DPC <-> OPERA
         working-directory: scripts
@@ -75,8 +75,8 @@ jobs:
 
       - name: Riepilogo
         run: |
-          ls -l data/radar/doppler_coverage.geojson data/radar/collimation.json || true
-          python -c "import json,os; p='data/radar/doppler_coverage.geojson'; print('doppler counts:', json.load(open(p,encoding='utf-8')).get('counts')) if os.path.exists(p) else None"
+          ls -l data/radar/doppler_coverage_harness.geojson data/radar/collimation.json || true
+          python -c "import json,os; p='data/radar/doppler_coverage_harness.geojson'; print('doppler counts:', json.load(open(p,encoding='utf-8')).get('counts')) if os.path.exists(p) else None"
           python -c "import json,os; p='data/radar/collimation.json'; d=json.load(open(p,encoding='utf-8')) if os.path.exists(p) else None; print('collimation:', {k:d.get(k) for k in ('generated_at','n_frames','n_pairs')}) if d else None"
 
       - name: Upload artifact
@@ -84,7 +84,7 @@ jobs:
         with:
           name: radar-opera-report
           path: |
-            data/radar/doppler_coverage.geojson
+            data/radar/doppler_coverage_harness.geojson
             data/radar/collimation.json
           if-no-files-found: warn
           retention-days: 14
@@ -94,7 +94,7 @@ jobs:
         run: |
           git config user.name "meteorisk-bot"
           git config user.email "meteorisk-bot@users.noreply.github.com"
-          git add data/radar/doppler_coverage.geojson data/radar/collimation.json
+          git add data/radar/doppler_coverage_harness.geojson data/radar/collimation.json
           if git diff --cached --quiet; then
             echo "nessuna modifica da committare"
             exit 0

@@ -132,16 +132,16 @@ function buildContext() {
 }
 
 const APP_VER = (() => {
-  // 1.3.0.0: la versione dichiarata e' la chiave VERSION= del file VERSION.
+  // 1.3.0.2: la versione dichiarata e' la chiave VERSION= del file VERSION.
   // MAJOR.MINOR.PATCH.BUILD non coincide piu' con la stringa di release:
-  // BUILD=130 e' il contatore globale delle build, mentre la release e' 1.3.0.0.
+  // BUILD=132 e' il contatore globale delle build, mentre la release e' 1.3.0.2.
   const declared = (VERSION_SRC.match(/^VERSION=(.+)$/m) || [])[1];
   return declared ? declared.trim() : '';
 })();
 
 // ---------- A. STATICHE DI SICUREZZA (prima di eseguire) ----------
 ok('A1: CACHE_NAME e\' la costante del modulo', /var CACHE_NAME = '[^']+';/.test(swSrc));
-// 1.3.0.0: il valore atteso e' la versione corrente (APP_VER), non un letterale congelato.
+// 1.3.0.2: il valore atteso e' la versione corrente (APP_VER), non un letterale congelato.
 ok('A2: CACHE_NAME versionata con la versione della release', new RegExp("var CACHE_NAME = 'mri-" + APP_VER.replace(/\./g, '\\.') + "';").test(swSrc), 'app=' + APP_VER);
 ok('A2b: CACHE_NAME corrisponde alla chiave VERSION= dichiarata', swSrc.indexOf("'mri-" + APP_VER + "'") >= 0);
 ok('A3: precache minima dichiarata (solo index.html + manifest + offline.html), nessun addAll',
@@ -170,8 +170,8 @@ ok('A12: TTL dichiarati (tile 7 giorni, frame 30 minuti, 6 frame per famiglia)',
   /var FRAME_TTL_MS = 30 \* 60 \* 1000;/.test(swSrc) &&
   /var MAX_FRAMES_PER_FAMILY = 6;/.test(swSrc));
 ok('A13: cache separate per tile e frame (la potatura non tocca i WebP previsionali)',
-  /var TILE_CACHE = 'mri-tiles-1.3.0.0';/.test(swSrc) &&
-  /var FRAME_CACHE = 'mri-frames-1.3.0.0';/.test(swSrc) &&
+  /var TILE_CACHE = 'mri-tiles-1.3.0.2';/.test(swSrc) &&
+  /var FRAME_CACHE = 'mri-frames-1.3.0.2';/.test(swSrc) &&
   /var APP_CACHES = \[CACHE_NAME, TILE_CACHE, FRAME_CACHE\];/.test(swSrc));
 ok('A14: satellite/manifest.json usa il network-first degli indici',
   /RE_SAT_MANIFEST\.test\(path\)\) \{ event\.respondWith\(networkFirstIndex\(request\)\); return; \}/.test(swSrc));

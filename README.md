@@ -6,9 +6,11 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.3.0.0
+## Versione attiva: 1.3.0.2
 
-- File applicativo: `mri-light-1.3.0.0.html` (`APP_VERSION = '1.3.0.0'`; changelog in-app) + `sw.js` (`CACHE_NAME = 'mri-1.3.0.0'`, `TILE_CACHE = 'mri-tiles-1.3.0.0'`, `FRAME_CACHE = 'mri-frames-1.3.0.0'`).
+- File applicativo: `mri-light-1.3.0.2.html` (`APP_VERSION = '1.3.0.2'`; changelog in-app) + `sw.js` (`CACHE_NAME = 'mri-1.3.0.2'`, `TILE_CACHE = 'mri-tiles-1.3.0.2'`, `FRAME_CACHE = 'mri-frames-1.3.0.2'`).
+- **1.3.0.2 - A2/A3/A4/A5/A6/A7/A8 + ore future**: copertura Doppler e dettagli mai scritti come dato inventato (null_reason espliciti); volume valido protetto e path harness separata nel workflow; soglia WMAXSHEAR unificata a 800 e frase possibile mesociclone solo con Sviluppo attivo anche nei title; commento nebbia corretto. Mappa rischi del giorno 0 calcolata solo dalle ore correnti in poi (dalle HH:MM), giorni 1 e 2 integrali e invariati. 631 test radar engine, 0 failure.
+
 - **1.3.0.0 â€” Doppler / mesocicloni / volume 3D**: couplets VRADH reali con Nyquist verificato e 4 stati onesti; tracking della firma rotante fra scansioni senza etichette di conferma; volume 3D dai 10 CAPPI DPC allineati pubblicato in `data/radar/volume.json`. Riepiloghi in `latest.json`, payload completi in `data/radar/doppler_analysis.json` e `mesocyclone_tracks.json`. Morfologia CAPPI separata dalla rotazione.
 - **Revisione logica convettiva**: potenziale NWP e innesco temporalesco sono distinti. Sviluppo espone i badge di potenziale mesociclonico anche senza attivare Nuovi Indici. Il codice WMO identifica il fenomeno istantaneo e non richiede anche pioggia cumulata; il downburst riconosce anche i rovesci convettivi. Il detector a livello zero non produce piu' livelli artificiali.
 - **Grandine e nebbia**: massimi giornalieri per dimensione/probabilita' grandine indipendenti dall'ora rappresentativa CAPE; precipitazione convettiva distinta dalla pioggia totale. Codici WMO 45/48 conservati anche senza T/Td e descritti come indice euristico non probabilistico.

@@ -2321,9 +2321,11 @@ def _write_1_3_detail(bundle, out_dir):
     """1.3 — Pubblica i payload Doppler COMPLETI in file dedicati, atomici.
 
     I dati sono quelli REALI restituiti dal modulo Doppler: qui non si calcola
-    nulla e non si inventa nulla. Se un payload e' None non si scrive alcun
-    file (nessun artefatto vuoto). Solleva in caso di errore di scrittura: il
-    chiamante lo trasforma in warning senza rompere il run.
+    nulla e non si inventa nulla. 17/11/2026 (A3): i file esistono SEMPRE;
+    quando non ci sono scan VRADH si pubblica uno stato esplicito con
+    `null_reason="no_opera_vradh_data"` (nessun dato inventato, nessun file
+    mancante). Solleva in caso di errore di scrittura: il chiamante lo
+    trasforma in warning senza rompere il run.
     """
     import tempfile
     specs = (
@@ -2332,7 +2334,18 @@ def _write_1_3_detail(bundle, out_dir):
     )
     for name, obj in specs:
         if not isinstance(obj, dict) or not obj:
-            continue
+            # A3: il file DEVE esistere anche senza VRADH. Stato dichiarato,
+            # non un artefatto vuoto e non un payload con dati inventati.
+            obj = {
+                "schema": "meteorisk.doppler_detail_status/1",
+                "status": "unavailable",
+                "available": False,
+                "null_reason": "no_opera_vradh_data",
+                "generated_at_utc": getattr(bundle, "generated_at_iso", None),
+                "detail": name,
+                "note": ("Nessuno scan VRADH OPERA disponibile: il layer Doppler "
+                         "non ha prodotto il payload. Nessun dato inventato."),
+            }
         text = json.dumps(obj, ensure_ascii=False, allow_nan=False,
                           default=str, separators=(",", ":"))
         json.loads(text)  # valida prima della sostituzione atomica
@@ -2372,6 +2385,24 @@ def _publish_volume(bundle, out_dir, config=None):
     vmi_rd = getattr(bundle, "_volume_vmi_rd", None)
     timestamp_utc = (getattr(ref_rd, "time_iso", None)
                      or bundle.generated_at_iso)
+    # A7: senza CAPPI non si chiama il publisher (evita di scrivere un
+    # volume_available:false sopra un volume valido). Lo stato viene
+    # dichiarato nel payload in memoria per latest.json.
+    if not cappi:
+        bundle.volume = {
+            "schema": vpub.SCHEMA,
+            "status": "unavailable",
+            "volume_available": False,
+            "null_reason": "no_cappi_in_this_run",
+            "generated_at_utc": timestamp_utc,
+            "timestamp": timestamp_utc,
+            "cells": [],
+        }
+        bundle.volume_path = None
+        bundle.warnings.append(
+            "volume publish skipped: no CAPPI in this run "
+            "(ultimo volume valido conservato, non sovrascritto)")
+        return None
     vcfg = (config or {}).get("volume") or {}
     thresholds = tuple(int(t) for t in (
         vcfg.get("thresholds") or vpub.DEFAULT_THRESHOLDS))

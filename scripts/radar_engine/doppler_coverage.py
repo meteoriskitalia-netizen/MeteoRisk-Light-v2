@@ -481,6 +481,12 @@ def build_geojson(day=None, min_range_km=5.0, max_sites=None, workers=6,
                 progress(s, f"ok:{len(feats)}")
     return {
         "type": "FeatureCollection",
+        # 17/11/2026 (A6): questo e' il canale MANUALE (harness), non il file
+        # operativo scritto da doppler.attach() nel run radar automatico.
+        # I due producono schemi diversi e NON devono condividere la path.
+        "schema_version": 2,
+        "channel": "manual_harness",
+        "generator": "radar_engine.doppler_coverage (manual harness)",
         "generated_at": generated_at,
         "license": LICENSE,
         "attribution": ("OPERA (EUMETNET) via Open Radar Data/MeteoGate - "
@@ -517,7 +523,10 @@ def write_geojson(path, doc):
 def main(argv=None):
     import argparse
     ap = argparse.ArgumentParser(description="Copertura Doppler OPERA -> GeoJSON")
-    ap.add_argument("--out", default="data/radar/doppler_coverage.geojson")
+    # 17/11/2026 (A6): path dedicata. Quella operativa
+    # `data/radar/doppler_coverage.geojson` e' di doppler.attach(); scriverci
+    # qui dentro cancellava lo schema con coverage_status/stale del run auto.
+    ap.add_argument("--out", default="data/radar/doppler_coverage_harness.geojson")
     ap.add_argument("--day", default=None, help="YYYY-MM-DD (UTC), default oggi")
     ap.add_argument("--min-range-km", type=float, default=5.0)
     ap.add_argument("--max-sites", type=int, default=None)
