@@ -126,6 +126,38 @@ DEFAULTS = {
     "coverage_window_min": 30.0,
     "coverage_max_volumes": 3,
     "coverage_min_range_km": 5.0,
+    # --- 1.3 Doppler Analysis / Mesocyclone Detection (additivo) ----------
+    # Tutte le soglie sono SCELTA INGEGNERISTICA: la `reference` di ogni
+    # diagnostica lo dichiara. La rotazione e' misurata SOLO da VRADH: nessun
+    # campo di questa sezione usa CAPE/SRH/DLS/SCP (contesto ambientale).
+    "couplet_window_rays": 2,
+    "couplet_window_gates": 3,
+    "couplet_inbound_min_ms": 7.0,
+    "couplet_outbound_min_ms": 7.0,
+    "couplet_delta_v_min_ms": 15.0,
+    "couplet_max_distance_km": 12.0,
+    "couplet_min_support_gates": 3,
+    "couplet_support_v_ms": 5.0,
+    "couplet_min_continuity": 0.6,
+    "couplet_dedup_rays": 3,
+    "couplet_dedup_gates": 6,
+    "radar_beamwidth_deg": 1.0,
+    "rotation_match_radius_km": 12.0,
+    "rotation_min_elevations": 2,
+    "rotation_sign_consistent": True,
+    "rotation_min_depth_km": 1.5,
+    "rotation_min_continuity": 0.66,
+    "rotation_min_quality": 0.45,
+    "meso_min_persistence_scans": 3,
+    "meso_cell_radius_km": 10.0,
+    "quality_beam_h_km": 4.0,
+    "quality_beam_width_km": 4.0,
+    "quality_max_age_min": 15.0,
+    "track_match_radius_km": 15.0,
+    "track_match_window_min": 15.0,
+    "track_intensify_pct": 0.25,
+    "track_displacement_km": 10.0,
+    "track_dissipate_scans": 2,
 }
 
 
@@ -873,12 +905,16 @@ def _prepare_volume(vol, site, cfg):
     return out
 
 
-def collect(config=None, as_of=None):
+def collect(config=None, as_of=None, cells=None):
     """Scarica i volumi piu' recenti e calcola i candidati di shear.
 
     Ritorna dict con status, per-sito (valid_time, elevazioni, nyquist),
     candidati filtrati e contatori di costo (file e byte scaricati, secondi).
     Nessuna eccezione di rete esce: un sito che fallisce finisce in `errors`.
+
+    `cells` (1.3, opzionale) = strutture convettive del bundle: servono SOLO
+    alla coerenza con la cella per MESOCYCLONE_CANDIDATE, non alla misura
+    della rotazione. Il risultato additivo e' in `res["doppler_analysis"]`.
     """
     cfg = config_for(config)
     t0 = _dt.datetime.now(_dt.timezone.utc)
@@ -892,6 +928,7 @@ def collect(config=None, as_of=None):
     cache = {}
     all_candidates = []
     coverage_inputs = []
+    analysis_by_site = []
     for site in cfg["sites"]:
         st = {"site": site, "label": SITE_LABEL.get(site, site),
               "status": "ok", "valid_time": None, "elevations": [],
@@ -1000,6 +1037,17 @@ def collect(config=None, as_of=None):
                         f"el_{el}:{exc.__class__.__name__}")
             coverage_inputs.append((site, volumes, cov_scans, el0, by_key,
                                     cfg, cache, st))
+            # --- 1.3 Doppler Analysis (ADDITIVO, non tocca il layer shear) ---
+            # Couplets, rotazione verticale, qualita' e 4 stati misurati SOLO
+            # dal VRADH delle elevazioni gia' scaricate (nessun costo extra).
+            site_analysis = analyze_volume(
+                [prepared[e] for e in elevs], cfg, as_of=as_of,
+                cells=cells, previous=([prev_vol] if prev_vol else None))
+            site_analysis["site"] = site
+            site_analysis["label"] = SITE_LABEL.get(site, site)
+            analysis_by_site.append(site_analysis)
+            st["couplets"] = site_analysis["couplets_total"]
+            st["state_counts"] = site_analysis["state_counts"]
             st["files"] = len(used_keys)
             st["bytes"] = int(sum(len(cache[k]) for k in used_keys
                                   if k in cache))
@@ -1033,6 +1081,30 @@ def collect(config=None, as_of=None):
         (_dt.datetime.now(_dt.timezone.utc) - t0).total_seconds(), 2)
     if res["errors"] and not res["candidates"]:
         res["status"] = "degraded"
+    # --- aggregato 1.3 (solo se il layer e' stato eseguito) ----------------
+    if analysis_by_site:
+        agg = {"sites": [], "couplets_total": 0, "signatures": [],
+               "state_counts": {s: 0 for s in models.ROTATION_STATES},
+               "null_reasons": {}, "source": _DOPPLER_SOURCE,
+               "reference": _DOPPLER_REF, "limits": list(_DOPPLER_LIMITS),
+               "boundary_note": ("rotazione misurata SOLO da VRADH; morfologia "
+                                 "CAPPI e contesto ambientale NON influenzano "
+                                 "i 4 stati")}
+        for a in analysis_by_site:
+            agg["sites"].append({k: a.get(k) for k in
+                                 ("site", "label", "status", "valid_time",
+                                  "null_reason", "couplets_total",
+                                  "state_counts")})
+            agg["couplets_total"] += int(a.get("couplets_total", 0))
+            agg["signatures"].extend(a.get("signatures", []))
+            for s in models.ROTATION_STATES:
+                agg["state_counts"][s] += int(a.get("state_counts", {}).get(s, 0))
+            for k, n in (a.get("null_reasons") or {}).items():
+                agg["null_reasons"][k] = agg["null_reasons"].get(k, 0) + int(n)
+        agg["signature_total"] = len(agg["signatures"])
+        agg["valid_time"] = (agg["sites"][0].get("valid_time")
+                             if agg["sites"] else None)
+        res["doppler_analysis"] = agg
     return res
 
 
@@ -1563,13 +1635,31 @@ def attach(bundle, config=None, out_dir=None):
         as_of = _dt.datetime.fromtimestamp(
             float(bundle.radar_timestamp_ms) / 1000.0, _dt.timezone.utc)
     try:
-        result = collect(config, as_of=as_of)
+        result = collect(config, as_of=as_of, cells=structures)
     except Exception as exc:
         result = {"schema_version": SCHEMA_VERSION, "status": "error",
                   "null_reason": f"{exc.__class__.__name__}:{exc}",
                   "sites": [], "candidates": [], "coverage": None,
                   "errors": [{"collect": str(exc)}],
                   "cost": {"files": 0, "bytes": 0, "seconds": 0.0}}
+    # --- Fase 4: tracking della struttura rotante fra scansioni (additivo) ---
+    # Lo storico e' fornito dal chiamante (bundle.doppler_analysis_history):
+    # nessun dato simulato e nessuna scrittura su disco da questo modulo.
+    da = result.get("doppler_analysis")
+    if da:
+        hist = getattr(bundle, "doppler_analysis_history", None) or []
+        scans = [{"valid_time": h.get("valid_time"),
+                  "signatures": h.get("signatures", [])} for h in hist]
+        scans.append({"valid_time": da.get("generated_at")
+                      or da.get("valid_time"),
+                      "signatures": da.get("signatures", [])})
+        try:
+            result["mesocyclone_tracking"] = track_rotations(scans, cfg)
+        except Exception as exc:
+            result["mesocyclone_tracking"] = {
+                "status": "error",
+                "null_reason": f"{exc.__class__.__name__}:{exc}",
+                "tracks": []}
     filled, nulls, reasons = match_structures(structures, result.get("candidates") or [], cfg)
     result["structures_total"] = len(structures)
     result["structures_with_rotation_shear"] = filled
@@ -1593,6 +1683,750 @@ def attach(bundle, config=None, out_dir=None):
         except Exception as exc:
             result["coverage_write_error"] = f"{exc.__class__.__name__}:{exc}"
     return result
+
+
+# ===========================================================================
+# 1.3 — DOPPLER ANALYSIS ENGINE + MESOCYCLONE DETECTION ENGINE (additivo)
+# ===========================================================================
+# CONFINE SEMANTICO (vincolo ROADMAP 1.3 e precisazione dell'utente):
+#   * I 4 stati (NO_ROTATION / ROTATION_SUSPECTED / ROTATION_DETECTED /
+#     MESOCYCLONE_CANDIDATE) si calcolano SOLO da couplets/shear VRADH.
+#   * La morfologia 3D dei CAPPI (BWER, overhang, persistenza verticale di un
+#     nucleo intenso) e' un'OSSERVAZIONE che dimostra ORGANIZZAZIONE, NON
+#     rotazione: non entra nella classificazione. Se un altro agente la
+#     pubblica, va in un campo SEPARATO `morphology_organization`
+#     (source = CAPPI_3D, con quality e limiti), mai in `rotation_classification`.
+#   * CAPE/SRH/DLS/SCP sono contesto ambientale separato: NON sono usati qui.
+#   * Nessun "tornado"/"confermato": serve velocita' radiale per dire
+#     "rotazione misurata"; altrove si dichiara null_reason.
+# Ogni diagnostica pubblica: source, valid_time (timestamp), quality,
+# limits (cosa NON dimostra) e reference (fonte delle soglie, sempre
+# SCELTA INGEGNERISTICA quando non citata).
+
+_DOPPLER_SOURCE = "OPERA FR VRADH (velocita' radiale, dealiased region-based)"
+_DOPPLER_REF = ("Magnitude e geometria del campo VRADH (ODIM, NI da how/NI). "
+                "Soglie di rilevamento = SCELTA INGEGNERISTICA (nessuna "
+                "calibrazione locale). Shear azimutale = (dV)/(arco a raggio "
+                "costante), same metodo di azimuthal_shear().")
+_DOPPLER_LIMITS = [
+    "misura la componente radiale lungo il fascio: la rotazione 3D NON e' "
+    "ricostruibile da un singolo radar (un mesociclone puo' essere visto "
+    "solo come coppia di velocita' opposte)",
+    "fascio alto a grande distanza: uno shear azimutale puo' nascere dalla "
+    "geometria di campionamento anche senza vortice (QUALITA' obbligatoria)",
+    "senza NI verificato non si dealias: il campo resta null con null_reason, "
+    "mai un numero inventato",
+    "NON dimostra un tornado e NON e' una conferma: e' una firma compatibile "
+    "con rotazione misurata dal Doppler",
+    "morfologia CAPPI (BWER/overhang) e ambientale (CAPE/SRH/DLS/SCP) NON "
+    "entrano in questi stati",
+]
+
+
+def _block(cfg):
+    """Accetta sia la config intera (con chiave 'doppler') sia il blocco gia'
+    risolto da config_for: ritorna sempre il blocco con i default applicati."""
+    if cfg is None:
+        return config_for({})
+    if isinstance(cfg, dict) and "doppler" in cfg:
+        return config_for(cfg)
+    base = dict(DEFAULTS)
+    base.update(cfg)
+    return base
+
+
+def _plane_distance_km(az1_deg, r1_km, az2_deg, r2_km):
+    """Distanza nel piano polare del radar fra (az1,r1) e (az2,r2)."""
+    da = math.radians(float(az1_deg) - float(az2_deg))
+    r1, r2 = float(r1_km), float(r2_km)
+    return math.sqrt(max(0.0, r1 * r1 + r2 * r2
+                         - 2.0 * r1 * r2 * math.cos(da)))
+
+
+def _couplet_sign(az_in, r_in, az_out, r_out, az_mid):
+    """Segno di rotazione della coppia: +1 = verso azimuth crescente.
+
+    Proiezione del vettore inbound->outbound sulla direzione tangenziale
+    (perpendicolare al raggio) nel punto medio.
+    """
+    a1, a2 = math.radians(az_in), math.radians(az_out)
+    x1, y1 = r_in * math.cos(a1), r_in * math.sin(a1)
+    x2, y2 = r_out * math.cos(a2), r_out * math.sin(a2)
+    am = math.radians(az_mid)
+    cross = math.cos(am) * (y2 - y1) - math.sin(am) * (x2 - x1)
+    return 1 if cross > 0 else (-1 if cross < 0 else 0)
+
+
+def observation_quality(volume, range_km, as_of=None, cfg=None):
+    """Scheda qualita' OSSERVATIVA di una misura VRADH a `range_km`.
+
+    Campi (tutti con source/timestamp/quality/limit): RADAR_ID,
+    RADAR_DISTANCE, BEAM_HEIGHT (curvatura 4/3, kRe=8495 km), BEAM_WIDTH
+    (2*r*tan(half-beamwidth)), ELEVATION, NYQUIST_VELOCITY, DATA_AGE,
+    QUALITY_SCORE.
+
+    QUALITY_SCORE e' una funzione DELLA GEOMETRIA e dell'eta' del dato, non
+    una soglia universale: q = q_h * q_w * q_age * q_dealias con
+      q_h   = 1/(1+(beam_height/quality_beam_h_km)^2)
+      q_w   = 1/(1+(beam_width/quality_beam_width_km)^2)
+      q_age = 1/(1+(data_age/quality_max_age_min)^2)   (1 se eta' sconosciuta)
+      q_dealias = 1 se status ok, 0 se no_nyquist/unresolved.
+    La distanza entra nel punteggio TRAMITE beam_height e beam_width: non
+    esiste un valore "fidato a prescindere da distanza/geometria".
+    """
+    cf = _block(cfg)
+    r = float(range_km)
+    el = float(volume.get("elangle_deg", 0.0))
+    hs = float(volume.get("height_m", 0.0))
+    h = float(beam_height_km(r, el, hs))
+    bw_deg = float(cf["radar_beamwidth_deg"])
+    bw = 2.0 * r * math.tan(math.radians(bw_deg) / 2.0)
+    nyq = volume.get("nyquist")
+    nyq = float(nyq) if (nyq is not None and np.isfinite(nyq)) else None
+    dstatus = volume.get("dealias_status", "ok") or "ok"
+    vt = _parse_iso(volume.get("valid_time"))
+    age = None
+    if vt is not None and as_of is not None:
+        age = max(0.0, (as_of - vt).total_seconds() / 60.0)
+
+    def _pen(v, scale):
+        return 1.0 / (1.0 + (float(v) / float(scale)) ** 2)
+
+    q_h = _pen(h, cf["quality_beam_h_km"])
+    q_w = _pen(bw, cf["quality_beam_width_km"])
+    q_age = _pen(age, cf["quality_max_age_min"]) if age is not None else 1.0
+    if dstatus == "no_nyquist":
+        q_de = 0.0          # NI assente: nessun dealiasing, nessuna misura
+    elif dstatus == "unresolved":
+        # NI c'e' e il dealiasing e' stato fatto: solo ALCUNI gate sono non
+        # risolvibili (gia' NaN nel campo). La qualita' decade in proporzione
+        # alla frazione di gate persi, non a 0 per un saltino locale.
+        ug = float(volume.get("unresolved_gates", 0) or 0)
+        total = float(volume.get("nrays", 360)) * float(volume.get("nbins", 267))
+        q_de = max(0.0, 1.0 - min(1.0, ug / total)) if total > 0 else 1.0
+    else:
+        q_de = 1.0
+    score = round(q_h * q_w * q_age * q_de, 3)
+    return {
+        "radar_id": volume.get("site"),
+        "radar_distance_km": round(r, 2),
+        "beam_height_km": round(h, 3),
+        "beam_width_km": round(bw, 3),
+        "elevation_deg": round(el, 2),
+        "nyquist_velocity_ms": nyq,
+        "nyquist_source": volume.get("nyquist_source"),
+        "data_age_min": (round(age, 2) if age is not None else None),
+        "dealias_status": dstatus,
+        "quality_score": score,
+        "quality_formula": ("q = 1/(1+(h/4km)^2) * 1/(1+(bw/4km)^2) * "
+                            "1/(1+(age/15min)^2) * dealias_factor; "
+                            "h con kRe=8495 km, bw=2*r*tan(0.5deg)"),
+        "source": _DOPPLER_SOURCE,
+        "valid_time": volume.get("valid_time"),
+        "reference": _DOPPLER_REF,
+        "limits": list(_DOPPLER_LIMITS),
+    }
+
+
+def velocity_couplets(volume, cfg=None, as_of=None, previous=None):
+    """Estrae VELOCITY COUPLETS da un volume VRADH dealiased.
+
+    Un couplet e' l'accoppiamento locale di un massimo inbound (verso il
+    radar, v<0) e di un massimo outbound (lontano, v>0) in una finestra
+    +-`couplet_window_rays` x +-`couplet_window_gates`.
+
+    Campi pubblicati per ogni coppia: DELTA_VELOCITY (m/s), COUPLET_DISTANCE
+    (km), AZIMUTHAL_SHEAR (m/s/km), SIGNAL_CONTINUITY (frazione di gate validi
+    nel rettangolo fra i due massimi), piu' la scheda `quality`.
+
+    Scarta configurazioni INCOERENTI:
+      * troppo vicino al radar (range < min_range_km): la risoluzione
+        azimutale e' piu' fine del gate radiale e lo "shear" misura rumore;
+      * oltre Nyquist non risolto: se NI manca o il dealias e' unresolved il
+        campo resta null con null_reason (NESSUN numero inventato);
+      * single-gate isolate: servono almeno `couplet_min_support_gates` con
+        |v| >= `couplet_support_v_ms` e continuita' >= soglia;
+      * coppia troppo estesa (> max_distance_km): non e' piu' una coppia.
+
+    `previous` (volume della scansione precedente, stessa elevazione) abilita
+    la persistenza temporale: 2 se esiste una coppia dello stesso segno a
+    meno di `rotation_match_radius_km`, 1 altrimenti.
+    """
+    cf = _block(cfg)
+    out = {"couplets": [], "status": "ok", "null_reason": None,
+           "notes": [], "source": _DOPPLER_SOURCE,
+           "reference": _DOPPLER_REF, "limits": list(_DOPPLER_LIMITS)}
+    nyq = volume.get("nyquist")
+    dstatus = volume.get("dealias_status", "ok") or "ok"
+    if nyq is None or not np.isfinite(nyq) or float(nyq) <= 0:
+        out["status"] = "no_nyquist"
+        out["null_reason"] = "nyquist_missing"
+        return out
+    if dstatus == "no_nyquist":
+        # NI verificato aggregato: senza NI non si dealias e non si pubblica
+        # nessun numero ( Campo null con null_reason ).
+        out["status"] = "no_nyquist"
+        out["null_reason"] = "nyquist_missing"
+        return out
+    if dstatus == "unresolved":
+        # NI c'e': i gate non risolvibili sono GIÀ NaN (dealias_region_based
+        # li azzera), quindi la coppia usa solo gate validi. La frazione di
+        # gate persi entra nella quality (q_dealias) e ogni coppia porta
+        # `dealias_status = unresolved`: nessun valore inventato.
+        out["notes"] = ["dealias_unresolved_gates:{}".format(
+            int(volume.get("unresolved_gates", 0) or 0))]
+    v = np.asarray(volume.get("vrad"), dtype="float64")
+    if v.ndim != 2 or v.size == 0:
+        out["status"] = "no_data"
+        out["null_reason"] = "vrad_missing_or_empty"
+        return out
+    nrays, nbins = v.shape
+    r_km = ((float(volume["rstart_m"])
+             + (np.arange(nbins, dtype="float64") + 0.5)
+             * float(volume["rscale_m"])) / 1000.0)
+    az = np.asarray(volume["az_deg"], dtype="float64")
+    if az.size != nrays:
+        az = (np.arange(nrays, dtype="float64") * (360.0 / nrays))
+    wr = max(1, int(cf["couplet_window_rays"]))
+    wg = max(1, int(cf["couplet_window_gates"]))
+    size = (2 * wr + 1, 2 * wg + 1)
+    try:
+        from scipy import ndimage
+        vmax = ndimage.maximum_filter(v, size=size, mode=("wrap", "nearest"))
+        vmin = ndimage.minimum_filter(v, size=size, mode=("wrap", "nearest"))
+    except Exception as exc:  # pragma: no cover - scipy e' dipendenza dichiarata
+        out["status"] = "error"
+        out["null_reason"] = "scipy_filter_error:" + exc.__class__.__name__
+        return out
+    in_min = float(cf["couplet_inbound_min_ms"])
+    out_min = float(cf["couplet_outbound_min_ms"])
+    cand = (np.isfinite(vmax) & np.isfinite(vmin)
+            & (vmax >= out_min) & (vmin <= -in_min))
+    rays, gates = np.nonzero(cand)
+
+    prev_pairs = None
+    if previous is not None:
+        pr = velocity_couplets(previous, cf, as_of=as_of)
+        prev_pairs = [(p["lat"], p["lon"], p.get("sign", 0))
+                      for p in pr["couplets"]]
+
+    def _persist(lat, lon, sign):
+        if not prev_pairs:
+            return 1
+        for pla, plo, ps in prev_pairs:
+            if sign and ps and ps != sign:
+                continue
+            if haversine_km(lat, lon, pla, plo) <= float(
+                    cf["rotation_match_radius_km"]):
+                return 2
+        return 1
+
+    found = []
+    for i, j in zip(rays, gates):
+        ridx = (np.arange(i - wr, i + wr + 1) % nrays)
+        gidx = np.arange(max(0, j - wg), min(nbins, j + wg + 1))
+        if gidx.size == 0:
+            continue
+        sub = v[np.ix_(ridx, gidx)]
+        if not np.isfinite(sub).any():
+            continue
+        io, jo = np.unravel_index(np.nanargmax(sub), sub.shape)
+        ii, ji = np.unravel_index(np.nanargmin(sub), sub.shape)
+        v_out, v_in = float(sub[io, jo]), float(sub[ii, ji])
+        if v_out < out_min or v_in > -in_min:
+            continue
+        delta = v_out - v_in
+        if delta < float(cf["couplet_delta_v_min_ms"]):
+            continue
+        r_out = float(r_km[gidx[jo]])
+        r_in = float(r_km[gidx[ji]])
+        az_out = float(az[ridx[io]]) % 360.0
+        az_in = float(az[ridx[ii]]) % 360.0
+        dist = _plane_distance_km(az_out, r_out, az_in, r_in)
+        if dist < 0.2 or dist > float(cf["couplet_max_distance_km"]):
+            continue
+        min_r = float(cf["min_range_km"])
+        if r_out < min_r or r_in < min_r:
+            continue  # troppo vicino al radar: shear di rumore, non struttura
+        support = int(np.nansum(np.abs(sub) >= float(cf["couplet_support_v_ms"])))
+        if support < int(cf["couplet_min_support_gates"]):
+            continue  # singolo gate isolato
+        rr1, rr2 = sorted((io, ii))
+        cc1, cc2 = sorted((jo, ji))
+        rect = sub[rr1:rr2 + 1, cc1:cc2 + 1]
+        continuity = float(np.isfinite(rect).mean()) if rect.size else 0.0
+        if continuity < float(cf["couplet_min_continuity"]):
+            continue  # i due estremi non sono collegati da segnale continuo
+        # punto medio nel piano polare -> lat/lon geografici
+        ao = math.radians(az_out)
+        ai = math.radians(az_in)
+        mx = r_out * math.cos(ao) + r_in * math.cos(ai)
+        my = r_out * math.sin(ao) + r_in * math.sin(ai)
+        az_mid = math.degrees(math.atan2(my, mx)) % 360.0
+        rng_mid = math.hypot(mx, my) / 2.0
+        lon, lat = destination(float(volume["lon"]), float(volume["lat"]),
+                               az_mid, rng_mid)
+        sign = _couplet_sign(az_in, r_in, az_out, r_out, az_mid)
+        shear = delta / dist
+        q = observation_quality(volume, rng_mid, as_of=as_of, cfg=cf)
+        found.append({
+            "radar_id": volume.get("site"),
+            "valid_time": volume.get("valid_time"),
+            "lat": round(lat, 5), "lon": round(lon, 5),
+            "azimuth_deg": round(az_mid, 2),
+            "range_km": round(rng_mid, 2),
+            "elevation_deg": round(float(volume["elangle_deg"]), 2),
+            "beam_height_km": q["beam_height_km"],
+            "inbound_ms": round(v_in, 2),
+            "outbound_ms": round(v_out, 2),
+            "delta_velocity_ms": round(delta, 2),
+            "couplet_distance_km": round(dist, 2),
+            "azimuthal_shear_ms_km": round(shear, 2),
+            "signal_continuity": round(continuity, 3),
+            "support_gates": support,
+            "sign": sign,
+            "persistence_scans": _persist(lat, lon, sign),
+            "dealias_method": volume.get("dealias_method", DEALIAS_METHOD),
+            "dealias_status": dstatus,
+            "nyquist_velocity_ms": q["nyquist_velocity_ms"],
+            "quality": q,
+            "source": _DOPPLER_SOURCE,
+            "reference": _DOPPLER_REF,
+            "limits": list(_DOPPLER_LIMITS),
+        })
+    # dedup: massimi vicini dello stesso fenomeno -> una coppia
+    found.sort(key=lambda c: -c["delta_velocity_ms"])
+    kept = []
+    for c in found:
+        if any(c.get("sign") == k.get("sign")
+               and abs(c["azimuth_deg"] - k["azimuth_deg"]) <= float(
+                   cf["couplet_dedup_rays"])
+               and abs(c["range_km"] - k["range_km"]) <= float(
+                   cf["couplet_dedup_gates"]) * float(volume["rscale_m"]) / 1000.0
+               for k in kept):
+            continue
+        kept.append(c)
+    out["couplets"] = kept
+    return out
+
+
+def vertical_rotation(volumes, cfg=None, couple_results=None):
+    """Associa le coppie fra elevazioni e calcola la ROTAZIONE VERTICALE.
+
+    `volumes` = lista di volumi preparati della STESSA scansione, ordinata per
+    elevazione crescente. `couple_results` (opzionale) = lista parallela dei
+    risultati di `velocity_couplets` per evitare di ricalcolarli.
+
+    Per ogni catena di coppie correlate fra elevazioni (stesso segno, entro
+    `rotation_match_radius_km`) pubblica:
+      ROTATION_BASE / ROTATION_TOP (altezze del fascio, km),
+      ROTATION_DEPTH (top-base, km), ROTATION_STRENGTH (max delta-V, m/s),
+      VERTICAL_CONTINUITY (elevazioni correlate / elevazioni disponibili).
+
+    Se il numero di elevazioni con coppie e' inferiore a
+    `rotation_min_elevations`, i campi verticali restano null con null_reason:
+    uno shear 2D non viene spacciato per rotazione 3D.
+    """
+    cf = _block(cfg)
+    res = {"signatures": [], "status": "ok", "null_reason": None,
+           "source": _DOPPLER_SOURCE, "reference": _DOPPLER_REF,
+           "limits": list(_DOPPLER_LIMITS)}
+    if not volumes:
+        res["status"] = "no_data"
+        res["null_reason"] = "no_volumes"
+        return res
+    if couple_results is None:
+        couple_results = [velocity_couplets(v, cf) for v in volumes]
+    levels = []
+    for vol, cr in zip(volumes, couple_results):
+        if cr.get("status") == "ok" and cr.get("couplets"):
+            levels.append((vol, cr["couplets"]))
+    if not levels:
+        res["status"] = "no_couplets"
+        res["null_reason"] = (couple_results[0].get("null_reason")
+                              or "no_velocity_couplet")
+        return res
+
+    def _h_of(vol, cp):
+        return float(beam_height_km(cp["range_km"],
+                                    float(vol["elangle_deg"]),
+                                    float(vol.get("height_m", 0.0))))
+
+    # Semi dalla elevazione piu' bassa che ha coppie.
+    seed_vol, seed_cps = levels[0]
+    chains = []
+    for cp in seed_cps:
+        chains.append({"members": [(seed_vol, cp)],
+                       "lat": cp["lat"], "lon": cp["lon"],
+                       "sign": cp.get("sign", 0)})
+    # Associazione greedy alle elevazioni successive.
+    for vol, cps in levels[1:]:
+        used = set()
+        for ch in chains:
+            best, best_d = None, None
+            for idx, cp in enumerate(cps):
+                if idx in used:
+                    continue
+                if (cf.get("rotation_sign_consistent", True)
+                        and ch["sign"] and cp.get("sign")
+                        and ch["sign"] != cp.get("sign")):
+                    continue
+                d = haversine_km(ch["lat"], ch["lon"], cp["lat"], cp["lon"])
+                if d <= float(cf["rotation_match_radius_km"]):
+                    if best is None or d < best_d:
+                        best, best_d = idx, d
+            if best is not None:
+                used.add(best)
+                ch["members"].append((vol, cps[best]))
+    # Costruisce le firme; scarta le catene con una sola elevazione.
+    n_levels = len(levels)
+    for ch in chains:
+        mem = ch["members"]
+        n_match = len(mem)
+        depths = [_h_of(v, c) for v, c in mem]
+        base_km, top_km = min(depths), max(depths)
+        depth_km = top_km - base_km
+        strength = max(c["delta_velocity_ms"] for _, c in mem)
+        shear = max(c["azimuthal_shear_ms_km"] for _, c in mem)
+        cont = n_match / float(n_levels) if n_levels else 0.0
+        enough = n_match >= int(cf["rotation_min_elevations"])
+        low = mem[0][1]
+        sig = {
+            "signature_id": None,  # assegnato da analyze_volume
+            "lat": ch["lat"], "lon": ch["lon"],
+            "valid_time": low["valid_time"],
+            "radar_id": low["radar_id"],
+            "delta_velocity_ms": round(float(strength), 2),
+            "azimuthal_shear_ms_km": round(float(shear), 2),
+            "rotation_sign": ch["sign"],
+            "rotation_base_km": (round(base_km, 3) if enough else None),
+            "rotation_top_km": (round(top_km, 3) if enough else None),
+            "rotation_depth_km": (round(depth_km, 3) if enough else None),
+            "rotation_strength_ms": (round(float(strength), 2) if enough else None),
+            "vertical_continuity": (round(cont, 3) if enough else None),
+            "n_elevations": n_match,
+            "n_elevations_available": n_levels,
+            # Il null e' SOLO dei campi VERTICALI: la coppia 2D e' comunque
+            # una misura Doppler reale (-> ROTATION_SUSPECTED), non un "no
+            # rotation". `null_reason` resta None perche' la rotazione e'
+            # misurata; il motivo verticale ha un campo dedicato.
+            "null_reason": None,
+            "vertical_null_reason": (None if enough
+                                     else "insufficient_vertical_elevations"),
+            "quality": low["quality"],
+            "source": _DOPPLER_SOURCE,
+            "reference": _DOPPLER_REF,
+            "limits": list(_DOPPLER_LIMITS),
+        }
+        res["signatures"].append(sig)
+    return res
+
+
+def match_rotation_to_cell(signature, cells, cfg=None):
+    """Associa una firma di rotazione alla cella convettiva piu' vicina.
+
+    Ritorna (parent_cell_id, distance_km, coherent). La cella e' CONTETO:
+    non determina lo stato di rotazione, modulate solo il requisito di
+    "coerenza con la cella" per MESOCYCLONE_CANDIDATE. Nessun campo
+    ambientale o morfologico entra qui.
+    """
+    cf = _block(cfg)
+    lat, lon = float(signature["lat"]), float(signature["lon"])
+    t = _parse_iso(signature.get("valid_time"))
+    radius = float(cf["meso_cell_radius_km"])
+    best, best_d = None, None
+    for c in cells or []:
+        pos = c.get("position") or c.get("centroid_lonlat") or [None, None]
+        if len(pos) < 2 or pos[0] is None or pos[1] is None:
+            continue
+        d = haversine_km(lat, lon, float(pos[1]), float(pos[0]))
+        ct = _parse_iso(c.get("last_seen") or c.get("timestamp"))
+        if t is not None and ct is not None and abs(
+                (ct - t).total_seconds()) > float(cf["match_window_min"]) * 60.0:
+            continue
+        if d <= radius and (best is None or d < best_d):
+            best, best_d = c.get("structure_id") or c.get("cell_id"), d
+    return best, (round(best_d, 2) if best_d is not None else None), (best is not None)
+
+
+def classify_rotation(signature, cfg=None, persistence_scans=1,
+                      cell_coherent=False):
+    """Assegna uno dei 4 stati, SOLO da grandezze Doppler misurate.
+
+    Regole (soglie = SCELTA INGEGNERISTICA, dichiarate in `reference`):
+      NO_ROTATION: nessuna coppia valida / NI non verificato / sotto soglia.
+      ROTATION_SUSPECTED: una coppia 2D senza verticale o senza persistenza.
+      ROTATION_DETECTED: coppia + verticale + persistenza + qualita' >= soglia.
+      MESOCYCLONE_CANDIDATE: DETECTED + profondita'/continuita' minime +
+        persistenza temporale minima + coerenza con la cella.
+
+    Non restituisce MAI "tornado" ne' "confermato": il campo
+    `rotation_measurable` e' True solo se esiste VRADH dealiased.
+    """
+    cf = _block(cfg)
+    reasons = []
+    state = models.ROTATION_NO_ROTATION
+    q = signature.get("quality") or {}
+    qscore = q.get("quality_score")
+    if signature.get("null_reason") or signature.get("delta_velocity_ms") is None:
+        reasons.append(signature.get("null_reason") or "no_velocity_couplet")
+        return {"classification": state, "reasons": reasons,
+                "rotation_measurable": False,
+                "source": _DOPPLER_SOURCE, "reference": _DOPPLER_REF,
+                "limits": list(_DOPPLER_LIMITS)}
+    depth = signature.get("rotation_depth_km")
+    cont = signature.get("vertical_continuity")
+    delta = float(signature["delta_velocity_ms"])
+    shear = abs(float(signature.get("azimuthal_shear_ms_km") or 0.0))
+    if delta < float(cf["couplet_delta_v_min_ms"]) or shear <= 0.0:
+        reasons.append("below_couplet_threshold")
+        return {"classification": state, "reasons": reasons,
+                "rotation_measurable": True,
+                "source": _DOPPLER_SOURCE, "reference": _DOPPLER_REF,
+                "limits": list(_DOPPLER_LIMITS)}
+    # c'e' una firma Doppler misurata -> almeno SUSPECTED
+    state = models.ROTATION_SUSPECTED
+    if depth is None or cont is None:
+        reasons.append("vertical_rotation_not_measurable")
+    if int(persistence_scans) < 2:
+        reasons.append("no_temporal_persistence")
+    if qscore is None or float(qscore) < float(cf["rotation_min_quality"]):
+        reasons.append("quality_below_minimum")
+    detected_ok = (depth is not None and cont is not None
+                   and int(persistence_scans) >= 2
+                   and qscore is not None
+                   and float(qscore) >= float(cf["rotation_min_quality"]))
+    if detected_ok:
+        state = models.ROTATION_DETECTED
+    meso_ok = (detected_ok
+               and float(depth) >= float(cf["rotation_min_depth_km"])
+               and float(cont) >= float(cf["rotation_min_continuity"])
+               and int(persistence_scans) >= int(cf["meso_min_persistence_scans"])
+               and bool(cell_coherent))
+    if not meso_ok and detected_ok:
+        if float(depth) < float(cf["rotation_min_depth_km"]):
+            reasons.append("insufficient_rotation_depth")
+        if float(cont) < float(cf["rotation_min_continuity"]):
+            reasons.append("insufficient_vertical_continuity")
+        if int(persistence_scans) < int(cf["meso_min_persistence_scans"]):
+            reasons.append("insufficient_persistence")
+        if not cell_coherent:
+            reasons.append("no_cell_coherence")
+    if meso_ok:
+        state = models.ROTATION_MESOCYCLONE_CANDIDATE
+    assert state in models.ROTATION_STATES
+    return {"classification": state, "reasons": reasons,
+            "rotation_measurable": True,
+            "persistence_scans": int(persistence_scans),
+            "cell_coherent": bool(cell_coherent),
+            "source": _DOPPLER_SOURCE, "reference": _DOPPLER_REF,
+            "limits": list(_DOPPLER_LIMITS)}
+
+
+def analyze_volume(volumes, cfg=None, as_of=None, cells=None, previous=None):
+    """Orchestratore di scansione: couplets -> verticale -> 4 stati.
+
+    `volumes` = elevazioni della stessa scansione (un sito), ordinate per
+    elevazione crescente. `previous` = elevazioni della scansione precedente
+    (per la persistenza). `cells` = strutture convettive (contesto, per la
+    coerenza richiesta dal candidato mesociclone).
+
+    Ritorna un dict serializzabile con: contatori dei couplets, firme con
+    classificazione, conteggio per stato (su un RUN REALE si leggono qui i
+    numeri richiesti) e motivi di null. Nessun dato simulato: i volumi
+    arrivano sempre da `read_vradh` + `dealias_region_based`.
+    """
+    cf = _block(cfg)
+    crs = []
+    prev0 = None
+    if previous:
+        prev0 = previous[0]
+    for vol in volumes:
+        crs.append(velocity_couplets(vol, cf, as_of=as_of, previous=prev0))
+    vr = vertical_rotation(volumes, cf, couple_results=crs)
+    sigs = []
+    counts = {s: 0 for s in models.ROTATION_STATES}
+    for idx, sig in enumerate(vr["signatures"]):
+        sig["signature_id"] = "RS-{}".format(idx + 1)
+        persistence = max((c["persistence_scans"]
+                           for cr in crs for c in cr["couplets"]), default=1)
+        parent, dist, coherent = match_rotation_to_cell(sig, cells, cf)
+        cl = classify_rotation(sig, cf, persistence_scans=persistence,
+                               cell_coherent=coherent)
+        sig["classification"] = cl["classification"]
+        sig["classification_detail"] = cl
+        sig["parent_cell_id"] = parent
+        sig["cell_distance_km"] = dist
+        sig["rotation_measurable"] = cl["rotation_measurable"]
+        sigs.append(models.RotationSignature(
+            sig["signature_id"], sig["lat"], sig["lon"], sig["valid_time"],
+            sig["radar_id"], sig["delta_velocity_ms"],
+            sig["azimuthal_shear_ms_km"], sig["rotation_base_km"],
+            sig["rotation_top_km"], sig["rotation_depth_km"],
+            sig["rotation_strength_ms"], sig["vertical_continuity"],
+            quality=sig.get("quality"), parent_cell_id=parent,
+            classification=cl["classification"],
+            null_reason=sig.get("null_reason"),
+            source=_DOPPLER_SOURCE, reference=_DOPPLER_REF,
+            limits=list(_DOPPLER_LIMITS)).to_dict())
+        sigs[-1]["classification_detail"] = cl
+        sigs[-1]["cell_distance_km"] = dist
+        sigs[-1]["vertical_null_reason"] = sig.get("vertical_null_reason")
+        sigs[-1]["n_elevations"] = sig.get("n_elevations")
+        counts[cl["classification"]] += 1
+    nulls = {}
+    for cr in crs:
+        if cr.get("null_reason"):
+            nulls[cr["null_reason"]] = nulls.get(cr["null_reason"], 0) + 1
+    return {
+        "status": vr["status"],
+        "valid_time": (volumes[0].get("valid_time") if volumes else None),
+        "null_reason": vr.get("null_reason"),
+        "couplets_total": sum(len(cr["couplets"]) for cr in crs),
+        "couplets_rejected": 0,
+        "signatures": sigs,
+        "state_counts": counts,
+        "null_reasons": nulls,
+        "source": _DOPPLER_SOURCE,
+        "reference": _DOPPLER_REF,
+        "limits": list(_DOPPLER_LIMITS),
+        "boundary_note": ("rotazione misurata SOLO da VRADH; morfologia CAPPI "
+                          "e contesto ambientale NON influenzano i 4 stati"),
+    }
+
+
+def track_rotations(scans, cfg=None):
+    """Tracking della struttura rotante fra scansioni (Fase 4).
+
+    `scans` = lista di dict {valid_time, signatures:[dict,...]} in ordine
+    temporale. Associa per prossimita' (`track_match_radius_km`) e finestra
+    temporale (`track_match_window_min`). Produce eventi: appearance,
+    intensification, weakening, displacement, merge, separation, dissipation.
+
+    Il `meso_id` e' locale al run; `parent_cell_ids` raccoglie le cellule
+    associate nel tempo. `classification` resta uno dei 4 stati: MAI
+    "tornado"/"confermato".
+    """
+    cf = _block(cfg)
+    radius = float(cf["track_match_radius_km"])
+    window_s = float(cf["track_match_window_min"]) * 60.0
+    tracks = []
+    out = []
+
+    def _t(value):
+        return _parse_iso(value)
+
+    for scan in scans or []:
+        stamps = _t(scan.get("valid_time"))
+        for sig in scan.get("signatures", []):
+            lat, lon = float(sig["lat"]), float(sig["lon"])
+            best, best_d = None, None
+            for tr in tracks:
+                if not tr.points:
+                    continue
+                last = tr.points[-1]
+                # Un track prende AL PIU' un punto per scansione: altrimenti
+                # 4 scansioni reali producevano persistence=24 (piu' firme
+                # vicine della stessa scansione agganciate alla stessa track).
+                if last.get("valid_time") == scan.get("valid_time"):
+                    continue
+                lt = _t(last.get("valid_time"))
+                if stamps is not None and lt is not None and abs(
+                        (stamps - lt).total_seconds()) > window_s:
+                    continue
+                d = haversine_km(lat, lon, float(last["lat"]), float(last["lon"]))
+                if d <= radius and (best is None or d < best_d):
+                    best, best_d = tr, d
+            if best is None:
+                best = models.MesocycloneTrack(
+                    "MESO-{}".format(len(tracks) + 1), scan.get("valid_time"))
+                best.source = _DOPPLER_SOURCE
+                best.reference = _DOPPLER_REF
+                best.limits = list(_DOPPLER_LIMITS)
+                tracks.append(best)
+                best.events.append(models.ROTATION_EV_APPEARANCE)
+            # aggiorna statistiche e punto
+            dv = sig.get("delta_velocity_ms")
+            sh = sig.get("azimuthal_shear_ms_km")
+            dep = sig.get("rotation_depth_km")
+            if dv is not None and (best.max_delta_velocity_ms is None
+                                   or dv > best.max_delta_velocity_ms):
+                if (best.max_delta_velocity_ms is not None and dv > best.max_delta_velocity_ms
+                        * (1.0 + float(cf["track_intensify_pct"]))):
+                    best.events.append(models.ROTATION_EV_INTENSIFICATION)
+                best.max_delta_velocity_ms = float(dv)
+            elif (dv is not None and best.max_delta_velocity_ms is not None
+                  and dv < best.max_delta_velocity_ms
+                  * (1.0 - float(cf["track_intensify_pct"]))):
+                best.events.append(models.ROTATION_EV_WEAKENING)
+            if sh is not None and (best.max_shear_ms_km is None
+                                   or abs(sh) > best.max_shear_ms_km):
+                best.max_shear_ms_km = abs(float(sh))
+            if dep is not None and (best.max_rotation_depth_km is None
+                                    or dep > best.max_rotation_depth_km):
+                best.max_rotation_depth_km = float(dep)
+            cont = sig.get("vertical_continuity")
+            if cont is not None and (best.max_vertical_continuity is None
+                                     or float(cont) > best.max_vertical_continuity):
+                best.max_vertical_continuity = float(cont)
+            q = (sig.get("quality") or {}).get("quality_score")
+            if q is not None:
+                best.quality_score = (q if best.quality_score is None
+                                      else max(best.quality_score, float(q)))
+            pc = sig.get("parent_cell_id")
+            if pc:
+                best.cell_coherent = True
+                if pc not in best.parent_cell_ids:
+                    best.parent_cell_ids.append(pc)
+            best.classification = sig.get("classification", best.classification)
+            if best_d is not None and best_d >= float(cf["track_displacement_km"]):
+                best.events.append(models.ROTATION_EV_DISPLACEMENT)
+            best.points.append({
+                "valid_time": scan.get("valid_time"),
+                "lat": round(lat, 5), "lon": round(lon, 5),
+                "distance_from_prev_km": (round(best_d, 2)
+                                          if best_d is not None else None),
+                "delta_velocity_ms": dv,
+                "classification": sig.get("classification"),
+            })
+            best.last_detection = scan.get("valid_time")
+            best.persistence = len(best.points)
+        # dissipazione: track non vista nelle ultime N scansioni
+        for tr in tracks:
+            lt = _t(tr.last_detection)
+            if (stamps is not None and lt is not None
+                    and (stamps - lt).total_seconds() > window_s
+                    * int(cf["track_dissipate_scans"])
+                    and models.ROTATION_EV_DISSIPATION not in tr.events):
+                tr.events.append(models.ROTATION_EV_DISSIPATION)
+    # La persistenza temporale (>= 3 scansioni) e' una proprieta' della
+    # TRACCIA, non della singola scansione: qui si puo' promuovere a
+    # MESOCYCLONE_CANDIDATE se concorrono profondita', continuita',
+    # persistenza e coerenza con la cella. Mai "tornado"/"confermato".
+    for tr in tracks:
+        if tr.classification == models.ROTATION_NO_ROTATION:
+            continue
+        pseudo = {
+            "lat": tr.points[-1]["lat"] if tr.points else 0.0,
+            "lon": tr.points[-1]["lon"] if tr.points else 0.0,
+            "valid_time": tr.last_detection,
+            "delta_velocity_ms": tr.max_delta_velocity_ms,
+            "azimuthal_shear_ms_km": tr.max_shear_ms_km,
+            "rotation_depth_km": tr.max_rotation_depth_km,
+            "vertical_continuity": tr.max_vertical_continuity,
+            "quality": {"quality_score": tr.quality_score},
+            "null_reason": None,
+        }
+        cl = classify_rotation(pseudo, cf, persistence_scans=tr.persistence,
+                               cell_coherent=tr.cell_coherent)
+        tr.classification = cl["classification"]
+    for tr in tracks:
+        out.append(tr.to_dict())
+    return {"tracks": out,
+            "counts": {s: sum(1 for t in tracks if t.classification == s)
+                       for s in models.ROTATION_STATES},
+            "source": _DOPPLER_SOURCE, "reference": _DOPPLER_REF,
+            "limits": list(_DOPPLER_LIMITS)}
 
 
 # ---------------------------------------------------------------------------

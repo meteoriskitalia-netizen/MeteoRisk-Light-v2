@@ -1,13 +1,13 @@
-MeteoRisk Light - 1.2.4.102 - MAPPA DEI RISCHI RIPARATA (bump da 1.2.4.101)
-VERSION=1.2.4.102
+MeteoRisk Light - 1.3.0.0 - DOPPLER ANALYSIS, MESOCYCLONE TRACKING E VOLUME 3D (bump da 1.2.4.102)
+VERSION=1.3.0.0
 MAJOR=1
-MINOR=2
-PATCH=4
-BUILD=102
+MINOR=3
+PATCH=0
+BUILD=130
 RELEASE_TYPE=release
-DATE=2026-11-15
-NOTE=Mappa dei rischi riparata (bump da 1.2.4.101). In computeSevereIndices il blocco STP usava lcl e cin senza dichiararli: ReferenceError a ogni chiamata, loadStaticDataset annullava il caricamento del dataset e la mappa restava senza badge. Ora LCL (da temperature_2m/dew_point_2m) e CIN (da convective_inhibition) sono letti dai dati orari, con fallback neutro (LCL mancante -> 0.5; CIN mancante -> nessuna penalizzazione). Logica e soglie invariate.
-APP_FILE=mri-light-1.2.4.102.html
+DATE=2026-11-16
+NOTE=Release 1.3.0.0 (bump da 1.2.4.102). Doppler Analysis Engine: velocity couplets VRADH reali, Nyquist verificato, dealiasing region-based, 4 stati (NO_ROTATION, ROTATION_SUSPECTED, ROTATION_DETECTED, MESOCYCLONE_CANDIDATE) con quality e null_reason. Mesocyclone Detection Engine: tracking della firma fra scansioni con coerenza di cella, nessuna etichetta di conferma senza velocita radiale. Volume 3D dai 10 CAPPI DPC allineati con parametri per soglia, sezioni verticali compatte e volume.json pubblicato con provenienza e limiti. Campi separati: osservato / previsto / derivato / proxy; la morfologia CAPPI non entra nella classificazione della rotazione.
+APP_FILE=mri-light-1.3.0.0.html
 MeteoRisk Light - 1.2.4.101 - LOGICA CONVETTIVA, GRANDINE, NEBBIA E TRACKING (bump da 1.2.4.94)
 VERSION=1.2.4.101
 MAJOR=1

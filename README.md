@@ -6,9 +6,10 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.2.4.102
+## Versione attiva: 1.3.0.0
 
-- File applicativo: `mri-light-1.2.4.102.html` (`APP_VERSION = '1.2.4.102'`; changelog in-app .95) + `sw.js` (`CACHE_NAME = 'mri-1.2.4.102'`, `TILE_CACHE = 'mri-tiles-1.2.4.102'`, `FRAME_CACHE = 'mri-frames-1.2.4.102'`).
+- File applicativo: `mri-light-1.3.0.0.html` (`APP_VERSION = '1.3.0.0'`; changelog in-app) + `sw.js` (`CACHE_NAME = 'mri-1.3.0.0'`, `TILE_CACHE = 'mri-tiles-1.3.0.0'`, `FRAME_CACHE = 'mri-frames-1.3.0.0'`).
+- **1.3.0.0 â€” Doppler / mesocicloni / volume 3D**: couplets VRADH reali con Nyquist verificato e 4 stati onesti; tracking della firma rotante fra scansioni senza etichette di conferma; volume 3D dai 10 CAPPI DPC allineati pubblicato in `data/radar/volume.json`. Riepiloghi in `latest.json`, payload completi in `data/radar/doppler_analysis.json` e `mesocyclone_tracks.json`. Morfologia CAPPI separata dalla rotazione.
 - **Revisione logica convettiva**: potenziale NWP e innesco temporalesco sono distinti. Sviluppo espone i badge di potenziale mesociclonico anche senza attivare Nuovi Indici. Il codice WMO identifica il fenomeno istantaneo e non richiede anche pioggia cumulata; il downburst riconosce anche i rovesci convettivi. Il detector a livello zero non produce piu' livelli artificiali.
 - **Grandine e nebbia**: massimi giornalieri per dimensione/probabilita' grandine indipendenti dall'ora rappresentativa CAPE; precipitazione convettiva distinta dalla pioggia totale. Codici WMO 45/48 conservati anche senza T/Td e descritti come indice euristico non probabilistico.
 - **Tracking e riepiloghi**: ora del sistema organizzato allineata al segnale; abbinamenti SOI-cella entro 10 km e solo sull'ultimo frame, con indicazione esplicita quando manca un'associazione.

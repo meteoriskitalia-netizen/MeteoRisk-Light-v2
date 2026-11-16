@@ -533,6 +533,13 @@ class EngineBundle:
         # 1.2.4.84 - DOPPLER (shear azimutale OPERA FR): riepilogo del layer
         # (siti, candidati, costo, copertura). None = layer non eseguito.
         self.doppler = None
+        # 1.3 - DOPPLER ANALYSIS + MESOCYCLONE DETECTION (additivi).
+        # `doppler_analysis` = coppie/rotazione verticale/qualita'/4 stati per
+        # scansione; `mesocyclone_tracks` = tracking fra scansioni. None =
+        # layer non eseguito (nessuna chiave nuova nell'output). Il wiring in
+        # main.py e' di competenza di un altro agente (un file, un proprietario).
+        self.doppler_analysis = None
+        self.mesocyclone_tracks = None
         self.severe_predictions = None   # esito del registro JSONL (o None)
         # 2026-11-12 — BUNDLE PRODOTTI DPC ALLINEATO (VIL/ETM/POH/SRI):
         # matrice slot x prodotto con valid_time/skew/stale e QC per prodotto.
@@ -584,3 +591,150 @@ class EngineBundle:
 
 def utcnow_iso():
     return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+# ---------------------------------------------------------------------------
+# 1.3 — DOPPLER ANALYSIS / MESOCYCLONE DETECTION (additivo)
+# ---------------------------------------------------------------------------
+# I 4 stati sono ESPLICITI e chiusi. MAI "tornado"/"confermato": la rotazione
+# e' MISURATA solo dove esiste VRADH (velocita' radiale). Altrove lo stato e'
+# NO_ROTATION con null_reason, non un'etichetta positiva.
+ROTATION_NO_ROTATION = "NO_ROTATION"
+ROTATION_SUSPECTED = "ROTATION_SUSPECTED"
+ROTATION_DETECTED = "ROTATION_DETECTED"
+ROTATION_MESOCYCLONE_CANDIDATE = "MESOCYCLONE_CANDIDATE"
+ROTATION_STATES = (
+    ROTATION_NO_ROTATION,
+    ROTATION_SUSPECTED,
+    ROTATION_DETECTED,
+    ROTATION_MESOCYCLONE_CANDIDATE,
+)
+
+# Eventi di tracking della struttura rotante (lessico chiuso).
+ROTATION_EV_APPEARANCE = "appearance"
+ROTATION_EV_INTENSIFICATION = "intensification"
+ROTATION_EV_WEAKENING = "weakening"
+ROTATION_EV_DISPLACEMENT = "displacement"
+ROTATION_EV_MERGE = "merge"
+ROTATION_EV_SEPARATION = "separation"
+ROTATION_EV_DISSIPATION = "dissipation"
+ROTATION_EVENTS = (
+    ROTATION_EV_APPEARANCE, ROTATION_EV_INTENSIFICATION, ROTATION_EV_WEAKENING,
+    ROTATION_EV_DISPLACEMENT, ROTATION_EV_MERGE, ROTATION_EV_SEPARATION,
+    ROTATION_EV_DISSIPATION,
+)
+
+
+class RotationSignature:
+    """Firma di rotazione misurata dal Doppler su una struttura.
+
+    Ogni campo introduce: source (da dove arriva), valid_time (timestamp),
+    quality (qualita' osservativa) e limits (cosa NON dimostra). I campi
+    ambientali (CAPE/SRH/DLS/SCP) NON compaiono qui: sono contesto separato.
+    """
+
+    def __init__(self, signature_id, lat, lon, valid_time, radar_id,
+                 delta_velocity_ms, azimuthal_shear_ms_km,
+                 rotation_base_km, rotation_top_km, rotation_depth_km,
+                 rotation_strength_ms, vertical_continuity,
+                 quality=None, parent_cell_id=None, classification=None,
+                 null_reason=None, source=None, reference=None, limits=None):
+        self.signature_id = signature_id
+        self.lat = float(lat)
+        self.lon = float(lon)
+        self.valid_time = valid_time
+        self.radar_id = radar_id
+        self.delta_velocity_ms = delta_velocity_ms
+        self.azimuthal_shear_ms_km = azimuthal_shear_ms_km
+        self.rotation_base_km = rotation_base_km
+        self.rotation_top_km = rotation_top_km
+        self.rotation_depth_km = rotation_depth_km
+        self.rotation_strength_ms = rotation_strength_ms
+        self.vertical_continuity = vertical_continuity
+        self.quality = quality or {}
+        self.parent_cell_id = parent_cell_id
+        self.classification = classification
+        self.null_reason = null_reason
+        self.source = source
+        self.reference = reference
+        self.limits = limits or []
+        self.rotation_measurable = (delta_velocity_ms is not None
+                                    and null_reason is None)
+
+    def to_dict(self):
+        def rnd(v, n=2):
+            return round(float(v), n) if isinstance(v, (int, float)) else v
+        return {
+            "signature_id": self.signature_id,
+            "lat": rnd(self.lat, 5), "lon": rnd(self.lon, 5),
+            "valid_time": self.valid_time,
+            "radar_id": self.radar_id,
+            "delta_velocity_ms": rnd(self.delta_velocity_ms),
+            "azimuthal_shear_ms_km": rnd(self.azimuthal_shear_ms_km),
+            "rotation_base_km": rnd(self.rotation_base_km),
+            "rotation_top_km": rnd(self.rotation_top_km),
+            "rotation_depth_km": rnd(self.rotation_depth_km),
+            "rotation_strength_ms": rnd(self.rotation_strength_ms),
+            "vertical_continuity": rnd(self.vertical_continuity, 3),
+            "quality": dict(self.quality),
+            "parent_cell_id": self.parent_cell_id,
+            "classification": self.classification,
+            "rotation_measurable": bool(self.rotation_measurable),
+            "null_reason": self.null_reason,
+            "source": self.source,
+            "reference": self.reference,
+            "limits": list(self.limits),
+        }
+
+
+class MesocycloneTrack:
+    """Traccia di una struttura rotante fra scansioni (Fase 4).
+
+    `classification` resta uno dei 4 stati: MAI "tornado"/"confermato".
+    `parent_cell_ids` sono gli id di cella convettiva associata (non una
+    proprieta' della rotazione, ma il contesto a cui e' agganciata).
+    """
+
+    def __init__(self, meso_id, first_detection):
+        self.meso_id = meso_id
+        self.points = []
+        self.events = []
+        self.first_detection = first_detection
+        self.last_detection = first_detection
+        self.parent_cell_ids = []
+        self.classification = ROTATION_NO_ROTATION
+        self.max_shear_ms_km = None
+        self.max_delta_velocity_ms = None
+        self.max_rotation_depth_km = None
+        self.max_vertical_continuity = None
+        self.cell_coherent = False
+        self.persistence = 0
+        self.quality_score = None
+        self.source = None
+        self.reference = None
+        self.limits = []
+
+    def to_dict(self):
+        return {
+            "meso_id": self.meso_id,
+            "first_detection": self.first_detection,
+            "last_detection": self.last_detection,
+            "persistence": self.persistence,
+            "classification": self.classification,
+            "max_shear_ms_km": (round(float(self.max_shear_ms_km), 2)
+                                if self.max_shear_ms_km is not None else None),
+            "max_delta_velocity_ms": (round(float(self.max_delta_velocity_ms), 2)
+                                      if self.max_delta_velocity_ms is not None else None),
+            "max_rotation_depth_km": (round(float(self.max_rotation_depth_km), 2)
+                                      if self.max_rotation_depth_km is not None else None),
+            "max_vertical_continuity": (round(float(self.max_vertical_continuity), 3)
+                                        if self.max_vertical_continuity is not None else None),
+            "cell_coherent": bool(self.cell_coherent),
+            "quality_score": (round(float(self.quality_score), 3)
+                              if self.quality_score is not None else None),
+            "parent_cell_ids": list(self.parent_cell_ids),
+            "events": list(self.events),
+            "points": [dict(p) for p in self.points],
+            "source": self.source,
+            "reference": self.reference,
+            "limits": list(self.limits),
+        }

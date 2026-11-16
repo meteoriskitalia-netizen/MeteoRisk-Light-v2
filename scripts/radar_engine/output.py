@@ -252,6 +252,51 @@ def build_latest(bundle, engine_meta=None, previous=None):
     timings = getattr(bundle, "timings_ms", None)
     if isinstance(timings, dict) and timings:
         payload["timings_ms"] = timings
+    # 1.3 — DOPPLER ANALYSIS + MESOCYCLONE TRACKING (additivi). `latest.json`
+    # resta lo "stato del run, mai dati raw": qui va SOLO un riepilogo limitato
+    # (conteggi, motivi, limiti, riferimento), mentre i payload COMPLETI sono
+    # pubblicati in data/radar/doppler_analysis.json e mesocyclone_tracks.json.
+    # Nessuna chiave viene pubblicata se il layer non ha valorizzato i campi.
+    da = getattr(bundle, "doppler_analysis", None)
+    if isinstance(da, dict) and da:
+        payload["doppler_analysis"] = {
+            "status": "unavailable" if da.get("null_reason") else "ok",
+            "source": da.get("source"),
+            "valid_time": da.get("valid_time"),
+            "couplets_total": da.get("couplets_total"),
+            "signature_total": da.get("signature_total"),
+            "state_counts": da.get("state_counts"),
+            "null_reasons": da.get("null_reasons"),
+            "limits": da.get("limits"),
+            "reference": da.get("reference"),
+            "boundary_note": da.get("boundary_note"),
+            "detail_path": "data/radar/doppler_analysis.json",
+        }
+    mt = getattr(bundle, "mesocyclone_tracks", None)
+    if isinstance(mt, dict) and mt:
+        payload["mesocyclone_tracks"] = {
+            "status": "unavailable" if mt.get("null_reason") else "ok",
+            "source": mt.get("source"),
+            "counts": mt.get("counts"),
+            "limits": mt.get("limits"),
+            "reference": mt.get("reference"),
+            "detail_path": "data/radar/mesocyclone_tracks.json",
+        }
+    # 1.3 — VOLUME 3D: riepilogo verificabile del file data/radar/volume.json
+    # (il payload completo, con le sezioni, resta nel file dedicato).
+    vol = getattr(bundle, "volume", None)
+    if isinstance(vol, dict) and vol:
+        payload["volume"] = {
+            "status": vol.get("status") or (
+                "ok" if vol.get("volume_available") else "unavailable"),
+            "null_reason": vol.get("null_reason"),
+            "generated_at_utc": vol.get("generated_at_utc"),
+            "timestamp": vol.get("timestamp"),
+            "volume_source": vol.get("volume_source"),
+            "volume_acquisition": vol.get("volume_acquisition"),
+            "cells_count": len(vol.get("cells") or []),
+            "path": getattr(bundle, "volume_path", None),
+        }
     return payload
 
 

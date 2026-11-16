@@ -79,6 +79,7 @@ jobs:
     # workflow (group "radar-engine-${{ github.ref }}", sopra): questa a
     # livello di job resta come seconda difesa, invariata.
     concurrency:
+      queue: max
       group: radar-history
       cancel-in-progress: false
     steps:
@@ -367,7 +368,9 @@ jobs:
           for f in latest.json storms.geojson tracks.json storm_objects.geojson \
                    storm_tracks.json convective_structures.json \
                    doppler_coverage.geojson accumulation.json \
-                   accumulation_validation.json; do
+                   accumulation_validation.json \
+                   volume.json doppler_analysis.json \
+                   mesocyclone_tracks.json; do
             if [ -f "data/radar/$f" ]; then git add "data/radar/$f"; fi
           done
           # Registro append-only delle predizioni (data/state, rotazione 30 gg).
@@ -646,6 +649,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
+      queue: max
       group: pages-deploy-2
       cancel-in-progress: false
     steps:

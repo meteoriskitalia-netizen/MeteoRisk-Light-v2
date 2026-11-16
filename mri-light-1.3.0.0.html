@@ -2850,9 +2850,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.2.4.102';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-11-15';
+    const APP_VERSION = '1.3.0.0';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-11-16';
     const APP_CHANGELOG = [
+    { version: '1.3.0.0', date: '2026-11-16', changes: [
+        'Nuovo Doppler Analysis Engine: velocity couplets VRADH reali (OPERA FR), Nyquist verificato, dealiasing region-based e 4 stati (NO_ROTATION, ROTATION_SUSPECTED, ROTATION_DETECTED, MESOCYCLONE_CANDIDATE) con quality e null_reason espliciti.',
+        'Nuovo Mesocyclone Detection Engine: tracking della firma rotante fra scansioni, eventi di intensificazione e spostamento, coerenza con la cella. Nessuna etichetta di mesociclone confermato o tornado senza velocita radiale verificata.',
+        'Nuovo volume 3D dai 10 CAPPI DPC allineati: parametri volumetrici per soglia, sezioni verticali compatte e volume.json in data/radar con provenienza, limiti e degrado dichiarato.',
+        'Separazione esplicita osservato / previsto / derivato / proxy: la morfologia CAPPI dimostra organizzazione, non rotazione, e non entra nella classificazione Doppler.',
+    ]},
     { version: '1.2.4.102', date: '2026-11-15', changes: [
         'Riparato il caricamento del dataset derivato: il calcolo STP usava LCL e CIN non dichiarati, la ReferenceError annullava il caricamento e la mappa dei rischi restava vuota (0 badge).',
         'Ora LCL e CIN sono letti dai dati orari (temperature_2m/dew_point_2m e convective_inhibition), con fallback neutro: LCL mancante -> 0.5, CIN mancante -> nessuna penalizzazione.',

@@ -1550,6 +1550,14 @@ def _phase2_evaluate(bundle, config):
         cappi, cappi_by_name, cappi_summary = _fetch_cappi_levels(
             config, scfg, frames[-1], warnings,
             full_set=gate["fetch_full_set"])
+        # 1.3 — VOLUME 3D: il set CAPPI gia' allineato alla VMI e la VMI stessa
+        # sono gia' in memoria qui. Li teniamo sul bundle per il publisher, che
+        # gira in _run() DOPO il gate dry-run: nessuna seconda richiesta di
+        # rete, nessun dato inventato. Se il gate grandine ha preso solo 2
+        # livelli, il publisher degrada a `cappi_levels_lt_4` con motivo.
+        bundle._volume_cappi = dict(cappi)
+        bundle._volume_ref_rd = frames[-1]
+        bundle._volume_vmi_rd = frames[-1]
         cappi_summary["hail_gate"] = gate
         # 1.2.4.26 — livelli CAPPI EFFETTIVAMENTE disponibili dopo il gate
         # (full set o solo low/high) e dopo gli scarti per slot/shape: e' il
@@ -2238,11 +2246,22 @@ def _run_pipeline(config, out_dir, product, max_frames, dry_run,
         try:
             from radar_engine import doppler as doppler_mod
             with timers.stage("doppler"):
-                bundle.doppler = doppler_mod.attach(
+                _dop_result = doppler_mod.attach(
                     bundle, config, out_dir=out_dir)
+            bundle.doppler = _dop_result
+            # 1.3 — campi additivi: valorizzati SOLO dal risultato reale del
+            # modulo Doppler. Se il layer non produce diagnostica restano None
+            # (nessuna chiave nuova nell'output): niente dati simulati.
+            bundle.doppler_analysis = _dop_result.get("doppler_analysis")
+            bundle.mesocyclone_tracks = _dop_result.get("mesocyclone_tracking")
+            # I payload completi (dati REALI gia' calcolati) vanno in file
+            # dedicati: latest.json resta lo stato del run, non un dataraw.
+            _write_1_3_detail(bundle, out_dir)
         except Exception as exc:  # layer additivo: mai rompere il pipeline base
             bundle.warnings.append(f"doppler layer failed: {exc}")
             bundle.doppler = {"status": "error", "null_reason": str(exc)}
+            bundle.doppler_analysis = None
+            bundle.mesocyclone_tracks = None
 
     # ---- SCORING incluso in finalize (per track) ----------------------------
     if len(bundle.cells_by_frame) < 2:
@@ -2252,6 +2271,15 @@ def _run_pipeline(config, out_dir, product, max_frames, dry_run,
     # ---- OUTPUT -------------------------------------------------------------
     if dry_run:
         return bundle, _OK
+
+    # 1.3 — VOLUME 3D (additivo, best-effort): volume.json dai CAPPI reali gia'
+    # scaricati dal layer phase2. Nessun errore fa fallire il run; un set
+    # incompleto degrada a null_reason esplicito nel payload pubblicato.
+    try:
+        with timers.stage("volume_publisher"):
+            _publish_volume(bundle, out_dir, config)
+    except Exception as exc:  # layer additivo: mai rompere il pipeline base
+        bundle.warnings.append(f"volume publisher failed: {exc}")
 
     try:
         # 2026-11-11 — `tracking_metrics` viaggia anche nel blocco `engine`
@@ -2287,6 +2315,84 @@ def _run_pipeline(config, out_dir, product, max_frames, dry_run,
         with timers.stage("predictions_record"):
             _record_predictions(bundle, config, out_dir)
     return bundle, _OK if bundle.status == "ok" else _DEGRADED
+
+
+def _write_1_3_detail(bundle, out_dir):
+    """1.3 — Pubblica i payload Doppler COMPLETI in file dedicati, atomici.
+
+    I dati sono quelli REALI restituiti dal modulo Doppler: qui non si calcola
+    nulla e non si inventa nulla. Se un payload e' None non si scrive alcun
+    file (nessun artefatto vuoto). Solleva in caso di errore di scrittura: il
+    chiamante lo trasforma in warning senza rompere il run.
+    """
+    import tempfile
+    specs = (
+        ("doppler_analysis.json", getattr(bundle, "doppler_analysis", None)),
+        ("mesocyclone_tracks.json", getattr(bundle, "mesocyclone_tracks", None)),
+    )
+    for name, obj in specs:
+        if not isinstance(obj, dict) or not obj:
+            continue
+        text = json.dumps(obj, ensure_ascii=False, allow_nan=False,
+                          default=str, separators=(",", ":"))
+        json.loads(text)  # valida prima della sostituzione atomica
+        path = os.path.join(out_dir, name)
+        fd, tmp = tempfile.mkstemp(dir=out_dir, prefix=f".{name}-",
+                                   suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(text)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, path)
+        except OSError:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+
+
+def _publish_volume(bundle, out_dir, config=None):
+    """1.3 — Publisher del volume 3D (ADDITIVO, best-effort).
+
+    Usa SOLO i CAPPI reali gia' scaricati e allineati dal layer phase2 e la
+    VMI dello stesso frame. Nessuna seconda richiesta di rete, nessun valore
+    simulato: se i CAPPI non ci sono (phase2 disabilitato / nessun candidato /
+    gate grandine con soli 2 livelli), il payload degrada con `null_reason`
+    esplicito. Non solleva: un errore diventa un warning sul bundle.
+    """
+    try:
+        from radar_engine import volume_publisher as vpub
+    except Exception as exc:
+        bundle.warnings.append(f"volume_publisher import failed: {exc}")
+        return None
+    cappi = getattr(bundle, "_volume_cappi", None) or {}
+    ref_rd = getattr(bundle, "_volume_ref_rd", None)
+    vmi_rd = getattr(bundle, "_volume_vmi_rd", None)
+    timestamp_utc = (getattr(ref_rd, "time_iso", None)
+                     or bundle.generated_at_iso)
+    vcfg = (config or {}).get("volume") or {}
+    thresholds = tuple(int(t) for t in (
+        vcfg.get("thresholds") or vpub.DEFAULT_THRESHOLDS))
+    try:
+        payload = vpub.build_and_publish(
+            cappi, ref_rd, vmi_rd, timestamp_utc=timestamp_utc,
+            thresholds=thresholds,
+            # Nessun registro di volumi precedenti: growth resta null con
+            # null_reason="no_previous_volume". Nessun moto riutilizzato: gli
+            # ID cella del publisher non coincidono con quelli del tracking,
+            # quindi l'asse longitudinale usa l'asse maggiore dichiarato.
+            prev=None, motions={})
+        bundle.volume = payload
+        path = vpub.write_volume_payload(payload, out_dir)
+        bundle.volume_path = path
+        return path
+    except Exception as exc:
+        bundle.warnings.append(
+            f"volume publisher failed: {exc.__class__.__name__}:{exc}")
+        bundle.volume = {"status": "error", "null_reason": str(exc)}
+        return None
 
 
 def _archive_history(bundle, history_dir, config=None):

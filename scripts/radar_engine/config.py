@@ -175,6 +175,48 @@ CONFIG = {
         "coverage_window_min": 30.0,
         "coverage_max_volumes": 3,
         "coverage_min_range_km": 5.0,
+        # -----------------------------------------------------------------
+        # 1.3 — DOPPLER ANALYSIS ENGINE (velocity couplets) — ADDITIVO.
+        # Tutte le soglie sotto sono SCELTA INGEGNERISTICA (nessuna
+        # calibrazione locale): sono dichiarate nel campo `reference` di ogni
+        # diagnostica. La rotazione si misura SOLO da VRADH; nessuna soglia
+        # dipende da CAPE/SRH/DLS/SCP (contesto ambientale separato).
+        # Finestra locale per la coppia inbound/outbound (raggi x gate).
+        "couplet_window_rays": 2,       # +-2 raggi (5 azimut a 1 deg)
+        "couplet_window_gates": 3,      # +-3 gate (~2.9 km a 960 m)
+        "couplet_inbound_min_ms": 7.0,  # |v_inbound| minima (SCELTA ING.)
+        "couplet_outbound_min_ms": 7.0, # v_outbound minima (SCELTA ING.)
+        "couplet_delta_v_min_ms": 15.0, # delta V minimo della coppia (SCELTA ING.)
+        "couplet_max_distance_km": 12.0, # distanza max fra i due massimi
+        "couplet_min_support_gates": 3, # gate di supporto (non singolo gate)
+        "couplet_support_v_ms": 5.0,    # |v| per contare un gate di supporto
+        "couplet_min_continuity": 0.6,  # frazione gate validi fra i massimi
+        "couplet_dedup_rays": 3,
+        "couplet_dedup_gates": 6,
+        # Larghezza del fascio del radar (gradi): OPERA FR ~1 deg (SCELTA ING.,
+        # dichiarata). Usata per BEAM_WIDTH = 2*r*tan(half-beamwidth).
+        "radar_beamwidth_deg": 1.0,
+        # -----------------------------------------------------------------
+        # 1.3 — ROTAZIONE VERTICALE e 4 STATI — ADDITIVO.
+        "rotation_match_radius_km": 12.0,   # associazione fra elevazioni
+        "rotation_min_elevations": 2,       # min elevazioni per verticale
+        "rotation_sign_consistent": True,   # stesso segno fra elevazioni
+        "rotation_min_depth_km": 1.5,       # MESO_CANDIDATE: profondita' min
+        "rotation_min_continuity": 0.66,    # MESO_CANDIDATE: continuita' min
+        "rotation_min_quality": 0.45,       # qualita' min per DETECTED
+        "meso_min_persistence_scans": 3,    # MESO_CANDIDATE: scan consecutive
+        "meso_cell_radius_km": 10.0,        # coerenza con la cella (SCELTA ING.)
+        # Qualita' osservativa: pesi della quality_score (0-1), formulata in
+        # observation_quality() e dichiarata nel campo `reference`.
+        "quality_beam_h_km": 4.0,
+        "quality_beam_width_km": 4.0,
+        "quality_max_age_min": 15.0,
+        # Tracking struttura rotante (Fase 4).
+        "track_match_radius_km": 15.0,
+        "track_match_window_min": 15.0,
+        "track_intensify_pct": 0.25,
+        "track_displacement_km": 10.0,
+        "track_dissipate_scans": 2,
     },
     # Collimazione DPC <-> OPERA (harness, non UI): disattivata in produzione,
     # si esegue dal workflow radar-collimation.yml o da CLI.
