@@ -149,12 +149,29 @@ jobs:
           fi
           COMMIT=$(git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit-tree "$TREE" -m "[skip ci] satellite: rolling window (6 sorgenti)")
+          read_remote_sha() {
+            git ls-remote origin refs/heads/satellite-cache 2>/dev/null | awk 'NR==1 {print $1}'
+          }
           for attempt in 1 2 3; do
-            if git push --force origin "$COMMIT:refs/heads/satellite-cache"; then
+            PARENT="$(read_remote_sha || true)"
+            if [ -z "$PARENT" ]; then
+              LEASE="--force-with-lease=refs/heads/satellite-cache:"
+              EXPECT="<ref assente>"
+            else
+              LEASE="--force-with-lease=refs/heads/satellite-cache:$PARENT"
+              EXPECT="$PARENT"
+            fi
+            echo "[INFO] push satellite-cache tentativo $attempt/3 (lease su $EXPECT)"
+            if PUSH_OUT=$(git push "$LEASE" origin "$COMMIT:refs/heads/satellite-cache" 2>&1); then
               echo "[INFO] satellite-cache aggiornata (commit ${COMMIT:0:7})."
               exit 0
             fi
-            echo "[WARN] push satellite-cache fallito (tentativo $attempt/3): riprovo."
+            echo "$PUSH_OUT"
+            if echo "$PUSH_OUT" | grep -qE 'Permission denied|error: 403|error 403'; then
+              echo "[ERRORE] Push 403: non riprovo con lo stesso token."
+              exit 1
+            fi
+            echo "[WARN] push satellite-cache rifiutato (tentativo $attempt/3): rileggo lo SHA e riprovo."
             sleep $((attempt * 5))
           done
           echo "[ERRORE] push satellite-cache fallito dopo 3 tentativi."

@@ -64,6 +64,21 @@ def test_a_no_new_run_clean_exit():
     assert_no_heavy(used)
 
 
+def test_c2_check_noop_declared_clean_exit():
+    # rc=11: cooldown attivo — clean exit, new_run=false, check_state=noop,
+    # nessuna richiesta Metadata API e nessun passo della catena pesante.
+    d = wg.classify_check(11)
+    assert d["exit_code"] == 0
+    assert d["decision"] == "clean_exit"
+    assert d["outputs"]["new_run"] == "false"
+    assert d["outputs"]["check_state"] == "noop"
+    assert "NO-OP dichiarato" in d["message"]
+    used, _, _ = run_chain(11)
+    assert used["best"] is False   # la catena pesante NON viene eseguita
+    assert used["plan"] is False
+    assert_no_heavy(used)
+
+
 def test_b_new_run_full_chain():
     d = wg.classify_check(0)
     assert d["exit_code"] == 0
@@ -81,6 +96,7 @@ def test_c_model_check_error_fails():
     d = wg.classify_check(1)
     assert d["exit_code"] == 1
     assert d["decision"] == "fail"
+    assert d["outputs"]["check_state"] == "api_unavailable"
     assert "[ERROR]" in d["message"]
     used, _, _ = run_chain(1)
     assert_no_heavy(used)

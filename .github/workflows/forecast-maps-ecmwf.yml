@@ -104,7 +104,6 @@ jobs:
         domain:
           - ecmwf_ifs025
     concurrency:
-      queue: max
       # Group PER-DOMINIO con prefisso PROPRIO del fornitore.
       group: forecast-maps-ecmwf-${{ matrix.domain }}
       cancel-in-progress: false

@@ -6,7 +6,9 @@ name: Update Weather Data (Centralized Data Pipeline — Production Hardened)
 #   - Driver run UNICO per il cambio di run: ECMWF IFS (Metadata API, LEGGERO).
 #       check rc 0  = NEW ECMWF RUN AVAILABLE     -> pipeline continua
 #       check rc 10 = NO NEW ECMWF RUN            -> clean SUCCESS per ECMWF
+#       check rc 11 = NO-OP DICHIARATO (cooldown) -> clean SUCCESS, zero richieste
 #       check rc 1+ = TECHNICAL ERROR             -> workflow FAIL, errore visibile
+#                     -> FAIL visibile (check_state=api_unavailable) + cooldown persistito da step if: failure()
 #   - Canary BEST MATCH INDIPENDENTE (check_best_match.py): 6 capoluoghi-sentinella
 #     in UNA richiesta forecast multi-location (weathercode+precipitation orarie),
 #     fingerprint SHA-256 del contenuto (NO generation-time), confrontato con lo
@@ -56,6 +58,7 @@ permissions:
 jobs:
   pipeline:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # Deploy Pages serializzato con TUTTI gli altri workflow che pubblicano su
     # Pages: stesso group "pages-deploy-2" a livello di job usato da radar-engine
     # (cancel-in-progress: false -> le run in coda proseguono). Sostituisce la
@@ -63,7 +66,6 @@ jobs:
     # sincronizzava con il group "pages-deploy-2" di radar-engine e lasciava i
     # due deploy girare in parallelo.
     concurrency:
-      queue: max
       group: pages-deploy-2
       cancel-in-progress: false
     steps:
@@ -91,7 +93,7 @@ jobs:
       # CHECK ECMWF (Metadata API, LEGGERO; conteggiata solo in osservabilità
       # guardrails, mai nel tetto del forecast). Non genera fetch da sola:
       # i 10 minuti servono a rilevare rapidamente cambiamenti reali.
-      # Bootstrap: rc 10 -> clean SUCCESS (nessun lavoro ECMWF); rc 1+ -> FAIL.
+      # Bootstrap: rc 10/11 -> clean SUCCESS (nessun lavoro ECMWF); rc 1+ -> FAIL.
       - name: Rileva nuovo run ECMWF IFS (Metadata API)
         id: check
         run: |
@@ -103,6 +105,36 @@ jobs:
           fi
           python scripts/workflow_gate.py check "$rc"
           exit $?
+
+      # CHECK FAILED (Metadata API): H4 vieta a check_model_runs di scrivere lo
+      # stato. Persistiamo SOLO il cooldown, con commit separato e dedicato:
+      # nessun fetch, nessun deploy, nessun dato falso pubblicato.
+      - name: Registra cooldown check ECMWF (solo data/state/last_model_run.json)
+        if: failure() && steps.check.outputs.check_state == 'api_unavailable'
+        run: |
+          python scripts/check_model_runs.py --record-api-failure
+          git config user.name "meteorisk-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/state/last_model_run.json
+          if git diff --cached --quiet; then
+            echo "[INFO] Stato cooldown invariato."
+          else
+            git commit -m "chore(state): cooldown check ECMWF (nessun dato pubblicato)"
+            push_ok=0
+            for i in 1 2 3 4 5; do
+              git rebase --abort 2>/dev/null || true
+              if git pull --rebase --autostash -X theirs origin main && git push origin main; then
+                push_ok=1
+                break
+              fi
+              echo "[WARN] Push cooldown rifiutato (race su main) - tentativo $i/5"
+              if [ "$i" -lt 5 ]; then sleep 5; fi
+            done
+            if [ "$push_ok" -ne 1 ]; then
+              echo "[ERROR] Push cooldown non riuscito dopo 5 tentativi"
+              exit 1
+            fi
+          fi
 
       # CANARY BEST MATCH (1 richiesta forecast/ciclo: fino a 144/giorno con il
       # cron */10, ~1,4% del ceiling giornaliero). Esegue SEMPRE (anche quando
@@ -200,7 +232,8 @@ jobs:
             # dopo i 5 tentativi (nessun errore silenziato).
             push_ok=0
             for i in 1 2 3 4 5; do
-              if git pull --rebase --autostash origin main && git push origin main; then
+              git rebase --abort 2>/dev/null || true
+              if git pull --rebase --autostash -X theirs origin main && git push origin main; then
                 push_ok=1
                 break
               fi
@@ -242,7 +275,8 @@ jobs:
             git commit -m "chore(data): tendenza 7 giorni per provincia (weekly.json)"
             push_ok=0
             for i in 1 2 3 4 5; do
-              if git pull --rebase --autostash origin main && git push origin main; then
+              git rebase --abort 2>/dev/null || true
+              if git pull --rebase --autostash -X theirs origin main && git push origin main; then
                 push_ok=1
                 break
               fi
@@ -326,15 +360,18 @@ jobs:
             echo "**Validate:** \`${{ steps.validate.outputs.validate_ok || 'skipped' }}\`"
             echo "**Publish (new dataset):** \`${{ steps.publish.outputs.new_dataset || 'false' }}\`"
             echo ""
-            if [ "${{ steps.check.outputs.check_state }}" = "failed" ] || [ "${{ steps.plan.outputs.plan_state }}" = "bootstrap_budget_blocked" ]; then
-              if [ "${{ steps.check.outputs.check_state }}" = "failed" ]; then
+            if [ "${{ steps.check.outputs.check_state }}" = "api_unavailable" ] || [ "${{ steps.plan.outputs.plan_state }}" = "bootstrap_budget_blocked" ]; then
+              if [ "${{ steps.check.outputs.check_state }}" = "api_unavailable" ]; then
                 echo "❌ **CHECK FAILED — Metadata API unavailable after retries** (Parte H5)."
                 echo "No data fetch performed."
                 echo "Last dataset unchanged."
                 echo "State not updated (NETWORK ERROR != NO NEW RUN — H4)."
+                echo "Cooldown registrato in data/state/last_model_run.json: i prossimi cicli saranno NO-OP dichiarato (rc 11) fino alla scadenza."
               else
                 echo "⚠️ **CHECK/PLAN FAILED** — errore visibile, nessun file falso/parziale (requisito G6)."
               fi
+            elif [ "${{ steps.check.outputs.check_state }}" = "noop" ]; then
+              echo "ℹ️ **CHECK NO-OP dichiarato (cooldown attivo):** nessuna richiesta Metadata API, last_processed_key invariato, nessun fetch/deploy — nessun dato falso pubblicato."
             elif [ "${{ steps.plan.outputs.bootstrap_pending }}" = "true" ] && [ "${{ steps.publish.outputs.new_dataset }}" = "true" ]; then
               echo "✅ **INITIAL DATASET BOOTSTRAP COMPLETED:** primo dataset reale generato da GitHub Actions, committato e deployato."
             elif [ "${{ steps.check.outputs.new_run }}" = "false" ] && [ "${{ steps.best.outputs.best_changed }}" = "false" ]; then
@@ -372,8 +409,8 @@ jobs:
   # ==========================================================================
   hydro-criticality:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     concurrency:
-      queue: max
       group: hydro-criticality
       cancel-in-progress: false
     steps:
@@ -412,7 +449,8 @@ jobs:
             # (radar-engine pusha ogni ~5 min): rebase + retry.
             push_ok=0
             for i in 1 2 3 4 5; do
-              if git pull --rebase --autostash origin main && git push origin main; then
+              git rebase --abort 2>/dev/null || true
+              if git pull --rebase --autostash -X theirs origin main && git push origin main; then
                 push_ok=1
                 break
               fi

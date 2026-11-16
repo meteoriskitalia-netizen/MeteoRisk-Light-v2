@@ -28,7 +28,9 @@ Stati del Request Planner / Decision Engine:
   PLAN ERROR                          -> workflow FAIL, mai trattato come "no new run"
 
 Classificazione exit code (contratto stabile):
-  check (ecmwf): 0 = nuovo run · 10 = nessun nuovo run · 1+ = errore tecnico
+  check (ecmwf): 0 = nuovo run · 10 = nessun nuovo run ·
+                 11 = NO-OP dichiarato (cooldown, exit 0, new_run=false) ·
+                 1+ = errore tecnico (check_state=api_unavailable, exit 1)
   best  (canary): 0 = cambiato · 10 = invariato · 1+ = errore tecnico
   plan:          0 = piano ok · 2 = ceiling raggiunto (safe skip) ·
                  3 = ceiling in BOOTSTRAP (FAIL) · 1+ = errore
@@ -60,9 +62,13 @@ def classify_check(rc):
         return {"stage": "check", "rc": rc, "decision": "clean_exit",
                 "message": "[INFO] No new model run — clean exit",
                 "outputs": {"new_run": "false", "check_state": "none"}, "exit_code": 0}
+    if rc == 11:
+        return {"stage": "check", "rc": rc, "decision": "clean_exit",
+                "message": "[INFO] Check NO-OP dichiarato (cooldown attivo) — nessuna richiesta Metadata API",
+                "outputs": {"new_run": "false", "check_state": "noop"}, "exit_code": 0}
     return {"stage": "check", "rc": rc, "decision": "fail",
             "message": "[ERROR] Model run check failed (rc=%d)" % rc,
-            "outputs": {"new_run": "false", "check_state": "failed"}, "exit_code": 1}
+            "outputs": {"new_run": "false", "check_state": "api_unavailable"}, "exit_code": 1}
 
 
 def classify_best(rc):

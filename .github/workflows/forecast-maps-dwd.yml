@@ -106,7 +106,6 @@ jobs:
           - dwd_icon_eu
           - dwd_icon_d2
     concurrency:
-      queue: max
       # Group PER-DOMINIO con prefisso PROPRIO del fornitore.
       group: forecast-maps-dwd-${{ matrix.domain }}
       cancel-in-progress: false

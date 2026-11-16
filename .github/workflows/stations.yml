@@ -69,7 +69,8 @@ jobs:
             # segnala il fallimento dopo 5 tentativi (nessun errore silenziato).
             push_ok=0
             for i in 1 2 3 4 5; do
-              if git pull --rebase --autostash origin main && git push origin main; then
+              git rebase --abort 2>/dev/null || true
+              if git pull --rebase --autostash -X theirs origin main && git push origin main; then
                 push_ok=1
                 break
               fi

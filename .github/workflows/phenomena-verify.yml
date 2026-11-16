@@ -36,7 +36,6 @@ jobs:
     # concorrenti su data/phenomena) senza entrare in coda con i deploy
     # Pages (group "pages-deploy") o con l'archivio radar-history.
     concurrency:
-      queue: max
       group: phenomena
       cancel-in-progress: false
     steps:
@@ -111,7 +110,11 @@ jobs:
           # Retry: altri workflow (radar-engine / update-weather-data)
           # pushano sullo stesso main -> race possibile.
           for attempt in 1 2 3 4 5; do
-            if git pull --rebase --autostash origin main && git push origin main; then
+            git rebase --abort 2>/dev/null || true
+            PULL_OUT=""
+            PUSH_OUT=""
+            if PULL_OUT=$(git pull --rebase --autostash -X theirs origin main 2>&1) && \
+               PUSH_OUT=$(git push origin main 2>&1); then
               echo "[INFO] Push phenomena riuscito."
               exit 0
             fi
@@ -120,5 +123,9 @@ jobs:
               exit 1
             fi
             echo "[WARN] Push fallito (tentativo $attempt/5): riprovo."
+            if printf '%s%s' "$PULL_OUT" "$PUSH_OUT" | grep -qE 'Permission denied|error: 403|error 403'; then
+              echo "[ERRORE] Push 403: non riprovo con lo stesso token."
+              exit 1
+            fi
             sleep $((attempt * 5))
           done

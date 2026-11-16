@@ -106,7 +106,6 @@ jobs:
           - ncep_gfs025
           - ncep_gfs013
     concurrency:
-      queue: max
       # Group PER-DOMINIO con prefisso PROPRIO del fornitore.
       group: forecast-maps-ncep-${{ matrix.domain }}
       cancel-in-progress: false

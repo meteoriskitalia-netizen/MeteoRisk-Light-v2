@@ -42,7 +42,6 @@ jobs:
     # deploy dei workflow che pubblicano su Pages si serializzano tra loro
     # (cancel-in-progress: false -> le run in coda proseguono).
     concurrency:
-      queue: max
       group: pages-deploy-2
       cancel-in-progress: false
     steps:

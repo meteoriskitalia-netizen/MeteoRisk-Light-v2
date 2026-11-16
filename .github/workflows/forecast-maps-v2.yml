@@ -219,7 +219,6 @@ jobs:
           - ncep_gfs013
           - meteofrance_arpege_world025
     concurrency:
-      queue: max
       # Group PER-DOMINIO: le run dello stesso dominio si serializzano tra loro,
       # ma domini diversi procedono in parallelo senza degradare i deploy Pages.
       group: forecast-maps-v2-${{ matrix.domain }}
@@ -359,7 +358,7 @@ jobs:
             done < /tmp/fm2_drop_paths.txt
             # (3) aggiorna SOLO il dominio corrente dal working tree
             GIT_INDEX_FILE="$IDX" git add -A -- "data/fm2/${{ matrix.domain }}"
-            TREE="$(GIT_INDEX_FILE="$IDX" git write-tree)"
+            TREE="$(GIT_INDEX_FILE="$IDX" git write-tree --missing-ok)"
             rm -f "$IDX"
             # NO-OP: albero identico al tip => nessun churn.
             if [ "$TREE" = "$BASE" ]; then
@@ -371,7 +370,7 @@ jobs:
             else
               NEW="$(git commit-tree "$TREE" -m "$MSG")"
             fi
-            if git push origin "$NEW:refs/heads/fm2-cache"; then
+            if git push --force-with-lease="refs/heads/fm2-cache:$PARENT" origin "$NEW:refs/heads/fm2-cache"; then
               echo "[INFO] Push su fm2-cache riuscito (tentativo $i/5)."
               exit 0
             fi
@@ -414,7 +413,6 @@ jobs:
           - ncep_gfs013
           - meteofrance_arpege_world025
     concurrency:
-      queue: max
       # Group PER-DOMINIO: gli shard si serializzano solo tra run dello stesso
       # dominio; i 6 domini procedono in parallelo tra loro e rispetto all'engine.
       group: forecast-maps-v2-render-${{ matrix.domain }}
@@ -532,7 +530,6 @@ jobs:
     # (--upsample-max / cap frame), NON si alza di nuovo il timeout a caso.
     timeout-minutes: 120
     concurrency:
-      queue: max
       # Lock del single-writer: serializza SOLO il merge (disgiunto dal matrix
       # engine forecast-maps-v2-<dominio> e dagli shard forecast-maps-v2-render-<dominio>).
       group: forecast-maps-v2-render
@@ -886,7 +883,7 @@ jobs:
               # shellcheck disable=SC2086
               GIT_INDEX_FILE="$IDXT" git add -A -- $add_paths
             fi
-            TREE="$(GIT_INDEX_FILE="$IDXT" git write-tree)"
+            TREE="$(GIT_INDEX_FILE="$IDXT" git write-tree --missing-ok)"
             rm -f "$IDXT"
             # NO-OP: albero identico al tip => nessun churn.
             if [ "$TREE" = "$BASE" ]; then
@@ -965,14 +962,14 @@ jobs:
               # il working tree; --pathspec-from-file evita di sfondare ARG_MAX
               # con ~20k path per gruppo.
               GIT_INDEX_FILE="$IDX" git add -A --pathspec-from-file="$GFILE"
-              GTREE="$(GIT_INDEX_FILE="$IDX" git write-tree)"
+              GTREE="$(GIT_INDEX_FILE="$IDX" git write-tree --missing-ok)"
               echo "[push] gruppo $gi/$NGROUPS: $(wc -l < "$GFILE") path -> tree $GTREE"
               if [ -n "$RUN_PARENT" ]; then
                 GNEW="$(git commit-tree "$GTREE" -p "$RUN_PARENT" -m "$MSG [$gi/$NGROUPS]")"
               else
                 GNEW="$(git commit-tree "$GTREE" -m "$MSG [$gi/$NGROUPS]")"
               fi
-              if git push origin "$GNEW:refs/heads/fm2-cache"; then
+              if git push --force-with-lease="refs/heads/fm2-cache:$RUN_PARENT" origin "$GNEW:refs/heads/fm2-cache"; then
                 echo "[push] gruppo $gi/$NGROUPS pubblicato: $GNEW"
                 RUN_PARENT="$GNEW"
                 pushed_groups=$((pushed_groups + 1))
@@ -1016,9 +1013,10 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           git fetch --no-tags --depth=1 origin fm2-cache
           tree="$(git rev-parse FETCH_HEAD^{tree})"
+          old="$(git rev-parse FETCH_HEAD)"
           new=$(git commit-tree "$tree" -m "chore(fm2): snapshot cache $(date -u +%Y-%m-%dT%H:%M:%SZ)")
           for i in 1 2 3 4 5; do
-            if git push --force-with-lease origin "$new:refs/heads/fm2-cache"; then
+            if git push --force-with-lease="refs/heads/fm2-cache:$old" origin "$new:refs/heads/fm2-cache"; then
               echo "[INFO] Squash su fm2-cache a commit unico riuscito (tentativo $i/5)."
               exit 0
             fi

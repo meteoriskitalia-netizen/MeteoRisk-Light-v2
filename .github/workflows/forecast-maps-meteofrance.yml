@@ -104,7 +104,6 @@ jobs:
         domain:
           - meteofrance_arpege_world025
     concurrency:
-      queue: max
       # Group PER-DOMINIO con prefisso PROPRIO del fornitore.
       group: forecast-maps-meteofrance-${{ matrix.domain }}
       cancel-in-progress: false

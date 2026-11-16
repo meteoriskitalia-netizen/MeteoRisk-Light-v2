@@ -104,7 +104,6 @@ jobs:
         domain:
           - dwd_icon
     concurrency:
-      queue: max
       # Group PER-DOMINIO con prefisso PROPRIO del fornitore.
       group: forecast-maps-dwdicon-${{ matrix.domain }}
       cancel-in-progress: false

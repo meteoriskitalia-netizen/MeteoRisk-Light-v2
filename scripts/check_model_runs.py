@@ -11,7 +11,8 @@ COORDINATED SCHEDULING (1.0.0.8):
     run_key: è un composito senza endpoint metadata e viene aggiornato in modo
     COORDINATO con il run ECMWF nello stesso ciclo di fetch.
   - dalla Metadata API vengono letti last_run_initialisation_time e
-    available_time (fallback: init + update_interval_seconds) di ecmwf_ifs;
+    last_run_availability_time (chiave REALE di static/meta.json; pubblicata
+    nel campo available_time dello stato), fallback init + update_interval_seconds;
   - grace period prudenziale (default 600 s dopo available_time) per evitare
     fetch prematuri / dataset parziali / falsi positivi;
   - confronto run_key (= init ECMWF) con l'ultimo run processato: identico e
@@ -34,8 +35,11 @@ ROBUSTEZZA RETE / METADATA API (1.0.0.8, PARTE H):
 Exit codes (contratto stabile · Parte H invariato, 1.0.0.8):
   0  = nuovo run ECMWF disponibile (la pipeline continua)
   10 = nessun nuovo run ECMWF (clean SUCCESS nella Action: zero lavoro)
+  11 = NO-OP DICHIARATO: cooldown attivo; nessuna richiesta Metadata API,
+       new_run=false, last_processed_key NON toccato
   1  = errore tecnico Metadata API: la Action FALLA con errore visibile,
-       MAI interpretato come "nessun nuovo run" o silenziato.
+       MAI interpretato come "nessun nuovo run" o silenziato. Il cooldown viene
+       persistito dallo step `if: failure()` del workflow (qui H4 vieta scritture).
 """
 
 import argparse
@@ -46,13 +50,19 @@ import time
 sys.path.insert(0, __file__ and __file__[: __file__.rfind("\\")] or ".")
 import common
 
+# Campo di stato del cooldown dopo CHECK FAILED (Parte H5). Scritto SOLO dalla
+# modalita' esplicita --record-api-failure chiamata dal workflow; MAI dal
+# percorso di check: H4 vieta di toccare lo stato su errore di rete.
+COOLDOWN_FIELD = "check_cooldown_until"
+DEFAULT_COOLDOWN_S = 3600
+
 
 def query_model_metadata(model_id):
     meta = common.get_model_metadata(model_id)
     return {
         "model": model_id,
         "last_run_initialisation_time": meta.get("last_run_initialisation_time"),
-        "available_time": meta.get("available_time"),
+        "available_time": meta.get("last_run_availability_time") or meta.get("available_time"),
         "update_interval_seconds": meta.get("update_interval_seconds"),
         "not_available_before_this_time": meta.get("not_available_before_this_time"),
     }
@@ -63,14 +73,34 @@ def main():
     parser.add_argument("--grace-seconds", type=int, default=common.GRACE_AFTER_AVAILABILITY_S,
                         help="Attesa minima dopo l'available_time prima di considerare il run usabile.")
     parser.add_argument("--force-update", action="store_true",
-                        help="Ignora il check 'run già processato' (MAI la validazione).")
+                        help="Ignora 'run già processato' e cooldown (MAI la validazione).")
     parser.add_argument("--provision-local", action="store_true",
                         help="DEV/LOCALE SOLO: registra il run anche se il grace non è ancora scaduto "
                              "(la API forecast lo serve già). MAI usato dalla GitHub Action.")
     parser.add_argument("--dry-run", action="store_true", help="Non scrivere lo stato.")
+    parser.add_argument("--record-api-failure", action="store_true",
+                        help="Scrive SOLO il cooldown dopo CHECK FAILED (chiamata dedicata del "
+                             "workflow con if: failure(); NON e' il percorso di check).")
     args = parser.parse_args()
 
+    if args.record_api_failure:
+        st = common.load_run_state()
+        st[COOLDOWN_FIELD] = int(time.time()) + DEFAULT_COOLDOWN_S
+        common.save_run_state(st)
+        print("[check_model_runs] Cooldown CHECK FAILED registrato (%s=%d): last_processed_key "
+              "invariato, nessun dato pubblicato." % (COOLDOWN_FIELD, st[COOLDOWN_FIELD]))
+        return 0
+
     state = common.load_run_state()
+    try:
+        cooldown_until = int(state.get(COOLDOWN_FIELD) or 0)
+    except (TypeError, ValueError):
+        cooldown_until = 0
+    if not args.force_update and cooldown_until > int(time.time()):
+        print("[check_model_runs] NO-OP DICHIARATO (rc=11): cooldown attivo fino a %d; nessuna "
+              "richiesta Metadata API, last_processed_key invariato." % cooldown_until)
+        return 11
+
     prev_processed = state.get("last_processed_key")
     bootstrap = common.is_bootstrap_pending()
     if bootstrap:

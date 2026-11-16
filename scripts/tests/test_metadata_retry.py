@@ -5,6 +5,7 @@ esponenziale + jitter · H4 NETWORK ERROR != NO NEW RUN (state/fingerprint solo
 dopo check riuscito) · H5 dopo i retry esauriti -> CHECK FAILED esplicito.
 """
 
+import json
 import os
 import sys
 import time
@@ -134,6 +135,104 @@ def test_h4_no_state_update_on_failure():
         assert check_best_match.main() == 1
         rec.assert_not_called()
         save2.assert_not_called()
+
+
+def test_query_model_metadata_uses_real_availability_key(monkeypatch):
+    """La chiave REALE di static/meta.json e' last_run_availability_time;
+    available_time resta come fallback per retrocompatibilita'."""
+    import check_model_runs
+    meta = {
+        "last_run_initialisation_time": 1788609600,
+        "last_run_availability_time": 1788613200,
+        "available_time": 999,
+        "update_interval_seconds": 3600,
+    }
+    monkeypatch.setattr(common, "get_model_metadata", lambda m: meta)
+    out = check_model_runs.query_model_metadata("ecmwf_ifs")
+    assert out["available_time"] == 1788613200
+
+    meta_fallback = {
+        "last_run_initialisation_time": 1788609600,
+        "available_time": 888,
+    }
+    monkeypatch.setattr(common, "get_model_metadata", lambda m: meta_fallback)
+    out2 = check_model_runs.query_model_metadata("ecmwf_ifs")
+    assert out2["available_time"] == 888
+
+
+def test_record_api_failure_writes_cooldown_only(monkeypatch, tmp_path):
+    """--record-api-failure scrive SOLO il cooldown: last_processed_key
+    (e il resto dello stato) restano invariati."""
+    import check_model_runs
+    state_file = tmp_path / "last_model_run.json"
+    original = {"last_processed_key": "1788609600", "status": "live",
+                "dataset": {"v": 1}}
+    state_file.write_text(json.dumps(original), encoding="utf-8")
+    written = {}
+
+    def fake_load():
+        return json.loads(state_file.read_text(encoding="utf-8"))
+
+    def fake_save(s):
+        written.update(s)
+        state_file.write_text(json.dumps(s), encoding="utf-8")
+
+    monkeypatch.setattr(common, "load_run_state", fake_load)
+    monkeypatch.setattr(common, "save_run_state", fake_save)
+    monkeypatch.setattr(sys, "argv", ["check_model_runs", "--record-api-failure"])
+
+    assert check_model_runs.main() == 0
+    assert check_model_runs.COOLDOWN_FIELD in written
+    assert written[check_model_runs.COOLDOWN_FIELD] > int(time.time())
+    assert written["last_processed_key"] == original["last_processed_key"]
+    assert written["status"] == original["status"]
+    assert written["dataset"] == original["dataset"]
+
+
+def test_cooldown_future_returns_11_without_api_or_save(monkeypatch):
+    """Con cooldown futuro: rc=11, nessuna Metadata API, nessuna scrittura."""
+    import check_model_runs
+    state = {"last_processed_key": "1788609600",
+             check_model_runs.COOLDOWN_FIELD: int(time.time()) + 1800}
+    monkeypatch.setattr(common, "load_run_state", lambda: dict(state))
+
+    def api_should_not_run(model):
+        raise AssertionError("get_model_metadata NON deve essere chiamata con cooldown attivo")
+
+    def save_should_not_run(state_arg):
+        raise AssertionError("save_run_state NON deve essere chiamato con cooldown attivo")
+
+    monkeypatch.setattr(common, "get_model_metadata", api_should_not_run)
+    monkeypatch.setattr(common, "save_run_state", save_should_not_run)
+    monkeypatch.setattr(sys, "argv", ["check_model_runs"])
+
+    assert check_model_runs.main() == 11
+
+
+def test_force_update_bypasses_cooldown(monkeypatch):
+    """--force-update ignora il cooldown: la Metadata API viene chiamata e
+    il check prosegue normalmente (non e' piu' un NO-OP)."""
+    import check_model_runs
+    state = {"last_processed_key": "1788609600", "status": "live",
+             check_model_runs.COOLDOWN_FIELD: int(time.time()) + 1800}
+    monkeypatch.setattr(common, "load_run_state", lambda: dict(state))
+    monkeypatch.setattr(common, "is_bootstrap_pending", lambda: False)
+    monkeypatch.setattr(common, "record_api_usage", lambda **kw: None)
+
+    api_calls = []
+    monkeypatch.setattr(common, "get_model_metadata", lambda m: api_calls.append(m) or {
+        "last_run_initialisation_time": 1000,
+        "last_run_availability_time": 1000,
+        "update_interval_seconds": 3600,
+    })
+    saved = []
+    monkeypatch.setattr(common, "save_run_state", lambda s: saved.append(s))
+    monkeypatch.setattr(sys, "argv", ["check_model_runs", "--force-update", "--dry-run"])
+
+    rc = check_model_runs.main()
+    assert api_calls == [common.DRIVER_MODEL]  # cooldown bypassato: API chiamata
+    assert rc == 0                             # non e' piu' rc=11
+    assert saved == []                         # --dry-run: nessuna scrittura
 
 
 if __name__ == "__main__":

@@ -79,7 +79,6 @@ jobs:
     # workflow (group "radar-engine-${{ github.ref }}", sopra): questa a
     # livello di job resta come seconda difesa, invariata.
     concurrency:
-      queue: max
       group: radar-history
       cancel-in-progress: false
     steps:
@@ -647,7 +646,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
-      queue: max
       group: pages-deploy-2
       cancel-in-progress: false
     steps:
