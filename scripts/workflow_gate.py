@@ -31,7 +31,8 @@ Classificazione exit code (contratto stabile):
   check (ecmwf): 0 = nuovo run · 10 = nessun nuovo run ·
                  11 = NO-OP dichiarato (cooldown, exit 0, new_run=false) ·
                  1+ = errore tecnico (check_state=api_unavailable, exit 1)
-  best  (canary): 0 = cambiato · 10 = invariato · 1+ = errore tecnico
+  best  (canary): 0 = cambiato · 10 = invariato · 12 = NO-OP dichiarato
+                  1+ = errore tecnico (best_state=api_unavailable, exit 1)
   plan:          0 = piano ok · 2 = ceiling raggiunto (safe skip) ·
                  3 = ceiling in BOOTSTRAP (FAIL) · 1+ = errore
   fetch:         0 = ok · 2 = ceiling (safe) · 3 = capoluoghi mancanti (safe) ·
@@ -75,14 +76,18 @@ def classify_best(rc):
     if rc == 0:
         return {"stage": "best", "rc": rc, "decision": "continue",
                 "message": "[INFO] Best Match changed (canary) — refresh authorized",
-                "outputs": {"best_changed": "true"}, "exit_code": 0}
+                "outputs": {"best_changed": "true", "best_state": "changed"}, "exit_code": 0}
     if rc == 10:
         return {"stage": "best", "rc": rc, "decision": "clean_exit",
                 "message": "[INFO] Best Match unchanged — no refresh needed",
-                "outputs": {"best_changed": "false"}, "exit_code": 0}
+                "outputs": {"best_changed": "false", "best_state": "unchanged"}, "exit_code": 0}
+    if rc == 12:
+        return {"stage": "best", "rc": rc, "decision": "clean_exit",
+                "message": "[INFO] Best Match NO-OP dichiarato (cooldown attivo) — nessuna richiesta forecast",
+                "outputs": {"best_changed": "false", "best_state": "noop"}, "exit_code": 0}
     return {"stage": "best", "rc": rc, "decision": "fail",
             "message": "[ERROR] Best Match canary check failed (rc=%d)" % rc,
-            "outputs": {"best_changed": "false"}, "exit_code": 1}
+            "outputs": {"best_changed": "false", "best_state": "api_unavailable"}, "exit_code": 1}
 
 
 def classify_plan(rc):

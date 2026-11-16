@@ -158,6 +158,42 @@ def test_build_publish_errors_fail():
     assert wg.classify_publish(0)["outputs"]["new_dataset"] == "true"
 
 
+def test_best_noop_declared_clean_exit():
+    # rc=12: cooldown canary attivo — best_changed=false, best_state=noop,
+    # exit 0, nessun passo successivo della catena (come il rc=11 di check).
+    d = wg.classify_best(12)
+    assert d["exit_code"] == 0
+    assert d["decision"] == "clean_exit"
+    assert d["outputs"]["best_changed"] == "false"
+    assert d["outputs"]["best_state"] == "noop"
+    assert "NO-OP dichiarato" in d["message"]
+    used, _, _ = run_chain(0, best_rc=12)
+    assert used["plan"] is False
+    assert_no_heavy(used)
+
+
+def test_best_api_unavailable_fails_and_exposes_state():
+    # rc=1: errore/rete — exit 1, best_changed MAI true, best_state esposto
+    # allo step if: failure() che persiste il cooldown.
+    d = wg.classify_best(1)
+    assert d["exit_code"] == 1
+    assert d["decision"] == "fail"
+    assert d["outputs"]["best_changed"] == "false"
+    assert d["outputs"]["best_state"] == "api_unavailable"
+    used, _, _ = run_chain(0, best_rc=1)
+    assert used["plan"] is False
+    assert_no_heavy(used)
+
+
+def test_best_changed_and_unchanged_outputs():
+    # Nessuna regressione dei rami storici: best_changed resta la chiave usata
+    # da decide_cycle; best_state e' solo osservabilita' aggiuntiva.
+    assert wg.classify_best(0)["outputs"]["best_changed"] == "true"
+    assert wg.classify_best(0)["outputs"]["best_state"] == "changed"
+    assert wg.classify_best(10)["outputs"]["best_changed"] == "false"
+    assert wg.classify_best(10)["outputs"]["best_state"] == "unchanged"
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

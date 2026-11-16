@@ -169,6 +169,10 @@ def main():
         "checked_at": common.now_iso(),
         "last_processed_at": state.get("last_processed_at"),
         "dataset": state.get("dataset"),
+        # Cooldown canary Best Match: campo DEDICATO e INDIPENDENTE dal cooldown
+        # ECMWF (check_cooldown_until). Un nuovo run ECMWF NON deve azzerare il
+        # cooldown del canary: va preservato quando ricostruiamo lo stato qui.
+        "best_match_cooldown_until": state.get("best_match_cooldown_until"),
         "note": ("INITIAL DATASET BOOTSTRAP (1.0.0.8): primo ciclo senza dataset live; "
                  "sara' eseguito il fetch reale del primo dataset (guardrail ceiling -> fetch -> build -> "
                  "validate -> publish atomico)." if bootstrap else

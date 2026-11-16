@@ -12,7 +12,11 @@ name: Update Weather Data (Centralized Data Pipeline — Production Hardened)
 #   - Canary BEST MATCH INDIPENDENTE (check_best_match.py): 6 capoluoghi-sentinella
 #     in UNA richiesta forecast multi-location (weathercode+precipitation orarie),
 #     fingerprint SHA-256 del contenuto (NO generation-time), confrontato con lo
-#     state. rc 0 = CAMBIATO -> refresh autorizzato · 10 = invariato · 1+ = FAIL.
+#     state. rc 0 = CAMBIATO -> refresh autorizzato · 10 = invariato ·
+#                  12 = NO-OP DICHIARATO (cooldown canary, zero richieste) ·
+#                  1+ = FAIL (best_state=api_unavailable) + cooldown persistito
+#                       da step if: failure() con campo DEDICATO
+#                       best_match_cooldown_until (indipendente da ECMWF).
 #   - DECISION ENGINE (decide_cycle.py), matrice STATELESS (FIX PIPELINE:
 #     best_match_only con merge del raw del ciclo precedente RIMOSSO — i runner
 #     GitHub sono ephemeral, data/_raw non persiste tra un run e l'altro):
@@ -139,7 +143,8 @@ jobs:
       # CANARY BEST MATCH (1 richiesta forecast/ciclo: fino a 144/giorno con il
       # cron */10, ~1,4% del ceiling giornaliero). Esegue SEMPRE (anche quando
       # ECMWF è invariato): rilevatore indipendente; clean exit quando il
-      # fingerprint è invariato.
+      # fingerprint è invariato. Il cooldown e' gestito DENTRO lo script (rc 12,
+      # zero richieste di rete): nessun gate if: a livello di step, scelta minima.
       - name: Canary Best Match (sentinelle, fingerprint contenuto)
         id: best
         run: |
@@ -147,6 +152,37 @@ jobs:
           python scripts/check_best_match.py || rc=$?
           python scripts/workflow_gate.py best "$rc"
           exit $?
+
+      # CANARY CHECK FAILED (rete/TLS): il canary NON scrive lo stato su errore
+      # (H4). Persistiamo SOLO il cooldown del canary, con commit separato e
+      # dedicato: nessun fetch, nessun deploy, nessun dato falso pubblicato.
+      # Speculare a "Registra cooldown check ECMWF" ma con campo indipendente.
+      - name: Registra cooldown canary Best Match (solo data/state/last_model_run.json)
+        if: failure() && steps.best.outputs.best_state == 'api_unavailable'
+        run: |
+          python scripts/check_best_match.py --record-api-failure
+          git config user.name "meteorisk-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/state/last_model_run.json
+          if git diff --cached --quiet; then
+            echo "[INFO] Stato cooldown canary invariato."
+          else
+            git commit -m "chore(state): cooldown canary Best Match (nessun dato pubblicato)"
+            push_ok=0
+            for i in 1 2 3 4 5; do
+              git rebase --abort 2>/dev/null || true
+              if git pull --rebase --autostash -X theirs origin main && git push origin main; then
+                push_ok=1
+                break
+              fi
+              echo "[WARN] Push cooldown canary rifiutato (race su main) - tentativo $i/5"
+              if [ "$i" -lt 5 ]; then sleep 5; fi
+            done
+            if [ "$push_ok" -ne 1 ]; then
+              echo "[ERROR] Push cooldown canary non riuscito dopo 5 tentativi"
+              exit 1
+            fi
+          fi
 
       # DECISION ENGINE + PRE-FLIGHT GUARDRAIL: combina ecmwf_new x best_changed
       # (+ bootstrap) e decide coordinated/none.
@@ -352,7 +388,7 @@ jobs:
             echo ""
             echo "**Bootstrap pending:** \`${{ steps.plan.outputs.bootstrap_pending || 'n/a' }}\` — **Ciclo:** \`${{ steps.plan.outputs.cycle_mode || 'n/a' }}\`"
             echo ""
-            echo "**Run check (ECMWF):** \`${{ steps.check.outputs.check_state || 'n/a' }}\` — **Canary Best Match:** \`${{ steps.best.outputs.best_changed || 'n/a' }}\`"
+            echo "**Run check (ECMWF):** \`${{ steps.check.outputs.check_state || 'n/a' }}\` — **Canary Best Match:** \`${{ steps.best.outputs.best_changed || 'n/a' }}\` (stato: \`${{ steps.best.outputs.best_state || 'n/a' }}\`)"
             echo "**Planner:** \`${{ steps.plan.outputs.plan_state || 'skipped' }}\`"
             echo ""
             echo "**Fetch:** \`${{ steps.fetch.outputs.fetch_ok || 'skipped' }}\` ${{ steps.fetch.outputs.fetch_reason || '' }}"
@@ -360,18 +396,23 @@ jobs:
             echo "**Validate:** \`${{ steps.validate.outputs.validate_ok || 'skipped' }}\`"
             echo "**Publish (new dataset):** \`${{ steps.publish.outputs.new_dataset || 'false' }}\`"
             echo ""
-            if [ "${{ steps.check.outputs.check_state }}" = "api_unavailable" ] || [ "${{ steps.plan.outputs.plan_state }}" = "bootstrap_budget_blocked" ]; then
+            if [ "${{ steps.check.outputs.check_state }}" = "api_unavailable" ] || [ "${{ steps.best.outputs.best_state }}" = "api_unavailable" ] || [ "${{ steps.plan.outputs.plan_state }}" = "bootstrap_budget_blocked" ]; then
               if [ "${{ steps.check.outputs.check_state }}" = "api_unavailable" ]; then
                 echo "❌ **CHECK FAILED — Metadata API unavailable after retries** (Parte H5)."
                 echo "No data fetch performed."
                 echo "Last dataset unchanged."
                 echo "State not updated (NETWORK ERROR != NO NEW RUN — H4)."
                 echo "Cooldown registrato in data/state/last_model_run.json: i prossimi cicli saranno NO-OP dichiarato (rc 11) fino alla scadenza."
+              elif [ "${{ steps.best.outputs.best_state }}" = "api_unavailable" ]; then
+                echo "❌ **CANARY BEST MATCH FAILED — rete/API non disponibile dopo i retry.**"
+                echo "No data fetch performed. Best Match fingerprint NON aggiornata, best_changed=false."
+                echo "Last dataset unchanged (NETWORK ERROR != BEST MATCH CHANGED)."
+                echo "Cooldown canary registrato in data/state/last_model_run.json (best_match_cooldown_until): i prossimi cicli saranno NO-OP dichiarato (rc 12) fino alla scadenza."
               else
                 echo "⚠️ **CHECK/PLAN FAILED** — errore visibile, nessun file falso/parziale (requisito G6)."
               fi
-            elif [ "${{ steps.check.outputs.check_state }}" = "noop" ]; then
-              echo "ℹ️ **CHECK NO-OP dichiarato (cooldown attivo):** nessuna richiesta Metadata API, last_processed_key invariato, nessun fetch/deploy — nessun dato falso pubblicato."
+            elif [ "${{ steps.check.outputs.check_state }}" = "noop" ] || [ "${{ steps.best.outputs.best_state }}" = "noop" ]; then
+              echo "ℹ️ **NO-OP dichiarato (cooldown attivo):** ECMWF=\`${{ steps.check.outputs.check_state || 'n/a' }}\`, Best Match=\`${{ steps.best.outputs.best_state || 'n/a' }}\`. Nessuna richiesta di rete, nessun fetch/deploy — nessun dato falso pubblicato."
             elif [ "${{ steps.plan.outputs.bootstrap_pending }}" = "true" ] && [ "${{ steps.publish.outputs.new_dataset }}" = "true" ]; then
               echo "✅ **INITIAL DATASET BOOTSTRAP COMPLETED:** primo dataset reale generato da GitHub Actions, committato e deployato."
             elif [ "${{ steps.check.outputs.new_run }}" = "false" ] && [ "${{ steps.best.outputs.best_changed }}" = "false" ]; then

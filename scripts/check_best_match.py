@@ -24,18 +24,36 @@ UNA richiesta forecast multi-location con SOLO weathercode+precipitation orarie.
   assenti) il canary è saltato (zero richieste): il primo ciclo effettua il
   fetch reale completo. MAI interpretato come 'no change' o 'already processed'.
 
-Exit codes (contratto 1.0.0.8):
+Exit codes (contratto 1.0.0.8, esteso cooldown 2026-11-16):
    0 = Best Match CAMBIATO (refresh necessario)
   10 = Best Match INVARIATO (clean success)
-   1 = errore tecnico (workflow FAIL, mai confuso con 'nessuna modifica')
+  12 = NO-OP DICHIARATO: cooldown canary attivo; zero richieste di rete,
+       fingerprint invariata, best_changed=false (clean success)
+    1 = errore tecnico/rete (workflow FAIL; il cooldown viene persistito SOLO
+        dallo step if: failure() del workflow)
+
+Il cooldown usa lo STESSO MECCANISMO del check ECMWF (check_model_runs.py:
+--record-api-failure + guard + rc dedicato), ma un campo DEDICATO
+(best_match_cooldown_until): i due check sono indipendenti e devono poter
+scattare separatamente. Nessun allentamento del canary: un cambiamento REALE
+rilevato con la rete up continua a ritornare rc 0.
 """
 
 import argparse
 import re
 import sys
+import time
 
 sys.path.insert(0, __file__ and __file__[: __file__.rfind("\\")] or ".")
 import common
+
+# Cooldown dopo CHECK FAILED del canary (speculare a check_model_runs.py).
+# Campo DEDICATO: il check ECMWF usa check_cooldown_until, questi due check
+# sono indipendenti e devono poter scattare separatamente. Scritto SOLO dalla
+# modalita' esplicita --record-api-failure (workflow if: failure()); MAI dal
+# percorso di canary, che su errore di rete non tocca lo stato (H4).
+COOLDOWN_FIELD = "best_match_cooldown_until"
+DEFAULT_COOLDOWN_S = 3600
 
 
 def response_payload(data, sentinels):
@@ -60,7 +78,30 @@ def response_payload(data, sentinels):
 def main():
     parser = argparse.ArgumentParser(description="Canary Best Match (sentinelle, 1 richiesta).")
     parser.add_argument("--dry-run", action="store_true", help="Non scrivere last_checked_at.")
+    parser.add_argument("--force-update", action="store_true",
+                        help="Ignora il cooldown canary (MAI la validazione del cambiamento reale).")
+    parser.add_argument("--record-api-failure", action="store_true",
+                        help="Scrive SOLO il cooldown dopo CHECK FAILED (chiamata dedicata del "
+                             "workflow con if: failure(); NON e' il percorso di canary).")
     args = parser.parse_args()
+
+    if args.record_api_failure:
+        st = common.load_run_state()
+        st[COOLDOWN_FIELD] = int(time.time()) + DEFAULT_COOLDOWN_S
+        common.save_run_state(st)
+        print("[check_best_match] Cooldown CHECK FAILED registrato (%s=%d): fingerprint invariata, "
+              "nessun dato pubblicato." % (COOLDOWN_FIELD, st[COOLDOWN_FIELD]))
+        return 0
+
+    state = common.load_run_state()
+    try:
+        cooldown_until = int(state.get(COOLDOWN_FIELD) or 0)
+    except (TypeError, ValueError):
+        cooldown_until = 0
+    if not args.force_update and cooldown_until > int(time.time()):
+        print("[check_best_match] NO-OP DICHIARATO (rc=12): cooldown attivo fino a %d; nessuna "
+              "richiesta forecast, fingerprint invariata, best_changed=false." % cooldown_until)
+        return 12
 
     if common.is_bootstrap_pending():
         print("[check_best_match] INITIAL DATASET BOOTSTRAP pending (state/dataset/fingerprint "
@@ -94,7 +135,8 @@ def main():
           % (len(sentinels), payload.get("day0"),
              sum(len(v["weathercode"]) for v in payload["sentinels"].values()), fp))
 
-    state = common.load_run_state()
+    # 'state' gia' caricato all'ingresso per il guard cooldown (riutilizzato:
+    # nessuna seconda lettura, nessuna scrittura su errore di rete - H4).
     bm = (state.get("last_model_runs") or {}).get("best_match") or {}
     prev_fp = bm.get("last_fingerprint")
     if not args.dry_run:
