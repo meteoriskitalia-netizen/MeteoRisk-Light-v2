@@ -6,9 +6,11 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.3.0.3
+## Versione attiva: 1.3.0.4
 
-- File applicativo: `mri-light-1.3.0.3.html` (`APP_VERSION = '1.3.0.3'`; changelog in-app) + `sw.js` (`CACHE_NAME = 'mri-1.3.0.3'`, `TILE_CACHE = 'mri-tiles-1.3.0.3'`, `FRAME_CACHE = 'mri-frames-1.3.0.3'`).
+- File applicativo: `mri-light-1.3.0.4.html` (`APP_VERSION = '1.3.0.4'`; changelog in-app) + `sw.js` (`CACHE_NAME = 'mri-1.3.0.4'`, `TILE_CACHE = 'mri-tiles-1.3.0.4'`, `FRAME_CACHE = 'mri-frames-1.3.0.4'`).
+- **1.3.0.4 - 6 fix tendine e viewer 3D**: radar e satellite sono toggle sempre visibili fuori tendina; il selettore prodotti ammette un solo prodotto attivo, un opzione per nessuno e spegne il precedente con il suo handler storico; Evidenzia zone a rischio e' un toggle visibile; La Caletta non e' piu nelle opzioni; la metrica si abilita solo con Rischio e nessun prodotto attivo; i prodotti di sviluppo compaiono solo con Sviluppo ON e si spengono se Sviluppo si spegne. Il pannello Volume 3D si apre davvero (flex-shrink corretto, 104 px invece di 14 px): con volume_available:false dichiara cappi_levels_lt_4 e 0 canvas, con true mostra i parametri per cella e le sezioni se presenti, con caricamento lazy. Nessun motore, palette o dato simulato toccato.
+
 - **1.3.0.3 - UI a tendine, nebbia gated, Doppler degradato, viewer 3D lazy**: il controllo centraline e' una tendina a 6 parametri con grafico SVG e serie accumulata in localStorage; metriche e prodotti sono tendine da 10 voci con tutti gli handler storici preservati. La nebbia colora solo le ore con score>=75, vento<=4 km/h e RH>=95 nella STESSA ora (grigio se nessuna); il Doppler con 0 feature mostra coverage_null_reason senza canvas; il viewer 3D legge volume.json su richiesta e dichiara cappi_levels_lt_4 senza costruire niente.
 
 - **1.3.0.2 - A2/A3/A4/A5/A6/A7/A8 + ore future**: copertura Doppler e dettagli mai scritti come dato inventato (null_reason espliciti); volume valido protetto e path harness separata nel workflow; soglia WMAXSHEAR unificata a 800 e frase possibile mesociclone solo con Sviluppo attivo anche nei title; commento nebbia corretto. Mappa rischi del giorno 0 calcolata solo dalle ore correnti in poi (dalle HH:MM), giorni 1 e 2 integrali e invariati. 631 test radar engine, 0 failure.

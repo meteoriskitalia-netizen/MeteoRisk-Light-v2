@@ -1885,30 +1885,30 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     <div class="toolbar-row" id="legacy-toolbar-row" style="display: none !important; gap: 8px; flex-wrap: wrap;">
         <button class="tool-btn" id="btn-forecast-maps" onclick="toggleForecastMaps()" style="border-color:#38bdf8;">🗺️ Mappe previsionali (OFF)</button>
         <button class="tool-btn" id="btn-radar-player" onclick="toggleRadarPlayer()" style="border-color:#0284c7;">▶️ Radar Player</button>
-        <button class="tool-btn" id="btn-radar" onclick="toggleRadar()" style="display:none;">📡 Radar Timeline (OFF)</button>
-        <button class="tool-btn" id="btn-satellite" onclick="toggleSatellite()" style="display:none;">🛰️ SATELLITE (OFF)</button>
         <button class="tool-btn" id="btn-forecast" onclick="toggleForecast()">🌤️ Previsioni (OFF)</button>
         <button class="tool-btn" id="btn-caletta" onclick="showCaletta()" style="display:none;">🍽️ La Caletta</button>
-        <button class="tool-btn" id="btn-high-risk" onclick="toggleHighRiskFilter()">🚨 Evidenzia Zone a Rischio</button>
         <button class="tool-btn" id="btn-live" onclick="toggleLivePanel()" style="border-color:#fbbf24;">🔴 LIVE Panel (OFF)</button>
         <button class="tool-btn" id="btn-newindices" onclick="toggleNewIndices()" style="border-color:#06b6d4; display:none;" title="Nuovi Indici: aggiunge escalation continua (WMAXSHEAR, SCP, SHIP, HSLC) alla logica base. Disponibile solo in Sviluppo. Default OFF.">🔬 Nuovi Indici (OFF)</button>
         <button class="tool-btn" id="btn-sources" onclick="toggleSourcesPanel()" style="border-color:#a855f7;">📚 Fonti &amp; Metodologie</button>
         <!-- 1.2.3.1: attivazione Celle organizzate spostata nel pannello LIVE (#live-toggle-supercells) -->
         <!-- Toggle Sviluppo spostato nel footer: switch vicino al badge versione -->
     </div>
+    <!-- 1.3.0.4 - toggle INDIPENDENTI: restano fuori dalla tendina prodotti e
+         sempre visibili, con i LORO handler storici (nessun nuovo handler). -->
+    <div id="standalone-toggles-row" style="max-width:1200px; margin:0 auto 10px auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <button class="tool-btn" id="btn-radar" onclick="toggleRadar()" style="border-color:#0284c7;">📡 Radar Timeline (OFF)</button>
+        <button class="tool-btn" id="btn-satellite" onclick="toggleSatellite()" style="border-color:#0284c7;">🛰️ SATELLITE (OFF)</button>
+        <button class="tool-btn" id="btn-high-risk" onclick="toggleHighRiskFilter()" title="Evidenzia le zone a rischio: toggle indipendente, non un prodotto">🚨 Evidenzia Zone a Rischio</button>
+    </div>
     <div class="toolbar-row" id="product-select-row" style="max-width:1200px; margin:0 auto 10px auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <label for="product-select" style="font-size:11px;color:#94a3b8;">Prodotto</label>
-        <select id="product-select" class="tool-btn" onchange="selectProduct(this.value)" style="font-size:11px;" title="Attiva il prodotto selezionato: stessa azione dei pulsanti della toolbar">
-            <option value="">Seleziona un prodotto…</option>
+        <select id="product-select" class="tool-btn" onchange="selectProduct(this.value)" style="font-size:11px;" title="Un solo prodotto attivo alla volta. Scegli «— nessuno —» per spegnerlo. Radar Timeline e Satellite sono toggle indipendenti nella toolbar.">
+            <option value="">— nessuno —</option>
             <option value="forecast-maps">Mappe previsionali</option>
             <option value="radar-player">Radar Player</option>
-            <option value="radar">Radar Timeline</option>
-            <option value="satellite">Satellite</option>
             <option value="forecast">Previsioni</option>
-            <option value="caletta">La Caletta</option>
-            <option value="high-risk">Evidenzia zone a rischio</option>
             <option value="live">Pannello LIVE</option>
-            <option value="newindices">Nuovi Indici</option>
+            <option value="newindices" data-dev="1">Nuovi Indici</option>
             <option value="sources">Fonti e metodologie</option>
         </select>
         <span id="product-status" style="font-size:10px;color:#64748b;"></span>
@@ -2158,7 +2158,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     </div>
     <!-- 1.3.0.3 - viewer volumetrico LAZY: nessun fetch e nessun nodo costruito
          finche' l'utente non apre la scheda. Nessuna libreria CDN. -->
-    <div id="sc-volume3d" class="live-legend" hidden style="margin:0 10px 6px 10px;max-height:280px;overflow-y:auto;"></div>
+    <div id="sc-volume3d" class="live-legend" hidden style="margin:0 10px 6px 10px;max-height:280px;overflow-y:auto;flex:0 0 auto;order:6;"></div>
     <!-- 1.2.4.76 - ALLERTA DI PROSSIMITA' (fase 3 nowcasting, solo client): punto
          scelto dall'utente (posizione del dispositivo o clic sulla mappa), soglia
          10/25/50 km, distanza dal BORDO del cono. Punto e soglia in localStorage. -->
@@ -2244,7 +2244,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 </div>
 <div class="metric-tabs" id="metric-select-row" style="align-items:center;">
     <label for="metric-select" style="font-size:11px;color:#94a3b8;white-space:nowrap;">Metrica</label>
-    <select id="metric-select" class="fm-select" onchange="selectMetric(this.value)" style="font-size:12px;">
+    <select id="metric-select" class="fm-select" onchange="onMetricSelectChange(this.value)" style="font-size:12px;">
         <option value="risk">Rischio</option>
         <option value="tempmax">Temp. Max</option>
         <option value="tempmin">Temp. Min</option>
@@ -2256,6 +2256,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <option value="conv">Conv.</option>
         <option value="hail">Grandine</option>
     </select>
+    <span id="metric-select-reason" style="font-size:10px;color:#64748b;white-space:nowrap;display:none;" title="Attiva «Rischio» per poter scegliere una metrica"></span>
 </div>
 
 <div class="container">
@@ -2902,9 +2903,18 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.3';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.4';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-17';
     const APP_CHANGELOG = [
+    { version: '1.3.0.4', date: '2026-11-17', changes: [
+        'Radar e Satellite: tolti dalle opzioni di prodotto e ripristinati come toggle sempre visibili fuori tendina, con i loro handler storici invariati.',
+        'Selettore prodotti: un solo prodotto attivo alla volta, opzione per nessun prodotto e spegnimento del prodotto precedente tramite il suo vecchio handler.',
+        'Evidenzia zone a rischio: ripristinato come toggle visibile fuori tendina, non piu una voce del menu.',
+        'La Caletta: rimossa dalle opzioni visibili; la funzione e l easter egg restano intatti e richiamabili.',
+        'Metrica: selezione abilitata solo con Rischio e nessun prodotto attivo, altrimenti disabilitata con motivazione visibile.',
+        'Prodotti di sviluppo: visibili solo con Sviluppo ON e spenti automaticamente quando Sviluppo si spegne.',
+        'Viewer 3D: pannello che si apre davvero (flex-shrink corretto, 104 px invece di 14 px); con volume_available:false mostra Volume 3D non disponibile: cappi_levels_lt_4 e 0 canvas; con true mostra i parametri per cella e le sezioni se presenti; volume.json letto solo all apertura.',
+    ]},
     { version: '1.3.0.3', date: '2026-11-17', changes: [
         'Nebbia: gate di colorazione nella STESSA ora (score>=75, vento<=4 km/h, RH>=95); colore dell ora selezionata invece del massimo di 24 h, grigio se nessuna ora soddisfa. Formula fogScoreC invariata.',
         'Doppler: con coverage_status unavailable o 0 feature il toggle resta OFF, nessun canvas viene creato e il messaggio con coverage_null_reason resta visibile.',
@@ -8579,12 +8589,9 @@ removeLightningTile();
                 }
             }
 
-            // Nascondi i 3 sub-toggle
-            var btnRadar3 = document.getElementById('btn-radar');
-            var btnSat3 = document.getElementById('btn-satellite');
+            // 1.3.0.4 - Radar Timeline e Satellite sono toggle INDIPENDENTI
+            // (#standalone-toggles-row): restano visibili anche a player chiuso.
             var btnLight3 = document.getElementById('btn-lightning');
-            if (btnRadar3) btnRadar3.style.display = 'none';
-            if (btnSat3) btnSat3.style.display = 'none';
             if (btnLight3) btnLight3.style.display = 'none';
 
             // Reset ai defaults globali (primo provider/source abilitato in questa edizione)
@@ -14996,7 +15003,16 @@ removeLightningTile();
     // Legge data/radar/volume.json SOLO quando si apre la scheda. Se il file
     // dichiara volume_available:false mostra null_reason e NON costruisce niente
     // (nessun canvas, nessuna sezione, nessun valore inventato).
-    var volume3dState = { loaded: false, loading: false, open: false, payload: null };
+    var volume3dState = { loaded: false, loading: false, open: false, payload: null, threshold: null };
+
+    // Ogni valore letto dal payload passa da qui: nessun HTML del file puo'
+    // essere interpretato come markup (textContent equivalente, senza nodi
+    // script/iframe). I numeri sono verificati separatamente in volume3dNum.
+    function volume3dEsc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (ch) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+    }
     async function toggleVolume3D() {
         var box = document.getElementById('sc-volume3d');
         var btn = document.getElementById('sc-toggle-volume3d');
@@ -15022,49 +15038,118 @@ removeLightningTile();
             volume3dRender(data, box);
         } catch (e3v) {
             box.innerHTML = '<div class="legend-row">Volume 3D non disponibile: ' +
-                String((e3v && e3v.message) || e3v).replace(/[<>&]/g, '') + '</div>';
+                volume3dEsc((e3v && e3v.message) || e3v) + '</div>';
         } finally {
             volume3dState.loading = false;
         }
     }
     function volume3dNum(v, unit) {
-        if (v == null || !isFinite(v)) return 'n/d';
+        if (v == null || typeof v !== 'number' || !isFinite(v)) return 'n/d';
         return Number(v).toLocaleString('it-IT') + (unit ? ' ' + unit : '');
     }
     function volume3dField(f, unit) {
-        if (!f || f.value == null || !isFinite(f.value)) {
-            return 'n/d' + ((f && f.null_reason) ? ' (' + f.null_reason + ')' : '');
+        if (f == null) return 'n/d';
+        if (typeof f !== 'object') return volume3dNum(f, unit);
+        if (f.value == null || typeof f.value !== 'number' || !isFinite(f.value)) {
+            return 'n/d' + (f.null_reason ? ' (' + volume3dEsc(f.null_reason) + ')' : '');
         }
         return volume3dNum(f.value, unit);
     }
-    function volume3dSection(s, name) {
-        if (!s) return '';
-        if (!s.available || s.quality === 'D_unavailable') {
-            return '<div class="legend-row">Sezione ' + name + ' non disponibile: ' +
-                   (s.null_reason || 'D_unavailable') + '</div>';
-        }
-        var g = s.grid || [];
-        var nLev = g.length, nPt = nLev ? (g[0] || []).length : 0;
-        var h = '<div class="legend-row">Sezione ' + name + ': ' + nPt + ' punti × ' + nLev +
-                ' quote · qualità ' + (s.quality || 'n/d') +
-                (s.bearing_deg != null ? ' · azimuth ' + volume3dNum(s.bearing_deg, '°') : '') + '</div>';
-        // Mini-sezione SVG: solo voxel reali del payload, scale dalle soglie dBZ.
-        if (nLev > 0 && nPt > 0) {
-            var W = 240, H = 56, dx = W / nPt, dy = H / nLev, parts = [];
-            var colors = [[55,'#7c1d6f'],[50,'#ef4444'],[45,'#f97316'],[40,'#eab308'],[30,'#22c55e']];
-            for (var z = 0; z < nLev; z++) {
-                for (var x = 0; x < nPt; x++) {
-                    var v = g[z][x];
-                    if (v == null || !isFinite(v)) continue;
-                    var col = '#1e293b';
-                    for (var ci = 0; ci < colors.length; ci++) { if (v >= colors[ci][0]) { col = colors[ci][1]; break; } }
-                    parts.push('<rect x="' + (x*dx).toFixed(2) + '" y="' + ((nLev-1-z)*dy).toFixed(2) +
-                               '" width="' + (dx+0.4).toFixed(2) + '" height="' + (dy+0.4).toFixed(2) +
-                               '" fill="' + col + '"/>');
-                }
+    // Una soglia e' "con dati" solo se almeno una cella porta un valore
+    // effettivamente utilizzabile: la sola presenza della chiave non basta.
+    function volume3dThrHasData(data, t) {
+        var cells = (data && Array.isArray(data.cells)) ? data.cells : [];
+        var k = String(t);
+        for (var i = 0; i < cells.length; i++) {
+            var by = cells[i] && (cells[i].by_threshold || cells[i].thresholds);
+            if (!by || !by[k] || typeof by[k] !== 'object') continue;
+            var o = by[k];
+            for (var key in o) {
+                if (!Object.prototype.hasOwnProperty.call(o, key)) continue;
+                var f = o[key];
+                if (f && typeof f === 'object' && f.value != null &&
+                    typeof f.value === 'number' && isFinite(f.value)) return true;
+                if (f != null && typeof f !== 'object' && typeof f === 'number' && isFinite(f)) return true;
             }
+        }
+        return false;
+    }
+    // Priorita': campi della soglia selezionata, poi quelli di cella, poi
+    // c.fields come fallback. Nessun valore viene calcolato o inventato.
+    function volume3dCellFields(c, thr) {
+        var out = [], seen = {};
+        function add(label, f, unit) {
+            if (f == null || seen[label]) return;
+            seen[label] = 1;
+            out.push({ label: label, text: volume3dField(f, unit) });
+        }
+        if (!c || typeof c !== 'object') return out;
+        var by = c.by_threshold || c.thresholds || {};
+        var src = [];
+        if (thr != null && by[String(thr)] && typeof by[String(thr)] === 'object') src.push(by[String(thr)]);
+        src.push(c);
+        if (c.fields && typeof c.fields === 'object') src.push(c.fields);
+        for (var i = 0; i < src.length; i++) {
+            var s = src[i];
+            if (!s || typeof s !== 'object') continue;
+            add('ECHO_TOP', s.ECHO_TOP || s.ECHO_TOP_18, 'km');
+            add('CELL_VOLUME', s.CELL_VOLUME || s.VOLUME, 'voxel');
+            add('VIL', s.VIL, 'kg/m²');
+            add('VIL density', s.VIL_DENSITY || s.VIL_DENSITA, 'g/m³');
+            add('MAX_REFLECTIVITY', s.MAX_REFLECTIVITY || s.max_dbz, 'dBZ');
+            add('VERTICAL_EXTENT', s.VERTICAL_EXTENT, 'km');
+        }
+        return out;
+    }
+    // Solo array numerici di voxel contano come griglia: data.grid e'
+    // metadato (shape_zyx, quote, passo), NON una griglia di voxel.
+    function volume3dHasVoxelGrids(data) {
+        var cells = (data && Array.isArray(data.cells)) ? data.cells : [];
+        var keys = ['cross_section_longitudinal', 'cross_section_transversal', 'sections', 'cross_sections'];
+        for (var i = 0; i < cells.length; i++) {
+            if (!cells[i] || typeof cells[i] !== 'object') continue;
+            for (var j = 0; j < keys.length; j++) {
+                var s = cells[i][keys[j]];
+                if (s && Array.isArray(s.grid) && s.grid.length) return true;
+            }
+        }
+        return false;
+    }
+    function volume3dSection(s, name) {
+        if (!s || typeof s !== 'object') return '';
+        var label = volume3dEsc(name);
+        if (s.available === false || s.quality === 'D_unavailable') {
+            return '<div class="legend-row">Sezione ' + label + ' non disponibile: ' +
+                   volume3dEsc(s.null_reason || 'D_unavailable') + '</div>';
+        }
+        var g = s.grid;
+        if (!Array.isArray(g) || !g.length || !Array.isArray(g[0]) || !g[0].length) {
+            return '<div class="legend-row">Sezione ' + label + ': nessuna griglia di voxel nel payload.</div>';
+        }
+        var nLev = g.length, nPt = g[0].length;
+        var h = '<div class="legend-row">Sezione ' + label + ': ' + nPt + ' punti × ' + nLev +
+                ' quote · qualità ' + volume3dEsc(s.quality || 'n/d') +
+                (typeof s.bearing_deg === 'number' && isFinite(s.bearing_deg)
+                    ? ' · azimuth ' + volume3dNum(s.bearing_deg, '°') : '') + '</div>';
+        // Mini-sezione SVG: solo voxel reali del payload, colorati dalle
+        // soglie dichiarate. Nessun dato interpolato o simulato lato client.
+        var W = 240, H = 56, dx = W / nPt, dy = H / nLev, parts = [];
+        var colors = [[55,'#7c1d6f'],[50,'#ef4444'],[45,'#f97316'],[40,'#eab308'],[30,'#22c55e']];
+        for (var z = 0; z < nLev; z++) {
+            if (!Array.isArray(g[z])) continue;
+            for (var x = 0; x < nPt; x++) {
+                var v = g[z][x];
+                if (v == null || typeof v !== 'number' || !isFinite(v)) continue;
+                var col = '#1e293b';
+                for (var ci = 0; ci < colors.length; ci++) { if (v >= colors[ci][0]) { col = colors[ci][1]; break; } }
+                parts.push('<rect x="' + (x*dx).toFixed(2) + '" y="' + ((nLev-1-z)*dy).toFixed(2) +
+                           '" width="' + (dx+0.4).toFixed(2) + '" height="' + (dy+0.4).toFixed(2) +
+                           '" fill="' + col + '"/>');
+            }
+        }
+        if (parts.length) {
             h += '<div class="legend-row" style="overflow-x:auto;"><svg viewBox="0 0 ' + W + ' ' + H +
-                 '" width="' + W + '" height="' + H + '" style="max-width:100%;height:auto;" aria-label="Sezione verticale ' + name + '">' +
+                 '" width="' + W + '" height="' + H + '" style="max-width:100%;height:auto;" aria-label="Sezione verticale ' + label + '">' +
                  parts.join('') + '</svg></div>';
         }
         return h;
@@ -15073,34 +15158,80 @@ removeLightningTile();
         if (!box) return;
         if (!data || data.volume_available === false) {
             var why = (data && data.null_reason) ? data.null_reason : 'volume_unavailable';
-            box.innerHTML = '<div class="legend-row"><b>Volume 3D non disponibile</b>: ' + why + '</div>' +
-                '<div class="legend-row">Nessuna sezione costruita: il file dichiara il volume non disponibile.</div>';
+            var dg = ['<div class="legend-row"><b>Volume 3D non disponibile</b>: ' + volume3dEsc(why) + '</div>'];
+            if (why === 'cappi_levels_lt_4') {
+                dg.push('<div class="legend-row">Servono almeno 4 CAPPI per ricostruire il volume: il file ne dichiara meno di 4. Nessuna sezione, nessun parametro volumetrico e nessun canvas sono stati costruiti.</div>');
+            }
+            dg.push('<div class="legend-row">Sorgente: ' + volume3dEsc(data && (data.source || data.volume_source) || 'n/d') + '</div>');
+            dg.push('<div class="legend-row">Timestamp: ' + volume3dEsc(data && (data.volume_timestamp_utc || data.timestamp) || 'n/d') + '</div>');
+            box.innerHTML = dg.join('');
             return;
         }
-        var cells = data.cells || [];
-        var thr = (data.thresholds_dbz && data.thresholds_dbz.length) ? data.thresholds_dbz : [30, 40, 45, 50, 55];
+        var cells = Array.isArray(data.cells) ? data.cells : [];
+        var thr = (Array.isArray(data.thresholds_dbz) && data.thresholds_dbz.length)
+            ? data.thresholds_dbz.slice() : [30, 40, 45, 50, 55];
+        // Il selettore espone SOLO le cinque soglie attese: scarta valori
+        // inattesi invece di costruire un controllo con dati non validi.
+        var allowed = [30, 40, 45, 50, 55];
+        thr = thr.filter(function (t) { return allowed.indexOf(Number(t)) >= 0 && isFinite(Number(t)); });
+        if (!thr.length) thr = allowed.slice();
+        var sel = volume3dState.threshold;
+        if (sel == null || thr.map(String).indexOf(String(sel)) < 0) {
+            var first = null;
+            for (var a = 0; a < thr.length; a++) { if (volume3dThrHasData(data, thr[a])) { first = thr[a]; break; } }
+            sel = first != null ? first : thr[0];
+        }
+        volume3dState.threshold = sel;
+
         var h = ['<div class="legend-title">Volume 3D — CAPPI DPC impilati (10 quote, 1 km)</div>'];
-        h.push('<div class="legend-row">Soglie dBZ: ' + thr.map(volume3dNum).join(' · ') +
-               ' · volume: ' + (data.volume_timestamp_utc || data.timestamp || 'n/d') + '</div>');
+        h.push('<div class="legend-row">Sorgente: ' + volume3dEsc(data.source || data.volume_source || 'n/d') +
+               ' · volume: ' + volume3dEsc(data.volume_timestamp_utc || data.timestamp || 'n/d') + '</div>');
+        h.push('<div class="legend-row">Soglia dBZ: <select id="sc-v3d-threshold" aria-label="Soglia dBZ" onchange="volume3dOnThreshold(this.value)">');
+        var disabled = [];
+        for (var i = 0; i < thr.length; i++) {
+            var t = thr[i], ok = volume3dThrHasData(data, t);
+            if (!ok) disabled.push(String(t));
+            h.push('<option value="' + volume3dEsc(t) + '"' + (String(t) === String(sel) ? ' selected' : '') +
+                   (ok ? '' : ' disabled') + '>' + volume3dEsc(t) + ' dBZ' + (ok ? '' : ' (nessun dato)') + '</option>');
+        }
+        h.push('</select></div>');
+        if (disabled.length) {
+            h.push('<div class="legend-row">Soglie senza dati utilizzabili, disabilitate: ' +
+                   volume3dEsc(disabled.join(', ')) + ' dBZ — nessun parametro da mostrare per queste soglie.</div>');
+        }
         if (!cells.length) h.push('<div class="legend-row">Nessuna cella con eco: nessun parametro da mostrare.</div>');
-        for (var i = 0; i < cells.length; i++) {
-            var c = cells[i];
-            h.push('<div class="legend-row"><b>Cella #' + c.cell_id + '</b> · max VMI ' +
-                   volume3dNum(c.max_dbz_vmi, 'dBZ') + ' · area ' + volume3dNum(c.area_px, 'px') + '</div>');
-            h.push('<div class="legend-row">ECHO_TOP_18 ' + volume3dField(c.ECHO_TOP_18, 'km') +
-                   ' · VIL ' + volume3dField(c.VIL, 'kg/m²') +
-                   ' · VIL density ' + volume3dField(c.VIL_DENSITY, 'g/m³') + '</div>');
-            var by = c.by_threshold || {};
-            for (var ti = 0; ti < thr.length; ti++) {
-                var t = String(thr[ti]), f = by[t] || {};
-                h.push('<div class="legend-row">≥' + t + ' dBZ: ECHO_TOP ' + volume3dField(f.ECHO_TOP, 'km') +
-                       ' · CELL_VOLUME ' + volume3dField(f.CELL_VOLUME, 'voxel') +
-                       ' · VERTICAL_EXTENT ' + volume3dField(f.VERTICAL_EXTENT, 'km') + '</div>');
+        for (var ci = 0; ci < cells.length; ci++) {
+            var c = cells[ci];
+            if (!c || typeof c !== 'object') continue;
+            h.push('<div class="legend-row"><b>Cella ' + volume3dEsc(c.cell_id != null ? c.cell_id : (ci + 1)) + '</b>' +
+                   (typeof c.max_dbz_vmi === 'number' && isFinite(c.max_dbz_vmi)
+                        ? ' · max VMI ' + volume3dNum(c.max_dbz_vmi, 'dBZ') : '') +
+                   (typeof c.area_px === 'number' && isFinite(c.area_px)
+                        ? ' · area ' + volume3dNum(c.area_px, 'px') : '') + '</div>');
+            var fields = volume3dCellFields(c, sel);
+            if (!fields.length) {
+                h.push('<div class="legend-row">Nessun parametro disponibile per la soglia ' + volume3dEsc(sel) + ' dBZ.</div>');
+            } else {
+                for (var fi = 0; fi < fields.length; fi++) {
+                    h.push('<div class="legend-row">' + volume3dEsc(fields[fi].label) + ': ' + fields[fi].text + '</div>');
+                }
             }
-            h.push(volume3dSection(c.cross_section_longitudinal, 'longitudinale'));
-            h.push(volume3dSection(c.cross_section_transversal, 'trasversale'));
+        }
+        if (volume3dHasVoxelGrids(data)) {
+            for (var ci2 = 0; ci2 < cells.length; ci2++) {
+                if (!cells[ci2] || typeof cells[ci2] !== 'object') continue;
+                h.push(volume3dSection(cells[ci2].cross_section_longitudinal, 'longitudinale'));
+                h.push(volume3dSection(cells[ci2].cross_section_transversal, 'trasversale'));
+            }
+        } else {
+            h.push('<div class="legend-row">Il payload contiene parametri per cella, non voxel: nessuna vista 3D dei volumi.</div>');
         }
         box.innerHTML = h.join('');
+    }
+    function volume3dOnThreshold(v) {
+        volume3dState.threshold = v;
+        var box = document.getElementById('sc-volume3d');
+        if (box && volume3dState.payload) volume3dRender(volume3dState.payload, box);
     }
 
     // ================= EMBED BLITZORTUNG MAP =================
@@ -15697,6 +15828,7 @@ removeLightningTile();
             var _ms = document.getElementById('metric-select');
             if (_ms) _ms.value = 'risk';
             document.querySelectorAll('.metric-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.metric === 'risk'));
+            syncMetricSelectEnabled();
         }
         var statusEl = document.getElementById('status-msg');
         // DPC lavora sul CALENDARIO reale (oggi/domani, il bollettino non conosce il day0
@@ -21830,36 +21962,123 @@ function fmRestoreRiskOverlays() {
         } catch (e) { }
     }
 }
-// Tendina prodotti: richiama GLI STESSI handler dei pulsanti della toolbar
-// (che restano nel DOM). Nessuna logica meteorologica duplicata; il guard evita
-// di spegnere un prodotto già attivo quando lo si risceglie dalla tendina.
-function selectProduct(v) {
-    var status = document.getElementById('product-status');
+// 1.3.0.4 - Tendina prodotti: UN SOLO prodotto attivo alla volta, deselezionabile.
+// I vecchi handler dei pulsanti restano gli unici che accendono/spegnono: la
+// tendina li richiama (nessuna logica meteorologica duplicata). Ogni nuova
+// selezione spegne il prodotto precedente chiamando IL SUO VECCHIO HANDLER.
+// Radar Timeline, Satellite ed Evidenzia zone a rischio NON sono prodotti:
+// sono toggle indipendenti nella toolbar e restano richiamabili qui (map).
+var activeProductId = '';
+var productSelectTemplate = null;
+function productDefs() {
     function txt(id) { var el = document.getElementById(id); return el ? (el.textContent || '') : ''; }
     function onText(id) { return txt(id).indexOf('(ON)') >= 0; }
     function hasClass(id, c) { var el = document.getElementById(id); return !!(el && el.classList && el.classList.contains(c)); }
-    var products = {
-        'forecast-maps': { run: toggleForecastMaps, on: function () { var p = document.getElementById('forecast-maps-panel'); return !!(p && p.classList.contains('active')); }, label: 'Mappe previsionali' },
-        'radar-player':  { run: toggleRadarPlayer, on: function () { return onText('btn-radar-player'); }, label: 'Radar Player' },
-        'radar':         { run: toggleRadar, on: function () { return onText('btn-radar'); }, label: 'Radar Timeline' },
-        'satellite':     { run: toggleSatellite, on: function () { return onText('btn-satellite'); }, label: 'Satellite' },
-        'forecast':      { run: toggleForecast, on: function () { return onText('btn-forecast'); }, label: 'Previsioni' },
-        'caletta':       { run: showCaletta, on: function () { return false; }, label: 'La Caletta' },
-        'high-risk':     { run: toggleHighRiskFilter, on: function () { return hasClass('btn-high-risk', 'active'); }, label: 'Evidenzia zone a rischio' },
-        'live':          { run: toggleLivePanel, on: function () { return onText('btn-live'); }, label: 'Pannello LIVE' },
-        'newindices':    { run: toggleNewIndices, on: function () { return onText('btn-newindices'); }, label: 'Nuovi Indici' },
-        'sources':       { run: toggleSourcesPanel, on: function () { return false; }, label: 'Fonti e metodologie' }
+    return {
+        'forecast-maps': { run: toggleForecastMaps, off: toggleForecastMaps, dev: false,
+            on: function () { var p = document.getElementById('forecast-maps-panel'); return !!(p && p.classList.contains('active')); }, label: 'Mappe previsionali' },
+        'radar-player':  { run: toggleRadarPlayer, off: toggleRadarPlayer, dev: false,
+            on: function () { return isRadarPlayerActive; }, label: 'Radar Player' },
+        'radar':         { run: toggleRadar, off: toggleRadar, dev: false,
+            on: function () { return isRadarActive; }, label: 'Radar Timeline' },
+        'satellite':     { run: toggleSatellite, off: toggleSatellite, dev: false,
+            on: function () { return isSatelliteActive; }, label: 'Satellite' },
+        'forecast':      { run: toggleForecast, off: toggleForecast, dev: false,
+            on: function () { return forecastActive; }, label: 'Previsioni' },
+        'caletta':       { run: showCaletta, off: showCaletta, dev: false,
+            on: function () { return false; }, label: 'La Caletta' },
+        'high-risk':     { run: toggleHighRiskFilter, off: toggleHighRiskFilter, dev: false,
+            on: function () { return isHighRiskFilterActive; }, label: 'Evidenzia zone a rischio' },
+        'live':          { run: toggleLivePanel, off: toggleLivePanel, dev: false,
+            on: function () { return isLivePanelActive; }, label: 'Pannello LIVE' },
+        'newindices':    { run: toggleNewIndices, off: toggleNewIndices, dev: true,
+            on: function () { return isNewIndicesActive; }, label: 'Nuovi Indici' },
+        'sources':       { run: toggleSourcesPanel, off: toggleSourcesPanel, dev: false,
+            on: function () { var p = document.getElementById('sources-panel'); return !!(p && p.classList.contains('active')); }, label: 'Fonti e metodologie' }
     };
-    var p = products[v];
-    if (!p) { if (status) status.textContent = ''; return; }
-    if (p.on()) { if (status) status.textContent = p.label + ' già attivo.'; return; }
+}
+function isDevProduct(id) { return id === 'newindices'; }
+function setProductStatus(txt) { var s = document.getElementById('product-status'); if (s) s.textContent = txt || ''; }
+function productOff(id) {
+    var def = productDefs()[id];
+    if (!def) return;
+    try {
+        var r = def.off();               // SEMPRE il vecchio handler di spegnimento
+        if (r && typeof r.catch === 'function') r.catch(function () { });
+    } catch (e) { }
+}
+// Rigenera le <option> in base a Sviluppo: i prodotti dev (data-dev="1")
+// compaiono solo con isSviluppoActive === true (Nuovi Indici; La Caletta resta
+// sempre fuori perche' non e' nemmeno nel markup della tendina).
+function rebuildProductSelect() {
+    var sel = document.getElementById('product-select');
+    if (!sel) return;
+    if (!productSelectTemplate) {
+        productSelectTemplate = Array.prototype.map.call(sel.options, function (o) {
+            return { value: o.value, label: o.textContent, dev: o.getAttribute('data-dev') === '1' };
+        });
+    }
+    var prev = sel.value;
+    var frag = document.createDocumentFragment();
+    productSelectTemplate.forEach(function (def) {
+        if (def.dev && !isSviluppoActive) return;
+        var o = document.createElement('option');
+        o.value = def.value;
+        o.textContent = def.label;
+        frag.appendChild(o);
+    });
+    sel.innerHTML = '';
+    sel.appendChild(frag);
+    var allowed = Array.prototype.some.call(sel.options, function (o) { return o.value === prev; });
+    if (allowed) sel.value = prev;
+    else { sel.value = ''; setProductStatus('Prodotto di sviluppo disattivato (Sviluppo OFF).'); }
+}
+function selectProduct(v) {
+    var defs = productDefs();
+    var p = defs[v];
+    // Opzione vuota «— nessuno —» (o valore sconosciuto): spegne il corrente.
+    if (!v || !p) {
+        if (activeProductId) { productOff(activeProductId); activeProductId = ''; }
+        setProductStatus(v ? '' : 'Nessun prodotto attivo.');
+        if (typeof syncMetricSelectEnabled === 'function') syncMetricSelectEnabled();
+        return;
+    }
+    if (p.dev && !isSviluppoActive) {
+        setProductStatus(p.label + ': disponibile solo in Sviluppo.');
+        var sel0 = document.getElementById('product-select');
+        if (sel0) sel0.value = '';
+        return;
+    }
+    // ESCLUSIVITA': spegne il prodotto ricordato e qualunque altro sia ancora
+    // acceso (per esempio se l'utente lo ha acceso dal vecchio pulsante).
+    var ids = Object.keys(defs);
+    var toOff = [];
+    for (var i = 0; i < ids.length; i++) {
+        var id = ids[i];
+        if (id === v) continue;
+        if (id === activeProductId) { toOff.push(id); continue; }
+        try { if (defs[id].on()) toOff.push(id); } catch (e) { }
+    }
+    for (var k = 0; k < toOff.length; k++) productOff(toOff[k]);
+    activeProductId = '';
+    var alreadyOn = false;
+    try { alreadyOn = p.on(); } catch (e) { }
+    if (alreadyOn) {
+        activeProductId = v;
+        setProductStatus(p.label + ' già attivo.');
+        if (typeof syncMetricSelectEnabled === 'function') syncMetricSelectEnabled();
+        return;
+    }
     try {
         var r = p.run();
         if (r && typeof r.catch === 'function') r.catch(function () { });
-        if (status) status.textContent = p.label + ' attivato.';
+        activeProductId = v;
+        setProductStatus(p.label + ' attivato.');
     } catch (e) {
-        if (status) status.textContent = p.label + ': ' + (e && e.message ? e.message : 'errore');
+        activeProductId = '';
+        setProductStatus(p.label + ': ' + (e && e.message ? e.message : 'errore'));
     }
+    if (typeof syncMetricSelectEnabled === 'function') syncMetricSelectEnabled();
 }
 function toggleForecastMaps() {
     if (!isFeatureEnabled('forecastMaps')) return;
@@ -21914,6 +22133,16 @@ function toggleForecastMaps() {
             isSviluppoActive = !!force;
             if (sw) sw.checked = isSviluppoActive;
         }
+        // 1.3.0.4 - la tendina prodotti segue Sviluppo. Se un prodotto di sviluppo
+        // era attivo e lo switch passa a OFF, lo si spegne con IL SUO VECCHIO
+        // handler (selectProduct('') -> productOff -> toggleNewIndices), poi si
+        // rigenerano le opzioni. Nessuno stato sovrapposto. Va PRIMA del blocco
+        // storico "forza Nuovi Indici su OFF", che altrimenti farebbe un doppio
+        // toggle riportandolo accidentalmente ON.
+        if (!isSviluppoActive && activeProductId && isDevProduct(activeProductId)) {
+            selectProduct('');
+        }
+        rebuildProductSelect();
         var display = isSviluppoActive ? '' : 'none';
         // Toggle visibilità dei pulsanti sperimentali
         var ni = document.getElementById('btn-newindices');
@@ -28565,6 +28794,33 @@ function renderContinuousOverlay() {
         hideBadgeLegendTip();
     }
 
+    // 1.3.0.4 - La tendina #metric-select e' abilitata SOLO quando la metrica
+    // «Rischio» e' attiva e nessun prodotto della tendina prodotti e' selezionato.
+    // Negli altri casi e' disabilitata e la motivazione e' visibile accanto.
+    function syncMetricSelectEnabled() {
+        var sel = document.getElementById('metric-select');
+        var reason = document.getElementById('metric-select-reason');
+        var riskOn = (currentMetric === 'risk');
+        var enabled = riskOn && !activeProductId;
+        if (sel) {
+            sel.disabled = !enabled;
+            sel.title = enabled ? 'Scegli la metrica da mostrare sulla mappa'
+                : (riskOn ? 'Disabilitata: deseleziona il prodotto attivo per usare le metriche'
+                          : 'Disabilitata: attiva «Rischio» per scegliere una metrica');
+        }
+        if (reason) {
+            reason.textContent = enabled ? '' : (riskOn
+                ? 'Disabilitata — deseleziona il prodotto per usare le metriche'
+                : 'Disabilitata — attiva «Rischio» per scegliere una metrica');
+            reason.style.display = enabled ? 'none' : '';
+        }
+    }
+    // La tendina disabilitata non puo' cambiare; il guard copre anche un
+    // dispatch artificiale di 'change': fuori dal rischio nessun effetto.
+    function onMetricSelectChange(v) {
+        if (currentMetric !== 'risk' || activeProductId) { syncMetricSelectEnabled(); return; }
+        selectMetric(v);
+    }
     function selectMetric(metric) {
         currentMetric = metric;
         var _metricSel = document.getElementById('metric-select');
@@ -28599,6 +28855,7 @@ function renderContinuousOverlay() {
         if (dpcSel) dpcSel.style.display = (metric === 'risk') ? '' : 'none';
         // Quando si seleziona thermalrisk, attiva la modalità
         isThermalRiskActive = (metric === 'thermalrisk');
+        syncMetricSelectEnabled();
         updateMapColors();
         updateWindArrows();
     }
@@ -34523,6 +34780,10 @@ initMap();
     // 1.2.4.72 - il pannello #live-panel resta nel DOM (ospita la funzione interna
     // "Struttura convettiva", #live-toggle-supercells) e non contiene piu' la legenda
     // eta dei fulmini ne' il suo hint: niente da nascondere alla lettura dello script.
+    // 1.3.0.4 - stato iniziale dei controlli: tendina prodotti senza voci dev
+    // (Sviluppo OFF) e tendina metrica abilitata solo su «Rischio».
+    rebuildProductSelect();
+    syncMetricSelectEnabled();
     applyPublicEditionFeatureVisibility();
     startApp(25);
 

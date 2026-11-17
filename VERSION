@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.3.0.4 - 6 FIX TENDINE E VIEWER 3D (bump da 1.3.0.3)
+VERSION=1.3.0.4
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=134
+RELEASE_TYPE=release
+DATE=2026-11-17
+NOTE=Release 1.3.0.4 (bump da 1.3.0.3). Sei difetti delle tendine piu viewer 3D, solo client. (1) Radar e Satellite tolti dal selettore prodotti e ripristinati come toggle sempre visibili fuori tendina, handler storici invariati. (2) selectProduct con un solo prodotto attivo, opzione per nessun prodotto e spegnimento del precedente tramite il suo vecchio handler. (3) Evidenzia zone a rischio come toggle visibile fuori tendina. (4) La Caletta rimossa dalle opzioni visibili (funzione invariata). (5) Metrica abilitata solo con Rischio e nessun prodotto attivo. (6) Prodotti dev visibili solo con Sviluppo ON e spenti se Sviluppo si spegne. Viewer 3D: root cause del pannello compresso a 14 px era flex-shrink:1 su #sc-volume3d dentro #sc-radar-panel (display flex), corretto con flex:0 0 auto (misurato 104 px); con volume_available:false mostra Volume 3D non disponibile: cappi_levels_lt_4, 0 canvas; con true mostra parametri per cella e sezioni se presenti; volume.json lazy. Verifiche: node --check 9/9, verify_assert 12/12, 0 eccezioni JS, 0 overflow a 1440x900 e 390x844. NON verificato: payload volume_available:true reale di produzione (solo fixture), browser diversi da Edge headless, correttezza scientifica delle unita mostrate. Nessun dato simulato, nessun motore/palette/VERSION storica toccata.
+APP_FILE=mri-light-1.3.0.4.html
 MeteoRisk Light - 1.3.0.3 - UI A TENDINE, NEBBIA GATED, DOPPLER DEGRADED E VIEWER 3D LAZY (bump da 1.3.0.2)
 VERSION=1.3.0.3
 MAJOR=1
