@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.3.0.3 - UI A TENDINE, NEBBIA GATED, DOPPLER DEGRADED E VIEWER 3D LAZY (bump da 1.3.0.2)
+VERSION=1.3.0.3
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=133
+RELEASE_TYPE=release
+DATE=2026-11-17
+NOTE=Release 1.3.0.3 (bump da 1.3.0.2). Quattro interventi client verificati. UI: tendina centraline a 6 parametri con grafico SVG e serie accumulata in localStorage, metric-tabs e toolbar come tendine da 10 voci, 12 handler storici preservati. Nebbia: gate di colorazione nella STESSA ora (score>=75, vento<=4 km/h, RH>=95), colore dell ora selezionata invece del massimo di 24 ore, grigio se nessuna ora soddisfa; formula fogScoreC invariata. Doppler: con coverage_status unavailable o 0 feature toggle OFF, nessun canvas e messaggio con coverage_null_reason visibile. Viewer 3D: scheda lazy che legge volume.json solo all apertura, mostra ECHO_TOP/VIL/volume per cella e le sezioni se presenti; con volume_available false mostra null_reason cappi_levels_lt_4 e non costruisce niente. Nessun dato simulato. Verifiche: node --check 9/9, 0 eccezioni JS, 0 overflow a 1440x900 e 390x844, conteggio province nebbia dual 92 -> best_match 29 / dual 55 (harness su dati reali), messaggio Doppler visibile, viewer con degrado.
+APP_FILE=mri-light-1.3.0.3.html
 MeteoRisk Light - 1.3.0.2 - FIX MOTORISTICI E UI A2-A8 E MAPPA RISCHI DALLE ORE CORRENTI (bump da 1.3.0.0)
 VERSION=1.3.0.2
 MAJOR=1

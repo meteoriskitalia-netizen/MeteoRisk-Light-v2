@@ -1880,7 +1880,9 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 </div>
 
 <div class="toolbar">
-    <div class="toolbar-row" style="display: flex; gap: 8px; flex-wrap: wrap;">
+    <!-- UI CONTROLS: i pulsanti on/off storici restano nel DOM, con gli STESSI
+         handler; la selezione del prodotto passa dalla tendina qui sotto. -->
+    <div class="toolbar-row" id="legacy-toolbar-row" style="display: none !important; gap: 8px; flex-wrap: wrap;">
         <button class="tool-btn" id="btn-forecast-maps" onclick="toggleForecastMaps()" style="border-color:#38bdf8;">🗺️ Mappe previsionali (OFF)</button>
         <button class="tool-btn" id="btn-radar-player" onclick="toggleRadarPlayer()" style="border-color:#0284c7;">▶️ Radar Player</button>
         <button class="tool-btn" id="btn-radar" onclick="toggleRadar()" style="display:none;">📡 Radar Timeline (OFF)</button>
@@ -1893,6 +1895,23 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <button class="tool-btn" id="btn-sources" onclick="toggleSourcesPanel()" style="border-color:#a855f7;">📚 Fonti &amp; Metodologie</button>
         <!-- 1.2.3.1: attivazione Celle organizzate spostata nel pannello LIVE (#live-toggle-supercells) -->
         <!-- Toggle Sviluppo spostato nel footer: switch vicino al badge versione -->
+    </div>
+    <div class="toolbar-row" id="product-select-row" style="max-width:1200px; margin:0 auto 10px auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <label for="product-select" style="font-size:11px;color:#94a3b8;">Prodotto</label>
+        <select id="product-select" class="tool-btn" onchange="selectProduct(this.value)" style="font-size:11px;" title="Attiva il prodotto selezionato: stessa azione dei pulsanti della toolbar">
+            <option value="">Seleziona un prodotto…</option>
+            <option value="forecast-maps">Mappe previsionali</option>
+            <option value="radar-player">Radar Player</option>
+            <option value="radar">Radar Timeline</option>
+            <option value="satellite">Satellite</option>
+            <option value="forecast">Previsioni</option>
+            <option value="caletta">La Caletta</option>
+            <option value="high-risk">Evidenzia zone a rischio</option>
+            <option value="live">Pannello LIVE</option>
+            <option value="newindices">Nuovi Indici</option>
+            <option value="sources">Fonti e metodologie</option>
+        </select>
+        <span id="product-status" style="font-size:10px;color:#64748b;"></span>
     </div>
     <div style="max-width:1200px; margin:0 auto 10px auto; display:flex; gap:8px; align-items:center; overflow-x:auto; padding-bottom:4px;" class="map-toolbar-scroll">
         <span id="radar-provider-label" style="font-size: 11px; color: #94a3b8; display:none; flex-shrink:0">Sorgente Radar:</span>
@@ -2007,7 +2026,19 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
          selettore della sorgente: le due cose sono ortogonali. Riusa le classi
          .live-legend/.legend-title/.legend-row: nessun CSS nuovo. -->
     <div class="live-legend" id="live-stations-box" style="display:none;">
-        <div class="legend-title" id="live-stations-title">Centraline osservate — temperatura a 2 m in °C, etichette con il valore (osservato, non modello)</div>
+        <div class="legend-title" id="live-stations-title">Centraline osservate — etichette con il valore (osservato, non modello)</div>
+        <div class="legend-row" id="live-stations-param-row" style="gap:8px;">
+            <label for="stations-param-select" style="font-size:10px;color:#94a3b8;">Parametro</label>
+            <select id="stations-param-select" class="fm-select" onchange="stationsParamChanged(this.value)" style="font-size:11px;">
+                <option value="temp">Temperatura 2 m (°C)</option>
+                <option value="rh">Umidità relativa 2 m (%)</option>
+                <option value="wind">Velocità vento 10 m (m/s)</option>
+                <option value="windDir">Direzione vento 10 m (°)</option>
+                <option value="rain">Pioggia (mm/h, periodo dichiarato)</option>
+                <option value="dew">Punto di rugiada 2 m (°C)</option>
+            </select>
+            <span id="stations-param-note" style="font-size:9px;color:#64748b;">Il parametro scelto vale per etichette, legenda e grafico.</span>
+        </div>
         <div class="legend-row" id="live-stations-status" style="font-size:11px;">Caricamento centraline...</div>
         <div class="legend-row" id="live-stations-stale" style="display:none;font-weight:700;color:#fca5a5;"></div>
         <div class="legend-row" style="margin-top:4px;gap:8px;">
@@ -2123,7 +2154,11 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <button type="button" id="sc-toggle-forecast" class="sc-toggle on" onclick="toggleScForecast()" title="Cono di forecast cinematico ≤2h, solo con fit usato e track coerente">Forecast ≤2h</button>
         <button type="button" id="sc-toggle-phenomena" class="sc-toggle on" onclick="toggleScPhenomena()" title="Badge grandine/struttura asimmetrica (proxy riflettività, senza Doppler)">Fenomeni</button>
         <button type="button" id="sc-toggle-hail" class="sc-toggle on" onclick="toggleScHail()" title="Badge grandine (proxy riflettività, senza Doppler)">Grandine</button>
+        <button type="button" id="sc-toggle-volume3d" class="sc-toggle" onclick="toggleVolume3D()" title="Legge data/radar/volume.json solo all'apertura: parametri per cella (ECHO_TOP, VIL, volume) e sezioni se presenti. Nessuna libreria esterna." aria-expanded="false" aria-controls="sc-volume3d">Volume 3D</button>
     </div>
+    <!-- 1.3.0.3 - viewer volumetrico LAZY: nessun fetch e nessun nodo costruito
+         finche' l'utente non apre la scheda. Nessuna libreria CDN. -->
+    <div id="sc-volume3d" class="live-legend" hidden style="margin:0 10px 6px 10px;max-height:280px;overflow-y:auto;"></div>
     <!-- 1.2.4.76 - ALLERTA DI PROSSIMITA' (fase 3 nowcasting, solo client): punto
          scelto dall'utente (posizione del dispositivo o clic sulla mappa), soglia
          10/25/50 km, distanza dal BORDO del cono. Punto e soglia in localStorage. -->
@@ -2193,7 +2228,9 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     </details>
 </div>
 
-<div class="metric-tabs" id="metric-tabs">
+<!-- UI CONTROLS: i pulsanti metrica storici restano nel DOM (stessi handler),
+     ma la scelta passa dalla tendina qui sotto. -->
+<div class="metric-tabs" id="legacy-metric-tabs" style="display:none;">
     <button class="metric-tab active" data-metric="risk" onclick="selectMetric('risk')">⚠️ Rischio</button>
     <button class="metric-tab" data-metric="tempmax" onclick="selectMetric('tempmax')">🌡️ Temp. Max</button>
     <button class="metric-tab" data-metric="tempmin" onclick="selectMetric('tempmin')">❄️ Temp. Min</button>
@@ -2204,6 +2241,21 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     <button class="metric-tab" id="metric-tab-fog" data-metric="fog" onclick="selectMetric('fog')" title="Indice ambientale euristico 0-100, non probabilità e non misura di visibilità" style="display:none;">🌫️ Nebbia</button>
     <button class="metric-tab" data-metric="conv" id="metric-tab-conv" onclick="selectMetric('conv')" style="display:none;">🌩️ Conv.</button>
     <button class="metric-tab" data-metric="hail" id="metric-tab-hail" onclick="selectMetric('hail')" style="display:none;">🧊 Grandine</button>
+</div>
+<div class="metric-tabs" id="metric-select-row" style="align-items:center;">
+    <label for="metric-select" style="font-size:11px;color:#94a3b8;white-space:nowrap;">Metrica</label>
+    <select id="metric-select" class="fm-select" onchange="selectMetric(this.value)" style="font-size:12px;">
+        <option value="risk">Rischio</option>
+        <option value="tempmax">Temp. Max</option>
+        <option value="tempmin">Temp. Min</option>
+        <option value="humidity">Umidità</option>
+        <option value="pressure">Pressione</option>
+        <option value="wind">Vento</option>
+        <option value="thermalrisk">Rischio Termico</option>
+        <option value="fog">Nebbia</option>
+        <option value="conv">Conv.</option>
+        <option value="hail">Grandine</option>
+    </select>
 </div>
 
 <div class="container">
@@ -2850,9 +2902,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.2';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.3';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-17';
     const APP_CHANGELOG = [
+    { version: '1.3.0.3', date: '2026-11-17', changes: [
+        'Nebbia: gate di colorazione nella STESSA ora (score>=75, vento<=4 km/h, RH>=95); colore dell ora selezionata invece del massimo di 24 h, grigio se nessuna ora soddisfa. Formula fogScoreC invariata.',
+        'Doppler: con coverage_status unavailable o 0 feature il toggle resta OFF, nessun canvas viene creato e il messaggio con coverage_null_reason resta visibile.',
+        'Viewer 3D: scheda Volume 3D lazy che legge data/radar/volume.json solo all apertura, mostra ECHO_TOP/VIL/volume per cella e le sezioni se presenti; con volume_available:false mostra null_reason e non costruisce niente.',
+        'UI: tendina centraline a 6 parametri con grafico SVG accumulato in localStorage, metric-tabs e toolbar come tendine da 10 voci; tutti gli handler storici preservati.',
+    ]},
     { version: '1.3.0.2', date: '2026-11-17', changes: [
         'A2: copertura Doppler non azzerata senza VRADH: ogni sito conserva il suo inviluppo valido piu recente con stale, last_valid_scan e coverage_status, senza geometrie inventate.',
         'A3: doppler_analysis.json e mesocyclone_tracks.json scritti sempre; senza scan VRADH contengono status unavailable e null_reason no_opera_vradh_data, mai un dato inventato.',
@@ -9040,6 +9098,25 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
         if (!dopplerCoverageEnabled) return;
         if (!dopplerLivePanelOpen()) return;
         if (!dopplerCoverageData || !map) return;
+        // 1.3.0.3 - il file puo' dichiarare coverage_status="unavailable" con
+        // 0 feature (nessuno scan VRADH): in quel caso NON si crea nessun canvas
+        // e NON si accende il toggle. Il motivo arriva dal GeoJSON, non inventato.
+        var covStatus3 = dopplerCoverageData.coverage_status;
+        var featCount3 = (dopplerCoverageData.features || []).length;
+        if (covStatus3 === 'unavailable' || featCount3 === 0) {
+            var why3 = dopplerCoverageData.coverage_null_reason ||
+                       dopplerCoverageData.status_note || 'nessuna geometria di copertura';
+            if (dopplerCoverageEnabled) {
+                dopplerCoverageEnabled = false;
+                try { localStorage.setItem(DOPPLER_PREF_KEY, "0"); } catch (e3) {}
+            }
+            removeDopplerCoverageLayer();
+            dopplerSetToggleState(false);
+            var st3 = document.getElementById("live-doppler-status");
+            if (st3) { st3.innerText = "Area Doppler non disponibile: " + why3; st3.style.display = ""; }
+            console.warn("[Doppler] copertura non disponibile: " + why3);
+            return;
+        }
         ensureDopplerPane();
         var t0 = performance.now();
         if (!dopplerCoverageLayer) {
@@ -9075,8 +9152,8 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
         dopplerSetLegendVisible(true);
         var modeEl = document.getElementById("live-doppler-area-mode");
         if (modeEl) modeEl.innerText = dopplerAreaModeText(areaSet);
-        var st = document.getElementById("live-doppler-status");
-        if (st) { st.style.display = "none"; st.innerText = ""; }
+        // 1.3.0.3: NON azzerare qui #live-doppler-status. Il messaggio di
+        // degrado (coverage_status unavailable / 0 feature) deve restare visibile.
     }
 
     function removeDopplerCoverageLayer() {
@@ -14915,6 +14992,117 @@ removeLightningTile();
         if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
     }
 
+    // ================= VOLUME 3D (lazy, nessuna libreria CDN) =============
+    // Legge data/radar/volume.json SOLO quando si apre la scheda. Se il file
+    // dichiara volume_available:false mostra null_reason e NON costruisce niente
+    // (nessun canvas, nessuna sezione, nessun valore inventato).
+    var volume3dState = { loaded: false, loading: false, open: false, payload: null };
+    async function toggleVolume3D() {
+        var box = document.getElementById('sc-volume3d');
+        var btn = document.getElementById('sc-toggle-volume3d');
+        if (!box) return;
+        volume3dState.open = box.hasAttribute('hidden');
+        if (!volume3dState.open) {
+            box.setAttribute('hidden', '');
+            if (btn) btn.setAttribute('aria-expanded', 'false');
+            return;
+        }
+        box.removeAttribute('hidden');
+        if (btn) btn.setAttribute('aria-expanded', 'true');
+        if (volume3dState.loaded) { volume3dRender(volume3dState.payload, box); return; }
+        if (volume3dState.loading) return;
+        volume3dState.loading = true;
+        box.innerHTML = '<div class="legend-row">Caricamento data/radar/volume.json…</div>';
+        try {
+            var res = await fetchWithTimeout('data/radar/volume.json', 15000, null);
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            var data = await res.json();
+            volume3dState.payload = data;
+            volume3dState.loaded = true;
+            volume3dRender(data, box);
+        } catch (e3v) {
+            box.innerHTML = '<div class="legend-row">Volume 3D non disponibile: ' +
+                String((e3v && e3v.message) || e3v).replace(/[<>&]/g, '') + '</div>';
+        } finally {
+            volume3dState.loading = false;
+        }
+    }
+    function volume3dNum(v, unit) {
+        if (v == null || !isFinite(v)) return 'n/d';
+        return Number(v).toLocaleString('it-IT') + (unit ? ' ' + unit : '');
+    }
+    function volume3dField(f, unit) {
+        if (!f || f.value == null || !isFinite(f.value)) {
+            return 'n/d' + ((f && f.null_reason) ? ' (' + f.null_reason + ')' : '');
+        }
+        return volume3dNum(f.value, unit);
+    }
+    function volume3dSection(s, name) {
+        if (!s) return '';
+        if (!s.available || s.quality === 'D_unavailable') {
+            return '<div class="legend-row">Sezione ' + name + ' non disponibile: ' +
+                   (s.null_reason || 'D_unavailable') + '</div>';
+        }
+        var g = s.grid || [];
+        var nLev = g.length, nPt = nLev ? (g[0] || []).length : 0;
+        var h = '<div class="legend-row">Sezione ' + name + ': ' + nPt + ' punti × ' + nLev +
+                ' quote · qualità ' + (s.quality || 'n/d') +
+                (s.bearing_deg != null ? ' · azimuth ' + volume3dNum(s.bearing_deg, '°') : '') + '</div>';
+        // Mini-sezione SVG: solo voxel reali del payload, scale dalle soglie dBZ.
+        if (nLev > 0 && nPt > 0) {
+            var W = 240, H = 56, dx = W / nPt, dy = H / nLev, parts = [];
+            var colors = [[55,'#7c1d6f'],[50,'#ef4444'],[45,'#f97316'],[40,'#eab308'],[30,'#22c55e']];
+            for (var z = 0; z < nLev; z++) {
+                for (var x = 0; x < nPt; x++) {
+                    var v = g[z][x];
+                    if (v == null || !isFinite(v)) continue;
+                    var col = '#1e293b';
+                    for (var ci = 0; ci < colors.length; ci++) { if (v >= colors[ci][0]) { col = colors[ci][1]; break; } }
+                    parts.push('<rect x="' + (x*dx).toFixed(2) + '" y="' + ((nLev-1-z)*dy).toFixed(2) +
+                               '" width="' + (dx+0.4).toFixed(2) + '" height="' + (dy+0.4).toFixed(2) +
+                               '" fill="' + col + '"/>');
+                }
+            }
+            h += '<div class="legend-row" style="overflow-x:auto;"><svg viewBox="0 0 ' + W + ' ' + H +
+                 '" width="' + W + '" height="' + H + '" style="max-width:100%;height:auto;" aria-label="Sezione verticale ' + name + '">' +
+                 parts.join('') + '</svg></div>';
+        }
+        return h;
+    }
+    function volume3dRender(data, box) {
+        if (!box) return;
+        if (!data || data.volume_available === false) {
+            var why = (data && data.null_reason) ? data.null_reason : 'volume_unavailable';
+            box.innerHTML = '<div class="legend-row"><b>Volume 3D non disponibile</b>: ' + why + '</div>' +
+                '<div class="legend-row">Nessuna sezione costruita: il file dichiara il volume non disponibile.</div>';
+            return;
+        }
+        var cells = data.cells || [];
+        var thr = (data.thresholds_dbz && data.thresholds_dbz.length) ? data.thresholds_dbz : [30, 40, 45, 50, 55];
+        var h = ['<div class="legend-title">Volume 3D — CAPPI DPC impilati (10 quote, 1 km)</div>'];
+        h.push('<div class="legend-row">Soglie dBZ: ' + thr.map(volume3dNum).join(' · ') +
+               ' · volume: ' + (data.volume_timestamp_utc || data.timestamp || 'n/d') + '</div>');
+        if (!cells.length) h.push('<div class="legend-row">Nessuna cella con eco: nessun parametro da mostrare.</div>');
+        for (var i = 0; i < cells.length; i++) {
+            var c = cells[i];
+            h.push('<div class="legend-row"><b>Cella #' + c.cell_id + '</b> · max VMI ' +
+                   volume3dNum(c.max_dbz_vmi, 'dBZ') + ' · area ' + volume3dNum(c.area_px, 'px') + '</div>');
+            h.push('<div class="legend-row">ECHO_TOP_18 ' + volume3dField(c.ECHO_TOP_18, 'km') +
+                   ' · VIL ' + volume3dField(c.VIL, 'kg/m²') +
+                   ' · VIL density ' + volume3dField(c.VIL_DENSITY, 'g/m³') + '</div>');
+            var by = c.by_threshold || {};
+            for (var ti = 0; ti < thr.length; ti++) {
+                var t = String(thr[ti]), f = by[t] || {};
+                h.push('<div class="legend-row">≥' + t + ' dBZ: ECHO_TOP ' + volume3dField(f.ECHO_TOP, 'km') +
+                       ' · CELL_VOLUME ' + volume3dField(f.CELL_VOLUME, 'voxel') +
+                       ' · VERTICAL_EXTENT ' + volume3dField(f.VERTICAL_EXTENT, 'km') + '</div>');
+            }
+            h.push(volume3dSection(c.cross_section_longitudinal, 'longitudinale'));
+            h.push(volume3dSection(c.cross_section_transversal, 'trasversale'));
+        }
+        box.innerHTML = h.join('');
+    }
+
     // ================= EMBED BLITZORTUNG MAP =================
     var radarEmbedActive = false;
 
@@ -15506,6 +15694,8 @@ removeLightningTile();
         // Forza currentMetric = 'risk' per coerenza con la mappa colorata DPC
         if (currentMetric !== 'risk') {
             currentMetric = 'risk';
+            var _ms = document.getElementById('metric-select');
+            if (_ms) _ms.value = 'risk';
             document.querySelectorAll('.metric-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.metric === 'risk'));
         }
         var statusEl = document.getElementById('status-msg');
@@ -16867,7 +17057,12 @@ stopSyncPlay();
                 wind: stationsNum(s.wind_speed_10m),
                 windDir: stationsNum(s.wind_direction_10m),
                 precip: stationsNum(s.precipitation),
-                period: stationsNum(s.precipitation_period_s)
+                period: stationsNum(s.precipitation_period_s),
+                dew: stationsNum(s.dew_point_2m),
+                rainMmH: (function () {
+                    var p = stationsNum(s.precipitation), q = stationsNum(s.precipitation_period_s);
+                    return (p !== null && q > 0) ? p * 3600 / q : null;
+                })()
             });
         }
         if (!out.length) return null;
@@ -16910,6 +17105,7 @@ stopSyncPlay();
                     var norm = stationsNormalize(payload, urls[i]);
                     if (!norm) throw new Error('formato non riconosciuto');
                     stationsData = norm;
+                    try { stationsRecordSeries(norm); } catch (e) { }
                     stationsError = null;
                     stationsLoadedAt = Date.now();
                     var t1 = (window.performance && performance.now) ? performance.now() : Date.now();
@@ -17318,6 +17514,185 @@ stopSyncPlay();
         var rain = stationsRainText(st);
         if (rain) h += '<div>🌧️ ' + rain + '</div>';
         h += '<div style="font-size:9px;color:#64748b;margin-top:2px;">' + escapeHtml(meta.source || 'MeteoHub') + ' · CC BY 4.0</div>';
+        h += stationsChartHtml(st);
+        h += '</div>';
+        return h;
+    }
+
+    // ---------- UI CONTROLS: parametro centraline + serie giornaliera ----------
+    // Il file data/stations/latest.json contiene UNA sola osservazione per stazione:
+    // la "serie del giorno" non esiste sul server. Viene accumulata QUI, lato client,
+    // a ogni aggiornamento del file (ogni ~10 min), solo per le stazioni seguite
+    // (cliccate almeno una volta), con tetto di localStorage dichiarato.
+    var STATIONS_SERIES_KEY = 'mri_stations_series_v1';
+    var STATIONS_SERIES_MAX_POINTS = 288;      // 48 h a 10 min
+    var STATIONS_SERIES_MAX_STATIONS = 60;     // tetto localStorage
+    var STATIONS_SERIES_MAX_GAP_MIN = 20;      // oltre -> buco, nessuna linea
+    var STATIONS_NEUTRAL_SCALE = {
+        breakpoints: [0, 1],
+        colors: { light: [[30, 41, 59], [30, 41, 59]], dark: [[30, 41, 59], [30, 41, 59]] },
+        unit: ''
+    };
+    // Nomi/unità dei soli campi REALI del file (nessuna raffica, pressione, visibilità).
+    var STATIONS_PARAMS = {
+        temp:    { label: 'Temperatura 2 m',      unit: '°C',   decimals: 1, scale: 'temperature_2m' },
+        rh:      { label: 'Umidità relativa 2 m', unit: '%',    decimals: 0, scale: 'mri_stations_neutral' },
+        wind:    { label: 'Velocità vento 10 m',  unit: 'm/s',  decimals: 1, scale: 'wind_speed_10m' },
+        windDir: { label: 'Direzione vento 10 m', unit: '°',    decimals: 0, scale: 'mri_stations_neutral' },
+        rain:    { label: 'Pioggia normalizzata', unit: 'mm/h', decimals: 1, scale: 'precipitation' },
+        dew:     { label: 'Punto di rugiada 2 m', unit: '°C',   decimals: 1, scale: 'temperature_2m' }
+    };
+    var stationsParam = 'temp';
+
+    function stationsSeriesRead() {
+        try {
+            var raw = window.localStorage.getItem(STATIONS_SERIES_KEY);
+            var o = raw ? JSON.parse(raw) : null;
+            return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
+        } catch (e) { return {}; }
+    }
+    function stationsSeriesWrite(o) {
+        try { window.localStorage.setItem(STATIONS_SERIES_KEY, JSON.stringify(o)); return true; }
+        catch (e) { return false; }
+    }
+    // [epochMs, temp, rh, wind, windDir, mm/h, periodo_s, dew]
+    function stationsSeriesTuple(st) {
+        var rain = (st.precip !== null && st.period > 0) ? st.precip * 3600 / st.period : null;
+        return [st.time, st.temp, st.rh, st.wind, st.windDir, rain, st.period, st.dew];
+    }
+    function stationsSeriesPush(store, st) {
+        if (!st || !st.id || !isFinite(st.time)) return false;
+        var e = store[st.id];
+        if (!e) {
+            if (Object.keys(store).length >= STATIONS_SERIES_MAX_STATIONS) return false;
+            e = { name: st.name || '', pts: [] };
+            store[st.id] = e;
+        }
+        var pts = e.pts || (e.pts = []);
+        for (var i = 0; i < pts.length; i++) if (pts[i][0] === st.time) {
+            pts[i] = stationsSeriesTuple(st);   // stessa osservazione: nessun duplicato
+            return false;
+        }
+        pts.push(stationsSeriesTuple(st));
+        pts.sort(function (a, b) { return a[0] - b[0]; });
+        while (pts.length > STATIONS_SERIES_MAX_POINTS) pts.shift();
+        return true;
+    }
+    function stationsTrack(st) {
+        if (!st || !st.id) return;
+        var store = stationsSeriesRead();
+        if (!store[st.id]) {
+            if (!st.dew && stationsData) {
+                for (var i = 0; i < stationsData.stations.length; i++) {
+                    if (stationsData.stations[i].id === st.id) { st = stationsData.stations[i]; break; }
+                }
+            }
+            stationsSeriesPush(store, st);
+            stationsSeriesWrite(store);
+        }
+    }
+    function stationsRecordSeries(norm) {
+        if (!norm || !norm.stations) return;
+        var store = stationsSeriesRead();
+        var keys = Object.keys(store);
+        if (!keys.length) return;
+        var byId = {};
+        for (var i = 0; i < norm.stations.length; i++) byId[norm.stations[i].id] = norm.stations[i];
+        for (var k = 0; k < keys.length; k++) if (byId[keys[k]]) stationsSeriesPush(store, byId[keys[k]]);
+        stationsSeriesWrite(store);
+    }
+    // Cambia il parametro delle etichette: riordina SOLO la configurazione di
+    // visualizzazione e richiama le funzioni di disegno/legenda esistenti.
+    function stationsParamChanged(v) {
+        var cfg = STATIONS_PARAMS[v] || STATIONS_PARAMS.temp;
+        stationsParam = STATIONS_PARAMS[v] ? v : 'temp';
+        STATIONS_LABEL_FIELD.key = (stationsParam === 'rain') ? 'rainMmH' : stationsParam;
+        STATIONS_LABEL_FIELD.label = cfg.label;
+        STATIONS_LABEL_FIELD.unit = cfg.unit;
+        STATIONS_LABEL_FIELD.decimals = cfg.decimals;
+        STATIONS_LABEL_FIELD.scale = cfg.scale;
+        if (cfg.scale === 'mri_stations_neutral' && typeof FM_COLOR_SCALE_OVERRIDES !== 'undefined' &&
+            FM_COLOR_SCALE_OVERRIDES && !FM_COLOR_SCALE_OVERRIDES.mri_stations_neutral) {
+            FM_COLOR_SCALE_OVERRIDES.mri_stations_neutral = STATIONS_NEUTRAL_SCALE;
+        }
+        var note = document.getElementById('stations-param-note');
+        if (note) note.textContent = (cfg.scale === 'mri_stations_neutral')
+            ? 'Nessuna scala dedicata nell’app: etichetta neutra, senza classificazione.'
+            : 'Valore e colore dalla scala già usata dalle mappe per questa grandezza.';
+        var lb = document.getElementById('live-stations-scale-labels');
+        if (lb) lb.textContent = (cfg.scale === 'temperature_2m')
+            ? '−80 −60 −40 −20 0 +20 +40 +50 °C'
+            : (cfg.scale === 'mri_stations_neutral' ? cfg.label + ' — colore neutro' : cfg.label + ' (' + cfg.unit + ')');
+        if (stationsLayerObj && stationsCanvas && typeof stationsDrawCanvas === 'function') stationsDrawCanvas(stationsCanvas);
+        stationsUpdateStatus();
+    }
+    function stationsSeriesValue(t, key) {
+        var ix = { temp: 1, rh: 2, wind: 3, windDir: 4, rain: 5, dew: 7 }[key];
+        var v = ix ? t[ix] : null;
+        return (typeof v === 'number' && isFinite(v)) ? v : null;
+    }
+    // Grafico SVG inline: punti osservati + linee SOLO fra punti vicini.
+    function stationsChartHtml(st) {
+        var cfg = STATIONS_PARAMS[stationsParam] || STATIONS_PARAMS.temp;
+        var key = stationsParam;
+        var store = stationsSeriesRead();
+        var e = store[st.id];
+        var all = (e && e.pts) ? e.pts : [];
+        var d0 = new Date(st.time);
+        var dayKey = d0.getFullYear() + '-' + (d0.getMonth() + 1) + '-' + d0.getDate();
+        var pts = [];
+        for (var i = 0; i < all.length; i++) {
+            var d = new Date(all[i][0]);
+            if (d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate() !== dayKey) continue;
+            var v = stationsSeriesValue(all[i], key);
+            if (v === null) continue;
+            pts.push({ t: all[i][0], x: d.getHours() + d.getMinutes() / 60, v: v, period: all[i][6] });
+        }
+        var h = '<div style="border-top:1px solid #334155;margin-top:6px;padding-top:5px;">';
+        h += '<div style="font-size:10px;color:#94a3b8;">Andamento ' + escapeHtml(cfg.label) +
+             ' — ' + dayKey + ' · unità ' + cfg.unit + '</div>';
+        if (!pts.length) {
+            h += '<div style="font-size:9px;color:#64748b;">Nessuna osservazione registrata per questa stazione e questo parametro.</div></div>';
+            return h;
+        }
+        var W = 280, H = 92, L = 30, R = 6, T = 8, B = 16;
+        var iw = W - L - R, ih = H - T - B;
+        var vs = pts.map(function (p) { return p.v; });
+        var vmin = Math.min.apply(null, vs), vmax = Math.max.apply(null, vs);
+        if (vmax - vmin < 1e-9) { vmin -= 1; vmax += 1; }
+        var pad = (vmax - vmin) * 0.08; vmin -= pad; vmax += pad;
+        var sy = function (v) { return (T + ih - (v - vmin) / (vmax - vmin) * ih).toFixed(1); };
+        var sx = function (x) { return (L + x / 24 * iw).toFixed(1); };
+        var svg = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Andamento ' + escapeHtml(cfg.label) + '">';
+        svg += '<line x1="' + L + '" y1="' + T + '" x2="' + L + '" y2="' + (T + ih) + '" stroke="#475569" stroke-width="1"/>';
+        svg += '<line x1="' + L + '" y1="' + (T + ih) + '" x2="' + (W - R) + '" y2="' + (T + ih) + '" stroke="#475569" stroke-width="1"/>';
+        svg += '<text x="' + (L - 3) + '" y="' + (T + 4) + '" fill="#64748b" font-size="8" text-anchor="end">' + vmax.toFixed(cfg.decimals) + '</text>';
+        svg += '<text x="' + (L - 3) + '" y="' + (T + ih) + '" fill="#64748b" font-size="8" text-anchor="end">' + vmin.toFixed(cfg.decimals) + '</text>';
+        svg += '<text x="' + L + '" y="' + (H - 3) + '" fill="#64748b" font-size="8">00</text>';
+        svg += '<text x="' + (L + iw / 2) + '" y="' + (H - 3) + '" fill="#64748b" font-size="8" text-anchor="middle">12</text>';
+        svg += '<text x="' + (W - R) + '" y="' + (H - 3) + '" fill="#64748b" font-size="8" text-anchor="end">24</text>';
+        var gaps = 0, segs = 0;
+        for (var j = 1; j < pts.length; j++) {
+            if ((pts[j].t - pts[j - 1].t) / 60000 > STATIONS_SERIES_MAX_GAP_MIN) { gaps++; continue; }
+            svg += '<line x1="' + sx(pts[j - 1].x) + '" y1="' + sy(pts[j - 1].v) + '" x2="' + sx(pts[j].x) + '" y2="' + sy(pts[j].v) + '" stroke="#38bdf8" stroke-width="1.5"/>';
+            segs++;
+        }
+        for (var q = 0; q < pts.length; q++) {
+            svg += '<circle cx="' + sx(pts[q].x) + '" cy="' + sy(pts[q].v) + '" r="2.5" fill="#38bdf8"><title>' +
+                   stationsClock(pts[q].t) + ' · ' + pts[q].v.toFixed(cfg.decimals) + ' ' + cfg.unit + '</title></circle>';
+        }
+        svg += '</svg>';
+        h += svg;
+        h += '<div style="font-size:9px;color:#64748b;">' + pts.length + ' punti osservati · ' + segs +
+             ' segmenti · ' + gaps + (gaps === 1 ? ' interruzione' : ' interruzioni') + ' &gt; ' +
+             STATIONS_SERIES_MAX_GAP_MIN + ' min (nessuna linea nei buchi).</div>';
+        if (key === 'rain') {
+            var per = pts[pts.length - 1].period;
+            h += '<div style="font-size:9px;color:#64748b;">mm/h = mm × 3600 / periodo; periodo di accumulo: ' +
+                 (per ? fmtNum(per / 60, 0) + ' min (' + fmtNum(per, 0) + ' s)' : 'non dichiarato') + '.</div>';
+        }
+        if (key === 'windDir') h += '<div style="font-size:9px;color:#64748b;">Direzione espressa in gradi (°): 0 = nord, 90 = est.</div>';
+        h += '<div style="font-size:9px;color:#64748b;">Serie costruita dalle osservazioni ricevute da quando usi l' + String.fromCharCode(39) + 'app — le ore precedenti non sono disponibili.</div>';
         h += '</div>';
         return h;
     }
@@ -17325,6 +17700,7 @@ stopSyncPlay();
     function stationsOpenPopup(st) {
         if (!map || !st) return;
         stationsHideHover();
+        stationsTrack(st);
         L.popup({ maxWidth: 320, autoPan: true, closeButton: true, className: 'stations-popup' })
             .setLatLng([st.lat, st.lon])
             .setContent(stationsPopupHtml(st))
@@ -21452,6 +21828,37 @@ function fmRestoreRiskOverlays() {
         try {
             if (!map.hasLayer(saved[i].layer)) saved[i].layer.addTo(map);
         } catch (e) { }
+    }
+}
+// Tendina prodotti: richiama GLI STESSI handler dei pulsanti della toolbar
+// (che restano nel DOM). Nessuna logica meteorologica duplicata; il guard evita
+// di spegnere un prodotto già attivo quando lo si risceglie dalla tendina.
+function selectProduct(v) {
+    var status = document.getElementById('product-status');
+    function txt(id) { var el = document.getElementById(id); return el ? (el.textContent || '') : ''; }
+    function onText(id) { return txt(id).indexOf('(ON)') >= 0; }
+    function hasClass(id, c) { var el = document.getElementById(id); return !!(el && el.classList && el.classList.contains(c)); }
+    var products = {
+        'forecast-maps': { run: toggleForecastMaps, on: function () { var p = document.getElementById('forecast-maps-panel'); return !!(p && p.classList.contains('active')); }, label: 'Mappe previsionali' },
+        'radar-player':  { run: toggleRadarPlayer, on: function () { return onText('btn-radar-player'); }, label: 'Radar Player' },
+        'radar':         { run: toggleRadar, on: function () { return onText('btn-radar'); }, label: 'Radar Timeline' },
+        'satellite':     { run: toggleSatellite, on: function () { return onText('btn-satellite'); }, label: 'Satellite' },
+        'forecast':      { run: toggleForecast, on: function () { return onText('btn-forecast'); }, label: 'Previsioni' },
+        'caletta':       { run: showCaletta, on: function () { return false; }, label: 'La Caletta' },
+        'high-risk':     { run: toggleHighRiskFilter, on: function () { return hasClass('btn-high-risk', 'active'); }, label: 'Evidenzia zone a rischio' },
+        'live':          { run: toggleLivePanel, on: function () { return onText('btn-live'); }, label: 'Pannello LIVE' },
+        'newindices':    { run: toggleNewIndices, on: function () { return onText('btn-newindices'); }, label: 'Nuovi Indici' },
+        'sources':       { run: toggleSourcesPanel, on: function () { return false; }, label: 'Fonti e metodologie' }
+    };
+    var p = products[v];
+    if (!p) { if (status) status.textContent = ''; return; }
+    if (p.on()) { if (status) status.textContent = p.label + ' già attivo.'; return; }
+    try {
+        var r = p.run();
+        if (r && typeof r.catch === 'function') r.catch(function () { });
+        if (status) status.textContent = p.label + ' attivato.';
+    } catch (e) {
+        if (status) status.textContent = p.label + ': ' + (e && e.message ? e.message : 'errore');
     }
 }
 function toggleForecastMaps() {
@@ -26678,9 +27085,10 @@ function toggleForecastMaps() {
                 return hp ? hp.level : 0;
             }
             case 'fog': {
-                // agg.fog e' un OGGETTO ({score, hour, from, to, dayScore, dayHour}), non un
-                // numero: qui si usa il punteggio 0-100 dell'ora selezionata (vista oraria) o
-                // il massimo della giornata (vista giornaliera), deciso da computeAggregateForStore.
+                // agg.fog e' un OGGETTO ({score, hour, ...}), non un numero. Dal 1.3.0.3
+                // il punteggio e' quello dell'ora selezionata (vista oraria) o la migliore
+                // fra le ore QUALIFICATE (vista giornaliera): score>=75, vento<=4 km/h e
+                // RH>=95 nella STESSA ora, altrimenti null (grigio).
                 if (!agg.fog || !isFinite(agg.fog.score)) return null;
                 return agg.fog.score;
             }
@@ -27000,6 +27408,11 @@ function toggleForecastMaps() {
     var FOG_DPD_SAT = 1.0, FOG_DPD_DRY = 4.0;
     var FOG_WIND_CALM = 4.0, FOG_WIND_MIXED = 22.0;
     var FOG_RH_LOW = 80.0, FOG_RH_HIGH = 100.0;
+    // 1.3.0.3 - GATE DI COLORAZIONE (formula fogScoreC INVARIATA). Per colorare
+    // una provincia serve la STESSA ora con score >= 75, vento <= 4 km/h e
+    // RH >= 95%. Le tre condizioni non possono venire da ore diverse. Se nessuna
+    // ora le soddisfa il punteggio resta null e la provincia resta grigia.
+    var FOG_COLOR_MIN_SCORE = 75, FOG_COLOR_MAX_WIND_KMH = 4.0, FOG_COLOR_MIN_RH = 95.0;
     function fogScoreC(dpd, windKmh, rh) {
         if (![dpd, windKmh, rh].every(function (v) { return v != null && isFinite(v); })) return null;
         var sat = Math.max(0, Math.min(1, (FOG_DPD_DRY - dpd) / (FOG_DPD_DRY - FOG_DPD_SAT)));
@@ -27011,7 +27424,7 @@ function toggleForecastMaps() {
     function fogViewForStore(store) {
         var day = currentDay;
         if (store.__fogCache && store.__fogCache.day === day) return store.__fogCache.v;
-        var scores = new Array(24), codes = new Array(24);
+        var scores = new Array(24), codes = new Array(24), qualifies = new Array(24);
         var best = null, bestHour = -1, signalCode = 0, signalHour = -1;
         for (var fh = 0; fh < 24; fh++) {
             var fi = day * 24 + fh;
@@ -27023,12 +27436,19 @@ function toggleForecastMaps() {
             var s = (fT == null || fD == null) ? null : fogScoreC(fT - fD, fW, fH);
             scores[fh] = s;
             codes[fh] = fC;
-            if (s != null && (best == null || s > best)) { best = s; bestHour = fh; }
+            // La selezione dell'ora e' l'AGGREGAZIONE: il massimo viene preso solo
+            // fra le ore che soddisfano TUTTE e tre le condizioni nella stessa ora.
+            var okColor = (s != null && isFinite(s) && s >= FOG_COLOR_MIN_SCORE &&
+                           fW != null && isFinite(fW) && fW <= FOG_COLOR_MAX_WIND_KMH &&
+                           fH != null && isFinite(fH) && fH >= FOG_COLOR_MIN_RH);
+            qualifies[fh] = !!okColor;
+            if (okColor && (best == null || s > best)) { best = s; bestHour = fh; }
             if ((fC === 45 || fC === 48) && (signalCode === 0 || fC > signalCode)) {
                 signalCode = fC; signalHour = fh;
             }
         }
-        var v = { scores: scores, codes: codes, score: best, hour: bestHour,
+        var v = { scores: scores, codes: codes, qualifies: qualifies,
+                  score: best, hour: bestHour,
                   signalCode: signalCode || null, signalHour: signalHour,
                   dayScore: best, dayHour: bestHour };
         store.__fogCache = { day: day, v: v };
@@ -27253,6 +27673,9 @@ function toggleForecastMaps() {
                 // Separare il segnale WMO del modello dall'indice ambientale euristico.
                 var fv = fogViewForStore(store);
                 if (currentHour === 'all' || currentHour == null || currentHour === '') {
+                    // 1.3.0.3: fv.score e' il massimo fra le ore QUALIFICATE
+                    // (null se nessuna ora soddisfa il gate): non e' piu' il max
+                    // di 24 ore qualunque.
                     return { view: 'day', score: fv.score, hour: fv.hour,
                              dayScore: fv.dayScore, dayHour: fv.dayHour,
                              signalCode: fv.signalCode, signalHour: fv.signalHour };
@@ -27260,7 +27683,10 @@ function toggleForecastMaps() {
                 var hs = parseInt(currentHour, 10);
                 if (isNaN(hs) || hs < 0 || hs > 23) hs = 0;
                 var hourCode = fv.codes[hs];
-                return { view: 'hour', score: fv.scores[hs], hour: hs,
+                // Vista oraria: colore dell'ORA SELEZIONATA, ma solo se quell'ora
+                // passa il gate; altrimenti null -> grigio.
+                var hourOk = fv.qualifies ? fv.qualifies[hs] : true;
+                return { view: 'hour', score: hourOk ? fv.scores[hs] : null, hour: hs,
                          dayScore: fv.dayScore, dayHour: fv.dayHour,
                          signalCode: (hourCode === 45 || hourCode === 48) ? hourCode : null,
                          signalHour: (hourCode === 45 || hourCode === 48) ? hs : -1 };
@@ -28141,6 +28567,8 @@ function renderContinuousOverlay() {
 
     function selectMetric(metric) {
         currentMetric = metric;
+        var _metricSel = document.getElementById('metric-select');
+        if (_metricSel) _metricSel.value = metric;
         document.querySelectorAll('.metric-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.metric === metric));
         // Se le allerte DPC sono attive, disattivale
         if (dpcAlertMode !== 'off') {
