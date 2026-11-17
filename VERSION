@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.3.0.5 - UNIONE UI CONTESTUALE E CRITICITA DPC V2 (bump da 1.3.0.4)
+VERSION=1.3.0.5
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=135
+RELEASE_TYPE=release
+DATE=2026-11-17
+NOTE=Release 1.3.0.5 (bump da 1.3.0.4). Unione di due consegne partite dallo stesso HTML 1.3.0.4. (1) UI: toggle radar/satellite e high-risk contestuali al prodotto, nuova voce Mappa dei rischi con riga metrica visibile solo li, pannello Volume 3D con min-height 44px quando aperto. (2) Criticita DPC v2: giorno comandato dalla .day-selector globale, 3 rischi separati mostrati insieme, dati di oggi e domani, rimozione di dpc-alert-select e toggleDpcAlert. (3) Classe grigia CONV_POTENTIAL_COLOR eliminata: chi riceveva il grigio ora e verde/Basso. (4) Dati idro schema /2 con fetcher e test aggiornati. Verifiche: node --check 9/9, asserzioni statiche UI+hydro tutte OK, 0 occorrenze di CONV_POTENTIAL_COLOR/Conv. potenziale nel markup attivo. NON verificato: prova visiva in browser interno (browser non connesso; Edge headless non usato come prova), conteggio province grigio→verde sul dataset servito, eccezioni JS a runtime, click/render reali, correttezza scientifica dei 3 rischi DPC e delle unita. Nessun dato simulato, nessun motore/palette/storico VERSION toccato.
+APP_FILE=mri-light-1.3.0.5.html
 MeteoRisk Light - 1.3.0.4 - 6 FIX TENDINE E VIEWER 3D (bump da 1.3.0.3)
 VERSION=1.3.0.4
 MAJOR=1

@@ -91,7 +91,11 @@ def test_bollettino_reale_ridotto(tmp_path):
     """Parsing di un bollettino reale ridotto: zone, 3 livelli, metadati."""
     proc, out = run(tmp_path, "--now", NOW)
     doc = load(out)
-    assert doc["schema"] == "meteorisk.hydro.criticality/1"
+    assert doc["schema"] == "meteorisk.hydro.criticality/2"
+    assert doc["schema_v1"] == "meteorisk.hydro.criticality/1"
+    assert len(doc["days"]) == 1  # la fixture contiene un solo TopoJSON
+    assert doc["days"][0]["valid_date"] == doc["valid_date"]
+    assert len(doc["days"][0]["levels_by_zone"]) == 7
     assert doc["licence"] == "CC BY 4.0"
     assert doc["attribution"] == "Dipartimento della Protezione Civile"
     assert doc["stale"] is False
@@ -183,9 +187,9 @@ def test_bollettino_vecchio(tmp_path):
 # 6 ---------------------------------------------------------------------------
 def test_budget_auto_semplifica(tmp_path):
     """Budget piccolo: la tolleranza cresce da sola e il file ci sta dentro."""
-    _, out = run(tmp_path, "--now", NOW, "--max-bytes", "7000")
+    _, out = run(tmp_path, "--now", NOW, "--max-bytes", "12000")  # v2: due giorni
     doc = load(out)
-    assert out.stat().st_size <= 7000
+    assert out.stat().st_size <= 12000
     assert doc["geometry"]["simplify"]["tolerance_deg"] > fc.DEFAULT_TOLERANCE_DEG
     assert doc["geometry"]["simplify"]["vertices_after"] < doc["geometry"]["simplify"]["vertices_before"]
 
@@ -266,7 +270,7 @@ def test_budget_default_su_topologia_grande(tmp_path):
     proc, out = run(tmp_path, "--now", NOW, fixture=str(fixture))
     doc = load(out)
     assert out.stat().st_size <= fc.DEFAULT_MAX_BYTES
-    assert fc.DEFAULT_MAX_BYTES == 300 * 1024
+    assert fc.DEFAULT_MAX_BYTES == 400 * 1024  # v2: secondo giorno nel documento
     assert doc["geometry"]["simplify"]["vertices_before"] > 40000
     assert doc["geometry"]["simplify"]["vertices_after"] < doc["geometry"]["simplify"]["vertices_before"]
     assert len(doc["zones"]) == 8

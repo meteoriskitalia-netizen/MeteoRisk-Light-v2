@@ -227,6 +227,11 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 .sc-toggles { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px 10px 6px 10px; }
 .sc-toggle { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 9999px; border: 1px solid #334155; background: #1e293b; color: #94a3b8; cursor: pointer; }
 .sc-toggle.on { border-color: #a855f7; background: #2e1065; color: #e9d5ff; }
+/* FIX 1.3.0.4 - Pannello Volume 3D: l'attributo hidden continua a nasconderlo
+   in modo esplicito; quando e' aperto l'altezza non puo' restare 0 px anche se
+   il payload non e' ancora arrivato (degrado dichiarato nel testo del pannello). */
+#sc-volume3d[hidden] { display: none; }
+#sc-volume3d:not([hidden]) { min-height: 44px; }
 /* 1.2.4.73 - STRUTTURA CONVETTIVA: DRAWER LATERALE (desktop) / BOTTOM-SHEET (mobile).
    Il pannello non sta piu' SOPRA la mappa: a >=1280px e' un cassetto fisso a destra
    (440px) che lascia scoperta la map-card; sotto i 1280px e' un foglio dal basso
@@ -1807,6 +1812,18 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .hydro-pop .hydro-pop-note { color: #94a3b8; font-size: 9.5px; margin-top: 4px; }
         #switch-hydro-wrap { width: auto; min-width: 110px; }
         #hydro-risk-wrap { display: none; width: auto; min-width: 110px; }
+        .hydro-risks-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 5px; margin: 6px 0; }
+        .hydro-risk-cell { background: rgba(15,23,42,.45); border: 1px solid #334155; border-radius: 5px; padding: 5px; min-width: 0; }
+        .hydro-risk-name { font-weight: 700; color: #e2e8f0; margin-bottom: 3px; }
+        .hydro-risk-bars { display: flex; flex-wrap: wrap; gap: 5px; }
+        .hydro-risk-lv { display: inline-flex; align-items: center; gap: 3px; font-size: 9.5px; color: #cbd5e1; font-variant-numeric: tabular-nums; }
+        .hydro-risk-lv i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
+        .hydro-risk-enc { font-size: 9px; color: #94a3b8; margin-top: 3px; }
+        .hydro-combined-head { font-weight: 700; color: #e2e8f0; margin-bottom: 3px; }
+        .hydro-combined-key { font-size: 9.5px; color: #cbd5e1; line-height: 1.35; margin-bottom: 4px; }
+        .hydro-days { font-size: 9.5px; color: #94a3b8; margin: 4px 0; }
+        .hydro-day-kind { color: #64748b; }
+        .hydro-only3 { font-size: 9.5px; color: #94a3b8; border-top: 1px solid #334155; padding-top: 4px; margin-top: 4px; }
         @media (max-width: 600px) {
             .hydro-panel { left: 6px; right: 6px; bottom: 6px; width: auto; max-width: none; font-size: 10.5px; }
         }
@@ -1893,9 +1910,11 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <!-- 1.2.3.1: attivazione Celle organizzate spostata nel pannello LIVE (#live-toggle-supercells) -->
         <!-- Toggle Sviluppo spostato nel footer: switch vicino al badge versione -->
     </div>
-    <!-- 1.3.0.4 - toggle INDIPENDENTI: restano fuori dalla tendina prodotti e
-         sempre visibili, con i LORO handler storici (nessun nuovo handler). -->
-    <div id="standalone-toggles-row" style="max-width:1200px; margin:0 auto 10px auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+    <!-- FIX 1.3.0.4 - toggle CONTESTUALI: restano fuori dalla tendina prodotti
+         e compaiono SOLO con il prodotto corrispondente (radar-player per
+         Radar/Satellite, rischi per Evidenzia Zone a Rischio). Handler storici
+         invariati e richiamabili; la visibilita' e' decisa da syncContextualToggles(). -->
+    <div id="standalone-toggles-row" style="max-width:1200px; margin:0 auto 10px auto; display:none; gap:8px; align-items:center; flex-wrap:wrap;">
         <button class="tool-btn" id="btn-radar" onclick="toggleRadar()" style="border-color:#0284c7;">📡 Radar Timeline (OFF)</button>
         <button class="tool-btn" id="btn-satellite" onclick="toggleSatellite()" style="border-color:#0284c7;">🛰️ SATELLITE (OFF)</button>
         <button class="tool-btn" id="btn-high-risk" onclick="toggleHighRiskFilter()" title="Evidenzia le zone a rischio: toggle indipendente, non un prodotto">🚨 Evidenzia Zone a Rischio</button>
@@ -1906,6 +1925,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <option value="">— nessuno —</option>
             <option value="forecast-maps">Mappe previsionali</option>
             <option value="radar-player">Radar Player</option>
+            <option value="rischi">Mappa dei rischi</option>
             <option value="forecast">Previsioni</option>
             <option value="live">Pannello LIVE</option>
             <option value="newindices" data-dev="1">Nuovi Indici</option>
@@ -1961,10 +1981,8 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <option value="prob">🧊 Potenziale grandine (indice)</option>
             <option value="size">🧊 Dimensione grandine (stima)</option>
         </select>
-        <select id="dpc-alert-select" class="tool-btn" onchange="toggleDpcAlert(this.value)" style="font-size:11px; display:none; flex-shrink:0">
-            <option value="off">Allerte DPC: off</option>
-            <option value="on">Allerte DPC: on</option>
-        </select>
+        <!-- RIMOSSO: #dpc-alert-select e toggleDpcAlert(). La funzione "domani"
+             e' assorbita dalla .day-selector globale (Oggi/Domani/Dopodomani). -->
     </div>
 </div>
 
@@ -2242,7 +2260,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     <button class="metric-tab" data-metric="conv" id="metric-tab-conv" onclick="selectMetric('conv')" style="display:none;">🌩️ Conv.</button>
     <button class="metric-tab" data-metric="hail" id="metric-tab-hail" onclick="selectMetric('hail')" style="display:none;">🧊 Grandine</button>
 </div>
-<div class="metric-tabs" id="metric-select-row" style="align-items:center;">
+<div class="metric-tabs" id="metric-select-row" style="display:none; align-items:center;">
     <label for="metric-select" style="font-size:11px;color:#94a3b8;white-space:nowrap;">Metrica</label>
     <select id="metric-select" class="fm-select" onchange="onMetricSelectChange(this.value)" style="font-size:12px;">
         <option value="risk">Rischio</option>
@@ -2369,10 +2387,11 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             </label>
             <label class="mp-select" id="hydro-risk-wrap" title="Rischio da colorare: i tre rischi del bollettino restano SEPARATI (nessuna somma in un indice unico)">
                 <span class="mp-label">Rischio</span>
-                <select id="hydro-risk-select" onchange="hydroSetRisk(this.value)">
-                    <option value="hydrogeological">Idrogeol.</option>
-                    <option value="hydraulic">Idraulico</option>
-                    <option value="thunderstorm">Temporali</option>
+                <select id="hydro-risk-select" onchange="hydroSetRisk(this.value)" title="Vista combinata: i 3 rischi sono SEMPRE visibili insieme con codifiche diverse (pieno / tratteggio / puntini). Le tre voci qui sotto mostrano un SOLO rischio alla volta come riempimento, senza sommarlo agli altri.">
+                    <option value="combined" selected>Tutti e 3 (separati)</option>
+                    <option value="hydrogeological">Solo Idrogeol.</option>
+                    <option value="hydraulic">Solo Idraulico</option>
+                    <option value="thunderstorm">Solo Temporali</option>
                 </select>
             </label>
         </div>
@@ -2605,7 +2624,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                     <div class="src-item"><b>SCP</b> = CAPE/1000 · min(DLS/20,1) · min(SRH3/50,1.5). <span class="src-ref">Thompson et al. 2003: SCP&gt;1 potenziale cella organizzata.</span></div>
                     <div class="src-item"><b>SHIP</b> — Significant Hail Parameter (formula operativa USA con caps su umidità/shear/T500 e correzioni per CAPE&lt;1300, lapse rate&lt;5.8, freezing level). <span class="src-ref">&lt;1 marginale · 1-2 significativa · &gt;2 marcato rischio grandine &gt;2 cm.</span></div>
                     <div class="src-item sviluppo-only-item" hidden><b>Mesociclone</b> (badge NWP, livello 5, solo in modalità Sviluppo): temporale attivo E CAPE≥1000 (o ≥500 con DLS≥22 e SRH3≥120) E DLS≥20 m/s E SRH3≥100 E SCP≥1.0. È una stima ambientale del modello, non un rilevamento radar e non un'osservazione diretta della cella.</div>
-                    <div class="src-item"><b>Convezione organizzata: potenziale o evento</b> (logica aggiornata in 1.2.4.95). La classe <b>EVENTO</b> usa il codice WMO 95-99 nell'ora valida oppure una cella radar osservata, nel pannello &laquo;Struttura convettiva&raquo;. Il codice WMO descrive il fenomeno istantaneo; la pioggia &gt; 0,1 mm/h e' un accumulo orario separato, non un secondo gate. Senza innesco la stessa configurazione &egrave; <b>POTENZIALE</b>: classe distinta e neutra (grigio-blu), &laquo;ambiente favorevole &mdash; potenziale, nessun temporale previsto&raquo;. Il gate ambientale ha due sole gambe con fonte: <b>WMAXSHEAR 0-6 km &ge; 1000 m&sup2;/s&sup2;</b> (<span class="src-ref">Taszarek et al. 2017; Gr&uuml;nwald &amp; Brooks 2011</span>) <b>oppure SRH 0-3 km &ge; 100 m&sup2;/s&sup2; con CAPE &ge; 500 J/kg</b> (<span class="src-ref">Ingrosso et al. 2020</span>). <b>WMAXSHEAR 0-3 km &ge; 500 &egrave; stato rimosso</b> (nessuna fonte verificabile). <b>EHI 0-3 km resta solo display</b>: &ge; 1,0 &egrave; una convenzione delle US Plains (<span class="src-ref">Rasmussen &amp; Blanchard 1998</span>) e la soglia europea pubblicata &egrave; 0,065 con SRH 0-1 km, quindi non confrontabile. <b>CAPE saturato a 800 J/kg</b> e <b>veto di umidit&agrave;</b>: con RH 850-700 &lt; 50% la classe scende di un livello con il motivo nel tooltip (<span class="src-ref">Westermayer et al. 2017, Meteorol. Z. 26:59</span>: sopra 800 J/kg la frequenza di fulmini resta al ~20%; RH &lt; 50% &rarr; frequenza &lt; 0,15). Le etichette &laquo;organizzati&raquo;/&laquo;celle organizzate&raquo; compaiono solo se il gate di coerenza passa; altrimenti &laquo;temporali possibili&raquo;. Il livello di rischio si calcola <b>per modello e per ora</b> e poi si prende il massimo: CAPE, shear, SRH, SCP e innesco non vengono mai presi da ore o modelli diversi. <b>Classificazione dell'organizzazione in TRE livelli (1.2.4.94)</b>: il testo del temporale non dipende pi&ugrave; dal solo innesco. <b>Con organizzazione</b> (la classe pi&ugrave; forte<span class="sviluppo-only-item" hidden>: &laquo;mesociclone possibile&raquo;</span>) se i gate di detectMesocyclone sono soddisfatti (CAPE/DLS/SRH/SCP); altrimenti <b>con possibile organizzazione (ambiente favorevole)</b> se almeno una fra <b>WMAXSHEAR 0-6 km &ge; 800 m&sup2;/s&sup2;</b> (Taszarek et al. 2017/2020: 800-1200 &egrave; la fascia favorevole a celle organizzate), <b>shear 0-6 km &ge; 18 m/s</b> (15-18 m/s &egrave; convezione organizzata), <b>SRH 0-3 km &ge; 100 m&sup2;/s&sup2;</b>; altrimenti <b>senza organizzazione prevista</b>. Con la modalit&agrave; Sviluppo spenta la categoria del livello 5 non si nomina: la stessa classe si legge &laquo;cella organizzata possibile&raquo;. Il calcolo di CAPE, shear, SRH e SCP non cambia: cambia solo la classificazione del testo. Se i due modelli non concordano, il testo mostra la classe pi&ugrave; forte (meso &gt; ambiente favorevole &gt; senza organizzazione): ogni classe &egrave; calcolata con i campi del suo modello, nessun campo viene mescolato fra i due.</div>
+                    <div class="src-item"><b>Convezione organizzata: potenziale o evento</b> (logica aggiornata in 1.2.4.95). La classe <b>EVENTO</b> usa il codice WMO 95-99 nell'ora valida oppure una cella radar osservata, nel pannello &laquo;Struttura convettiva&raquo;. Il codice WMO descrive il fenomeno istantaneo; la pioggia &gt; 0,1 mm/h e' un accumulo orario separato, non un secondo gate. Senza innesco la stessa configurazione &egrave; <b>NESSUNA CRITICIT&Agrave; ATTIVA</b>: la provincia resta verde/Basso come nelle giornate senza rischi; l'ambiente favorevole resta descritto nei dettagli, non &egrave; uno stato della mappa dei rischi. Il gate ambientale ha due sole gambe con fonte: <b>WMAXSHEAR 0-6 km &ge; 1000 m&sup2;/s&sup2;</b> (<span class="src-ref">Taszarek et al. 2017; Gr&uuml;nwald &amp; Brooks 2011</span>) <b>oppure SRH 0-3 km &ge; 100 m&sup2;/s&sup2; con CAPE &ge; 500 J/kg</b> (<span class="src-ref">Ingrosso et al. 2020</span>). <b>WMAXSHEAR 0-3 km &ge; 500 &egrave; stato rimosso</b> (nessuna fonte verificabile). <b>EHI 0-3 km resta solo display</b>: &ge; 1,0 &egrave; una convenzione delle US Plains (<span class="src-ref">Rasmussen &amp; Blanchard 1998</span>) e la soglia europea pubblicata &egrave; 0,065 con SRH 0-1 km, quindi non confrontabile. <b>CAPE saturato a 800 J/kg</b> e <b>veto di umidit&agrave;</b>: con RH 850-700 &lt; 50% la classe scende di un livello con il motivo nel tooltip (<span class="src-ref">Westermayer et al. 2017, Meteorol. Z. 26:59</span>: sopra 800 J/kg la frequenza di fulmini resta al ~20%; RH &lt; 50% &rarr; frequenza &lt; 0,15). Le etichette &laquo;organizzati&raquo;/&laquo;celle organizzate&raquo; compaiono solo se il gate di coerenza passa; altrimenti &laquo;temporali possibili&raquo;. Il livello di rischio si calcola <b>per modello e per ora</b> e poi si prende il massimo: CAPE, shear, SRH, SCP e innesco non vengono mai presi da ore o modelli diversi. <b>Classificazione dell'organizzazione in TRE livelli (1.2.4.94)</b>: il testo del temporale non dipende pi&ugrave; dal solo innesco. <b>Con organizzazione</b> (la classe pi&ugrave; forte<span class="sviluppo-only-item" hidden>: &laquo;mesociclone possibile&raquo;</span>) se i gate di detectMesocyclone sono soddisfatti (CAPE/DLS/SRH/SCP); altrimenti <b>con possibile organizzazione (ambiente favorevole)</b> se almeno una fra <b>WMAXSHEAR 0-6 km &ge; 800 m&sup2;/s&sup2;</b> (Taszarek et al. 2017/2020: 800-1200 &egrave; la fascia favorevole a celle organizzate), <b>shear 0-6 km &ge; 18 m/s</b> (15-18 m/s &egrave; convezione organizzata), <b>SRH 0-3 km &ge; 100 m&sup2;/s&sup2;</b>; altrimenti <b>senza organizzazione prevista</b>. Con la modalit&agrave; Sviluppo spenta la categoria del livello 5 non si nomina: la stessa classe si legge &laquo;cella organizzata possibile&raquo;. Il calcolo di CAPE, shear, SRH e SCP non cambia: cambia solo la classificazione del testo. Se i due modelli non concordano, il testo mostra la classe pi&ugrave; forte (meso &gt; ambiente favorevole &gt; senza organizzazione): ogni classe &egrave; calcolata con i campi del suo modello, nessun campo viene mescolato fra i due.</div>
                 </div>
             </div>
             <div class="fl-section">
@@ -2903,9 +2922,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.4';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.5';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-17';
     const APP_CHANGELOG = [
+    { version: '1.3.0.5', date: '2026-11-17', changes: [
+        'Unione delle due consegne: toggle radar/satellite e comando high-risk contestuali al prodotto attivo, voce Mappa dei rischi con riga metrica visibile solo li, pannello Volume 3D con min-height 44px quando aperto.',
+        'Criticita DPC v2: il giorno e comandato dalla .day-selector globale, i 3 rischi restano separati e mostrati insieme, dati di oggi e domani; rimossi il selettore dpc-alert-select e toggleDpcAlert.',
+        'Classe grigia del potenziale convettivo eliminata: il potenziale senza innesco ora e verde/Basso, nessuna categoria grigia nel markup attivo.',
+        'Dati idro aggiornati allo schema meteorisk.hydro.criticality/2 con fetcher e test aggiornati. Nessun dato simulato.',
+    ]},
     { version: '1.3.0.4', date: '2026-11-17', changes: [
         'Radar e Satellite: tolti dalle opzioni di prodotto e ripristinati come toggle sempre visibili fuori tendina, con i loro handler storici invariati.',
         'Selettore prodotti: un solo prodotto attivo alla volta, opzione per nessun prodotto e spegnimento del prodotto precedente tramite il suo vecchio handler.',
@@ -5474,10 +5499,10 @@ function enabledLightningSourceIds() {
     // icona (glifo) BIANCA su DISCO COLORATO, colore semantico per rischio.
     // R = colore del disco, G = colore glifo (bianco di default).
     // 1.2.4.69 - POTENZIALE != EVENTO: due classi distinte per la convezione organizzata.
-    // La classe POTENZIALE e' neutra (grigio-blu) e non e' un pericolo in atto: nessuna
+    // Senza innesco non c'e' uno stato della mappa: verde/Basso come le province
     // eccezione, viola e rosso restano SOLO con un innesco (codice WMO 95-99; la pioggia oraria
     // > 0,1 mm/h nella stessa ora, oppure cella radar osservata nel pannello dedicato).
-    var CONV_POTENTIAL_COLOR = '#7d93a8';
+    /* SENZA INNESCO = NESSUNA CRITICITA' ATTIVA: verde/Basso, non una classe a se'. */
     var CONV_POTENTIAL_LABEL = 'Ambiente favorevole a convezione organizzata \u2014 potenziale, nessun temporale previsto';
     var RISK_DEFS = {
         rain:         { label: 'Rovesci / pioggia', color: '#38bdf8', title: 'Possibili rovesci e pioggia anche intensa' },
@@ -5489,7 +5514,7 @@ function enabledLightningSourceIds() {
         snow:         { label: 'Neve',              color: '#cbd5e1', title: 'Possibili nevicate' },
         generic:      { label: 'Avviso meteo',      color: '#f59e0b', title: 'Condizioni meteo potenzialmente avverse' },
         supercell:    { label: 'Convezione organizzata (NWP)', color: '#a855f7',
-                        potentialLabel: CONV_POTENTIAL_LABEL, potentialColor: CONV_POTENTIAL_COLOR,
+                        potentialLabel: CONV_POTENTIAL_LABEL,
                         mesoLabel: 'Mesociclone (NWP)',
                         mesoTitle: 'Mesociclone previsto dal modello NWP (SCP >= 1, shear 0-6 km >= 20 m/s, SRH 0-3 km >= 100 m2/s2): ambiente favorevole, NON osservato',
                         title: 'Convezione organizzata con codice WMO temporalesco nella stessa ora: descrizione ambientale del modello NWP, NON un rilevamento radar e NON un\'osservazione diretta dell\'organizzazione della cella',
@@ -5579,10 +5604,10 @@ function enabledLightningSourceIds() {
         // e non come allerta — non è una criticità colorata (es. pioggerella sub-soglia).
         var color, label, title;
         if (risk.id === 'supercell' && risk.potential) {
-            // 1.2.4.69 - CLASSE POTENZIALE: neutra, grigio-blu, mai viola/rosso.
-            color = CONV_POTENTIAL_COLOR;
-            label = CONV_POTENTIAL_LABEL;
-            title = def.potentialTitle || 'Potenziale ambientale senza innesco';
+            // Nessuna classe a se': senza innesco NON ci sono criticita' attive.
+            color = '#22c55e';
+            label = 'Basso — nessuna criticità attiva';
+            title = def.potentialTitle || 'Ambiente favorevole ma senza innesco previsto';
         } else if (risk.id === 'supercell' && risk.convEvent) {
             // EVENTO: viola = mesociclone previsto (livello 5, solo Sviluppo);
             // rosso = convezione organizzata prevista senza i criteri del meso (4).
@@ -5754,7 +5779,7 @@ function enabledLightningSourceIds() {
         // calde/stabili). Coerente col gate di getRiskProfileNew (hasConvectiveEnv).
         var hasConvEnv = isThunder || agg.prob > 30 || agg.rain > 2 || (agg.cape || 0) >= 200;
 
-        // CONVEZIONE ORGANIZZATA - POTENZIALE (grigio-blu) vs EVENTO (viola/rosso).
+        // CONVEZIONE ORGANIZZATA - POTENZIALE (verde/Basso) vs EVENTO (viola/rosso).
         // 1.2.4.69: la classe entra nel RIASSUNTO della mappa anche senza "Sviluppo":
         // il livello provincia e' R2 (pioggia/vento/temporale/probabilita) PIU' il massimo
         // con gli altri pericoli, e la classe potenziale deve poter essere nominata.
@@ -6076,7 +6101,7 @@ function enabledLightningSourceIds() {
             case 'generic':      return ['Avviso di condizioni meteo localmente avverse'][0];
             case 'supercell': {
                 // 1.2.4.69 - POTENZIALE e EVENTO sono classi distinte.
-                // Potenziale (grigio-blu): ambiente favorevole, nessun innesco nella stessa ora.
+                // Potenziale (verde/Basso): ambiente favorevole, nessun innesco nella stessa ora.
                 // Evento (viola/rosso): codice WMO 95-99 nella stessa ora; pioggia cumulata oraria separata.
                 if (r.potential) return 'Ambiente favorevole a convezione organizzata: potenziale, nessun temporale previsto';
                 if (r.mesoCapped) return 'Innesco presente e ambiente organizzato previsto: convezione organizzata prevista, non osservata (categoria solo in modalita Sviluppo)';
@@ -6182,7 +6207,7 @@ function enabledLightningSourceIds() {
                 return 'Condizioni meteo potenzialmente avverse nella zona: seguire gli aggiornamenti e prestare attenzione.';
             case 'supercell': {
                 if (r.potential) {
-                    return 'Solo ambiente favorevole: nessun temporale previsto in questa ora. Il colore resta neutro (grigio-blu) finche\' un codice WMO 95-99 non compare nella stessa ora.';
+                    return 'Solo ambiente favorevole: nessun temporale previsto in questa ora. Non ci sono criticita\' attive: il colore resta verde/Basso finche\' un codice WMO 95-99 non compare nella stessa ora.';
                 }
                 if (r.mesoCapped) {
                     return 'Ambiente previsto favorevole a convezione organizzata: possibile organizzazione convettiva, non osservata (il dettaglio della categoria e\' solo in modalita Sviluppo). Seguire gli aggiornamenti.';
@@ -6223,7 +6248,7 @@ function enabledLightningSourceIds() {
         var zr = computeZoneRiskSummary(agg);
         var zrColor = colorForMetricValue('risk', getMetricValue('risk', agg));
         var zrText = zr.level
-            ? ((zr.driverPotential ? 'Potenziale' : GATE_LEVEL_WORD[Math.min(5, zr.level)]) + ' \u00b7 ' + zr.driverLabel)
+            ? ((zr.driverPotential ? 'Basso' : GATE_LEVEL_WORD[Math.min(5, zr.level)]) + ' \u00b7 ' + zr.driverLabel)
             : 'Nessun rischio rilevante';
         // 1.2.4.94 - il badge e' la superficie corta: se il colore lo decide un temporale
         // aggiunge la classe di organizzazione in forma breve (mai il dettaglio, che sta
@@ -15802,114 +15827,7 @@ removeLightningTile();
         return provAlerts;
     }
 
-    async function toggleDpcAlert(mode) {
-        // Allerte DPC disabilitate in questa edizione: nessun fetch, nessun ramo rete.
-        if (mode === 'on' && !isFeatureEnabled('dpcAlerts')) {
-            mode = 'off';
-            var selNo = document.getElementById('dpc-alert-select');
-            if (selNo) selNo.value = 'off';
-            document.getElementById('status-msg').innerText = '⛔ Allerte DPC disabilitate in questa edizione.';
-        }
-        if (mode === 'off') {
-            dpcAlertMode = 'off';
-            dpcAlertData = null;
-            // Ripristina la metrica precedente
-            updateMapColors();
-            updateMarkerSelection();
-            restyleBorderOverlay();
-            var statusEl = document.getElementById('status-msg');
-            if (statusEl) statusEl.innerText = 'Allerte DPC disattivate.';
-            return;
-        }
-        dpcAlertMode = 'on';
-        // Forza currentMetric = 'risk' per coerenza con la mappa colorata DPC
-        if (currentMetric !== 'risk') {
-            currentMetric = 'risk';
-            var _ms = document.getElementById('metric-select');
-            if (_ms) _ms.value = 'risk';
-            document.querySelectorAll('.metric-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.metric === 'risk'));
-            syncMetricSelectEnabled();
-        }
-        var statusEl = document.getElementById('status-msg');
-        // DPC lavora sul CALENDARIO reale (oggi/domani, il bollettino non conosce il day0
-        // del dataset): qui serve l'indice UI (0=Oggi,1=Domani,2=Dopodomani), non quello dataset.
-        var calDay = currentDay - currentDayOffset();
-        var dayLabel = calDay <= 0 ? 'oggi' : (calDay === 1 ? 'domani' : 'dopodomani');
-        if (statusEl) statusEl.innerText = 'Caricamento allerte DPC (' + dayLabel + ')...';
-        // Guardia anti-race: cattura il giorno richiesto PRIMA dell'await, così al resolve
-        // possiamo scartare una risposta fuori ordine (es. l'utente ha cambiato giorno o
-        // disattivato le allerte mentre il fetch era in volo). Ricalca il pattern
-        // gen/isStale della pipeline meteo principale (fetchOmAdaptive).
-        var reqDay = currentDay;
-        var provAlerts;
-        try {
-            provAlerts = await fetchDpcAlerts(Math.max(0, currentDay - currentDayOffset()));
-        } catch (err) {
-            console.error('Errore toggleDpcAlert:', err);
-            provAlerts = null;
-        }
-        // Risposta fuori ordine: il giorno (o la modalità) richiesti non sono più attuali.
-        // Scarta senza scrivere né ricolorare, così una risposta lenta di un fetch vecchio
-        // non sovrascrive mai dati più recenti.
-        if (reqDay !== currentDay || dpcAlertMode !== 'on') return;
-        if (!provAlerts) {
-            if (statusEl) statusEl.innerText = 'Errore caricamento allerte DPC. Repository non raggiungibile.';
-            var sel = document.getElementById('dpc-alert-select');
-            if (sel) sel.value = 'off';
-            dpcAlertMode = 'off';
-            return;
-        }
-        // Gestione dopodomani: il DPC non pubblica bollettini per 2+ giorni
-        if (provAlerts._noBulletin) {
-            dpcAlertData = {};  // Nessuna allerta, mappa verde
-            // Colora i poligoni (tutti verdi)
-            if (provinceGeoJsonLayer) {
-                provinceGeoJsonLayer.setStyle(function(feature) {
-                    var sigla = feature.properties.SIGLA || '';
-                    var idx = provinceSiglaMap[sigla];
-                    var isSelected = idx === selectedIndex && !isCustomCity;
-                    return {
-                        fillColor: DPC_ALERT_COLORS[0],
-                        fillOpacity: 0.65,
-                        weight: 0,
-                        color: 'transparent'
-                    };
-                });
-            }
-            restyleBorderOverlay();
-            renderDpcLegend();
-            if (statusEl) statusEl.innerText = 'DPC: bollettino non disponibile per il dopodomani. Il DPC pubblica allerte solo per oggi e domani.';
-            return;
-        } else {
-            dpcAlertData = provAlerts;
-        }
-        // Colora i poligoni delle province
-        if (provinceGeoJsonLayer) {
-            provinceGeoJsonLayer.setStyle(function(feature) {
-                var sigla = feature.properties.SIGLA || '';
-                var idx = provinceSiglaMap[sigla];
-                var fillColor = '#334155';
-                var isSelected = idx === selectedIndex && !isCustomCity;
-                if (dpcAlertData && dpcAlertData[sigla]) {
-                    fillColor = DPC_ALERT_COLORS[dpcAlertData[sigla].level] || '#334155';
-                } else {
-                    fillColor = DPC_ALERT_COLORS[0]; // Verde (nessuna allerta)
-                }
-                return {
-                    fillColor: fillColor,
-                    fillOpacity: 0.65,
-                    weight: 0,
-                    color: 'transparent'
-                };
-            });
-        }
-        restyleBorderOverlay();
-        // Aggiorna la legenda
-        renderDpcLegend();
-        var count = 0;
-        for (var s in dpcAlertData) { if (dpcAlertData[s].level > 0 && dpcAlertData[s].level < 99) count++; }
-        if (statusEl) statusEl.innerText = 'Allerte DPC (' + dayLabel + '): ' + count + ' province con allerta attiva.';
-    }
+    /* RIMOSSO: toggleDpcAlert() — sostituito dalla .day-selector globale. */
 
     function renderDpcLegend() {
         var legendEl = document.getElementById('legend-container');
@@ -21979,6 +21897,12 @@ function productDefs() {
             on: function () { var p = document.getElementById('forecast-maps-panel'); return !!(p && p.classList.contains('active')); }, label: 'Mappe previsionali' },
         'radar-player':  { run: toggleRadarPlayer, off: toggleRadarPlayer, dev: false,
             on: function () { return isRadarPlayerActive; }, label: 'Radar Player' },
+        /* FIX 1.3.0.4 - «Mappa dei rischi»: prodotto che rende visibile/abilita
+           la tendina metrica e il toggle high-risk. Nessun nuovo handler:run
+           richiama selectMetric, off riallinea lo stato della tendina. */
+        'rischi':        { run: function () { selectMetric('risk'); },
+            off: function () { if (typeof syncProductUI === 'function') syncProductUI(); },
+            dev: false, on: function () { return activeProductId === 'rischi'; }, label: 'Mappa dei rischi' },
         'radar':         { run: toggleRadar, off: toggleRadar, dev: false,
             on: function () { return isRadarActive; }, label: 'Radar Timeline' },
         'satellite':     { run: toggleSatellite, off: toggleSatellite, dev: false,
@@ -21999,6 +21923,28 @@ function productDefs() {
 }
 function isDevProduct(id) { return id === 'newindices'; }
 function setProductStatus(txt) { var s = document.getElementById('product-status'); if (s) s.textContent = txt || ''; }
+// FIX 1.3.0.4 - i tre toggle "standalone" NON sono piu' sempre visibili:
+// Radar Timeline + Satellite compaiono solo con «Radar Player» attivo,
+// Evidenzia Zone a Rischio solo con «Mappa dei rischi» attiva.
+// Nessun handler toccato: cambia SOLO la visibilita' (display) dei pulsanti.
+function syncContextualToggles() {
+    var radarPlayerOn = (activeProductId === 'radar-player');
+    var riskProductOn = (activeProductId === 'rischi');
+    var showRadar = radarPlayerOn && (typeof enabledRadarProviderIds !== 'function' || enabledRadarProviderIds().length > 0);
+    var showSat = radarPlayerOn && (typeof enabledSatSourceIds !== 'function' || enabledSatSourceIds().length > 0);
+    var bRadar = document.getElementById('btn-radar');
+    var bSat = document.getElementById('btn-satellite');
+    var bRisk = document.getElementById('btn-high-risk');
+    var row = document.getElementById('standalone-toggles-row');
+    if (bRadar) bRadar.style.display = showRadar ? '' : 'none';
+    if (bSat) bSat.style.display = showSat ? '' : 'none';
+    if (bRisk) bRisk.style.display = riskProductOn ? '' : 'none';
+    if (row) row.style.display = (showRadar || showSat || riskProductOn) ? 'flex' : 'none';
+}
+function syncProductUI() {
+    syncContextualToggles();
+    if (typeof syncMetricSelectEnabled === 'function') syncMetricSelectEnabled();
+}
 function productOff(id) {
     var def = productDefs()[id];
     if (!def) return;
@@ -22040,7 +21986,7 @@ function selectProduct(v) {
     if (!v || !p) {
         if (activeProductId) { productOff(activeProductId); activeProductId = ''; }
         setProductStatus(v ? '' : 'Nessun prodotto attivo.');
-        if (typeof syncMetricSelectEnabled === 'function') syncMetricSelectEnabled();
+        if (typeof syncProductUI === 'function') syncProductUI();
         return;
     }
     if (p.dev && !isSviluppoActive) {
@@ -22066,7 +22012,7 @@ function selectProduct(v) {
     if (alreadyOn) {
         activeProductId = v;
         setProductStatus(p.label + ' già attivo.');
-        if (typeof syncMetricSelectEnabled === 'function') syncMetricSelectEnabled();
+        if (typeof syncProductUI === 'function') syncProductUI();
         return;
     }
     try {
@@ -22078,7 +22024,7 @@ function selectProduct(v) {
         activeProductId = '';
         setProductStatus(p.label + ': ' + (e && e.message ? e.message : 'errore'));
     }
-    if (typeof syncMetricSelectEnabled === 'function') syncMetricSelectEnabled();
+    if (typeof syncProductUI === 'function') syncProductUI();
 }
 function toggleForecastMaps() {
     if (!isFeatureEnabled('forecastMaps')) return;
@@ -25726,7 +25672,7 @@ function toggleForecastMaps() {
     // STESSA ora - weather code WMO 95-99 E precipitazione > 0,1 mm/h - oppure con una
     // cella radar osservata (che vive nel pannello "Struttura convettiva" e NON in questa
     // funzione NWP). Senza innesco la stessa configurazione e' POTENZIALE: classe distinta,
-    // neutra (grigio-blu), etichetta esplicita "potenziale, nessun temporale previsto".
+    // ora verde/Basso (nessuna criticita' attiva), non una classe a se'.
     //
     // GATE AMBIENTALE (solo fonti verificabili, OR di due gambe):
     //   WMAXSHEAR 0-6 km >= 1000 m2/s2   Taszarek et al. 2017 (MWR 145:1511);
@@ -27277,13 +27223,16 @@ function toggleForecastMaps() {
                 return gustApp;
             }
             case 'risk': {
-                // 1.2.4.69 - COLORE DELLA PROVINCIA = MASSIMO FRA TUTTI I RISCHI ATTIVI.
-                // Valore = indice della fascia: 0 nessun rischio; 0,4 solo potenziale
-                // convettivo (classe neutra grigio-blu); 1..4 livello del rischio che guida;
-                // 5 mesociclone previsto (viola, solo Sviluppo).
+                // COLORE DELLA PROVINCIA = MASSIMO FRA TUTTI I RISCHI ATTIVI.
+                // Valore = indice della fascia: 0 nessuna criticita' attiva (verde/Basso),
+                // anche quando l'ambiente e' favorevole ma manca l'innesco; 1..4 livello
+                // del rischio che guida; 5 mesociclone previsto (viola, solo Sviluppo).
                 var zr = computeZoneRiskSummary(agg);
                 if (!zr.level) return 0;
-                if (zr.driverPotential) return 0.4;
+                // Potenziale senza innesco: nessuna criticita' attiva -> verde/Basso,
+                // lo stesso colore delle province senza rischi (il livello del componente
+                // resta 1 in assessConvOrg: non e' un livello a parte).
+                if (zr.driverPotential) return 0;
                 // 1.2.4.89 - il livello 5 (mesociclone) e' visibile solo in Sviluppo.
                 return Math.max(1, Math.min(isSviluppoActive ? 5 : 4, zr.level));
             }
@@ -27339,9 +27288,9 @@ function toggleForecastMaps() {
             case 'wind':
                 return value >= 60 ? '#ef4444' : value >= 40 ? '#f97316' : value >= 25 ? '#eab308' : '#22c55e';
             case 'risk': {
-                // Il potenziale convettivo e' una classe NEUTRA (grigio-blu), non una fascia
-                // di severita': 0 < v < 0,75 -> grigio-blu; altrimenti la fascia arrotondata.
-                if (value > 0 && value < 0.75) return CONV_POTENTIAL_COLOR;
+                // Nessuna classe grigia: il vecchio sentinello sub-0,75 (potenziale)
+                // resta Verde/Basso, identico alle province senza criticita'. Soglia invariata.
+                if (value > 0 && value < 0.75) return RISK_BAND_COLORS[0];
                 var ri = Math.max(0, Math.min(RISK_BAND_COLORS.length - 1, Math.round(value)));
                 return RISK_BAND_COLORS[ri];
             }
@@ -28571,8 +28520,8 @@ function renderContinuousOverlay() {
     function renderLegend() {
         const legends = {
             risk: (isSviluppoActive
-                ? [['#22c55e','Basso'],['#a3e635','Lieve'],['#eab308','Moderato'],['#f97316','Mod-Alto'],['#ef4444','Alto/Estremo'],['#a855f7','Mesociclone'],[CONV_POTENTIAL_COLOR,'Conv. potenziale (nessun temporale)']]
-                : [['#22c55e','Basso'],['#a3e635','Lieve'],['#eab308','Moderato'],['#f97316','Mod-Alto'],['#ef4444','Alto/Estremo'],[CONV_POTENTIAL_COLOR,'Conv. potenziale (nessun temporale)']]),
+                ? [['#22c55e','Basso'],['#a3e635','Lieve'],['#eab308','Moderato'],['#f97316','Mod-Alto'],['#ef4444','Alto/Estremo'],['#a855f7','Mesociclone']]
+                : [['#22c55e','Basso'],['#a3e635','Lieve'],['#eab308','Moderato'],['#f97316','Mod-Alto'],['#ef4444','Alto/Estremo']]),
             tempmax: [['#3b82f6','≤-10°C'],['#38bdf8','-10/-5°C'],['#22c55e','-5/5°C'],['#84cc16','5-15°C'],['#bef264','15-18°C'],['#eab308','18-22°C'],['#f59e0b','22-25°C'],['#f97316','25-28°C'],['#fb923c','28-30°C'],['#ef4444','30-35°C'],['#dc2626','35-38°C'],['#92400e','38-40°C'],['#a21caf','40-42°C'],['#7c1d6f','42-45°C'],['#3b0764','>45°C']],
             tempmin: [['#7c3aed','≤-10°C'],['#3b82f6','-10/-5°C'],['#38bdf8','-5/0°C'],['#22c55e','0-5°C'],['#84cc16','5-10°C'],['#eab308','10-15°C'],['#f59e0b','15-20°C'],['#f97316','20-25°C'],['#ef4444','25-30°C'],['#a21caf','>30°C']],
             humidity: [['#22c55e','<40%'],['#eab308','40-65%'],['#f97316','65-85%'],['#ef4444','>85%']],
@@ -28744,8 +28693,8 @@ function renderContinuousOverlay() {
         if (!bar) return;
         var badgeOrder = ['rain','wind','thunderstorm','hail','heat','cold','snow','fog','generic','supercell','vorticosi','downburst'];
         var convNote = isSviluppoActive
-            ? 'grigio-blu = potenziale (nessun temporale previsto), rosso = convezione organizzata prevista, viola = mesociclone (SCP &ge; 1, shear &ge; 20 m/s, SRH &ge; 100)'
-            : 'grigio-blu = potenziale (nessun temporale previsto), rosso = convezione organizzata prevista';
+            ? 'verde/Basso = nessuna criticità attiva (potenziale senza innesco incluso), rosso = convezione organizzata prevista, viola = mesociclone (SCP &ge; 1, shear &ge; 20 m/s, SRH &ge; 100)'
+            : 'verde/Basso = nessuna criticità attiva (potenziale senza innesco incluso), rosso = convezione organizzata prevista';
         bar.innerHTML = '<div class="bl-tip" id="badge-legend-tip"></div>' +
             '<div class="bl-note">Badge di <b>RISCHIO = potenziale ambientale (modello NWP)</b>: condizioni favorevoli previste, <b>non</b> un evento osservato. <b>Convezione organizzata</b>: ' + convNote + '. Gli eventi rilevati dal radar (grandine / struttura asimmetrica / candidati cella organizzata) sono nel pannello <b>Struttura convettiva</b> — etichettati <i>osservato (radar)</i>.</div>';
         badgeOrder.forEach(function(id) {
@@ -28794,31 +28743,30 @@ function renderContinuousOverlay() {
         hideBadgeLegendTip();
     }
 
-    // 1.3.0.4 - La tendina #metric-select e' abilitata SOLO quando la metrica
-    // «Rischio» e' attiva e nessun prodotto della tendina prodotti e' selezionato.
-    // Negli altri casi e' disabilitata e la motivazione e' visibile accanto.
+    // FIX 1.3.0.4 - La riga #metric-select-row e la tendina #metric-select
+    // dipendono dal PRODOTTO «Mappa dei rischi»: non dall'assenza di prodotto.
+    // Con qualsiasi altro prodotto (o nessuno) la riga e' nascosta e la metrica
+    // non e' selezionabile. Nessun handler meteorologico toccato.
     function syncMetricSelectEnabled() {
         var sel = document.getElementById('metric-select');
         var reason = document.getElementById('metric-select-reason');
-        var riskOn = (currentMetric === 'risk');
-        var enabled = riskOn && !activeProductId;
+        var row = document.getElementById('metric-select-row');
+        var enabled = (activeProductId === 'rischi');
+        if (row) row.style.display = enabled ? 'flex' : 'none';
         if (sel) {
             sel.disabled = !enabled;
             sel.title = enabled ? 'Scegli la metrica da mostrare sulla mappa'
-                : (riskOn ? 'Disabilitata: deseleziona il prodotto attivo per usare le metriche'
-                          : 'Disabilitata: attiva «Rischio» per scegliere una metrica');
+                : 'Disabilitata: attiva il prodotto «Mappa dei rischi» per scegliere una metrica';
         }
         if (reason) {
-            reason.textContent = enabled ? '' : (riskOn
-                ? 'Disabilitata — deseleziona il prodotto per usare le metriche'
-                : 'Disabilitata — attiva «Rischio» per scegliere una metrica');
+            reason.textContent = enabled ? '' : 'Disabilitata — attiva «Mappa dei rischi» per scegliere una metrica';
             reason.style.display = enabled ? 'none' : '';
         }
     }
     // La tendina disabilitata non puo' cambiare; il guard copre anche un
-    // dispatch artificiale di 'change': fuori dal rischio nessun effetto.
+    // dispatch artificiale di 'change': fuori da «Mappa dei rischi» nessun effetto.
     function onMetricSelectChange(v) {
-        if (currentMetric !== 'risk' || activeProductId) { syncMetricSelectEnabled(); return; }
+        if (activeProductId !== 'rischi') { syncMetricSelectEnabled(); return; }
         selectMetric(v);
     }
     function selectMetric(metric) {
@@ -28826,12 +28774,7 @@ function renderContinuousOverlay() {
         var _metricSel = document.getElementById('metric-select');
         if (_metricSel) _metricSel.value = metric;
         document.querySelectorAll('.metric-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.metric === metric));
-        // Se le allerte DPC sono attive, disattivale
-        if (dpcAlertMode !== 'off') {
-            dpcAlertMode = 'off';
-            var sel = document.getElementById('dpc-alert-select');
-            if (sel) sel.value = 'off';
-        }
+        // Nessuna modalita' allerte DPC separata: rimossa con toggleDpcAlert().
         // Mostra lo SLIDER orario (sotto la mappa) per tutte le metriche tranne tempmax e tempmin
         var hwrap = document.getElementById('hour-slider-wrap');
         if (hwrap) hwrap.style.display = (metric === 'tempmax' || metric === 'tempmin') ? 'none' : '';
@@ -28850,9 +28793,7 @@ function renderContinuousOverlay() {
             hlSel.style.display = (metric === 'hail') ? '' : 'none';
             if (metric === 'hail') hlSel.value = hailLevel;
         }
-        // Mostra il selettore Allerte DPC solo per la metrica risk
-        var dpcSel = document.getElementById('dpc-alert-select');
-        if (dpcSel) dpcSel.style.display = (metric === 'risk') ? '' : 'none';
+        // Nessun selettore Allerte DPC: rimosso con toggleDpcAlert().
         // Quando si seleziona thermalrisk, attiva la modalità
         isThermalRiskActive = (metric === 'thermalrisk');
         syncMetricSelectEnabled();
@@ -31959,11 +31900,8 @@ function renderContinuousOverlay() {
         updateDayButtonLabels();
         document.querySelectorAll('.day-btn').forEach((btn, i) => btn.classList.toggle('active', i === uiIdx));
         updateUI();
-        // Se le allerte DPC sono attive, ricarica per il nuovo giorno
-        if (dpcAlertMode === 'on') {
-            dpcAlertData = null;
-            toggleDpcAlert('on');
-        }
+        // Il layer Criticita' DPC segue la .day-selector globale tramite
+        // hydroRefreshForDay() (nessun selettore DPC separato).
         // Aggiorna il popup La Caletta se è aperto
         if (calettaPopupVisible && calettaHourly) {
             // Ricalcola automaticamente pranzo/cena in base all'ora corrente,
@@ -33087,8 +33025,7 @@ syncSelect('lightning-source-select', [
         ]);
 
         // --- Elementi UI delle feature disabilitate: nascosti ---
-        var dpcASel = document.getElementById('dpc-alert-select');
-        if (dpcASel && !isFeatureEnabled('dpcAlerts')) dpcASel.style.display = 'none';
+        // Rimosso il vecchio selettore Allerte DPC (now absorbed by .day-selector).
         if (!isFeatureEnabled('forecastMaps')) { var bFm = document.getElementById('btn-forecast-maps'); if (bFm) bFm.style.display = 'none'; }
         if (!isFeatureEnabled('openMeteo')) {
             var asSel = document.getElementById('api-source-select');
@@ -34743,9 +34680,7 @@ initMap();
             var hwrap = document.getElementById('hour-slider-wrap');
             if (hwrap) hwrap.style.display = '';
             syncHourSlider();
-            // Mostra il selettore Allerte DPC solo se la metrica attiva e risk
-            var dpcSel = document.getElementById('dpc-alert-select');
-            if (dpcSel) dpcSel.style.display = (currentMetric === 'risk') ? '' : 'none';
+            // Nessun selettore Allerte DPC: rimosso con toggleDpcAlert().
             initWeatherData('startup');
             // 1.1.0.6: precarica il manifesto dei frame statici satellite (fire-and-forget,
             // cache in-memory 5 min) cosi' il player/LIVE ha gia' l'elenco degli slot.
@@ -34785,6 +34720,9 @@ initMap();
     rebuildProductSelect();
     syncMetricSelectEnabled();
     applyPublicEditionFeatureVisibility();
+    // FIX 1.3.0.4 - dopo il controllo delle feature: la visibilita' iniziale
+    // dei toggle contestuali dipende dal prodotto attivo (nessuno all'avvio).
+    syncProductUI();
     startApp(25);
 
     // ================= AUDIT 2 / FIX VISIBILITA' (Radar Player) =================
@@ -35051,7 +34989,7 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
                     <li><span class="hs-dot" style="background:#f97316;"></span><span><b>Arancione — Moderato-Alto</b>: 15-45 mm, vento 40-60 km/h o rovescio/temporale.</span></li>
                     <li><span class="hs-dot" style="background:#ef4444;"></span><span><b>Rosso — Alto</b>: oltre 45 mm, vento oltre 60 km/h oppure temporale.</span></li>
                     <li class="sviluppo-only-item" hidden><span class="hs-dot" style="background:#a855f7;"></span><span><b>Viola — Mesociclone</b>: codice temporalesco WMO nella stessa ora E criterio del mesociclone soddisfatto (SCP &ge; 1, shear 0-6 km &ge; 20 m/s, SRH 0-3 km &ge; 100 m&sup2;/s&sup2;). &Egrave; un ambiente <b>previsto</b>, non osservato (solo in modalit&agrave; Sviluppo).</span></li>
-                    <li><span class="hs-dot" style="background:#7d93a8;"></span><span><b>Grigio-blu — Convezione potenziale</b>: ambiente favorevole ma <b>nessun temporale previsto</b> (nessun innesco nella stessa ora). Non &egrave; un evento.</span></li>
+                    <li><span class="hs-dot" style="background:#22c55e;"></span><span><b>Verde — Basso / nessuna criticità attiva</b>: ambiente favorevole ma <b>nessun temporale previsto</b> (nessun innesco nella stessa ora). Non &egrave; un evento.</span></li>
                 </ul>
                 <p class="help-note">Il livello sale solo se il modello vede anche una causa concreta (pioggia o temporale): con il cielo pulito resta basso anche quando l'energia in quota &egrave; alta.</p>
                 <p class="help-note"><b>Caldo e gelo</b>: il livello usa la massima/minima del <b>punto pi&ugrave; basso della provincia</b> (pianura o valle), non della cima pi&ugrave; fredda; il livello <b>Estremo</b> (4) &egrave; riservato alle fasce sotto 800 m.</p>
@@ -35334,83 +35272,136 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
 })();
 </script>
 <script>
-/* ==== 1.2.4.85 - LAYER "CRITICITA' IDROGEOLOGICA/IDRAULICA UFFICIALE" (DPC) ====
-   Cosa e': un layer SEPARATO dalla precipitazione prevista dal modello. Mostra
-   i livelli del bollettino giornaliero del Dipartimento della Protezione
-   Civile (data/hydro/criticality.json, prodotto da
-   scripts/hydro/fetch_criticality.py).
-   Regole:
-     - i tre rischi del bollettino (idrogeologico, idraulico, temporali) sono
-       indipendenti e restano SEPARATI: il selettore sceglie QUALE rischio
-       colorare, non ne somma nessuno;
-     - i 4 livelli sono quelli ufficiali (nessuna/gialla/arancione/rossa) e i
-       colori sono quelli dello style JSON del DPC;
-     - se il bollettino manca o non copre la data odierna il layer NON si
-       disegna e il pannello scrive il motivo con la data dell'ultimo
-       bollettino disponibile: nessuno stato inventato;
-     - attribuzione obbligatoria (CC BY 4.0) visibile nel pannello.
-   Il layer e' spento per default e si carica solo alla prima accensione. */
+/* ==== CRITICITA' DPC v2 — giorno globale, 3 rischi separati, nessun indice unico ====
+   Sostituisce il blocco 1.2.4.85. Legge data/hydro/criticality.json schema /2
+   (con fallback /1). Il giorno viene dalla .day-selector globale dell'app:
+   Oggi / Domani / Dopodomani. Ogni giorno ha il suo valid_date; se la data non
+   e' coperta il pannello dice perche', senza inventare dati.
+
+   I TRE RISCHI RESTANO SEPARATI E non vengono MAI FUSI:
+     - hydrogeological -> riempimento pieno (fill), colore del livello;
+     - hydraulic       -> SOLO contorno tratteggiato "9 5", colore del livello;
+     - thunderstorm    -> SOLO contorno puntinato "1 6", colore del livello.
+   Gli ultimi due hanno fillOpacity 0: non si sovrappongono mai come riempimento,
+   quindi i colori non si mescolano. Il popup elenca i 3 valori affiancati. */
 (function () {
     'use strict';
     var HYDRO_URL = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/main/data/hydro/criticality.json';
-    var HYDRO_SCHEMA = 'meteorisk.hydro.criticality/1';
-    /* Colori ufficiali del bollettino (style JSON DPC), non scelti dal client. */
+    var HYDRO_SCHEMA = 'meteorisk.hydro.criticality/2';
+    var HYDRO_SCHEMA_V1 = 'meteorisk.hydro.criticality/1';
     var HYDRO_COLORS = { none: '#90c985', yellow: '#f8f865', orange: '#f0bf01', red: '#fd6767', unknown: '#94a3b8' };
     var HYDRO_LABELS = { none: 'Nessuna', yellow: 'Gialla', orange: 'Arancione', red: 'Rossa', unknown: 'Non definita' };
     var HYDRO_RISKS = [
-        { key: 'hydrogeological', label: 'idrogeologico', short: 'Idrogeologico' },
-        { key: 'hydraulic', label: 'idraulico', short: 'Idraulico' },
-        { key: 'thunderstorm', label: 'temporali', short: 'Temporali' }
+        { key: 'hydrogeological', short: 'Idrogeol.', enc: 'riempimento pieno' },
+        { key: 'hydraulic',       short: 'Idraulico', enc: 'contorno tratteggiato' },
+        { key: 'thunderstorm',    short: 'Temporali', enc: 'contorno puntinato' }
     ];
-    var st = { loading: false, loaded: false, doc: null, error: null, risk: 'hydrogeological', layer: null };
+    var CODES = ['none', 'yellow', 'orange', 'red'];
+    var DAY_NAMES = ['Oggi', 'Domani', 'Dopodomani'];
+    var st = { loading: false, loaded: false, doc: null, error: null, risk: 'combined', layers: {}, on: false };
 
     function byId(id) { return document.getElementById(id); }
     function mapReady() {
         try { return !!(window.L && typeof map !== 'undefined' && map && typeof map.addLayer === 'function'); }
         catch (e) { return false; }
     }
-    /* Data odierna a Roma: serve a NON disegnare un bollettino di ieri come se
-       fosse di oggi. Il file dichiara `valid_date`: se non e' oggi il layer
-       resta spento e il pannello scrive quale bollettino c'e'. */
-    function romeToday() {
-        try {
-            return new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
-        } catch (e) {
-            return null;
-        }
-    }
-    function dayMismatch() {
-        if (!st.doc) { return false; }
-        var t = romeToday();
-        return !!(t && st.doc.valid_date && st.doc.valid_date !== t);
-    }
-    function zonesForDisplay() {
-        if (!st.doc || st.doc.stale || dayMismatch()) { return []; }
-        return st.doc.zones || [];
-    }
     function esc(v) {
         return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
             .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
-    function riskLabel(key) {
-        for (var i = 0; i < HYDRO_RISKS.length; i++) { if (HYDRO_RISKS[i].key === key) { return HYDRO_RISKS[i].label; } }
-        return 'idrogeologico';
+    function romeToday() {
+        try { return new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' }); }
+        catch (e) { return null; }
+    }
+    function addDaysIso(iso, n) {
+        var d = new Date(iso + 'T00:00:00Z');
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+    }
+    function itDate(iso) {
+        if (!iso) return '—';
+        var p = iso.split('-');
+        return p.length === 3 ? (p[2] + '/' + p[1] + '/' + p[0]) : iso;
+    }
+    /* Indice di calendario: 0=Oggi, 1=Domani, 2=Dopodomani. Legge il pulsante
+       ATTIVO della .day-selector globale (unica fonte di verita' per l'utente);
+       in fallback usa currentDay - currentDayOffset (mai il solo currentDay). */
+    function calendarIndex() {
+        var btns = document.querySelectorAll('.day-selector .day-btn');
+        for (var i = 0; i < btns.length; i++) {
+            if (btns[i].classList && btns[i].classList.contains('active')) return i;
+        }
+        try {
+            if (typeof currentDay === 'number' && typeof currentDayOffset === 'function') {
+                var c = currentDay - currentDayOffset();
+                if (c >= 0 && c <= 2) return c;
+            }
+        } catch (e) { /* currentDay non ancora inizializzato */ }
+        return 0;
+    }
+    function targetDate() {
+        var t = romeToday();
+        return t ? addDaysIso(t, calendarIndex()) : null;
+    }
+    function distOf(zs) {
+        var d = { none: 0, yellow: 0, orange: 0, red: 0 }, i, code;
+        for (i = 0; i < zs.length; i++) {
+            var lv = zs[i].levels || {};
+            for (var k in lv) { code = lv[k]; if (d[code] !== undefined) d[code]++; }
+        }
+        return d;
+    }
+    function legacyDay() {
+        if (!st.doc) return null;
+        var zs = st.doc.zones || [], lvl = {}, i;
+        for (i = 0; i < zs.length; i++) {
+            lvl[zs[i].name] = { levels: zs[i].levels, dpc_map_class: zs[i].dpc_map_class, comuni_count: zs[i].comuni_count };
+        }
+        return {
+            valid_date: st.doc.valid_date,
+            kind: (st.doc.source && st.doc.source.topojson_kind) || 'today',
+            source: st.doc.source, levels_by_zone: lvl,
+            n_zones: zs.length, distribution: distOf(zs)
+        };
+    }
+    function dayEntries() {
+        if (!st.doc) return [];
+        if (st.doc.days && st.doc.days.length) return st.doc.days;
+        var l = legacyDay();
+        return l ? [l] : [];
+    }
+    function dayEntry() {
+        var t = targetDate(), ds = dayEntries();
+        for (var i = 0; i < ds.length; i++) { if (ds[i].valid_date === t) return ds[i]; }
+        return null;
+    }
+    /* La geometria e' una sola (identica nei due TopoJSON); ogni giorno porta
+       solo levels_by_zone. Il join avviene per nome di zona, mai per indice. */
+    function dayZones() {
+        var d = dayEntry();
+        if (!d) return [];
+        var geomZones = st.doc.zones || [], byName = d.levels_by_zone || {}, out = [], i;
+        for (i = 0; i < geomZones.length; i++) {
+            var gz = geomZones[i], rec = byName[gz.name] || {};
+            out.push({
+                name: gz.name,
+                levels: rec.levels || gz.levels || {},
+                comuni_count: rec.comuni_count !== undefined ? rec.comuni_count : gz.comuni_count,
+                dpc_map_class: rec.dpc_map_class || gz.dpc_map_class,
+                polygons: gz.polygons, bbox: gz.bbox
+            });
+        }
+        return out;
     }
 
-    /* Griglia TopoJSON (interi, delta per anello) -> [lon, lat] GeoJSON.
-       Il formato e' dichiarato in geometry.encoding del file dati:
-       lon = x*scale[0]+translate[0], lat = y*scale[1]+translate[1].
-       NOTA: L.geoJSON vuole [lon, lat] e converte da solo in LatLng. */
     function decodeRing(flat, scale, translate) {
         var pts = [], x = 0, y = 0, i;
         for (i = 0; i + 1 < flat.length; i += 2) {
-            x += flat[i];
-            y += flat[i + 1];
+            x += flat[i]; y += flat[i + 1];
             pts.push([x * scale[0] + translate[0], y * scale[1] + translate[1]]);
         }
         return pts;
     }
-
     function toFeature(zone, geom) {
         var polys = [], p, r, rings;
         for (p = 0; p < zone.polygons.length; p++) {
@@ -35422,44 +35413,57 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         }
         return {
             type: 'Feature',
-            properties: {
-                name: zone.name,
-                levels: zone.levels,
-                comuni_count: zone.comuni_count,
-                dpc_map_class: zone.dpc_map_class
-            },
-            geometry: polys.length === 1
-                ? { type: 'Polygon', coordinates: polys[0] }
-                : { type: 'MultiPolygon', coordinates: polys }
+            properties: { name: zone.name, levels: zone.levels, comuni_count: zone.comuni_count, dpc_map_class: zone.dpc_map_class },
+            geometry: polys.length === 1 ? { type: 'Polygon', coordinates: polys[0] } : { type: 'MultiPolygon', coordinates: polys }
         };
     }
-
-    function styleFor(feature) {
-        var code = (feature && feature.properties && feature.properties.levels)
-            ? (feature.properties.levels[st.risk] || 'unknown') : 'unknown';
-        /* "nessuna" resta visibile ma molto tenue: il verde pieno del DPC
-           coprirebbe l'intera mappa. La legenda dichiara il livello. */
-        var fillOpacity = code === 'none' ? 0.12 : (code === 'unknown' ? 0.18 : 0.5);
-        return {
-            pane: 'hydroPane',
-            className: 'hydro-zone',
-            color: 'rgba(15,23,42,0.75)',
-            weight: 0.7,
-            opacity: 0.9,
-            fillColor: HYDRO_COLORS[code] || HYDRO_COLORS.unknown,
-            fillOpacity: fillOpacity
-        };
+    function levelOf(feature, key) {
+        var l = feature && feature.properties && feature.properties.levels;
+        return (l && l[key]) || 'unknown';
     }
-
-    function ensurePane() {
-        if (!mapReady()) { return false; }
-        if (!map.getPane('hydroPane')) {
-            var pane = map.createPane('hydroPane');
-            pane.style.zIndex = 450; /* sopra i poligoni provinciali (400), sotto i marker (600) */
+    function baseStyle(pane) {
+        return { pane: pane, className: 'hydro-zone', color: 'rgba(15,23,42,0.75)', weight: 0.7, opacity: 0.9 };
+    }
+    /* Riempimento pieno: SOLO il rischio idrogeologico. */
+    function styleGeo(feature) {
+        var s = baseStyle('hydroPaneGeo'), code = levelOf(feature, 'hydrogeological');
+        s.fillColor = HYDRO_COLORS[code] || HYDRO_COLORS.unknown;
+        s.fillOpacity = code === 'none' ? 0.12 : (code === 'unknown' ? 0.18 : 0.45);
+        return s;
+    }
+    /* Contorno tratteggiato: SOLO il rischio idraulico, zero riempimento. */
+    function styleHydr(feature) {
+        var s = baseStyle('hydroPaneHydr'), code = levelOf(feature, 'hydraulic');
+        s.fillOpacity = 0;
+        s.color = HYDRO_COLORS[code] || HYDRO_COLORS.unknown;
+        s.weight = 3; s.opacity = 0.95; s.dashArray = '9 5';
+        return s;
+    }
+    /* Contorno puntinato: SOLO il rischio temporali, zero riempimento. */
+    function styleStorm(feature) {
+        var s = baseStyle('hydroPaneTstorm'), code = levelOf(feature, 'thunderstorm');
+        s.fillOpacity = 0;
+        s.color = HYDRO_COLORS[code] || HYDRO_COLORS.unknown;
+        s.weight = 3; s.opacity = 0.95; s.dashArray = '1 6';
+        return s;
+    }
+    function styleSingle(feature) {
+        var s = baseStyle('hydroPaneGeo'), code = levelOf(feature, st.risk);
+        s.fillColor = HYDRO_COLORS[code] || HYDRO_COLORS.unknown;
+        s.fillOpacity = code === 'none' ? 0.12 : (code === 'unknown' ? 0.18 : 0.5);
+        return s;
+    }
+    function ensurePanes() {
+        if (!mapReady()) return false;
+        var defs = [['hydroPaneGeo', 450], ['hydroPaneHydr', 451], ['hydroPaneTstorm', 452]], i;
+        for (i = 0; i < defs.length; i++) {
+            if (!map.getPane(defs[i][0])) {
+                var p = map.createPane(defs[i][0]);
+                p.style.zIndex = String(defs[i][1]);
+            }
         }
         return true;
     }
-
     function popupHtml(props) {
         var out = '<div class="hydro-pop"><div class="hydro-pop-title">' + esc(props.name) + '</div>', i, code;
         for (i = 0; i < HYDRO_RISKS.length; i++) {
@@ -35468,65 +35472,126 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
                 (HYDRO_COLORS[code] || HYDRO_COLORS.unknown) + '"></span><span>' + HYDRO_RISKS[i].short +
                 '</span><span class="hydro-pop-n">' + (HYDRO_LABELS[code] || HYDRO_LABELS.unknown) + '</span></div>';
         }
-        out += '<div class="hydro-pop-note">' + (props.comuni_count || 0) +
-            ' comuni nella zona &middot; livelli ufficiali DPC (bollettino, non allerta MeteoRisk)</div></div>';
+        out += '<div class="hydro-pop-note">3 rischi SEPARATI del bollettino DPC (nessuna somma) &middot; ' +
+            (props.comuni_count || 0) + ' comuni nella zona</div></div>';
         return out;
     }
-
-    function draw() {
-        if (!ensurePane()) { return; }
-        if (!st.layer) {
-            st.layer = window.L.geoJSON(null, {
-                pane: 'hydroPane',
-                style: styleFor,
-                onEachFeature: function (feature, lyr) {
-                    lyr.on('click', function (ev) {
-                        window.L.popup({ className: 'hydro-pop-wrap', maxWidth: 280 })
-                            .setLatLng(ev.latlng).setContent(popupHtml(feature.properties)).openOn(map);
-                    });
-                    lyr.bindTooltip(feature.properties.name, { direction: 'auto', sticky: true });
-                }
-            });
+    function makeLayer(pane, styleFn, interactive) {
+        return window.L.geoJSON(null, {
+            pane: pane,
+            style: styleFn,
+            interactive: !!interactive,
+            bubblingMouseEvents: false,
+            onEachFeature: interactive ? function (feature, lyr) {
+                lyr.bindTooltip(feature.properties.name, { direction: 'auto', sticky: true });
+                lyr.on('click', function (ev) {
+                    window.L.popup({ className: 'hydro-pop-wrap', maxWidth: 280 })
+                        .setLatLng(ev.latlng).setContent(popupHtml(feature.properties)).openOn(map);
+                });
+            } : undefined
+        });
+    }
+    function clearLayers() {
+        for (var k in st.layers) {
+            try {
+                if (mapReady() && map.hasLayer(st.layers[k])) map.removeLayer(st.layers[k]);
+                st.layers[k].clearLayers();
+            } catch (e) { /* layer gia' rimosso */ }
         }
-        st.layer.clearLayers();
-        var zones = zonesForDisplay();
-        if (zones.length) {
-            var features = [], i;
-            for (i = 0; i < zones.length; i++) { features.push(toFeature(zones[i], st.doc.geometry)); }
-            st.layer.addData({ type: 'FeatureCollection', features: features });
-            if (!map.hasLayer(st.layer)) { map.addLayer(st.layer); }
-        } else if (map.hasLayer(st.layer)) {
-            map.removeLayer(st.layer);
+        st.layers = {};
+    }
+    function draw() {
+        if (!st.on || !ensurePanes()) return;
+        clearLayers();
+        var zones = dayZones();
+        if (!zones.length || !st.doc.geometry) return;
+        var fc = { type: 'FeatureCollection', features: [] }, i;
+        for (i = 0; i < zones.length; i++) fc.features.push(toFeature(zones[i], st.doc.geometry));
+        if (st.risk === 'combined') {
+            /* Tre livelli sovrapposti con codifiche DIVERSE: nessuna fusione. */
+            var defs = [
+                ['hydrogeological', 'hydroPaneGeo', styleGeo, true],
+                ['hydraulic', 'hydroPaneHydr', styleHydr, false],
+                ['thunderstorm', 'hydroPaneTstorm', styleStorm, false]
+            ];
+            for (i = 0; i < defs.length; i++) {
+                var lyr = makeLayer(defs[i][1], defs[i][2], defs[i][3]);
+                lyr.addData(fc);
+                if (!map.hasLayer(lyr)) map.addLayer(lyr);
+                st.layers[defs[i][0]] = lyr;
+            }
+        } else {
+            var single = makeLayer('hydroPaneGeo', styleSingle, true);
+            single.addData(fc);
+            if (!map.hasLayer(single)) map.addLayer(single);
+            st.layers[st.risk] = single;
         }
     }
 
+    function countsFor(zones, key) {
+        var c = { none: 0, yellow: 0, orange: 0, red: 0, unknown: 0 }, i, code;
+        for (i = 0; i < zones.length; i++) {
+            code = (zones[i].levels && zones[i].levels[key]) || 'unknown';
+            c[code] = (c[code] || 0) + 1;
+        }
+        return c;
+    }
+    function riskTableHtml(zones) {
+        var html = '<div class="hydro-risks-grid">', i, j, r, c, code;
+        for (i = 0; i < HYDRO_RISKS.length; i++) {
+            r = HYDRO_RISKS[i]; c = countsFor(zones, r.key);
+            html += '<div class="hydro-risk-cell"><div class="hydro-risk-name">' + r.short + '</div><div class="hydro-risk-bars">';
+            for (j = 0; j < CODES.length; j++) {
+                code = CODES[j];
+                html += '<span class="hydro-risk-lv" title="' + HYDRO_LABELS[code] + '"><i style="background:' +
+                    HYDRO_COLORS[code] + '"></i>' + c[code] + '</span>';
+            }
+            html += '</div><div class="hydro-risk-enc">' + r.enc + (c.unknown ? ' · non definita ' + c.unknown : '') + '</div></div>';
+        }
+        return html + '</div>';
+    }
+    function availabilityHtml() {
+        var ds = dayEntries(), t = targetDate(), ci = calendarIndex();
+        var parts = [], i;
+        for (i = 0; i < ds.length; i++) {
+            parts.push(itDate(ds[i].valid_date) + ' <span class="hydro-day-kind">' + esc(ds[i].kind || '') + '</span>');
+        }
+        var html = '<div class="hydro-days">Date disponibili: ' + (parts.join(' · ') || 'nessuna') + '</div>';
+        if (!dayEntry()) {
+            var last = ds.length ? ds[ds.length - 1].valid_date : '';
+            html += '<div class="hydro-status hydro-bad">Non disponibile per il ' + itDate(t) + ' (' +
+                (DAY_NAMES[ci] || 'Oggi') + '): il bollettino DPC copre oggi e domani.' +
+                (last ? ' Ultima data pubblicata: ' + itDate(last) + '.' : '') + '</div>';
+        }
+        return html;
+    }
     function renderPanel() {
         var panel = byId('hydro-panel');
-        if (!panel) { return; }
+        if (!panel) return;
+        var d = dayEntry(), t = targetDate(), zones = dayZones(), ci = calendarIndex();
         var title = byId('hydro-panel-title');
-        if (title) { title.textContent = 'Criticità DPC — rischio ' + riskLabel(st.risk); }
-        var bul = byId('hydro-bulletin');
-        if (bul) {
-            bul.textContent = (st.doc && st.doc.source && st.doc.source.index_label) ? st.doc.source.index_label : '';
+        if (title) {
+            title.textContent = 'Criticità DPC — ' + (DAY_NAMES[ci] || 'Oggi') + ' ' + itDate(t) + ' · 3 rischi separati';
         }
-        var legend = byId('hydro-legend');
-        var zones = zonesForDisplay();
-        if (legend) {
-            var codes = ['none', 'yellow', 'orange', 'red'], counts = {}, html = '', i, code;
-            for (i = 0; i < codes.length; i++) { counts[codes[i]] = 0; }
-            for (i = 0; i < zones.length; i++) {
-                code = (zones[i].levels && zones[i].levels[st.risk]) || 'unknown';
-                counts[code] = (counts[code] || 0) + 1;
-            }
-            for (i = 0; i < codes.length; i++) {
-                html += '<div class="hydro-row"><span class="hydro-chip" style="background:' + HYDRO_COLORS[codes[i]] +
-                    '"></span><span class="hydro-name">' + HYDRO_LABELS[codes[i]] + '</span><span class="hydro-n">' +
-                    (zones.length ? (counts[codes[i]] === 1 ? '1 zona' : counts[codes[i]] + ' zone') : '—') + '</span></div>';
-            }
-            legend.innerHTML = html;
+        var bul = byId('hydro-bulletin');
+        if (bul) bul.textContent = (d && d.source && d.source.index_label) || '';
+        var container = byId('hydro-legend');
+        if (container) {
+            var html = '<div class="hydro-combined-head">Vista combinata — i 3 rischi restano SEPARATI (nessuna somma in un indice unico)</div>';
+            html += '<div class="hydro-combined-key">Come leggere la mappa: <b>pieno = idrogeologico</b> · ' +
+                '<b>tratteggio lungo = idraulico</b> · <b>puntini = temporali</b>. Il colore di ogni tratto è il livello ufficiale ' +
+                'del SUO rischio: <span style="color:' + HYDRO_COLORS.none + '">verde nessuna</span>, ' +
+                '<span style="color:' + HYDRO_COLORS.yellow + '">gialla</span>, ' +
+                '<span style="color:' + HYDRO_COLORS.orange + '">arancione</span>, ' +
+                '<span style="color:' + HYDRO_COLORS.red + '">rossa</span>. I tre valori non vengono mai fusi.</div>';
+            html += riskTableHtml(zones);
+            html += availabilityHtml();
+            html += '<div class="hydro-only3">Il bollettino DPC pubblica solo 3 rischi: idraulico, temporali, idrogeologico. ' +
+                'Vento, neve, caldo, gelate e gelicidio NON sono pubblicati nel bollettino nazionale DPC: nessuna categoria inventata.</div>';
+            container.innerHTML = html;
         }
         var status = byId('hydro-status');
-        if (!status) { return; }
+        if (!status) return;
         if (st.error) {
             status.className = 'hydro-status hydro-bad';
             status.textContent = 'Dato non disponibile: ' + st.error;
@@ -35536,43 +35601,40 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         } else if (st.doc && st.doc.stale) {
             status.className = 'hydro-status hydro-bad';
             status.textContent = st.doc.stale_reason || 'Bollettino non aggiornato.';
-        } else if (st.doc && dayMismatch()) {
+        } else if (!d) {
             status.className = 'hydro-status hydro-bad';
-            status.textContent = 'Bollettino del ' + st.doc.valid_date + ' non aggiornato per oggi (' + romeToday() +
-                '). Ultimo bollettino disponibile: ' +
-                ((st.doc.source && st.doc.source.index_label) || st.doc.valid_date) + '.';
-        } else if (st.doc) {
-            status.className = 'hydro-status';
-            status.textContent = 'Valido per il ' + st.doc.valid_date + ' · aggiornato ' + st.doc.generated_at + ' UTC';
+            status.textContent = 'Bollettino non disponibile per il ' + itDate(t) + ': il DPC pubblica solo oggi e domani.';
         } else {
             status.className = 'hydro-status';
-            status.textContent = 'Bollettino non ancora caricato.';
+            status.textContent = 'Valido per il ' + itDate(d.valid_date) + ' · aggiornato ' + st.doc.generated_at +
+                ' UTC · ' + d.n_zones + ' zone';
         }
     }
 
     function load(cb) {
-        if (st.loading) { return; }
-        if (st.loaded) { if (cb) { cb(); } return; }
+        if (st.loading) return;
+        if (st.loaded) { if (cb) cb(); return; }
         if (typeof window.fetch !== 'function') {
             st.error = 'fetch non disponibile in questo browser';
             renderPanel();
             return;
         }
-        st.loading = true;
-        st.error = null;
+        st.loading = true; st.error = null;
         renderPanel();
         window.fetch(HYDRO_URL, { cache: 'no-store' }).then(function (res) {
-            if (!res.ok) { throw new Error('HTTP ' + res.status + ' sul file del bollettino'); }
+            if (!res.ok) throw new Error('HTTP ' + res.status + ' sul file del bollettino');
             return res.json();
         }).then(function (doc) {
-            if (!doc || doc.schema !== HYDRO_SCHEMA) { throw new Error('formato del bollettino non riconosciuto'); }
-            if (!(doc.zones instanceof Array)) { throw new Error('bollettino senza elenco zone'); }
-            st.doc = doc;
-            st.loaded = true;
-            st.loading = false;
-            renderPanel();
-            draw();
-            if (cb) { cb(); }
+            if (!doc || (doc.schema !== HYDRO_SCHEMA && doc.schema !== HYDRO_SCHEMA_V1)) {
+                throw new Error('formato del bollettino non riconosciuto');
+            }
+            if (!(doc.zones instanceof Array)) throw new Error('bollettino senza elenco zone');
+            if (!doc.geometry || !doc.geometry.scale || !doc.geometry.translate) {
+                throw new Error('bollettino senza griglia geometrica');
+            }
+            st.doc = doc; st.loaded = true; st.loading = false;
+            renderPanel(); draw();
+            if (cb) cb();
         })['catch'](function (err) {
             st.loading = false;
             st.error = (err && err.message) ? err.message : 'errore di rete';
@@ -35580,13 +35642,6 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         });
     }
 
-    // 1.2.4.91 - SOSPENSIONE DELLA COLORAZIONE DEI RISCHI (stesso schema del
-    // meccanismo fmHideRiskOverlays/fmRestoreRiskOverlays delle mappe previsionali:
-    // stato salvato PER LAYER, nessun booleano globale). Qui pero' i poligoni non
-    // vengono nascosti: passano a uno stile neutro (nessun riempimento di rischio)
-    // e al ritorno si ripristina ESATTAMENTE lo stile salvato. Se nel frattempo
-    // metrica/giorno/modalita' sono cambiati, si ricalcola con updateMapColors()
-    // invece di riapplicare colori vecchi.
     var HYDRO_PAINT = { suspended: false, saved: null, signature: null };
 
     function hydroPaintSignature() {
@@ -35659,19 +35714,21 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         HYDRO_PAINT.signature = null;
     }
 
+
+
     window.toggleHydroLayer = function (on) {
         var cb = byId('switch-hydro');
-        if (cb && cb.checked !== !!on) { cb.checked = !!on; }
-        var panel = byId('hydro-panel');
-        var wrap = byId('hydro-risk-wrap');
+        if (cb && cb.checked !== !!on) cb.checked = !!on;
+        var panel = byId('hydro-panel'), wrap = byId('hydro-risk-wrap');
+        st.on = !!on;
         if (!on) {
-            if (panel) { panel.hidden = true; }
-            if (wrap) { wrap.style.display = 'none'; }
-            if (st.layer && mapReady() && map.hasLayer(st.layer)) { map.removeLayer(st.layer); }
+            if (panel) panel.hidden = true;
+            if (wrap) wrap.style.display = 'none';
+            clearLayers();
             resumeRiskPaint();
             return;
         }
-        if (panel) { panel.hidden = false; }
+        if (panel) panel.hidden = false;
         suspendRiskPaint();
         renderPanel();
         if (!mapReady()) {
@@ -35680,24 +35737,34 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
             return;
         }
         load(function () {
-            var showRisk = zonesForDisplay().length > 0;
-            if (wrap) { wrap.style.display = showRisk ? 'inline-flex' : 'none'; }
+            renderPanel(); draw();
+            if (wrap) wrap.style.display = 'inline-flex';
         });
     };
 
+    /* Il selettore resta come opzione "singolo rischio"; "combined" e' il default. */
     window.hydroSetRisk = function (key) {
         st.risk = key;
-        renderPanel();
-        if (st.layer) { st.layer.setStyle(styleFor); }
+        renderPanel(); draw();
     };
-
     window.hydroReload = function () {
-        st.loaded = false;
-        st.error = null;
-        st.doc = null;
-        if (st.layer) { st.layer.clearLayers(); }
-        load(function () {});
+        st.loaded = false; st.error = null; st.doc = null;
+        clearLayers();
+        if (st.on) load(function () { renderPanel(); draw(); });
     };
+    /* Il giorno e' comandato SOLO dalla .day-selector globale: nessun selettore
+       giorno interno al pannello. Il listener scatta dopo il click (setTimeout 0
+       per lasciare a selectDay il tempo di aggiornare currentDay). */
+    window.hydroRefreshForDay = function () {
+        if (!st.on) return;
+        renderPanel(); draw();
+    };
+    var daySel = document.querySelector('.day-selector');
+    if (daySel) {
+        daySel.addEventListener('click', function () {
+            window.setTimeout(function () { window.hydroRefreshForDay(); }, 0);
+        });
+    }
 })();
 </script>
 </body>

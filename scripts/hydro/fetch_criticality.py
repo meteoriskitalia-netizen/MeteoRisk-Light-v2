@@ -31,7 +31,11 @@ FONTE E CADENZA (misurate il 2026-11-13):
     non si indovina, si scopre elencando l'albero `files/` (3 richieste API);
   * il bollettino del giorno D copre D (`_today`) e D+1 (`_tomorrow`): prima
     della pubblicazione del giorno D+1 si usa il `_tomorrow` dell'indice piu'
-    recente. E' il prodotto ufficiale, non un'inferenza.
+     e' il prodotto ufficiale, non un'inferenza.
+   * v2: lo stesso indice fornisce also `_today` e `_tomorrow` (geometria
+     identica, misurata: 9165 archi, 187 zone): il documento pubblica `days[]`
+     con un `valid_date` per giorno e la geometria una sola volta. Nessun dato
+     inventato, nessuna categoria aggiunta.
 
 Licenza del dato: CC BY 4.0 (README del repo DPC), attribuzione obbligatoria
 "Dipartimento della Protezione Civile".
@@ -50,6 +54,7 @@ from __future__ import annotations
 
 import argparse
 import calendar
+import datetime
 import gzip
 import json
 import os
@@ -58,7 +63,8 @@ import time
 import urllib.error
 import urllib.request
 
-SCHEMA = "meteorisk.hydro.criticality/1"
+SCHEMA = "meteorisk.hydro.criticality/2"
+SCHEMA_V1 = "meteorisk.hydro.criticality/1"
 DPC_REPO = "pcm-dpc/DPC-Bollettini-Criticita-Idrogeologica-Idraulica"
 DPC_BRANCH = "master"
 DPC_HTML = "https://github.com/" + DPC_REPO
@@ -97,7 +103,7 @@ for _suffix, _code in (
 CODES = ("none", "yellow", "orange", "red")
 CODE_LABELS_IT = {"none": "Nessuna", "yellow": "Gialla", "orange": "Arancione", "red": "Rossa"}
 
-DEFAULT_MAX_BYTES = 300 * 1024
+DEFAULT_MAX_BYTES = 400 * 1024  # v2: aggiunto il secondo giorno (livelli per zona)
 DEFAULT_TOLERANCE_DEG = 0.005  # ~550 m: dichiarata nel file prodotto
 MAX_TOLERANCE_DEG = 0.05
 
@@ -398,9 +404,12 @@ def build_zones(topo, tol_deg):
     return zones, stats, observed, sorted(unmapped)
 
 
-def build_document(zones, stats, observed, unmapped, meta):
+def build_document(zones, stats, observed, unmapped, meta, days=None):
+    days = days or []
     return {
         "schema": SCHEMA,
+        "schema_v1": SCHEMA_V1,
+        "available_dates": [d["valid_date"] for d in days] or [meta["valid_date"]],
         "generated_at": meta["generated_at"],
         "valid_date": meta["valid_date"],
         "stale": meta["stale"],
@@ -431,6 +440,15 @@ def build_document(zones, stats, observed, unmapped, meta):
             "observed": dict(sorted(observed.items())),
             "unmapped_raw_values": unmapped,
             "unknown_code": "unknown",
+            "dpc_published_risks": list(RISK_FIELDS.keys()),
+            "other_risks_not_published": {
+                "wind": "non pubblicato dal bollettino nazionale DPC",
+                "snow": "non pubblicato dal bollettino nazionale DPC",
+                "heat": "non pubblicato dal bollettino nazionale DPC",
+                "frost": "non pubblicato dal bollettino nazionale DPC",
+                "freezing_rain": "non pubblicato dal bollettino nazionale DPC",
+            },
+            "risks_note": "Il bollettino DPC pubblica solo 3 rischi (idraulico, temporali, idrogeologico): nessuna categoria inventata.",
             "note": ("mappatura esatta delle stringhe ufficiali; 'unknown' = stringa non "
                      "prevista dal bollettino, mai interpretata come 'none'"),
         },
@@ -456,7 +474,9 @@ def build_document(zones, stats, observed, unmapped, meta):
                 "area_deg2_after": stats["area_deg2_after"],
             },
         },
+        "geometry_zone_order": [z["name"] for z in zones],
         "zones": zones,
+        "days": days,
     }
 
 
@@ -560,6 +580,109 @@ def fetch(fixture_dir=None, timeout=45, today_compact=None):
     return index_name, idx, idx_bytes, topo, len(topo_raw), kind, url
 
 
+def fetch_days(fixture_dir=None, timeout=45, today_compact=None):
+    """Scarica ENTRAMBI i TopoJSON `_today` e `_tomorrow` dello stesso indice.
+
+    Ritorna (index_name, idx, idx_bytes, primary_kind, slots). Ogni slot porta
+    kind, valid_date, topo, topo_bytes, url. La geometria dei due file e'
+    identica (misurata), quindi il documento la scrive una sola volta.
+    """
+    if fixture_dir:
+        # La fixture contiene UN solo TopoJSON: il giorno coperto e' quello
+        # dell'indice (today) oppure, con l'indice di ieri, domani=oggi.
+        try:
+            with open(os.path.join(fixture_dir, "index.json"), "rb") as f:
+                idx_raw = f.read()
+            idx = json.loads(idx_raw.decode("utf-8"))
+            with open(os.path.join(fixture_dir, "topo.json"), "rb") as f:
+                topo_raw = f.read()
+        except (OSError, ValueError) as e:
+            raise SourceError("fixture non leggibile in %s: %s" % (fixture_dir, e))
+        day = (idx.get("date") or "")[:10].replace("-", "") or (today_compact or "")
+        kind = pick_pair([day + "_1200.json"], today_compact or day)[1] if day else "today"
+        index_day = (idx.get("date") or "")[:10]
+        d0 = datetime.date(int(index_day[:4]), int(index_day[5:7]), int(index_day[8:10]))
+        offset = 1 if kind == "tomorrow" else 0
+        return ("fixture_index.json", idx, len(idx_raw), kind, [{
+            "kind": kind,
+            "valid_date": (d0 + datetime.timedelta(days=offset)).isoformat(),
+            "topo": json.loads(topo_raw.decode("utf-8")),
+            "topo_bytes": len(topo_raw),
+            "url": None,
+        }])
+    today = today_compact or rome_date().replace("-", "")
+    names = discover_indexes(timeout=timeout)
+    index_name, kind = pick_pair(names, today)
+    idx, idx_bytes = fetch_index(index_name, timeout=timeout)
+    index_day = (idx.get("date") or "")[:10]
+    if not index_day:
+        raise SourceError("indice %s senza data" % index_name)
+    try:
+        d0 = datetime.date(int(index_day[:4]), int(index_day[5:7]), int(index_day[8:10]))
+    except ValueError:
+        raise SourceError("data indice non valida: %s" % index_day)
+    slots = []
+    for offset, skind in ((0, "today"), (1, "tomorrow")):
+        slot = idx.get(skind) or {}
+        url = slot.get("topo_json")
+        if not url:
+            raise SourceError("indice %s senza topo_json per %r" % (index_name, skind))
+        raw = _get(url, timeout=timeout)
+        try:
+            topo = json.loads(raw.decode("utf-8"))
+        except ValueError as e:
+            raise SourceError("TopoJSON %s non valido: %s" % (skind, e))
+        valid = (d0 + datetime.timedelta(days=offset)).isoformat()
+        slots.append({
+            "kind": skind,
+            "valid_date": valid,
+            "topo": topo,
+            "topo_bytes": len(raw),
+            "url": url,
+        })
+    return index_name, idx, idx_bytes, kind, slots
+
+
+def build_days(slots, tol_deg, meta_common):
+    """Ritorna (days, observed, unmapped, primary_stats, primary_zones)."""
+    days, observed_all, unmapped_all = [], {}, set()
+    primary = None
+    for s in slots:
+        zones, stats, observed, unmapped = build_zones(s["topo"], tol_deg)
+        observed_all.update(observed)
+        unmapped_all.update(unmapped)
+        levels_by_zone, dist = {}, {c: 0 for c in CODES}
+        for z in zones:
+            levels_by_zone[z["name"]] = {
+                "levels": z["levels"],
+                "dpc_map_class": z["dpc_map_class"],
+                "comuni_count": z["comuni_count"],
+            }
+            for key in RISK_FIELDS:
+                code = z["levels"][key]
+                dist[code] = dist.get(code, 0) + 1
+        days.append({
+            "valid_date": s["valid_date"],
+            "kind": s["kind"],
+            "source": {
+                "index_name": meta_common["index_name"],
+                "index_label": meta_common["index_label"],
+                "index_date": meta_common["index_date"],
+                "index_url": meta_common["index_url"],
+                "topojson_url": s["url"],
+                "topojson_kind": s["kind"],
+                "topojson_bytes": s["topo_bytes"],
+            },
+            "n_zones": len(zones),
+            "levels_by_zone": levels_by_zone,
+            "distribution": dist,
+        })
+        if primary is None or s["kind"] == meta_common["kind"]:
+            primary = (zones, stats)
+    return days, observed_all, sorted(unmapped_all), primary[1], primary[0]
+
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Criticita' DPC -> data/hydro/criticality.json")
     ap.add_argument("--out", default=os.path.join("data", "hydro", "criticality.json"))
@@ -601,7 +724,7 @@ def main(argv=None):
               % (args.window_utc, today_iso))
 
     try:
-        index_name, idx, idx_bytes, topo, topo_bytes, kind, topo_url = fetch(
+        index_name, idx, idx_bytes, kind, slots = fetch_days(
             args.fixture_dir, args.timeout, today_compact)
     except SourceError as e:
         print("[hydro] ERRORE sorgente: %s" % e, file=sys.stderr)
@@ -612,9 +735,17 @@ def main(argv=None):
     # il bollettino del giorno D copre D e, con _tomorrow, D+1
     stale = kind != "tomorrow" and index_day != today_iso
     valid_date = today_iso if not stale else (index_day or today_iso)
+    primary_slot = slots[0] if slots[0]["kind"] == kind else slots[-1]
+    meta_common = {
+        "index_name": index_name,
+        "index_label": label,
+        "index_date": idx.get("date"),
+        "index_url": None if args.fixture_dir else (DPC_HTML + "/blob/" + DPC_BRANCH + "/files/" + index_name),
+        "kind": kind,
+    }
 
     def build(tol):
-        zones, stats, observed, unmapped = build_zones(topo, tol)
+        days, observed, unmapped, stats, prim_zones = build_days(slots, tol, meta_common)
         meta = {
             "generated_at": now_iso,
             "valid_date": valid_date,
@@ -624,13 +755,13 @@ def main(argv=None):
             "index_name": index_name,
             "index_label": label,
             "index_date": idx.get("date"),
-            "index_url": None if args.fixture_dir else (DPC_HTML + "/blob/" + DPC_BRANCH + "/files/" + index_name),
-            "topojson_url": topo_url,
-            "topojson_kind": kind,
+            "index_url": meta_common["index_url"],
+            "topojson_url": primary_slot["url"],
+            "topojson_kind": primary_slot["kind"],
             "index_bytes": idx_bytes,
-            "topojson_bytes": topo_bytes,
+            "topojson_bytes": primary_slot["topo_bytes"],
         }
-        return build_document(zones if not stale else [], stats, observed, unmapped, meta)
+        return build_document(prim_zones if not stale else [], stats, observed, unmapped, meta, days)
 
     try:
         doc, raw, steps = _fit_budget(build, args.tolerance_deg, args.max_bytes)
@@ -668,7 +799,9 @@ def main(argv=None):
              doc["geometry"]["simplify"]["vertices_before"],
              doc["geometry"]["simplify"]["vertices_after"],
              doc["geometry"]["simplify"]["tolerance_deg"], len(steps)))
-    print("[hydro] bollettino=%s kind=%s valid=%s stale=%s" % (index_name, kind, doc["valid_date"], doc["stale"]))
+    print("[hydro] bollettino=%s kind=%s valid=%s stale=%s days=%s" % (
+        index_name, kind, doc["valid_date"], doc["stale"],
+        ",".join(d["valid_date"] + ":" + d["kind"] for d in doc["days"])))
     print("[hydro] livelli (zone x rischio): %s" % json.dumps(dist))
     if unmapped:
         print("[hydro] ATTENZIONE stringhe non mappate: %s" % unmapped)
