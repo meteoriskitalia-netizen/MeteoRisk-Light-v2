@@ -37,9 +37,11 @@ Exit codes (contratto stabile · Parte H invariato, 1.0.0.8):
   10 = nessun nuovo run ECMWF (clean SUCCESS nella Action: zero lavoro)
   11 = NO-OP DICHIARATO: cooldown attivo; nessuna richiesta Metadata API,
        new_run=false, last_processed_key NON toccato
-  1  = errore tecnico Metadata API: la Action FALLA con errore visibile,
-       MAI interpretato come "nessun nuovo run" o silenziato. Il cooldown viene
-       persistito dallo step `if: failure()` del workflow (qui H4 vieta scritture).
+  13 = API Metadata non disponibile dopo i retry: DEGRADO ESPLICITO — exit 0,
+       check_state=unavailable + motivo, new_run=false, nessun fetch; il cooldown
+       viene persistito dallo step `if: check_state == 'unavailable'`.
+  1  = errore tecnico NON di rete (es. bootstrap senza run): la Action FALLA con
+       errore visibile, MAI interpretato come "nessun nuovo run" o silenziato.
 """
 
 import argparse
@@ -118,7 +120,10 @@ def main():
         print("[check_model_runs] METADATA API UNAVAILABLE AFTER RETRIES (Parte H5): %s" % exc)
         print("[check_model_runs] NETWORK ERROR != NO NEW RUN (H4): stato NON aggiornato, "
               "nessun fetch eseguito, ultimo dataset invariato.")
-        return 1
+        # Degrado esplicito (rc=13): servizio esterno non controllabile. Lo stato
+        # NON viene toccato (H4); il gate lo classifica come clean exit con stato
+        # `unavailable` + motivo e il workflow persiste il cooldown.
+        return 13
 
     driver_meta = results[common.DRIVER_MODEL]
     init_ts = driver_meta["last_run_initialisation_time"]

@@ -30,8 +30,12 @@ Stati del Request Planner / Decision Engine:
 Classificazione exit code (contratto stabile):
   check (ecmwf): 0 = nuovo run · 10 = nessun nuovo run ·
                  11 = NO-OP dichiarato (cooldown, exit 0, new_run=false) ·
+                 13 = API esterna non disponibile dopo i retry: degrado esplicito
+                      (check_state=unavailable, new_run=false, exit 0, nessun fetch) ·
                  1+ = errore tecnico (check_state=api_unavailable, exit 1)
   best  (canary): 0 = cambiato · 10 = invariato · 12 = NO-OP dichiarato
+                  13 = API esterna non disponibile dopo i retry: degrado esplicito
+                       (best_state=unavailable, best_changed=false, exit 0) ·
                   1+ = errore tecnico (best_state=api_unavailable, exit 1)
   plan:          0 = piano ok · 2 = ceiling raggiunto (safe skip) ·
                  3 = ceiling in BOOTSTRAP (FAIL) · 1+ = errore
@@ -67,6 +71,11 @@ def classify_check(rc):
         return {"stage": "check", "rc": rc, "decision": "clean_exit",
                 "message": "[INFO] Check NO-OP dichiarato (cooldown attivo) — nessuna richiesta Metadata API",
                 "outputs": {"new_run": "false", "check_state": "noop"}, "exit_code": 0}
+    if rc == 13:
+        return {"stage": "check", "rc": rc, "decision": "degraded",
+                "message": "[WARN] Metadata API unavailable after retries — degrado esplicito: nessun fetch, ultimo dataset valido preservato",
+                "outputs": {"new_run": "false", "check_state": "unavailable",
+                            "check_reason": "api_unavailable_after_retries"}, "exit_code": 0}
     return {"stage": "check", "rc": rc, "decision": "fail",
             "message": "[ERROR] Model run check failed (rc=%d)" % rc,
             "outputs": {"new_run": "false", "check_state": "api_unavailable"}, "exit_code": 1}
@@ -85,6 +94,11 @@ def classify_best(rc):
         return {"stage": "best", "rc": rc, "decision": "clean_exit",
                 "message": "[INFO] Best Match NO-OP dichiarato (cooldown attivo) — nessuna richiesta forecast",
                 "outputs": {"best_changed": "false", "best_state": "noop"}, "exit_code": 0}
+    if rc == 13:
+        return {"stage": "best", "rc": rc, "decision": "degraded",
+                "message": "[WARN] Best Match sentinel API unavailable after retries — degrado esplicito: nessun fetch, ultimo dataset valido preservato",
+                "outputs": {"best_changed": "false", "best_state": "unavailable",
+                            "best_reason": "api_unavailable_after_retries"}, "exit_code": 0}
     return {"stage": "best", "rc": rc, "decision": "fail",
             "message": "[ERROR] Best Match canary check failed (rc=%d)" % rc,
             "outputs": {"best_changed": "false", "best_state": "api_unavailable"}, "exit_code": 1}

@@ -8,15 +8,17 @@ name: Update Weather Data (Centralized Data Pipeline — Production Hardened)
 #       check rc 10 = NO NEW ECMWF RUN            -> clean SUCCESS per ECMWF
 #       check rc 11 = NO-OP DICHIARATO (cooldown) -> clean SUCCESS, zero richieste
 #       check rc 1+ = TECHNICAL ERROR             -> workflow FAIL, errore visibile
-#                     -> FAIL visibile (check_state=api_unavailable) + cooldown persistito da step if: failure()
+#       check rc 13 = API ESTERNA NON DISPONIBILE  -> clean SUCCESS degradato (check_state=unavailable
+#                     + motivo check_reason), nessun fetch; cooldown persistito dallo step if: always()
 #   - Canary BEST MATCH INDIPENDENTE (check_best_match.py): 6 capoluoghi-sentinella
 #     in UNA richiesta forecast multi-location (weathercode+precipitation orarie),
 #     fingerprint SHA-256 del contenuto (NO generation-time), confrontato con lo
 #     state. rc 0 = CAMBIATO -> refresh autorizzato · 10 = invariato ·
 #                  12 = NO-OP DICHIARATO (cooldown canary, zero richieste) ·
-#                  1+ = FAIL (best_state=api_unavailable) + cooldown persistito
-#                       da step if: failure() con campo DEDICATO
-#                       best_match_cooldown_until (indipendente da ECMWF).
+#                  13 = API ESTERNA NON DISPONIBILE -> clean SUCCESS degradato (best_state=unavailable
+#                       + motivo best_reason), nessun fetch; cooldown persistito con if: always()
+#                       nel campo DEDICATO best_match_cooldown_until (indipendente da ECMWF).
+#                  1+ = FAIL (errore tecnico NON di rete).
 #   - DECISION ENGINE (decide_cycle.py), matrice STATELESS (FIX PIPELINE:
 #     best_match_only con merge del raw del ciclo precedente RIMOSSO — i runner
 #     GitHub sono ephemeral, data/_raw non persiste tra un run e l'altro):
@@ -114,7 +116,7 @@ jobs:
       # stato. Persistiamo SOLO il cooldown, con commit separato e dedicato:
       # nessun fetch, nessun deploy, nessun dato falso pubblicato.
       - name: Registra cooldown check ECMWF (solo data/state/last_model_run.json)
-        if: failure() && steps.check.outputs.check_state == 'api_unavailable'
+        if: always() && (steps.check.outputs.check_state == 'unavailable' || steps.check.outputs.check_state == 'api_unavailable')
         run: |
           python scripts/check_model_runs.py --record-api-failure
           git config user.name "meteorisk-bot"
@@ -158,7 +160,7 @@ jobs:
       # dedicato: nessun fetch, nessun deploy, nessun dato falso pubblicato.
       # Speculare a "Registra cooldown check ECMWF" ma con campo indipendente.
       - name: Registra cooldown canary Best Match (solo data/state/last_model_run.json)
-        if: failure() && steps.best.outputs.best_state == 'api_unavailable'
+        if: always() && (steps.best.outputs.best_state == 'unavailable' || steps.best.outputs.best_state == 'api_unavailable')
         run: |
           python scripts/check_best_match.py --record-api-failure
           git config user.name "meteorisk-bot"
@@ -396,15 +398,15 @@ jobs:
             echo "**Validate:** \`${{ steps.validate.outputs.validate_ok || 'skipped' }}\`"
             echo "**Publish (new dataset):** \`${{ steps.publish.outputs.new_dataset || 'false' }}\`"
             echo ""
-            if [ "${{ steps.check.outputs.check_state }}" = "api_unavailable" ] || [ "${{ steps.best.outputs.best_state }}" = "api_unavailable" ] || [ "${{ steps.plan.outputs.plan_state }}" = "bootstrap_budget_blocked" ]; then
-              if [ "${{ steps.check.outputs.check_state }}" = "api_unavailable" ]; then
-                echo "❌ **CHECK FAILED — Metadata API unavailable after retries** (Parte H5)."
+            if [ "${{ steps.check.outputs.check_state }}" = "unavailable" ] || [ "${{ steps.check.outputs.check_state }}" = "api_unavailable" ] || [ "${{ steps.best.outputs.best_state }}" = "unavailable" ] || [ "${{ steps.best.outputs.best_state }}" = "api_unavailable" ] || [ "${{ steps.plan.outputs.plan_state }}" = "bootstrap_budget_blocked" ]; then
+              if [ "${{ steps.check.outputs.check_state }}" = "unavailable" ] || [ "${{ steps.check.outputs.check_state }}" = "api_unavailable" ]; then
+                echo "⚠️ **CHECK DEGRADED — Metadata API unavailable after retries** (motivo: \`${{ steps.check.outputs.check_reason }}\`)."
                 echo "No data fetch performed."
                 echo "Last dataset unchanged."
                 echo "State not updated (NETWORK ERROR != NO NEW RUN — H4)."
                 echo "Cooldown registrato in data/state/last_model_run.json: i prossimi cicli saranno NO-OP dichiarato (rc 11) fino alla scadenza."
-              elif [ "${{ steps.best.outputs.best_state }}" = "api_unavailable" ]; then
-                echo "❌ **CANARY BEST MATCH FAILED — rete/API non disponibile dopo i retry.**"
+              elif [ "${{ steps.best.outputs.best_state }}" = "unavailable" ] || [ "${{ steps.best.outputs.best_state }}" = "api_unavailable" ]; then
+                echo "⚠️ **CANARY BEST MATCH DEGRADED — rete/API non disponibile dopo i retry** (motivo: \`${{ steps.best.outputs.best_reason }}\`)."
                 echo "No data fetch performed. Best Match fingerprint NON aggiornata, best_changed=false."
                 echo "Last dataset unchanged (NETWORK ERROR != BEST MATCH CHANGED)."
                 echo "Cooldown canary registrato in data/state/last_model_run.json (best_match_cooldown_until): i prossimi cicli saranno NO-OP dichiarato (rc 12) fino alla scadenza."

@@ -79,6 +79,31 @@ def test_c2_check_noop_declared_clean_exit():
     assert_no_heavy(used)
 
 
+def test_c3_check_api_unavailable_degraded():
+    # rc=13 (API esterna non disponibile): SUCCESS degradato, non FAIL
+    d = wg.classify_check(13)
+    assert d["exit_code"] == 0
+    assert d["decision"] == "degraded"
+    assert d["outputs"]["new_run"] == "false"
+    assert d["outputs"]["check_state"] == "unavailable"
+    assert d["outputs"]["check_reason"] == "api_unavailable_after_retries"
+    assert "[WARN]" in d["message"]
+    used, _, _ = run_chain(13)
+    assert used["best"] is False
+    assert used["plan"] is False
+    assert_no_heavy(used)
+
+
+def test_b2_best_api_unavailable_degraded():
+    d = wg.classify_best(13)
+    assert d["exit_code"] == 0
+    assert d["decision"] == "degraded"
+    assert d["outputs"]["best_changed"] == "false"
+    assert d["outputs"]["best_state"] == "unavailable"
+    assert d["outputs"]["best_reason"] == "api_unavailable_after_retries"
+    assert "[WARN]" in d["message"]
+
+
 def test_b_new_run_full_chain():
     d = wg.classify_check(0)
     assert d["exit_code"] == 0

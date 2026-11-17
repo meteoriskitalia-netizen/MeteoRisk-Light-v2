@@ -29,8 +29,10 @@ Exit codes (contratto 1.0.0.8, esteso cooldown 2026-11-16):
   10 = Best Match INVARIATO (clean success)
   12 = NO-OP DICHIARATO: cooldown canary attivo; zero richieste di rete,
        fingerprint invariata, best_changed=false (clean success)
-    1 = errore tecnico/rete (workflow FAIL; il cooldown viene persistito SOLO
-        dallo step if: failure() del workflow)
+   13 = API forecast non disponibile dopo i retry: DEGRADO ESPLICITO — exit 0,
+       best_state=unavailable + motivo, best_changed=false, nessun fetch; il
+       cooldown viene persistito dallo step `if: best_state == 'unavailable'`.
+    1 = errore tecnico NON di rete (es. nessuna sentinella): workflow FAIL.
 
 Il cooldown usa lo STESSO MECCANISMO del check ECMWF (check_model_runs.py:
 --record-api-failure + guard + rc dedicato), ma un campo DEDICATO
@@ -126,7 +128,9 @@ def main():
                                              [s["lon"] for s in sentinels])
     except Exception as exc:  # noqa: BLE001
         print("[check_best_match] ERRORE canary Best Match: %s" % exc)
-        return 1
+        # Degrado esplicito (rc=13): come per il check ECMWF. La fingerprint
+        # NON viene toccata (H4); il gate produce best_state=unavailable + motivo.
+        return 13
 
     payload = response_payload(data, sentinels)
     fp = common.fingerprint_best_match(payload)
