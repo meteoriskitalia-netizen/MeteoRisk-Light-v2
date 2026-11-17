@@ -15,8 +15,16 @@ name: Stations (MeteoHub — rete di centraline, osservazioni in tempo reale)
 #     tutto, perche' il loro record piu' recente e' stato misurato a 67,6 minuti.
 #   * servizio pubblico e anonimo: nessun token, nessun account.
 #
-# Il commit tocca SOLO data/stations/. Il push e' protetto da pull --rebase
-# perche' main riceve commit automatici ogni pochi minuti dagli altri workflow.
+# Il commit tocca SOLO i due file noti `data/stations/latest.json` e
+# `data/stations/index.json`. Il push e' protetto da pull --rebase perche' main
+# riceve commit automatici ogni pochi minuti dagli altri workflow.
+#
+# STABILITA' (2026-11-18): il vecchio step faceva `git add data/stations`
+# (add di directory). Se un file non c'era nel working tree, git metteva in
+# stage la CANCELLAZIONE e il push la pubblicava: `git rm` implicito con run
+# "success". Ora lo step di commit e' `scripts/stations/publish_stations.py`,
+# che verifica entrambi i file, ripristina l'ultimo valido da HEAD se mancano,
+# commotta SOLO i due path espliciti e non commotta nulla se il fetch e' KO.
 
 on:
   schedule:
@@ -49,36 +57,18 @@ jobs:
 
       # Lo script valida da solo: sotto --min-stations (500) NON scrive il file
       # ed esce 2, quindi una risposta vuota o troncata non arriva mai su main.
+      # L'ultimo dataset valido resta in piedi perche' non viene scritto nulla.
       - name: Scarica e normalizza le osservazioni
-        run: python -u scripts/stations/fetch_stations.py --out data/stations/latest.json
+        id: fetch
+        run: python -u scripts/stations/fetch_stations.py --out data/stations/latest.json --index-out data/stations/index.json
 
-      - name: Commit data/stations
+      # `if: always()`: gira anche se il fetch e' fallito. In quel caso i file
+      # sono invariati (o ripristinati da HEAD) e il publish fa "no_change" /
+      # "restored": nessun commit, nessuna cancellazione, ultimo valido intatto.
+      # Il job resta comunque FALLITO per colpa dello step fetch: il segnale
+      # di errore non viene silenziato.
+      - name: Commit stabile di data/stations
+        if: always()
         run: |
-          git config user.name "meteorisk-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add data/stations
-          if git diff --cached --quiet; then
-            echo "[INFO] Nessuna modifica alle osservazioni."
-          else
-            git commit -m "chore(stations): osservazioni MeteoHub (CC BY 4.0, attribuzione per rete)"
-            # FIX RACE PUSH: main riceve commit dagli altri workflow ogni pochi
-            # minuti. Il pull --rebase replaya il nostro commit sopra origin/main
-            # prima del push; il loop riprova perche' la race puo' ripetersi.
-            # Semantica -e: le git del loop stanno in una condizione `if`, quindi
-            # un tentativo fallito non termina il passo; l'exit 1 esplicito
-            # segnala il fallimento dopo 5 tentativi (nessun errore silenziato).
-            push_ok=0
-            for i in 1 2 3 4 5; do
-              git rebase --abort 2>/dev/null || true
-              if git pull --rebase --autostash -X theirs origin main && git push origin main; then
-                push_ok=1
-                break
-              fi
-              echo "[WARN] Push rifiutato (race su main) - tentativo $i/5"
-              if [ "$i" -lt 5 ]; then sleep 5; fi
-            done
-            if [ "$push_ok" -ne 1 ]; then
-              echo "[ERROR] Push non riuscito dopo 5 tentativi (race con altri workflow su main)"
-              exit 1
-            fi
-          fi
+          python -u scripts/stations/publish_stations.py \
+            --message "chore(stations): osservazioni MeteoHub (CC BY 4.0, attribuzione per rete)"
