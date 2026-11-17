@@ -528,6 +528,22 @@ CONFIG = {
                 # "low_high" = product_low + product_high (2 CAPPI).
                 "levels_when_implausible": "low_high",
             },
+            # -------------------------------------------------------------
+            # 1.3-VAL3D — MODALITA' DI VALIDAZIONE (solo flag --validate-3d).
+            # Default False = gate grandine invariato, output operativo
+            # identico. Con True = SEMPRE i 10 CAPPI in ogni run e DIVIETO
+            # di fallback a t-5min: il set deve venire dallo STESSO
+            # productDate della VMI, altrimenti un campo 3D mescola due
+            # volumi e non e' un'osservazione. Nessun dato simulato: se uno
+            # slot non e' pubblicato il livello resta null con motivo.
+            # Serve solo a costruire il dataset che verra' usato per dire se
+            # morphology_organization discrimina davvero le strutture
+            # convettive organizzate; non abilita diagnosi di rotazione.
+            "validate_3d": {
+                "enabled": False,
+                "force_full_cappi": True,
+                "strict_product_date": True,
+            },
         },
         "environment": {
             # Open-Meteo sul punto di OGNI candidato (urllib diretto,

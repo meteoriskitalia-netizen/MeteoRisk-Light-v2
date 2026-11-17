@@ -50,6 +50,43 @@ jobs:
         with:
           fetch-depth: 1
 
+      # 1.3.0.8 / daily-series-cache: la serie giornaliera vive SOLO sul branch
+      # orphan stations-daily (NON su main: ~2,9 GB/giorno di blob in piu' nella
+      # storia). La scarichiamo qui, PRIMA del build, via raw/API; il file resta
+      # nel working tree e lo step di build qui sotto lo copia in
+      # _site/data/stations/daily_series.json con il consueto
+      # `cp -R data/stations _site/data/stations` (stesso URL di sempre per il
+      # client). Se il branch non esiste: nessun file, il client resta sul
+      # fallback LOCALE etichettato. Nessun fail del deploy.
+      - name: Recupera daily_series.json dal branch stations-daily (non su main)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          mkdir -p data/stations
+          ok=0
+          curl -fsSL --max-time 90 \
+            "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/stations-daily/data/stations/daily_series.json" \
+            -o data/stations/daily_series.json && ok=1
+          if [ "$ok" -ne 1 ]; then
+            curl -fsSL --max-time 90 -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github.raw+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/data/stations/daily_series.json?ref=stations-daily" \
+              -o data/stations/daily_series.json && ok=1
+          fi
+          if [ "$ok" -ne 1 ]; then
+            if git fetch --depth 1 origin "+stations-daily:refs/heads/stations-daily-base" 2>/dev/null && \
+               git show "stations-daily-base:data/stations/daily_series.json" > data/stations/daily_series.json 2>/dev/null; then
+              ok=1
+            fi
+          fi
+          if [ "$ok" -eq 1 ] && [ -s data/stations/daily_series.json ]; then
+            echo "[INFO] daily_series.json recuperato da stations-daily: $(wc -c < data/stations/daily_series.json) byte."
+          else
+            rm -f data/stations/daily_series.json
+            echo "[WARN] daily_series.json non disponibile su stations-daily: fallback locale etichettato."
+          fi
+
       # Build dell'artefatto replicando radar-engine.yml / update-weather-data.yml:
       # app + tutti i dati gia' pubblicati su main + restore dei branch dedicati.
       - name: Build sito statico Pages (app + data/latest + data/geography + data/radar + data/phenomena + satellite)

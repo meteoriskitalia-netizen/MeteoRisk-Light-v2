@@ -325,8 +325,9 @@ def build_latest(bundle, engine_meta=None, previous=None):
             "reference": mt.get("reference"),
             "detail_path": "data/radar/mesocyclone_tracks.json",
         }
-    # 1.3 — VOLUME 3D: riepilogo verificabile del file data/radar/volume.json
-    # (il payload completo, con le sezioni, resta nel file dedicato).
+    # 1.3 — VOLUME 3D: riepilogo verificabile del blob data/radar/3d/volume.json
+    # (payload completo, nessun dato grezzo). Vive SOLO sul branch orphan
+    # radar-3d: mai su main, mai nell'artefatto Pages.
     vol = getattr(bundle, "volume", None)
     if isinstance(vol, dict) and vol:
         payload["volume"] = {
@@ -338,11 +339,15 @@ def build_latest(bundle, engine_meta=None, previous=None):
             "volume_source": vol.get("volume_source"),
             "volume_acquisition": vol.get("volume_acquisition"),
             "cells_count": len(vol.get("cells") or []),
-            # 17/11/2026 (A7): MAI il path assoluto del runner. Il file live e'
-            # sempre data/radar/volume.json (coerente con i detail_path qui
-            # sopra). Se il volume non e' stato pubblicato resta null.
-            "path": ("data/radar/volume.json"
+            # 17/11/2026 (A7): MAI il path assoluto del runner. Il blob vivo
+            # e' data/radar/3d/volume.json sul branch radar-3d (mai su main).
+            # Se il volume non e' stato pubblicato resta null.
+            "path": ("data/radar/3d/volume.json"
                      if getattr(bundle, "volume_path", None) else None),
+            "branch": "radar-3d",
+            "blob": "data/radar/3d/volume.json",
+            "growth": (dict(vol["growth"])
+                       if isinstance(vol.get("growth"), dict) else None),
         }
     # 16/11/2026 — COPERTURA DOPPLER: stato esplicito, separato da `opera`
     # (che descrive il mosaico CIRRUS, non gli SCAN VRADH per sito).
@@ -397,6 +402,23 @@ def _cappi_fetch_summary(bundle):
             "passed": gate.get("fetch_full_set"),
             "reason": gate.get("reason"),
         }
+        # 1.3-VAL3D: verdetto del gate che si sarebbe applicato senza il flag
+        # (serve a dichiarare il baseline 2-CAPPI sugli stessi casi).
+        counter = gate.get("validation_counterfactual")
+        if isinstance(counter, dict):
+            out["hail_gate"]["validation_counterfactual"] = {
+                "evaluated": counter.get("evaluated"),
+                "value_g_m3": counter.get("max_vil_density_g_m3"),
+                "passed": counter.get("fetch_full_set"),
+                "reason": counter.get("reason"),
+            }
+    # 1.3-VAL3D: chiavi NUOVE SOLO in modalita' validazione. I run normali
+    # restano byte-identici; un run di raccolta e' riconoscibile dal
+    # pubblicato e non puo' essere scambiato per produzione operativa.
+    v3d = cf.get("validate_3d")
+    if isinstance(v3d, dict):
+        out["validate_3d"] = dict(v3d)
+        out["validation_mode"] = True
     return out
 
 

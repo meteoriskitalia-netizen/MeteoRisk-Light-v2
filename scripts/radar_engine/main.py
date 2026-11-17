@@ -535,6 +535,25 @@ def _fetch_structure_products(config, scfg, ref_shape, warnings,
     return out
 
 
+def _validate_3d_state(config):
+    """Dichiarazione validate-3d attiva, oppure None (pure, nessuna mutazione).
+
+    Lo stato e' scritto in config da `main()` via `_apply_validate_3d` prima
+    di `_run`: tutte le letture interne (gate, fetch, output) vedono quindi
+    lo stesso valore. Un chiamante diretto di `_run` che mette
+    `structure.validate_3d.enabled=True` viene comunque onorato qui: il set
+    completo viene forzato a prescindere dalle altre chiavi di config.
+    """
+    struct = (((config or {}).get("phase2") or {}).get("structure") or {})
+    decl = struct.get("validate_3d") or {}
+    if not isinstance(decl, dict) or not decl.get("enabled"):
+        return None
+    out = dict(decl)
+    out["force_full_cappi"] = bool(decl.get("force_full_cappi", True))
+    out["strict_product_date"] = bool(decl.get("strict_product_date", True))
+    return out
+
+
 def _hail_plausibility_gate(products, scfg):
     """Gate di plausibilita' grandine PRIMA del set completo di CAPPI (1.2.4.26).
 
@@ -591,7 +610,8 @@ def _hail_plausibility_gate(products, scfg):
     return out
 
 
-def _fetch_cappi_levels(config, scfg, ref_rd, warnings, full_set=True):
+def _fetch_cappi_levels(config, scfg, ref_rd, warnings, full_set=True,
+                        validation_mode=False):
     """Scarica il SET dei CAPPI allo STESSO productDate della VMI (1.2.4.18).
 
     `full_set=False` (1.2.4.26, gate grandine): si scaricano SOLO
@@ -603,7 +623,11 @@ def _fetch_cappi_levels(config, scfg, ref_rd, warnings, full_set=True):
     summary). Un livello mancante NON ferma il run: il campo che lo usa
     (MESH/overhang) degrada a null con motivo. La griglia di ogni livello deve
     combaciare con quella della VMI: altrimenti il livello viene scartato
-    (mai un resampling silenzioso su una colonna verticale)."""
+    (mai un resampling silenzioso su una colonna verticale).
+
+    1.3-VAL3D: con `validation_mode=True` il fetch vieta il fallback a t-5min
+    e lo dichiara nel summary. L'allineamento al productDate della VMI e il
+    download parallelo sono quelli gia' misurati (9,75 s per 10 CAPPI)."""
     cmap = _cappi_product_map(scfg if full_set
                               else dict(scfg, mesh_levels_enabled=False))
     names = list(dict.fromkeys(cmap.values()))
@@ -615,7 +639,8 @@ def _fetch_cappi_levels(config, scfg, ref_rd, warnings, full_set=True):
     if not names:
         return results, by_name, summary
     got, summary = fetch.fetch_cappi_set(
-        config, names, int(ref_rd.time_ms), warnings=warnings)
+        config, names, int(ref_rd.time_ms), warnings=warnings,
+        validation_mode=validation_mode)
     # COERENZA VERTICALE: se per qualche ragione i livelli arrivano da slot
     # diversi (fallback parziale), si tiene SOLO lo slot con piu' livelli (a
     # parita', il piu' recente): un profilo dBZ(H) mescolato non e' un profilo.
@@ -1540,6 +1565,19 @@ def _phase2_evaluate(bundle, config):
                                              replay=replay,
                                              product_bundle=dpc_bundle)
         gate = _hail_plausibility_gate(products, scfg)
+        v3d = _validate_3d_state(config)
+        if v3d is not None:
+            # Gate CONTROFATTUALE: si calcola comunque, riabilitandolo su una
+            # copia, per poter dichiarare quanti run avrebbero ricevuto solo
+            # 2 CAPPI. NON viene applicato: in validazione servono sempre 10.
+            counter = _hail_plausibility_gate(
+                products,
+                dict(scfg, hail_gate=dict(scfg.get("hail_gate") or {},
+                                          enabled=True)))
+            gate = dict(gate)
+            gate["validation_counterfactual"] = counter
+            gate["reason"] = "validate_3d_forced_full_set"
+            gate["fetch_full_set"] = True
         if gate["evaluated"] and not gate["fetch_full_set"]:
             warnings.append(
                 "phase2 cappi: set completo (10 livelli) NON scaricato — gate "
@@ -1547,9 +1585,15 @@ def _phase2_evaluate(bundle, config):
                 "({}). MESH -> null; overhang resta su CAPPI_2/CAPPI_6.".format(
                     gate["max_vil_density_g_m3"], gate["threshold_g_m3"],
                     gate["reason"]))
+        # In validazione si forza mesh_levels_enabled anche se un chiamante
+        # diretto di _run non ha applicato _apply_validate_3d: il set completo
+        # non puo' dipendere da una chiave di config dimenticata.
+        cappi_scfg = (dict(scfg, mesh_levels_enabled=True)
+                      if v3d is not None else scfg)
         cappi, cappi_by_name, cappi_summary = _fetch_cappi_levels(
-            config, scfg, frames[-1], warnings,
-            full_set=gate["fetch_full_set"])
+            config, cappi_scfg, frames[-1], warnings,
+            full_set=gate["fetch_full_set"],
+            validation_mode=v3d is not None)
         # 1.3 — VOLUME 3D: il set CAPPI gia' allineato alla VMI e la VMI stessa
         # sono gia' in memoria qui. Li teniamo sul bundle per il publisher, che
         # gira in _run() DOPO il gate dry-run: nessuna seconda richiesta di
@@ -1559,6 +1603,15 @@ def _phase2_evaluate(bundle, config):
         bundle._volume_ref_rd = frames[-1]
         bundle._volume_vmi_rd = frames[-1]
         cappi_summary["hail_gate"] = gate
+        if v3d is not None:
+            cappi_summary["validate_3d"] = {
+                "enabled": True,
+                "force_full_cappi": True,
+                "strict_product_date": v3d["strict_product_date"],
+                "gate_would_have_fetched_full_set": bool(
+                    (gate.get("validation_counterfactual") or {})
+                    .get("fetch_full_set")),
+            }
         # 1.2.4.26 — livelli CAPPI EFFETTIVAMENTE disponibili dopo il gate
         # (full set o solo low/high) e dopo gli scarti per slot/shape: e' il
         # numero che severe_stack legge per decidere se MESH e' calcolabile
@@ -2385,6 +2438,36 @@ def _write_1_3_detail(bundle, out_dir):
             raise
 
 
+def _previous_volume_payload(bundle, config=None):
+    """Legge UNA volta il blob compatto del run precedente (branch radar-3d).
+
+    Il workflow ripristina ``data/radar/3d/volume.json`` PRIMA del motore. Il
+    payload e' messo in cache sul bundle (nessuna seconda lettura) e passato
+    sia al publisher sia a ``morphology``. Se il branch e' vuoto o il blob e'
+    degradato ritorna None con un warning esplicito: ``volume_growth`` restera'
+    null con il motivo reale, senza inferenza da 2 CAPPI.
+    """
+    if getattr(bundle, "_previous_volume_loaded", False):
+        return getattr(bundle, "_previous_volume_payload", None)
+    try:
+        from radar_engine import volume_publisher as vpub
+    except Exception as exc:
+        bundle.warnings.append(f"previous 3D volume import failed: {exc}")
+        bundle._previous_volume_payload = None
+        bundle._previous_volume_loaded = True
+        return None
+    path = ((config or {}).get("volume") or {}).get("previous_path") \
+        or vpub.VOLUME_BLOB_PATH
+    payload, reason = vpub.load_previous_volume(path)
+    if payload is None:
+        bundle.warnings.append(
+            "previous 3D volume unavailable ({}): volume_growth null with reason"
+            .format(reason))
+    bundle._previous_volume_payload = payload
+    bundle._previous_volume_loaded = True
+    return payload
+
+
 def _volume_payload_for_morphology(bundle, config=None):
     """Costruisce UNA volta sola il payload volume.json in memoria.
 
@@ -2427,10 +2510,13 @@ def _volume_payload_for_morphology(bundle, config=None):
         vcfg = (config or {}).get("volume") or {}
         thresholds = tuple(int(t) for t in (
             vcfg.get("thresholds") or vpub.DEFAULT_THRESHOLDS))
+        # Volume precedente dal blob ripristinato del branch radar-3d: senza
+        # di esso `volume_growth` resta null con "no_previous_volume".
+        prev_payload = _previous_volume_payload(bundle, config)
         try:
             payload = vpub.build_and_publish(
                 cappi, ref_rd, vmi_rd, timestamp_utc=timestamp_utc,
-                thresholds=thresholds, prev=None, motions={})
+                thresholds=thresholds, prev=prev_payload, motions={})
         except Exception as exc:
             bundle.warnings.append(
                 f"volume build failed for morphology: "
@@ -2503,8 +2589,9 @@ def _attach_morphology_organization(bundle, config=None):
         }
     vcfg = (config or {}).get("volume") or {}
     mcfg = vcfg.get("morphology")
+    prev_payload = _previous_volume_payload(bundle, config)
     _structures, summary = morph_mod.attach(
-        payload, structures, ref_rd=ref, cfg=mcfg)
+        payload, structures, ref_rd=ref, cfg=mcfg, prev=prev_payload)
     summary["cappi_levels"] = n_levels
     bundle.morphology_summary = summary
 
@@ -2512,7 +2599,9 @@ def _attach_morphology_organization(bundle, config=None):
 def _publish_volume(bundle, out_dir, config=None):
     """1.3 — Publisher del volume 3D (ADDITIVO, best-effort).
 
-    Usa SOLO i CAPPI reali gia' scaricati e allineati dal layer phase2 e la
+    Il blob vivo e' ``<out_dir>/3d/volume.json``, pubblicato sul branch
+    orphan ``radar-3d`` dal workflow (NON su main). Usa SOLO i CAPPI reali
+    gia' scaricati e allineati dal layer phase2 e la
     VMI dello stesso frame. Nessuna seconda richiesta di rete, nessun valore
     simulato: se i CAPPI non ci sono (phase2 disabilitato / nessun candidato /
     gate grandine con soli 2 livelli), il payload degrada con `null_reason`
@@ -2555,15 +2644,17 @@ def _publish_volume(bundle, out_dir, config=None):
         vcfg = (config or {}).get("volume") or {}
         thresholds = tuple(int(t) for t in (
             vcfg.get("thresholds") or vpub.DEFAULT_THRESHOLDS))
+        # Il volume precedente viene dal blob ripristinato del branch
+        # radar-3d (data/radar/3d/volume.json). Se il branch e' vuoto resta
+        # None e il growth e' null con "no_previous_volume": nessuna
+        # inferenza. Nessun moto riutilizzato: gli ID cella del publisher non
+        # coincidono con quelli del tracking, quindi l'asse usa l'asse
+        # maggiore dichiarato.
+        prev_payload = _previous_volume_payload(bundle, config)
         try:
             payload = vpub.build_and_publish(
                 cappi, ref_rd, vmi_rd, timestamp_utc=timestamp_utc,
-                thresholds=thresholds,
-                # Nessun registro di volumi precedenti: growth resta null con
-                # null_reason="no_previous_volume". Nessun moto riutilizzato:
-                # gli ID cella del publisher non coincidono con quelli del
-                # tracking, quindi l'asse usa l'asse maggiore dichiarato.
-                prev=None, motions={})
+                thresholds=thresholds, prev=prev_payload, motions={})
         except Exception as exc:
             bundle.warnings.append(
                 f"volume publisher failed: {exc.__class__.__name__}:{exc}")
@@ -2578,8 +2669,11 @@ def _publish_volume(bundle, out_dir, config=None):
     if payload.get("status") == "error":
         bundle.volume_path = None
         return None
+    # Cache 3D a dimensione costante: il volume NON va su main ma sul
+    # branch orphan radar-3d, in un solo blob. La copia locale serve da
+    # "precedente" per il run successivo (viene ripristinata dal workflow).
     try:
-        path = vpub.write_volume_payload(payload, out_dir)
+        path = vpub.write_volume_payload(payload, os.path.join(out_dir, "3d"))
         bundle.volume_path = path
         return path
     except Exception as exc:
@@ -2630,6 +2724,38 @@ def _fail_output(bundle, out_dir, reason):
     return bundle, _ERROR
 
 
+def _apply_validate_3d(config, enabled=False):
+    """Applica `--validate-3d` su una CONFIG, senza effetti collaterali altrove.
+
+    Con `enabled=False` NON scrive nessuna chiave: i run normali restano
+    byte-identici (gate grandine attivo, 2/10 CAPPI come da regola attuale).
+    Con True forza: 10 CAPPI sempre, nessun fallback di slot, dichiarazione
+    del controfattuale del gate nel summary del fetch. Nessun dato simulato e
+    nessuna modifica a SOI/rotazione: cambia solo QUANTI CAPPI si scaricano.
+    """
+    if not enabled:
+        return None
+    struct = config.setdefault("phase2", {}).setdefault("structure", {})
+    decl = dict(struct.get("validate_3d") or {})
+    decl.update({
+        "enabled": True,
+        "force_full_cappi": True,
+        "strict_product_date": True,
+        "applied_by": "main.py --validate-3d",
+    })
+    struct["validate_3d"] = decl
+    struct["mesh_levels_enabled"] = True
+    gate_cfg = dict(struct.get("hail_gate") or {})
+    gate_cfg["enabled"] = False
+    gate_cfg["disabled_reason"] = "validate_3d: set CAPPI completo sempre"
+    struct["hail_gate"] = gate_cfg
+    fetch_cfg = dict(struct.get("cappi_fetch") or {})
+    fetch_cfg["allow_previous_slot"] = False
+    fetch_cfg["validation_mode"] = True
+    struct["cappi_fetch"] = fetch_cfg
+    return decl
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Meteorisk Radar Engine — Fase 1")
     ap.add_argument("--out-dir", default=None)
@@ -2652,9 +2778,18 @@ def main(argv=None):
     ap.add_argument("--footprints", default=None, metavar="PATH",
                     help="scrive il footprint GeoJSON (celle + strutture) in "
                          "PATH; default: non scritto")
+    # 1.3-VAL3D — modalita' di Raccolta dati per la validazione scientifica.
+    # Default OFF: nessun comportamento cambiato. Con ON: 10 CAPPI in OGNI
+    # run, stesso productDate della VMI (nessun fallback a t-5min). Serve a
+    # costruire il dataset; NON abilita nuove diagnosi nella UI.
+    ap.add_argument("--validate-3d", dest="validate_3d", action="store_true",
+                    help="scarica i 10 CAPPI in ogni run (niente gate grandine "
+                         "14,7%% e niente fallback di slot) per la validazione "
+                         "di morphology_organization; default: OFF")
     args = ap.parse_args(argv)
 
     config = load_config(args.config)
+    validate_3d_decl = _apply_validate_3d(config, args.validate_3d)
     if args.keep_frames:
         config["source"]["keep_raw_frames"] = True
     try:
@@ -2702,6 +2837,8 @@ def main(argv=None):
     as_of_mode = getattr(bundle, "as_of_mode", None)
     if as_of_mode is not None:
         summary["as_of_mode"] = as_of_mode
+    if validate_3d_decl is not None:
+        summary["validate_3d"] = validate_3d_decl
     if fp_summary is not None:
         summary["footprints"] = fp_summary
     # 2026-11-12 — TEMPI PER STADIO: la tabella FINALE (che include il tempo di

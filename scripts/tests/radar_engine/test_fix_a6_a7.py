@@ -96,9 +96,12 @@ def test_a7_latest_volume_path_is_relative_not_runner_absolute():
     b = models.EngineBundle("ok", "2026-11-16T22:00:00Z", output.SOURCE_LABEL)
     b.volume = {"volume_available": True, "status": "ok", "cells": [1]}
     b.volume_path = ("/home/runner/work/MeteoRisk-Light-v2/MeteoRisk-Light-v2/"
-                     "data/radar/volume.json")
+                     "data/radar/3d/volume.json")
     vol = output.build_latest(b)["volume"]
-    assert vol["path"] == "data/radar/volume.json"
+    # Cache 3D: il blob vivo e' sul branch radar-3d, non su main.
+    assert vol["path"] == "data/radar/3d/volume.json"
+    assert vol["branch"] == "radar-3d"
+    assert vol["blob"] == "data/radar/3d/volume.json"
     assert "runner" not in vol["path"]
     assert os.path.isabs(vol["path"]) is False
 

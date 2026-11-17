@@ -424,7 +424,7 @@ def fetch_product_at(config, product, time_ms, period_s=None):
 def fetch_cappi_set(config, products, ref_time_ms, period_s=None, warnings=None,
                     sleeper=None, downloader=None, retry_wait_s=None,
                     retry_attempts=None, allow_previous_slot=None,
-                    poll_interval_s=None):
+                    poll_interval_s=None, validation_mode=False):
     """Scarica un SET di prodotti (CAPPI) allo STESSO timestamp della VMI.
 
     Perche' non `fetch_frames`: i CAPPI sono pubblicati ~2 min dopo VMI/VIL/ETM
@@ -449,6 +449,12 @@ def fetch_cappi_set(config, products, ref_time_ms, period_s=None, warnings=None,
       summary = {requested, fetched, fallback, failed, bytes, seconds,
                  ref_time_iso, products: {product: meta}}
     Non solleva MAI: un prodotto mancante degrada solo il campo che lo usa.
+
+    1.3-VAL3D (`validation_mode=True`, usato SOLO da --validate-3d): il
+    fallback a `ref_time_ms - period` viene DISATTIVATO. In un dataset di
+    validazione uno sfasamento di 5 minuti fra VMI e CAPPI non e' ammesso:
+    meglio un livello null con motivo che un profilo costruito con due volumi.
+    Il comportamento di default (False) resta identico, inclusi i contatori.
     """
     import time as _time
     scfg = (((config.get("phase2") or {}).get("structure") or {})
@@ -467,6 +473,11 @@ def fetch_cappi_set(config, products, ref_time_ms, period_s=None, warnings=None,
                                              CAPPI_POLL_INTERVAL_S))
         except (TypeError, ValueError):
             poll_interval_s = CAPPI_POLL_INTERVAL_S
+    if validation_mode:
+        # 1.3-VAL3D: divieto esplicito di mescolare slot. Il retry sullo stesso
+        # productDate resta (e' quello che garantisce l'allineamento); solo il
+        # ripiego a t-5min viene soppresso. Nessun dato inventato al suo posto.
+        allow_previous_slot = False
     if sleeper is None:
         sleeper = _time.sleep
     warnings = warnings if warnings is not None else []
@@ -592,6 +603,8 @@ def fetch_cappi_set(config, products, ref_time_ms, period_s=None, warnings=None,
     slots = sorted({int(m["used_time_ms"]) for m in metas.values()
                     if m.get("used_time_ms") is not None})
     summary = {
+        "validation_mode": bool(validation_mode),
+        "allow_previous_slot": bool(allow_previous_slot),
         "requested": len(products),
         "fetched": fetched,
         "fallback": sum(1 for m in metas.values() if m.get("fallback")),

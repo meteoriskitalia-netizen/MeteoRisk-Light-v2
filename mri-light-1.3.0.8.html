@@ -1750,6 +1750,48 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             .fc-tab { min-height: 34px; padding: 7px 8px; font-size: 11px; }
             .fc-body { padding: 0 8px 8px 8px; }
         }
+        /* ===================================================================
+           PRODOTTO SINOTTICO (1.3.0.8) — pannello dedicato + frasi di contesto.
+           Regole di stile: nessun gradiente, nessuna ombra, nessuna emoji nuova.
+           Tutti i simboli sono SVG inline costruiti da synoptic.json.
+           =================================================================== */
+        .syn-panel { max-width: 1200px; margin: 10px auto 0 auto; background: #1e293b; border: 1px solid #38bdf8; border-radius: 12px; padding: 14px 18px; display: none; box-sizing: border-box; min-width: 0; }
+        .syn-panel.active { display: block; }
+        .syn-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px 12px; flex-wrap: wrap; min-width: 0; margin-bottom: 10px; }
+        .syn-title { font-size: 14px; font-weight: 700; color: #38bdf8; }
+        .syn-badge { font-size: 11px; color: #94a3b8; }
+        .syn-msg { font-size: 12px; line-height: 1.45; color: #cbd5e1; overflow-wrap: anywhere; }
+        .syn-grid { display: flex; flex-wrap: wrap; gap: 12px; min-width: 0; }
+        .syn-card { flex: 1 1 420px; min-width: 0; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 10px 12px; box-sizing: border-box; }
+        .syn-card-head { font-size: 11px; font-weight: 700; color: #7dd3fc; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid #334155; }
+        .syn-map-wrap { width: 100%; min-width: 0; overflow: hidden; }
+        .syn-map-svg { display: block; width: 100%; height: auto; min-width: 0; }
+        .syn-feature { cursor: pointer; outline: none; }
+        .syn-feature:hover > *, .syn-feature:focus-visible > * { stroke-width: 2.4; }
+        .syn-feature:focus-visible > * { outline: 1px dashed #7dd3fc; }
+        .syn-feature text { font: 11px system-ui, sans-serif; fill: #e2e8f0; paint-order: stroke; }
+        .syn-detail { margin-top: 8px; font-size: 11px; line-height: 1.4; color: #cbd5e1; border-top: 1px solid #334155; padding-top: 6px; min-height: 1em; overflow-wrap: anywhere; }
+        .syn-stamp { font-size: 10.5px; line-height: 1.45; color: #94a3b8; overflow-wrap: anywhere; margin: 4px 0 0 0; }
+        .syn-discard { color: #fbbf24; font-weight: 600; }
+        .syn-gaps { font-size: 10.5px; line-height: 1.4; color: #94a3b8; overflow-wrap: anywhere; margin-top: 6px; }
+        .syn-tele { margin-top: 8px; }
+        .syn-tele-block { margin-bottom: 12px; }
+        .syn-tele-svg { display: block; width: 100%; height: auto; min-width: 0; }
+        .syn-tele-cap { font-size: 10px; line-height: 1.4; color: #94a3b8; overflow-wrap: anywhere; margin-top: 2px; }
+        .syn-burian { margin-top: 6px; font-size: 10.5px; line-height: 1.4; color: #fbbf24; overflow-wrap: anywhere; }
+        /* Frase di contesto/causa aggiunta alle frasi esistenti: vuota (display:none)
+           finche' synoptic.json non e' stato caricato, quindi byte-identica. */
+        .syn-aug { display: none; font-size: 10.5px; line-height: 1.35; color: #7dd3fc; margin-top: 3px; overflow-wrap: anywhere; }
+        .syn-aug.filled { display: block; }
+        .syn-aug .syn-aug-cause { color: #cbd5e1; }
+        .syn-aug .syn-aug-warn { color: #fbbf24; font-weight: 600; }
+        .fc-summary-text .syn-aug-inline { display: none; }
+        .fc-summary-text .syn-aug-inline.filled { display: inline; color: #7dd3fc; font-size: 10px; }
+        @media (max-width: 600px) {
+            .syn-panel { padding: 10px; }
+            .syn-card { flex: 1 1 100%; }
+            .syn-title { font-size: 12px; }
+        }
         /* === 1.2.4.85 - LAYER CRITICITA' IDROGEOLOGICA/IDRAULICA UFFICIALE (DPC) ===
            Pannello e voci di legenda del layer "Criticita' DPC". Colori dei 4
            livelli: sono quelli ufficiali del bollettino (style JSON del DPC:
@@ -1943,6 +1985,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <option value="live">Pannello LIVE</option>
             <option value="newindices" data-dev="1">Nuovi Indici</option>
             <option value="sources">Fonti e metodologie</option>
+            <option value="synoptic">Analisi sinottica</option>
         </select>
         <!-- FIX 1.3.0.7 - #btn-high-risk subito dopo il selettore prodotto (non in fondo).
              Il wrapper e' comandato da syncContextualToggles(); handler storico invariato. -->
@@ -2551,6 +2594,36 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         </div>
     </div>
 
+    <!-- ===================================================================
+         PRODOTTO SINOTTICO (1.3.0.8) — pannello dedicato con SVG inline da
+         data/radar/synoptic.json e grafici da data/climate/teleconnections.json.
+         Caricamento LAZY: nessuna richiesta al boot, solo all'apertura della
+         scheda o all'espansione di #forecast-details.
+         =================================================================== -->
+    <div id="synoptic-panel" class="syn-panel" aria-label="Analisi sinottica">
+        <div class="syn-head">
+            <span class="syn-title">Analisi sinottica</span>
+            <span class="syn-badge" id="syn-badge">in caricamento…</span>
+        </div>
+        <div id="syn-body" hidden>
+            <div class="syn-grid">
+                <div class="syn-card">
+                    <div class="syn-card-head">Mappa delle feature sinottiche</div>
+                    <div class="syn-map-wrap" id="syn-map-wrap"></div>
+                    <div class="syn-detail" id="syn-detail" role="status">Seleziona un simbolo sulla mappa per vederne i dettagli.</div>
+                    <p class="syn-stamp" id="syn-stamp"></p>
+                    <p class="syn-gaps" id="syn-gaps"></p>
+                    <div class="syn-burian" id="syn-burian" hidden></div>
+                </div>
+                <div class="syn-card">
+                    <div class="syn-card-head">Teleconnessioni — indici OSSERVATI</div>
+                    <div class="syn-tele" id="syn-tele"></div>
+                </div>
+            </div>
+        </div>
+        <div class="syn-msg" id="syn-msg" role="status" hidden></div>
+    </div>
+
     <!-- Pannello Fonti & Metodologie — fonti dati + metodologie dalla letteratura + disclaimer -->
     <div id="sources-panel" class="forecast-legend-panel sources-panel">
         <div class="fl-title" onclick="toggleSourcesPanelCollapse()">
@@ -2599,6 +2672,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                 <div class="src-list">
                     <div class="src-item"><b>Radar DPC Italia</b> — <a href="https://radar.protezionecivile.it/" target="_blank" rel="noopener">radar.protezionecivile.it</a> · <a href="https://radar-api.protezionecivile.it" target="_blank" rel="noopener">radar-api</a><br>Mosaico nazionale composito della rete radar del <b>Dipartimento della Protezione Civile</b>. Prodotti elaborati e visualizzati: VMI (Vertical Maximum Intensity), SRI (Surface Rainfall Intensity), SRT (Surface Rainfall Total su 1h, 3h, 6h, 12h, 24h), HRD (Heavy Rain Detection), TEMP (top delle nubi) e IR_108. © Dipartimento della Protezione Civile.</div>
                     <div class="src-item"><b>Struttura convettiva &amp; Tracking (SOI Engine)</b> — Algoritmo analitico su dati radar DPC: clustering delle celle temporalesche, calcolo dell'indice SOI (structural organization index), cono cinematico di forecast a brevissimo termine (nowcasting ≤2h), archivio rolling traccia 2h su branch <code>radar-history</code> e stima proxy di probabilità grandine e asimmetria strutturale.</div>
+                    <div class="src-item"><b>Limiti Doppler (dichiarati esplicitamente, non aggirati)</b> — la velocità radiale disponibile arriva da <b>soli 2 radar francesi</b> (Aléria / <code>frale</code> e Ajaccio / <code>fraja</code>) con prodotto <code>VRADH</code>; senza scan VRADH lo stato è <code>no_opera_vradh_data</code> e non si inventa alcun dato. Il fascio su <b>Roma sta intorno ai ~6 km di quota</b>: campiona l'alta troposfera, non la bassa atmosfera. Il <b>dealiasing è region-based</b>, <b>non dual-PRF come il DWD</b>. I <b>4 stati</b> (NO_ROTATION, ROTATION_SUSPECTED, ROTATION_DETECTED, MESOCYCLONE_CANDIDATE) sono classi derivate <b>solo dalla velocità radiale</b>: mai l'etichetta «confermato». Dal <b>mosaico DPC 2D</b> (singola riflettività, senza velocità radiale, azimuth o elevazione) <b>nessuna rotazione è misurabile</b>.</div>
                     <div class="src-item"><b>Radar RainViewer</b> — <a href="https://api.rainviewer.com/public/weather-maps.json" target="_blank" rel="noopener">api.rainviewer.com</a> · Mosaico radar globale continuo e nowcasting a breve termine. © RainViewer.</div>
                     <div class="src-item"><b>Radar OPERA / LibreWXR</b> — <a href="https://librewxr.net/" target="_blank" rel="noopener">librewxr.net</a> · Composito europeo radar della rete OPERA (EUMETNET).</div>
                     <div class="src-item"><b>Embed radar DPC ufficiale</b> — <a href="https://radar.protezionecivile.it/" target="_blank" rel="noopener">radar.protezionecivile.it</a> (interfaccia radar ufficiale della Protezione Civile visualizzabile direttamente in iframe integrato).</div>
@@ -2654,11 +2728,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                     <div class="src-item"><b>Deep-layer shear 0-6 km (DLS)</b> — variazione del vento con la quota. <span class="src-ref">≥15-18 m/s convezione organizzata · &gt;20 m/s ambiente da cella organizzata.</span></div>
                     <div class="src-item"><b>WMAXSHEAR</b> = √(2·CAPE)·DLS — combina energia e shear. <span class="src-ref">Valori tipici Europa (Taszarek et al. 2017): &lt;500 marginale · 500-800 organizzazione possibile · 800-1200 favorevole a celle organizzate · &gt;1200 marcatamente favorevole.</span></div>
                     <div class="src-item"><b>SRH 0-3 km</b> — elicità storm-relative (storm motion di Bunkers). <span class="src-ref">50-120 elicitazione debole · 120-180 significativa · &gt;250 favorevole a celle organizzate. SRH 0-1 km per la tornadogenesi.</span></div>
-                    <div class="src-item"><b>EHI</b> = CAPE/1000 · SRH3/150. <span class="src-ref">Rasmussen &amp; Blanchard 1998: &gt;1.0 potenziale cella organizzata · &gt;2.0 alta probabilità. De Martin et al. 2020 (preTEMP, Italia): &gt;0.5 temporale forte · &gt;1.4 estremi.</span></div>
-                    <div class="src-item"><b>SCP</b> = CAPE/1000 · min(DLS/20,1) · min(SRH3/50,1.5). <span class="src-ref">Thompson et al. 2003: SCP&gt;1 potenziale cella organizzata.</span></div>
+                    <div class="src-item"><b>EHI</b> = CAPE/1000 · SRH3/150 — <b>questa è la forma in uso</b> (equivalente a CAPE·SRH3/150000, taratura italiana preTEMP / De Martin et al. 2020). Il canone originario <b>Hart &amp; Korotky 1991</b> è CAPE·SRH/160000: i due denominatori (150000 vs 160000) esprimono due convenzioni diverse, non vanno uniformati “a naso”. <span class="src-ref">Rasmussen &amp; Blanchard 1998: &gt;1.0 potenziale cella organizzata · &gt;2.0 alta probabilità. De Martin et al. 2020 (preTEMP, Italia): &gt;0.5 temporale forte · &gt;1.4 estremi.</span></div>
+                    <div class="src-item"><b>SCP</b> = CAPE/1000 · min(DLS/20,1) · min(SRH3/100,1.5). <b>Il divisore /100 è la forma in uso nel codice: scelta locale NON calibrata</b> (il canone Thompson è /50). <span class="src-ref">Thompson et al. 2003: SCP&gt;1 potenziale cella organizzata. La soglia SCP≥1 adottata qui è calibrata sul /100: NON riscrivere la formula senza ricalibrarla.</span></div>
+                    <div class="src-item sviluppo-only-item" hidden title="Occorrenza climatologica condizionata (Ingrosso 2023, Eq.3), non validata su dati italiani — NON è un rischio 0-1. Campo calcolato, non consumato; visibile solo in Sviluppo."><b>probTornado — solo Sviluppo, NON validato</b> = 10^(−6,6 + WMAX/(3,1 + 5,2·WMAX/WS700)), con WMAX=√(2·CAPE) e WS700 = DLS03. <b>Occorrenza climatologica condizionata (Ingrosso 2023), non validata su dati italiani — NON è un rischio 0-1</b>: dominio atteso 10⁻⁷…10⁻³, mai una probabilità di allerta. Non mostrato nella vista pubblica.</div>
+                    <div class="src-item sviluppo-only-item" hidden title="WMAXSHEAR 0-3 km = sqrt(2*CAPE)*DLS03 — calcolato ma non consumato; solo Sviluppo finché non validato."><b>WMAXSHEAR 0-3 km — solo Sviluppo, NON validato</b> = √(2·CAPE)·DLS03: corretto dalla forma errata che usava SRH3 al posto dello shear 0-3 km. Calcolato, non consumato; resta in Sviluppo finché non validato.</div>
                     <div class="src-item"><b>SHIP</b> — Significant Hail Parameter (formula operativa USA con caps su umidità/shear/T500 e correzioni per CAPE&lt;1300, lapse rate&lt;5.8, freezing level). <span class="src-ref">&lt;1 marginale · 1-2 significativa · &gt;2 marcato rischio grandine &gt;2 cm.</span></div>
-                    <div class="src-item sviluppo-only-item" hidden><b>Mesociclone</b> (badge NWP, livello 5, solo in modalità Sviluppo): temporale attivo E CAPE≥1000 (o ≥500 con DLS≥22 e SRH3≥120) E DLS≥20 m/s E SRH3≥100 E SCP≥1.0. È una stima ambientale del modello, non un rilevamento radar e non un'osservazione diretta della cella.</div>
-                    <div class="src-item"><b>Convezione organizzata: potenziale o evento</b> (logica aggiornata in 1.2.4.95). La classe <b>EVENTO</b> usa il codice WMO 95-99 nell'ora valida oppure una cella radar osservata, nel pannello &laquo;Struttura convettiva&raquo;. Il codice WMO descrive il fenomeno istantaneo; la pioggia &gt; 0,1 mm/h e' un accumulo orario separato, non un secondo gate. Senza innesco la stessa configurazione &egrave; <b>NESSUNA CRITICIT&Agrave; ATTIVA</b>: la provincia resta verde/Basso come nelle giornate senza rischi; l'ambiente favorevole resta descritto nei dettagli, non &egrave; uno stato della mappa dei rischi. Il gate ambientale ha due sole gambe con fonte: <b>WMAXSHEAR 0-6 km &ge; 1000 m&sup2;/s&sup2;</b> (<span class="src-ref">Taszarek et al. 2017; Gr&uuml;nwald &amp; Brooks 2011</span>) <b>oppure SRH 0-3 km &ge; 100 m&sup2;/s&sup2; con CAPE &ge; 500 J/kg</b> (<span class="src-ref">Ingrosso et al. 2020</span>). <b>WMAXSHEAR 0-3 km &ge; 500 &egrave; stato rimosso</b> (nessuna fonte verificabile). <b>EHI 0-3 km resta solo display</b>: &ge; 1,0 &egrave; una convenzione delle US Plains (<span class="src-ref">Rasmussen &amp; Blanchard 1998</span>) e la soglia europea pubblicata &egrave; 0,065 con SRH 0-1 km, quindi non confrontabile. <b>CAPE saturato a 800 J/kg</b> e <b>veto di umidit&agrave;</b>: con RH 850-700 &lt; 50% la classe scende di un livello con il motivo nel tooltip (<span class="src-ref">Westermayer et al. 2017, Meteorol. Z. 26:59</span>: sopra 800 J/kg la frequenza di fulmini resta al ~20%; RH &lt; 50% &rarr; frequenza &lt; 0,15). Le etichette &laquo;organizzati&raquo;/&laquo;celle organizzate&raquo; compaiono solo se il gate di coerenza passa; altrimenti &laquo;temporali possibili&raquo;. Il livello di rischio si calcola <b>per modello e per ora</b> e poi si prende il massimo: CAPE, shear, SRH, SCP e innesco non vengono mai presi da ore o modelli diversi. <b>Classificazione dell'organizzazione in TRE livelli (1.2.4.94)</b>: il testo del temporale non dipende pi&ugrave; dal solo innesco. <b>Con organizzazione</b> (la classe pi&ugrave; forte<span class="sviluppo-only-item" hidden>: &laquo;mesociclone possibile&raquo;</span>) se i gate di detectMesocyclone sono soddisfatti (CAPE/DLS/SRH/SCP); altrimenti <b>con possibile organizzazione (ambiente favorevole)</b> se almeno una fra <b>WMAXSHEAR 0-6 km &ge; 800 m&sup2;/s&sup2;</b> (Taszarek et al. 2017/2020: 800-1200 &egrave; la fascia favorevole a celle organizzate), <b>shear 0-6 km &ge; 18 m/s</b> (15-18 m/s &egrave; convezione organizzata), <b>SRH 0-3 km &ge; 100 m&sup2;/s&sup2;</b>; altrimenti <b>senza organizzazione prevista</b>. Con la modalit&agrave; Sviluppo spenta la categoria del livello 5 non si nomina: la stessa classe si legge &laquo;cella organizzata possibile&raquo;. Il calcolo di CAPE, shear, SRH e SCP non cambia: cambia solo la classificazione del testo. Se i due modelli non concordano, il testo mostra la classe pi&ugrave; forte (meso &gt; ambiente favorevole &gt; senza organizzazione): ogni classe &egrave; calcolata con i campi del suo modello, nessun campo viene mescolato fra i due.</div>
+                    <div class="src-item sviluppo-only-item" hidden><b>Mesociclone</b> (badge NWP, livello 5, solo in modalità Sviluppo): temporale attivo E <b>CAPE≥500 oppure ≥150 con HSLC</b> (DLS≥18 m/s e SRH3≥80) E DLS≥18 m/s E SRH3≥80 E (SCP≥1.0 oppure EHI≥0.5). Valori allineati a <code>mesocycloneEnvironment()</code>/<code>detectMesocyclone()</code> (il vecchio testo citava CAPE≥1000). È una stima ambientale del modello, non un rilevamento radar e non un'osservazione diretta della cella.</div>
+                    <div class="src-item"><b>Convezione organizzata: potenziale o evento</b> (logica aggiornata in 1.2.4.95). La classe <b>EVENTO</b> usa il codice WMO 95-99 nell'ora valida oppure una cella radar osservata, nel pannello &laquo;Struttura convettiva&raquo;. Il codice WMO descrive il fenomeno istantaneo; la pioggia &gt; 0,1 mm/h e' un accumulo orario separato, non un secondo gate. Senza innesco la stessa configurazione &egrave; <b>NESSUNA CRITICIT&Agrave; ATTIVA</b>: la provincia resta verde/Basso come nelle giornate senza rischi; l'ambiente favorevole resta descritto nei dettagli, non &egrave; uno stato della mappa dei rischi. Il gate ambientale ha due sole gambe con fonte: <b>WMAXSHEAR 0-6 km &ge; 800 m&sup2;/s&sup2;</b> (<span class="src-ref">soglia in uso CONV_WMS_MIN = 800; Taszarek et al. 2017 e Gr&uuml;nwald &amp; Brooks 2011 citano 1000 m&sup2;/s&sup2; per i regimi severi</span>) <b>oppure SRH 0-3 km &ge; 80 m&sup2;/s&sup2; con CAPE &ge; 150 J/kg</b> (<span class="src-ref">valori in uso in assessConvOrg; Ingrosso et al. 2020 cita 100/500</span>). <b>WMAXSHEAR 0-3 km &ge; 500 &egrave; stato rimosso</b> (nessuna fonte verificabile). <b>EHI 0-3 km resta solo display</b>: &ge; 1,0 &egrave; una convenzione delle US Plains (<span class="src-ref">Rasmussen &amp; Blanchard 1998</span>) e la soglia europea pubblicata &egrave; 0,065 con SRH 0-1 km, quindi non confrontabile. <b>CAPE saturato a 800 J/kg</b> e <b>veto di umidit&agrave;</b>: con RH 850-700 &lt; 50% la classe scende di un livello con il motivo nel tooltip (<span class="src-ref">Westermayer et al. 2017, Meteorol. Z. 26:59</span>: sopra 800 J/kg la frequenza di fulmini resta al ~20%; RH &lt; 50% &rarr; frequenza &lt; 0,15). Le etichette &laquo;organizzati&raquo;/&laquo;celle organizzate&raquo; compaiono solo se il gate di coerenza passa; altrimenti &laquo;temporali possibili&raquo;. Il livello di rischio si calcola <b>per modello e per ora</b> e poi si prende il massimo: CAPE, shear, SRH, SCP e innesco non vengono mai presi da ore o modelli diversi. <b>Classificazione dell'organizzazione in TRE livelli (1.2.4.94)</b>: il testo del temporale non dipende pi&ugrave; dal solo innesco. <b>Con organizzazione</b> (la classe pi&ugrave; forte<span class="sviluppo-only-item" hidden>: &laquo;mesociclone possibile&raquo;</span>) se i gate di detectMesocyclone sono soddisfatti (CAPE/DLS/SRH/SCP); altrimenti <b>con possibile organizzazione (ambiente favorevole)</b> se almeno una fra <b>WMAXSHEAR 0-6 km &ge; 800 m&sup2;/s&sup2;</b> (Taszarek et al. 2017/2020: 800-1200 &egrave; la fascia favorevole a celle organizzate), <b>shear 0-6 km &ge; 18 m/s</b> (15-18 m/s &egrave; convezione organizzata), <b>SRH 0-3 km &ge; 100 m&sup2;/s&sup2;</b>; altrimenti <b>senza organizzazione prevista</b>. Con la modalit&agrave; Sviluppo spenta la categoria del livello 5 non si nomina: la stessa classe si legge &laquo;cella organizzata possibile&raquo;. Il calcolo di CAPE, shear, SRH e SCP non cambia: cambia solo la classificazione del testo. Se i due modelli non concordano, il testo mostra la classe pi&ugrave; forte (meso &gt; ambiente favorevole &gt; senza organizzazione): ogni classe &egrave; calcolata con i campi del suo modello, nessun campo viene mescolato fra i due.</div>
                 </div>
             </div>
             <div class="fl-section">
@@ -2686,7 +2762,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                 <div class="src-list">
                     <div class="src-item"><b>Weisman &amp; Klemp (1982)</b> — numero di Bulk Richardson e struttura della cella organizzata (BRN &lt;50). Mon. Wea. Rev., 110(4).</div>
                     <div class="src-item sviluppo-only-item" hidden><b>Davies-Jones (1984)</b> — elicità storm-relative (SRH) e sviluppo del mesociclone.</div>
-                    <div class="src-item"><b>Hart &amp; Korotky (1991)</b> — Energy-Helicity Index (EHI = CAPE·SRH/160000).</div>
+                    <div class="src-item"><b>Hart &amp; Korotky (1991)</b> — Energy-Helicity Index, <b>canone originale</b> EHI = CAPE·SRH/160000. <b>Forma effettivamente in uso in questa app</b>: EHI = CAPE/1000 · SRH3/150 = CAPE·SRH3/150000 (taratura italiana De Martin et al. 2020). Le due forme hanno denominatori diversi e coesistono: NON uniformarle.</div>
                     <div class="src-item"><b>Rasmussen &amp; Blanchard (1998)</b> — climatologia di radiosonde per celle organizzate e tornado (MWR 126): EHI&gt;1.0 potenziale cella organizzata, &gt;2.0 alta probabilità; 90% dei temporali ordinari con EHI&lt;0.77; SRH0-3&lt;100 nella maggior parte degli ordinari.</div>
                     <div class="src-item"><b>Thompson, Edwards &amp; Mead (2003/2004/2007)</b> — SCP e STP con layer "effettivi": SCP = MUCAPE/1000 · (shear eff./20) · (SRH eff./50), shear eff. tagliato 10-20 m/s, SCP&gt;1 = ambiente da cella organizzata.</div>
                     <div class="src-item"><b>Craven &amp; Brooks (2004)</b> — prodotto CAPE·DLS (m³/s³) &gt;20.000 per temporali significativi.</div>
@@ -2696,6 +2772,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                     <div class="src-item"><b>Grünwald &amp; Brooks (2011)</b> — WMAX/DLS per intensità dei tornado; soglia WMAXSHEAR 1000 m²/s² per i regimi severi.</div>
                     <div class="src-item"><b>De Martin et al. (2020)</b> — radiosondaggi di prossimità in Italia (preTEMP): EHI0-3 &gt;0.5 forti, &gt;1.4 estremi; prodotti limite CAPE·EHI e CAPE·DLS per ridurre falsi allarmi; <b>De Martin (2023)</b> — celle organizzate/trombe in Pianura Padana il 19/09/2021 (CAPE&gt;1200, SRH0-3≈200).</div>
                     <div class="src-item"><b>Ingrosso et al. (2020)</b> — precursori di tornado significativi (EF2+) in Italia 2000-2018 (Atmosphere 11): shear basso-strati e profondo + CAPE medio-alto affidabili; probabilità massima quando un SOLO ingrediente è molto alto (analisi copula: CAPE e wind shear indipendenti).</div>
+                    <div class="src-item sviluppo-only-item" hidden><b>Ingrosso (2023), Eq.3</b> — log10(P) = −6,6 + WMAX/(3,1 + 5,2·WMAX/WS700), con WMAX=√(2·CAPE) e WS700 = shear 0-3 km: <b>occorrenza climatologica condizionata</b>, non validata su dati italiani — NON è un rischio 0-1 (dominio 10⁻⁷…10⁻³). Usata solo in Sviluppo.</div>
                     <div class="src-item"><b>Sherburn &amp; Parker (2014)</b> — climatologia ed ingredienti della convezione significativa HSLC (high-shear, low-CAPE).</div>
                     <div class="src-item"><b>Púčik et al. (2015), Taszarek &amp; Kolendowicz (2013)</b> — LCL e shear nei casi tornadici europei; <b>Miglietta &amp; Matsangouras (2018)</b> — climatologia aggiornata di tornado e trombe marine in Italia.</div>
                     <div class="src-item"><b>Pryor &amp; Ellrod (2004/2015)</b> — Wang Microburst Severity Index (MWPI); <b>Miglietta et al. (2025)</b> — wet microburst del Mediterraneo (caso di Taranto 2019): CAPE, profilo "inverted-V", lapse rate 850-700, quota di gelo.</div>
@@ -2761,6 +2838,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <summary>
                 <span class="fc-summary-label">Previsione</span>
                 <span class="fc-summary-text" id="fc-summary-text">— seleziona una località</span>
+                <span class="syn-aug" id="syn-summary-aug"></span>
             </summary>
             <div class="fc-body">
                 <div class="fc-tabs" role="tablist" aria-label="Vista della previsione">
@@ -2785,7 +2863,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                             <span class="is-badge" id="italia-synth-badge">in attesa del dataset…</span>
                         </div>
                         <div class="is-cols" id="italia-synth-cols"></div>
-                        <p class="is-note"><b>Sintesi dei punti provincia del dataset, non di un campo continuo.</b> Temperature per fascia altimetrica: pianura &lt;300 m, collina 300-800 m, montagna &gt;800 m; le fasce con meno di tre province sono omesse; una provincia può contribuire a più fasce. Fasce orarie 0-6, 6-12, 12-18, 18-24; mm eq. = equivalente acqua. Cielo dalla copertura nuvolosa reale (cloud_cover); neve solo con equivalente acqua &gt; 0 nelle 24 h; raffiche p50-p90, punte oltre 100 km/h solo se p99 &ge; 100; nessun toponimo nel testo, i nomi restano nei tooltip. Soglie: pioggia debole &le; 14,5 mm (p75), diffusa &le; 39,3 (p90), intensa oltre; rovesci quando la maggioranza dei punti bagnati ha un&rsquo;ora 80-82/95-96/99 e il massimo supera 14,5 mm; quota neve = freezing level &minus; 500 m, &plusmn;300 m. Temperature e gelate: massime e minime comprese fra le fasce mostrate; gelate indicate solo per le fasce con minima &le; 0 &deg;C (pianura, vallate, montagna); quota neve dalle sole ore con neve, distinta per zona quando la forbice supera 400 m, altrimenti una quota &laquo;circa&raquo;.</p>
+                        <p class="is-note"><b>Sintesi dei punti provincia del dataset, non di un campo continuo.</b> Temperature per fascia altimetrica: pianura &lt;300 m, collina 300-800 m, montagna &gt;800 m; le fasce con meno di tre province sono omesse; una provincia può contribuire a più fasce. Fasce orarie 0-6, 6-12, 12-18, 18-24; mm eq. = equivalente acqua. Cielo derivato dal weathercode (0/1/2/3): <b>cloud_cover non è presente nel dataset</b>; neve solo con equivalente acqua &gt; 0 nelle 24 h; raffiche p50-p90, punte oltre 100 km/h solo se p99 &ge; 100; nessun toponimo nel testo, i nomi restano nei tooltip. Soglie: pioggia debole &le; 14,5 mm (p75), diffusa &le; 39,3 (p90), intensa oltre; rovesci quando la maggioranza dei punti bagnati ha un&rsquo;ora 80-82/95-96/99 e il massimo supera 14,5 mm; quota neve = freezing level &minus; 500 m, &plusmn;300 m. Temperature e gelate: massime e minime comprese fra le fasce mostrate; gelate indicate solo per le fasce con minima &le; 0 &deg;C (pianura, vallate, montagna); quota neve dalle sole ore con neve, distinta per zona quando la forbice supera 400 m, altrimenti una quota &laquo;circa&raquo;.</p>
                     </div>
                     <!-- 1.2.4.90 - ACCUMULO OSSERVATO ULTIMA ORA (SRT1, Radar-DPC).
                          Il corpo resta nascosto finche' il JSON non e' leggibile: ogni
@@ -2956,9 +3034,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.7';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-11-17';
+    const APP_VERSION = '1.3.0.8';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-11-18';
     const APP_CHANGELOG = [
+    { version: '1.3.0.8', date: '2026-11-18', changes: [
+        'Unificazione di tutte le consegne 1.3: motore radar con cache 3D e validazione 3D (654 test radar engine, 10 hydro, 17 validazione), correzioni scientifiche allineate al codice, pannello di analisi sinottica e teleconnessioni NOAA con 17 serie e filtro lead uguale a 0 e member uguale a 0.',
+        'Serie giornaliera delle centraline letta dal server da data/stations/daily_series.json: un solo blob vivo sul branch orphan stations-daily, senza crescita cumulativa nella storia di main. Etichette SERVER / LOCALE / SERVER non aggiornato.',
+        'Bump release: VERSION=1.3.0.8 con BUILD=138, sw.js con tre cache rinnovate, README aggiornato, test .mjs allineati e rimozione del vecchio html 1.3.0.7. Nessun dato simulato e nessuna soglia USA.',
+        'NON verificato: resa visiva e click nel browser interno, esecuzione end-to-end su GitHub Actions dei nuovi job stations e deploy-pages, sintassi bash dei blocchi run:, completezza dei produttori di synoptic.json e dei dati teleconn in produzione.',
+    ]},
     { version: '1.3.0.7', date: '2026-11-17', changes: [
         'Serie centraline: messaggio esplicito con 1 o 2 osservazioni raccolte oggi, senza inventare punti passati; la curva NWP tratteggiata resta invariata.',
         'Prodotto di default: Mappa dei rischi selezionata all avvio e stato attivo allineato senza nuovi handler.',
@@ -5813,14 +5897,18 @@ function enabledLightningSourceIds() {
         //   none       -> nessuna delle tre
         // Il calcolo di CAPE/shear/SRH/SCP non cambia: cambia solo la classificazione.
         var orgFields = orgFromAgg(agg);
-        // Separazione TEMPORALE DI CALORE vs CONVEZIONE FORZATA.
+        // Separazione CONVEZIONE DA INSTABILITÀ vs CONVEZIONE FORZATA.
+        // NOTA STORICA: la categoria si chiama `heat` per ragioni storiche, ma descrive
+        // convezione da INSTABILITÀ (aria umida instabile), NON da temperatura: il nome
+        // non va letto come "caldo" e non dipende dalla stagione. La variabile r.heat
+        // resta invariata (rinominarla cambierebbe la logica).
         // Un rovescio convettivo (showers) con SHEAR/indici severi BASSI è quasi sempre un
-        // temporale DI CALORE (aria umida e instabile da riscaldamento pomeridiano, ma SENZA
+        // rovescio da instabilità (aria umida e instabile da riscaldamento pomeridiano, ma SENZA
         // organizzazione: shear debole, niente elicità). Con shear/SRH/WMS ALTIt è invece
         // convessione forzata (potenziale severo: grandine/cella organizzata, già gestite dalle icone
         // dedicate in modo Sviluppo). L'orario del picco CAPE (12-18) rafforza l'ipotesi di
-        // calore, ma il discriminante primario è lo shear. Coerente con detectMesocyclone/
-        // sevScore, che restano bassi nei temporali di calore (nessun falso allarme severo).
+        // instabilità, ma il discriminante primario è lo shear. Coerente con detectMesocyclone/
+        // sevScore, che restano bassi in questi casi (nessun falso allarme severo).
         var heatShower = conv && !(si.shear06 >= 20 || si.scp >= 0.5 || (h && h.wmaxshear >= 500) || (agg.cape || 0) >= 2500);
         // Ambiente convettivo (gate anti "a secco"): senza temporale attivo né probabilità
         // di rovescio né pioggia reale, non si mostrano icone grandine/cella organizzata anche se
@@ -5893,7 +5981,7 @@ function enabledLightningSourceIds() {
             // convettivo reale (showers>0.1) è ben più rilevante di una stratiforme debole
             // (pioggia concentrata in breve tempo, possibili ruscellamenti localizzati),
             // quindi resta un rischio LIEVE (livello 1), non solo informativo. Se lo shear
-            // è debole è un temporale di calore (heat), altrimenti convezione forzata.
+            // è debole è un rovescio da instabilità (heat), altrimenti convezione forzata.
             risks.push({ id: 'rain', level: 1, conv: true, heat: heatShower });
         } else if (!isThunder && (agg.prob >= 10 || agg.rain > 0.1)) {
             // PIOGGIA INFORMATIVA sub-soglia: pioggerella o rovescio STRATIFORME breve sotto
@@ -6121,7 +6209,7 @@ function enabledLightningSourceIds() {
     function riskLevelLine(r, agg) {
         switch (r.id) {
             case 'rain':
-                if (r.heat) return ['Temporale/rovescio di calore isolato, di breve durata', 'Temporale di calore con rovesci intensi', 'Temporale di calore forte, con rovesci e fulmini frequenti', 'Temporale di calore estremo'][r.level - 1];
+                if (r.heat) return ['Rovescio convettivo isolato, di breve durata', 'Rovesci convettivi intensi', 'Convezione attiva con fulmini frequenti', 'Rovesci estremi localizzati'][r.level - 1];
                 if (r.conv) return ['Rovesci convettivi di breve durata e localizzati', 'Rovesci convettivi intensi', 'Rovesci convettivi forti e rapidi, con possibili nubifragi', 'Nubifragi convettivi estremi'][r.level - 1];
                 return ['Rovesci sparsi di debole entità', 'Rovesci diffusi con piogge moderate', 'Piogge intense con rovesci forti', 'Piogge torrenziali con nubifragi'][r.level - 1];
             case 'wind':         return ['Vento moderato con raffiche', 'Vento forte con raffiche sostenute', 'Vento molto forte con raffiche violente', 'Vento di burrasca con raffiche devastanti'][r.level - 1];
@@ -6179,10 +6267,10 @@ function enabledLightningSourceIds() {
         switch (r.id) {
             case 'rain':
                 if (r.heat) return [
-                    'Temporale di calore: rovescio improvviso di breve durata, possibile grandine piccola e fulmini; il rischio principale è il rovescio localizzato, non l\u2019organizzazione severa.',
-                    'Temporale di calore intenso: rovesci a forte intensità in poco tempo, possibili allagamenti localizzati e grandine.',
-                    'Temporale di calore forte: rovesci molto intensi e frequenti fulminazioni, possibili allagamenti e raffiche convettive.',
-                    'Temporale di calore estremo: rovesci torrenziali localizzati, allagamenti rapidi e intense fulminazioni.'
+                    'Rovescio da instabilità: rovescio improvviso di breve durata, possibile grandine piccola e fulmini; il rischio principale è il rovescio localizzato, non l\u2019organizzazione severa.',
+                    'Convezione da instabilità intensa: rovesci a forte intensità in poco tempo, possibili allagamenti localizzati e grandine.',
+                    'Convezione da instabilità forte: rovesci molto intensi e frequenti fulminazioni, possibili allagamenti e raffiche convettive.',
+                    'Convezione da instabilità estrema: rovesci torrenziali localizzati, allagamenti rapidi e intense fulminazioni.'
                 ][r.level - 1];
                 if (r.conv) return [
                     'Rovescio convettivo breve: possibile ruscellamento e allagamenti puntuali in pochi minuti.',
@@ -6256,7 +6344,7 @@ function enabledLightningSourceIds() {
                 return 'Condizioni meteo potenzialmente avverse nella zona: seguire gli aggiornamenti e prestare attenzione.';
             case 'supercell': {
                 if (r.potential) {
-                    return 'Solo ambiente favorevole: nessun temporale previsto in questa ora. Non ci sono criticita\' attive: il colore resta verde/Basso finche\' un codice WMO 95-99 non compare nella stessa ora.';
+                    return 'Ambiente favorevole, ma nessun temporale previsto in questa ora.';
                 }
                 if (r.mesoCapped) {
                     return 'Ambiente previsto favorevole a convezione organizzata: possibile organizzazione convettiva, non osservata (il dettaglio della categoria e\' solo in modalita Sviluppo). Seguire gli aggiornamenti.';
@@ -6316,11 +6404,26 @@ function enabledLightningSourceIds() {
             '</div>';
 
         var list, note;
-        if (!risks.length) {
+        // 1.3.0.7 — convezione organizzata POTENZIALE (nessun innesco): non e' una
+        // criticita' attiva, quindi va elencata SOLO con Sviluppo ON come voce tecnica.
+        // Si filtra SOLTANTO l'elenco: colore (verde/Basso), soglie e assessConvOrg
+        // restano invariati, cosi' come tutte le altre voci del riepilogo.
+        var listedRisks = isSviluppoActive ? risks : risks.filter(function(r) {
+            return !(r.id === 'supercell' && r.potential);
+        });
+        if (!listedRisks.length) {
             list = '<li class="rs-empty">Nessuna criticità rilevante per la zona selezionata.</li>';
             note = '';
         } else {
-            list = risks.map(function(r) {
+            list = listedRisks.map(function(r) {
+                // Voce tecnica (solo Sviluppo): UNA frase sola. Il dettaglio del
+                // codice WMO 95-99 va nel title, non nel testo visibile.
+                if (r.id === 'supercell' && r.potential) {
+                    return '<li class="rs-conv-potential" title="' + escapeHtml(
+                        'Ambiente favorevole a convezione organizzata SENZA innesco nella stessa ora: '
+                        + 'il colore resta verde/Basso finche\' un codice WMO 95-99 non compare nella stessa ora.'
+                    ) + '"><b>Convezione organizzata potenziale</b> — Ambiente favorevole, ma nessun temporale previsto in questa ora.</li>';
+                }
                 var def = RISK_DEFS[r.id] || { label: r.id };
                 var infoTag = r.info ? ' <span class="rs-info">(previsione, non critica)</span>' : '';
                 var name = (r.id === 'supercell')
@@ -16733,6 +16836,12 @@ stopSyncPlay();
     // LICENZA: CC BY 4.0 con attribuzione per rete (campo `attribution` del file).
     var STATIONS_INDEX_URL = 'https://meteoriskitalia-netizen.github.io/MeteoRisk-Light-v2/data/stations/index.json';
     var STATIONS_FULL_URL = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/main/data/stations/latest.json';
+    // SERIE GIORNALIERA (1.3.0.8): fonte PRIMARIA e' il blob scritto lato server
+    // dal workflow stations.yml (ogni 10 min): data/stations/daily_series.json.
+    // Un solo blob vivo, sovrascritto a ogni run e azzerato a mezzanotte LOCALE
+    // Europe/Rome. Il localStorage resta SOLO fallback esplicito, etichettato.
+    var STATIONS_DAILY_URL = 'https://meteoriskitalia-netizen.github.io/MeteoRisk-Light-v2/data/stations/daily_series.json';
+    var STATIONS_DAILY_RAW_URL = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/refs/heads/stations-daily/data/stations/daily_series.json';
     var STATIONS_MAX_OBS_AGE_MIN = 90;   // filtro: obs_time piu' vecchio di 90 min -> scartato
     var STATIONS_STALE_MIN = 120;        // file piu' vecchio di 2 h -> badge "dato fermo"
     var STATIONS_MAX_POINTS = 250;       // TETTO delle etichette disegnate (= STATIONS_LABEL_MAX)
@@ -16764,6 +16873,9 @@ stopSyncPlay();
     var STATIONS_INK_DARK = [0, 0, 0];
     var STATIONS_INK_LIGHT = [255, 255, 255];
     var stationsData = null;
+    var stationsDaily = null;            // blob(server) della serie giornaliera: {schema,day,stations}
+    var stationsDailyLoadedAt = 0;
+    var stationsDailyLoading = null;
     var stationsError = null;
     var stationsLoading = null;
     var stationsLoadedAt = 0;
@@ -17036,10 +17148,12 @@ stopSyncPlay();
     // Carica index.json e, se fallisce, latest.json. Non lancia MAI: in caso di doppio
     // errore valorizza stationsError (il chiamante mostra il messaggio).
     function stationsLoad(force) {
-        if (!force && stationsData) return Promise.resolve(stationsData);
+        var dailyP = stationsDailyLoad();   // best-effort: non lancia, non blocca
+        if (!force && stationsData) return dailyP.then(function () { return stationsData; });
         if (stationsLoading) return stationsLoading;
         var t0 = (window.performance && performance.now) ? performance.now() : Date.now();
         var p = (async function () {
+            await dailyP;
             var urls = [STATIONS_INDEX_URL, STATIONS_FULL_URL];
             var errs = [];
             for (var i = 0; i < urls.length; i++) {
@@ -17505,12 +17619,14 @@ stopSyncPlay();
     }
 
     // ---------- UI CONTROLS: parametro centraline + serie giornaliera ----------
-    // Il file data/stations/latest.json contiene UNA sola osservazione per stazione:
-    // la "serie del giorno" non esiste sul server. Viene accumulata QUI, lato client,
-    // a ogni aggiornamento del file (ogni ~10 min), solo per le stazioni seguite
-    // (cliccate almeno una volta), con tetto di localStorage dichiarato.
-    // DECISIONE: la serie e' GIORNALIERA. Si accumula dalle 00:00 LOCALI e si
-    // AZZERA a ogni nuovo giorno locale: nessun serbatoio dei giorni precedenti.
+    // 1.3.0.8 — La serie del giorno e' scritta LATO SERVER dal workflow stations.yml
+    // (ogni 10 min) in data/stations/daily_series.json: UN blob vivo sovrascritto a
+    // ogni run, azzerato solo a mezzanotte LOCALE Europe/Rome, dedup per obs_time.
+    // Il client LO LEGGE (stationsDailyLoad) e mostra TUTTI i punti della giornata,
+    // anche se la pagina e' stata aperta alle 22:00. Nessun dato inventato.
+    // localStorage mri_stations_series_v1 resta SOLO come fallback esplicito se il
+    // file server non e' raggiungibile, con etichetta "serie locale — solo punti
+    // visti da questo browser". Non e' piu' la fonte primaria.
     var STATIONS_SERIES_KEY = 'mri_stations_series_v1';
     var STATIONS_SERIES_MAX_POINTS = 288;      // tetto GIORNALIERO (144 a 10 min)
     var STATIONS_SERIES_MAX_STATIONS = 60;     // tetto localStorage
@@ -17548,11 +17664,82 @@ stopSyncPlay();
         try { window.localStorage.setItem(STATIONS_SERIES_KEY, JSON.stringify(o)); return true; }
         catch (e) { return false; }
     }
-    // Giornata LOCALE della stazione (chiave di azzeramento della serie).
+
+    // ---- SERIE GIORNALIERA LATO SERVER (fonte primaria) ----------------------
+    // Legge data/stations/daily_series.json (Pages prima, raw.githubusercontent
+    // come fallback), esattamente come index.json/latest.json. NON lancia MAI:
+    // se nessuna sorgente risponde, stationsDaily resta null e il grafico cade
+    // sul fallback localStorage, dichiarandolo.
+    function stationsDailyLoad() {
+        if (stationsDaily && (Date.now() - stationsDailyLoadedAt) < 60000) return Promise.resolve(stationsDaily);
+        if (stationsDailyLoading) return stationsDailyLoading;
+        var p = (async function () {
+            var urls = [STATIONS_DAILY_URL, STATIONS_DAILY_RAW_URL];
+            for (var i = 0; i < urls.length; i++) {
+                try {
+                    var res = await fetchWithTimeout(urls[i], 12000);
+                    if (!res || !res.ok) throw new Error('HTTP ' + (res ? res.status : '?'));
+                    var o = await res.json();
+                    if (!o || typeof o !== 'object' || Array.isArray(o)) throw new Error('formato non valido');
+                    if (o.schema !== 'stations-daily-series/1') throw new Error('schema non valido');
+                    var dd = String(o.day || '');
+                    if (dd.length !== 10 || dd.charAt(4) !== '-' || dd.charAt(7) !== '-') throw new Error('day non valido');
+                    if (!o.stations || typeof o.stations !== 'object' || Array.isArray(o.stations)) throw new Error('stations non valido');
+                    stationsDaily = o;
+                    stationsDailyLoadedAt = Date.now();
+                    return o;
+                } catch (e) { /* sorgente successiva */ }
+            }
+            stationsDaily = null;
+            return null;
+        })();
+        stationsDailyLoading = p;
+        p.then(function () { if (stationsDailyLoading === p) stationsDailyLoading = null; },
+               function () { if (stationsDailyLoading === p) stationsDailyLoading = null; });
+        return p;
+    }
+
+    // Sceglie la fonte della serie per una stazione e una giornata.
+    // source: 'server' = blob del workflow (tutti i punti del giorno);
+    //         'local'  = localStorage (solo punti visti da QUESTO browser);
+    //         'stale'  = blob del server presente ma di un altro giorno.
+    function stationsSeriesSource(id, dayKey) {
+        if (stationsDaily) {
+            if (stationsDaily.day === dayKey) {
+                var e = stationsDaily.stations ? stationsDaily.stations[id] : null;
+                if (e && e.pts && e.pts.length) return { all: e.pts, source: 'server', day: dayKey };
+                return { all: [], source: 'server', day: dayKey };
+            }
+            return { all: [], source: 'stale', day: stationsDaily.day };
+        }
+        var store = stationsSeriesRead();
+        var le = store[id];
+        if (le && le.pts && le.pts.length) return { all: le.pts, source: 'local', day: le.day || dayKey };
+        return { all: [], source: 'local', day: dayKey };
+    }
+
+    // Trasforma le tuple [epochMs, ...] in punti disegnabili, filtrando per la
+    // giornata Europe/Rome. E' la stessa funzione usata dal grafico e dall'harness.
+    function stationsSeriesPoints(all, key, dayKey) {
+        var pts = [];
+        for (var i = 0; i < all.length; i++) {
+            if (stationsLocalDayKey(all[i][0]) !== dayKey) continue;
+            var v = stationsSeriesValue(all[i], key);
+            if (v === null) continue;
+            var pr = stationsRomeParts(new Date(all[i][0]));
+            pts.push({ t: all[i][0], x: pr ? pr.x : 0, v: v,
+                       period: all[i][6], hhmm: pr ? pr.hhmm : stationsClock(all[i][0]) });
+        }
+        return pts;
+    }
+    // Giornata LOCALE Europe/Rome (chiave di allineamento col blob del server).
+    // Usa la stessa definizione di stationsRomeParts (Intl, timeZone esplicita),
+    // NON il fuso del browser: client e workflow devono concordare sullo stesso day.
     function stationsLocalDayKey(t) {
         var d = new Date(t);
         if (isNaN(d.getTime())) return '';
-        return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+        var pr = stationsRomeParts(d);
+        return pr ? pr.day : '';
     }
     // [epochMs, temp, rh, wind, windDir, mm/h, periodo_s, dew, pStation, gust, snowDepth]
     function stationsSeriesTuple(st) {
@@ -17716,19 +17903,9 @@ stopSyncPlay();
     function stationsChartHtml(st) {
         var cfg = STATIONS_PARAMS[stationsParam] || STATIONS_PARAMS.temp;
         var key = stationsParam;
-        var store = stationsSeriesRead();
-        var e = store[st.id];
-        var all = (e && e.pts) ? e.pts : [];
         var dayKey = stationsLocalDayKey(st.time);
-        var pts = [];
-        for (var i = 0; i < all.length; i++) {
-            if (stationsLocalDayKey(all[i][0]) !== dayKey) continue;
-            var v = stationsSeriesValue(all[i], key);
-            if (v === null) continue;
-            var d = new Date(all[i][0]);
-            pts.push({ t: all[i][0], x: d.getHours() + d.getMinutes() / 60,
-                       v: v, period: all[i][6], hhmm: stationsClock(all[i][0]) });
-        }
+        var src = stationsSeriesSource(st.id, dayKey);
+        var pts = stationsSeriesPoints(src.all, key, dayKey);
         var cat = (key === 'windDir');            // direzione = categoria, non numero
         var nwp = stationsNwpSeries(st, key, dayKey);
         var W = 280, H = cat ? 168 : 112, L = 34, R = 6, T = 8, B = 16;
@@ -17750,7 +17927,12 @@ stopSyncPlay();
             return isFinite(n) ? STATIONS_WIND_QUADRANTS[Math.round((((n % 360) + 360) % 360) / 22.5) % 16] : null;
         };
         var cy = function (q) { return (T + rowH * (STATIONS_WIND_QUADRANTS.indexOf(q) + 0.5)).toFixed(1); };
-        var obsLabel = 'osservato (' + pts.length + ' punti, giornata corrente)';
+        var srcLabel = (src.source === 'server')
+            ? 'serie SERVER — tutti i punti del giorno'
+            : (src.source === 'local')
+                ? 'serie LOCALE — solo punti visti da questo browser'
+                : 'serie SERVER non aggiornata a oggi';
+        var obsLabel = 'osservato (' + srcLabel + ', ' + pts.length + ' punti)';
         var genIso = (typeof datasetState !== 'undefined' && datasetState && datasetState.generatedAt)
             ? String(datasetState.generatedAt) : '';
         var genTxt = 'n/d';
@@ -17763,13 +17945,20 @@ stopSyncPlay();
         h += '<div style="font-size:9px;color:#7dd3fc;">● ' + escapeHtml(obsLabel) + '</div>';
         h += '<div style="font-size:9px;color:#fbbf24;" title="' + escapeHtml(genIso) + '">◇ ' +
              escapeHtml(nwpLabel) + '</div>';
-        // FIX 1.3.0.7 - serie osservata troppo corta: NON inventiamo osservazioni
-        // passate. Il messaggio si aggiorna con il conteggio (1 -> 2) e scompare a 3.
-        // La curva NWP (tratteggiata) non viene toccata.
-        if (pts.length > 0 && pts.length < 3) {
-            h += '<div class="stations-series-notice" style="font-size:9px;color:#fbbf24;border:1px solid #334155;border-radius:4px;padding:4px 5px;margin-top:4px;line-height:1.35;">' +
+        // Messaggi ONESTI (1.3.0.8): il blob server ha TUTTI i punti del giorno;
+        // il fallback localStorage ne ha solo quelli visti da QUESTO browser.
+        // Nessun punto passato viene mai inventato. La curva NWP non si tocca.
+        var noticeStyle = 'font-size:9px;color:#fbbf24;border:1px solid #334155;border-radius:4px;padding:4px 5px;margin-top:4px;line-height:1.35;';
+        if (src.source === 'server' && pts.length === 0) {
+            h += '<div class="stations-series-notice" style="' + noticeStyle + '">' +
+                 '0 osservazioni registrate oggi — la serie parte da mezzanotte locale. Nessun punto passato viene inventato.</div>';
+        } else if (src.source === 'stale') {
+            h += '<div class="stations-series-notice" style="' + noticeStyle + '">' +
+                 'Serie del server non aggiornata a ' + dayKey + ': nessun punto del giorno corrente disponibile.</div>';
+        } else if (src.source === 'local' && pts.length < 3) {
+            h += '<div class="stations-series-notice" style="' + noticeStyle + '">' +
                  pts.length + (pts.length === 1 ? ' osservazione raccolta oggi' : ' osservazioni raccolte oggi') +
-                 ' — la serie parte da quando apri l\'app. La linea tratteggiata è il modello previsto.</div>';
+                 ' — la serie parte da quando apri l\'app. Serie locale: solo punti visti da questo browser.</div>';
         }
         if (!pts.length && !nwp) {
             h += '<div style="font-size:9px;color:#64748b;">Nessun punto osservato ne previsto per questa stazione e questo parametro nella giornata corrente.</div></div>';
@@ -17833,7 +18022,11 @@ stopSyncPlay();
              STATIONS_SERIES_MAX_GAP_MIN + ' min (nessuna linea nei buchi).</div>';
         h += '<div style="font-size:9px;color:#64748b;">Ultimo punto: ' +
              (pts.length ? pts[pts.length - 1].hhmm : 'n/d') +
-             '. Serie giornaliera: si accumula dalle 00:00 locali e si azzera a ogni nuovo giorno; se la pagina e aperta da poco mostra solo i punti disponibili.</div>';
+             '. Fonte serie: ' + (src.source === 'server'
+                 ? 'data/stations/daily_series.json (server: un blob vivo riscritto ogni 10 min, azzerato a mezzanotte Europe/Rome)'
+                 : src.source === 'local'
+                     ? 'mri_stations_series_v1 (localStorage — solo punti visti da questo browser)'
+                     : 'non aggiornata a oggi') + '.</div>';
         if (key === 'rain' && pts.length) {
             var per = pts[pts.length - 1].period;
             h += '<div style="font-size:9px;color:#64748b;">mm/h = mm × 3600 / periodo; periodo di accumulo: ' +
@@ -22022,7 +22215,9 @@ function productDefs() {
         'newindices':    { run: toggleNewIndices, off: toggleNewIndices, dev: true,
             on: function () { return isNewIndicesActive; }, label: 'Nuovi Indici' },
         'sources':       { run: toggleSourcesPanel, off: toggleSourcesPanel, dev: false,
-            on: function () { var p = document.getElementById('sources-panel'); return !!(p && p.classList.contains('active')); }, label: 'Fonti e metodologie' }
+            on: function () { var p = document.getElementById('sources-panel'); return !!(p && p.classList.contains('active')); }, label: 'Fonti e metodologie' },
+        'synoptic':      { run: toggleSynoptic, off: toggleSynoptic, dev: false,
+            on: function () { var p = document.getElementById('synoptic-panel'); return !!(p && p.classList.contains('active')); }, label: 'Analisi sinottica' }
     };
 }
 function isDevProduct(id) { return id === 'newindices'; }
@@ -25713,6 +25908,7 @@ function toggleForecastMaps() {
         // ReferenceError a ogni chiamata, loadStaticDataset annullava il caricamento del dataset,
         // mappa dei rischi e card "Zona selezionata" restavano vuote. Ora LCL e CIN sono letti
         // dai dati orari, con fallback neutro (LCL mancante -> 0.5; CIN mancante -> nessuna penalizzazione).
+        // STP — CALCOLATO, NON CONSUMATO — NON presentare come previsione.
         var stp = 0;
         if (cape != null && cape > 0 && shear06 >= 10 && srh3 >= 50) {
             var lcl = computeLclApprox(hourly.temperature_2m?.[idx] ?? null, hourly.dew_point_2m?.[idx] ?? null);
@@ -25722,13 +25918,26 @@ function toggleForecastMaps() {
             var cinTerm = Math.max(0, Math.min(1, (200 - cinAbs) / 150));
             stp = (cape / 1000) * Math.min(srh3 / 50, 2) * Math.min(shear06 / 20, 1) * lclTerm * cinTerm;
         }
-        var probTornado = 0;
-        if (cape != null && cape > 0 && shear06 > 0) {
+        // probTornado — Ingrosso (2023) Eq.3 CORRETTA:
+        //   log10(P) = -6.6 + WMAX / (3.1 + 5.2 * WMAX / WS700),  WMAX = sqrt(2*CAPE), WS700 = dls03
+        // Dominio atteso 1e-7 .. 1e-3 (occorrenza climatologica condizionata), NON 0-1:
+        // nessun clamp a [0,1]. La forma vecchia "-6.6 + WMAX/3.1 + 5.2*WMAX/shear06"
+        // (somma invece del denominatore comune, piu' clamp) dava 1.0 per ogni ingresso.
+        // Etichetta obbligatoria: occorrenza climatologica condizionata (Ingrosso 2023),
+        // non validata su dati italiani — NON e' un rischio 0-1.
+        // NON mostrare in vista pubblica: solo Sviluppo, con title esplicativo.
+        var probTornado = null;
+        if (cape != null && cape > 0 && dls03 != null && dls03 > 0) {
             var wmax = Math.sqrt(2 * cape);
-            var logP = -6.6 + wmax / 3.1 + 5.2 * wmax / shear06;
-            probTornado = Math.max(0, Math.min(1, Math.pow(10, logP)));
+            var ws700 = dls03;
+            var logP = -6.6 + wmax / (3.1 + 5.2 * wmax / ws700);
+            probTornado = Math.pow(10, logP);
         }
-        var wmaxshear03 = (cape != null && srh3 != null) ? Math.sqrt(2 * cape) * (srh3 / 100) * 10 : null;
+        // WMAXSHEAR 0-3 km = sqrt(2*CAPE)*DLS03 (Taszarek): la forma precedente
+        // sqrt(2*CAPE)*(srh3/100)*10 usava SRH3 al posto dello shear 0-3 km — rimossa.
+        // Calcolato, non consumato: solo Sviluppo finche' non validato.
+        var wmaxshear03 = (cape != null && dls03 != null) ? Math.sqrt(2 * cape) * dls03 : null;
+        // Craven & Brooks (2004), CAPE*DLS — CALCOLATO, NON CONSUMATO — NON presentare come previsione.
         var craven = (cape != null && shear06 != null) ? cape * shear06 : null;
         return { shear06: shear06, srh3: srh3, scp: scp, dls03: dls03, stormMotion: sm, z06agl: z06agl, z03agl: z03agl, shear01: shear01, srh1: srh1,
             stp: stp, probTornado: probTornado, wmaxshear03: wmaxshear03, craven: craven };
@@ -25737,7 +25946,9 @@ function toggleForecastMaps() {
 
     // SCP migliorato: (CAPE/1000) * f(shear06) * f(SRH3km) — Thompson 2004
     // Soglie conservative per Europa (Taszarek et al. 2017/2020)
-    // SRH normalizzato a 50 m²/s² come da formula originale Thompson
+    // SRH normalizzato a 100 m²/s²: SCELTA LOCALE NON CALIBRATA (il canone Thompson è /50).
+    // Le soglie a valle (SCP>=1 in detectMesocyclone) sono calibrate su QUESTO divisore /100:
+    // non cambiare la formula senza ricalibrarle. vedi il pannello Fonti & Metodologie.
     function calcSCPimproved(cape, shear06Ms, srh3) {
         if (cape == null || cape < 100) return 0;
         var capeTerm = cape / 1000;
@@ -25797,10 +26008,11 @@ function toggleForecastMaps() {
     // ora verde/Basso (nessuna criticita' attiva), non una classe a se'.
     //
     // GATE AMBIENTALE (solo fonti verificabili, OR di due gambe):
-    //   WMAXSHEAR 0-6 km >= 1000 m2/s2   Taszarek et al. 2017 (MWR 145:1511);
-    //                                     Gruenwald & Brooks 2011 (Atmos. Res. 99:545)
-    //   SRH 0-3 km >= 100 m2/s2 E CAPE >= 500 J/kg
-    //                                     Ingrosso et al. 2020 (Atmosphere 11:426), HSLC
+    //   WMAXSHEAR 0-6 km >= 800 m2/s2   CONV_WMS_MIN in uso; Taszarek 2017 (MWR 145:1511)
+    //                                     e Gruenwald & Brooks 2011 (Atmos. Res. 99:545)
+    //                                     citano 1000 m2/s2 come soglia letteraria per i regimi severi.
+    //   SRH 0-3 km >= 80 m2/s2 E CAPE >= 150 J/kg  (valori in uso in assessConvOrg)
+    //                                     Ingrosso et al. 2020 (Atmosphere 11:426), HSLC, cita 100/500.
     // RIMOSSI:
     //   WMAXSHEAR 0-3 km >= 500  - nessuna fonte verificabile nel repo: rimosso come gate.
     //   EHI 0-3 km >= 1.0        - declassato a DISPLAY (vedi detectMesocyclone).
@@ -26608,7 +26820,8 @@ function toggleForecastMaps() {
         // I campi NWP non misurano la rotazione: il badge non descrive un tornado o una
         // tromba marina. Resta una sola informazione ambientale (livello 1), e serve la
         // compresenza NELLA STESSA ORA di tutti gli ingredienti verificabili:
-        //   CAPE >= 500 J/kg, shear 0-6 km >= 20 m/s, SRH 0-3 km >= 100 m2/s2,
+        //   CAPE >= 150 J/kg, shear 0-6 km >= 15 m/s, SRH 0-3 km >= 80 m2/s2
+        //   (gate REALE: if cape<150 || shear06<15 || srh3<80 — il vecchio testo diceva 500/20/100),
         //   LCL <= 1500 m (2500 m in stagione fredda per la convezione elevated),
         //   codice temporalesco WMO 95-99 (la pioggia è un accumulo orario separato).
         // Il vecchio canale low-level (shear01/SRH1) produceva il livello 4 con CAPE
@@ -30953,6 +31166,7 @@ function renderContinuousOverlay() {
         if (!phrase) return;
         var day = tdsState.days[tdsSelectedDay];
         phrase.textContent = day ? tdsPhrase(day, tdsSelectedDay) : '';
+        if (typeof synAugmentAll === 'function') synAugmentAll();
         if (!grid) return;
         var cards = grid.querySelectorAll('[data-tds-day]');
         for (var i = 0; i < cards.length; i++) {
@@ -31593,6 +31807,7 @@ function renderContinuousOverlay() {
             }
             phrase.innerHTML = wkHtml;
         }
+        if (typeof synAugmentAll === 'function') synAugmentAll();
     }
 
     // ================= PANNELLO UNICO PREVISIONE (1.2.4.70) =================
@@ -31731,12 +31946,367 @@ function renderContinuousOverlay() {
         }
         el.innerHTML = segs.join(' \u00B7 ');
         el.title = titles.join(' \u00B7 ');
+        if (typeof synAugmentAll === 'function') synAugmentAll();
     }
 
     if (typeof document !== 'undefined') {
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fcInitTabs);
         else fcInitTabs();
     }
+
+    // ===================================================================
+    // PRODOTTO SINOTTICO (1.3.0.8)
+    // Due usi della STESSA analisi, entrambi obbligatori:
+    //   1) pannello dedicato con SVG inline costruiti dai due JSON;
+    //   2) frase di contesto + frase di causa dentro #forecast-details.
+    // Contratto dati (NON scriviamo i dati, li consumiamo solo):
+    //   data/radar/synoptic.json
+    //     {schema_version, generated_at, source, license, domain,
+    //      run_reference_time, valid_time, grid:{nx,ny,dx,dy},
+    //      features:[{id,kind,geometry:[[lat,lon],...],label,confidence,
+    //                 fields,null_reason}],
+    //      availability:{fields_missing,horizon_exhausted}}
+    //     kind ammessi: front, prefrontal, postfrontal, high, block,
+    //     cold_pool, convergence, moist_tongue. Simbolo NON validato =>
+    //     il produttore non lo mette => qui non viene inventato.
+    //   data/climate/teleconnections.json
+    //     {schema_version, generated_at,
+    //      series:[{id,label,values:[[epochMs,value]...] (lead==0),
+    //               source,license,last_modified,baseline}]}
+    // LAZY: zero richieste al boot; solo apertura scheda / espansione details.
+    // ===================================================================
+    var SYN_URL = 'data/radar/synoptic.json';
+    var TELE_URL = 'data/climate/teleconnections.json';
+    var SYN_STALE_HOURS = 2;   // soglia di scarto: scelta ingegneristica, dichiarata a schermo
+    var SYN_MAX_DAYS = 7;      // finestra massima, dichiarata a schermo
+    var SYN_BURIAN_TEXT = 'vento da NE/E freddo e secco — configurazione compatibile con burian, non confermato senza osservazioni locali';
+    var SYN_DOMAIN_GAPS = 'Domini con buchi dichiarati (non riempiti): dwd_icon_eu 23 h, dwd_icon_d2 44 h, ARPEGE 92 h.';
+
+    var synState = { status: 'idle', syn: null, tele: null, synError: '', teleError: '', promise: null };
+
+    function synEsc(s) {
+        return String(s === null || s === undefined ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function synFmtIso(iso) {
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return String(iso || 'n/d');
+        return d.toISOString().replace('T', ' ').slice(0, 16) + 'Z';
+    }
+    function synRunHour(iso) {
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return String(iso || 'n/d');
+        return ('0' + d.getUTCHours()).slice(-2) + 'Z';
+    }
+    function synPointsIso() {
+        try {
+            if (typeof datasetState !== 'undefined' && datasetState && datasetState.generatedAt) return datasetState.generatedAt;
+        } catch (e) { }
+        return null;
+    }
+    function synDiscard() {
+        if (!synState.syn) return false;
+        var vt = Date.parse(synState.syn.valid_time);
+        var pt = Date.parse(synPointsIso());
+        if (!isFinite(vt) || !isFinite(pt)) return false;
+        return Math.abs(vt - pt) > SYN_STALE_HOURS * 3600 * 1000;
+    }
+    function synDiscardText() {
+        return 'frase di scarto: scarto temporale tra contesto sinottico e punti superiore a ' +
+            SYN_STALE_HOURS + ' h — contesto non mostrato (soglia di ' + SYN_STALE_HOURS +
+            ' h, scelta ingegneristica).';
+    }
+    // SOLO label presenti nel JSON: se il produttore non ha messo "front",
+    // qui non compare mai la parola "fronte".
+    function synLabels() {
+        var out = [];
+        if (!synState.syn || !Array.isArray(synState.syn.features)) return out;
+        synState.syn.features.forEach(function (f) {
+            var l = (f && f.label) ? String(f.label).trim() : '';
+            if (l && out.indexOf(l) < 0) out.push(l);
+        });
+        return out;
+    }
+    function synPhrases(dayIdx) {
+        if (!synState.syn || !Array.isArray(synState.syn.features) || !synState.syn.features.length) return null;
+        if (synDiscard()) return { context: '', cause: '', discard: synDiscardText() };
+        var labels = synLabels();
+        if (!labels.length) return null;
+        var context = 'Contesto sinottico: ' + labels.join('; ') + '.';
+        var cause = 'Causa (dal medesimo contesto): ' + labels.slice(0, 3).join(', ') + '.';
+        if (dayIdx >= 3) cause += ' Punti non disponibili oltre 72 h.';
+        return { context: context, cause: cause, discard: '' };
+    }
+    function synAugHtml(dayIdx) {
+        var p = synPhrases(dayIdx);
+        if (!p) return null;
+        if (p.discard) return '<span class="syn-aug-warn">' + synEsc(p.discard) + '</span>';
+        return '<span class="syn-aug-ctx">' + synEsc(p.context) + '</span> <span class="syn-aug-cause">' + synEsc(p.cause) + '</span>';
+    }
+    function synSetAug(el, dayIdx) {
+        if (!el) return;
+        var old = el.querySelector(':scope > .syn-aug');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+        var html = synAugHtml(dayIdx);
+        if (html === null) { el.classList.remove('filled'); return; }
+        var span = document.createElement('span');
+        span.className = 'syn-aug filled';
+        span.innerHTML = html;
+        el.appendChild(span);
+    }
+    function synAugmentAll() {
+        var sum = document.getElementById('syn-summary-aug');
+        if (sum) {
+            var h = synAugHtml(0);
+            if (h === null) { sum.innerHTML = ''; sum.classList.remove('filled'); }
+            else { sum.innerHTML = h; sum.classList.add('filled'); }
+        }
+        synSetAug(document.getElementById('tds-phrase'), (typeof tdsSelectedDay === 'number' ? tdsSelectedDay : 0));
+        synSetAug(document.getElementById('wk-phrase'), 4); // 7 giorni: giorni 4-7 oltre 72 h
+        var cols = document.getElementById('italia-synth-cols');
+        if (cols) {
+            var areas = cols.querySelectorAll('.is-area');
+            for (var i = 0; i < areas.length; i++) synSetAug(areas[i], 0); // 3 giorni x 5 aree
+        }
+    }
+    function synFetch(url) {
+        return fetch(url, { cache: 'no-store' }).then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        });
+    }
+    function synEnsureLoaded() {
+        if (synState.promise) return synState.promise;
+        synState.status = 'loading';
+        synState.promise = Promise.all([
+            synFetch(SYN_URL).then(function (j) { synState.syn = j; },
+                function (e) { synState.synError = (e && e.message) ? e.message : String(e); synState.syn = null; }),
+            synFetch(TELE_URL).then(function (j) { synState.tele = j; },
+                function (e) { synState.teleError = (e && e.message) ? e.message : String(e); synState.tele = null; })
+        ]).then(function () {
+            synState.status = 'done';
+            synAugmentAll();
+            return synState;
+        });
+        return synState.promise;
+    }
+
+    // ---------- SVG: mappa feature ----------
+    function synProjection(features, W, H, pad) {
+        var minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+        (features || []).forEach(function (f) {
+            (((f && f.geometry) || [])).forEach(function (pt) {
+                var lat = Number(pt && pt[0]), lon = Number(pt && pt[1]);
+                if (isFinite(lat) && isFinite(lon)) {
+                    if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
+                    if (lon < minLon) minLon = lon; if (lon > maxLon) maxLon = lon;
+                }
+            });
+        });
+        if (!isFinite(minLat)) { minLat = 35; maxLat = 48; minLon = 5; maxLon = 20; }
+        var spanLat = (maxLat - minLat) || 1, spanLon = (maxLon - minLon) || 1;
+        return function (lat, lon) {
+            return [pad + ((Number(lon) - minLon) / spanLon) * (W - 2 * pad),
+                    pad + ((maxLat - Number(lat)) / spanLat) * (H - 2 * pad)];
+        };
+    }
+    function synFrontGlyphs(pts, type) {
+        var out = '';
+        for (var i = 0; i < pts.length - 1; i++) {
+            var a = pts[i], b = pts[i + 1];
+            var dx = b[0] - a[0], dy = b[1] - a[1];
+            var len = Math.sqrt(dx * dx + dy * dy) || 1;
+            var ux = dx / len, uy = dy / len, nx = -uy, ny = ux;
+            var mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+            if (type === 'warm') {
+                var r = 5;
+                out += '<path d="M ' + (mx - ux * r).toFixed(1) + ' ' + (my - uy * r).toFixed(1) +
+                    ' A ' + r + ' ' + r + ' 0 0 1 ' + (mx + ux * r).toFixed(1) + ' ' + (my + uy * r).toFixed(1) +
+                    '" fill="none" stroke="#f87171" stroke-width="1.6"/>';
+            } else if (type === 'cold') {
+                out += '<polygon points="' + (mx - ux * 5).toFixed(1) + ',' + (my - uy * 5).toFixed(1) + ' ' +
+                    (mx + ux * 5).toFixed(1) + ',' + (my + uy * 5).toFixed(1) + ' ' +
+                    (mx + nx * 7).toFixed(1) + ',' + (my + ny * 7).toFixed(1) + '" fill="#60a5fa"/>';
+            }
+        }
+        return out;
+    }
+    function synFeatureSvg(f, project) {
+        var kind = String(f.kind || ''), label = String(f.label || '');
+        var geom = (((f.geometry) || [])).map(function (pt) { return project(Number(pt[0]), Number(pt[1])); });
+        var ptsAttr = geom.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ');
+        var cx = 0, cy = 0;
+        geom.forEach(function (p) { cx += p[0]; cy += p[1]; });
+        if (geom.length) { cx /= geom.length; cy /= geom.length; }
+        var s = '<g class="syn-feature" data-kind="' + synEsc(kind) + '" data-id="' + synEsc(f.id || '') +
+            '" tabindex="0" role="button" aria-label="' + synEsc(label || kind) + '">';
+        s += '<title>' + synEsc(label || kind) + '</title>';
+        if (kind === 'front' || kind === 'prefrontal' || kind === 'postfrontal') {
+            var col = (kind === 'front') ? '#fbbf24' : (kind === 'prefrontal' ? '#fcd34d' : '#94a3b8');
+            var dash = (kind === 'front') ? '' : ' stroke-dasharray="5 3"';
+            if (geom.length > 1) s += '<polyline points="' + ptsAttr + '" fill="none" stroke="' + col + '" stroke-width="2"' + dash + '/>';
+            var gt = /caldo/i.test(label) ? 'warm' : (/freddo/i.test(label) ? 'cold' : '');
+            if (gt) s += synFrontGlyphs(geom, gt);
+            if (geom.length === 1) s += '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="5" fill="' + col + '"/>';
+        } else if (kind === 'high') {
+            s += '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="14" fill="none" stroke="#38bdf8" stroke-width="2"/>';
+            s += '<text x="' + cx.toFixed(1) + '" y="' + (cy + 4).toFixed(1) + '" text-anchor="middle">H</text>';
+        } else if (kind === 'block') {
+            s += '<rect x="' + (cx - 15).toFixed(1) + '" y="' + (cy - 12).toFixed(1) + '" width="30" height="24" rx="4" fill="none" stroke="#a78bfa" stroke-width="2"/>';
+            s += '<text x="' + cx.toFixed(1) + '" y="' + (cy + 4).toFixed(1) + '" text-anchor="middle">B</text>';
+        } else if (kind === 'cold_pool') {
+            s += '<ellipse cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" rx="18" ry="12" fill="none" stroke="#22d3ee" stroke-width="2" stroke-dasharray="4 3"/>';
+            s += '<text x="' + cx.toFixed(1) + '" y="' + (cy + 4).toFixed(1) + '" text-anchor="middle">C</text>';
+        } else if (kind === 'convergence') {
+            s += '<path d="M ' + (cx - 16).toFixed(1) + ' ' + cy.toFixed(1) + ' L ' + (cx - 4).toFixed(1) + ' ' + cy.toFixed(1) +
+                ' M ' + (cx + 16).toFixed(1) + ' ' + cy.toFixed(1) + ' L ' + (cx + 4).toFixed(1) + ' ' + cy.toFixed(1) + '" fill="none" stroke="#4ade80" stroke-width="2"/>';
+            s += '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="3" fill="#4ade80"/>';
+        } else if (kind === 'moist_tongue') {
+            if (geom.length > 2) s += '<polygon points="' + ptsAttr + '" fill="rgba(56,189,248,0.18)" stroke="#38bdf8" stroke-width="1.5"/>';
+            else if (geom.length > 1) s += '<polyline points="' + ptsAttr + '" fill="none" stroke="#38bdf8" stroke-width="3"/>';
+            else s += '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="8" fill="rgba(56,189,248,0.18)" stroke="#38bdf8" stroke-width="1.5"/>';
+        } else {
+            // kind fuori contratto: simbolo neutrale, nessuna etichetta inventata.
+            if (geom.length > 1) s += '<polyline points="' + ptsAttr + '" fill="none" stroke="#94a3b8" stroke-width="2"/>';
+            else s += '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="5" fill="#94a3b8"/>';
+        }
+        s += '</g>';
+        return s;
+    }
+    function synRenderMap() {
+        var wrap = document.getElementById('syn-map-wrap');
+        if (!wrap) return;
+        var features = (synState.syn && Array.isArray(synState.syn.features)) ? synState.syn.features : [];
+        if (!features.length) { wrap.innerHTML = ''; return; }
+        var W = 560, H = 380, pad = 30;
+        var project = synProjection(features, W, H, pad);
+        var s = '<svg class="syn-map-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Mappa feature sinottiche">';
+        s += '<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="#0b1220" stroke="#334155"/>';
+        for (var i = 0; i < features.length; i++) s += synFeatureSvg(features[i], project);
+        s += '</svg>';
+        wrap.innerHTML = s;
+        var nodes = wrap.querySelectorAll('.syn-feature');
+        for (var k = 0; k < nodes.length; k++) {
+            (function (node, idx) {
+                function show() {
+                    var f = features[idx], d = document.getElementById('syn-detail');
+                    if (!d) return;
+                    d.innerHTML = '<b>' + synEsc(f.kind || 'n/d') + '</b> — ' + synEsc(f.label || 'n/d') +
+                        ' · confidenza ' + synEsc(f.confidence === undefined || f.confidence === null ? 'n/d' : f.confidence) +
+                        ' · valid time ' + synEsc(synFmtIso(synState.syn.valid_time)) +
+                        ' · fonte ' + synEsc(synState.syn.source || 'n/d') +
+                        ' · licenza ' + synEsc(synState.syn.license || 'n/d') +
+                        (f.null_reason ? ' · motivo: ' + synEsc(f.null_reason) : '');
+                }
+                node.addEventListener('click', show);
+                node.addEventListener('keydown', function (ev) {
+                    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); show(); }
+                });
+            })(nodes[k], k);
+        }
+    }
+
+    // ---------- SVG: teleconnessioni (indici OSSERVATI, lead==0) ----------
+    function synTeleChart(series) {
+        var vals = (series.values || []).filter(function (v) {
+            return Array.isArray(v) && isFinite(Number(v[0])) && isFinite(Number(v[1]));
+        });
+        if (!vals.length) return '<div class="syn-msg">Serie ' + synEsc(series.id || '') + ': nessun valore valido.</div>';
+        var xs = vals.map(function (v) { return Number(v[0]); });
+        var ys = vals.map(function (v) { return Number(v[1]); });
+        var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
+        var minY = Math.min.apply(null, ys.concat([-1])), maxY = Math.max.apply(null, ys.concat([1]));
+        var padY = ((maxY - minY) * 0.1) || 1; minY -= padY; maxY += padY;
+        var W = 560, H = 180, L = 42, R = 10, T = 10, B = 26;
+        function X(v) { return L + ((v - minX) / ((maxX - minX) || 1)) * (W - L - R); }
+        function Y(v) { return T + ((maxY - v) / (maxY - minY)) * (H - T - B); }
+        var s = '<svg class="syn-tele-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Indice osservato ' + synEsc(series.id || '') + '">';
+        s += '<rect x="' + L + '" y="' + T + '" width="' + (W - L - R) + '" height="' + (H - T - B) + '" fill="#0b1220" stroke="#334155"/>';
+        s += '<rect x="' + L + '" y="' + Y(1).toFixed(1) + '" width="' + (W - L - R) + '" height="' + Math.max(0, Y(-1) - Y(1)).toFixed(1) + '" fill="rgba(148,163,184,0.16)"/>';
+        s += '<line x1="' + L + '" y1="' + Y(0).toFixed(1) + '" x2="' + (W - R) + '" y2="' + Y(0).toFixed(1) + '" stroke="#64748b" stroke-width="1" stroke-dasharray="4 3"/>';
+        var poly = vals.map(function (v) { return X(Number(v[0])).toFixed(1) + ',' + Y(Number(v[1])).toFixed(1); }).join(' ');
+        s += '<polyline points="' + poly + '" fill="none" stroke="#7dd3fc" stroke-width="1.6"/>';
+        s += '<text x="2" y="' + (Y(1) + 3).toFixed(1) + '" fill="#94a3b8" font-size="9">+1σ</text>';
+        s += '<text x="2" y="' + (Y(0) + 3).toFixed(1) + '" fill="#94a3b8" font-size="9">0</text>';
+        s += '<text x="2" y="' + (Y(-1) + 3).toFixed(1) + '" fill="#94a3b8" font-size="9">-1σ</text>';
+        s += '<text x="' + L + '" y="' + (H - 8) + '" fill="#94a3b8" font-size="9">' + synFmtIso(minX).slice(0, 10) + '</text>';
+        s += '<text x="' + (W - R) + '" y="' + (H - 8) + '" fill="#94a3b8" font-size="9" text-anchor="end">' + synFmtIso(maxX).slice(0, 10) + '</text>';
+        s += '</svg>';
+        var cap = '<div class="syn-tele-cap">Indice OSSERVATO — non previsione · ' + synEsc(series.label || series.id || '') +
+            ' · fonte ' + synEsc(series.source || 'n/d') + ' · licenza ' + synEsc(series.license || 'n/d') +
+            ' · ultima modifica ' + synEsc(series.last_modified || 'n/d') +
+            ' · baseline ' + synEsc(series.baseline || 'n/d') + '</div>';
+        return s + cap;
+    }
+    function synRenderTele() {
+        var box = document.getElementById('syn-tele');
+        if (!box) return;
+        var series = (synState.tele && Array.isArray(synState.tele.series)) ? synState.tele.series : [];
+        if (!series.length) { box.innerHTML = '<div class="syn-msg">Teleconnessioni non disponibili.</div>'; return; }
+        var html = '';
+        for (var i = 0; i < series.length; i++) html += '<div class="syn-tele-block">' + synTeleChart(series[i]) + '</div>';
+        box.innerHTML = html;
+    }
+    function synBurianCheck() {
+        var el = document.getElementById('syn-burian');
+        if (!el) return;
+        var hit = synLabels().some(function (l) { return /burian/i.test(l); });
+        if (!hit) { el.hidden = true; el.innerHTML = ''; return; }
+        el.hidden = false;
+        el.setAttribute('data-confermato', 'false');
+        el.innerHTML = synEsc(SYN_BURIAN_TEXT) + ' <b>[confermato:false]</b>';
+    }
+    function synRenderPanel() {
+        var msg = document.getElementById('syn-msg'), body = document.getElementById('syn-body'), badge = document.getElementById('syn-badge');
+        if (!msg || !body) return;
+        var syn = synState.syn;
+        if (!syn || !Array.isArray(syn.features) || !syn.features.length) {
+            var motivo = synState.synError ? ('synoptic.json: ' + synState.synError)
+                : (!syn ? 'synoptic.json non disponibile' : 'features vuoto');
+            msg.hidden = false; msg.textContent = 'Analisi sinottica non disponibile: ' + motivo;
+            body.hidden = true;
+            if (badge) badge.textContent = 'non disponibile';
+            return;
+        }
+        msg.hidden = true; body.hidden = false;
+        if (badge) badge.textContent = 'run ' + synRunHour(syn.run_reference_time) + ' · valid time ' + synFmtIso(syn.valid_time) + ' · ' + (syn.domain || 'n/d');
+        synRenderMap();
+        var stamp = document.getElementById('syn-stamp');
+        if (stamp) {
+            var txt = 'contesto sinottico — run ' + synRunHour(syn.run_reference_time) + ', valid time ' + synFmtIso(syn.valid_time) +
+                ' · punti — aggiornati ' + (synPointsIso() ? synFmtIso(synPointsIso()) : 'n/d');
+            if (synDiscard()) txt += ' · <span class="syn-discard">' + synEsc(synDiscardText()) + '</span>';
+            stamp.innerHTML = txt;
+        }
+        var gaps = document.getElementById('syn-gaps');
+        if (gaps) {
+            var extra = '';
+            if (syn.availability) {
+                var miss = syn.availability.fields_missing || [];
+                if (miss.length) extra += ' Campi mancanti: ' + synEsc(miss.join(', ')) + '.';
+                if (syn.availability.horizon_exhausted) extra += ' Orizzonte esaurito (dichiarato dal produttore).';
+            }
+            gaps.innerHTML = synEsc(SYN_DOMAIN_GAPS) + ' Finestra massima ' + SYN_MAX_DAYS + ' giorni. Punti non disponibili oltre 72 h (giorni 4-7).' + extra;
+        }
+        synBurianCheck();
+        synRenderTele();
+    }
+    function toggleSynoptic() {
+        var panel = document.getElementById('synoptic-panel');
+        if (!panel) return;
+        if (panel.classList.contains('active')) { panel.classList.remove('active'); return; }
+        panel.classList.add('active');
+        synEnsureLoaded().then(function () { synRenderPanel(); });
+    }
+    // LAZY all'espansione del riquadro previsioni: qui si popolano le frasi.
+    (function () {
+        var fd = document.getElementById('forecast-details');
+        if (!fd) return;
+        fd.addEventListener('toggle', function () {
+            if (fd.open) synEnsureLoaded().then(function () { synAugmentAll(); synRenderPanel(); });
+        });
+    })();
 
     function updateUI() {
         updateMapColors();
@@ -33499,10 +34069,10 @@ syncSelect('lightning-source-select', [
     // con la somma oraria di pioggia piu' alta (dichiarato: un punto rappresentativo,
     // non un campo continuo).
     //
-    // 1.2.4.70 - CLOUD_COVER REALE: il dataset ha hourly.cloud_cover (%) in
-    // point.models[m].hourly. Il cielo usa la media dell'area e le fasce
-    // mattina (6-12) / pomeriggio (12-18); il fallback sul weathercode resta
-    // dichiarato e viene usato SOLO se cloud_cover manca su tutte le ore.
+    // CLOUD_COVER: il dataset NON contiene hourly.cloud_cover — il cielo e' derivato
+    // dal weathercode (italiaSkyIndex, 0/1/2/3). Il ramo cloud_cover qui sotto resta
+    // come fallback solo se un provider lo fornisce; con il dataset attuale non arriva.
+    // Il cielo usa la media dell'area e le fasce mattina (6-12) / pomeriggio (12-18).
     // NEVE: hourly.snowfall_water_equivalent (mm equivalenti) sommato sulle 24 h;
     // la quota compare solo per le province con equivalente > 0.
     // RAFFICHE: p50/p90/p99 delle massime giornaliere per provincia, calcolate
@@ -34110,6 +34680,7 @@ syncSelect('lightning-source-select', [
         }
         cols.innerHTML = html;
         renderItaliaSentence();
+        if (typeof synAugmentAll === 'function') synAugmentAll();
     }
 
     function renderItaliaSentence() {

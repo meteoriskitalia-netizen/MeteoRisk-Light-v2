@@ -173,56 +173,100 @@ def _cell_quality(cell):
     return "C_derived"
 
 
+def _lonlat_distance_km(position, cell_latlon, order="lon_lat"):
+    """Distanza fra `position` DELLA STRUTTURA e un centroide 3D.
+
+    CONVENZIONI MISURATE (entrambe presenti nel progetto):
+      * produzione reale: `structure.position = [lon, lat]` (es.
+        [13.92339, 45.09728] e' Modena; leggerlo [lat, lon] darebbe
+        `no_3d_cell_within_20km` su 17/17 strutture del 2026-07-01);
+      * test storici: `position = [lat, lon]` perche' costruiti con
+        `cross_section.rc_to_latlon()`, che restituisce (lat, lon);
+      * `tracking.haversine_km()` vuole `(lon, lat)` per entrambi i punti.
+    L'ordine usato e' un PARAMETRO esplicito e viene registrato nel campo
+    `detail.position_order`: nessuna inferenza silenziosa.
+    """
+    a, b = float(position[0]), float(position[1])
+    lon, lat = (a, b) if order == "lon_lat" else (b, a)
+    clat, clon = cell_latlon
+    return haversine_km((lon, lat), (float(clon), float(clat)))
+
+
 def _match_cells(structure, cells, ref_rd, max_match_km, thr_dbz):
-    """Celle 3D associate a una struttura: (list[(cell, dist_km)], reason)."""
+    """Celle 3D associate: (list[(cell, dist_km)], reason, position_order).
+
+    Prova le due convenzioni DICHIARATE, in ordine: `lon_lat` (produzione)
+    poi `lat_lon_legacy` (test storici). Si accetta la prima che produca un
+    match entro `max_match_km`; con distanze dell'ordine di 20 km l'altra
+    convenzione landing a migliaia di km non puo' produrre match spurii.
+    """
     if not cells:
-        return [], "no_3d_cells_in_volume"
+        return [], "no_3d_cells_in_volume", None
     pos = structure.get("position") or []
-    lat, lon = (float(pos[0]), float(pos[1])) if len(pos) >= 2 else (None, None)
-    matched = []
-    if lat is not None and lon is not None:
-        H = W = None
-        grid = ((ref_rd or {}).get("grid") or {}) if isinstance(ref_rd, dict) else {}
-        shape = grid.get("shape_zyx")
-        if isinstance(shape, (list, tuple)) and len(shape) == 3:
-            H, W = int(shape[1]), int(shape[2])
-        use_proj = False
-        if H and W:
-            crs = ((ref_rd or {}).get("crs_wkt") if isinstance(ref_rd, dict)
-                   else getattr(ref_rd, "crs_wkt", None))
-            tr = ((ref_rd or {}).get("transform") if isinstance(ref_rd, dict)
-                  else getattr(ref_rd, "transform", None))
-            if crs and tr:
-                try:
-                    from . import cross_section as _cs
-                    _cs.set_projection(crs, tr, H, W)
-                    use_proj = True
-                except Exception:
-                    use_proj = False
-        try:
-            for cell in cells:
-                cen = cell.get("centroid_rc_weighted") or cell.get("centroid_rc_geometric") or []
-                if len(cen) < 2:
-                    continue
-                dlat = dlon = None
-                if use_proj:
-                    try:
-                        dlat, dlon = _cs.rc_to_latlon(float(cen[0]), float(cen[1]))
-                    except Exception:
-                        dlat = dlon = None
-                if dlat is None or dlon is None:
-                    # Fallback dichiarato: griglia DPC 1 km, metri -> gradi.
-                    # La distanza resta verificabile nel detail.
-                    continue
-                dist = haversine_km((lat, lon), (float(dlat), float(dlon)))
-                if dist <= float(max_match_km):
-                    matched.append((cell, round(dist, 2)))
-        finally:
+    if len(pos) < 2:
+        # MERGE A+B (2026-11-17): B ha aggiunto questo early-return, ma in main
+        # il fallback su cell_id (qui sotto, "Ultima ratio") era raggiungibile
+        # anche senza posizione ed e' usato dalle celle tracciate. Senza questa
+        # guardia, le strutture senza `position` non prendono piu' il match su
+        # cell_id e il campo 3D resta null. Si ripristina SOLO il fallback su
+        # cell_id; la correzione lon/lat di B resta intatta per chi ha posizione.
+        # Nessuna inferenza geometrica, nessun dato inventato.
+        _cid = structure.get("cell_id")
+        if _cid is not None:
+            for _cell in cells:
+                if _cell.get("cell_id") == _cid:
+                    return [(_cell, None)], None, "cell_id_fallback"
+        return [], "no_structure_position", None
+    H = W = None
+    grid = ((ref_rd or {}).get("grid") or {}) if isinstance(ref_rd, dict) else {}
+    shape = grid.get("shape_zyx")
+    if isinstance(shape, (list, tuple)) and len(shape) == 3:
+        H, W = int(shape[1]), int(shape[2])
+    use_proj = False
+    if H and W:
+        crs = ((ref_rd or {}).get("crs_wkt") if isinstance(ref_rd, dict)
+               else getattr(ref_rd, "crs_wkt", None))
+        tr = ((ref_rd or {}).get("transform") if isinstance(ref_rd, dict)
+              else getattr(ref_rd, "transform", None))
+        if crs and tr:
+            try:
+                from . import cross_section as _cs
+                _cs.set_projection(crs, tr, H, W)
+                use_proj = True
+            except Exception:
+                use_proj = False
+    centroids = []
+    try:
+        for cell in cells:
+            cen = cell.get("centroid_rc_weighted") or cell.get("centroid_rc_geometric") or []
+            if len(cen) < 2:
+                continue
+            clat = clon = None
             if use_proj:
                 try:
-                    _cs.reset_projection()
+                    # rc_to_latlon restituisce (lat, lon): NON scambiare.
+                    clat, clon = _cs.rc_to_latlon(float(cen[0]),
+                                                   float(cen[1]))
                 except Exception:
-                    pass
+                    clat = clon = None
+            if clat is not None and clon is not None:
+                centroids.append((cell, (float(clat), float(clon))))
+    finally:
+        if use_proj:
+            try:
+                _cs.reset_projection()
+            except Exception:
+                pass
+    matched, order_used = [], None
+    for order in ("lon_lat", "lat_lon_legacy"):
+        matched = []
+        for cell, latlon in centroids:
+            dist = _lonlat_distance_km(pos, latlon, order=order)
+            if dist <= float(max_match_km):
+                matched.append((cell, round(dist, 2)))
+        if matched:
+            order_used = order
+            break
     if not matched:
         # Ultima ratio: match sul cell_id del tracking, solo se e' lo stesso
         # spazio di ID (dichiarato nel detail). Nessuna inferenza geometrica.
@@ -231,19 +275,25 @@ def _match_cells(structure, cells, ref_rd, max_match_km, thr_dbz):
             for cell in cells:
                 if cell.get("cell_id") == cid:
                     matched.append((cell, None))
+                    order_used = "cell_id_fallback"
                     break
     if not matched:
-        return [], "no_3d_cell_within_{}km".format(int(max_match_km))
+        return [], "no_3d_cell_within_{}km".format(int(max_match_km)), None
     matched.sort(key=lambda item: (item[1] is None, item[1] or 0.0))
-    return matched, None
+    return matched, None, order_used
 
 
 def derive_morphology(structure, volume_payload, *, ref_rd=None,
-                      cfg=None, thr_dbz=MORPH_THRESHOLD_DBZ):
+                      cfg=None, thr_dbz=MORPH_THRESHOLD_DBZ, prev=None):
     """Campo ``morphology_organization`` per UNA struttura.
 
     Ritorna sempre un dict serializzabile. ``volume_payload`` e' il payload
     prodotto da ``volume_publisher.build_volume_payload`` (gia' in memoria).
+
+    ``prev`` e' il payload compatto del run precedente (unico blob vivo del
+    branch radar-3d) oppure None. Quando c'e', ``volume_growth`` diventa
+    calcolabile dal confronto dei VALORI PUBBLICATI delle due celle 3D. Resta
+    EVIDENZA, non gate: senza blob precedente e' null con il motivo reale.
     """
     th = thresholds_from_config(cfg)
     if not isinstance(volume_payload, dict) or volume_payload.get("volume_available") is not True:
@@ -253,13 +303,14 @@ def derive_morphology(structure, volume_payload, *, ref_rd=None,
             "cappi_levels": _cappi_levels(volume_payload),
         })
     cells = volume_payload.get("cells") or []
-    matched, reason = _match_cells(structure, cells, ref_rd,
-                                   th["max_match_km"], thr_dbz)
+    matched, reason, order_used = _match_cells(structure, cells, ref_rd,
+                                                th["max_match_km"], thr_dbz)
     if reason is not None:
         return null_field(reason, detail={
             "cappi_levels": _cappi_levels(volume_payload),
             "cells_3d": len(cells),
             "volume_timestamp_utc": volume_payload.get("volume_timestamp_utc"),
+            "position_order": None,
         })
     # Valori dalla cella 3D piu' vicina; le altre diventano conteggio.
     best, dist = matched[0]
@@ -282,6 +333,23 @@ def derive_morphology(structure, volume_payload, *, ref_rd=None,
         "vil_density_g_m3": (best.get("VIL_DENSITY") or {}).get("null_reason"),
         "volume_growth": (_thr_block.get("VOLUME_GROWTH") or {}).get("null_reason"),
     }
+    # Growth dal blob compatto precedente (branch radar-3d). Il campo resta
+    # EVIDENZA: non entra nei gates e non cambia la classificazione.
+    growth_detail = None
+    if prev is not None:
+        try:
+            from . import volume_publisher as vpub
+            pixel_km = ((volume_payload.get("grid") or {}).get("pixel_km"))
+            gval, greason, growth_detail = vpub.growth_for_cell(
+                best, prev, thr_dbz=thr_dbz, pixel_km=pixel_km,
+                max_match_km=th["max_match_km"])
+            values["volume_growth"] = gval
+            value_null_reasons["volume_growth"] = greason
+        except Exception as exc:
+            values["volume_growth"] = None
+            value_null_reasons["volume_growth"] = (
+                "growth_error:{}".format(exc.__class__.__name__))
+            growth_detail = {"error": exc.__class__.__name__}
     missing = [k for k in ("echo_top_m", "vertical_extent_km", "vil_density_g_m3")
                if values[k] is None]
     if missing:
@@ -313,11 +381,15 @@ def derive_morphology(structure, volume_payload, *, ref_rd=None,
         "values": values,
         "value_null_reasons": value_null_reasons,
         "detail": {
+            "growth": growth_detail,
+            "growth_source": ("previous_compact_payload" if prev is not None
+                              else "current_payload_or_none"),
             "cells_3d_matched": len(matched),
             "match_distance_km": dist,
             "matched_cell_id": best.get("cell_id"),
             "match_method": "centroid_rc_weighted + haversine"
                             if dist is not None else "cell_id fallback",
+            "position_order": order_used,
             "volume_available": True,
             "cappi_levels": _cappi_levels(volume_payload),
             "cells_3d": len(cells),
@@ -327,12 +399,13 @@ def derive_morphology(structure, volume_payload, *, ref_rd=None,
 
 
 def attach(volume_payload, structures, *, ref_rd=None, cfg=None,
-           thr_dbz=MORPH_THRESHOLD_DBZ):
+           thr_dbz=MORPH_THRESHOLD_DBZ, prev=None):
     """Aggiunge il campo a OGNI record; non modifica nessun altro campo.
 
     Ritorna (structures, summary). Le strutture sono modificate IN PLACE
     (stessi oggetti usati da output.py), ma solo la chiave
-    ``morphology_organization`` viene scritta.
+    ``morphology_organization`` viene scritta. ``prev`` (payload compatto del
+    branch radar-3d) e' passato a ogni ``derive_morphology`` per il growth.
     """
     th = thresholds_from_config(cfg)
     summary = {
@@ -351,7 +424,7 @@ def attach(volume_payload, structures, *, ref_rd=None, cfg=None,
     }
     for rec in structures or []:
         field = derive_morphology(rec, volume_payload, ref_rd=ref_rd,
-                                  cfg=cfg, thr_dbz=thr_dbz)
+                                  cfg=cfg, thr_dbz=thr_dbz, prev=prev)
         rec["morphology_organization"] = field
         summary["structures_total"] += 1
         if field["classification"] is not None:
@@ -361,4 +434,13 @@ def attach(volume_payload, structures, *, ref_rd=None, cfg=None,
         else:
             reason = field["null_reason"] or "unknown"
             summary["null_by_reason"][reason] = summary["null_by_reason"].get(reason, 0) + 1
+    summary["growth_previous_available"] = bool(
+        isinstance(prev, dict) and prev.get("volume_available") is True)
+    summary["growth_previous_timestamp_utc"] = (
+        ((prev or {}).get("volume_timestamp_utc") or (prev or {}).get("timestamp"))
+        if isinstance(prev, dict) else None)
+    summary["growth_values_present"] = sum(
+        1 for rec in structures or []
+        if _finite((rec.get("morphology_organization") or {}).get("values", {}).get(
+            "volume_growth")) is not None)
     return structures, summary

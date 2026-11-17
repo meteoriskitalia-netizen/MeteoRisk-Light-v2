@@ -178,6 +178,26 @@ jobs:
           fi
           tmark end:restore_history
 
+      # CACHE 3D (2026-11-17): l'UNICO blob vivo del branch orphan radar-3d
+      # viene ripristinato PRIMA del motore perche' main.py lo usi come
+      # `prev` (volume_growth). Branch assente -> file assente -> growth null
+      # con "no_previous_volume": nessun valore inventato, nessuna inferenza.
+      - name: Ripristina blob volume 3D (branch radar-3d)
+        timeout-minutes: 3
+        run: |
+          tmark() { printf '%s\t%s\n' "$1" "$(date +%s%3N)" >> "$RUNNER_TEMP/timings/marks.tsv"; }
+          tmark begin:restore_3d
+          if git fetch --depth 1 origin "+radar-3d:refs/heads/radar-3d-base" 2>/dev/null; then
+            if git restore --source radar-3d-base --worktree -- data/radar/3d 2>/dev/null; then
+              echo "[INFO] Blob 3D ripristinato da radar-3d."
+            else
+              echo "[WARN] radar-3d esistente senza data/radar/3d (primo run)."
+            fi
+          else
+            echo "[INFO] Branch radar-3d assente (primo run): growth senza precedente."
+          fi
+          tmark end:restore_3d
+
       - name: Run radar engine (Fase 1)
         id: run
         timeout-minutes: 8
@@ -368,7 +388,7 @@ jobs:
                    storm_tracks.json convective_structures.json \
                    doppler_coverage.geojson accumulation.json \
                    accumulation_validation.json \
-                   volume.json doppler_analysis.json \
+                   doppler_analysis.json \
                    mesocyclone_tracks.json; do
             if [ -f "data/radar/$f" ]; then git add "data/radar/$f"; fi
           done
@@ -379,6 +399,10 @@ jobs:
           # 1.2.4.17: l'artefatto si chiama convective_structures.json; il vecchio
           # supercells.json non e' piu' prodotto (rimozione dal repo, se tracciato).
           git rm -q --cached --ignore-unmatch data/radar/supercells.json || true
+          # Cache 3D: il volume NON va su main. Rimuove l'eventuale copia
+          # storica data/radar/volume.json (migrazione una tantum al branch
+          # orphan radar-3d, che ha l'unico blob vivo data/radar/3d/volume.json).
+          git rm -q --cached --ignore-unmatch data/radar/volume.json || true
           if git diff --cached --quiet; then
             echo "[INFO] Nessuna modifica ai dati radar derivati."
           else
@@ -430,6 +454,18 @@ jobs:
             fi
           fi
           tmark end:commit_push_main
+
+      # Il blob 3D appena prodotto passa al job `radar-3d` tramite artifact:
+      # NON viene committato su main (un solo blob vivo, sul branch orphan).
+      # Nei run degradati senza file l'artifact e' vuota e il job 3d esce 0.
+      - name: Upload blob volume 3D (per job radar-3d)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: volume-3d
+          path: data/radar/3d/volume.json
+          if-no-files-found: ignore
+          retention-days: 1
 
       # ARCHIVIO ROLLING 2h su branch ORPHAN radar-history (clone dello step
       # satellite-cache): commit singola senza parent -> history resettata ad
@@ -635,6 +671,99 @@ jobs:
               with open(summary, "a", encoding="utf-8") as fh:
                   fh.write(text)
           PY
+
+  # CACHE 3D A DIMENSIONE COSTANTE — branch ORPHAN `radar-3d`.
+  # Un solo blob vivo (`data/radar/3d/volume.json`), un commit SENZA parent,
+  # push con --force-with-lease e 3 tentativi. Concurrency PROPRIA: non e'
+  # condivisa con `radar-history`. La logica di pubblicazione e' RIPRESA
+  # LETTERALMENTE dallo step "Pubblica archivio rolling radar" piu' sopra
+  # (cambiati solo i nomi: radar-history -> radar-3d, history -> 3d).
+  # OLD_TREE == NEW_TREE -> exit 0: nessun commit nei run che non producono
+  # un volume nuovo (tipico con il gate grandine a 2 CAPPI).
+  radar-3d:
+    needs: radar-engine
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: radar-3d
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Leggi SHA corrente del branch radar-3d
+        run: |
+          git fetch --depth 1 origin "+radar-3d:refs/heads/radar-3d-base" 2>/dev/null || true
+
+      - name: Scarica blob volume 3D
+        uses: actions/download-artifact@v4
+        with:
+          name: volume-3d
+          path: data/radar/3d
+          if-no-files-found: ignore
+
+      - name: Pubblica volume 3D (branch orphan radar-3d)
+        if: success()
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          tmark() { printf '%s\t%s\n' "$1" "$(date +%s%3N)" >> "$RUNNER_TEMP/timings/marks.tsv"; }
+          tmark begin:push_3d
+          if [ ! -f data/radar/3d/volume.json ]; then
+            echo "[INFO] Nessun blob 3D prodotto: pubblicazione saltata."
+            tmark end:push_3d
+            exit 0
+          fi
+          export GIT_INDEX_FILE="$RUNNER_TEMP/radar-3d.index"
+          git read-tree --empty
+          git add -f data/radar/3d/volume.json
+          NEW_TREE=$(git write-tree)
+          unset GIT_INDEX_FILE
+          OLD_TREE=""
+          if git rev-parse -q --verify radar-3d-base >/dev/null; then
+            OLD_TREE=$(git rev-parse radar-3d-base^{tree})
+          fi
+          if [ "$OLD_TREE" = "$NEW_TREE" ]; then
+            echo "[INFO] Blob 3D invariato: nessun commit (OLD_TREE == NEW_TREE)."
+            tmark end:push_3d
+            exit 0
+          fi
+          COMMIT=$(git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit-tree "$NEW_TREE" -m "[skip ci] radar: volume 3D (blob unico, branch orphan)")
+          # 2026-11-12 — DIFETTO RIPARATO (clone dello step radar-history): era
+          # `git push --force` NUDO. Con un push concorrente (o un run che
+          # parte mentre questo pusha) il force nudo sovrascrive il ref remoto
+          # e cancella il blob scritto dall'altro run. Ora il push usa
+          # --force-with-lease contro lo SHA letto SUBITO PRIMA del push: se
+          # il ref remoto e' cambiato, git RIFIUTA il push (non sovrascrive) e
+          # il ciclo rilegge lo SHA e riprova. Se il branch non esiste il lease
+          # e' vuoto (= "deve non esistere"), quindi la creazione non puo'
+          # cancellare nulla.
+          read_remote_sha() {
+            git ls-remote origin refs/heads/radar-3d 2>/dev/null | awk 'NR==1 {print $1}'
+          }
+          for attempt in 1 2 3; do
+            PARENT="$(read_remote_sha || true)"
+            if [ -z "$PARENT" ]; then
+              LEASE="--force-with-lease=refs/heads/radar-3d:"
+              EXPECT="<ref assente>"
+            else
+              LEASE="--force-with-lease=refs/heads/radar-3d:$PARENT"
+              EXPECT="$PARENT"
+            fi
+            echo "[INFO] push radar-3d tentativo $attempt/3 (lease su $EXPECT)"
+            if git push "$LEASE" origin "$COMMIT:refs/heads/radar-3d"; then
+              echo "[INFO] radar-3d aggiornata (commit ${COMMIT:0:7})."
+              tmark end:push_3d
+              exit 0
+            fi
+            echo "[WARN] push radar-3d rifiutato (tentativo $attempt/3): ref remoto cambiato o rete; rileggo lo SHA e riprovo."
+            sleep $((attempt * 5))
+          done
+          echo "[ERRORE] push radar-3d fallito dopo 3 tentativi (nessuna sovrascrittura: --force-with-lease)."
+          exit 1
 
   # JOB DI DEPLOY PAGES — unico punto serializzato del workflow.
   # group "pages-deploy-2" condiviso con update-weather-data e satellite-engine:

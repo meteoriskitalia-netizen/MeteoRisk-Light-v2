@@ -55,12 +55,39 @@ jobs:
         with:
           python-version: "3.13"
 
+      # 1.3.0.8 / daily-series-cache: ripristina l'UNICO blob vivo dal branch
+      # orphan stations-daily PRIMA di ricostruirlo. Su main il file NON esiste
+      # (publish_stations.py commotta solo latest.json + index.json): senza questo
+      # restore ogni run partirebbe da previous=None e azzererebbe la serie.
+      # Branch assente (primo run) = serie vuota, nessun errore.
+      - name: Ripristina serie giornaliera (branch stations-daily)
+        if: always()
+        run: |
+          mkdir -p data/stations
+          if git fetch --depth 1 origin "+stations-daily:refs/heads/stations-daily-base" 2>/dev/null; then
+            if git restore --source stations-daily-base --worktree -- data/stations/daily_series.json 2>/dev/null; then
+              echo "[INFO] Serie giornaliera ripristinata da stations-daily ($(wc -c < data/stations/daily_series.json) byte)."
+            else
+              echo "[WARN] stations-daily esistente senza data/stations/daily_series.json."
+            fi
+          else
+            echo "[INFO] Branch stations-daily assente (primo run): serie vuota."
+          fi
+
       # Lo script valida da solo: sotto --min-stations (500) NON scrive il file
       # ed esce 2, quindi una risposta vuota o troncata non arriva mai su main.
       # L'ultimo dataset valido resta in piedi perche' non viene scritto nulla.
       - name: Scarica e normalizza le osservazioni
         id: fetch
         run: python -u scripts/stations/fetch_stations.py --out data/stations/latest.json --index-out data/stations/index.json
+
+      # 1.3.0.8: accumula la serie del giorno lato server (UN blob vivo),
+      # partendo dal blob appena ripristinato. Solo se il fetch e' andato a buon
+      # fine: con latest.json non valido lo script esce 4 senza sovrascrivere il
+      # blob buono ripristinato.
+      - name: Aggiorna la serie giornaliera delle centraline
+        if: steps.fetch.outcome == 'success'
+        run: python -u scripts/stations/build_daily_series.py --latest data/stations/latest.json --out data/stations/daily_series.json
 
       # `if: always()`: gira anche se il fetch e' fallito. In quel caso i file
       # sono invariati (o ripristinati da HEAD) e il publish fa "no_change" /
@@ -72,3 +99,57 @@ jobs:
         run: |
           python -u scripts/stations/publish_stations.py \
             --message "chore(stations): osservazioni MeteoHub (CC BY 4.0, attribuzione per rete)"
+
+      # PUBBLICAZIONE su branch ORPHAN stations-daily (clone di radar-history in
+      # radar-engine.yml): commit SENZA parent -> la storia del branch resta a
+      # 1 commit, un solo blob vivo, crescita zero. Il file NON va MAI su main
+      # (publish_stations.py tocca solo latest.json + index.json): niente
+      # ~2,9 GB/giorno di blob nella storia di main. OLD_TREE==NEW_TREE -> exit 0.
+      # push SEMPRE con --force-with-lease sullo SHA riletto subito prima (mai
+      # --force nudo), 3 retry; la concurrency "stations-data" (cancel-in-progress:
+      # false) serializza le run di questo workflow, come fa "radar-history".
+      - name: Pubblica serie giornaliera (branch stations-daily, orphan)
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ ! -f data/stations/daily_series.json ]; then
+            echo "[INFO] Nessun data/stations/daily_series.json: pubblicazione saltata."
+            exit 0
+          fi
+          export GIT_INDEX_FILE="$RUNNER_TEMP/stations-daily.index"
+          git read-tree --empty
+          git add -f data/stations/daily_series.json
+          TREE=$(git write-tree)
+          unset GIT_INDEX_FILE
+          OLD=""
+          if git rev-parse -q --verify stations-daily-base >/dev/null; then
+            OLD=$(git rev-parse stations-daily-base^{tree})
+          fi
+          if [ "$OLD" = "$TREE" ]; then
+            echo "[INFO] Serie giornaliera invariata: push saltato (OLD_TREE==NEW_TREE)."
+            exit 0
+          fi
+          COMMIT=$(git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit-tree "$TREE" -m "[skip ci] stations: serie giornaliera (blob vivo)")
+          read_remote_sha() {
+            git ls-remote origin refs/heads/stations-daily 2>/dev/null | awk 'NR==1 {print $1}'
+          }
+          for attempt in 1 2 3; do
+            PARENT="$(read_remote_sha || true)"
+            if [ -z "$PARENT" ]; then
+              LEASE="--force-with-lease=refs/heads/stations-daily:"
+              EXPECT="<ref assente>"
+            else
+              LEASE="--force-with-lease=refs/heads/stations-daily:$PARENT"
+              EXPECT="$PARENT"
+            fi
+            echo "[INFO] push stations-daily tentativo $attempt/3 (lease su $EXPECT)"
+            if git push "$LEASE" origin "$COMMIT:refs/heads/stations-daily"; then
+              echo "[INFO] stations-daily aggiornata (commit ${COMMIT:0:7})."
+              exit 0
+            fi
+            echo "[WARN] push stations-daily rifiutato (tentativo $attempt/3): rileggo lo SHA e riprovo."
+            sleep $((attempt * 5))
+          done
+          echo "[ERRORE] push stations-daily fallito dopo 3 tentativi (nessuna sovrascrittura: --force-with-lease)."
+          exit 1

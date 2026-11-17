@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Publisher del volume 3D CAPPI -> ``data/radar/volume.json``.
+"""Publisher del volume 3D CAPPI -> blob ``data/radar/3d/volume.json``.
+
+NOTA ARCHITETTURA 3D CACHE (2026-11-17): il volume NON e' pubblicato su
+``main``: vive SOLO sul branch orphan ``radar-3d``, in UN solo blob
+compatto. Il file locale ``data/radar/3d/volume.json`` e' ripristinato dal
+workflow PRIMA del motore e riletto come "volume precedente" per il growth.
 
 Produce un payload COMPATTO e autosufficiente: ogni campo porta `source`,
 `timestamp`, `quality` e `null_reason`. Nessun valore e' inventato: i voxel
@@ -42,6 +47,15 @@ DEFAULT_THRESHOLDS = (30, 40, 45, 50, 55)
 ELEVATIONS_KM = [float(i + 1) for i in range(10)]
 VOLUME_SOURCE = "DPC_CAPPI_stack"
 VOLUME_ACQUISITION = "not_native_volumetric"
+
+# Cache 3D a dimensione costante: UN blob, un branch orphan, nessun dato grezzo.
+VOLUME_BRANCH = "radar-3d"
+VOLUME_BLOB_PATH = "data/radar/3d/volume.json"
+SRC_GROWTH_PAYLOAD = "confronto con il payload compatto precedente (branch radar-3d)"
+REF_GROWTH_PAYLOAD = (
+    "delta fra i VALORI PUBBLICATI (ECHO_TOP, CELL_VOLUME) di due payload "
+    "consecutivi; richiede il volume precedente. Nessun array grezzo viene "
+    "conservato: il blob vivo e' uno solo e resta a dimensione costante.")
 
 SRC_VOL = "DPC CAPPI_1..CAPPI_10 (stack 10 livelli, 1 km/passaggio)"
 SRC_SECTION = "cross_section.py: nearest-neighbor su volume CAPPI DPC"
@@ -399,11 +413,14 @@ def build_volume_payload(volume, vmi, *, timestamp_utc,
                          n_section_points=200, section_length_km=60.0,
                          pixel_km=1.0, max_match_km=20.0,
                          include_sections=True):
-    """Costruisce il payload di `data/radar/volume.json`.
+    """Costruisce il payload del blob `data/radar/3d/volume.json`.
 
     volume : ndarray (10,H,W) float32 dBZ (prodotto da volume3d.build_volume_from_cappi)
     vmi    : ndarray (H,W) dBZ, usata per etichettare le celle (8-connettivita', >=30 dBZ)
-    prev   : None oppure dict {volume, vmi, timestamp_utc, interp_mask} per i growth
+    prev   : None, oppure dict {volume, vmi, timestamp_utc, interp_mask} (array
+             grezzi in memoria), oppure il PAYLOAD COMPATTO precedente letto dal
+             blob del branch radar-3d (chiave `cells`, senza `volume`): in quel
+             caso il growth e' calcolato dai valori pubblicati.
     motions: dict {cell_id: {"direction_toward_deg": gradi}} per l'asse longitudinale
 
     Ritorna sempre un dict serializzabile (nessun NaN): degrada a cells=[] con
@@ -465,6 +482,15 @@ def build_volume_payload(volume, vmi, *, timestamp_utc,
                            interp_mask, source_label, timestamp_utc, pad)
 
     # --- growth temporale (solo con volume precedente) --------------------
+    # Due forme di `prev`, entrambe reali:
+    #   * {"volume": ndarray, "vmi": ..., ...} -> volume grezzo in memoria
+    #     (percorso storico, usato dai test e da chiamanti diretti);
+    #   * payload compatto di data/radar/3d/volume.json (chiave `cells`,
+    #     SENZA `volume`) -> unico blob vivo del branch radar-3d. In questo
+    #     caso il growth si calcola dai VALORI PUBBLICATI, non da array.
+    prev_is_compact = (isinstance(prev, dict)
+                       and "volume" not in prev
+                       and isinstance(prev.get("cells"), list))
     prev_cells = []
     if prev is not None and prev.get("volume") is not None:
         try:
@@ -492,6 +518,9 @@ def build_volume_payload(volume, vmi, *, timestamp_utc,
                 volume, cell, trans_motion, crs_wkt, transform, timestamp_utc,
                 n_section_points, section_length_km)
 
+        if prev_is_compact:
+            # Compilato in blocco da growth_from_previous_payload() qui sotto.
+            continue
         for t in thresholds:
             fields = cell["by_threshold"][str(t)]
             if prev is None or prev.get("volume") is None:
@@ -526,6 +555,8 @@ def build_volume_payload(volume, vmi, *, timestamp_utc,
                 null_reason=why, detail=ddetail)
 
     payload["cells"] = cells
+    if prev_is_compact:
+        growth_from_previous_payload(payload, prev)
     return payload
 
 
@@ -537,6 +568,174 @@ def _age_seconds(now_iso, older_iso):
         return max(0, int((a - b).total_seconds()))
     except Exception:
         return None
+
+
+def load_previous_volume(path=None):
+    """Legge il blob compatto ripristinato nel job (branch ``radar-3d``).
+
+    Ritorna ``(payload, reason)``. Il secondo valore e' SEMPRE esplicito:
+      * ``None``            -> payload valido, growth calcolabile;
+      * ``"no_previous_volume"`` -> file assente (branch vuoto / primo run);
+      * ``"previous_volume_unavailable"`` -> volume_available non True;
+      * ``"previous_volume_unreadable:<...>"`` -> JSON o I/O guasti.
+
+    Nessun valore viene inventato: un payload degradato o corrotto NON viene
+    usato come "precedente" e il growth resta null con il motivo reale.
+    """
+    path = path or VOLUME_BLOB_PATH
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        return None, "no_previous_volume"
+    except (OSError, ValueError) as exc:
+        return None, "previous_volume_unreadable:{}".format(exc.__class__.__name__)
+    if not isinstance(data, dict):
+        return None, "previous_volume_unreadable:not_a_dict"
+    if data.get("volume_available") is not True:
+        return None, "previous_volume_unavailable"
+    if not isinstance(data.get("cells"), list) or not data["cells"]:
+        return None, "previous_volume_unavailable"
+    return data, None
+
+
+def growth_from_previous_payload(payload, prev_payload, *, pixel_km=None,
+                                 max_match_km=None):
+    """Compila VERTICAL_GROWTH / VOLUME_GROWTH da DUE payload compatti.
+
+    ``prev_payload`` e' il blob ``data/radar/3d/volume.json`` del run
+    precedente; non contiene array grezzi (a dimensione costante), quindi il
+    confronto usa gli STESSI valori pubblicati (ECHO_TOP e CELL_VOLUME per
+    soglia) e lo stesso matching a centroide pesato di ``_match_previous``.
+    Aggiunge ``payload["growth"]`` con il riepilogo e ritorna ``(payload,
+    summary)``. Non solleva: ogni assenza diventa un null con motivo.
+    """
+    if not isinstance(payload, dict):
+        return payload, {"available": False, "reason": "invalid_current_payload"}
+    thresholds = tuple(int(t) for t in (
+        payload.get("thresholds_dbz") or DEFAULT_THRESHOLDS))
+    px = _finite_pixel(pixel_km if pixel_km is not None
+                       else (payload.get("grid") or {}).get("pixel_km", 1.0))
+    radius = _finite_pixel(max_match_km if max_match_km is not None
+                           else (payload.get("cell_matching") or {}).get(
+                               "max_distance_km", 20.0))
+    now_ts = (payload.get("volume_timestamp_utc") or payload.get("timestamp"))
+    prev_ts = ((prev_payload or {}).get("volume_timestamp_utc")
+               or (prev_payload or {}).get("timestamp"))
+    interval = _interval_min(now_ts, prev_ts) if prev_ts is not None else None
+    valid_prev = (isinstance(prev_payload, dict)
+                  and prev_payload.get("volume_available") is True
+                  and isinstance(prev_payload.get("cells"), list)
+                  and bool(prev_payload["cells"]))
+    prev_cells = prev_payload["cells"] if valid_prev else []
+    matched = 0
+    unmatched = 0
+    for cell in payload.get("cells") or []:
+        best, dist = ((None, None) if not valid_prev else
+                      _match_previous(cell, prev_cells, px, radius))
+        if best is not None:
+            matched += 1
+        else:
+            unmatched += 1
+        why = (None if best is not None else
+               ("no_previous_volume" if not valid_prev else
+                "no_matching_previous_cell"))
+        detail = {
+            "interval_min": interval,
+            "previous_volume_timestamp_utc": prev_ts,
+            "source_blob": VOLUME_BLOB_PATH,
+            "branch": VOLUME_BRANCH,
+        }
+        if why is None:
+            detail["matched_prev_cell_id"] = best.get("cell_id")
+            detail["distance_km"] = _r2(dist, 2)
+        for t in thresholds:
+            fields = (cell.get("by_threshold") or {}).get(str(t))
+            if not isinstance(fields, dict):
+                continue
+            vg = vog = None
+            if why is None:
+                pfields = (best.get("by_threshold") or {}).get(str(t)) or {}
+                et_now = _plain_value(fields, "ECHO_TOP")
+                et_prev = _plain_value(pfields, "ECHO_TOP")
+                cv_now = _plain_value(fields, "CELL_VOLUME")
+                cv_prev = _plain_value(pfields, "CELL_VOLUME")
+                vg = _r2(et_now - et_prev) if (et_now is not None
+                                               and et_prev is not None) else None
+                vog = _r2(cv_now - cv_prev) if (cv_now is not None
+                                                and cv_prev is not None) else None
+                # Motivi PER CAMPO: un valore disponibile non puo' portare un
+                # null_reason (contratto _field), anche se l'altro e' mancante.
+                why_vg = (None if vg is not None else
+                          "echo_top_missing_in_current_or_previous")
+                why_vog = (None if vog is not None else
+                           "cell_volume_missing_in_current_or_previous")
+            else:
+                why_vg = why_vog = why
+            fields["VERTICAL_GROWTH"] = _field(
+                vg, SRC_GROWTH_PAYLOAD, now_ts, "C_derived",
+                REF_GROWTH_PAYLOAD, null_reason=why_vg, detail=detail)
+            fields["VOLUME_GROWTH"] = _field(
+                vog, SRC_GROWTH_PAYLOAD, now_ts, "C_derived",
+                REF_GROWTH_PAYLOAD, null_reason=why_vog, detail=detail)
+    summary = {
+        "available": valid_prev,
+        "reason": (None if valid_prev else
+                   ("no_previous_volume" if not isinstance(prev_payload, dict)
+                    else "previous_volume_unavailable")),
+        "previous_volume_timestamp_utc": prev_ts,
+        "interval_min": interval,
+        "cells_total": len(payload.get("cells") or []),
+        "matched_cells": matched,
+        "unmatched_cells": unmatched,
+        "source_blob": VOLUME_BLOB_PATH,
+        "branch": VOLUME_BRANCH,
+        "reference": REF_GROWTH_PAYLOAD,
+    }
+    payload["growth"] = summary
+    return payload, summary
+
+
+def growth_for_cell(cell, prev_payload, *, thr_dbz=30, thresholds=None,
+                    pixel_km=None, max_match_km=None):
+    """Growth di UNA cella dal payload compatto precedente.
+
+    Ritorna ``(value, null_reason, detail)`` per VOLUME_GROWTH. Usa ESATTAMENTE
+    la stessa logica di ``growth_from_previous_payload`` (via un holder
+    deep-coppiato: la cella chiamante NON viene modificata). Nessun valore
+    inventato: se manca il precedente o il match, il motivo e' esplicito.
+    """
+    import copy
+    ths = tuple(int(t) for t in (thresholds or (int(thr_dbz),)))
+    holder = {"cells": [copy.deepcopy(cell)], "thresholds_dbz": list(ths),
+              "volume_timestamp_utc": None}
+    if pixel_km is not None:
+        holder["grid"] = {"pixel_km": pixel_km}
+    if max_match_km is not None:
+        holder["cell_matching"] = {"max_distance_km": max_match_km}
+    growth_from_previous_payload(holder, prev_payload)
+    field = ((holder["cells"][0].get("by_threshold") or {}).get(str(ths[0]))
+             or {}).get("VOLUME_GROWTH") or {}
+    return field.get("value"), field.get("null_reason"), field.get("detail")
+
+
+def _finite_pixel(value, default=1.0):
+    """Valore positivo finito per pixel_km / max_match_km."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return default
+    return f if (math.isfinite(f) and f > 0) else default
+
+
+def _plain_value(block, key):
+    """Valore grezzo di un campo _field() (o None)."""
+    if isinstance(block, dict):
+        f = block.get(key)
+        if isinstance(f, dict):
+            return f.get("value")
+        return f
+    return None
 
 
 def write_volume_payload(payload, out_dir):
