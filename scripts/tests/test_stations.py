@@ -474,3 +474,85 @@ def test_index_budget_on_real_data_and_ten_station_spot_check():
                 )
             else:
                 assert record[key] is None, (st["id"], key)
+
+
+# ---------------------------------------------------------------------------
+# REGRESSIONE 1.3.0.6: `river_level_m` (2 decimali in latest.json) confrontato
+# con l'indice (1 decimale). I 4 valori qui sotto sono QUELLI CHE OGGI FALLISCONO
+# sul run reale del 17/11/2026: in virgola mobile |g - e| = 0,050000... > 0,05.
+# ---------------------------------------------------------------------------
+def _latest_with_field(field, value):
+    """`latest.json` minimo ma valido, con un campo a 2 decimali."""
+    return {
+        "stations": [
+            {
+                "id": "simnpr:44.93000,10.38172",
+                "network": "simnpr",
+                "obs_time": "2026-11-17T21:00:00Z",
+                "lat": 44.93,
+                "lon": 10.38172,
+                field: value,
+            }
+        ],
+        "attribution": [
+            {
+                "network": "simnpr",
+                "text": "Rete idrologica",
+                "url": "https://example.invalid/attribution",
+            }
+        ],
+        "units": {field: "m"},
+    }
+
+
+def _latest_with_river(value):
+    return _latest_with_field("river_level_m", value)
+
+
+@pytest.mark.parametrize(
+    "expected,rounded",
+    [
+        (1.25, 1.2),    # banker's rounding: 1,25 -> 1,2
+        (26.45, 26.4),  # 26,45 in virgola mobile e' appena sotto
+        (1.55, 1.6),    # 1,55 in virgola mobile e' appena sopra
+        (0.75, 0.8),    # banker's rounding: 0,75 -> 0,8
+    ],
+)
+def test_validate_index_accepts_exact_half_decimals(expected, rounded):
+    """I 4 valori reali che fanno fallire il workflow con EXIT=2 (step 4)."""
+    latest = _latest_with_river(expected)
+    index = fs.build_index(latest)
+    position = fs.INDEX_STATION_FIELDS.index("river_level_m")
+    # Verifichiamo di essere DAVVERO sulla strada che genera l'errore:
+    # l'indice deve contenere il valore arrotondato a 1 decimale.
+    assert index["stations"][0][position] == rounded
+    assert fs.validate_index(index, latest) == []
+
+
+def test_validate_index_still_rejects_wrong_rounding():
+    """Il confronto NON e' stato allentato: 1,25 -> 1,3 DEVE essere un errore."""
+    latest = _latest_with_river(1.25)
+    index = fs.build_index(latest)
+    position = fs.INDEX_STATION_FIELDS.index("river_level_m")
+    broken = json.loads(json.dumps(index))
+    broken["stations"][0][position] = 1.3
+    problems = fs.validate_index(broken, latest)
+    assert any("river_level_m" in p for p in problems), problems
+
+
+@pytest.mark.parametrize("field", ("snow_depth_m", "fresh_snow_depth_m"))
+def test_validate_index_covers_two_decimal_snow_fields(field):
+    """Stesso difetto LATENTE della neve: build_index arrotonda a 1 decimale
+    anche questi due campi, che in latest.json hanno 2 decimali.
+
+    Il commento dell'indice diceva "(2 per neve e livello idro)" ma il codice
+    usa `_round1` per TUTTI i campi valore: e' stato corretto il COMMENTO
+    (non il codice), perche' portare l'indice a 2 decimali cambierebbe
+    l'invariante e il budget gzip. Il confronto DOPO arrotondamento copre
+    anche questi due campi, senza allentare la verifica.
+    """
+    latest = _latest_with_field(field, 1.25)
+    index = fs.build_index(latest)
+    position = fs.INDEX_STATION_FIELDS.index(field)
+    assert index["stations"][0][position] == 1.2
+    assert fs.validate_index(index, latest) == []

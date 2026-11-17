@@ -897,7 +897,8 @@ def build_index(
         "station_fields": list(INDEX_STATION_FIELDS),
         "note": (
             "Stesse stazioni di latest.json, SENZA le serie orarie. Valori "
-            "correnti arrotondati a 1 decimale (2 per neve e livello idro); "
+            "correnti dell'indice arrotondati a 1 decimale per TUTTI i campi "
+            "(in latest.json neve e livello idro hanno 2 decimali); "
             "null = grandezza non disponibile. `precipitation` va letta con "
             "`precipitation_period_s` (il periodo di accumulo cambia per rete). "
             "`station_pressure_hPa` e' pressione di STAZIONE (B10004, livello "
@@ -949,7 +950,15 @@ def validate_index(
 
     Non e' un confronto di facciata: ogni riga viene ricomposta con
     `station_fields` e confrontata con la stazione corrispondente di
-    `latest.json` (tolleranza 0,05 = arrotondamento a 1 decimale).
+    `latest.json`. I campi valore vengono confrontati DOPO arrotondamento a 1
+    decimale con `_round1`, la STESSA funzione usata da `build_index`: in
+    `latest.json` neve e livello idro hanno 2 decimali, nell'indice 1.
+
+    Perche' non una tolleranza assoluta 0,05: in virgola mobile
+    `1,25 - 1,2 = 0,050000000000000044 > 0,05`, e il run del 17/11/2026 e'
+    fallito con una serie di errori su `river_level_m` (EXIT=2, step 4).
+    Arrotondando entrambe le parti il confronto resta severo: 1,25 -> 1,3 e'
+    ancora un errore, quindi il test continua a mordere davvero.
     """
     problems: list[str] = []
 
@@ -990,7 +999,7 @@ def validate_index(
             if expected is None:
                 if got is not None:
                     add(f"riga {position} ({st.get('id')}): {key} dovrebbe essere null")
-            elif got is None or abs(float(got) - float(expected)) > 0.05:
+            elif got is None or _round1(expected) != _round1(got):
                 add(
                     f"riga {position} ({st.get('id')}): {key} {got!r} != {expected!r}"
                 )
