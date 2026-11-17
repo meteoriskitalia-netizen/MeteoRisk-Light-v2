@@ -632,6 +632,12 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             line-height: 1.4; color: #cbd5e1; max-width: 100%; overflow-wrap: anywhere; }
         .radar-legend .legend-title { font-size: 10px; font-weight: 700; color: #e2e8f0; margin-bottom: 2px; }
         .radar-legend .legend-row { display: flex; align-items: flex-start; gap: 6px; flex-wrap: wrap; }
+        /* FIX 1.3.0.7 - scala dBZ di RainViewer/LibreWXR (la sola mancante).
+           Stesso stile della legenda radar esistente; nessuna emoji/ombra/gradiente. */
+        .radar-dbz-label { font-size: 9px; color: #94a3b8; margin-bottom: 2px; }
+        .radar-dbz-ramp, .radar-dbz-ticks { display: flex; width: 195px; }
+        .radar-dbz-sw { display: block; flex: 1 1 0; height: 8px; border: 1px solid rgba(15,23,42,.6); }
+        .radar-dbz-tick { flex: 1 1 0; text-align: center; font-size: 8px; color: #94a3b8; font-variant-numeric: tabular-nums; }
         /* 1.2.4.75 - canvas dell'AREA DOPPLER. Sta nel pane dedicato (z 405):
            sopra il raster radar (400), sotto i bordi amministrativi (410) e i
            marker (600). Non intercetta il mouse: e' solo una superficie. */
@@ -1818,7 +1824,20 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .hydro-combined-key { font-size: 9.5px; color: #cbd5e1; line-height: 1.35; margin-bottom: 4px; }
         .hydro-days { font-size: 9.5px; color: #94a3b8; margin: 4px 0; }
         .hydro-day-kind { color: #64748b; }
-        .hydro-only3 { font-size: 9.5px; color: #94a3b8; border-top: 1px solid #334155; padding-top: 4px; margin-top: 4px; }
+        /* FIX 1.3.0.7 - vista compatta ripiegabile: nessuna emoji/ombra/gradiente
+           nuovo. I 3 rischi restano badge separati, non fusi in un indice unico. */
+        .hydro-details { width: 100%; }
+        .hydro-summary { display: flex; flex-direction: column; gap: 4px; cursor: pointer; list-style: none; }
+        .hydro-summary::-webkit-details-marker { display: none; }
+        .hydro-summary-main { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; flex-wrap: wrap; font-size: 12px; font-weight: 700; }
+        .hydro-summary-hint { color: #94a3b8; font-size: 10px; font-weight: 400; }
+        .hydro-summary-hint::before { content: '[+]'; }
+        .hydro-details[open] .hydro-summary-hint::before { content: '[−]'; }
+        .hydro-mini { display: flex; gap: 4px; flex-wrap: wrap; }
+        .hydro-mini-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; color: #cbd5e1; background: rgba(15,23,42,.45); border: 1px solid #334155; border-radius: 4px; padding: 2px 3px; font-variant-numeric: tabular-nums; }
+        .hydro-mini-badge b { color: #e2e8f0; font-weight: 700; }
+        .hydro-mini-sw { display: inline-block; width: 6px; height: 6px; border-radius: 1px; }
+        .hydro-body { margin-top: 6px; }
         @media (max-width: 600px) {
             .hydro-panel { left: 6px; right: 6px; bottom: 6px; width: auto; max-width: none; font-size: 10.5px; }
         }
@@ -1912,7 +1931,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     <div id="standalone-toggles-row" style="max-width:1200px; margin:0 auto 10px auto; display:none; gap:8px; align-items:center; flex-wrap:wrap;">
         <button class="tool-btn" id="btn-radar" onclick="toggleRadar()" style="border-color:#0284c7;">📡 Radar Timeline (OFF)</button>
         <button class="tool-btn" id="btn-satellite" onclick="toggleSatellite()" style="border-color:#0284c7;">🛰️ SATELLITE (OFF)</button>
-        <button class="tool-btn" id="btn-high-risk" onclick="toggleHighRiskFilter()" title="Evidenzia le zone a rischio: toggle indipendente, non un prodotto">🚨 Evidenzia Zone a Rischio</button>
     </div>
     <div class="toolbar-row" id="product-select-row" style="max-width:1200px; margin:0 auto 10px auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <label for="product-select" style="font-size:11px;color:#94a3b8;">Prodotto</label>
@@ -1920,12 +1938,17 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <option value="">— nessuno —</option>
             <option value="forecast-maps">Mappe previsionali</option>
             <option value="radar-player">Radar Player</option>
-            <option value="rischi">Mappa dei rischi</option>
+            <option value="rischi" selected>Mappa dei rischi</option>
             <option value="forecast">Previsioni</option>
             <option value="live">Pannello LIVE</option>
             <option value="newindices" data-dev="1">Nuovi Indici</option>
             <option value="sources">Fonti e metodologie</option>
         </select>
+        <!-- FIX 1.3.0.7 - #btn-high-risk subito dopo il selettore prodotto (non in fondo).
+             Il wrapper e' comandato da syncContextualToggles(); handler storico invariato. -->
+        <span id="high-risk-wrap" style="display:none;">
+            <button class="tool-btn" id="btn-high-risk" onclick="toggleHighRiskFilter()" title="Evidenzia le zone a rischio: toggle indipendente, non un prodotto">🚨 Evidenzia Zone a Rischio</button>
+        </span>
         <span id="product-status" style="font-size:10px;color:#64748b;"></span>
     </div>
     <div style="max-width:1200px; margin:0 auto 10px auto; display:flex; gap:8px; align-items:center; overflow-x:auto; padding-bottom:4px;" class="map-toolbar-scroll">
@@ -2265,9 +2288,11 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <option value="pressure">Pressione</option>
         <option value="wind">Vento</option>
         <option value="thermalrisk">Rischio Termico</option>
-        <option value="fog">Nebbia</option>
-        <option value="conv">Conv.</option>
-        <option value="hail">Grandine</option>
+        <!-- FIX 1.3.0.7 - Nebbia/Conv./Grandine sono voci DI SVILUPPO: nascoste
+             di default e comandate da toggleSviluppo come i relativi metric-tab. -->
+        <option value="fog" data-metric-dev="1" hidden disabled>Nebbia</option>
+        <option value="conv" data-metric-dev="1" hidden disabled>Conv.</option>
+        <option value="hail" data-metric-dev="1" hidden disabled>Grandine</option>
     </select>
     <span id="metric-select-reason" style="font-size:10px;color:#64748b;white-space:nowrap;display:none;" title="Attiva «Rischio» per poter scegliere una metrica"></span>
 </div>
@@ -2293,16 +2318,27 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
              (nessuna/gialla/arancione/rossa) e attribuzione obbligatoria.
              `hidden` finche' il layer non viene acceso. -->
         <div id="hydro-panel" class="hydro-panel" hidden>
-            <div class="hydro-title">
-                <span id="hydro-panel-title">Criticità DPC — rischio idrogeologico</span>
-                <span class="hydro-bulletin" id="hydro-bulletin"></span>
-            </div>
-            <div class="hydro-legend" id="hydro-legend"></div>
-            <div class="hydro-status" id="hydro-status">Bollettino non ancora caricato.</div>
-            <div class="hydro-attrib">
-                <b>Fonte: Dipartimento della Protezione Civile</b> — licenza CC BY 4.0.
-                Criticità <b>prevista</b> dal DPC: non è un'allerta emessa da MeteoRisk.
-            </div>
+            <!-- FIX 1.3.0.7 - vista compatta ripiegabile chiusa di default: i 3
+                 rischi DPC restano SEPARATI e leggibili nella riga di badge,
+                 il dettaglio si apre su richiesta. Nessuna informazione persa. -->
+            <details id="hydro-details" class="hydro-details">
+                <summary class="hydro-summary">
+                    <span class="hydro-summary-main">
+                        <span id="hydro-panel-title">Criticità DPC — 3 rischi separati</span>
+                        <span class="hydro-bulletin" id="hydro-bulletin"></span>
+                    </span>
+                    <span class="hydro-mini" id="hydro-mini" title="Il bollettino DPC pubblica solo 3 rischi: idraulico, temporali, idrogeologico. Vento, neve, caldo, gelate e gelicidio NON sono pubblicati nel bollettino nazionale DPC."></span>
+                    <span class="hydro-summary-hint" aria-hidden="true"></span>
+                </summary>
+                <div class="hydro-body">
+                    <div class="hydro-legend" id="hydro-legend"></div>
+                    <div class="hydro-status" id="hydro-status">Bollettino non ancora caricato.</div>
+                    <div class="hydro-attrib">
+                        <b>Fonte: Dipartimento della Protezione Civile</b> — licenza CC BY 4.0.
+                        Criticità <b>prevista</b> dal DPC: non è un'allerta emessa da MeteoRisk.
+                    </div>
+                </div>
+            </details>
         </div>
         </div>
         <!-- Mappe previsionali (Open-Meteo Weather Map Layer) -->
@@ -2421,6 +2457,9 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             </div>
             <div class="legend-row" id="radar-legend-opera" style="display:none;"></div>
             <div class="legend-row" id="radar-legend-collimation" style="display:none;"></div>
+            <!-- FIX 1.3.0.7 - scala dBZ mancante di RainViewer/LibreWXR: visibile
+                 solo per quei due provider, mai per DPC/OPERA (scale validate). -->
+            <div class="legend-row" id="radar-legend-dbz" style="display:none;"></div>
         </div>
         <!-- Selettore ORARIO a slider sotto la mappa (sostituisce la tendina) -->
         <div class="hour-slider" id="hour-slider-wrap" style="display:none;">
@@ -2917,9 +2956,18 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.6';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.7';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-17';
     const APP_CHANGELOG = [
+    { version: '1.3.0.7', date: '2026-11-17', changes: [
+        'Serie centraline: messaggio esplicito con 1 o 2 osservazioni raccolte oggi, senza inventare punti passati; la curva NWP tratteggiata resta invariata.',
+        'Prodotto di default: Mappa dei rischi selezionata all avvio e stato attivo allineato senza nuovi handler.',
+        'Comando Evidenzia Zone a Rischio spostato subito dopo il selettore prodotto, nella stessa riga, con wrapper comandato da syncContextualToggles.',
+        'Metriche Nebbia, Conv. e Grandine nascoste e disabilitate fuori della modalita Sviluppo, come i relativi metric-tab: 7 voci visibili, 10 con Sviluppo attivo.',
+        'Pannello criticita DPC compatto: dettagli chiusi di default e 3 badge separati sempre visibili per idraulico, temporali e idrogeologico, nessuna informazione persa.',
+        'Nota didattica sui soli 3 rischi DPC rimossa dallo schermo e spostata nel title del pannello compatto.',
+        'Legenda dBZ per RainViewer e LibreWXR con la tabella ufficiale Universal Blue, nessuna palette inventata; scale DPC e OPERA intatte.',
+    ]},
     { version: '1.3.0.6', date: '2026-11-17', changes: [
         'Unione delle due consegne sulla base 1.3.0.5: prima la rimozione del pannello 3D, poi le correzioni alle centraline. Nessun conflitto di hunk.',
         'Motore: nuovo morphology.py con campo morphology_organization per struttura (echo_top, vertical_extent, vil_density, volume_growth, sorgente CAPPI_3D); con meno di 4 CAPPI resta null con motivo cappi_levels_lt_4, mai inferito da 2 CAPPI. soi, soi_v2 e rotazione invariati.',
@@ -6547,6 +6595,9 @@ function enabledLightningSourceIds() {
             if (sel1) sel1.value = list[0];
         }
         radarProvider = val;
+        // FIX 1.3.0.7 - aggiorna subito la scala dBZ: solo RainViewer/LibreWXR
+        // la mostrano; DPC/OPERA conservano le loro scale validate.
+        if (typeof renderRadarDbzScale === 'function') renderRadarDbzScale();
         var p = RADAR_PROVIDERS[radarProvider];
         console.log('[RadarProvider] Switched to: ' + p.label);
         // Mostra/nascondi il selettore prodotto DPC
@@ -9287,7 +9338,47 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
         return (typeof v === "number" && isFinite(v)) ? (Math.round(v * 100) / 100).toFixed(2) + "%" : null;
     }
 
+    // FIX 1.3.0.7 - SCALA dBZ MANCANTE DI RainViewer/LibreWXR --------------------
+    // Colori = tabella ufficiale RainViewer "Universal Blue" (color=2, unico
+    // schema esposto dall'API pubblica), colonna Rain, convertita da RGBA in
+    // rgba() CSS. Fonte: https://www.rainviewer.com/files/rainviewer_api_colors_table.csv
+    // Nessuna palette DPC/OPERA toccata: dove la semantica coincide (giallo,
+    // arancio, rosso a 35-50 dBZ) i colori sono gli stessi delle scale validate.
+    var RADAR_DBZ_SCALE = [
+        { dbz: 0,  color: 'rgba(130,123,105,0.29)' },
+        { dbz: 5,  color: 'rgba(146,136,113,0.39)' },
+        { dbz: 10, color: 'rgba(206,192,135,0.59)' },
+        { dbz: 15, color: 'rgba(136,221,238,1)' },
+        { dbz: 20, color: 'rgba(0,163,224,1)' },
+        { dbz: 25, color: 'rgba(0,119,170,1)' },
+        { dbz: 30, color: 'rgba(0,85,136,1)' },
+        { dbz: 35, color: 'rgba(255,238,0,1)' },
+        { dbz: 40, color: 'rgba(255,170,0,1)' },
+        { dbz: 45, color: 'rgba(255,68,0,1)' },
+        { dbz: 50, color: 'rgba(193,0,0,1)' },
+        { dbz: 55, color: 'rgba(255,170,255,1)' },
+        { dbz: 60, color: 'rgba(255,119,255,1)' }
+    ];
+    function renderRadarDbzScale() {
+        var row = document.getElementById('radar-legend-dbz');
+        if (!row) return;
+        var isXyz = (radarProvider === 'rainviewer' || radarProvider === 'librewxr');
+        row.style.display = isXyz ? '' : 'none';
+        if (!isXyz) { row.innerHTML = ''; return; }
+        var ramp = '', ticks = '', i, last = RADAR_DBZ_SCALE.length - 1;
+        for (i = 0; i <= last; i++) {
+            ramp += '<span class="radar-dbz-sw" title="' + RADAR_DBZ_SCALE[i].dbz + ' dBZ" style="background:' +
+                RADAR_DBZ_SCALE[i].color + '"></span>';
+            ticks += '<span class="radar-dbz-tick">' +
+                (i % 2 === 0 ? RADAR_DBZ_SCALE[i].dbz + (i === last ? '+' : '') : '') + '</span>';
+        }
+        row.innerHTML = '<div class="radar-dbz-label">Riflettività <b>dBZ</b> · Universal Blue (RainViewer)</div>' +
+            '<div class="radar-dbz-ramp">' + ramp + '</div>' +
+            '<div class="radar-dbz-ticks">' + ticks + '</div>';
+    }
+
     function renderRadarLegend() {
+        renderRadarDbzScale();
         var srcEl = document.getElementById("radar-legend-sources");
         var opEl = document.getElementById("radar-legend-opera");
         var colEl = document.getElementById("radar-legend-collimation");
@@ -17672,6 +17763,14 @@ stopSyncPlay();
         h += '<div style="font-size:9px;color:#7dd3fc;">● ' + escapeHtml(obsLabel) + '</div>';
         h += '<div style="font-size:9px;color:#fbbf24;" title="' + escapeHtml(genIso) + '">◇ ' +
              escapeHtml(nwpLabel) + '</div>';
+        // FIX 1.3.0.7 - serie osservata troppo corta: NON inventiamo osservazioni
+        // passate. Il messaggio si aggiorna con il conteggio (1 -> 2) e scompare a 3.
+        // La curva NWP (tratteggiata) non viene toccata.
+        if (pts.length > 0 && pts.length < 3) {
+            h += '<div class="stations-series-notice" style="font-size:9px;color:#fbbf24;border:1px solid #334155;border-radius:4px;padding:4px 5px;margin-top:4px;line-height:1.35;">' +
+                 pts.length + (pts.length === 1 ? ' osservazione raccolta oggi' : ' osservazioni raccolte oggi') +
+                 ' — la serie parte da quando apri l\'app. La linea tratteggiata è il modello previsto.</div>';
+        }
         if (!pts.length && !nwp) {
             h += '<div style="font-size:9px;color:#64748b;">Nessun punto osservato ne previsto per questa stazione e questo parametro nella giornata corrente.</div></div>';
             return h;
@@ -21940,11 +22039,15 @@ function syncContextualToggles() {
     var bRadar = document.getElementById('btn-radar');
     var bSat = document.getElementById('btn-satellite');
     var bRisk = document.getElementById('btn-high-risk');
+    var riskWrap = document.getElementById('high-risk-wrap');
     var row = document.getElementById('standalone-toggles-row');
     if (bRadar) bRadar.style.display = showRadar ? '' : 'none';
     if (bSat) bSat.style.display = showSat ? '' : 'none';
-    if (bRisk) bRisk.style.display = riskProductOn ? '' : 'none';
-    if (row) row.style.display = (showRadar || showSat || riskProductOn) ? 'flex' : 'none';
+    // FIX 1.3.0.7 - #btn-high-risk vive ora dentro #product-select-row:
+    // comanda il suo wrapper, non piu' la riga standalone (che resta radar/satellite).
+    if (bRisk) bRisk.style.display = '';
+    if (riskWrap) riskWrap.style.display = riskProductOn ? '' : 'none';
+    if (row) row.style.display = (showRadar || showSat) ? 'flex' : 'none';
 }
 function syncProductUI() {
     syncContextualToggles();
@@ -22129,6 +22232,20 @@ function toggleForecastMaps() {
         var ft = document.getElementById('metric-tab-fog');
         if (ft) ft.style.display = isSviluppoActive ? '' : 'none';
         if (!isSviluppoActive && currentMetric === 'fog') { selectMetric('risk'); }
+        // FIX 1.3.0.7 - le TRE voci di sviluppo della tendina #metric-select
+        // (Nebbia, Conv., Grandine) seguono lo switch come i metric-tab:
+        // 7 voci con Sviluppo OFF, 10 con Sviluppo ON. Nessun calcolo toccato.
+        var devMetricOpts = document.querySelectorAll('#metric-select option[data-metric-dev="1"]');
+        for (var dmo = 0; dmo < devMetricOpts.length; dmo++) {
+            devMetricOpts[dmo].hidden = !isSviluppoActive;
+            devMetricOpts[dmo].disabled = !isSviluppoActive;
+        }
+        var _msel = document.getElementById('metric-select');
+        if (!isSviluppoActive && _msel && _msel.selectedOptions &&
+            _msel.selectedOptions.length && _msel.selectedOptions[0].getAttribute &&
+            _msel.selectedOptions[0].getAttribute('data-metric-dev') === '1') {
+            _msel.value = 'risk';
+        }
         // 1.2.4.53 - STRUTTURA CONVETTIVA (SOI): torna VISIBILE NEL PANNELLO LIVE PER
         // TUTTI, come fino alla 1.2.4.50. Il toggle non e' piu' legato allo switch
         // "Sviluppo" (che resta obbligatorio per la NEBBIA, vedi sopra): il pannello
@@ -34726,8 +34843,12 @@ initMap();
     syncMetricSelectEnabled();
     applyPublicEditionFeatureVisibility();
     // FIX 1.3.0.4 - dopo il controllo delle feature: la visibilita' iniziale
-    // dei toggle contestuali dipende dal prodotto attivo (nessuno all'avvio).
+    // dei toggle contestuali dipende dal prodotto attivo.
+    // FIX 1.3.0.7 - il prodotto di default e' «Mappa dei rischi»: allinea lo
+    // stato attivo al valore selezionato nel markup, senza nuovi handler.
     syncProductUI();
+    var _initProductSel = document.getElementById('product-select');
+    if (_initProductSel && _initProductSel.value === 'rischi') { selectProduct('rischi'); }
     startApp(25);
 
     // ================= AUDIT 2 / FIX VISIBILITA' (Radar Player) =================
@@ -35580,6 +35701,24 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         }
         var bul = byId('hydro-bulletin');
         if (bul) bul.textContent = (d && d.source && d.source.index_label) || '';
+        // FIX 1.3.0.7 - riga compatta SEMPRE visibile: 3 badge SEPARATI, uno per
+        // rischio, con i 4 livelli affiancati negli stessi colori DPC validati.
+        // Solo presentazione: riusa countsFor(), nessun calcolo meteorologico nuovo.
+        var mini = byId('hydro-mini');
+        if (mini) {
+            var mh = '', mi, mj, mr, mc, mcode;
+            for (mi = 0; mi < HYDRO_RISKS.length; mi++) {
+                mr = HYDRO_RISKS[mi]; mc = countsFor(zones, mr.key);
+                mh += '<span class="hydro-mini-badge"><b>' + mr.short + '</b>';
+                for (mj = 0; mj < CODES.length; mj++) {
+                    mcode = CODES[mj];
+                    mh += '<span title="' + HYDRO_LABELS[mcode] + '"><i class="hydro-mini-sw" style="background:' +
+                        HYDRO_COLORS[mcode] + '"></i>' + mc[mcode] + '</span>';
+                }
+                mh += '</span>';
+            }
+            mini.innerHTML = mh;
+        }
         var container = byId('hydro-legend');
         if (container) {
             var html = '<div class="hydro-combined-head">Vista combinata — i 3 rischi restano SEPARATI (nessuna somma in un indice unico)</div>';
@@ -35591,8 +35730,8 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
                 '<span style="color:' + HYDRO_COLORS.red + '">rossa</span>. I tre valori non vengono mai fusi.</div>';
             html += riskTableHtml(zones);
             html += availabilityHtml();
-            html += '<div class="hydro-only3">Il bollettino DPC pubblica solo 3 rischi: idraulico, temporali, idrogeologico. ' +
-                'Vento, neve, caldo, gelate e gelicidio NON sono pubblicati nel bollettino nazionale DPC: nessuna categoria inventata.</div>';
+            // FIX 1.3.0.7 - nota didattica .hydro-only3 RIMOSSA dallo schermo:
+            // lo stesso testo e' ora nel title di #hydro-mini (non piu' a schermo).
             container.innerHTML = html;
         }
         var status = byId('hydro-status');
