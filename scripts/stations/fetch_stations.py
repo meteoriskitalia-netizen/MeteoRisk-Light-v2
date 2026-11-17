@@ -24,7 +24,17 @@ COSA PUBBLICA
      stations: [{id, lat, lon, name?, network, obs_time,
                  temperature_2m, relative_humidity_2m,
                  wind_speed_10m, wind_direction_10m,
-                 precipitation, precipitation_period_s, dew_point_2m?}]}
+                 precipitation, precipitation_period_s, dew_point_2m?,
+                 station_pressure_hPa?, wind_gust_10m?, snow_depth_m?,
+                 fresh_snow_depth_m?, river_level_m?}]}
+
+Campi aggiuntivi (verificati su /api/observations anonimo, HTTP 200, 4.455
+stazioni, licenza CCBY_COMPLIANT): B10004 = pressione di STAZIONE al livello
+1,0,0,0 (NON MSL), divisa per 100 e filtrata come anomalo; B11041 = raffica
+massima; B13013/B13012 = neve al suolo/fresca; B13215 = livello idrometrico,
+IDROLOGICO e quindi campo separato non meteo. Il client mette i tre campi
+meteo nella tendina centraline e tiene il livello idrometrico fuori da essa.
+Visibilita' e cloud NON esistono nella sorgente: nessun campo inventato.
 
 `data/stations/index.json` (stesso run, `--index-out`), pensato per il client:
 stesse stazioni SENZA le serie orarie, `stations` come array nell'ordine
@@ -46,9 +56,11 @@ Scelte dichiarate (non sono semplificazioni nascoste):
     suo `obs_time`: un client che vuole solo dati freschi filtra su quello.
   * `pressure_msl` NON c'e'. La sorgente ha B10004 al livello `1,0,0,0`, cioe'
     PRESSIONE DI STAZIONE, non ridotta al livello del mare; senza la quota non
-    si puo' ridurre. Inoltre nel campione reale i valori vanno da 58.590 a
-    163.820 Pa (585,9-1638,2 hPa): 1638 hPa e' fuori da ogni range fisico.
-    Pubblicarla come `pressure_msl` sarebbe un'etichetta falsa.
+    si puo' ridurre. Viene pubblicata come `station_pressure_hPa` (Pa/100),
+    MAI come `pressure_msl`: pubblicarla con quell'etichetta sarebbe falso.
+    Nel campione reale i valori vanno da 56.730 a 163.820 Pa (567,3-1638,2 hPa):
+    entrambi gli estremi sono ANOMALI e vengono scartati e contati in
+    `values_out_of_range`; la finestra accettata e' 600-1085 hPa.
   * `visibility` NON c'e' e non viene messa a null per finta: la sorgente non
     la espone. Il campo e' semplicemente assente.
   * `precipitation` e' l'ultima accumulata disponibile, ma il periodo di
@@ -102,6 +114,17 @@ VAR_RH = "B13003"        # RELATIVE HUMIDITY                      [%]
 VAR_WSPD = "B11002"      # WIND SPEED                             [M/S]
 VAR_WDIR = "B11001"      # WIND DIRECTION                         [DEGREE TRUE]
 VAR_PRECIP = "B13011"    # TOTAL PRECIPITATION                    [KG/M**2]
+# Campi reali aggiunti (verificati su /api/observations anonimo, HTTP 200,
+# 4.455 stazioni, licenza CCBY_COMPLIANT). Nomi/descr presi dalla risposta.
+VAR_PRESS = "B10004"     # PRESSURE                               [PA]
+VAR_GUST = "B11041"      # MAXIMUM WIND GUST SPEED                 [M/S]
+VAR_SNOW = "B13013"      # TOTAL SNOW DEPTH                        [M]
+VAR_FRESH_SNOW = "B13012"  # DEPTH OF FRESH SNOW                   [M]
+VAR_RIVER = "B13215"     # River level                             [M]
+
+# B10004 e' PRESSIONE DI STAZIONE solo al livello 1,0,0,0: NON e' MSL.
+# Senza quota non si puo' ridurre al livello del mare.
+PRESS_LEVEL_STATION = "1,0,0,0"
 
 # trange dell'osservazione istantanea; gli altri sono medie/accumuli.
 TRANGE_INSTANT = "254,0,0"
@@ -115,6 +138,15 @@ LIMITS = {
     "wind_direction_10m": (0.0, 360.0),      # deg
     "precipitation": (0.0, 200.0),           # mm nel periodo
     "dew_point_2m": (-90.0, 60.0),           # degC
+    # hPa = Pa/100. Il campione reale va da 56.730 a 163.820 Pa
+    # (567,3-1638,2 hPa): entrambi gli estremi sono ANOMALI e vanno scartati.
+    # La finestra 600-1085 hPa conserva le stazioni di alta quota (≈600 hPa
+    # a ~4000 m) ed esclude i valori rotti. NON e' MSL.
+    "station_pressure_hPa": (600.0, 1085.0),
+    "wind_gust_10m": (0.0, 75.0),            # m/s (max reale 27,3)
+    "snow_depth_m": (0.0, 10.0),             # m
+    "fresh_snow_depth_m": (0.0, 5.0),        # m
+    "river_level_m": (-50.0, 100.0),         # m, quota idrologica locale
 }
 
 DEFAULT_MAX_BYTES = 1_500_000  # target dichiarato dal committente
@@ -140,6 +172,11 @@ INDEX_STATION_FIELDS = (
     "wind_direction_10m",
     "precipitation",
     "precipitation_period_s",
+    "station_pressure_hPa",   # B10004/100, livello 1,0,0,0 (NON MSL)
+    "wind_gust_10m",          # B11041, massimo sulla finestra della sorgente
+    "snow_depth_m",           # B13013
+    "fresh_snow_depth_m",     # B13012
+    "river_level_m",          # B13215, idrologico (separato dal meteo)
 )
 INDEX_MAX_GZIP_BYTES = 122_880  # 120 KiB (misurato: 101.258 B, margine 17%)
 
@@ -517,6 +554,40 @@ def normalize_payload(
             else:
                 out_of_range += 1
 
+        # Campi aggiuntivi REALI: (codice, campo, decimali, livello richiesto, scala).
+        # B10004 e' accettato SOLO al livello 1,0,0,0 (pressione di stazione,
+        # NON MSL); gli altri non hanno un livello di riduzione. La sorgente
+        # non espone visibilita' ne' cloud: non sono in questa tabella.
+        extra_specs = (
+            (VAR_PRESS, "station_pressure_hPa", 1, PRESS_LEVEL_STATION, 100.0),
+            (VAR_GUST, "wind_gust_10m", 1, None, 1.0),
+            (VAR_SNOW, "snow_depth_m", 2, None, 1.0),
+            (VAR_FRESH_SNOW, "fresh_snow_depth_m", 2, None, 1.0),
+            (VAR_RIVER, "river_level_m", 2, None, 1.0),
+        )
+        for code, field, digits, level, scale in extra_specs:
+            candidates = [
+                p for p in prods
+                if p.get("var") == code and p.get("val")
+                and (level is None or str(p.get("lev", "")).strip() == level)
+            ]
+            if not candidates:
+                continue
+            best = None
+            for prod in candidates:
+                latest = _latest_value(prod.get("val") or [], cutoff, counters)
+                if latest and (best is None or latest["ref"] > best["ref"]):
+                    best = latest
+            if not best or not isinstance(best["value"], (int, float)):
+                continue
+            value = float(best["value"]) / scale
+            if not _in_limits(field, value):
+                out_of_range += 1
+                continue
+            current = fields.get(field)
+            if current is None or best["ref"] > current["ref"]:
+                fields[field] = {"value": _round(value, digits), "ref": best["ref"]}
+
     stations = []
     excluded_no_data = 0
     for key, fields in cells.items():
@@ -541,6 +612,11 @@ def normalize_payload(
             "wind_direction_10m",
             "precipitation",
             "precipitation_period_s",
+            "station_pressure_hPa",
+            "wind_gust_10m",
+            "snow_depth_m",
+            "fresh_snow_depth_m",
+            "river_level_m",
         ):
             if field in fields:
                 record[field] = fields[field]["value"]
@@ -585,21 +661,42 @@ def normalize_payload(
             "precipitation": "mm",
             "precipitation_period_s": "s",
             "dew_point_2m": "degC",
+            "station_pressure_hPa": "hPa",
+            "wind_gust_10m": "m/s",
+            "snow_depth_m": "m",
+            "fresh_snow_depth_m": "m",
+            "river_level_m": "m",
         },
         "max_age_minutes": max_age_minutes,
         "omitted_fields": {
             "pressure_msl": (
                 "la sorgente espone solo pressione di stazione (B10004, livello "
-                "1,0,0,0), non riducibile al livello del mare senza la quota; nel "
-                "campione reale 585,9-1638,2 hPa, con valori fuori da ogni range "
-                "fisico"
+                "1,0,0,0), non riducibile al livello del mare senza la quota; "
+                "pubblicata come station_pressure_hPa, MAI come MSL; nel campione "
+                "reale 56.730-163.820 Pa (567,3-1638,2 hPa), estremi anomali "
+                "scartati fuori dalla finestra 600-1085 hPa"
             ),
             "visibility": "non esposta dalla sorgente",
+            "cloud_cover": "non esposta dalla sorgente",
         },
         "derived_fields": {
             "dew_point_2m": (
                 "Magnus, gamma=ln(RH/100)+17.625*T/(243.04+T), "
                 "Td=243.04*gamma/(17.625-gamma) (Alduchov & Eskridge 1996)"
+            ),
+            "station_pressure_hPa": (
+                "B10004 (PRESSURE PA) al livello 1,0,0,0 = pressione di STAZIONE, "
+                "non MSL; valore/100 in hPa; fuori da 600-1085 hPa scartato e contato"
+            ),
+            "wind_gust_10m": (
+                "B11041 MAXIMUM WIND GUST SPEED M/S: massimo sulla finestra "
+                "della sorgente (trange 2,0,N), non normalizzato a 10 min"
+            ),
+            "snow_depth_m": "B13013 TOTAL SNOW DEPTH M, metri",
+            "fresh_snow_depth_m": "B13012 DEPTH OF FRESH SNOW M, metri",
+            "river_level_m": (
+                "B13215 River level M: grandezza IDROLOGICA separata, non meteo, "
+                "quota riferita allo zero locale della stazione"
             ),
             "id": (
                 "sintetico `<rete>:<lat>,<lon>` a "
@@ -677,6 +774,11 @@ def validate_document(doc: dict, min_stations: int, max_bytes: int) -> list[str]
                 "wind_speed_10m",
                 "wind_direction_10m",
                 "precipitation",
+                "station_pressure_hPa",
+                "wind_gust_10m",
+                "snow_depth_m",
+                "fresh_snow_depth_m",
+                "river_level_m",
             )
             if k in st
         ]
@@ -784,15 +886,23 @@ def build_index(
                 "wind_direction_10m",
                 "precipitation",
                 "precipitation_period_s",
+                "station_pressure_hPa",
+                "wind_gust_10m",
+                "snow_depth_m",
+                "fresh_snow_depth_m",
+                "river_level_m",
             )
             if key in units
         },
         "station_fields": list(INDEX_STATION_FIELDS),
         "note": (
             "Stesse stazioni di latest.json, SENZA le serie orarie. Valori "
-            "correnti arrotondati a 1 decimale; null = grandezza non "
-            "disponibile. `precipitation` va letta con "
-            "`precipitation_period_s` (il periodo di accumulo cambia per rete)."
+            "correnti arrotondati a 1 decimale (2 per neve e livello idro); "
+            "null = grandezza non disponibile. `precipitation` va letta con "
+            "`precipitation_period_s` (il periodo di accumulo cambia per rete). "
+            "`station_pressure_hPa` e' pressione di STAZIONE (B10004, livello "
+            "1,0,0,0), NON MSL. `river_level_m` e' idrologico, non meteo. "
+            "Nessuna visibilita' ne' cloud: la sorgente non li espone."
         ),
         "stations": rows,
     }

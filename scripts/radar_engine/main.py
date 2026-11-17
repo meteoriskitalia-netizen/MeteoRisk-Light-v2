@@ -2236,6 +2236,25 @@ def _run_pipeline(config, out_dir, product, max_frames, dry_run,
         bundle.warnings.append(f"phase2 layer failed: {exc}")
         bundle.phase2 = {"status": "unavailable", "warnings": bundle.warnings}
 
+    # ---- MORPHOLOGY 3D (1.3, additivo): EVIDENZA volumetrica nel -----------
+    # classificatore delle strutture. NON e' un pannello e NON e' un file
+    # separato: il campo `morphology_organization` entra nei record
+    # convective_structures (accanto a soi/soi_v2) e nel summary di latest.json.
+    # Gira DOPO phase2 (e' li' che i CAPPI vengono scaricati) e PRIMA del
+    # publisher: il payload volume viene costruito una volta e riutilizzato.
+    # soi/level/soi_v2/rotation_* restano INTATTI (nessuna alterazione del
+    # motore SOI esistente e nessun Doppler inventato).
+    try:
+        _attach_morphology_organization(bundle, config)
+    except Exception as exc:  # layer additivo: mai rompere il pipeline base
+        bundle.warnings.append(f"morphology_organization layer failed: {exc}")
+        for _c in getattr(bundle, "convective_structures", None) or []:
+            _c["morphology_organization"] = {
+                "classification": None, "supports_organized": False,
+                "null_reason": "morphology_error:{}".format(exc.__class__.__name__),
+                "source": "CAPPI_3D",
+            }
+
     # ---- DOPPLER (1.2.4.84, additivo): shear azimutale OPERA FR ------------
     # Solo radar francesi (frale = Aleria, fraja = Ajaccio): il mosaico DPC
     # VMI non ha velocita' radiale. Nessun errore fa fallire il run; ogni
@@ -2366,6 +2385,130 @@ def _write_1_3_detail(bundle, out_dir):
             raise
 
 
+def _volume_payload_for_morphology(bundle, config=None):
+    """Costruisce UNA volta sola il payload volume.json in memoria.
+
+    Il payload e' identico a quello che ``_publish_volume`` pubblichera':
+    stessi CAPPI allineati, stessa VMI, stesso timestamp. Viene messo in cache
+    sul bundle e riutilizzato dal publisher, senza seconde richieste di rete e
+    senza due costruzioni del volume 3D. Ritorna SEMPRE un dict (anche in caso
+    di degrado), cosi' il campo morphology puo' dichiarare il motivo.
+    """
+    cached = getattr(bundle, "_volume_payload", None)
+    if isinstance(cached, dict):
+        return cached
+    try:
+        from radar_engine import volume_publisher as vpub
+    except Exception as exc:
+        bundle.warnings.append(f"volume_publisher import failed: {exc}")
+        payload = {"schema": "meteorisk.volume/1", "status": "error",
+                   "volume_available": False,
+                   "null_reason": "volume_publisher_import_failed",
+                   "volume_timestamp_utc": None, "cells": [],
+                   "thresholds_dbz": []}
+        bundle._volume_payload = payload
+        return payload
+    cappi = getattr(bundle, "_volume_cappi", None) or {}
+    ref_rd = getattr(bundle, "_volume_ref_rd", None)
+    vmi_rd = getattr(bundle, "_volume_vmi_rd", None)
+    timestamp_utc = (getattr(ref_rd, "time_iso", None)
+                     or bundle.generated_at_iso)
+    if not cappi:
+        # Nessun CAPPI nel run: il publisher non sovrascrive un volume valido
+        # gia' pubblicato (A7). Qui serve solo il motivo del campo null.
+        payload = {
+            "schema": vpub.SCHEMA, "status": "unavailable",
+            "volume_available": False, "null_reason": "no_cappi_in_this_run",
+            "generated_at_utc": timestamp_utc, "timestamp": timestamp_utc,
+            "volume_timestamp_utc": timestamp_utc,
+            "cells": [], "thresholds_dbz": [],
+        }
+    else:
+        vcfg = (config or {}).get("volume") or {}
+        thresholds = tuple(int(t) for t in (
+            vcfg.get("thresholds") or vpub.DEFAULT_THRESHOLDS))
+        try:
+            payload = vpub.build_and_publish(
+                cappi, ref_rd, vmi_rd, timestamp_utc=timestamp_utc,
+                thresholds=thresholds, prev=None, motions={})
+        except Exception as exc:
+            bundle.warnings.append(
+                f"volume build failed for morphology: "
+                f"{exc.__class__.__name__}:{exc}")
+            payload = {
+                "schema": vpub.SCHEMA, "status": "error",
+                "volume_available": False,
+                "null_reason": "error:{}".format(exc.__class__.__name__),
+                "timestamp": timestamp_utc,
+                "volume_timestamp_utc": timestamp_utc,
+                "cells": [], "thresholds_dbz": [],
+            }
+    bundle._volume_payload = payload
+    return payload
+
+
+def _attach_morphology_organization(bundle, config=None):
+    """1.3 — EVIDENZA volumetrica DENTRO i record del classificatore.
+
+    Degrado pulito: se volume_available=False (CAPPI < 4 per il gate grandine)
+    ogni record riceve ``morphology_organization = null`` con
+    ``null_reason="cappi_levels_lt_4"``. Nessuna inferenza da 2 CAPPI, nessun
+    ambiente (CAPE/SRH/SCP) e nessun Doppler in questo campo.
+    """
+    structures = getattr(bundle, "convective_structures", None) or []
+    cappi = getattr(bundle, "_volume_cappi", None) or {}
+    n_levels = sum(1 for rd in cappi.values() if rd is not None)
+    try:
+        from radar_engine import morphology as morph_mod
+    except Exception as exc:
+        bundle.warnings.append(f"morphology import failed: {exc}")
+        for c in structures:
+            c["morphology_organization"] = {
+                "classification": None, "supports_organized": False,
+                "null_reason": "morphology_module_unavailable",
+                "source": "CAPPI_3D",
+            }
+        bundle.morphology_summary = {
+            "version": "1.0.0", "source": "CAPPI_3D",
+            "volume_available": False, "structures_total": len(structures),
+            "morphology_present": 0, "organized_vertical": 0,
+            "not_organized_vertical": 0,
+            "null_by_reason": {"morphology_module_unavailable": len(structures)},
+        }
+        return
+    if not structures:
+        bundle.morphology_summary = {
+            "version": morph_mod.MORPHOLOGY_VERSION,
+            "source": morph_mod.SOURCE,
+            "volume_available": n_levels >= 4,
+            "structures_total": 0, "morphology_present": 0,
+            "organized_vertical": 0, "not_organized_vertical": 0,
+            "null_by_reason": {},
+            "cappi_levels": n_levels,
+        }
+        return
+    payload = _volume_payload_for_morphology(bundle, config)
+    ref = None
+    rd = getattr(bundle, "_volume_ref_rd", None)
+    if rd is not None:
+        arr = getattr(rd, "data", None)
+        shape = getattr(arr, "shape", None)
+        grid = {}
+        if shape is not None and len(shape) >= 2:
+            grid = {"shape_zyx": [10, int(shape[0]), int(shape[1])]}
+        ref = {
+            "crs_wkt": getattr(rd, "crs_wkt", None),
+            "transform": getattr(rd, "transform", None),
+            "grid": grid,
+        }
+    vcfg = (config or {}).get("volume") or {}
+    mcfg = vcfg.get("morphology")
+    _structures, summary = morph_mod.attach(
+        payload, structures, ref_rd=ref, cfg=mcfg)
+    summary["cappi_levels"] = n_levels
+    bundle.morphology_summary = summary
+
+
 def _publish_volume(bundle, out_dir, config=None):
     """1.3 — Publisher del volume 3D (ADDITIVO, best-effort).
 
@@ -2403,19 +2546,39 @@ def _publish_volume(bundle, out_dir, config=None):
             "volume publish skipped: no CAPPI in this run "
             "(ultimo volume valido conservato, non sovrascritto)")
         return None
-    vcfg = (config or {}).get("volume") or {}
-    thresholds = tuple(int(t) for t in (
-        vcfg.get("thresholds") or vpub.DEFAULT_THRESHOLDS))
+    # Il payload e' gia' stato costruito da `_attach_morphology_organization`
+    # (che gira dopo phase2): lo RIUTILIZZIAMO identico, senza ricostruire il
+    # volume 3D due volte. Se per qualsiasi motivo non c'e' cache, si costruisce
+    # qui come prima (compatibilita' con i chiamanti diretti di _publish_volume).
+    payload = getattr(bundle, "_volume_payload", None)
+    if not isinstance(payload, dict):
+        vcfg = (config or {}).get("volume") or {}
+        thresholds = tuple(int(t) for t in (
+            vcfg.get("thresholds") or vpub.DEFAULT_THRESHOLDS))
+        try:
+            payload = vpub.build_and_publish(
+                cappi, ref_rd, vmi_rd, timestamp_utc=timestamp_utc,
+                thresholds=thresholds,
+                # Nessun registro di volumi precedenti: growth resta null con
+                # null_reason="no_previous_volume". Nessun moto riutilizzato:
+                # gli ID cella del publisher non coincidono con quelli del
+                # tracking, quindi l'asse usa l'asse maggiore dichiarato.
+                prev=None, motions={})
+        except Exception as exc:
+            bundle.warnings.append(
+                f"volume publisher failed: {exc.__class__.__name__}:{exc}")
+            bundle.volume = {"status": "error", "null_reason": str(exc)}
+            return None
+    bundle.volume = payload
+    # Un payload di ERRORE (build fallita) non viene scritto: il vecchio
+    # volume valido resta intatto. Un payload DEGRADATO ma costruito con CAPPI
+    # (es. cappi_levels_lt_4) va invece a write_volume_payload, che applica la
+    # marcatura A7 `stale` sul documento precedente: comportamento invariato
+    # rispetto alla versione senza il layer morphology.
+    if payload.get("status") == "error":
+        bundle.volume_path = None
+        return None
     try:
-        payload = vpub.build_and_publish(
-            cappi, ref_rd, vmi_rd, timestamp_utc=timestamp_utc,
-            thresholds=thresholds,
-            # Nessun registro di volumi precedenti: growth resta null con
-            # null_reason="no_previous_volume". Nessun moto riutilizzato: gli
-            # ID cella del publisher non coincidono con quelli del tracking,
-            # quindi l'asse longitudinale usa l'asse maggiore dichiarato.
-            prev=None, motions={})
-        bundle.volume = payload
         path = vpub.write_volume_payload(payload, out_dir)
         bundle.volume_path = path
         return path

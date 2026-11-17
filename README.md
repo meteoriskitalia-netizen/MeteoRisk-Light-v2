@@ -6,9 +6,11 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.3.0.5
+## Versione attiva: 1.3.0.6
 
-- File applicativo: `mri-light-1.3.0.5.html` (`APP_VERSION = '1.3.0.5'`; changelog in-app) + `sw.js` (`CACHE_NAME = 'mri-1.3.0.5'`, `TILE_CACHE = 'mri-tiles-1.3.0.5'`, `FRAME_CACHE = 'mri-frames-1.3.0.5'`).
+- File applicativo: `mri-light-1.3.0.6.html` (`APP_VERSION = '1.3.0.6'`; changelog in-app) + `sw.js` (`CACHE_NAME = 'mri-1.3.0.6'`, `TILE_CACHE = 'mri-tiles-1.3.0.6'`, `FRAME_CACHE = 'mri-frames-1.3.0.6'`).- **1.3.0.6 - Volume CAPPI come evidenza e centraline**: il volume CAPPI entra nel classificatore come morphology_organization per struttura con degrado esplicito a meno di 4 CAPPI, senza toccare soi, soi_v2 e rotazione; il pannello 3D viene rimosso dalla UI. Le centraline hanno serie giornaliera che si azzera a mezzanotte, curva NWP affiancata, tendina corretta, vento a 16 quadranti e nuovi campi reali pressione di stazione, raffica e neve, con idrometrico separato. Nessun dato simulato.
+
+
 - **1.3.0.5 - Unione UI contestuale e Criticita DPC v2**: toggle radar/satellite e high-risk compaiono solo con il prodotto pertinente; nuova voce Mappa dei rischi con riga metrica visibile solo li; pannello Volume 3D con min-height 44px quando aperto. Criticita DPC v2: giorno dalla .day-selector globale, 3 rischi separati mostrati insieme, dati oggi e domani, rimossi dpc-alert-select e toggleDpcAlert. Classe grigia CONV_POTENTIAL_COLOR eliminata: il potenziale senza innesco ora e verde/Basso. Dati idro schema /2 con fetcher e test aggiornati. Nessun dato simulato.
 
 - **1.3.0.4 - 6 fix tendine e viewer 3D**: radar e satellite sono toggle sempre visibili fuori tendina; il selettore prodotti ammette un solo prodotto attivo, un opzione per nessuno e spegne il precedente con il suo handler storico; Evidenzia zone a rischio e' un toggle visibile; La Caletta non e' piu nelle opzioni; la metrica si abilita solo con Rischio e nessun prodotto attivo; i prodotti di sviluppo compaiono solo con Sviluppo ON e si spengono se Sviluppo si spegne. Il pannello Volume 3D si apre davvero (flex-shrink corretto, 104 px invece di 14 px): con volume_available:false dichiara cappi_levels_lt_4 e 0 canvas, con true mostra i parametri per cella e le sezioni se presenti, con caricamento lazy. Nessun motore, palette o dato simulato toccato.

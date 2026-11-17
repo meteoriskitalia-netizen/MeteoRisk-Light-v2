@@ -53,23 +53,32 @@ def by_id(doc, prefix):
 # schema e unita'
 # ---------------------------------------------------------------------------
 def test_schema_has_no_unavailable_fields(doc):
-    """`visibility` e `pressure_msl` non devono esistere: la sorgente non li ha."""
+    """`visibility`, `cloud_cover` e `pressure_msl` non devono esistere."""
     for st in doc["stations"]:
         assert "visibility" not in st
+        assert "cloud_cover" not in st
         assert "pressure_msl" not in st
     assert "pressure_msl" in doc["omitted_fields"]
     assert "visibility" in doc["omitted_fields"]
+    assert "cloud_cover" in doc["omitted_fields"]
 
 
-def test_pressure_is_in_the_source_but_not_published(payload):
-    """Porto Garibaldi ha davvero B10004 nel payload: la pressione viene omessa."""
+def test_station_pressure_is_published_not_msl(payload, doc):
+    """B10004 e' pressione di STAZIONE: pubblicata/100 in hPa, MAI come MSL."""
     porto = [
         e
         for e in payload["data"]
         if any(d.get("val") == "Porto Garibaldi" for d in e["stat"]["details"])
     ]
     assert len(porto) == 1
-    assert any(p["var"] == "B10004" for p in porto[0]["prod"])
+    press = [p for p in porto[0]["prod"] if p["var"] == "B10004"]
+    assert len(press) == 1
+    assert press[0]["lev"] == "1,0,0,0"           # livello di stazione
+    st = by_id(doc, "marefe:")["marefe:44.67667,12.24944"]
+    assert st["station_pressure_hPa"] == pytest.approx(1021.6)  # 102160 Pa / 100
+    assert "pressure_msl" not in st
+    assert doc["units"]["station_pressure_hPa"] == "hPa"
+    assert "station_pressure_hPa" in doc["derived_fields"]
 
 
 def test_temperature_is_celsius(doc):
@@ -105,13 +114,61 @@ def test_station_without_humidity_has_no_dew_point(doc):
     assert "dew_point_2m" not in nausicaa
 
 
+def test_gust_from_real_b11041(doc):
+    """Porto Garibaldi ha B11041 reale nel fixture: 7,6 m/s, unita' dichiarata."""
+    porto = by_id(doc, "marefe:")["marefe:44.67667,12.24944"]
+    assert porto["wind_gust_10m"] == pytest.approx(7.6)
+    assert doc["units"]["wind_gust_10m"] == "m/s"
+    assert "wind_gust_10m" in doc["derived_fields"]
+
+
+def test_added_fields_are_in_index_with_units(index, doc):
+    """I tre campi meteo + l'idro sono nell'indice con unita' e provenienza."""
+    fields = index["station_fields"]
+    for name in ("station_pressure_hPa", "wind_gust_10m", "snow_depth_m",
+                 "fresh_snow_depth_m", "river_level_m"):
+        assert name in fields
+        assert name in index["units"]
+    assert index["units"]["station_pressure_hPa"] == "hPa"
+    assert index["units"]["wind_gust_10m"] == "m/s"
+    assert index["units"]["snow_depth_m"] == "m"
+    assert index["units"]["river_level_m"] == "m"
+    assert "NON MSL" in index["note"]
+    assert "idrologico" in index["note"]
+    porto = [r for r in index["stations"] if r[0].startswith("marefe:")][0]
+    rec = dict(zip(fields, porto))
+    assert rec["station_pressure_hPa"] == pytest.approx(1021.6)
+    assert rec["wind_gust_10m"] == pytest.approx(7.6)
+
+
+def test_anomalous_station_pressure_is_dropped(payload):
+    """Fuori da 600-1085 hPa: scartato e contato (non pubblicato come MSL)."""
+    real = json.loads(json.dumps(payload))
+    porto = [e for e in real["data"] if e["stat"]["net"] == "marefe"][0]
+    for prod in porto["prod"]:
+        if prod["var"] == "B10004":
+            for value in prod["val"]:
+                value["val"] = 163820.0        # 1638,2 hPa: anomalo
+    out = fs.normalize_payload(real, NETWORKS, generated_at=NOW, max_age_minutes=180)
+    st = by_id(out, "marefe:")["marefe:44.67667,12.24944"]
+    assert "station_pressure_hPa" not in st
+    assert out["counts"]["values_out_of_range"] >= 1
+
+
 # ---------------------------------------------------------------------------
 # esclusioni dichiarate
 # ---------------------------------------------------------------------------
-def test_river_level_only_station_excluded(doc):
-    """Foce Naviglio ha solo B13215 (livello idrografico): non e' meteo."""
-    assert not [st for st in doc["stations"] if st["id"].startswith("simnpr:")]
-    assert doc["counts"]["stations_excluded_no_data"] == 2  # simnpr + Cervia Porto
+def test_river_level_is_a_separate_hydro_field(doc):
+    """Foce Naviglio ha solo B13215: ora e' pubblicata come campo IDROLOGICO.
+
+    Non e' meteo: il client la tiene fuori dalla tendina centraline.
+    Cervia Porto (solo B22037, livello mare) resta esclusa.
+    """
+    simnpr = by_id(doc, "simnpr:")["simnpr:44.93000,10.38172"]
+    assert simnpr["river_level_m"] == pytest.approx(0.3)
+    assert "temperature_2m" not in simnpr
+    assert doc["units"]["river_level_m"] == "m"
+    assert doc["counts"]["stations_excluded_no_data"] == 1  # solo Cervia Porto
 
 
 def test_unknown_network_excluded_and_recorded(doc):
@@ -268,6 +325,11 @@ INDEX_VALUE_FIELDS = (
     "wind_direction_10m",
     "precipitation",
     "precipitation_period_s",
+    "station_pressure_hPa",
+    "wind_gust_10m",
+    "snow_depth_m",
+    "fresh_snow_depth_m",
+    "river_level_m",
 )
 
 

@@ -461,6 +461,17 @@ def _structure_summary(bundle):
     `structure_candidates`, il file pubblicato resta la fonte di verita'."""
     cells, skipped_incoherent = cs_mod.split_publishable(
         getattr(bundle, "convective_structures", None) or [])
+    # 1.3 — EVIDENZA VOLUMETRICA: il dato e' DENTRO i record (campo
+    # `morphology_organization`), qui si pubblica solo il RIEPILOGO (nessun
+    # dato raw/griglia in latest.json). I conteggi arrivano dal layer che gira
+    # in main.py dopo phase2; se il layer non e' girato restano a 0/None.
+    morph = getattr(bundle, "morphology_summary", None) or {}
+    morph_summary = {
+        "morphology_volume_available": morph.get("volume_available"),
+        "morphology_present": int(morph.get("morphology_present") or 0),
+        "morphology_organized_vertical": int(morph.get("organized_vertical") or 0),
+        "morphology_null_reasons": dict(morph.get("null_by_reason") or {}),
+    }
     if not cells:
         return {
             "structure_candidates": 0,
@@ -468,6 +479,7 @@ def _structure_summary(bundle):
             "structure_on_latest": 0,
             "soi_max": None,
             "skipped_incoherent": skipped_incoherent,
+            **morph_summary,
         }
     births = sum(1 for c in cells if c.get("phase") == "birth")
     on_latest = sum(1 for c in cells if c.get("on_latest_frame"))
@@ -478,6 +490,7 @@ def _structure_summary(bundle):
         "structure_on_latest": on_latest,
         "soi_max": soi_max,
         "skipped_incoherent": skipped_incoherent,
+        **morph_summary,
     }
 
 
@@ -659,6 +672,24 @@ def _forecast_null_reason_counts(cells):
     return counts
 
 
+def _morphology_null_reason_counts(cells):
+    """Conteggio dei motivi di `morphology_organization: null`.
+
+    Un record senza il campo (chiamanti storici / layer non girato) finisce
+    sotto `field_absent`: non viene confuso con un volume non disponibile."""
+    counts = {}
+    for cell in cells:
+        field = cell.get("morphology_organization")
+        if not isinstance(field, dict):
+            counts["field_absent"] = counts.get("field_absent", 0) + 1
+            continue
+        if field.get("classification") is not None:
+            continue
+        reason = field.get("null_reason") or "unknown"
+        counts[reason] = counts.get(reason, 0) + 1
+    return counts
+
+
 def _cone_shape_counts(cells):
     """Conteggio delle strutture per `forecast.cone_shape` (PARTIZIONE esatta).
 
@@ -742,6 +773,19 @@ def build_convective_structures(bundle, engine_meta=None):
         "hail_poh_present": sum(
             1 for c in cells
             if ((c.get("hail") or {}).get("poh_max") is not None)),
+        # 1.3 — copertura dell'EVIDENZA volumetrica nei record pubblicati.
+        # Il campo completo e' in `structures[*].morphology_organization`; qui
+        # solo i conteggi verificabili (confronto diretto con il summary del
+        # layer morphology e con latest.json).
+        "morphology_present": sum(
+            1 for c in cells
+            if (c.get("morphology_organization") or {}).get("classification")
+            is not None),
+        "morphology_organized_vertical": sum(
+            1 for c in cells
+            if (c.get("morphology_organization") or {}).get("classification")
+            == "organized_vertical"),
+        "morphology_null_reasons": _morphology_null_reason_counts(cells),
     }
     payload = {
         "generated_at": bundle.generated_at_iso,
