@@ -1769,18 +1769,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .syn-text-item { margin-bottom: 5px; overflow-wrap: anywhere; }
         .syn-text-meta { color: #94a3b8; }
         .syn-viewbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-        .syn-layer-panel { position: absolute; left: 322px; bottom: 10px; z-index: 901; width: 302px; max-width: calc(100% - 332px); box-sizing: border-box; }
-        .syn-layer-panel[hidden] { display: none; }
-        /* 1.3.0.14-FIX - etichetta a meta' blocco e pulsante di ritorno.
-           Solo colori GIA' presenti nel file (#0f172a, #1e293b, #334155,
-           #38bdf8, #e2e8f0): zero colori nuovi. */
-        .syn-layer-label { background: #0f172a; border: 1px solid #38bdf8; border-radius: 4px; color: #e2e8f0; font: 10px/1.25 system-ui, sans-serif; padding: 2px 5px; white-space: nowrap; pointer-events: none; box-sizing: border-box; }
-        .syn-front-symbol { pointer-events: none; }
-        .syn-back-btn { background: #1e293b; border: 1px solid #38bdf8; color: #38bdf8; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: bold; cursor: pointer; }
-        .syn-back-btn:hover { background: #0f172a; }
-        @media (max-width: 767px) {
-            .syn-layer-panel { left: 6px; right: 6px; bottom: 160px; width: auto; max-width: none; }
-        }
         .syn-stamp { font-size: 10.5px; line-height: 1.45; color: #94a3b8; overflow-wrap: anywhere; margin: 4px 0 0 0; }
         .syn-discard { color: #fbbf24; font-weight: 600; }
         .syn-tele { margin-top: 8px; }
@@ -2394,16 +2382,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                 </div>
             </details>
         </div>
-        <!-- 1.3.0.14-FIX - Legenda del layer sinottico: zoom automatico,
-             stile visibile, simboli frontali pronti ma non inventati. -->
-        <div id="syn-layer-panel" class="live-legend syn-layer-panel" hidden>
-            <div class="legend-title">Blocchi atmosferici TM90 — sulla mappa</div>
-            <div class="legend-row" style="font-size:11px;"><span style="color:#38bdf8;">&#9473;</span> blocco atmosferico — tratto 4 px tratteggiato azzurro (lo stesso dell'area Doppler) con etichetta a metà: latitudine e intervallo longitudine. Indice Tibaldi–Molteni 1990 (GHGS&gt;0, GHGN&lt;-10 m/grad); soglia citata, non validata su eventi italiani.</div>
-            <div class="legend-row" style="font-size:10px;color:#94a3b8;">All'attivazione la mappa inquadra i blocchi; alla disattivazione torna alla vista salvata. Solo geometrie reali con kind=block. Nessun fronte oggi: simboli convenzionali pronti se compare kind=front — triangoli <span style="color:#3b82f6;">blu</span> (freddo), semicerchi <span style="color:#ef4444;">rossi</span> (caldo), entrambi <span style="color:#a78bfa;">viola</span> (occluso). Nessun simbolo inventato, nessun raw_field disegnato.</div>
-            <div class="legend-row" id="syn-layer-status" style="font-size:10px;color:#e2e8f0;">Layer spento.</div>
-            <div class="legend-row" style="font-size:10px;"><button type="button" id="syn-back-italy" class="syn-back-btn" onclick="synBackToItaly()" title="Ripristina la vista salvata prima dello zoom automatico (o la vista predefinita sull'Italia) senza cambiare lo stato del layer.">Torna all'Italia</button></div>
-            <div class="legend-row" id="syn-layer-credit" style="font-size:10px;color:#94a3b8;"></div>
-        </div>
         </div>
         <!-- Mappe previsionali (Open-Meteo Weather Map Layer) -->
         <div id="forecast-maps-panel" class="fm-panel">
@@ -2479,13 +2457,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                 <input type="checkbox" id="switch-hydro" onchange="toggleHydroLayer(this.checked)">
                 <span class="mp-knob"></span>
                 <span class="mp-label">Criticità DPC</span>
-            </label>
-            <!-- 1.3.0.13-FIX - Toggle del layer sinottico: SPENTO di default,
-                 caricamento lazy di synoptic.json solo alla prima accensione. -->
-            <label class="mp-switch" id="switch-synoptic-wrap" title="Blocchi TM90: all'attivazione la mappa fa zoom sui blocchi reali di data/radar/synoptic.json, alla disattivazione torna alla vista salvata. Nessun simbolo inventato. Spento di default.">
-                <input type="checkbox" id="switch-synoptic" onchange="toggleSynopticLayer(this.checked)">
-                <span class="mp-knob"></span>
-                <span class="mp-label">Blocchi TM90</span>
             </label>
             <label class="mp-select" id="hydro-risk-wrap" title="Rischio da colorare: i tre rischi del bollettino restano SEPARATI (nessuna somma in un indice unico)">
                 <span class="mp-label">Rischio</span>
@@ -3083,11 +3054,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.15';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.16';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-18';
     const APP_CHANGELOG = [
+    { version: '1.3.0.16', date: '2026-11-18', changes: [
+        'Rimossi i blocchi TM90 dalla mappa (geometria non visualizzabile); Analisi sinottica e teleconnessioni invariate.',
+    ]},
     { version: '1.3.0.15', date: '2026-11-18', changes: [
-        'Blocchi TM90 visibili: all\'attivazione del layer la mappa fa fitBounds sui 3 blocchi reali e alla disattivazione torna alla vista salvata; tratto azzurro 4 px tratteggiato con etichetta lat/lon a meta blocco, pulsante Torna all\'Italia. Simboli frontali convenzionali solo se il JSON emette kind=front: oggi 0 fronti, nessun simbolo inventato e nessun raw_field disegnato.',
         'Finestre delle teleconnessioni per famiglia con cicli fisici: QBO, ENSO e PNA 5 anni; AMO storico completo 1856-oggi; NAO/AO 12 mesi; SSW timeline di 45 eventi reali 1958-oggi. Default automatico per famiglia, nomi leggibili e significato in italiano per le 22 serie, punti DJF del PNA evidenziati con media in didascalia; zero richieste di rete nuove. La vista 30 giorni e rimossa dal codice vivo.',
         'Bump release: VERSION BUILD=145, tre cache del service worker rinnovate, README e test .mjs allineati, vecchio html mri-light-1.3.0.14.html rimosso. NON verificato: resa visiva nel browser interno e run GitHub Actions del dispatch Pages.',
     ]},
@@ -7397,13 +7370,6 @@ const DAILY_PARAMS = "weathercode,temperature_2m_max,temperature_2m_min,precipit
             map.getPane('forecastMapsPaneVector').style.zIndex = 362;
             map.getPane('forecastMapsPaneVector').style.pointerEvents = 'none';
             if (map && !map.getPane('forecastMapsPanePre')) { var _fmp = map.createPane('forecastMapsPanePre'); _fmp.style.zIndex = 1; _fmp.style.opacity = '0'; _fmp.style.pointerEvents = 'none'; }
-            // 1.3.0.13-FIX - Pane dedicato delle feature sinottiche validate.
-            // z 460: sopra i rischi DPC (450-452), sotto tracce (520) e marker (600).
-            if (!map.getPane('synopticPane')) {
-                map.createPane('synopticPane');
-                map.getPane('synopticPane').style.zIndex = 460;
-                map.getPane('synopticPane').style.pointerEvents = 'auto';
-            }
         } catch (e) { }
         // Satellite Infoplaza: L.imageOverlay usa pane: 'tilePane' (come EUMETSAT)
         // così zIndex 350 (sat) < 400 (radar) e il radar sta sopra
@@ -36873,284 +36839,6 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
     }
 })();
 
-    /* ===================================================================
-       1.3.0.14-FIX - VISIBILITA' DELLE FEATURE SINOTTICHE SULLA MAPPA.
-       Causa MISURATA nel browser interno (1.3.0.14): i 3 blocchi TM90
-       sono linee quasi orizzontali a latitudine costante; al boot la mappa
-       e' sull'Italia (42.5N, 12.5E, z6) e i blocchi sono fuori schermo,
-       con 2 path a bounding-box alto 0. Ora:
-         ON  -> salva center+zoom, disegna e fitBounds sui blocchi;
-         OFF -> ripristina la vista salvata;
-         pulsante "Torna all'Italia" esplicito;
-         tratto 4 px tratteggiato #38bdf8 (azzurro gia' del layer Doppler)
-         + etichetta a meta' con latitudine e intervallo longitudine;
-         simboli frontali convenzionali SOLO se kind=front compare
-         (triangoli blu / semicerchi rossi / entrambi viola); oggi non ci
-         sono fronti, quindi non vengono disegnati e la legenda lo dice.
-       Nessun colore nuovo, nessun raw_field disegnato, nessun dato inventato.
-       =================================================================== */
-    (function () {
-        var PANE = 'synopticPane';
-        var SYNC_COLOR = '#38bdf8';   // azzurro gia' usato dall'area Doppler
-        var FRONT_COLD = '#3b82f6';   // blu convenzionale, gia' nel file
-        var FRONT_WARM = '#ef4444';   // rosso convenzionale, gia' nel file
-        var FRONT_OCCL = '#a78bfa';   // viola convenzionale, gia' nel file
-        var WEIGHT = 4;               // richiesti 3-4 px: 4 px
-        var st = { on: false, loaded: false, data: null, error: '', layer: null,
-                   drawn: 0, raw: 0, other: 0, invalid: 0, fronts: 0,
-                   frontUnknown: 0, boundsPts: [], savedView: null, fitted: false };
-        var BASE_TITLE = 'Blocchi TM90 reali da data/radar/synoptic.json: all\'attivazione la mappa fa zoom sui blocchi, alla disattivazione torna alla vista salvata. Nessun simbolo inventato. Spento di default.';
-        function byId(id) { return document.getElementById(id); }
-        function esc(v) {
-            return String(v === null || v === undefined ? '' : v)
-                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-        }
-        function mapOk() {
-            return (typeof L !== 'undefined') && (typeof map !== 'undefined') && !!map &&
-                typeof map.getPane === 'function' && !!map.getPane(PANE);
-        }
-        function fmt(iso) {
-            var d = new Date(iso);
-            return isNaN(d.getTime()) ? String(iso || 'n/d') : d.toISOString().replace('T', ' ').slice(0, 16) + 'Z';
-        }
-        function num(v) { return String(Math.round(Number(v) * 100) / 100); }
-        function coords(f) {
-            var g = f && f.geometry;
-            if (!Array.isArray(g) || g.length < 2) return null;
-            var out = [];
-            for (var i = 0; i < g.length; i++) {
-                var p = g[i];
-                if (!Array.isArray(p) || p.length < 2) return null;
-                var lat = Number(p[0]), lon = Number(p[1]);
-                if (!isFinite(lat) || !isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
-                out.push([lat, lon]);
-            }
-            return out;
-        }
-        // I fronti, se mai arrivassero, possono avere geometry annidata
-        // (LineString). Nessuna forma viene inventata: solo i punti presenti.
-        function frontCoords(f) {
-            var g = f && f.geometry;
-            if (Array.isArray(g) && g.length && Array.isArray(g[0]) && g[0].length && Array.isArray(g[0][0])) g = g[0];
-            return coords({ geometry: g });
-        }
-        function latTxt(v) { return num(Math.abs(v)) + (v < 0 ? '°S' : '°N'); }
-        function lonTxt(v) { return num(Math.abs(v)) + (v < 0 ? '°W' : '°E'); }
-        function latRange(a, b) {
-            if (a === b) return latTxt(a);
-            if (a >= 0 && b >= 0) return num(a) + '–' + num(b) + '°N';
-            if (a < 0 && b < 0) return num(Math.min(Math.abs(a), Math.abs(b))) + '–' + num(Math.max(Math.abs(a), Math.abs(b))) + '°S';
-            return latTxt(a) + '–' + latTxt(b);
-        }
-        function extentLabel(pts) {
-            var lats = pts.map(function (p) { return p[0]; });
-            var lons = pts.map(function (p) { return p[1]; });
-            var la0 = Math.min.apply(null, lats), la1 = Math.max.apply(null, lats);
-            var lo0 = Math.min.apply(null, lons), lo1 = Math.max.apply(null, lons);
-            return 'lat ' + latRange(la0, la1) + ' · lon ' + lonTxt(lo0) + ' … ' + lonTxt(lo1);
-        }
-        // Punto a meta' della lunghezza cumulata della polilinea: non e'
-        // geometria nuova, e' solo la posizione dell'etichetta.
-        function midPoint(pts) {
-            var total = 0, seg = [], i;
-            for (i = 1; i < pts.length; i++) {
-                var dx = pts[i][1] - pts[i - 1][1], dy = pts[i][0] - pts[i - 1][0];
-                var d = Math.sqrt(dx * dx + dy * dy);
-                seg.push(d); total += d;
-            }
-            if (!total) return pts[Math.floor((pts.length - 1) / 2)];
-            var target = total / 2, acc = 0;
-            for (i = 0; i < seg.length; i++) {
-                if (acc + seg[i] >= target) {
-                    var t = seg[i] ? (target - acc) / seg[i] : 0;
-                    return [pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t,
-                            pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t];
-                }
-                acc += seg[i];
-            }
-            return pts[pts.length - 1];
-        }
-        function addLabel(pts, text) {
-            if (typeof L.divIcon !== 'function' || typeof L.marker !== 'function') return null;
-            var icon = L.divIcon({ className: 'syn-layer-label', html: esc(text), iconSize: null });
-            var m = L.marker(midPoint(pts), { pane: PANE, icon: icon, interactive: false, keyboard: false });
-            m.bindTooltip(esc(text), { sticky: true });
-            return m;
-        }
-        function reason() {
-            if (st.error) return 'dato non caricato: ' + st.error;
-            if (!st.data) return 'synoptic.json non ancora caricato';
-            var fs = Array.isArray(st.data.features) ? st.data.features : [];
-            var blocks = fs.filter(function (f) { return f && String(f.kind || '') === 'block'; });
-            if (!blocks.length) return 'nessuna feature kind=block in questo run (' + fs.length + ' feature totali)';
-            if (!st.drawn) return 'geometrie dei blocchi non valide (servono almeno 2 punti [lat,lon] entro i limiti)';
-            return '';
-        }
-        function statusText() {
-            if (!st.on) return 'Layer spento.';
-            if (st.drawn) {
-                // Testo richiesto: "3 blocchi visibili dopo zoom automatico · 4 campi grezzi non disegnati · valid time …"
-                return st.drawn + ' blocchi visibili dopo zoom automatico · ' + st.raw +
-                    ' campi grezzi non disegnati · valid time ' + fmt(st.data && st.data.valid_time) + '.';
-            }
-            return 'Nessun blocco da inquadrare: ' + reason();
-        }
-        function render() {
-            var p = byId('syn-layer-panel'), s = byId('syn-layer-status'),
-                c = byId('syn-layer-credit'), sw = byId('switch-synoptic');
-            var txt = statusText();
-            if (p) p.hidden = !st.on;
-            if (s) s.textContent = txt;
-            if (c) {
-                var d = st.data || {};
-                c.innerHTML = 'Fonte (dichiarata dal JSON): ' + esc(d.source || 'n/d') + ' · licenza ' + esc(d.license || 'n/d') +
-                    '. Le immagini NOAA CPC restano nel prodotto Teleconnessioni.';
-            }
-            if (sw) sw.title = BASE_TITLE + (st.on ? ' Stato: ' + txt : '');
-        }
-        function clear() {
-            if (st.layer && typeof map !== 'undefined' && map && map.removeLayer) {
-                try { map.removeLayer(st.layer); } catch (e) { }
-            }
-            st.layer = null; st.drawn = 0; st.raw = 0; st.other = 0; st.invalid = 0;
-            st.fronts = 0; st.frontUnknown = 0; st.boundsPts = [];
-        }
-        function frontKind(f) {
-            var s = String(f.front_type || f.type || f.label || f.kind || '').toLowerCase();
-            if (s.indexOf('occl') >= 0) return 'occluded';
-            if (s.indexOf('cald') >= 0 || s.indexOf('warm') >= 0) return 'warm';
-            if (s.indexOf('fredd') >= 0 || s.indexOf('cold') >= 0) return 'cold';
-            return null;   // tipo sconosciuto: nessun simbolo inventato
-        }
-        function frontSymbol(kind, bearing) {
-            var c = kind === 'cold' ? FRONT_COLD : kind === 'warm' ? FRONT_WARM : FRONT_OCCL;
-            var shape = '';
-            // I simboli guardano il lato verso cui si muove il fronte.
-            if (kind === 'cold' || kind === 'occluded')
-                shape += '<path d="M0 0 L6 0 L3 7 Z" fill="' + c + '" stroke="#0f172a" stroke-width="0.5"/>';
-            if (kind === 'warm' || kind === 'occluded')
-                shape += '<path d="M6 0 A3 3 0 0 1 6 6 Z" fill="' + c + '" stroke="#0f172a" stroke-width="0.5"/>';
-            return '<svg width="12" height="12" viewBox="0 0 12 12" style="transform:rotate(' +
-                Math.round(bearing) + 'deg)">' + shape + '</svg>';
-        }
-        function bearingDeg(a, b) {
-            // 0 gradi = Nord, senso orario (come gli azimut del progetto).
-            return Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI;
-        }
-        function drawFront(f, layers) {
-            var pts = frontCoords(f);
-            if (!pts) { st.invalid++; return; }
-            var kind = frontKind(f);
-            if (!kind) { st.frontUnknown++; return; }
-            var color = kind === 'cold' ? FRONT_COLD : kind === 'warm' ? FRONT_WARM : FRONT_OCCL;
-            layers.push(L.polyline(pts, { pane: PANE, color: color, weight: WEIGHT, opacity: 0.9, fill: false }));
-            st.fronts++;
-            var step = Math.max(1, Math.floor(pts.length / 12));
-            for (var i = 0; i < pts.length - 1; i += step) {
-                var icon = L.divIcon({ className: 'syn-front-symbol',
-                    html: frontSymbol(kind, bearingDeg(pts[i], pts[i + 1])), iconSize: null });
-                layers.push(L.marker(pts[i], { pane: PANE, icon: icon, interactive: false, keyboard: false }));
-            }
-        }
-        function build() {
-            clear();
-            var fs = (st.data && Array.isArray(st.data.features)) ? st.data.features : [];
-            var layers = [];
-            for (var i = 0; i < fs.length; i++) {
-                var f = fs[i], kind = f ? String(f.kind || '') : '';
-                if (kind === 'raw_field') { st.raw++; continue; }   // mai disegnato
-                if (kind === 'block') {
-                    var pts = coords(f);
-                    if (!pts) { st.invalid++; continue; }
-                    // Stesso azzurro dell'area Doppler, peso maggiore e tratteggio.
-                    var line = L.polyline(pts, { pane: PANE, color: SYNC_COLOR,
-                        weight: WEIGHT, opacity: 0.9, fill: false, dashArray: '8 6' });
-                    var label = f.label || f.id || 'blocco';
-                    line.bindTooltip('<b>' + esc(label) + '</b><br>confidence: ' +
-                        esc(f.confidence === undefined || f.confidence === null ? 'n/d' : f.confidence) +
-                        '<br>valid time: ' + esc(fmt(st.data.valid_time)) + '<br>' + esc(f.reference || ''),
-                        { sticky: true });
-                    layers.push(line);
-                    var lab = addLabel(pts, extentLabel(pts));
-                    if (lab) layers.push(lab);
-                    for (var k = 0; k < pts.length; k++) st.boundsPts.push(pts[k]);
-                    st.drawn++;
-                } else if (kind === 'front') {
-                    drawFront(f, layers);                            // solo se presente
-                } else { st.other++; }
-            }
-            if (layers.length && typeof map !== 'undefined' && map) st.layer = L.layerGroup(layers).addTo(map);
-        }
-        function currentView() {
-            try {
-                var c = map.getCenter();
-                return { center: [c.lat, c.lng], zoom: map.getZoom() };
-            } catch (e) { return null; }
-        }
-        function italyView() {
-            return { center: [42.5, 12.5],
-                     zoom: (typeof window !== 'undefined' && window.innerWidth && window.innerWidth <= 950) ? 5 : 6 };
-        }
-        function setView(v) {
-            if (!v || !mapOk()) return;
-            try { map.setView(v.center, v.zoom, { animate: false }); } catch (e) { }
-        }
-        function fitToBlocks() {
-            if (!mapOk() || !st.boundsPts.length) return false;
-            try { if (typeof map.invalidateSize === 'function') map.invalidateSize(); } catch (e) { }
-            try {
-                var b = (typeof L.latLngBounds === 'function') ? L.latLngBounds(st.boundsPts) : st.boundsPts;
-                map.fitBounds(b, { padding: [48, 48], maxZoom: 6, animate: false });
-                st.fitted = true;
-                return true;
-            } catch (e) { return false; }
-        }
-        function load(done) {
-            if (typeof synState !== 'undefined' && synState && synState.syn) {
-                st.data = synState.syn; st.loaded = true; st.error = ''; done(); return;
-            }
-            if (typeof synFetch !== 'function' || typeof SYN_URL === 'undefined') {
-                st.error = 'fetch non disponibile'; done(); return;
-            }
-            synFetch(SYN_URL).then(function (j) {
-                st.data = j; st.loaded = true; st.error = '';
-                if (typeof synState !== 'undefined' && synState) synState.syn = j;
-                done();
-            }, function (e) {
-                st.error = (e && e.message) ? e.message : String(e);
-                done();
-            });
-        }
-        window.toggleSynopticLayer = function (on) {
-            var cb = byId('switch-synoptic');
-            var wasOn = st.on;
-            st.on = !!on;
-            if (cb && cb.checked !== st.on) cb.checked = st.on;
-            if (!st.on) {
-                clear();
-                if (wasOn) { setView(st.savedView || italyView()); st.savedView = null; st.fitted = false; }
-                render();
-                return;
-            }
-            if (!wasOn) { st.savedView = currentView(); st.fitted = false; }
-            render();
-            if (!mapOk()) { st.error = 'mappa non pronta (Leaflet non caricato)'; render(); return; }
-            function finish() {
-                if (!st.on) return;            // OFF arrivato prima del caricamento
-                if (st.data) build();
-                fitToBlocks();
-                render();
-            }
-            if (st.loaded) finish(); else load(finish);
-        };
-        // Azione esplicita: torna alla vista salvata senza spegnere il layer.
-        window.synBackToItaly = function () {
-            setView(st.savedView || italyView());
-            st.savedView = null; st.fitted = false;
-        };
-        // Default OFF: nessuna chiamata e nessuna richiesta di rete all'avvio.
-    })();
 </script>
 </body>
 </html>
