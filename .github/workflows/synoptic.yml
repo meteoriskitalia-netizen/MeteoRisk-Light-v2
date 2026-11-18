@@ -1,0 +1,111 @@
+# Nuovo workflow — NON tocca i 12 workflow esistenti.
+# Produce SOLO data/radar/synoptic.json e lo committa su main con un commit
+# dedicato. Nessun token personale: solo GITHUB_TOKEN implicito.
+# Nessun dato simulato: il produttore legge i frame .om reali dei branch fm2-*.
+
+name: Synoptic (semioticamente onesto)
+
+on:
+  schedule:
+    # Giornaliero 12:23 UTC: il run ECMWF IFS 0.25 delle 00Z e' disponibile.
+    - cron: '23 12 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: synoptic-json
+  cancel-in-progress: false
+
+jobs:
+  synoptic:
+    name: synoptic.json da frame .om reali
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Dipendenze minime
+        run: python -m pip install --quiet 'omfiles>=1.0' 'numpy>=1.26'
+
+      - name: Legge i .om reali e scrive data/radar/synoptic.json
+        run: |
+          set -e
+          mkdir -p data/radar
+          # Il produttore usa OmFileReader.from_fsspec con uno shim HTTP Range
+          # anonimo (nessun token, nessun download di nuovi domini).
+          python -m scripts.synoptic.build_synoptic \
+            --out data/radar/synoptic.json \
+            --domain ecmwf_ifs025 \
+            --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+      - name: Gate scientifico prima del commit
+        run: |
+          set -e
+          python - <<'PY'
+          import json, sys
+          p = "data/radar/synoptic.json"
+          d = json.load(open(p, encoding="utf-8"))
+          allowed = {"block", "raw_field"}
+          specific = {"front", "prefrontal", "postfrontal", "high",
+                      "cold_pool", "convergence", "moist_tongue"}
+          kinds = {f.get("kind") for f in d["features"]}
+          if not kinds <= allowed or kinds & specific:
+              sys.exit(f"FATAL: kind non ammessi: {kinds}")
+          for f in d["features"]:
+              if not f.get("label") or "confidence" not in f or "null_reason" not in f:
+                  sys.exit(f"FATAL: feature incompleta: {f.get('id')}")
+              if f["kind"] == "block" and f["confidence"] != "citation_only":
+                  sys.exit("FATAL: block senza citation_only")
+              if f["kind"] == "raw_field" and f["null_reason"] != "threshold_not_calibrated":
+                  sys.exit("FATAL: raw_field senza threshold_not_calibrated")
+          print("gate OK:", len(d["features"]), "feature,", sorted(kinds))
+          PY
+
+      - name: Commit del SOLO JSON
+        id: commit_json
+        run: |
+          set -e
+          git add -- data/radar/synoptic.json
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "NO-OP: synoptic.json invariato, nessun commit"
+            exit 0
+          fi
+          git -c user.name='meteorisk-bot' -c user.email='bot@users.noreply.github.com' \
+            commit -m "synoptic: aggiorna data/radar/synoptic.json (TM90 block + raw_field; nessun dato simulato)"
+          # Altri workflow scrivono su main ogni pochi minuti: ribasiamo il
+          # nostro commit (che tocca UN solo file) e riproviamo in caso di race.
+          for i in 1 2 3; do
+            git fetch origin main
+            git rebase origin/main || { echo "FATAL: rebase conflittuale"; exit 1; }
+            if git push origin HEAD:main; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "push non fast-forward, retry $i/3"
+          done
+          exit 1
+
+      - name: Ricarica Pages (dispatch esplicito, come da procedura)
+        if: steps.commit_json.outputs.changed == 'true'
+        run: |
+          set -e
+          curl -sS -f -X POST \
+            -H "Authorization: Bearer ${{ github.token }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/deploy-pages.yml/dispatches" \
+            -d '{"ref":"main"}'
+          echo "deploy-pages.yml dispacciato"

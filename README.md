@@ -6,9 +6,10 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.3.0.8
+## Versione attiva: 1.3.0.9
 
-- File applicativo: `mri-light-1.3.0.8.html` (`APP_VERSION = '1.3.0.8'`; changelog in-app) + `sw.js` (`CACHE_NAME = 'mri-1.3.0.8'`, `TILE_CACHE = 'mri-tiles-1.3.0.8'`, `FRAME_CACHE = 'mri-frames-1.3.0.8'`)
+- File applicativo: `mri-light-1.3.0.9.html` (`APP_VERSION = '1.3.0.9'`; changelog in-app) + `sw.js` (`CACHE_NAME = 'mri-1.3.0.9'`, `TILE_CACHE = 'mri-tiles-1.3.0.9'`, `FRAME_CACHE = 'mri-frames-1.3.0.9'`)
+- **1.3.0.9 - Produttore sinottico**: nuovo `scripts/synoptic/` che scrive `data/radar/synoptic.json` con blocco TM90 da geopotenziale 500 hPa (soglia citata Tibaldi-Molteni 1990) e campi grezzi non calibrati come `raw_field`; nessun simbolo frontale inventato e nessun dato simulato. Nuovo workflow `synoptic.yml` (cron 12:23 UTC + dispatch) che commetta SOLO il JSON con gate scientifico e dispatch di deploy-pages. BUILD=139, tre cache del service worker rinnovate, vecchio html 1.3.0.8 rimosso. NON verificato: run end-to-end GitHub Actions, sintassi bash, resa visiva in browser e validazione TM90 su eventi italiani.
 - **1.3.0.8 - Unificazione consegne 1.3**: correzioni scientifiche allineate al codice; pannello di analisi sinottica con simboli costruiti solo da label presenti e grafici teleconnessioni NOAA etichettati come indice OSSERVATO (17 serie, filtro lead uguale a 0 e member uguale a 0); motori radar unificati con cache 3D e validazione 3D; serie giornaliera delle centraline servita da un solo blob vivo sul branch orphan stations-daily. Versione 1.3.0.8, BUILD=138, tre cache del service worker rinnovate e vecchio html rimosso. Nessun dato simulato. NON verificato: resa visiva in browser interno ed esecuzione end-to-end su GitHub Actions.
 - **1.3.0.7 - Sette correzioni UI**: serie centraline con messaggio per 1 o 2 osservazioni raccolte oggi senza inventare punti; prodotto di default Mappa dei rischi; comando Evidenzia Zone a Rischio subito dopo il selettore prodotto; metriche Nebbia/Conv./Grandine nascoste e disabilitate fuori Sviluppo (7 voci visibili, 10 con Sviluppo); pannello criticita DPC compatto con dettagli chiusi e 3 badge separati sempre visibili; nota sui soli 3 rischi DPC spostata nel title; legenda dBZ per RainViewer/LibreWXR con la tabella ufficiale Universal Blue, nessuna palette inventata. Solo client, nessun motore e nessun dato simulato.
 

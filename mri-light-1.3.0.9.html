@@ -3034,9 +3034,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.8';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.9';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-18';
     const APP_CHANGELOG = [
+    { version: '1.3.0.9', date: '2026-11-18', changes: [
+        'Produttore sinottico per data/radar/synoptic.json: blocco TM90 da geopotenziale 500 hPa con soglia citata Tibaldi-Molteni 1990 e campi grezzi non calibrati come raw_field, nessun simbolo frontale inventato.',
+        'Nuovo workflow synoptic.yml con cron giornaliero alle 12:23 UTC e workflow_dispatch: scrive e committa SOLO data/radar/synoptic.json, con gate scientifico e dispatch di deploy-pages.',
+        'Bump release: VERSION=1.3.0.9 con BUILD=139, tre cache del service worker rinnovate, README e test .mjs allineati, vecchio html 1.3.0.8 rimosso. Nessun dato simulato.',
+        'NON verificato: esecuzione end-to-end su GitHub Actions, sintassi bash dei blocchi run:, resa visiva in browser interno e validazione TM90 su eventi italiani.',
+    ]},
     { version: '1.3.0.8', date: '2026-11-18', changes: [
         'Unificazione di tutte le consegne 1.3: motore radar con cache 3D e validazione 3D (654 test radar engine, 10 hydro, 17 validazione), correzioni scientifiche allineate al codice, pannello di analisi sinottica e teleconnessioni NOAA con 17 serie e filtro lead uguale a 0 e member uguale a 0.',
         'Serie giornaliera delle centraline letta dal server da data/stations/daily_series.json: un solo blob vivo sul branch orphan stations-daily, senza crescita cumulativa nella storia di main. Etichette SERVER / LOCALE / SERVER non aggiornato.',
