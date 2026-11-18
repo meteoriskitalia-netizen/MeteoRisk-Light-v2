@@ -794,6 +794,18 @@ jobs:
         timeout-minutes: 5
         run: |
           set -euo pipefail
+          # 2026-11-18 — CAUSA dei 12 failure consecutivi del solo job radar-3d:
+          # tmark scrive in $RUNNER_TEMP/timings/marks.tsv, ma la dir timings/
+          # viene creata UNA VOLTA SOLTANTO nel job radar-engine (step iniziale
+          # "Prepara timings", ~riga 104). radar-3d e' un JOB SEPARATO su un
+          # runner fresco: $RUNNER_TEMP/timings NON esiste, il redirect `>>`
+          # fallisce con "No such file or directory", tmark ritorna != 0 e
+          # `set -e` abortisce lo step in < 1s, PRIMA del guard su volume.json e
+          # di QUALSIASI comando git (read-tree/rev-parse/push). Il branch
+          # radar-3d assente NON c'entra: il guard -q --verify e il lease
+          # vuoto sono gia' corretti e verificati (test locale su remote git).
+          # Creare la dir qui rende lo step autonomo, senza toccare il push.
+          mkdir -p "$RUNNER_TEMP/timings"
           tmark() { printf '%s\t%s\n' "$1" "$(date +%s%3N)" >> "$RUNNER_TEMP/timings/marks.tsv"; }
           tmark begin:push_3d
           if [ ! -f data/radar/3d/volume.json ]; then

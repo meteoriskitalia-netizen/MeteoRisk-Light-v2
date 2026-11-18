@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 """Test del produttore di teleconnessioni — fixture ridotta REALE (NOAA CPC).
 
-Le fixture sotto ``fixtures/`` sono state estratte verbatim dai 5 file scaricati
-il 2026-11-17 (poche righe ciascuno, con i sentinel -99.90 / -999.9 originali).
-I test sono offline: nessuna rete, nessun token.
+Le fixture sotto ``fixtures/`` sono state estratte verbatim dai 10 file scaricati
+il 2026-11-17/18 (poche righe ciascuno, con i sentinel -99.90 / -999.9 originali).
+I test sono offline: nessuna rete, nessun token. Coprono anche le 5 serie nuove
+1.3.0.11 (QBO 30/50, AMO, PNA daily, timeline SSW) e i buchi dichiarati.
 """
 
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -25,6 +27,11 @@ FIXTURE_BY_URL = {
     bt.TELE_NH_URL: "tele_index.nh",
     bt.WKSST_URL: "wksst9120.for",
     bt.SOI_URL: "soi",
+    bt.QBO30_URL: "qbo30.txt",
+    bt.QBO50_URL: "qbo50.txt",
+    bt.AMO_URL: "amo.csv",
+    bt.CW_PNA_URL: "pna.csv",
+    bt.SSW_URL: "ssw.html",
 }
 
 
@@ -139,7 +146,8 @@ def test_no_invented_null_values(built):
         for point in series["values"]:
             assert isinstance(point, list) and len(point) == 2
             assert isinstance(point[0], int) and isinstance(point[1], float)
-            assert bt.utc_ms(1900, 1) <= point[0] <= bt.utc_ms(2100, 1)
+            # AMO parte dal 1854: il limite inferiore e' 1800, non 1900.
+            assert bt.utc_ms(1800, 1) <= point[0] <= bt.utc_ms(2100, 1)
         epochs = [p[0] for p in series["values"]]
         assert epochs == sorted(epochs)
         assert len(epochs) == len(set(epochs))
@@ -153,21 +161,22 @@ def test_no_invented_null_values(built):
 
 def test_schema_and_source_metadata(built):
     payload, stats, nbytes, out = built
-    assert payload["schema_version"] == 1
-    assert payload["source"] == "NOAA CPC"
+    assert payload["schema_version"] == 2
+    assert payload["source"] == "NOAA CPC + NOAA NCEI + NOAA CSL/SSWC"
     assert payload["license"] == "NOAA public domain — attribution required"
-    assert payload["attribution"] == "NOAA Climate Prediction Center"
+    assert "NOAA Climate Prediction Center" in payload["attribution"]
     assert payload["methodology_notice"]["effective_from"] == "2027-02-15"
     assert payload["methodology_notice"]["requires_reverification"] is True
-    assert len(payload["series"]) == len(bt.SOURCES) == 17
+    assert len(payload["series"]) == len(bt.SOURCES) == 22
     ids = [s["id"] for s in payload["series"]]
     assert len(ids) == len(set(ids))
     for s in payload["series"]:
-        assert set(s) == {"id", "label", "values", "baseline",
-                          "last_modified", "source_url"}
+        assert {"id", "label", "values", "baseline", "last_modified",
+                "source_url", "source", "license", "unit"} <= set(s)
         assert s["source_url"].startswith("https://")
         assert s["last_modified"] == LM
         assert s["baseline"]
+        assert s["source"] and s["license"] and s["unit"]
 
 
 def test_json_size_compact_and_roundtrip(built):
@@ -176,6 +185,89 @@ def test_json_size_compact_and_roundtrip(built):
     assert nbytes == len(raw)
     assert 1000 <= nbytes <= 200000          # compacto, non cresce senza motivo
     assert raw.count(b"\n") == 1 and raw.endswith(b"\n")
-    assert raw.startswith(b'{"schema_version":1,')
+    assert raw.startswith(b'{"schema_version":2,')
     assert b"\n " not in raw  # nessuna indentazione: JSON compatto
     assert json.loads(raw.decode("utf-8")) == payload
+
+
+# --------------------------------------------------------------------------
+# 5. Serie nuove 1.3.0.11 (QBO, AMO, PNA daily, SSW) e buchi dichiarati
+# --------------------------------------------------------------------------
+def test_qbo_original_block_only_and_sentinel():
+    text = (FIX / "qbo30.txt").read_text(encoding="utf-8")
+    values, st = bt.parse_qbo(text)
+    assert st["block"] == "ORIGINAL"
+    assert st["skipped_other_blocks"] >= 1   # blocco ANOMALY scartato
+    # Solo 4 anni del blocco ORIGINAL: nessun valore dei blocchi ANOMALY e
+    # STANDARDIZED presenti nella stessa fixture puo' finire nelle values.
+    assert len(values) == 48
+    assert values[0] == [bt.utc_ms(1979, 1), 1.85]
+    # 2027 e' tutto -999.90: i 12 punti vanno saltati, non messi a null.
+    assert not any(bt.utc_ms(2027, 1) <= v[0] < bt.utc_ms(2028, 1)
+                   for v in values)
+    assert st["skipped_missing"] >= 12
+    assert all(v[1] > -99 for v in values)
+
+
+def test_qbo50_unit_and_source_metadata(built):
+    s = [x for x in built[0]["series"] if x["id"] == "qbo50_monthly"][0]
+    assert s["unit"] == "m/s"
+    assert s["source"] == "NOAA CPC"
+    # Il blocco ORIGINAL contiene vento in m/s, non scarti standardizzati.
+    assert s["values"][0] == [bt.utc_ms(1979, 1), 7.38]
+
+
+def test_amo_ersstv5_degrees_and_start():
+    text = (FIX / "amo.csv").read_text(encoding="utf-8")
+    values, st = bt.parse_amo(text)
+    assert values[0] == [bt.utc_ms(1854, 1), 0.28]
+    assert st["kept"] == 10 and st["skipped_missing"] == 0
+    raw = (FIX / "amo.csv").read_text(encoding="utf-8")
+    assert "ERSST AMO" in raw  # fonte dichiarata nel file sorgente
+
+
+def test_pna_daily_uses_lead0_member0_only():
+    text = (FIX / "pna.csv").read_text(encoding="utf-8")
+    values, st = bt.parse_cwlinks(text)
+    assert st["rows"] == 5
+    assert st["kept_lead0_member0"] == 3
+    assert st["dropped_lead_gt0"] == 1
+    assert st["dropped_member_gt0"] == 1
+    assert values[0] == [bt.utc_ms(2026, 7, 21), -0.3827183031998311]
+    forecast = -0.5560566839969795   # riga lead=1
+    member = -0.37651025135744204    # riga member=1
+    assert forecast not in [v for _, v in values]
+    assert member not in [v for _, v in values]
+
+
+def test_ssw_timeline_citation_definition_and_century(built):
+    text = (FIX / "ssw.html").read_text(encoding="utf-8")
+    values, events, st = bt.parse_ssw(text)
+    assert st["kept"] == 3 and len(values) == 3
+    assert events[0]["name"] == "JAN 1958"
+    # IL SECLO: Python %y darebbe 2058. Qui deve essere 1958 (o 1959
+    # se la data ERA5 e' slittata a febbraio), mai il 2058.
+    # fromtimestamp non accetta epoch negativi su Windows: si somma un delta.
+    year = (datetime(1970, 1, 1, tzinfo=timezone.utc)
+            + timedelta(milliseconds=values[0][0])).year
+    assert 1958 <= year <= 1959
+    s = [x for x in built[0]["series"] if x["id"] == "ssw_events"][0]
+    assert s["kind"] == "events"
+    assert s["values"] and all(v[1] == 1.0 for v in s["values"])
+    assert "10.5194/essd-9-63-2017" in s["citation"]
+    assert "Charlton" in s["definition"] and "10 hPa" in s["definition"]
+    assert s["source"] == "NOAA CSL / SSWC"
+    assert len(s["events"]) == len(s["values"])
+
+
+def test_no_solar_activity_and_declared_gaps(built):
+    payload = built[0]
+    assert payload["solar_activity"]["implemented"] is False
+    ids = [s["id"] for s in payload["series"]]
+    assert not any(k in i for i in ids
+                   for k in ("sun", "solar", "f107", "sunspot"))
+    gaps = {g["id"]: g for g in payload["not_implemented"]}
+    assert gaps["nam_10hpa"]["status"] == "RICHIEDE TOKEN"
+    assert gaps["itcz"]["status"] == "NON VERIFICATO"
+    for g in gaps.values():
+        assert g["reason"] and len(g["reason"]) > 40

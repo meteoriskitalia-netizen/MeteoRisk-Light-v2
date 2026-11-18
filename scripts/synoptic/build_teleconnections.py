@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Produttore di teleconnessioni — solo NOAA CPC, nessun token.
+"""Produttore di teleconnessioni — fonti pubbliche NOAA, nessun token.
 
-Scarica 5 sorgenti pubbliche NOAA CPC (HTTP 200 verificato il 2026-11-17),
-le parsa e scrive ``data/climate/teleconnections.json``.
+Scarica le sorgenti pubbliche NOAA (CPC, NCEI ERSSTv5 e CSL/SSWC; HTTP 200
+verificato il 2026-11-17/18), le parsa e scrive
+``data/climate/teleconnections.json``.
+
+Aggiunte 1.3.0.11: QBO 30/50 hPa (CPC, m/s, solo blocco ORIGINAL DATA),
+AMO (NCEI ERSSTv5, gradi C), PNA daily (cwlinks, lead==0 e member==0) e
+timeline SSW storica (CSL/SSWC, Butler et al. 2017 doi 10.5194/essd-9-63-2017;
+definizione Charlton & Polvani 2007). NESSUNA attivita' solare. NAM 10 hPa e
+ITCZ NON implementati e dichiarati in ``not_implemented`` con stato e motivo.
 
 REGOLA OBBLIGATORIA (cwlinks AO/NAO):
     nei CSV ``norm.daily.*.gefs.*`` si pubblicano SOLO le righe con
@@ -28,18 +35,65 @@ from __future__ import annotations
 
 import argparse
 import csv
+import html as html_mod
 import io
 import json
+import re
 import sys
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 1
-SOURCE_LABEL = "NOAA CPC"
+SCHEMA_VERSION = 2
+SOURCE_LABEL = "NOAA CPC + NOAA NCEI + NOAA CSL/SSWC"
 LICENSE = "NOAA public domain — attribution required"
-ATTRIBUTION = "NOAA Climate Prediction Center"
+ATTRIBUTION = ("NOAA Climate Prediction Center; NOAA NCEI ERSSTv5; "
+               "NOAA CSL Sudden Stratospheric Warming Compendium")
+
+# 1.3.0.11 — nuove sorgenti pubbliche. Nessuna richiesta con token/credenziali.
+QBO30_URL = "https://ftp.cpc.ncep.noaa.gov/wd52dg/data/indices/qbo.u30.index"
+QBO50_URL = "https://ftp.cpc.ncep.noaa.gov/wd52dg/data/indices/qbo.u50.index"
+AMO_URL = "https://www.ncei.noaa.gov/pub/data/cmb/ersst/v5/index/ersst.v5.amo.dat"
+CW_PNA_URL = ("https://ftp.cpc.ncep.noaa.gov/cwlinks/"
+              "norm.daily.pna.gefs.z500.120days.csv")
+SSW_URL = "https://www.csl.noaa.gov/groups/csl8/sswcompendium/majorevents.html"
+
+SSW_CITATION = ("Butler, A. H., Sjoberg, J. P., Seidel, D. J., and Rosenlof, "
+                "K. H. (2017), A sudden stratospheric warming compendium, "
+                "Earth Syst. Sci. Data, 9, 63-76, doi:10.5194/essd-9-63-2017")
+SSW_DEFINITION = ("SSW maggiore invernale: inversione tra novembre e marzo del "
+                  "vento zonale medio 10 hPa a 60 N da westerly a easterly, con "
+                  "ritorno a westerly per almeno 20 giorni consecutivi fra eventi "
+                  "e almeno 10 giorni prima del 30 aprile (Charlton & Polvani "
+                  "2007, doi:10.1029/2006GL028526).")
+
+# Buchi dichiarati: NON sono implementati e NON vanno inventati da proxy.
+NOT_IMPLEMENTED = [
+    {
+        "id": "nam_10hpa",
+        "status": "RICHIEDE TOKEN",
+        "reason": ("Nessun indice NAM 10 hPa giornaliero pubblicato senza credenziali "
+                   "tra le sorgenti pubbliche NOAA verificate in questa sessione: "
+                   "servirebbe una rianalisi con accesso autenticato (per esempio "
+                   "ERA5/CDS). Nessun proxy da geopotenziale 500 hPa e' stato "
+                   "sostituito al NAM 10 hPa."),
+    },
+    {
+        "id": "itcz",
+        "status": "NON VERIFICATO",
+        "reason": ("Nessuna definizione e licenza di un indice ITCZ giornaliero e' "
+                   "stata verificata su una fonte pubblica in questa sessione. "
+                   "Nessuna posizione dell'ITCZ viene quindi pubblicata o "
+                   "disegnata: il dato resta non disponibile con motivo."),
+    },
+]
+SOLAR_EXCLUSION = {
+    "implemented": False,
+    "reason": ("Nessuna attivita' solare (macchie, F10.7, irradianza) e' inclusa: "
+               "fuori dal perimetro di questa release e nessuna serie solare e' "
+               "stata aggiunta al JSON."),
+}
 
 # Cambio metodologia CPC con effetto dal 15/2/2027: dichiarato perche' chi
 # consuma le serie sappia che oltre quella data le baseline vanno riverificate.
@@ -206,6 +260,59 @@ SOURCES = (
         "url": SOI_URL,
         "kind": "soi",
     },
+    # ---- 1.3.0.11: nuove serie pubbliche, nessun token ----
+    {
+        "id": "qbo30_monthly",
+        "label": "QBO 30 hPa — vento zonale equatoriale (ORIGINAL DATA)",
+        "baseline": "CPC ORIGINAL DATA, valori assoluti; nessuna baseline di standardizzazione",
+        "url": QBO30_URL,
+        "kind": "qbo",
+        "source": "NOAA CPC",
+        "license": LICENSE,
+        "unit": "m/s",
+    },
+    {
+        "id": "qbo50_monthly",
+        "label": "QBO 50 hPa — vento zonale equatoriale (ORIGINAL DATA)",
+        "baseline": "CPC ORIGINAL DATA, valori assoluti; nessuna baseline di standardizzazione",
+        "url": QBO50_URL,
+        "kind": "qbo",
+        "source": "NOAA CPC",
+        "license": LICENSE,
+        "unit": "m/s",
+    },
+    {
+        "id": "amo_monthly",
+        "label": "AMO — Atlantic Multidecadal Oscillation (ERSSTv5, SSTA 0-60 N)",
+        "baseline": "ERSSTv5, anomalia SSTA 0-60 N; nessuna detrendizzazione applicata",
+        "url": AMO_URL,
+        "kind": "amo",
+        "source": "NOAA NCEI ERSSTv5",
+        "license": LICENSE,
+        "unit": "°C",
+    },
+    {
+        "id": "pna_daily",
+        "label": "Pacific / North American Pattern — daily, lead=0, member=0",
+        "baseline": "CPC daily standardized index from GEFS Z500; baseline non esplicitata nel file",
+        "url": CW_PNA_URL,
+        "kind": "cwlinks",
+        "source": "NOAA CPC",
+        "license": LICENSE,
+        "unit": "standardized index",
+    },
+    {
+        "id": "ssw_events",
+        "label": "SSW — date centrali degli SSW maggiori invernali (storico)",
+        "baseline": "date centrali pubblicate nella tabella CSL/SSWC (aggiornata settembre 2023)",
+        "url": SSW_URL,
+        "kind": "ssw",
+        "source": "NOAA CSL / SSWC",
+        "license": "NOAA public domain (dati); articolo Butler et al. 2017 CC BY 3.0",
+        "unit": "eventi",
+        "citation": SSW_CITATION,
+        "definition": SSW_DEFINITION,
+    },
 )
 
 # Fixed-width layouts, misurati sui file reali scaricati il 2026-11-17.
@@ -224,6 +331,14 @@ WKSST_BLOCK_STEP = 13
 SOI_YEAR_END = 4
 SOI_FIELD_START = 4
 SOI_FIELD_WIDTH = 6
+
+# qbo.u{30,50}.index: 88 caratteri/linea, TRE blocchi da 54 righe ciascuno:
+# ORIGINAL DATA (m/s), ANOMALY e STANDARDIZED DATA. Si pubblica SOLO il primo:
+# gli altri due hanno unita' diversa e vanno saltati (misurato il 2026-11-18).
+QBO_FIELD_START = 4
+QBO_FIELD_WIDTH = 7
+QBO_NFIELDS = 12
+# ersst.v5.amo.dat: "anno mese SSTA" separato da spazi (2 righe di header).
 
 MISSING_FLOOR = -99.0  # -99.9, -99.90, -999.9: tutti < -99
 
@@ -268,15 +383,13 @@ def _dedupe(points):
 def parse_cwlinks(text: str):
     """cwlinks AO/NAO: SOLO lead==0 e SOLO member==0 (controllo)."""
     reader = csv.DictReader(io.StringIO(text))
-    required = {"lead", "member", "time", "ao_index", "valid_time"}
-    if not reader.fieldnames or not required.issubset(set(reader.fieldnames)):
-        # nao_index ha lo stesso schema con il nome colonna diverso
-        required_nao = {"lead", "member", "time", "nao_index", "valid_time"}
-        if not reader.fieldnames or not required_nao.issubset(set(reader.fieldnames)):
-            raise ValueError("cwlinks: header inatteso %r" % (reader.fieldnames,))
-        value_col = "nao_index"
-    else:
-        value_col = "ao_index"
+    fields = set(reader.fieldnames or [])
+    base = {"lead", "member", "time", "valid_time"}
+    # ao/nao/pna hanno lo stesso schema con il nome colonna diverso.
+    value_col = next((c for c in ("ao_index", "nao_index", "pna_index")
+                      if base | {c} <= fields), None)
+    if value_col is None:
+        raise ValueError("cwlinks: header inatteso %r" % (reader.fieldnames,))
 
     points = []
     stats = {"rows": 0, "kept_lead0_member0": 0, "dropped_lead_gt0": 0,
@@ -402,6 +515,133 @@ def parse_soi(text: str):
     return _dedupe(points), stats
 
 
+def parse_qbo(text):
+    """QBO mensile: SOLO il blocco ORIGINAL DATA (m/s).
+
+    Il file CPC contiene tre tabelle (ORIGINAL DATA, ANOMALY, STANDARDIZED
+    DATA). Senza il gate sui blocchi, per la stessa data resterebbe dopo il
+    dedupe il valore STANDARDIZZATO, con unita' diversa da m/s (misurato).
+    """
+    points = []
+    stats = {"data_lines": 0, "kept": 0, "skipped_missing": 0,
+             "block": "ORIGINAL", "skipped_other_blocks": 0}
+    in_original = False
+    for line in text.splitlines():
+        up = line.upper()
+        if "ORIGINAL" in up:
+            in_original = True
+            continue
+        if "ANOMALY" in up or "STANDARDIZED" in up:
+            if in_original:
+                stats["skipped_other_blocks"] += 1
+            in_original = False
+            continue
+        if not in_original:
+            continue
+        year_raw = line[0:4].strip()
+        if not year_raw.isdigit():
+            continue
+        stats["data_lines"] += 1
+        for month in range(1, 13):
+            s = QBO_FIELD_START + QBO_FIELD_WIDTH * (month - 1)
+            value = clean_float(line[s:s + QBO_FIELD_WIDTH])
+            if value is None:
+                stats["skipped_missing"] += 1
+                continue
+            try:
+                ts = utc_ms(int(year_raw), month)
+            except ValueError:
+                stats["skipped_missing"] += 1
+                continue
+            points.append((ts, value))
+            stats["kept"] += 1
+    return _dedupe(points), stats
+
+
+def parse_amo(text):
+    """AMO mensile ERSSTv5: anomalia SSTA in gradi C, righe 'anno mese SSTA'."""
+    points = []
+    stats = {"data_lines": 0, "kept": 0, "skipped_missing": 0}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) < 3 or not (parts[0].isdigit() and parts[1].isdigit()):
+            continue
+        stats["data_lines"] += 1
+        value = clean_float(parts[2])
+        if value is None:
+            stats["skipped_missing"] += 1
+            continue
+        try:
+            ts = utc_ms(int(parts[0]), int(parts[1]))
+        except ValueError:
+            stats["skipped_missing"] += 1
+            continue
+        points.append((ts, value))
+        stats["kept"] += 1
+    return _dedupe(points), stats
+
+
+def parse_ssw(text):
+    """Timeline storica SSW dalla tabella CSL/SSWC (date centrali).
+
+    Le colonne delle rianalisi sono 6; si sceglie una data per evento con
+    precedenza dichiarata ERA5, JRA-55, MERRA2, ERA-Interim, ERA-40,
+    NCEP-NCAR. Le celle '****' e vuote NON sono eventi. La definizione e la
+    citazione sono nei metadati della serie, non inventate qui.
+    """
+    columns = ("NCEP-NCAR", "ERA40", "ERA-Interim", "JRA-55", "MERRA2", "ERA5")
+    preference = (5, 3, 4, 2, 1, 0)
+    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", text, re.S | re.I)
+    points = []
+    events = []
+    stats = {"rows": 0, "kept": 0, "skipped": 0}
+    for row in rows:
+        cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S | re.I)
+        if len(cells) < 7:
+            continue
+        clean = [html_mod.unescape(re.sub(r"<[^>]+>", "", c)).strip()
+                 for c in cells]
+        name = clean[0]
+        low = name.lower()
+        if not name or "total" in low or "frequency" in low:
+            continue
+        stats["rows"] += 1
+        nm = re.match(r"^\s*([A-Za-z]{3})\s+(\d{4})\s*$", name)
+        name_year = int(nm.group(2)) if nm else 2000
+        chosen = None
+        for idx in preference:
+            raw = clean[idx + 1] if idx + 1 < len(clean) else ""
+            if not raw or "****" in raw:
+                continue
+            dm = re.match(r"^\s*(\d{1,2})-([A-Za-z]{3})-(\d{2,4})\s*$", raw)
+            if not dm:
+                continue
+            day, mon, yr = int(dm.group(1)), dm.group(2), dm.group(3)
+            if len(yr) == 4:
+                year = int(yr)
+            else:
+                # ATTENZIONE: il %y di Python mappa 58 -> 2058 (pivot CNI),
+                # mentre qui gli eventi vanno dal 1958 al 2023. Il secolo va
+                # scelto dall'anno nell'etichetta dell'evento, NON dal pivot.
+                year = min((1900 + int(yr), 2000 + int(yr)),
+                           key=lambda y: abs(y - name_year))
+            try:
+                d = datetime.strptime("%d-%s-%04d" % (day, mon, year),
+                                      "%d-%b-%Y").replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+            chosen = (int(d.timestamp() * 1000), raw, columns[idx])
+            break
+        if not chosen:
+            stats["skipped"] += 1
+            continue
+        events.append({"ts": chosen[0], "name": name,
+                       "date": chosen[1], "reanalysis": chosen[2]})
+        points.append((chosen[0], 1.0))
+        stats["kept"] += 1
+    return _dedupe(points), events, stats
+
+
 def fetch(url: str, timeout: int = 60):
     """GET singolo: ritorna (testo, Last-Modified header raw).
 
@@ -429,6 +669,10 @@ def _parse_for_source(src, text):
         return parse_wksst(text, src["column"])
     if kind == "soi":
         return parse_soi(text)
+    if kind == "qbo":
+        return parse_qbo(text)
+    if kind == "amo":
+        return parse_amo(text)
     raise ValueError("kind sconosciuto: %r" % kind)
 
 
@@ -447,15 +691,30 @@ def build(out_path, fetcher=fetch, timeout: int = 60):
         if url not in cache:
             cache[url] = fetcher(url, timeout)
         text, last_modified = cache[url]
-        points, pstats = _parse_for_source(src, text)
-        series.append({
+        events = None
+        if src["kind"] == "ssw":
+            points, events, pstats = parse_ssw(text)
+        else:
+            points, pstats = _parse_for_source(src, text)
+        entry = {
             "id": src["id"],
             "label": src["label"],
             "values": points,
             "baseline": src["baseline"],
             "last_modified": last_modified,
             "source_url": src["url"],
-        })
+            "source": src.get("source", "NOAA CPC"),
+            "license": src.get("license", LICENSE),
+            "unit": src.get("unit", "standardized index"),
+        }
+        if events is not None:
+            # Timeline: i valori sono 1.0 per evento, le date/etichette stanno
+            # qui. Nessun evento sintetico e nessuna previsione.
+            entry["kind"] = "events"
+            entry["events"] = events
+            entry["citation"] = src["citation"]
+            entry["definition"] = src["definition"]
+        series.append(entry)
         stats[src["id"]] = dict(pstats, points=len(points),
                                 last_modified=last_modified, url=url)
 
@@ -467,6 +726,8 @@ def build(out_path, fetcher=fetch, timeout: int = 60):
         "license": LICENSE,
         "attribution": ATTRIBUTION,
         "methodology_notice": METHODOLOGY_NOTICE,
+        "not_implemented": NOT_IMPLEMENTED,
+        "solar_activity": SOLAR_EXCLUSION,
         "series": series,
     }
     raw = (json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n")

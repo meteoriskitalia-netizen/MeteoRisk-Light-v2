@@ -1770,6 +1770,16 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .syn-feature:hover > *, .syn-feature:focus-visible > * { stroke-width: 2.4; }
         .syn-feature:focus-visible > * { outline: 1px dashed #7dd3fc; }
         .syn-feature text { font: 11px system-ui, sans-serif; fill: #e2e8f0; paint-order: stroke; }
+        .syn-map-count { font-size: 11px; line-height: 1.4; color: #cbd5e1; overflow-wrap: anywhere; margin-bottom: 8px; }
+        .syn-block-bar { shape-rendering: crispEdges; }
+        .syn-block-label { fill: #ede9fe; }
+        .syn-raw-list { margin-top: 8px; padding-top: 6px; border-top: 1px solid #334155; }
+        .syn-raw-head { font-size: 10.5px; color: #94a3b8; margin-bottom: 4px; overflow-wrap: anywhere; }
+        .syn-raw-items { margin: 0; padding-left: 16px; font-size: 10.5px; line-height: 1.4; color: #94a3b8; }
+        .syn-raw-item { margin-bottom: 3px; overflow-wrap: anywhere; }
+        .syn-raw-name { color: #94a3b8; }
+        .syn-raw-reason { color: #fbbf24; }
+        .syn-map-empty { padding: 8px 0; }
         .syn-detail { margin-top: 8px; font-size: 11px; line-height: 1.4; color: #cbd5e1; border-top: 1px solid #334155; padding-top: 6px; min-height: 1em; overflow-wrap: anywhere; }
         .syn-stamp { font-size: 10.5px; line-height: 1.45; color: #94a3b8; overflow-wrap: anywhere; margin: 4px 0 0 0; }
         .syn-discard { color: #fbbf24; font-weight: 600; }
@@ -1986,6 +1996,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <option value="newindices" data-dev="1">Nuovi Indici</option>
             <option value="sources">Fonti e metodologie</option>
             <option value="synoptic">Analisi sinottica</option>
+            <option value="teleconn">Teleconnessioni e indici</option>
         </select>
         <!-- FIX 1.3.0.7 - #btn-high-risk subito dopo il selettore prodotto (non in fondo).
              Il wrapper e' comandato da syncContextualToggles(); handler storico invariato. -->
@@ -2609,8 +2620,10 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <div class="syn-grid">
                 <div class="syn-card">
                     <div class="syn-card-head">Mappa delle feature sinottiche</div>
+                    <div class="syn-map-count" id="syn-map-count"></div>
                     <div class="syn-map-wrap" id="syn-map-wrap"></div>
-                    <div class="syn-detail" id="syn-detail" role="status">Seleziona un simbolo sulla mappa per vederne i dettagli.</div>
+                    <div class="syn-raw-list" id="syn-raw-list" hidden></div>
+                    <div class="syn-detail" id="syn-detail" role="status">Seleziona una barra sulla mappa per vederne i dettagli.</div>
                     <p class="syn-stamp" id="syn-stamp"></p>
                     <p class="syn-gaps" id="syn-gaps"></p>
                     <div class="syn-burian" id="syn-burian" hidden></div>
@@ -2622,6 +2635,25 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             </div>
         </div>
         <div class="syn-msg" id="syn-msg" role="status" hidden></div>
+    </div>
+
+    <!-- ===================================================================
+         1.3.0.11 - TELECONNESSIONI E INDICI: prodotto separato, FUORI dalla
+         mappa sinottica. Legge SOLO data/climate/teleconnections.json con
+         caricamento LAZY (zero richieste al boot). Nessuno stile nuovo:
+         riutilizza le classi .syn-* gia' presenti. No emoji/gradienti/ombre.
+         =================================================================== -->
+    <div id="teleconn-panel" class="syn-panel" aria-label="Teleconnessioni e indici">
+        <div class="syn-head">
+            <span class="syn-title">Teleconnessioni e indici</span>
+            <span class="syn-badge" id="tele-badge">in caricamento…</span>
+        </div>
+        <div id="tele-body" hidden>
+            <div class="syn-grid" id="tele-grid"></div>
+            <p class="syn-stamp" id="tele-stamp"></p>
+            <p class="syn-gaps" id="tele-gaps"></p>
+        </div>
+        <div class="syn-msg" id="tele-msg" role="status" hidden></div>
     </div>
 
     <!-- Pannello Fonti & Metodologie — fonti dati + metodologie dalla letteratura + disclaimer -->
@@ -3034,9 +3066,17 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.10';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.11';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-18';
     const APP_CHANGELOG = [
+    { version: '1.3.0.11', date: '2026-11-18', changes: [
+        'Fix radar-3d: aggiunto mkdir -p $RUNNER_TEMP/timings nello step di pubblicazione del job separato. 12 failure consecutivi dal 18/11: il redirect di tmark falliva su runner fresco e set -e abortiva in meno di 1s prima del guard. Push e lease invariati.',
+        'Riepilogo rischi: con Sviluppo OFF la voce di convezione organizzata potenziale sparisce da testo e title del badge (#risk-summary), non solo dalla lista. Colori, soglie e calcolo invariati.',
+        'Teleconnessioni nuove nel produttore: QBO 30/50 hPa (NOAA CPC, m/s, solo blocco ORIGINAL DATA), AMO (NOAA NCEI ERSSTv5, gradi C), PNA daily con filtro lead=0 e member=0, timeline SSW storica CSL/SSWC con citazione Butler et al. 2017 doi 10.5194/essd-9-63-2017 e definizione Charlton e Polvani 2007. Nessuna attivita solare.',
+        'Nuova voce separata Teleconnessioni e indici nel selettore prodotto, FUORI dall Analisi sinottica: grafici SVG inline e interpretazione per l Italia (QBO negativa, AMO multidecadale, NAO negativa, PNA solo contesto, SSW storica con lacuna real-time dichiarata). Legge data/climate/teleconnections.json in lazy, zero richieste al boot.',
+        'Buchi dichiarati: NAM 10 hPa RICHIEDE TOKEN e ITCZ NON VERIFICATO, mostrati come non disponibile con motivo. deploy-pages copia ora data/climate in _site: teleconnections.json era 404 su Pages.',
+        'Bump release: VERSION BUILD=141, tre cache del service worker rinnovate, README e test .mjs allineati, vecchio html 1.3.0.10 rimosso.',
+    ]},
     { version: '1.3.0.10', date: '2026-11-18', changes: [
         'Archivio delle predizioni severe ADDITIVO: blob giornalieri su branch cache orphan predictions-archive (retention 365 giorni, commit senza parent, push con --force-with-lease). Costo MISURATO 818.809 byte/giorno, pari a 298,9 MB/anno. Il registro a 30 giorni su main resta invariato per i consumatori attuali.',
         'Backfill di validazione 3D: 20 file derivati in data/validation/backfill_3d (939.079 byte, 88 righe) con 77 etichette AFA positive e 11 negative. Il gate approvato di almeno 60 positivi e 60 negativi NON e raggiunto: mancano 49 negativi.',
@@ -5649,6 +5689,20 @@ function enabledLightningSourceIds() {
     // > 0,1 mm/h nella stessa ora, oppure cella radar osservata nel pannello dedicato).
     /* SENZA INNESCO = NESSUNA CRITICITA' ATTIVA: verde/Basso, non una classe a se'. */
     var CONV_POTENTIAL_LABEL = 'Ambiente favorevole a convezione organizzata \u2014 potenziale, nessun temporale previsto';
+    // 1.3.0.11 (risk_summary_fix) — la voce POTENZIALE (nessun innesco) non e' una
+    // criticita' attiva: con Sviluppo OFF va rimossa da TUTTI i testi del riepilogo
+    // (elenco, "Altri rischi", badge, title dei dischi e tooltip), non solo da
+    // listedRisks. Questi due filtri agiscono SOLO sul confine di rendering:
+    // livelli, colori, soglie e calcolo (computeZoneRiskSummary / getMetricValue /
+    // assessConvOrg / mergeComponentLists / mergeRiskLists) restano INVARIATI.
+    function visibleSummaryRisks(risks) {
+        if (isSviluppoActive || !risks) return risks;
+        return risks.filter(function (r) { return !(r && r.id === 'supercell' && r.potential); });
+    }
+    function visibleSummaryComponents(comps) {
+        if (isSviluppoActive || !comps) return comps;
+        return comps.filter(function (c) { return !(c && c.id === 'supercell' && c.potential); });
+    }
     var RISK_DEFS = {
         rain:         { label: 'Rovesci / pioggia', color: '#38bdf8', title: 'Possibili rovesci e pioggia anche intensa' },
         wind:         { label: 'Vento',            color: '#2dd4bf', title: 'Vento con possibili raffiche' },
@@ -5745,6 +5799,10 @@ function enabledLightningSourceIds() {
 
     function riskDiscHtml(risk) {
         var def = RISK_DEFS[risk.id] || { label: risk.id, color: '#64748b', title: '' };
+        // 1.3.0.11 — con Sviluppo OFF il disco verde del potenziale NON si disegna:
+        // il suo title era "Basso — nessuna criticità attiva: Ambiente favorevole
+        // a convezione organizzata SENZA alcun innesco previsto nella stessa ora".
+        if (!isSviluppoActive && risk && risk.id === 'supercell' && risk.potential) return '';
         // Pioggia INFORMATIVA (risk.info): stile grigio, comunicata come previsione
         // e non come allerta — non è una criticità colorata (es. pioggerella sub-soglia).
         var color, label, title;
@@ -6131,7 +6189,12 @@ function enabledLightningSourceIds() {
     function riskDriverLine(agg, risks) {
         var s = computeZoneRiskSummary(agg);
         if (!s.level) return 'Nessun rischio rilevante';
-        var head = 'Colore dovuto a: ' + s.driverLabel + ' (livello ' + s.level + ')';
+        // 1.3.0.11 — gate applicato anche qui: senza Sviluppo la voce potenziale
+        // non entra NE' nella causa del colore NE' negli "Altri rischi".
+        var comps = visibleSummaryComponents(s.components);
+        var driver = comps.length ? comps[0] : null;
+        if (!driver) return 'Nessun rischio rilevante';
+        var head = 'Colore dovuto a: ' + driver.label + ' (livello ' + s.level + ')';
         // 1.2.4.94 - se il colore lo decide un temporale, la riga dice anche la classe di
         // organizzazione in forma breve ("senza organizzazione" / "possibile organizzazione"
         // / "con organizzazione"); il dettaglio con le soglie sta nel tooltip provincia.
@@ -6140,7 +6203,7 @@ function enabledLightningSourceIds() {
             var orgSDrv = tsOrgDrv ? orgShortOf(tsOrgDrv) : '';
             if (orgSDrv) head += ' - ' + orgSDrv;
         }
-        var tempDetail = riskTempDetail(s.components[0]);
+        var tempDetail = riskTempDetail(driver);
         if (tempDetail) head += ' — ' + tempDetail;
         // 1.2.4.72 - "osservato dal radar" SOLO se il livello deriva da una cella
         // radar osservata. Oggi la scala provincia e' calcolata solo su NWP (regola
@@ -6148,8 +6211,8 @@ function enabledLightningSourceIds() {
         // e la riga resta "Colore dovuto a: ..." (il default NWP non si scrive).
         if (s.driverRadar) head += ' — osservato dal radar';
         var others = [];
-        for (var i = 1; i < s.components.length && others.length < 3; i++) {
-            others.push(s.components[i].label + ' (' + s.components[i].level + ')');
+        for (var i = 1; i < comps.length && others.length < 3; i++) {
+            others.push(comps[i].label + ' (' + comps[i].level + ')');
         }
         if (others.length) head += '. Altri rischi: ' + others.join(', ');
         return head;
@@ -6252,6 +6315,8 @@ function enabledLightningSourceIds() {
                 // 1.2.4.69 - POTENZIALE e EVENTO sono classi distinte.
                 // Potenziale (verde/Basso): ambiente favorevole, nessun innesco nella stessa ora.
                 // Evento (viola/rosso): codice WMO 95-99 nella stessa ora; pioggia cumulata oraria separata.
+                // 1.3.0.11 — con Sviluppo OFF la voce potenziale non va nel riepilogo.
+                if (r.potential && !isSviluppoActive) return '';
                 if (r.potential) return 'Ambiente favorevole a convezione organizzata: potenziale, nessun temporale previsto';
                 if (r.mesoCapped) return 'Innesco presente e ambiente organizzato previsto: convezione organizzata prevista, non osservata (categoria solo in modalita Sviluppo)';
                 var scTxt = {
@@ -6393,11 +6458,19 @@ function enabledLightningSourceIds() {
         var el = getRiskSummaryEl();
         var item = regionsData[idx];
         var risks = computeActiveRisks(idx);
+        // 1.3.0.11 — filtro unico per TUTTO il riepilogo: elenco, dischi, note e
+        // "Altri rischi" (che passano da riskDriverLine). Colore e livello del
+        // badge restano calcolati su `agg`, NON su questa lista filtrata.
+        var summaryRisks = visibleSummaryRisks(risks) || [];
         // 1.2.4.69 - il badge dice il MASSIMO fra tutti i rischi e la sua causa.
         var zr = computeZoneRiskSummary(agg);
         var zrColor = colorForMetricValue('risk', getMetricValue('risk', agg));
+        // 1.3.0.11 — con Sviluppo OFF la frase del potenziale non finisce ne'
+        // nel testo del badge ne' nel suo title (entrambi usano zrText).
+        var zrDriverLabel = (!isSviluppoActive && zr.driverId === 'supercell' && zr.driverPotential)
+            ? 'nessuna criticità attiva' : zr.driverLabel;
         var zrText = zr.level
-            ? ((zr.driverPotential ? 'Basso' : GATE_LEVEL_WORD[Math.min(5, zr.level)]) + ' \u00b7 ' + zr.driverLabel)
+            ? ((zr.driverPotential ? 'Basso' : GATE_LEVEL_WORD[Math.min(5, zr.level)]) + ' \u00b7 ' + zrDriverLabel)
             : 'Nessun rischio rilevante';
         // 1.2.4.94 - il badge e' la superficie corta: se il colore lo decide un temporale
         // aggiunge la classe di organizzazione in forma breve (mai il dettaglio, che sta
@@ -6411,7 +6484,7 @@ function enabledLightningSourceIds() {
         var head = '<div class="rs-head">' +
             '<span class="rs-title">' + 'Provincia di ' + item.prov + '</span>' +
             '<span class="rs-badge" style="background:' + zrColor + '" title="' + escapeHtml(zrText + (riskTempDetail(zr.components[0]) ? ' — ' + riskTempDetail(zr.components[0]) : '')) + '">' + zrText + '</span>' +
-            '<div class="risk-disc-row" style="margin-top:0;">' + risks.map(riskDiscHtml).join('') + '</div>' +
+            '<div class="risk-disc-row" style="margin-top:0;">' + summaryRisks.map(riskDiscHtml).join('') + '</div>' +
             '<button class="rs-close" title="Chiudi">✕</button>' +
             '</div>';
 
@@ -6420,9 +6493,8 @@ function enabledLightningSourceIds() {
         // criticita' attiva, quindi va elencata SOLO con Sviluppo ON come voce tecnica.
         // Si filtra SOLTANTO l'elenco: colore (verde/Basso), soglie e assessConvOrg
         // restano invariati, cosi' come tutte le altre voci del riepilogo.
-        var listedRisks = isSviluppoActive ? risks : risks.filter(function(r) {
-            return !(r.id === 'supercell' && r.potential);
-        });
+        // 1.3.0.11 — ora usa lo stesso filtro unico del resto del riepilogo.
+        var listedRisks = summaryRisks;
         if (!listedRisks.length) {
             list = '<li class="rs-empty">Nessuna criticità rilevante per la zona selezionata.</li>';
             note = '';
@@ -6452,7 +6524,7 @@ function enabledLightningSourceIds() {
             var dayRef = currentHour === 'all'
                 ? (agg && agg.riskWindow ? riskWindowText(agg.riskWindow) + ' (non tutta la giornata)' : 'tutta la giornata selezionata')
                 : 'ore ' + String(currentHour).padStart(2, '0') + ':00';
-            note = '<div class="rs-note"><b>Colore = rischio piu\' alto fra TUTTI i pericoli previsti</b> (livello = massimo dei livelli): ' + escapeHtml(riskDriverLine(agg, risks)) + '. Riferito a ' + escapeHtml(dayRef) + '.</div>';
+            note = '<div class="rs-note"><b>Colore = rischio piu\' alto fra TUTTI i pericoli previsti</b> (livello = massimo dei livelli): ' + escapeHtml(riskDriverLine(agg, summaryRisks)) + '. Riferito a ' + escapeHtml(dayRef) + '.</div>';
         }
 
         el.innerHTML = head + '<ul class="rs-list">' + list + '</ul>' + note;
@@ -22229,7 +22301,11 @@ function productDefs() {
         'sources':       { run: toggleSourcesPanel, off: toggleSourcesPanel, dev: false,
             on: function () { var p = document.getElementById('sources-panel'); return !!(p && p.classList.contains('active')); }, label: 'Fonti e metodologie' },
         'synoptic':      { run: toggleSynoptic, off: toggleSynoptic, dev: false,
-            on: function () { var p = document.getElementById('synoptic-panel'); return !!(p && p.classList.contains('active')); }, label: 'Analisi sinottica' }
+            on: function () { var p = document.getElementById('synoptic-panel'); return !!(p && p.classList.contains('active')); }, label: 'Analisi sinottica' },
+        /* 1.3.0.11 - prodotto SEPARATO, fuori dall Analisi sinottica:
+           legge solo data/climate/teleconnections.json, lazy, zero fetch al boot. */
+        'teleconn':      { run: toggleTeleconn, off: toggleTeleconn, dev: false,
+            on: function () { var p = document.getElementById('teleconn-panel'); return !!(p && p.classList.contains('active')); }, label: 'Teleconnessioni e indici' }
     };
 }
 function isDevProduct(id) { return id === 'newindices'; }
@@ -28946,6 +29022,13 @@ function renderContinuousOverlay() {
         var name = (lv >= 1 && lv <= 4 && BADGE_LEVEL_NAME) ? BADGE_LEVEL_NAME[lv] : (lv === 5 ? (isSviluppoActive ? 'Mesociclone' : 'Convezione organizzata') : '');
         var desc = (lv >= 1 && lv <= 4 && BADGE_LEVEL_DESC) ? BADGE_LEVEL_DESC[lv] : 'Energia e vento in quota da cella organizzata.';
         var t = profile.riskText + (name ? ' ' + '\u2014' + ' livello ' + lv + ' di 5 (' + name + '): ' + desc : '.');
+        // 1.3.0.11 — difesa finale sul title del badge: con Sviluppo OFF la frase
+        // del potenziale non deve mai comparire. Nel percorso normale riskText non
+        // la contiene (il title del badge dentro #risk-summary viene da riskDiscHtml
+        // e da zrText, gia' gati): questa e' solo una rete di sicurezza.
+        if (!isSviluppoActive) {
+            t = t.replace(/Ambiente favorevole a convezione organizzata[^.]*\./g, 'Nessuna criticità attiva.');
+        }
         return t;
     }
     function capeBand(c) {
@@ -32186,30 +32269,93 @@ function renderContinuousOverlay() {
         s += '</g>';
         return s;
     }
+    // Blocco TM90: barra orizzontale sottile (x = intervallo di longitudine bloccata).
+    // L'SVG contiene SOLO geometria + etichetta corta ("blocco N"): nessun testo lungo,
+    // nessun riquadro con lettera. Il dettaglio completo va nel pannello a lato.
+    function synBlockBarSvg(f, idx, project, laneH, pad, W) {
+        var geom = (((f && f.geometry) || [])).map(function (pt) {
+            return [Number(pt && pt[0]), Number(pt && pt[1])];
+        }).filter(function (pt) { return isFinite(pt[0]) && isFinite(pt[1]); });
+        var lons = geom.map(function (pt) { return pt[1]; });
+        var lonMin = lons.length ? Math.min.apply(null, lons) : 0;
+        var lonMax = lons.length ? Math.max.apply(null, lons) : 0;
+        // La proiezione di synProjection non fa dipendere x dalla lat: passiamo 0.
+        var left = project(0, lonMin)[0];
+        var right = project(0, lonMax)[0];
+        var w = Math.max(8, right - left);
+        var cy = pad + laneH * (idx + 0.5); // corsia dedicata: nessuna sovrapposizione fra barre
+        var h = 7;
+        var shortLabel = 'blocco ' + (idx + 1);
+        var s = '<g class="syn-feature syn-block" data-kind="block" data-id="' + synEsc(f.id || '') +
+            '" data-short="' + synEsc(shortLabel) + '" tabindex="0" role="button" aria-label="' + synEsc(shortLabel) + '">';
+        s += '<title>' + synEsc(shortLabel) + '</title>';
+        s += '<rect class="syn-block-bar" x="' + left.toFixed(1) + '" y="' + (cy - h / 2).toFixed(1) +
+            '" width="' + w.toFixed(1) + '" height="' + h + '" rx="1" fill="#a78bfa" stroke="#7c3aed" stroke-width="1"/>';
+        var tx = Math.min(W - 50, Math.max(50, (left + right) / 2)); // etichetta fuori dalla barra, dentro il viewBox
+        s += '<text class="syn-block-label" x="' + tx.toFixed(1) + '" y="' + (cy - h / 2 - 4).toFixed(1) +
+            '" text-anchor="middle">' + synEsc(shortLabel) + '</text>';
+        s += '</g>';
+        return s;
+    }
     function synRenderMap() {
         var wrap = document.getElementById('syn-map-wrap');
         if (!wrap) return;
         var features = (synState.syn && Array.isArray(synState.syn.features)) ? synState.syn.features : [];
-        if (!features.length) { wrap.innerHTML = ''; return; }
+        var blocks = features.filter(function (f) { return f && String(f.kind || '') === 'block'; });
+        var raws = features.filter(function (f) { return f && String(f.kind || '') === 'raw_field'; });
+        // Riga di dichiarazione in cima alla mappa: i raw_field non sono un segnale e non sono disegnati.
+        var countBox = document.getElementById('syn-map-count');
+        if (countBox) {
+            var nb = blocks.length === 1 ? '1 blocco atmosferico' : (blocks.length + ' blocchi atmosferici');
+            countBox.textContent = nb + ' (TM90, soglia citata, non validata su eventi italiani) · ' +
+                raws.length + ' campi grezzi non calibrati — non disegnati';
+        }
+        // elenco testuale dei campi grezzi (fuori dall'SVG)
+        var rawBox = document.getElementById('syn-raw-list');
+        if (rawBox) {
+            if (!raws.length) { rawBox.innerHTML = ''; rawBox.hidden = true; }
+            else {
+                rawBox.hidden = false;
+                var rh = '<div class="syn-raw-head">Campi grezzi non calibrati — non costituiscono un segnale</div><ul class="syn-raw-items">';
+                raws.forEach(function (f) {
+                    rh += '<li class="syn-raw-item"><span class="syn-raw-name">' + synEsc(f.label || f.id || 'n/d') +
+                        '</span> · <span class="syn-raw-reason">null_reason: ' + synEsc(f.null_reason || 'n/d') + '</span></li>';
+                });
+                rawBox.innerHTML = rh + '</ul>';
+            }
+        }
+        var detail = document.getElementById('syn-detail');
+        if (!blocks.length) {
+            wrap.innerHTML = '<div class="syn-msg syn-map-empty">Nessun blocco rilevato in questo run</div>';
+            if (detail) detail.textContent = '';
+            return;
+        }
         var W = 560, H = 380, pad = 30;
-        var project = synProjection(features, W, H, pad);
-        var s = '<svg class="syn-map-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Mappa feature sinottiche">';
+        var project = synProjection(blocks, W, H, pad);
+        var laneH = (H - 2 * pad) / Math.max(1, blocks.length);
+        var s = '<svg class="syn-map-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Mappa dei blocchi atmosferici TM90">';
         s += '<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="#0b1220" stroke="#334155"/>';
-        for (var i = 0; i < features.length; i++) s += synFeatureSvg(features[i], project);
+        for (var i = 0; i < blocks.length; i++) s += synBlockBarSvg(blocks[i], i, project, laneH, pad, W);
         s += '</svg>';
         wrap.innerHTML = s;
-        var nodes = wrap.querySelectorAll('.syn-feature');
+        var nodes = wrap.querySelectorAll('.syn-block');
         for (var k = 0; k < nodes.length; k++) {
             (function (node, idx) {
                 function show() {
-                    var f = features[idx], d = document.getElementById('syn-detail');
-                    if (!d) return;
-                    d.innerHTML = '<b>' + synEsc(f.kind || 'n/d') + '</b> — ' + synEsc(f.label || 'n/d') +
-                        ' · confidenza ' + synEsc(f.confidence === undefined || f.confidence === null ? 'n/d' : f.confidence) +
-                        ' · valid time ' + synEsc(synFmtIso(synState.syn.valid_time)) +
-                        ' · fonte ' + synEsc(synState.syn.source || 'n/d') +
-                        ' · licenza ' + synEsc(synState.syn.license || 'n/d') +
-                        (f.null_reason ? ' · motivo: ' + synEsc(f.null_reason) : '');
+                    var d = document.getElementById('syn-detail');
+                    var f = blocks[idx];
+                    if (!d || !f) return;
+                    var syn = synState.syn || {};
+                    var parts = [];
+                    parts.push('<b>' + synEsc(f.kind || 'n/d') + '</b>');
+                    parts.push(synEsc(f.label || 'n/d'));
+                    parts.push('confidence: ' + synEsc(f.confidence === undefined || f.confidence === null ? 'n/d' : f.confidence));
+                    if (f.reference) parts.push('reference: ' + synEsc(f.reference));
+                    parts.push('valid time: ' + synEsc(synFmtIso(syn.valid_time)));
+                    parts.push('fonte: ' + synEsc(syn.source || 'n/d'));
+                    parts.push('licenza: ' + synEsc(syn.license || 'n/d'));
+                    if (f.null_reason) parts.push('motivo: ' + synEsc(f.null_reason));
+                    d.innerHTML = parts.join(' · ');
                 }
                 node.addEventListener('click', show);
                 node.addEventListener('keydown', function (ev) {
@@ -32310,6 +32456,142 @@ function renderContinuousOverlay() {
         if (panel.classList.contains('active')) { panel.classList.remove('active'); return; }
         panel.classList.add('active');
         synEnsureLoaded().then(function () { synRenderPanel(); });
+    }
+
+    // ===================================================================
+    // 1.3.0.11 - TELECONNESSIONI E INDICI (prodotto separato, fuori mappa).
+    // Legge SOLO TELE_URL, lazy, zero richieste al boot. Condivide la cache
+    // con il pannello sinottico senza fare un secondo GET. Nessun dato
+    // simulato: ogni pannello mostra fonte, licenza, ultimo aggiornamento.
+    // ===================================================================
+    var teleState = { promise: null, data: null, error: '' };
+    function teleEnsureLoaded() {
+        if (teleState.promise) return teleState.promise;
+        teleState.promise = synFetch(TELE_URL).then(function (j) {
+            teleState.data = j;
+            if (synState && !synState.tele) synState.tele = j;
+            return j;
+        }, function (e) {
+            teleState.error = (e && e.message) ? e.message : String(e);
+            teleState.data = null;
+            return null;
+        });
+        return teleState.promise;
+    }
+    function teleSeries(id) {
+        var ss = (teleState.data && Array.isArray(teleState.data.series)) ? teleState.data.series : [];
+        for (var i = 0; i < ss.length; i++) if (ss[i] && ss[i].id === id) return ss[i];
+        return null;
+    }
+    function teleStamp(s) {
+        var d = teleState.data || {};
+        return 'fonte ' + synEsc(s.source || d.source || 'n/d') +
+            ' · licenza ' + synEsc(s.license || d.license || 'n/d') +
+            ' · ultimo aggiornamento ' + synEsc(s.last_modified || 'n/d') +
+            ' · unita ' + synEsc(s.unit || 'n/d');
+    }
+    function teleChart(s) {
+        if (!s) return '<div class="syn-msg">non disponibile — motivo: serie assente dal JSON.</div>';
+        var vals = (s.values || []).filter(function (v) {
+            return Array.isArray(v) && isFinite(Number(v[0])) && isFinite(Number(v[1]));
+        });
+        if (!vals.length) return '<div class="syn-msg">non disponibile — motivo: nessun valore valido nella serie.</div>';
+        var xs = vals.map(function (v) { return Number(v[0]); });
+        var ys = vals.map(function (v) { return Number(v[1]); });
+        var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
+        var minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
+        if (minY === maxY) { minY -= 1; maxY += 1; }
+        var W = 560, H = 150, L = 44, R = 8, T = 8, B = 24;
+        function X(v) { return L + ((v - minX) / ((maxX - minX) || 1)) * (W - L - R); }
+        function Y(v) { return T + ((maxY - v) / (maxY - minY)) * (H - T - B); }
+        var svg = '<svg class="syn-tele-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + synEsc(s.label || s.id || '') + '">';
+        svg += '<rect x="' + L + '" y="' + T + '" width="' + (W - L - R) + '" height="' + (H - T - B) + '" fill="#0b1220" stroke="#334155"/>';
+        if (minY < 0 && maxY > 0) {
+            svg += '<line x1="' + L + '" y1="' + Y(0).toFixed(1) + '" x2="' + (W - R) + '" y2="' + Y(0).toFixed(1) + '" stroke="#64748b" stroke-width="1" stroke-dasharray="4 3"/>';
+        }
+        var poly = vals.map(function (v) { return X(Number(v[0])).toFixed(1) + ',' + Y(Number(v[1])).toFixed(1); }).join(' ');
+        svg += '<polyline points="' + poly + '" fill="none" stroke="#7dd3fc" stroke-width="1.6"/>';
+        svg += '<text x="2" y="' + (T + 9) + '" fill="#94a3b8" font-size="9">' + synEsc(maxY.toFixed(2)) + '</text>';
+        svg += '<text x="2" y="' + (H - B + 9) + '" fill="#94a3b8" font-size="9">' + synEsc(minY.toFixed(2)) + '</text>';
+        svg += '<text x="' + L + '" y="' + (H - 8) + '" fill="#94a3b8" font-size="9">' + synFmtIso(minX).slice(0, 10) + '</text>';
+        svg += '<text x="' + (W - R) + '" y="' + (H - 8) + '" fill="#94a3b8" font-size="9" text-anchor="end">' + synFmtIso(maxX).slice(0, 10) + '</text>';
+        svg += '</svg>';
+        return svg + '<div class="syn-tele-cap">Indice OSSERVATO — non previsione · ' + synEsc(s.label || s.id || '') + ' · ' + teleStamp(s) + '</div>';
+    }
+    function teleTimeline(s) {
+        if (!s) return '<div class="syn-msg">non disponibile — motivo: timeline SSW assente dal JSON.</div>';
+        var ev = (s.events || []).slice().sort(function (a, b) { return a.ts - b.ts; });
+        if (!ev.length) return '<div class="syn-msg">non disponibile — motivo: nessun evento SSW nella timeline.</div>';
+        var min = ev[0].ts, max = ev[ev.length - 1].ts;
+        var W = 560, H = 120, L = 44, R = 8, YY = 62;
+        function X(v) { return L + ((v - min) / ((max - min) || 1)) * (W - L - R); }
+        var svg = '<svg class="syn-tele-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Timeline storica SSW">';
+        svg += '<line x1="' + L + '" y1="' + YY + '" x2="' + (W - R) + '" y2="' + YY + '" stroke="#64748b" stroke-width="1"/>';
+        for (var i = 0; i < ev.length; i++) {
+            var x = X(ev[i].ts).toFixed(1);
+            svg += '<line x1="' + x + '" y1="' + (YY - 12) + '" x2="' + x + '" y2="' + (YY + 12) + '" stroke="#7dd3fc" stroke-width="2"/>';
+        }
+        for (var k = 0; k < 4 && k < ev.length; k++) {
+            var idx = Math.floor(k * (ev.length - 1) / 3);
+            svg += '<text x="' + X(ev[idx].ts).toFixed(1) + '" y="' + (YY + 30) + '" fill="#94a3b8" font-size="9" text-anchor="middle">' + synEsc(String(ev[idx].date || ev[idx].name)) + '</text>';
+        }
+        svg += '</svg>';
+        return svg + '<div class="syn-tele-cap">Timeline storica · ' + ev.length + ' eventi · definizione ' + synEsc(s.definition || 'n/d') + ' · citazione ' + synEsc(s.citation || 'n/d') + ' · ' + teleStamp(s) + '</div>';
+    }
+    function telePanel(head, chart, text) {
+        return '<div class="syn-card"><div class="syn-card-head">' + synEsc(head) + '</div>' +
+            '<div class="syn-tele-block">' + chart + '</div>' +
+            '<p class="syn-stamp">' + text + '</p></div>';
+    }
+    function teleGapHtml(g) {
+        if (!g) return '';
+        return '<div class="syn-card"><div class="syn-card-head">' + synEsc(g.id) + '</div>' +
+            '<div class="syn-msg">non disponibile — motivo: ' + synEsc(g.status) + ' · ' + synEsc(g.reason) + '</div></div>';
+    }
+    function teleRenderPanel() {
+        var grid = document.getElementById('tele-grid');
+        var msg = document.getElementById('tele-msg');
+        var body = document.getElementById('tele-body');
+        var badge = document.getElementById('tele-badge');
+        if (!grid) return;
+        var d = teleState.data;
+        if (!d) {
+            if (msg) { msg.hidden = false; msg.textContent = 'Teleconnessioni non disponibili: ' + (teleState.error || 'JSON assente'); }
+            if (body) body.hidden = true;
+            if (badge) badge.textContent = 'non disponibile';
+            grid.innerHTML = '';
+            return;
+        }
+        if (msg) msg.hidden = true;
+        if (body) body.hidden = false;
+        if (badge) badge.textContent = 'aggiornato ' + synFmtIso(d.generated_at) + ' · ' + (d.series || []).length + ' serie';
+        var html = '';
+        html += telePanel('QBO 30 hPa (m/s)', teleChart(teleSeries('qbo30_monthly')),
+            'QBO negativa (easterly): per statistica è associata a vortice polare più debole, maggiore probabilità di SSW e NAO negativa. Relazione statistica, NON previsione deterministica per l Italia.');
+        html += telePanel('QBO 50 hPa (m/s)', teleChart(teleSeries('qbo50_monthly')),
+            'La fase del QBO a 50 hPa è il riferimento classico per l accoppiamento stratosfera-troposfera. Anche qui: contesto statistico, non deterministico.');
+        html += telePanel('AMO (°C, ERSSTv5)', teleChart(teleSeries('amo_monthly')),
+            'AMO positiva modula il clima dell Atlantico e del Mediterraneo su scale multidecadali. NON è un indicatore stagionale e NON va usata per prevedere singoli eventi sull Italia.');
+        html += telePanel('NAO (indice osservato)', teleChart(teleSeries('nao_monthly')),
+            'NAO negativa: piu blocking nord-atlantico, con Centro-Sud italiano piu freddo e piovoso in media. Media statistica, non certezza per la singola giornata.');
+        html += telePanel('PNA daily (lead=0, member=0)', teleChart(teleSeries('pna_daily')),
+            'PNA è un modo del Pacifico-Nord America: per l Italia è SOLO contesto teleconnettivo, non un predittore diretto.');
+        html += telePanel('SSW — timeline storica', teleTimeline(teleSeries('ssw_events')),
+            'Date centrali degli SSW maggiori dal 1958. Lacuna real-time dichiarata: il catalogo CSL/SSWC è storico e non fornisce eventi in tempo reale.');
+        var gaps = (d.not_implemented || []);
+        for (var gi = 0; gi < gaps.length; gi++) html += teleGapHtml(gaps[gi]);
+        grid.innerHTML = html;
+        var stamp = document.getElementById('tele-stamp');
+        if (stamp) stamp.innerHTML = 'Indici OSSERVATI, non previsioni. Filtro obbligatorio lead=0 e member=0 per le serie GEFS daily. Nessuna attivita solare inclusa (' + synEsc((d.solar_activity && d.solar_activity.implemented) ? 'presente' : 'assente') + ').';
+        var gapsEl = document.getElementById('tele-gaps');
+        if (gapsEl) gapsEl.innerHTML = 'Buchi dichiarati: NAM 10 hPa (RICHIEDE TOKEN) e ITCZ (NON VERIFICATO). Nessun valore inventato per coprirli.';
+    }
+    function toggleTeleconn() {
+        var panel = document.getElementById('teleconn-panel');
+        if (!panel) return;
+        if (panel.classList.contains('active')) { panel.classList.remove('active'); return; }
+        panel.classList.add('active');
+        teleEnsureLoaded().then(function () { teleRenderPanel(); });
     }
     // LAZY all'espansione del riquadro previsioni: qui si popolano le frasi.
     (function () {

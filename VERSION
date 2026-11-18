@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.3.0.11 - FIX RADAR-3D, QBO/AMO/PNA/SSW E GRAFICI TELECONNESSIONI FUORI MAPPA (bump da 1.3.0.10)
+VERSION=1.3.0.11
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=141
+RELEASE_TYPE=release
+DATE=2026-11-18
+NOTE=Release 1.3.0.11 (bump da 1.3.0.10). Fix radar-3d: aggiunta la riga mkdir -p $RUNNER_TEMP/timings nello step separato (12 failure consecutivi dal 18/11 per redirect di tmark su runner fresco, set -e abortiva in meno di 1s prima del guard); push e lease invariati. Riepilogo rischi: con Sviluppo OFF la voce potenziale sparisce da testo e title del badge, non solo dalla lista; colori, soglie e calcolo invariati. Teleconnessioni: QBO 30/50 hPa (NOAA CPC, m/s, solo blocco ORIGINAL DATA), AMO (NOAA NCEI ERSSTv5, gradi C), PNA daily con filtro lead=0 e member=0, timeline SSW storica CSL/SSWC con citazione Butler et al. 2017 doi 10.5194/essd-9-63-2017 e definizione Charlton e Polvani 2007. NESSUNA attivita solare. Nuova voce separata Teleconnessioni e indici nel selettore prodotto, fuori dall Analisi sinottica, con grafici SVG inline e interpretazione per l Italia: QBO negativa, AMO multidecadale, NAO negativa, PNA solo contesto, SSW con lacuna real-time dichiarata. Legge data/climate/teleconnections.json in lazy, zero richieste al boot. NAM 10 hPa RICHIEDE TOKEN e ITCZ NON VERIFICATO dichiarati come non disponibile con motivo. deploy-pages copia ora data/climate in _site: teleconnections.json era 404 su Pages. Test: radar 661 passati, teleconnessioni 14, sinottici 12, stazioni 35 passati e 1 skipped. NON verificato: resa visiva e overflow nel browser interno se disconnesso, run end-to-end GitHub Actions del job radar-3d e del dispatch Pages, validazione scientifica delle nuove serie su eventi italiani.
+APP_FILE=mri-light-1.3.0.11.html
 MeteoRisk Light - 1.3.0.10 - ARCHIVIO PREDIZIONI + BACKFILL 3D (bump da 1.3.0.9)
 VERSION=1.3.0.10
 MAJOR=1

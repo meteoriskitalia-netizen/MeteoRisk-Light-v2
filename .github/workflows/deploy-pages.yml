@@ -106,6 +106,7 @@ jobs:
           cp icons/icon-512.png _site/icons/icon-512.png
           if [ -d data/latest ]; then cp -R data/latest _site/data/latest; fi
           if [ -d data/geography ]; then cp -R data/geography _site/data/geography; fi
+          if [ -d data/climate ]; then cp -R data/climate _site/data/climate; fi
           if [ -d data/stations ]; then cp -R data/stations _site/data/stations; fi
           if git fetch --depth 1 origin "+radar-history:refs/heads/radar-history-base" 2>/dev/null && git restore --source radar-history-base --worktree -- data/radar/history 2>/dev/null; then
             echo "[INFO] Archivio rolling radar-history ripristinato per l'artifact."
