@@ -1,0 +1,964 @@
+{
+  "schema_version": 1,
+  "kind": "synoptic_webp_prototype",
+  "publication_status": "development_only — NON pubblicare",
+  "validation": "fronts NOT validated on Italian events; no POD/FAR/CSI published",
+  "run_reference_time": "2026-11-18T00:00:00Z",
+  "valid_time": "2026-11-22T12:00Z",
+  "domain": "ecmwf_ifs025",
+  "region": "syn",
+  "region_bbox_latlon": [
+    20.0,
+    -70.0,
+    80.0,
+    50.0
+  ],
+  "manifest": "ecmwf_ifs025_latest.json",
+  "frame": "2026-11-22T1200.om",
+  "frame_bytes": 6395072,
+  "source": "open-meteo .om via branch fm2-* (HTTP Range, nessun token)",
+  "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+  "pixel_grid": {
+    "nx": 481,
+    "ny": 241,
+    "scale": 2,
+    "out_w": 962,
+    "out_h": 482,
+    "bbox": {
+      "lat_min": 20.0,
+      "lon_min": -70.0,
+      "lat_max": 80.0,
+      "lon_max": 50.0
+    },
+    "projection": "Web Mercator row resampling (render_fm_webp.build_row_resampler)"
+  },
+  "land": {
+    "source": "Natural Earth 110m land (public domain), naturalearthdata.com",
+    "license": "Natural Earth 110m land — public domain (naturalearthdata.com)",
+    "n_polygons": 24,
+    "n_rings_drawn": 25,
+    "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_land.geojson"
+  },
+  "pressure": {
+    "variable": "pressure_msl",
+    "unit": "hPa",
+    "color_scale": "client color_scales.json (light), alpha 0.42",
+    "isobar_step_hpa": 4.0,
+    "n_isobar_levels": 12
+  },
+  "pressure_centers": [
+    {
+      "kind": "high",
+      "value_hpa": 1019.31,
+      "lat": 68.75,
+      "lon": -18.5,
+      "contour_level_hpa": 1018.31,
+      "closed_isobar_verified": true,
+      "region_span_hpa": 6.41,
+      "n_cells": 7089
+    },
+    {
+      "kind": "high",
+      "value_hpa": 1020.09,
+      "lat": 75.0,
+      "lon": -32.25,
+      "contour_level_hpa": 1019.09,
+      "closed_isobar_verified": true,
+      "region_span_hpa": 1.0,
+      "n_cells": 936
+    },
+    {
+      "kind": "high",
+      "value_hpa": 1024.72,
+      "lat": 59.0,
+      "lon": -2.5,
+      "contour_level_hpa": 1023.72,
+      "closed_isobar_verified": true,
+      "region_span_hpa": 1.0,
+      "n_cells": 879
+    },
+    {
+      "kind": "high",
+      "value_hpa": 1030.17,
+      "lat": 32.25,
+      "lon": -54.5,
+      "contour_level_hpa": 1029.17,
+      "closed_isobar_verified": true,
+      "region_span_hpa": 1.0,
+      "n_cells": 546
+    },
+    {
+      "kind": "high",
+      "value_hpa": 1027.76,
+      "lat": 31.25,
+      "lon": -10.5,
+      "contour_level_hpa": 1026.76,
+      "closed_isobar_verified": true,
+      "region_span_hpa": 1.0,
+      "n_cells": 555
+    },
+    {
+      "kind": "low",
+      "value_hpa": 1002.2,
+      "lat": 51.25,
+      "lon": -56.25,
+      "contour_level_hpa": 1003.2,
+      "closed_isobar_verified": true,
+      "region_span_hpa": 1.0,
+      "n_cells": 354
+    },
+    {
+      "kind": "low",
+      "value_hpa": 981.46,
+      "lat": 50.0,
+      "lon": -33.25,
+      "contour_level_hpa": 982.46,
+      "closed_isobar_verified": true,
+      "region_span_hpa": 1.0,
+      "n_cells": 114
+    },
+    {
+      "kind": "low",
+      "value_hpa": 992.46,
+      "lat": 47.25,
+      "lon": 26.75,
+      "contour_level_hpa": 993.46,
+      "closed_isobar_verified": true,
+      "region_span_hpa": 1.0,
+      "n_cells": 105
+    },
+    {
+      "kind": "low",
+      "value_hpa": 1000.98,
+      "lat": 42.75,
+      "lon": -63.5,
+      "contour_level_hpa": 1001.98,
+      "closed_isobar_verified": true,
+      "region_span_hpa": 1.0,
+      "n_cells": 103
+    },
+    {
+      "kind": "high",
+      "value_hpa": 1018.58,
+      "lat": 63.0,
+      "lon": -34.0,
+      "contour_level_hpa": 1017.58,
+      "closed_isobar_verified": true,
+      "region_span_hpa": 0.99,
+      "n_cells": 102
+    }
+  ],
+  "blocks": {
+    "drawn": false,
+    "null_reason": "block_geometry_not_verifiable_from_single_valid_time",
+    "detail": "Un blocco atmosferico richiede persistenza >=5 giorni e firma a 500 hPa (split-flow); un anticiclone chiuso ad un singolo valid time NON e' un blocco. Il precedente layer TM90 e' stato rimosso perche' i bounding box erano segmenti piatti (geometria non verificabile). Qui si disegnano solo BLOB di alta/bassa pressione con contorno chiuso verificato; nessun blob di blocco.",
+    "provenance": {
+      "source": "n/a",
+      "license": "n/a"
+    }
+  },
+  "fronts": {
+    "engine": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+    "reference_front_id": "Sansom & Catto (2022), Geosci. Model Dev., front_id (MIT): https://github.com/phil-sansom/front_id",
+    "calibration_status": "calibrated",
+    "publication_status": "development_only",
+    "publication_reason": "soglie MISURATE e percentile-stabili su 14 frame reali per dominio, ma lo score per evento NON e' informativo: ecmwf CSI piatto 0.5 per fattori <=1 (rilevatore saturato); dwd_icon_eu CSI massimo 0.143 con 0 hit alle soglie finali. I positivi sono definiti da un proxy di pioggia forte nel box Europa, non da etichette indipendenti. Servono eventi negativi credibili e verita' indipendente: NON pubblicare.",
+    "detected": 30,
+    "diagnostics": {
+      "missing_fields": [],
+      "S_km": 100.0,
+      "status": "calibrated",
+      "n_contours": 302,
+      "n_fronts": 30
+    },
+    "collection_null_reason": null,
+    "features": [
+      {
+        "front_type": "cold",
+        "speed_ms": -16.3076,
+        "null_reason": null,
+        "length_km": 1982.442,
+        "n_points": 65,
+        "tfp": -1.9996996686647885e-10,
+        "strength": 7.373230479115303e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "blue",
+          "symbol": "triangles",
+          "side": "toward_motion",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "warm",
+        "speed_ms": 2.0034,
+        "null_reason": null,
+        "length_km": 895.838,
+        "n_points": 16,
+        "tfp": -2.3051220875607316e-10,
+        "strength": 3.8287506301045395e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "red",
+          "symbol": "semicircles",
+          "side": "toward_motion",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "cold",
+        "speed_ms": -1.9213,
+        "null_reason": null,
+        "length_km": 410.576,
+        "n_points": 19,
+        "tfp": -1.6411124321368292e-10,
+        "strength": 3.922039340736489e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "blue",
+          "symbol": "triangles",
+          "side": "toward_motion",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "cold",
+        "speed_ms": -1.8089,
+        "null_reason": null,
+        "length_km": 915.703,
+        "n_points": 14,
+        "tfp": -1.6086760409782483e-10,
+        "strength": 4.7404692137684265e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "blue",
+          "symbol": "triangles",
+          "side": "toward_motion",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "cold",
+        "speed_ms": -5.9625,
+        "null_reason": null,
+        "length_km": 3362.46,
+        "n_points": 69,
+        "tfp": -1.7152267901856575e-10,
+        "strength": 6.194886035480354e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "blue",
+          "symbol": "triangles",
+          "side": "toward_motion",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "cold",
+        "speed_ms": -9.5185,
+        "null_reason": null,
+        "length_km": 4727.183,
+        "n_points": 118,
+        "tfp": -2.2983951881886894e-10,
+        "strength": 5.5361872073298084e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "blue",
+          "symbol": "triangles",
+          "side": "toward_motion",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "warm",
+        "speed_ms": 2.1921,
+        "null_reason": null,
+        "length_km": 275.82,
+        "n_points": 16,
+        "tfp": -2.42139750429112e-10,
+        "strength": 6.656856301328427e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "red",
+          "symbol": "semicircles",
+          "side": "toward_motion",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "cold",
+        "speed_ms": -3.2943,
+        "null_reason": null,
+        "length_km": 19307.265,
+        "n_points": 165,
+        "tfp": -1.758586727127682e-10,
+        "strength": 5.5538540166096805e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "blue",
+          "symbol": "triangles",
+          "side": "toward_motion",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "stationary",
+        "speed_ms": 0.1319,
+        "null_reason": null,
+        "length_km": 125.931,
+        "n_points": 7,
+        "tfp": -1.6384916916296643e-10,
+        "strength": 4.166707197776473e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "mixed",
+          "symbol": "triangles_semicircles_opposite",
+          "side": "opposite",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": null,
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "warm",
+        "speed_ms": 2.4787,
+        "null_reason": null,
+        "length_km": 1687.256,
+        "n_points": 48,
+        "tfp": -1.7225286060715788e-10,
+        "strength": 5.545528733674733e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "red",
+          "symbol": "semicircles",
+          "side": "toward_motion",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "cold",
+        "speed_ms": -9.2718,
+        "null_reason": null,
+        "length_km": 2585.388,
+        "n_points": 11,
+        "tfp": -1.894925809786465e-10,
+        "strength": 4.6166173026238646e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "blue",
+          "symbol": "triangles",
+          "side": "toward_motion",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "cold",
+        "speed_ms": -2.2785,
+        "null_reason": null,
+        "length_km": 817.617,
+        "n_points": 44,
+        "tfp": -3.279259760785587e-10,
+        "strength": 4.842277377685664e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "blue",
+          "symbol": "triangles",
+          "side": "toward_motion",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "stationary",
+        "speed_ms": -1.2881,
+        "null_reason": null,
+        "length_km": 3837.304,
+        "n_points": 79,
+        "tfp": -2.604445750322028e-10,
+        "strength": 5.5873470287052375e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "mixed",
+          "symbol": "triangles_semicircles_opposite",
+          "side": "opposite",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "cold",
+        "speed_ms": -9.4008,
+        "null_reason": null,
+        "length_km": 498.539,
+        "n_points": 28,
+        "tfp": -2.1350254175860075e-10,
+        "strength": 4.845798566854346e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "blue",
+          "symbol": "triangles",
+          "side": "toward_motion",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "stationary",
+        "speed_ms": -0.3534,
+        "null_reason": null,
+        "length_km": 21454.266,
+        "n_points": 284,
+        "tfp": -1.8548135614780551e-10,
+        "strength": 4.2405407306641544e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "mixed",
+          "symbol": "triangles_semicircles_opposite",
+          "side": "opposite",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "stationary",
+        "speed_ms": 0.3829,
+        "null_reason": null,
+        "length_km": 9371.966,
+        "n_points": 122,
+        "tfp": -2.3306896768152727e-10,
+        "strength": 3.754157692133273e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "mixed",
+          "symbol": "triangles_semicircles_opposite",
+          "side": "opposite",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "cold",
+        "speed_ms": -4.6863,
+        "null_reason": null,
+        "length_km": 547.343,
+        "n_points": 19,
+        "tfp": -1.8788479779540217e-10,
+        "strength": 4.167140786179925e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "blue",
+          "symbol": "triangles",
+          "side": "toward_motion",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "stationary",
+        "speed_ms": -0.1865,
+        "null_reason": null,
+        "length_km": 131.688,
+        "n_points": 2,
+        "tfp": -1.3969550997058515e-10,
+        "strength": 5.6558168870875775e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "mixed",
+          "symbol": "triangles_semicircles_opposite",
+          "side": "opposite",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "stationary",
+        "speed_ms": 0.7063,
+        "null_reason": null,
+        "length_km": 261.991,
+        "n_points": 14,
+        "tfp": -1.7651924652898882e-10,
+        "strength": 4.440885664422333e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "mixed",
+          "symbol": "triangles_semicircles_opposite",
+          "side": "opposite",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "stationary",
+        "speed_ms": -0.4324,
+        "null_reason": null,
+        "length_km": 889.719,
+        "n_points": 26,
+        "tfp": -1.5998924499336005e-10,
+        "strength": 4.2622604230734945e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "mixed",
+          "symbol": "triangles_semicircles_opposite",
+          "side": "opposite",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "stationary",
+        "speed_ms": 1.1532,
+        "null_reason": null,
+        "length_km": 422.196,
+        "n_points": 46,
+        "tfp": -5.109762950373734e-10,
+        "strength": 4.0825770536224035e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "mixed",
+          "symbol": "triangles_semicircles_opposite",
+          "side": "opposite",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "warm",
+        "speed_ms": 3.4624,
+        "null_reason": null,
+        "length_km": 521.757,
+        "n_points": 27,
+        "tfp": -1.6842739635825924e-10,
+        "strength": 4.9376889264825605e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "red",
+          "symbol": "semicircles",
+          "side": "toward_motion",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "stationary",
+        "speed_ms": 1.1871,
+        "null_reason": null,
+        "length_km": 5400.714,
+        "n_points": 50,
+        "tfp": -1.727972668776433e-10,
+        "strength": 6.119335181422136e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "mixed",
+          "symbol": "triangles_semicircles_opposite",
+          "side": "opposite",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "cold",
+        "speed_ms": -7.1447,
+        "null_reason": null,
+        "length_km": 225.491,
+        "n_points": 22,
+        "tfp": -5.769440325017867e-10,
+        "strength": 4.207987096793257e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "blue",
+          "symbol": "triangles",
+          "side": "toward_motion",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "cold",
+        "speed_ms": -6.0837,
+        "null_reason": null,
+        "length_km": 560.667,
+        "n_points": 23,
+        "tfp": -1.5621889815055913e-10,
+        "strength": 5.022846213202282e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "blue",
+          "symbol": "triangles",
+          "side": "toward_motion",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "cold",
+        "speed_ms": -4.7025,
+        "null_reason": null,
+        "length_km": 4009.859,
+        "n_points": 120,
+        "tfp": -2.3184656066733482e-10,
+        "strength": 7.366979699433807e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "blue",
+          "symbol": "triangles",
+          "side": "toward_motion",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "stationary",
+        "speed_ms": -0.6475,
+        "null_reason": null,
+        "length_km": 101.089,
+        "n_points": 9,
+        "tfp": -1.949460607975161e-10,
+        "strength": 3.944242413495556e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "mixed",
+          "symbol": "triangles_semicircles_opposite",
+          "side": "opposite",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "warm",
+        "speed_ms": 2.338,
+        "null_reason": null,
+        "length_km": 105.034,
+        "n_points": 5,
+        "tfp": -1.4176126104280927e-10,
+        "strength": 3.4845737560650395e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "red",
+          "symbol": "semicircles",
+          "side": "toward_motion",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "stationary",
+        "speed_ms": 0.9522,
+        "null_reason": null,
+        "length_km": 1414.167,
+        "n_points": 44,
+        "tfp": -2.549023829473941e-10,
+        "strength": 4.043372994628628e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "mixed",
+          "symbol": "triangles_semicircles_opposite",
+          "side": "opposite",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      },
+      {
+        "front_type": "stationary",
+        "speed_ms": -0.8476,
+        "null_reason": null,
+        "length_km": 224.816,
+        "n_points": 12,
+        "tfp": -2.0972113027535286e-10,
+        "strength": 3.918752927486614e-05,
+        "confidence": "calibrated",
+        "symbology": {
+          "line": "solid",
+          "color": "mixed",
+          "symbol": "triangles_semicircles_opposite",
+          "side": "opposite",
+          "placement": "every_segment"
+        },
+        "symbol_side_convention": "+grad(theta_e) per speed>=0, -grad(theta_e) per speed<0; convenzione di disegno ereditata da fronts.py, NON validata contro lo spostamento osservato",
+        "provenance": {
+          "valid_time": "2026-11-22T12:00Z",
+          "run": "2026-11-18T00:00:00Z",
+          "source": "open-meteo .om via branch fm2-* (HTTP Range)",
+          "license": "Open-Meteo .om — CC BY 4.0 (attribuzione richiesta)",
+          "method": "Hewson, I. (1998), Weather and Forecasting 13:55-70, doi:10.1175/1520-0434(1998)013<0055:AOMFIT>2.0.CO;2",
+          "frame": "2026-11-22T1200.om"
+        }
+      }
+    ],
+    "note": "Nessun fronte inventato: se fronts.py non emette feature, il WebP mostra solo pressione/terra e il campo 'fronts.detected' e' 0."
+  },
+  "cost": {
+    "render_seconds": 2.928,
+    "webp_bytes": 91124,
+    "webp_sha256": "02fe5e945d231bd919362c1a8acec17472ba8a5d7a68da9ab5ee174678ebe7a1"
+  }
+}

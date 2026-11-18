@@ -1974,6 +1974,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <option value="sources">Fonti e metodologie</option>
             <option value="synoptic">Analisi sinottica</option>
             <option value="teleconn">Teleconnessioni e indici</option>
+            <option value="synwebp">Analisi sinottica WebP (sperimentale)</option>
         </select>
         <!-- FIX 1.3.0.7 - #btn-high-risk subito dopo il selettore prodotto (non in fondo).
              Il wrapper e' comandato da syncContextualToggles(); handler storico invariato. -->
@@ -2643,6 +2644,22 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <div class="syn-msg" id="tele-msg" role="status" hidden></div>
     </div>
 
+    <!-- ===================================================================
+         1.3.0.18 - VISTA DEDICATA dei 6 WebP sinottici SPERIMENTALI.
+         Legge l'indice dal branch cache fm2-syn-webp (fallback su Pages).
+         Dichiarazione di onesta' SEMPRE visibile sopra le immagini.
+         =================================================================== -->
+    <div id="synwebp-panel" class="syn-panel" aria-label="Analisi sinottica WebP sperimentale">
+        <div class="syn-head">
+            <span class="syn-title">Analisi sinottica — WebP sperimentale</span>
+            <span class="syn-badge" id="swb-badge">in caricamento…</span>
+        </div>
+        <p id="swb-warning" style="display:block;color:#b91c1c;font-weight:700;border:1px solid #b91c1c;padding:6px 8px;margin:6px 0;">SPERIMENTALE — non validato, nessuna accuratezza misurata</p>
+        <div id="synwebp-grid" class="syn-grid"></div>
+        <p class="syn-stamp" id="swb-stamp"></p>
+        <div class="syn-msg" id="swb-msg" role="status" hidden></div>
+    </div>
+
     <!-- Pannello Fonti & Metodologie — fonti dati + metodologie dalla letteratura + disclaimer -->
     <div id="sources-panel" class="forecast-legend-panel sources-panel">
         <div class="fl-title" onclick="toggleSourcesPanelCollapse()">
@@ -3051,9 +3068,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.17';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-11-18';
+    const APP_VERSION = '1.3.0.18';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-11-19';
     const APP_CHANGELOG = [
+    { version: '1.3.0.18', date: '2026-11-19', changes: [
+        'Vista dedicata dei 6 WebP sinottici da frame .om ECMWF reali (run 2026-11-18T00Z, lead +0/+27/+72/+108/+144/+192h) su branch cache orphan fm2-syn-webp. Didascalia con run, valid time, lead, fonte Open-Meteo .om / CC BY 4.0 e riga evidente SPERIMENTALE — non validato, nessuna accuratezza misurata. Nessun blocco TM90 disegnato.',
+        'Teleconnessioni: AO CDAS a 1000 mb come serie OSSERVATA (grafico SVG inline, etichetta Indice OSSERVATO — non previsione), fonte NOAA CPC, licenza public domain con attribuzione, baseline 1979-2000, ultimo aggiornamento. NON chiamato NAM. Profilo 17 livelli dichiarato fino al 17/03/2026 — rianalisi, non corrente, con null_reason.',
+        'NON verificato: resa visiva nel browser interno (Edge non usato), esecuzione GitHub Actions dei due nuovi job, accuratezza dei fronti (nessun POD/FAR/CSI, servono circa 97 eventi con verita indipendente).',
+    ]},
     { version: '1.3.0.16', date: '2026-11-18', changes: [
         'Rimossi i blocchi TM90 dalla mappa (geometria non visualizzabile); Analisi sinottica e teleconnessioni invariate.',
     ]},
@@ -22408,7 +22430,10 @@ function productDefs() {
         /* 1.3.0.11 - prodotto SEPARATO, fuori dall Analisi sinottica:
            legge solo data/climate/teleconnections.json, lazy, zero fetch al boot. */
         'teleconn':      { run: toggleTeleconn, off: toggleTeleconn, dev: false,
-            on: function () { var p = document.getElementById('teleconn-panel'); return !!(p && p.classList.contains('active')); }, label: 'Teleconnessioni e indici' }
+            on: function () { var p = document.getElementById('teleconn-panel'); return !!(p && p.classList.contains('active')); }, label: 'Teleconnessioni e indici' },
+        /* 1.3.0.18 — vista dedicata dei WebP sinottici, SPERIMENTALE dichiarato. */
+        'synwebp':       { run: toggleSynWebp, off: toggleSynWebp, dev: false,
+            on: function () { var p = document.getElementById('synwebp-panel'); return !!(p && p.classList.contains('active')); }, label: 'Analisi sinottica WebP (sperimentale)' }
     };
 }
 function isDevProduct(id) { return id === 'newindices'; }
@@ -22453,6 +22478,7 @@ function syncTeleconnMapCard() {
 function syncProductUI() {
     syncContextualToggles();
     syncTeleconnMapCard();
+    if (typeof syncSynWebpMapCard === 'function') syncSynWebpMapCard();
     if (typeof syncMetricSelectEnabled === 'function') syncMetricSelectEnabled();
 }
 function productOff(id) {
@@ -32796,6 +32822,8 @@ function renderContinuousOverlay() {
             '</div><div class="syn-tele-block">' + ch + '</div>' +
             '<p class="syn-stamp">' + synEsc(teleLongText(s)) + '</p></div>';
         html += teleContextImages();   // 2 immagini NOAA CPC (non SVG)
+        // 1.3.0.18 — AO CDAS OSSERVATO (non previsione, non NAM) dentro Teleconnessioni
+        html += (typeof aoCardHtml === 'function') ? aoCardHtml() : '';
         grid.innerHTML = html;
         var stamp = document.getElementById('tele-stamp');
         if (stamp) stamp.innerHTML = 'Indice OSSERVATO, non previsione · un solo grafico alla volta. Filtro obbligatorio lead=0 e member=0 per le serie GEFS daily. Nessuna attivita solare inclusa (' + synEsc((d.solar_activity && d.solar_activity.implemented) ? 'presente' : 'assente') + ').';
@@ -32807,6 +32835,8 @@ function renderContinuousOverlay() {
         panel.classList.add('active');
         teleResetView();   // ogni apertura ripristina la finestra consigliata per famiglia
         teleEnsureLoaded().then(function () { teleRenderPanel(); });
+        // 1.3.0.18 — AO osservato: secondo fetch LAZY, solo all apertura.
+        if (typeof aoEnsureLoaded === 'function') aoEnsureLoaded().then(function () { teleRenderPanel(); });
     }
     // LAZY all'espansione del riquadro previsioni: qui si popolano le frasi.
     (function () {
@@ -32816,6 +32846,124 @@ function renderContinuousOverlay() {
             if (fd.open) synEnsureLoaded().then(function () { synRenderPanel(); });
         });
     })();
+
+    // ===================================================================
+    // 1.3.0.18 — DUE NUOVI PRODOTTI:
+    //   (A) WebP sinottici SPERIMENTALI (branch cache fm2-syn-webp);
+    //   (B) AO CDAS OSSERVATO dentro Teleconnessioni (data/climate/ao_cdas.json).
+    // Nessun dato simulato, nessun nome NAM, nessuna accuratezza dichiarata.
+    // ===================================================================
+
+    // ---------- (A) WebP sinottici sperimentali ----------
+    var SWB_BASE = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/refs/heads/fm2-syn-webp/data/syn_webp/';
+    var SWB_FALLBACK = 'data/syn_webp/index.json';
+    var swbState = { promise: null, data: null, error: '' };
+    function swbLoadIndex() {
+        if (swbState.promise) return swbState.promise;
+        swbState.promise = synFetch(SWB_BASE + 'index.json').then(function (j) {
+            swbState.data = j; swbState.error = '';
+        }, function () {
+            return synFetch(SWB_FALLBACK).then(function (j) {
+                swbState.data = j; swbState.error = '';
+            }, function (e) {
+                swbState.error = (e && e.message) ? e.message : String(e);
+                swbState.data = null;
+            });
+        });
+        return swbState.promise;
+    }
+    function swbImgUrl(f) {
+        if (f && f.file && /^https?:\/\//.test(f.file)) return f.file;
+        var name = f && f.file ? String(f.file).split('/').pop() : '';
+        return SWB_BASE + name;
+    }
+    function swbRender() {
+        var grid = document.getElementById('synwebp-grid');
+        var msg = document.getElementById('swb-msg');
+        var badge = document.getElementById('swb-badge');
+        var stamp = document.getElementById('swb-stamp');
+        if (!grid) return;
+        var d = swbState.data;
+        if (!d || !d.frames || !d.frames.length) {
+            if (msg) { msg.hidden = false; msg.textContent = 'WebP sinottici non disponibili: ' + (swbState.error || 'indice assente'); }
+            if (badge) badge.textContent = 'non disponibile';
+            grid.innerHTML = '';
+            return;
+        }
+        if (msg) msg.hidden = true;
+        if (badge) badge.textContent = 'run ' + synFmtIso(d.run_reference_time) + ' · ' + d.frames.length + ' valid time · SPERIMENTALE';
+        if (stamp) stamp.textContent = 'Fonte: ' + synEsc(d.source) + ' · licenza: ' + synEsc(d.license) + ' · ' + synEsc(d.experimental_warning) + ' · ' + synEsc(d.validation || '');
+        var h = '';
+        d.frames.forEach(function (f) {
+            h += '<figure class="syn-card" style="margin:0;">' +
+                 '<img class="syn-ctx-img" src="' + synEsc(swbImgUrl(f)) + '" alt="WebP sinottico ' + synEsc(f.valid_time) + ' lead +' + f.lead_hours + 'h" style="width:100%;height:auto;">' +
+                 '<figcaption class="syn-stamp">' + synEsc(f.caption || '') + ' · <b>' + synEsc(f.experimental_warning || d.experimental_warning) + '</b>' +
+                 ' · fronti rilevati: ' + Number(f.fronts || 0) + ' · centri pressione: ' + Number(f.pressure_centers || 0) +
+                 ' · blocchi disegnati: ' + (f.blocks_drawn ? 'si' : 'no') + '</figcaption></figure>';
+        });
+        grid.innerHTML = h;
+    }
+    function toggleSynWebp() {
+        var panel = document.getElementById('synwebp-panel');
+        if (!panel) return;
+        if (panel.classList.contains('active')) { panel.classList.remove('active'); return; }
+        panel.classList.add('active');
+        swbLoadIndex().then(function () { swbRender(); });
+    }
+    function syncSynWebpMapCard() {
+        var on = (typeof activeProductId !== 'undefined' && activeProductId === 'synwebp');
+        var mapCard = document.querySelector('.map-card');
+        if (mapCard) mapCard.style.display = on ? 'none' : '';
+        var panel = document.getElementById('synwebp-panel');
+        if (panel && !on && panel.classList.contains('active')) panel.classList.remove('active');
+    }
+
+    // ---------- (B) AO CDAS osservato, dentro Teleconnessioni ----------
+    var aoState = { promise: null, data: null, error: '' };
+    function aoEnsureLoaded() {
+        if (aoState.promise) return aoState.promise;
+        aoState.promise = synFetch('data/climate/ao_cdas.json').then(function (j) {
+            aoState.data = j; aoState.error = '';
+        }, function (e) {
+            aoState.error = (e && e.message) ? e.message : String(e);
+            aoState.data = null;
+        });
+        return aoState.promise;
+    }
+    function aoCardHtml() {
+        var head = '<div class="syn-card"><div class="syn-card-head">AO CDAS — Indice OSSERVATO — non previsione</div>';
+        if (!aoState.data) {
+            return head + '<div class="syn-tele-block"><p class="syn-msg">AO non disponibile: ' + synEsc(aoState.error || 'dato assente') + '</p></div></div>';
+        }
+        var d = aoState.data;
+        var meta = '<p class="syn-stamp">Fonte: NOAA CPC · licenza: NOAA public domain con attribuzione · baseline ' + synEsc(d.baseline) + ' · ultimo aggiornamento ' + synFmtIso(d.generated_at) + ' · ultima osservazione ' + synEsc(d.last_observation_date || 'n/d') + '</p>';
+        if (d.status !== 'ok' || !d.series || d.series.length < 2) {
+            return head + '<div class="syn-tele-block"><p class="syn-msg">AO non disponibile: ' + synEsc(d.null_reason || d.status || 'dato assente') + '</p></div>' + meta + '</div>';
+        }
+        var vals = d.series.slice(-120);
+        var xs = vals.map(function (v) { return Number(v[0]); });
+        var ys = vals.map(function (v) { return Number(v[1]); });
+        var lo = Math.min.apply(null, ys), hi = Math.max.apply(null, ys);
+        if (hi - lo < 0.01) { hi = lo + 0.5; lo = lo - 0.5; }
+        var W = 640, H = 150, PL = 6, PR = 6, PT = 8, PB = 14;
+        var t0 = xs[0], t1 = xs[xs.length - 1], span = (t1 - t0) || 1;
+        var pts = vals.map(function (v) {
+            var x = PL + (Number(v[0]) - t0) / span * (W - PL - PR);
+            var y = PT + (hi - Number(v[1])) / (hi - lo) * (H - PT - PB);
+            return x.toFixed(1) + ',' + y.toFixed(1);
+        }).join(' ');
+        var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="150" role="img" aria-label="Serie AO osservata">' +
+            '<line x1="' + PL + '" y1="' + (H - PB) + '" x2="' + (W - PR) + '" y2="' + (H - PB) + '" stroke="#64748b" stroke-width="1"/>' +
+            '<polyline points="' + pts + '" fill="none" stroke="#0284c7" stroke-width="2"/>' +
+            '<text x="' + PL + '" y="10" fill="#94a3b8" font-size="10">max ' + hi.toFixed(2) + '</text>' +
+            '<text x="' + PL + '" y="' + (H - 3) + '" fill="#94a3b8" font-size="10">min ' + lo.toFixed(2) + '</text>' +
+            '</svg>';
+        var last = vals[vals.length - 1][1];
+        var note = '<p class="syn-stamp">Indice OSSERVATO — non previsione · ' + vals.length + ' giorni · ultimo valore ' + Number(last).toFixed(4) + ' · NON e il NAM (serve EOF emisferica).</p>';
+        var prof = d.profile_10hpa || {};
+        var pnote = '<p class="syn-stamp">Profilo 10 hPa: ' + synEsc(prof.status || 'non disponibile') + ' — ' + synEsc(prof.null_reason || 'non corrente') + ' · ' + synEsc(prof.label || '') + '</p>';
+        return head + '<div class="syn-tele-block">' + svg + '</div>' + note + pnote + meta + '</div>';
+    }
 
     function updateUI() {
         updateMapColors();

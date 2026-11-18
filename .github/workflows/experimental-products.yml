@@ -1,0 +1,209 @@
+# 1.3.0.18 — DUE PRODOTTI SPERIMENTALI / OSSERVATI, workflow DEDICATO.
+# NON tocca radar-engine.yml ne' synoptic.yml. Nessun token personale:
+# solo GITHUB_TOKEN implicito. Nessun dato simulato.
+#
+#   syn-webp  -> branch cache ORPHAN `fm2-syn-webp` (7 file, dimensione costante)
+#   ao-cdas   -> data/climate/ao_cdas.json su main (serie OSSERVATA NOAA CPC)
+
+name: Experimental products (syn WebP + AO CDAS)
+
+on:
+  schedule:
+    # 14:30 UTC: il CSV AO CPC si aggiorna ~13:55 UTC.
+    - cron: '30 14 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  # -------------------------------------------------------------------------
+  # 1) WebP sinottici SPERIMENTALI su branch cache orphan a dimensione costante.
+  # Logica RIPRESA da radar-engine.yml (job radar-3d):
+  #   GIT_INDEX_FILE dedicato + read-tree --empty -> commit-tree SENZA parent
+  #   -> push con --force-with-lease (MAI --force nudo), 3 tentativi.
+  #   OLD_TREE == NEW_TREE -> exit 0 (nessun commit).
+  # -------------------------------------------------------------------------
+  syn-webp:
+    name: WebP sinottici (branch orphan fm2-syn-webp)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: fm2-syn-webp
+      cancel-in-progress: false
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Legge SHA corrente del branch fm2-syn-webp
+        run: |
+          git fetch --depth 1 origin "+fm2-syn-webp:refs/heads/fm2-syn-webp-base" 2>/dev/null || true
+
+      - name: Valida i 6 WebP reali e costruisce index.json
+        id: validate
+        run: |
+          set -euo pipefail
+          python -m scripts.synoptic.build_syn_webp \
+            --source data/syn_webp --out-dir "$RUNNER_TEMP/syn_webp_publish"
+          test -f "$RUNNER_TEMP/syn_webp_publish/index.json"
+          n=$(find "$RUNNER_TEMP/syn_webp_publish" -maxdepth 1 -name '*.webp' | wc -l)
+          echo "webp_count=$n" >> "$GITHUB_OUTPUT"
+          if [ "$n" -ne 6 ]; then
+            echo "FATAL: attesi 6 WebP, trovati $n" >&2
+            exit 1
+          fi
+
+      - name: Pubblica su fm2-syn-webp (orphan, allowlist, force-with-lease)
+        if: success()
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          # L'allowlist e' ESPLICITA: solo i 6 WebP + index.json. Nessun altro
+          # file del checkout puo' entrare nel tree del branch cache.
+          rm -f data/syn_webp/*
+          cp "$RUNNER_TEMP/syn_webp_publish"/* data/syn_webp/
+          export GIT_INDEX_FILE="$RUNNER_TEMP/fm2-syn-webp.index"
+          git read-tree --empty
+          git add -f data/syn_webp/*.webp data/syn_webp/index.json
+          staged=$(git diff --cached --name-only | wc -l)
+          if [ "$staged" -ne 7 ]; then
+            echo "FATAL: allowlist violata, $staged file staged (attesi 7)" >&2
+            exit 1
+          fi
+          NEW_TREE=$(git write-tree)
+          unset GIT_INDEX_FILE
+          OLD_TREE=""
+          if git rev-parse -q --verify fm2-syn-webp-base >/dev/null; then
+            OLD_TREE=$(git rev-parse fm2-syn-webp-base^{tree})
+          fi
+          if [ "$OLD_TREE" = "$NEW_TREE" ]; then
+            echo "[INFO] Tree invariato (OLD_TREE == NEW_TREE): nessun commit."
+            exit 0
+          fi
+          COMMIT=$(git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit-tree "$NEW_TREE" -m "[skip ci] syn: WebP sinottici SPERIMENTALI (branch orphan, 7 file)")
+          read_remote_sha() {
+            git ls-remote origin refs/heads/fm2-syn-webp 2>/dev/null | awk 'NR==1 {print $1}'
+          }
+          for attempt in 1 2 3; do
+            PARENT="$(read_remote_sha || true)"
+            if [ -z "$PARENT" ]; then
+              LEASE="--force-with-lease=refs/heads/fm2-syn-webp:"
+              EXPECT="<ref assente>"
+            else
+              LEASE="--force-with-lease=refs/heads/fm2-syn-webp:$PARENT"
+              EXPECT="$PARENT"
+            fi
+            echo "[INFO] push fm2-syn-webp tentativo $attempt/3 (lease su $EXPECT)"
+            if git push "$LEASE" origin "$COMMIT:refs/heads/fm2-syn-webp"; then
+              echo "[INFO] fm2-syn-webp aggiornata (commit ${COMMIT:0:7}, 7 file)."
+              exit 0
+            fi
+            echo "[WARN] push rifiutato: ref remoto cambiato o rete; rileggo e riprovo."
+            sleep $((attempt * 5))
+          done
+          echo "[ERRORE] push fm2-syn-webp fallito dopo 3 tentativi."
+          exit 1
+
+  # -------------------------------------------------------------------------
+  # 2) AO CDAS osservato (NOAA CPC) -> data/climate/ao_cdas.json su main.
+  # -------------------------------------------------------------------------
+  ao-cdas:
+    name: AO CDAS osservato (data/climate/ao_cdas.json)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: ao-cdas-json
+      cancel-in-progress: false
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Scarica CSV NOAA CPC (con cache) e scrive ao_cdas.json
+        run: |
+          set -euo pipefail
+          mkdir -p data/climate
+          python -m scripts.climate.build_ao_cdas \
+            --out data/climate/ao_cdas.json \
+            --cache "$RUNNER_TEMP/ao_cdas.csv" \
+            --cache-max-age-hours 6
+
+      - name: Gate scientifico (nessun valore inventato, nessun nome NAM)
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, sys
+          d = json.load(open("data/climate/ao_cdas.json", encoding="utf-8"))
+          assert d["schema_version"] == 1
+          assert d["baseline"] == "1979-2000"
+          assert "public domain" in d["license"].lower()
+          assert d["attribution"]
+          assert d["is_forecast"] is False
+          assert d["not_named_nam"] is True
+          assert d["profile_10hpa"]["value"] is None
+          assert d["profile_10hpa"]["null_reason"]
+          assert "17/03/2026" in d["profile_10hpa"]["label"]
+          if d["status"] == "ok":
+              assert len(d["series"]) > 1000
+              assert d["last_observation_date"]
+              ts = [p[0] for p in d["series"]]
+              assert ts == sorted(ts)
+          else:
+              assert d["series"] == []
+              assert d["null_reason"]
+          print("gate OK:", d["status"], len(d["series"]), "punti")
+          PY
+
+      - name: Commit di ao_cdas.json su main
+        id: commit_json
+        run: |
+          set -euo pipefail
+          git add -- data/climate/ao_cdas.json
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "NO-OP: ao_cdas.json invariato"
+            exit 0
+          fi
+          git -c user.name='meteorisk-bot' -c user.email='bot@users.noreply.github.com' \
+            commit -m "climate: AO CDAS osservato (NOAA CPC, public domain, baseline 1979-2000)"
+          for i in 1 2 3; do
+            git fetch origin main
+            git rebase origin/main || { echo "FATAL: rebase conflittuale"; exit 1; }
+            if git push origin HEAD:main; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "push non fast-forward, retry $i/3"
+          done
+          exit 1
+
+      - name: Ricarica Pages
+        if: steps.commit_json.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          curl -sS -f -X POST \
+            -H "Authorization: Bearer ${{ github.token }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/deploy-pages.yml/dispatches" \
+            -d '{"ref":"main"}'
+          echo "deploy-pages.yml dispacciato"
