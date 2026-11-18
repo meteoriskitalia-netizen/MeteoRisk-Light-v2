@@ -1751,9 +1751,10 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             .fc-body { padding: 0 8px 8px 8px; }
         }
         /* ===================================================================
-           PRODOTTO SINOTTICO (1.3.0.8) — pannello dedicato + frasi di contesto.
-           Regole di stile: nessun gradiente, nessuna ombra, nessuna emoji nuova.
-           Tutti i simboli sono SVG inline costruiti da synoptic.json.
+           PRODOTTO SINOTTICO — pannello di SOLO TESTO + frasi di contesto.
+           Nessun SVG/barra/mappa qui: le geometrie validate (kind=block) sono
+           disegnate sulla Leaflet map in #synopticPane. Nessun gradiente,
+           nessuna ombra, nessuna emoji nuova.
            =================================================================== */
         .syn-panel { max-width: 1200px; margin: 10px auto 0 auto; background: #1e293b; border: 1px solid #38bdf8; border-radius: 12px; padding: 14px 18px; display: none; box-sizing: border-box; min-width: 0; }
         .syn-panel.active { display: block; }
@@ -1764,26 +1765,17 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .syn-grid { display: flex; flex-wrap: wrap; gap: 12px; min-width: 0; }
         .syn-card { flex: 1 1 420px; min-width: 0; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 10px 12px; box-sizing: border-box; }
         .syn-card-head { font-size: 11px; font-weight: 700; color: #7dd3fc; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid #334155; }
-        .syn-map-wrap { width: 100%; min-width: 0; overflow: hidden; }
-        .syn-map-svg { display: block; width: 100%; height: auto; min-width: 0; }
-        .syn-feature { cursor: pointer; outline: none; }
-        .syn-feature:hover > *, .syn-feature:focus-visible > * { stroke-width: 2.4; }
-        .syn-feature:focus-visible > * { outline: 1px dashed #7dd3fc; }
-        .syn-feature text { font: 11px system-ui, sans-serif; fill: #e2e8f0; paint-order: stroke; }
-        .syn-map-count { font-size: 11px; line-height: 1.4; color: #cbd5e1; overflow-wrap: anywhere; margin-bottom: 8px; }
-        .syn-block-bar { shape-rendering: crispEdges; }
-        .syn-block-label { fill: #ede9fe; }
-        .syn-raw-list { margin-top: 8px; padding-top: 6px; border-top: 1px solid #334155; }
-        .syn-raw-head { font-size: 10.5px; color: #94a3b8; margin-bottom: 4px; overflow-wrap: anywhere; }
-        .syn-raw-items { margin: 0; padding-left: 16px; font-size: 10.5px; line-height: 1.4; color: #94a3b8; }
-        .syn-raw-item { margin-bottom: 3px; overflow-wrap: anywhere; }
-        .syn-raw-name { color: #94a3b8; }
-        .syn-raw-reason { color: #fbbf24; }
-        .syn-map-empty { padding: 8px 0; }
-        .syn-detail { margin-top: 8px; font-size: 11px; line-height: 1.4; color: #cbd5e1; border-top: 1px solid #334155; padding-top: 6px; min-height: 1em; overflow-wrap: anywhere; }
+        .syn-text-list { margin: 0; padding-left: 16px; font-size: 11px; line-height: 1.5; color: #cbd5e1; }
+        .syn-text-item { margin-bottom: 5px; overflow-wrap: anywhere; }
+        .syn-text-meta { color: #94a3b8; }
+        .syn-viewbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+        .syn-layer-panel { position: absolute; left: 322px; bottom: 10px; z-index: 901; width: 302px; max-width: calc(100% - 332px); box-sizing: border-box; }
+        .syn-layer-panel[hidden] { display: none; }
+        @media (max-width: 767px) {
+            .syn-layer-panel { left: 6px; right: 6px; bottom: 160px; width: auto; max-width: none; }
+        }
         .syn-stamp { font-size: 10.5px; line-height: 1.45; color: #94a3b8; overflow-wrap: anywhere; margin: 4px 0 0 0; }
         .syn-discard { color: #fbbf24; font-weight: 600; }
-        .syn-gaps { font-size: 10.5px; line-height: 1.4; color: #94a3b8; overflow-wrap: anywhere; margin-top: 6px; }
         .syn-tele { margin-top: 8px; }
         .syn-tele-block { margin-bottom: 12px; }
         .syn-tele-svg { display: block; width: 100%; height: auto; min-width: 0; }
@@ -2395,6 +2387,16 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                 </div>
             </details>
         </div>
+        <!-- 1.3.0.13-FIX - Legenda del layer feature sinottiche validate.
+             Usa .live-legend (stessi colori delle altre overlay); vuota e
+             nascosta finche' il toggle non viene acceso. -->
+        <div id="syn-layer-panel" class="live-legend syn-layer-panel" hidden>
+            <div class="legend-title">Blocchi atmosferici TM90 — sulla mappa</div>
+            <div class="legend-row" style="font-size:11px;"><span style="color:#38bdf8;">&#9473;</span> blocco atmosferico — indice Tibaldi–Molteni 1990 (GHGS&gt;0, GHGN&lt;-10 m/grad); soglia citata, non validata su eventi italiani.</div>
+            <div class="legend-row" style="font-size:10px;color:#94a3b8;">Solo geometrie reali con kind=block; i campi grezzi non calibrati (raw_field) non sono disegnati.</div>
+            <div class="legend-row" id="syn-layer-status" style="font-size:10px;color:#e2e8f0;">Layer spento.</div>
+            <div class="legend-row" id="syn-layer-credit" style="font-size:10px;color:#94a3b8;"></div>
+        </div>
         </div>
         <!-- Mappe previsionali (Open-Meteo Weather Map Layer) -->
         <div id="forecast-maps-panel" class="fm-panel">
@@ -2470,6 +2472,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                 <input type="checkbox" id="switch-hydro" onchange="toggleHydroLayer(this.checked)">
                 <span class="mp-knob"></span>
                 <span class="mp-label">Criticità DPC</span>
+            </label>
+            <!-- 1.3.0.13-FIX - Toggle del layer sinottico: SPENTO di default,
+                 caricamento lazy di synoptic.json solo alla prima accensione. -->
+            <label class="mp-switch" id="switch-synoptic-wrap" title="Feature sinottiche validate (blocchi TM90) sulla mappa: geometrie reali da data/radar/synoptic.json, nessun simbolo inventato. Spento di default.">
+                <input type="checkbox" id="switch-synoptic" onchange="toggleSynopticLayer(this.checked)">
+                <span class="mp-knob"></span>
+                <span class="mp-label">Blocchi TM90</span>
             </label>
             <label class="mp-select" id="hydro-risk-wrap" title="Rischio da colorare: i tre rischi del bollettino restano SEPARATI (nessuna somma in un indice unico)">
                 <span class="mp-label">Rischio</span>
@@ -2607,31 +2616,22 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     </div>
 
     <!-- ===================================================================
-         PRODOTTO SINOTTICO (1.3.0.8) — pannello dedicato con SVG inline da
-         data/radar/synoptic.json e grafici da data/climate/teleconnections.json.
-         Caricamento LAZY: nessuna richiesta al boot, solo all'apertura della
-         scheda o all'espansione di #forecast-details.
+         PRODOTTO SINOTTICO — SOLO TESTO/CAMPI NON MAPPAFIBILI.
+         Nessun SVG, nessuna barra TM90, nessun grafico teleconnessioni qui:
+         le geometrie validate stanno sulla Leaflet map, le 22 serie stanno
+         nel prodotto Teleconnessioni. Caricamento LAZY invariato.
          =================================================================== -->
     <div id="synoptic-panel" class="syn-panel" aria-label="Analisi sinottica">
         <div class="syn-head">
-            <span class="syn-title">Analisi sinottica</span>
+            <span class="syn-title">Analisi sinottica — testo</span>
             <span class="syn-badge" id="syn-badge">in caricamento…</span>
         </div>
         <div id="syn-body" hidden>
             <div class="syn-grid">
                 <div class="syn-card">
-                    <div class="syn-card-head">Mappa delle feature sinottiche</div>
-                    <div class="syn-map-count" id="syn-map-count"></div>
-                    <div class="syn-map-wrap" id="syn-map-wrap"></div>
-                    <div class="syn-raw-list" id="syn-raw-list" hidden></div>
-                    <div class="syn-detail" id="syn-detail" role="status">Seleziona una barra sulla mappa per vederne i dettagli.</div>
-                    <p class="syn-stamp" id="syn-stamp"></p>
-                    <p class="syn-gaps" id="syn-gaps"></p>
+                    <div class="syn-card-head">Feature sinottiche non mappabili — testo dal JSON</div>
+                    <ul class="syn-text-list" id="syn-text-list"></ul>
                     <div class="syn-burian" id="syn-burian" hidden></div>
-                </div>
-                <div class="syn-card">
-                    <div class="syn-card-head">Teleconnessioni — indici OSSERVATI</div>
-                    <div class="syn-tele" id="syn-tele"></div>
                 </div>
             </div>
         </div>
@@ -2650,6 +2650,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <span class="syn-badge" id="tele-badge">in caricamento…</span>
         </div>
         <div id="tele-body" hidden>
+            <div class="syn-viewbar">
+                <span class="syn-badge">Vista</span>
+                <select id="tele-view-select" class="hour-select" onchange="teleSetView(this.value)" title="La vista a 30 giorni filtra i valori gia in memoria: nessuna nuova richiesta di rete.">
+                    <option value="all" selected>Completa</option>
+                    <option value="30">Ultimi 30 giorni</option>
+                </select>
+                <span class="syn-badge" id="tele-view-note">serie complete — zero richieste di rete</span>
+            </div>
             <div class="syn-grid" id="tele-grid"></div>
             <p class="syn-stamp" id="tele-stamp"></p>
         </div>
@@ -3066,9 +3074,12 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.13';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.14';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-18';
     const APP_CHANGELOG = [
+    { version: '1.3.0.14', date: '2026-11-18', changes: [
+        'Feature sinottiche (blocchi TM90 validati) disegnate sulla mappa Leaflet; rimossi SVG astratti e grafici teleconnessioni duplicati dal pannello sinottico; vista 30 giorni per le teleconnessioni',
+    ]},
     { version: '1.3.0.13', date: '2026-11-18', changes: [
         'Schede NAM/ITCZ unificate alle immagini NOAA con licenza; rimossi duplicati e testi di degrado ridondanti',
     ]},
@@ -7372,6 +7383,13 @@ const DAILY_PARAMS = "weathercode,temperature_2m_max,temperature_2m_min,precipit
             map.getPane('forecastMapsPaneVector').style.zIndex = 362;
             map.getPane('forecastMapsPaneVector').style.pointerEvents = 'none';
             if (map && !map.getPane('forecastMapsPanePre')) { var _fmp = map.createPane('forecastMapsPanePre'); _fmp.style.zIndex = 1; _fmp.style.opacity = '0'; _fmp.style.pointerEvents = 'none'; }
+            // 1.3.0.13-FIX - Pane dedicato delle feature sinottiche validate.
+            // z 460: sopra i rischi DPC (450-452), sotto tracce (520) e marker (600).
+            if (!map.getPane('synopticPane')) {
+                map.createPane('synopticPane');
+                map.getPane('synopticPane').style.zIndex = 460;
+                map.getPane('synopticPane').style.pointerEvents = 'auto';
+            }
         } catch (e) { }
         // Satellite Infoplaza: L.imageOverlay usa pane: 'tilePane' (come EUMETSAT)
         // così zIndex 350 (sat) < 400 (radar) e il radar sta sopra
@@ -32075,9 +32093,10 @@ function renderContinuousOverlay() {
     }
 
     // ===================================================================
-    // PRODOTTO SINOTTICO (1.3.0.8)
-    // Due usi della STESSA analisi, entrambi obbligatori:
-    //   1) pannello dedicato con SVG inline costruiti dai due JSON;
+    // PRODOTTO SINOTTICO — due usi separati della STESSA analisi:
+    //   1) pannello di SOLO TESTO (feature non mappabili) — niente SVG qui;
+    //      le geometrie validate sono disegnate sulla Leaflet map dal modulo
+    //      in fondo al file, su #synopticPane;
     //   2) frase di contesto + frase di causa dentro #forecast-details.
     // Contratto dati (NON scriviamo i dati, li consumiamo solo):
     //   data/radar/synoptic.json
@@ -32086,14 +32105,16 @@ function renderContinuousOverlay() {
     //      features:[{id,kind,geometry:[[lat,lon],...],label,confidence,
     //                 fields,null_reason}],
     //      availability:{fields_missing,horizon_exhausted}}
-    //     kind ammessi: front, prefrontal, postfrontal, high, block,
-    //     cold_pool, convergence, moist_tongue. Simbolo NON validato =>
-    //     il produttore non lo mette => qui non viene inventato.
+    //     kind presenti nel contratto: block (TM90, soglia citata) e
+    //     raw_field (non calibrato). Solo block ha geometria disegnabile;
+    //     i raw_field restano TESTO e non sono mai disegnati.
     //   data/climate/teleconnections.json
     //     {schema_version, generated_at,
     //      series:[{id,label,values:[[epochMs,value]...] (lead==0),
     //               source,license,last_modified,baseline}]}
     // LAZY: zero richieste al boot; solo apertura scheda / espansione details.
+    // Le 22 serie teleconnessioni NON sono piu' in questo pannello: vivono
+    // solo nel prodotto #teleconn-panel.
     // ===================================================================
     var SYN_URL = 'data/radar/synoptic.json';
     var TELE_URL = 'data/climate/teleconnections.json';
@@ -32197,14 +32218,23 @@ function renderContinuousOverlay() {
         });
     }
     function synEnsureLoaded() {
+        // Il layer puo' aver gia' caricato synoptic.json: riusa i byte in memoria.
+        if (synState.syn) {
+            synState.status = 'done';
+            if (!synState.promise) synState.promise = Promise.resolve(synState);
+            synAugmentAll();
+            return synState.promise;
+        }
         if (synState.promise) return synState.promise;
         synState.status = 'loading';
-        synState.promise = Promise.all([
-            synFetch(SYN_URL).then(function (j) { synState.syn = j; },
-                function (e) { synState.synError = (e && e.message) ? e.message : String(e); synState.syn = null; }),
-            synFetch(TELE_URL).then(function (j) { synState.tele = j; },
-                function (e) { synState.teleError = (e && e.message) ? e.message : String(e); synState.tele = null; })
-        ]).then(function () {
+        // Il pannello mostra solo testo sinottico: una sola richiesta.
+        // Le teleconnessioni sono caricate dal prodotto separato, in lazy.
+        synState.promise = synFetch(SYN_URL).then(function (j) {
+            synState.syn = j;
+        }, function (e) {
+            synState.synError = (e && e.message) ? e.message : String(e);
+            synState.syn = null;
+        }).then(function () {
             synState.status = 'done';
             synAugmentAll();
             return synState;
@@ -32212,225 +32242,27 @@ function renderContinuousOverlay() {
         return synState.promise;
     }
 
-    // ---------- SVG: mappa feature ----------
-    function synProjection(features, W, H, pad) {
-        var minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
-        (features || []).forEach(function (f) {
-            (((f && f.geometry) || [])).forEach(function (pt) {
-                var lat = Number(pt && pt[0]), lon = Number(pt && pt[1]);
-                if (isFinite(lat) && isFinite(lon)) {
-                    if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
-                    if (lon < minLon) minLon = lon; if (lon > maxLon) maxLon = lon;
-                }
-            });
-        });
-        if (!isFinite(minLat)) { minLat = 35; maxLat = 48; minLon = 5; maxLon = 20; }
-        var spanLat = (maxLat - minLat) || 1, spanLon = (maxLon - minLon) || 1;
-        return function (lat, lon) {
-            return [pad + ((Number(lon) - minLon) / spanLon) * (W - 2 * pad),
-                    pad + ((maxLat - Number(lat)) / spanLat) * (H - 2 * pad)];
-        };
+    // ---------- TESTO: feature sinottiche non mappabili (nessun SVG qui) ----------
+    function synFeatureText(f) {
+        if (!f) return '';
+        var kind = (f.kind === undefined || f.kind === null) ? 'n/d' : String(f.kind);
+        var label = f.label ? String(f.label) : (f.id ? String(f.id) : 'n/d');
+        var conf = (f.confidence === undefined || f.confidence === null) ? 'n/d' : String(f.confidence);
+        var t = '<b>' + synEsc(kind) + '</b> — ' + synEsc(label) + ' · confidence: ' + synEsc(conf);
+        if (f.null_reason) t += ' · null_reason: ' + synEsc(f.null_reason);
+        if (f.reference) t += ' · reference: ' + synEsc(f.reference);
+        return t;
     }
-    function synFrontGlyphs(pts, type) {
-        var out = '';
-        for (var i = 0; i < pts.length - 1; i++) {
-            var a = pts[i], b = pts[i + 1];
-            var dx = b[0] - a[0], dy = b[1] - a[1];
-            var len = Math.sqrt(dx * dx + dy * dy) || 1;
-            var ux = dx / len, uy = dy / len, nx = -uy, ny = ux;
-            var mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
-            if (type === 'warm') {
-                var r = 5;
-                out += '<path d="M ' + (mx - ux * r).toFixed(1) + ' ' + (my - uy * r).toFixed(1) +
-                    ' A ' + r + ' ' + r + ' 0 0 1 ' + (mx + ux * r).toFixed(1) + ' ' + (my + uy * r).toFixed(1) +
-                    '" fill="none" stroke="#f87171" stroke-width="1.6"/>';
-            } else if (type === 'cold') {
-                out += '<polygon points="' + (mx - ux * 5).toFixed(1) + ',' + (my - uy * 5).toFixed(1) + ' ' +
-                    (mx + ux * 5).toFixed(1) + ',' + (my + uy * 5).toFixed(1) + ' ' +
-                    (mx + nx * 7).toFixed(1) + ',' + (my + ny * 7).toFixed(1) + '" fill="#60a5fa"/>';
-            }
-        }
-        return out;
-    }
-    function synFeatureSvg(f, project) {
-        var kind = String(f.kind || ''), label = String(f.label || '');
-        var geom = (((f.geometry) || [])).map(function (pt) { return project(Number(pt[0]), Number(pt[1])); });
-        var ptsAttr = geom.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ');
-        var cx = 0, cy = 0;
-        geom.forEach(function (p) { cx += p[0]; cy += p[1]; });
-        if (geom.length) { cx /= geom.length; cy /= geom.length; }
-        var s = '<g class="syn-feature" data-kind="' + synEsc(kind) + '" data-id="' + synEsc(f.id || '') +
-            '" tabindex="0" role="button" aria-label="' + synEsc(label || kind) + '">';
-        s += '<title>' + synEsc(label || kind) + '</title>';
-        if (kind === 'front' || kind === 'prefrontal' || kind === 'postfrontal') {
-            var col = (kind === 'front') ? '#fbbf24' : (kind === 'prefrontal' ? '#fcd34d' : '#94a3b8');
-            var dash = (kind === 'front') ? '' : ' stroke-dasharray="5 3"';
-            if (geom.length > 1) s += '<polyline points="' + ptsAttr + '" fill="none" stroke="' + col + '" stroke-width="2"' + dash + '/>';
-            var gt = /caldo/i.test(label) ? 'warm' : (/freddo/i.test(label) ? 'cold' : '');
-            if (gt) s += synFrontGlyphs(geom, gt);
-            if (geom.length === 1) s += '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="5" fill="' + col + '"/>';
-        } else if (kind === 'high') {
-            s += '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="14" fill="none" stroke="#38bdf8" stroke-width="2"/>';
-            s += '<text x="' + cx.toFixed(1) + '" y="' + (cy + 4).toFixed(1) + '" text-anchor="middle">H</text>';
-        } else if (kind === 'block') {
-            s += '<rect x="' + (cx - 15).toFixed(1) + '" y="' + (cy - 12).toFixed(1) + '" width="30" height="24" rx="4" fill="none" stroke="#a78bfa" stroke-width="2"/>';
-            s += '<text x="' + cx.toFixed(1) + '" y="' + (cy + 4).toFixed(1) + '" text-anchor="middle">B</text>';
-        } else if (kind === 'cold_pool') {
-            s += '<ellipse cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" rx="18" ry="12" fill="none" stroke="#22d3ee" stroke-width="2" stroke-dasharray="4 3"/>';
-            s += '<text x="' + cx.toFixed(1) + '" y="' + (cy + 4).toFixed(1) + '" text-anchor="middle">C</text>';
-        } else if (kind === 'convergence') {
-            s += '<path d="M ' + (cx - 16).toFixed(1) + ' ' + cy.toFixed(1) + ' L ' + (cx - 4).toFixed(1) + ' ' + cy.toFixed(1) +
-                ' M ' + (cx + 16).toFixed(1) + ' ' + cy.toFixed(1) + ' L ' + (cx + 4).toFixed(1) + ' ' + cy.toFixed(1) + '" fill="none" stroke="#4ade80" stroke-width="2"/>';
-            s += '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="3" fill="#4ade80"/>';
-        } else if (kind === 'moist_tongue') {
-            if (geom.length > 2) s += '<polygon points="' + ptsAttr + '" fill="rgba(56,189,248,0.18)" stroke="#38bdf8" stroke-width="1.5"/>';
-            else if (geom.length > 1) s += '<polyline points="' + ptsAttr + '" fill="none" stroke="#38bdf8" stroke-width="3"/>';
-            else s += '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="8" fill="rgba(56,189,248,0.18)" stroke="#38bdf8" stroke-width="1.5"/>';
-        } else {
-            // kind fuori contratto: simbolo neutrale, nessuna etichetta inventata.
-            if (geom.length > 1) s += '<polyline points="' + ptsAttr + '" fill="none" stroke="#94a3b8" stroke-width="2"/>';
-            else s += '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="5" fill="#94a3b8"/>';
-        }
-        s += '</g>';
-        return s;
-    }
-    // Blocco TM90: barra orizzontale sottile (x = intervallo di longitudine bloccata).
-    // L'SVG contiene SOLO geometria + etichetta corta ("blocco N"): nessun testo lungo,
-    // nessun riquadro con lettera. Il dettaglio completo va nel pannello a lato.
-    function synBlockBarSvg(f, idx, project, laneH, pad, W) {
-        var geom = (((f && f.geometry) || [])).map(function (pt) {
-            return [Number(pt && pt[0]), Number(pt && pt[1])];
-        }).filter(function (pt) { return isFinite(pt[0]) && isFinite(pt[1]); });
-        var lons = geom.map(function (pt) { return pt[1]; });
-        var lonMin = lons.length ? Math.min.apply(null, lons) : 0;
-        var lonMax = lons.length ? Math.max.apply(null, lons) : 0;
-        // La proiezione di synProjection non fa dipendere x dalla lat: passiamo 0.
-        var left = project(0, lonMin)[0];
-        var right = project(0, lonMax)[0];
-        var w = Math.max(8, right - left);
-        var cy = pad + laneH * (idx + 0.5); // corsia dedicata: nessuna sovrapposizione fra barre
-        var h = 7;
-        var shortLabel = 'blocco ' + (idx + 1);
-        var s = '<g class="syn-feature syn-block" data-kind="block" data-id="' + synEsc(f.id || '') +
-            '" data-short="' + synEsc(shortLabel) + '" tabindex="0" role="button" aria-label="' + synEsc(shortLabel) + '">';
-        s += '<title>' + synEsc(shortLabel) + '</title>';
-        s += '<rect class="syn-block-bar" x="' + left.toFixed(1) + '" y="' + (cy - h / 2).toFixed(1) +
-            '" width="' + w.toFixed(1) + '" height="' + h + '" rx="1" fill="#a78bfa" stroke="#7c3aed" stroke-width="1"/>';
-        var tx = Math.min(W - 50, Math.max(50, (left + right) / 2)); // etichetta fuori dalla barra, dentro il viewBox
-        s += '<text class="syn-block-label" x="' + tx.toFixed(1) + '" y="' + (cy - h / 2 - 4).toFixed(1) +
-            '" text-anchor="middle">' + synEsc(shortLabel) + '</text>';
-        s += '</g>';
-        return s;
-    }
-    function synRenderMap() {
-        var wrap = document.getElementById('syn-map-wrap');
-        if (!wrap) return;
-        var features = (synState.syn && Array.isArray(synState.syn.features)) ? synState.syn.features : [];
-        var blocks = features.filter(function (f) { return f && String(f.kind || '') === 'block'; });
-        var raws = features.filter(function (f) { return f && String(f.kind || '') === 'raw_field'; });
-        // Riga di dichiarazione in cima alla mappa: i raw_field non sono un segnale e non sono disegnati.
-        var countBox = document.getElementById('syn-map-count');
-        if (countBox) {
-            var nb = blocks.length === 1 ? '1 blocco atmosferico' : (blocks.length + ' blocchi atmosferici');
-            countBox.textContent = nb + ' (TM90, soglia citata, non validata su eventi italiani) · ' +
-                raws.length + ' campi grezzi non calibrati — non disegnati';
-        }
-        // elenco testuale dei campi grezzi (fuori dall'SVG)
-        var rawBox = document.getElementById('syn-raw-list');
-        if (rawBox) {
-            if (!raws.length) { rawBox.innerHTML = ''; rawBox.hidden = true; }
-            else {
-                rawBox.hidden = false;
-                var rh = '<div class="syn-raw-head">Campi grezzi non calibrati — non costituiscono un segnale</div><ul class="syn-raw-items">';
-                raws.forEach(function (f) {
-                    rh += '<li class="syn-raw-item"><span class="syn-raw-name">' + synEsc(f.label || f.id || 'n/d') +
-                        '</span> · <span class="syn-raw-reason">null_reason: ' + synEsc(f.null_reason || 'n/d') + '</span></li>';
-                });
-                rawBox.innerHTML = rh + '</ul>';
-            }
-        }
-        var detail = document.getElementById('syn-detail');
-        if (!blocks.length) {
-            wrap.innerHTML = '<div class="syn-msg syn-map-empty">Nessun blocco rilevato in questo run</div>';
-            if (detail) detail.textContent = '';
-            return;
-        }
-        var W = 560, H = 380, pad = 30;
-        var project = synProjection(blocks, W, H, pad);
-        var laneH = (H - 2 * pad) / Math.max(1, blocks.length);
-        var s = '<svg class="syn-map-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Mappa dei blocchi atmosferici TM90">';
-        s += '<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="#0b1220" stroke="#334155"/>';
-        for (var i = 0; i < blocks.length; i++) s += synBlockBarSvg(blocks[i], i, project, laneH, pad, W);
-        s += '</svg>';
-        wrap.innerHTML = s;
-        var nodes = wrap.querySelectorAll('.syn-block');
-        for (var k = 0; k < nodes.length; k++) {
-            (function (node, idx) {
-                function show() {
-                    var d = document.getElementById('syn-detail');
-                    var f = blocks[idx];
-                    if (!d || !f) return;
-                    var syn = synState.syn || {};
-                    var parts = [];
-                    parts.push('<b>' + synEsc(f.kind || 'n/d') + '</b>');
-                    parts.push(synEsc(f.label || 'n/d'));
-                    parts.push('confidence: ' + synEsc(f.confidence === undefined || f.confidence === null ? 'n/d' : f.confidence));
-                    if (f.reference) parts.push('reference: ' + synEsc(f.reference));
-                    parts.push('valid time: ' + synEsc(synFmtIso(syn.valid_time)));
-                    parts.push('fonte: ' + synEsc(syn.source || 'n/d'));
-                    parts.push('licenza: ' + synEsc(syn.license || 'n/d'));
-                    if (f.null_reason) parts.push('motivo: ' + synEsc(f.null_reason));
-                    d.innerHTML = parts.join(' · ');
-                }
-                node.addEventListener('click', show);
-                node.addEventListener('keydown', function (ev) {
-                    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); show(); }
-                });
-            })(nodes[k], k);
-        }
+    function synRenderText() {
+        var box = document.getElementById('syn-text-list');
+        if (!box) return;
+        var feats = (synState.syn && Array.isArray(synState.syn.features)) ? synState.syn.features : [];
+        if (!feats.length) { box.innerHTML = ''; return; }
+        var h = '';
+        for (var i = 0; i < feats.length; i++) h += '<li class="syn-text-item">' + synFeatureText(feats[i]) + '</li>';
+        box.innerHTML = h;
     }
 
-    // ---------- SVG: teleconnessioni (indici OSSERVATI, lead==0) ----------
-    function synTeleChart(series) {
-        var vals = (series.values || []).filter(function (v) {
-            return Array.isArray(v) && isFinite(Number(v[0])) && isFinite(Number(v[1]));
-        });
-        if (!vals.length) return '<div class="syn-msg">Serie ' + synEsc(series.id || '') + ': nessun valore valido.</div>';
-        var xs = vals.map(function (v) { return Number(v[0]); });
-        var ys = vals.map(function (v) { return Number(v[1]); });
-        var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
-        var minY = Math.min.apply(null, ys.concat([-1])), maxY = Math.max.apply(null, ys.concat([1]));
-        var padY = ((maxY - minY) * 0.1) || 1; minY -= padY; maxY += padY;
-        var W = 560, H = 180, L = 42, R = 10, T = 10, B = 26;
-        function X(v) { return L + ((v - minX) / ((maxX - minX) || 1)) * (W - L - R); }
-        function Y(v) { return T + ((maxY - v) / (maxY - minY)) * (H - T - B); }
-        var s = '<svg class="syn-tele-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Indice osservato ' + synEsc(series.id || '') + '">';
-        s += '<rect x="' + L + '" y="' + T + '" width="' + (W - L - R) + '" height="' + (H - T - B) + '" fill="#0b1220" stroke="#334155"/>';
-        s += '<rect x="' + L + '" y="' + Y(1).toFixed(1) + '" width="' + (W - L - R) + '" height="' + Math.max(0, Y(-1) - Y(1)).toFixed(1) + '" fill="rgba(148,163,184,0.16)"/>';
-        s += '<line x1="' + L + '" y1="' + Y(0).toFixed(1) + '" x2="' + (W - R) + '" y2="' + Y(0).toFixed(1) + '" stroke="#64748b" stroke-width="1" stroke-dasharray="4 3"/>';
-        var poly = vals.map(function (v) { return X(Number(v[0])).toFixed(1) + ',' + Y(Number(v[1])).toFixed(1); }).join(' ');
-        s += '<polyline points="' + poly + '" fill="none" stroke="#7dd3fc" stroke-width="1.6"/>';
-        s += '<text x="2" y="' + (Y(1) + 3).toFixed(1) + '" fill="#94a3b8" font-size="9">+1σ</text>';
-        s += '<text x="2" y="' + (Y(0) + 3).toFixed(1) + '" fill="#94a3b8" font-size="9">0</text>';
-        s += '<text x="2" y="' + (Y(-1) + 3).toFixed(1) + '" fill="#94a3b8" font-size="9">-1σ</text>';
-        s += '<text x="' + L + '" y="' + (H - 8) + '" fill="#94a3b8" font-size="9">' + synFmtIso(minX).slice(0, 10) + '</text>';
-        s += '<text x="' + (W - R) + '" y="' + (H - 8) + '" fill="#94a3b8" font-size="9" text-anchor="end">' + synFmtIso(maxX).slice(0, 10) + '</text>';
-        s += '</svg>';
-        var cap = '<div class="syn-tele-cap">Indice OSSERVATO — non previsione · ' + synEsc(series.label || series.id || '') +
-            ' · fonte ' + synEsc(series.source || 'n/d') + ' · licenza ' + synEsc(series.license || 'n/d') +
-            ' · ultima modifica ' + synEsc(series.last_modified || 'n/d') +
-            ' · baseline ' + synEsc(series.baseline || 'n/d') + '</div>';
-        return s + cap;
-    }
-    function synRenderTele() {
-        var box = document.getElementById('syn-tele');
-        if (!box) return;
-        var series = (synState.tele && Array.isArray(synState.tele.series)) ? synState.tele.series : [];
-        if (!series.length) { box.innerHTML = '<div class="syn-msg">Teleconnessioni non disponibili.</div>'; return; }
-        var html = '';
-        for (var i = 0; i < series.length; i++) html += '<div class="syn-tele-block">' + synTeleChart(series[i]) + '</div>';
-        box.innerHTML = html;
-    }
     function synBurianCheck() {
         var el = document.getElementById('syn-burian');
         if (!el) return;
@@ -32454,26 +32286,8 @@ function renderContinuousOverlay() {
         }
         msg.hidden = true; body.hidden = false;
         if (badge) badge.textContent = 'run ' + synRunHour(syn.run_reference_time) + ' · valid time ' + synFmtIso(syn.valid_time) + ' · ' + (syn.domain || 'n/d');
-        synRenderMap();
-        var stamp = document.getElementById('syn-stamp');
-        if (stamp) {
-            var txt = 'contesto sinottico — run ' + synRunHour(syn.run_reference_time) + ', valid time ' + synFmtIso(syn.valid_time) +
-                ' · punti — aggiornati ' + (synPointsIso() ? synFmtIso(synPointsIso()) : 'n/d');
-            if (synDiscard()) txt += ' · <span class="syn-discard">' + synEsc(synDiscardText()) + '</span>';
-            stamp.innerHTML = txt;
-        }
-        var gaps = document.getElementById('syn-gaps');
-        if (gaps) {
-            var extra = '';
-            if (syn.availability) {
-                var miss = syn.availability.fields_missing || [];
-                if (miss.length) extra += ' Campi mancanti: ' + synEsc(miss.join(', ')) + '.';
-                if (syn.availability.horizon_exhausted) extra += ' Orizzonte esaurito (dichiarato dal produttore).';
-            }
-            gaps.innerHTML = synEsc(SYN_DOMAIN_GAPS) + ' Finestra massima ' + SYN_MAX_DAYS + ' giorni. Punti non disponibili oltre 72 h (giorni 4-7).' + extra;
-        }
+        synRenderText();
         synBurianCheck();
-        synRenderTele();
     }
     function toggleSynoptic() {
         var panel = document.getElementById('synoptic-panel');
@@ -32490,6 +32304,36 @@ function renderContinuousOverlay() {
     // simulato: ogni pannello mostra fonte, licenza, ultimo aggiornamento.
     // ===================================================================
     var teleState = { promise: null, data: null, error: '' };
+    // 1.3.0.13-FIX - Seconda vista "ultimi 30 giorni": filtra i valori GIA'
+    // in memoria. Nessuna richiesta di rete, nessun dato nuovo.
+    var teleView = 'all';   // 'all' | '30'
+    function teleWindowValues(s) {
+        var vals = (s && Array.isArray(s.values)) ? s.values.slice() : [];
+        if (teleView !== '30') return vals;
+        var last = -Infinity, i;
+        for (i = 0; i < vals.length; i++) {
+            var t = Number(vals[i] && vals[i][0]);
+            if (isFinite(t) && t > last) last = t;
+        }
+        if (!isFinite(last)) return [];
+        var from = last - 30 * 86400000;
+        return vals.filter(function (v) {
+            return Array.isArray(v) && isFinite(Number(v[0])) && Number(v[0]) >= from;
+        });
+    }
+    function teleWindowSuffix() {
+        return teleView === '30' ? ' · vista: ultimi 30 giorni (ancorata all ultimo valore della serie)' : '';
+    }
+    function teleSetView(v) {
+        teleView = (v === '30') ? '30' : 'all';
+        var sel = document.getElementById('tele-view-select');
+        if (sel && sel.value !== teleView) sel.value = teleView;
+        var note = document.getElementById('tele-view-note');
+        if (note) note.textContent = teleView === '30'
+            ? 'finestra di 30 gg per serie, calcolata sui dati gia in memoria — zero richieste di rete'
+            : 'serie complete — zero richieste di rete';
+        if (teleState.data) teleRenderPanel();
+    }
     // 1.3.0.11-FIX - Retry di UNA sola richiesta su HTTP 404, con cache-buster.
     // Nessuna richiesta al boot: teleEnsureLoaded() e' chiamata solo da
     // toggleTeleconn(), cioe' all'apertura del prodotto. Ogni altro errore
@@ -32543,10 +32387,14 @@ function renderContinuousOverlay() {
     }
     function teleChart(s) {
         if (!s) return '<div class="syn-msg">non disponibile — motivo: serie assente dal JSON.</div>';
-        var vals = (s.values || []).filter(function (v) {
+        var vals = teleWindowValues(s).filter(function (v) {
             return Array.isArray(v) && isFinite(Number(v[0])) && isFinite(Number(v[1]));
         });
         if (!vals.length) return '<div class="syn-msg">non disponibile — motivo: nessun valore valido nella serie.</div>';
+        if (teleView === '30' && vals.length < 2) {
+            return '<div class="syn-msg">' + vals.length + ' punto nella finestra di 30 giorni (' + synEsc(s.id || 'n/d') +
+                '): la vista completa e piu informativa. Nessun grafico a un solo punto.</div>';
+        }
         var xs = vals.map(function (v) { return Number(v[0]); });
         var ys = vals.map(function (v) { return Number(v[1]); });
         var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
@@ -32567,12 +32415,18 @@ function renderContinuousOverlay() {
         svg += '<text x="' + L + '" y="' + (H - 8) + '" fill="#94a3b8" font-size="9">' + synFmtIso(minX).slice(0, 10) + '</text>';
         svg += '<text x="' + (W - R) + '" y="' + (H - 8) + '" fill="#94a3b8" font-size="9" text-anchor="end">' + synFmtIso(maxX).slice(0, 10) + '</text>';
         svg += '</svg>';
-        return svg + '<div class="syn-tele-cap">Indice OSSERVATO — non previsione · ' + synEsc(s.label || s.id || '') + ' · ' + teleStamp(s) + '</div>';
+        return svg + '<div class="syn-tele-cap">Indice OSSERVATO — non previsione · ' + synEsc(s.label || s.id || '') + ' · ' + teleStamp(s) + teleWindowSuffix() + '</div>';
     }
     function teleTimeline(s) {
         if (!s) return '<div class="syn-msg">non disponibile — motivo: timeline SSW assente dal JSON.</div>';
         var ev = (s.events || []).slice().sort(function (a, b) { return a.ts - b.ts; });
         if (!ev.length) return '<div class="syn-msg">non disponibile — motivo: nessun evento SSW nella timeline.</div>';
+        if (teleView === '30') {
+            var lastEv = ev[ev.length - 1].ts;
+            ev = ev.filter(function (e) { return e.ts >= lastEv - 30 * 86400000; });
+            if (!ev.length) return '<div class="syn-msg">nessun evento SSW nella finestra di 30 giorni (ultimo evento storico: ' +
+                synEsc(String(ev0Date(s))) + '). Nessuna timeline inventata.</div>';
+        }
         var min = ev[0].ts, max = ev[ev.length - 1].ts;
         var W = 560, H = 120, L = 44, R = 8, YY = 62;
         function X(v) { return L + ((v - min) / ((max - min) || 1)) * (W - L - R); }
@@ -32587,7 +32441,11 @@ function renderContinuousOverlay() {
             svg += '<text x="' + X(ev[idx].ts).toFixed(1) + '" y="' + (YY + 30) + '" fill="#94a3b8" font-size="9" text-anchor="middle">' + synEsc(String(ev[idx].date || ev[idx].name)) + '</text>';
         }
         svg += '</svg>';
-        return svg + '<div class="syn-tele-cap">Timeline storica · ' + ev.length + ' eventi · definizione ' + synEsc(s.definition || 'n/d') + ' · citazione ' + synEsc(s.citation || 'n/d') + ' · ' + teleStamp(s) + '</div>';
+        return svg + '<div class="syn-tele-cap">Timeline storica · ' + ev.length + ' eventi · definizione ' + synEsc(s.definition || 'n/d') + ' · citazione ' + synEsc(s.citation || 'n/d') + ' · ' + teleStamp(s) + teleWindowSuffix() + '</div>';
+    }
+    function ev0Date(s) {
+        var ev = (s && Array.isArray(s.events)) ? s.events.slice().sort(function (a, b) { return a.ts - b.ts; }) : [];
+        return ev.length ? (ev[ev.length - 1].date || ev[ev.length - 1].name || 'n/d') : 'n/d';
     }
     function telePanel(head, chart, text) {
         return '<div class="syn-card"><div class="syn-card-head">' + synEsc(head) + '</div>' +
@@ -32635,7 +32493,17 @@ function renderContinuousOverlay() {
         if (msg) msg.hidden = true;
         if (body) body.hidden = false;
         if (badge) badge.textContent = 'aggiornato ' + synFmtIso(d.generated_at) + ' · ' + (d.series || []).length + ' serie';
-        var html = '';
+        var note = document.getElementById('tele-view-note');
+        if (note) note.textContent = teleView === '30'
+            ? 'finestra di 30 gg per serie, calcolata sui dati gia in memoria — zero richieste di rete'
+            : 'serie complete — zero richieste di rete';
+        var dseries = Array.isArray(d.series) ? d.series : [];
+        var sh = '';
+        for (var si = 0; si < dseries.length; si++) {
+            sh += '<div class="syn-tele-block">' + teleChart(dseries[si]) + '</div>';
+        }
+        var html = '<div class="syn-card"><div class="syn-card-head">Serie osservate (' + dseries.length + ') — indici OSSERVATI</div>' +
+            '<div class="syn-tele">' + sh + '</div></div>';
         html += telePanel('QBO 30 hPa (m/s)', teleChart(teleSeries('qbo30_monthly')),
             'QBO negativa (easterly): per statistica è associata a vortice polare più debole, maggiore probabilità di SSW e NAO negativa. Relazione statistica, NON previsione deterministica per l Italia.');
         html += telePanel('QBO 50 hPa (m/s)', teleChart(teleSeries('qbo50_monthly')),
@@ -32648,7 +32516,7 @@ function renderContinuousOverlay() {
             'PNA è un modo del Pacifico-Nord America: per l Italia è SOLO contesto teleconnettivo, non un predittore diretto.');
         html += telePanel('SSW — timeline storica', teleTimeline(teleSeries('ssw_events')),
             'Date centrali degli SSW maggiori dal 1958. Lacuna real-time dichiarata: il catalogo CSL/SSWC è storico e non fornisce eventi in tempo reale.');
-        html += teleContextImages();   // 1.3.0.12-DEDUP: 2 immagini, nessuna scheda di degrado
+        html += teleContextImages();   // 2 immagini NOAA CPC, nessuna scheda di degrado
         grid.innerHTML = html;
         var stamp = document.getElementById('tele-stamp');
         if (stamp) stamp.innerHTML = 'Indici OSSERVATI, non previsioni. Filtro obbligatorio lead=0 e member=0 per le serie GEFS daily. Nessuna attivita solare inclusa (' + synEsc((d.solar_activity && d.solar_activity.implemented) ? 'presente' : 'assente') + ').';
@@ -36842,6 +36710,131 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         });
     }
 })();
+
+    /* ===================================================================
+       1.3.0.13-FIX - FEATURE SINOTTICHE SULLA LEAFLET MAP.
+       Solo kind=block con geometria valida [[lat,lon],...]. Nessun
+       raw_field disegnato, nessun simbolo/poligono inventato. Toggle OFF
+       di default, caricamento lazy, legenda con la fonte REALE del JSON.
+       =================================================================== */
+    (function () {
+        var PANE = 'synopticPane';
+        var st = { on: false, loaded: false, data: null, error: '', layer: null, drawn: 0, raw: 0, other: 0, invalid: 0 };
+        var BASE_TITLE = 'Feature sinottiche validate (blocchi TM90) sulla mappa: geometrie reali da data/radar/synoptic.json, nessun simbolo inventato. Spento di default.';
+        function byId(id) { return document.getElementById(id); }
+        function esc(v) {
+            return String(v === null || v === undefined ? '' : v)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+        function mapOk() {
+            return (typeof L !== 'undefined') && (typeof map !== 'undefined') && !!map &&
+                typeof map.getPane === 'function' && !!map.getPane(PANE);
+        }
+        function fmt(iso) {
+            var d = new Date(iso);
+            return isNaN(d.getTime()) ? String(iso || 'n/d') : d.toISOString().replace('T', ' ').slice(0, 16) + 'Z';
+        }
+        function coords(f) {
+            var g = f && f.geometry;
+            if (!Array.isArray(g) || g.length < 2) return null;
+            var out = [];
+            for (var i = 0; i < g.length; i++) {
+                var p = g[i];
+                if (!Array.isArray(p) || p.length < 2) return null;
+                var lat = Number(p[0]), lon = Number(p[1]);
+                if (!isFinite(lat) || !isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+                out.push([lat, lon]);
+            }
+            return out;
+        }
+        function reason() {
+            if (st.error) return 'dato non caricato: ' + st.error;
+            if (!st.data) return 'synoptic.json non ancora caricato';
+            var fs = Array.isArray(st.data.features) ? st.data.features : [];
+            var blocks = fs.filter(function (f) { return f && String(f.kind || '') === 'block'; });
+            if (!blocks.length) return 'nessuna feature kind=block in questo run (' + fs.length + ' feature totali)';
+            if (!st.drawn) return 'geometrie dei blocchi non valide (servono almeno 2 punti [lat,lon] entro i limiti)';
+            return '';
+        }
+        function statusText() {
+            if (!st.on) return 'Layer spento.';
+            if (st.drawn) {
+                var t = st.drawn + ' blocchi TM90 disegnati · ' + st.raw + ' raw_field non disegnati';
+                if (st.other) t += ' · ' + st.other + ' altre feature non disegnate';
+                return t + ' · valid time ' + fmt(st.data && st.data.valid_time) + '.';
+            }
+            return 'Nessuna feature valida: ' + reason();
+        }
+        function render() {
+            var p = byId('syn-layer-panel'), s = byId('syn-layer-status'),
+                c = byId('syn-layer-credit'), sw = byId('switch-synoptic');
+            var txt = statusText();
+            if (p) p.hidden = !st.on;
+            if (s) s.textContent = txt;
+            if (c) {
+                var d = st.data || {};
+                c.innerHTML = 'Fonte (dichiarata dal JSON): ' + esc(d.source || 'n/d') + ' · licenza ' + esc(d.license || 'n/d') +
+                    '. Le immagini NOAA CPC restano nel prodotto Teleconnessioni.';
+            }
+            if (sw) sw.title = BASE_TITLE + (st.on ? ' Stato: ' + txt : '');
+        }
+        function clear() {
+            if (st.layer && typeof map !== 'undefined' && map && map.removeLayer) {
+                try { map.removeLayer(st.layer); } catch (e) { }
+            }
+            st.layer = null; st.drawn = 0; st.raw = 0; st.other = 0; st.invalid = 0;
+        }
+        function build() {
+            clear();
+            var fs = (st.data && Array.isArray(st.data.features)) ? st.data.features : [];
+            var layers = [];
+            for (var i = 0; i < fs.length; i++) {
+                var f = fs[i], kind = f ? String(f.kind || '') : '';
+                if (kind === 'raw_field') { st.raw++; continue; }
+                if (kind !== 'block') { st.other++; continue; }
+                var pts = coords(f);
+                if (!pts) { st.invalid++; continue; }
+                // Stesso azzurro dell'area Doppler (#38bdf8): nessun colore nuovo.
+                var line = L.polyline(pts, { pane: PANE, color: '#38bdf8', weight: 3, opacity: 0.85, fill: false });
+                var label = f.label || f.id || 'blocco';
+                line.bindTooltip('<b>' + esc(label) + '</b><br>confidence: ' +
+                    esc(f.confidence === undefined || f.confidence === null ? 'n/d' : f.confidence) +
+                    '<br>valid time: ' + esc(fmt(st.data.valid_time)) + '<br>' + esc(f.reference || ''),
+                    { sticky: true });
+                layers.push(line);
+            }
+            if (layers.length && typeof map !== 'undefined' && map) st.layer = L.layerGroup(layers).addTo(map);
+            st.drawn = layers.length;
+        }
+        function load(done) {
+            if (typeof synState !== 'undefined' && synState && synState.syn) {
+                st.data = synState.syn; st.loaded = true; st.error = ''; done(); return;
+            }
+            if (typeof synFetch !== 'function' || typeof SYN_URL === 'undefined') {
+                st.error = 'fetch non disponibile'; done(); return;
+            }
+            synFetch(SYN_URL).then(function (j) {
+                st.data = j; st.loaded = true; st.error = '';
+                if (typeof synState !== 'undefined' && synState) synState.syn = j;
+                done();
+            }, function (e) {
+                st.error = (e && e.message) ? e.message : String(e);
+                done();
+            });
+        }
+        window.toggleSynopticLayer = function (on) {
+            var cb = byId('switch-synoptic');
+            st.on = !!on;
+            if (cb && cb.checked !== st.on) cb.checked = st.on;
+            if (!st.on) { clear(); render(); return; }
+            render();
+            if (!mapOk()) { st.error = 'mappa non pronta (Leaflet non caricato)'; render(); return; }
+            function finish() { if (st.data) build(); render(); }
+            if (st.loaded) finish(); else load(finish);
+        };
+        // Default OFF: nessuna chiamata e nessuna richiesta di rete all'avvio.
+    })();
 </script>
 </body>
 </html>

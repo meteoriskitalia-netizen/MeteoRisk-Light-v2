@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.3.0.14 - FEATURE SINOTTICHE SULLA MAPPA E VISTA TELECONNESSIONI 30 GIORNI (bump da 1.3.0.13)
+VERSION=1.3.0.14
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=144
+RELEASE_TYPE=release
+DATE=2026-11-18
+NOTE=Release 1.3.0.14 (bump da 1.3.0.13). Unica modifica funzionale: pannello sinottico e teleconnessioni. Feature sinottiche (blocchi TM90 validati) disegnate sulla mappa Leaflet; rimossi SVG astratti e grafici teleconnessioni duplicati dal pannello sinottico; vista 30 giorni per le teleconnessioni. Disegnati solo i kind=block con geometria valida come polilinee L.polyline su #synopticPane, nello stesso azzurro dell area Doppler (#38bdf8); i raw_field non calibrati restano testo e sono contati nella legenda. Toggle #switch-synoptic spento di default, caricamento lazy di synoptic.json, vista 30 giorni che filtra i valori gia in memoria: zero richieste di rete aggiuntive. Nessun poligono, simbolo frontale o colore inventato; fonte e licenza lette dal JSON (open-meteo .om / CC BY 4.0), attribuzione NOAA CPC limitata alle due immagini del prodotto Teleconnessioni. Rimosso il pannello SVG sinottico duplicato. Bump solo: VERSION=1.3.0.14 BUILD=144, sw.js tre cache, README, test .mjs, vecchio html mri-light-1.3.0.13.html rimosso. Test: node --check 9/9, verifica statica 48/48, harness 3 polilinee / 0 grafici duplicati, sha html verificato. NON verificato: resa visiva nel browser interno (Edge vietato), run GitHub Actions del dispatch Pages.
+APP_FILE=mri-light-1.3.0.14.html
 MeteoRisk Light - 1.3.0.13 - SCHEDE NAM/ITCZ UNIFICATE ALLE IMMAGINI NOAA (bump da 1.3.0.12)
 VERSION=1.3.0.13
 MAJOR=1
