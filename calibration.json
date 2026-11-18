@@ -1,0 +1,104 @@
+{
+  "schema_version": 3,
+  "status": "calibrated",
+  "publication_status": "development_only",
+  "publication_reason": "soglie MISURATE e percentile-stabili su 14 frame reali per dominio, ma lo score per evento NON e' informativo: ecmwf CSI piatto 0.5 per fattori <=1 (rilevatore saturato); dwd_icon_eu CSI massimo 0.143 con 0 hit alle soglie finali. I positivi sono definiti da un proxy di pioggia forte nel box Europa, non da etichette indipendenti. Servono eventi negativi credibili e verita' indipendente: NON pubblicare.",
+  "publication_note": "Non validato: CSI non discriminante su etichette interne (ecmwf piatto 0,5, dwd 0 hit). Solo in modalità Sviluppo. Nessun POD/FAR/CSI pubblicato.",
+  "measured_on": "2026-11-18T12:36:07Z",
+  "method": "TFP Hewson 1998 / front_id MIT (MIT license); theta_e 850 Bolton 1980",
+  "sample_rule": "R1: P90/P95 stabili (<10% variazione relativa) per 2 passi consecutivi + almeno 1 evento positivo e 1 negativo; campione dimensionato dal dato, NON 30 giorni fissi",
+  "global": {
+    "S_km": 100.0,
+    "thresh_t": -1.347621609679621e-10,
+    "thresh_g": 3.3909169039975556e-05,
+    "min_length_km": 100.0,
+    "searchrad_km": 100.0,
+    "speed_threshold_ms": 1.5
+  },
+  "domains": {
+    "ecmwf_ifs025": {
+      "S_km": 100.0,
+      "thresh_t": -1.347621609679621e-10,
+      "thresh_t_interval": [
+        -1.981020149378471e-10,
+        -1.347621609679621e-10
+      ],
+      "thresh_g": 3.3909169039975556e-05,
+      "thresh_g_interval": [
+        4.340488892117245e-05,
+        3.3909169039975556e-05
+      ],
+      "min_length_km": 100.0,
+      "searchrad_km": 100.0,
+      "n_contour_points": 649799,
+      "sample": {
+        "frame_count": 19,
+        "chosen_n": 14,
+        "total_compute_s": 52.0,
+        "manifest": "evidence\\manifests\\ecmwf_ifs025_latest.json",
+        "event_split": {
+          "box": "lat 30-62N / lon -12..30E",
+          "field": "rain+showers > 2 mm/h",
+          "heavy_median": 0.056780133928571425,
+          "note": "split relativo al campione; regola iniziale a 0 negativi e' stata misurata e scartata (costo dichiarato in R5)"
+        }
+      },
+      "score": {
+        "metric": "CSI = hits/(hits+misses+false_alarms) — dichiarato prima dei risultati",
+        "informative": false,
+        "best_CSI_measured": 0.5,
+        "best_factor": 0.3,
+        "table_file": "evidence/score_table_ecmwf.json"
+      }
+    },
+    "dwd_icon_eu": {
+      "S_km": 100.0,
+      "thresh_t": -1.1195110623206401e-10,
+      "thresh_t_interval": [
+        -1.535383195284667e-10,
+        -1.1195110623206401e-10
+      ],
+      "thresh_g": 3.729252072020075e-05,
+      "thresh_g_interval": [
+        4.720482075160812e-05,
+        3.729252072020075e-05
+      ],
+      "min_length_km": 100.0,
+      "searchrad_km": 100.0,
+      "n_contour_points": 145013,
+      "sample": {
+        "frame_count": 14,
+        "chosen_n": 14,
+        "total_compute_s": 14.79,
+        "manifest": "evidence\\manifests\\dwd_icon_eu_latest.json",
+        "event_split": {
+          "box": "lat 30-62N / lon -12..30E",
+          "field": "rain+showers > 2 mm/h",
+          "heavy_median": 0.0,
+          "note": "split relativo al campione; regola iniziale a 0 negativi e' stata misurata e scartata (costo dichiarato in R5)"
+        }
+      },
+      "score": {
+        "metric": "CSI = hits/(hits+misses+false_alarms) — dichiarato prima dei risultati",
+        "informative": false,
+        "best_CSI_measured": 0.1429,
+        "best_factor": 0.3,
+        "table_file": "evidence/score_table_dwd.json"
+      }
+    }
+  },
+  "thresholds_source": {
+    "thresh_t": "MISURATO: 10mo percentile di TFP (lato caldo, +S/2 lungo s-hat) sulle isolinee zero di L_tau",
+    "thresh_g": "MISURATO: 90mo percentile di |grad theta_e| sulle isolinee zero di L_tau",
+    "S_km": "MISURATO: minimo numero di isolinee fra 30/50/100 km",
+    "min_length_km": "SCELTA GEOMETRICA DICHIARATA (non copiata da front_id 251 km)",
+    "searchrad_km": "SCELTA GEOMETRICA DICHIARATA (non copiata da front_id 170 km)",
+    "speed_threshold_ms": "CITATO: front_id classify_fronts.R default 1.5 m/s"
+  },
+  "not_copied_from_front_id_ERAInterim_1.5deg": {
+    "thresh_t": -150000000000.0,
+    "thresh_g": 7.3e-06,
+    "note": "valori ERA-Interim NON usati (memoria #237)"
+  },
+  "warning": null
+}
