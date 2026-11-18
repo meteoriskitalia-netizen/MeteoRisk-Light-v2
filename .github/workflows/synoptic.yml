@@ -51,6 +51,39 @@ jobs:
             --domain ecmwf_ifs025 \
             --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+      - name: Legge NOAA CPC e scrive data/climate/teleconnections.json
+        id: teleconnections
+        run: |
+          set -e
+          mkdir -p data/climate
+          if python -m scripts.synoptic.build_teleconnections \
+            --out data/climate/teleconnections.json; then
+            echo "status=ok" >> "$GITHUB_OUTPUT"
+          else
+            rc=$?
+            echo "FERMATO: build_teleconnections exit $rc (sorgente NOAA CPC non raggiungibile o dati mancanti)" >&2
+            # Nessun dato inventato: stato onesto con null_reason e motivazione.
+            python - "$rc" <<'PY'
+          import json, sys, datetime
+          rc = sys.argv[1]
+          now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+          payload = {
+            "schema_version": 1,
+            "generated_at": now,
+            "source": "NOAA CPC",
+            "status": "producer_failed",
+            "null_reason": "producer_failed",
+            "reason": ("build_teleconnections.py uscito con codice %s su GitHub Actions: "
+                       "sorgente NOAA CPC non disponibile o dati mancanti. "
+                       "Nessun valore inventato.") % rc,
+            "series": [],
+          }
+          with open("data/climate/teleconnections.json", "w", encoding="utf-8") as f:
+              f.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n")
+          PY
+            echo "status=error" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Gate scientifico prima del commit
         run: |
           set -e
@@ -74,20 +107,20 @@ jobs:
           print("gate OK:", len(d["features"]), "feature,", sorted(kinds))
           PY
 
-      - name: Commit del SOLO JSON
+      - name: Commit dei DUE JSON
         id: commit_json
         run: |
           set -e
-          git add -- data/radar/synoptic.json
+          git add -- data/radar/synoptic.json data/climate/teleconnections.json
           if git diff --cached --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "NO-OP: synoptic.json invariato, nessun commit"
+            echo "NO-OP: synoptic.json e teleconnections.json invariati, nessun commit"
             exit 0
           fi
           git -c user.name='meteorisk-bot' -c user.email='bot@users.noreply.github.com' \
-            commit -m "synoptic: aggiorna data/radar/synoptic.json (TM90 block + raw_field; nessun dato simulato)"
+            commit -m "synoptic: aggiorna data/radar/synoptic.json e data/climate/teleconnections.json (nessun dato simulato)"
           # Altri workflow scrivono su main ogni pochi minuti: ribasiamo il
-          # nostro commit (che tocca UN solo file) e riproviamo in caso di race.
+          # nostro commit (che tocca DUE file) e riproviamo in caso di race.
           for i in 1 2 3; do
             git fetch origin main
             git rebase origin/main || { echo "FATAL: rebase conflittuale"; exit 1; }
