@@ -1771,6 +1771,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .syn-viewbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
         .syn-layer-panel { position: absolute; left: 322px; bottom: 10px; z-index: 901; width: 302px; max-width: calc(100% - 332px); box-sizing: border-box; }
         .syn-layer-panel[hidden] { display: none; }
+        /* 1.3.0.14-FIX - etichetta a meta' blocco e pulsante di ritorno.
+           Solo colori GIA' presenti nel file (#0f172a, #1e293b, #334155,
+           #38bdf8, #e2e8f0): zero colori nuovi. */
+        .syn-layer-label { background: #0f172a; border: 1px solid #38bdf8; border-radius: 4px; color: #e2e8f0; font: 10px/1.25 system-ui, sans-serif; padding: 2px 5px; white-space: nowrap; pointer-events: none; box-sizing: border-box; }
+        .syn-front-symbol { pointer-events: none; }
+        .syn-back-btn { background: #1e293b; border: 1px solid #38bdf8; color: #38bdf8; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: bold; cursor: pointer; }
+        .syn-back-btn:hover { background: #0f172a; }
         @media (max-width: 767px) {
             .syn-layer-panel { left: 6px; right: 6px; bottom: 160px; width: auto; max-width: none; }
         }
@@ -2387,14 +2394,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                 </div>
             </details>
         </div>
-        <!-- 1.3.0.13-FIX - Legenda del layer feature sinottiche validate.
-             Usa .live-legend (stessi colori delle altre overlay); vuota e
-             nascosta finche' il toggle non viene acceso. -->
+        <!-- 1.3.0.14-FIX - Legenda del layer sinottico: zoom automatico,
+             stile visibile, simboli frontali pronti ma non inventati. -->
         <div id="syn-layer-panel" class="live-legend syn-layer-panel" hidden>
             <div class="legend-title">Blocchi atmosferici TM90 — sulla mappa</div>
-            <div class="legend-row" style="font-size:11px;"><span style="color:#38bdf8;">&#9473;</span> blocco atmosferico — indice Tibaldi–Molteni 1990 (GHGS&gt;0, GHGN&lt;-10 m/grad); soglia citata, non validata su eventi italiani.</div>
-            <div class="legend-row" style="font-size:10px;color:#94a3b8;">Solo geometrie reali con kind=block; i campi grezzi non calibrati (raw_field) non sono disegnati.</div>
+            <div class="legend-row" style="font-size:11px;"><span style="color:#38bdf8;">&#9473;</span> blocco atmosferico — tratto 4 px tratteggiato azzurro (lo stesso dell'area Doppler) con etichetta a metà: latitudine e intervallo longitudine. Indice Tibaldi–Molteni 1990 (GHGS&gt;0, GHGN&lt;-10 m/grad); soglia citata, non validata su eventi italiani.</div>
+            <div class="legend-row" style="font-size:10px;color:#94a3b8;">All'attivazione la mappa inquadra i blocchi; alla disattivazione torna alla vista salvata. Solo geometrie reali con kind=block. Nessun fronte oggi: simboli convenzionali pronti se compare kind=front — triangoli <span style="color:#3b82f6;">blu</span> (freddo), semicerchi <span style="color:#ef4444;">rossi</span> (caldo), entrambi <span style="color:#a78bfa;">viola</span> (occluso). Nessun simbolo inventato, nessun raw_field disegnato.</div>
             <div class="legend-row" id="syn-layer-status" style="font-size:10px;color:#e2e8f0;">Layer spento.</div>
+            <div class="legend-row" style="font-size:10px;"><button type="button" id="syn-back-italy" class="syn-back-btn" onclick="synBackToItaly()" title="Ripristina la vista salvata prima dello zoom automatico (o la vista predefinita sull'Italia) senza cambiare lo stato del layer.">Torna all'Italia</button></div>
             <div class="legend-row" id="syn-layer-credit" style="font-size:10px;color:#94a3b8;"></div>
         </div>
         </div>
@@ -2475,7 +2482,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             </label>
             <!-- 1.3.0.13-FIX - Toggle del layer sinottico: SPENTO di default,
                  caricamento lazy di synoptic.json solo alla prima accensione. -->
-            <label class="mp-switch" id="switch-synoptic-wrap" title="Feature sinottiche validate (blocchi TM90) sulla mappa: geometrie reali da data/radar/synoptic.json, nessun simbolo inventato. Spento di default.">
+            <label class="mp-switch" id="switch-synoptic-wrap" title="Blocchi TM90: all'attivazione la mappa fa zoom sui blocchi reali di data/radar/synoptic.json, alla disattivazione torna alla vista salvata. Nessun simbolo inventato. Spento di default.">
                 <input type="checkbox" id="switch-synoptic" onchange="toggleSynopticLayer(this.checked)">
                 <span class="mp-knob"></span>
                 <span class="mp-label">Blocchi TM90</span>
@@ -2652,11 +2659,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <div id="tele-body" hidden>
             <div class="syn-viewbar">
                 <span class="syn-badge">Vista</span>
-                <select id="tele-view-select" class="hour-select" onchange="teleSetView(this.value)" title="La vista a 30 giorni filtra i valori gia in memoria: nessuna nuova richiesta di rete.">
-                    <option value="all" selected>Completa</option>
-                    <option value="30">Ultimi 30 giorni</option>
+                <select id="tele-view-select" class="hour-select" onchange="teleSetView(this.value)" title="Il Periodo filtra solo i valori gia in memoria: nessuna nuova richiesta di rete. All apertura ogni serie usa la finestra consigliata per famiglia.">
+                    <option value="full">Storico completo</option>
+                    <option value="5y">5 anni</option>
+                    <option value="12m">12 mesi</option>
+                    <option value="ssw">Timeline SSW</option>
                 </select>
-                <span class="syn-badge" id="tele-view-note">serie complete — zero richieste di rete</span>
+                <span class="syn-badge" id="tele-view-note">default per famiglia: QBO/ENSO/PNA 5 anni · AMO storico · NAO/AO 12 mesi · SSW timeline — zero richieste di rete</span>
             </div>
             <div class="syn-grid" id="tele-grid"></div>
             <p class="syn-stamp" id="tele-stamp"></p>
@@ -3074,9 +3083,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.14';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.15';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-18';
     const APP_CHANGELOG = [
+    { version: '1.3.0.15', date: '2026-11-18', changes: [
+        'Blocchi TM90 visibili: all\'attivazione del layer la mappa fa fitBounds sui 3 blocchi reali e alla disattivazione torna alla vista salvata; tratto azzurro 4 px tratteggiato con etichetta lat/lon a meta blocco, pulsante Torna all\'Italia. Simboli frontali convenzionali solo se il JSON emette kind=front: oggi 0 fronti, nessun simbolo inventato e nessun raw_field disegnato.',
+        'Finestre delle teleconnessioni per famiglia con cicli fisici: QBO, ENSO e PNA 5 anni; AMO storico completo 1856-oggi; NAO/AO 12 mesi; SSW timeline di 45 eventi reali 1958-oggi. Default automatico per famiglia, nomi leggibili e significato in italiano per le 22 serie, punti DJF del PNA evidenziati con media in didascalia; zero richieste di rete nuove. La vista 30 giorni e rimossa dal codice vivo.',
+        'Bump release: VERSION BUILD=145, tre cache del service worker rinnovate, README e test .mjs allineati, vecchio html mri-light-1.3.0.14.html rimosso. NON verificato: resa visiva nel browser interno e run GitHub Actions del dispatch Pages.',
+    ]},
     { version: '1.3.0.14', date: '2026-11-18', changes: [
         'Feature sinottiche (blocchi TM90 validati) disegnate sulla mappa Leaflet; rimossi SVG astratti e grafici teleconnessioni duplicati dal pannello sinottico; vista 30 giorni per le teleconnessioni',
     ]},
@@ -32304,34 +32318,91 @@ function renderContinuousOverlay() {
     // simulato: ogni pannello mostra fonte, licenza, ultimo aggiornamento.
     // ===================================================================
     var teleState = { promise: null, data: null, error: '' };
-    // 1.3.0.13-FIX - Seconda vista "ultimi 30 giorni": filtra i valori GIA'
-    // in memoria. Nessuna richiesta di rete, nessun dato nuovo.
-    var teleView = 'all';   // 'all' | '30'
+    // 1.3.0.14 - PERIODO con finestre per famiglia. Il selettore ha 4 valori
+    // ('full' | '5y' | '12m' | 'ssw'); lo stato iniziale e' 'auto', cioe'
+    // la finestra consigliata PER SERIE. Ogni cambio filtra solo i punti GIA'
+    // in memoria: nessuna richiesta di rete, nessun dato inventato.
+    var teleView = 'auto';   // 'auto' | 'full' | '5y' | '12m' | 'ssw'
+    var TELE_DAY = 86400000;
+    var TELE_FAMILY = {
+        'qbo30_monthly': '5y', 'qbo50_monthly': '5y',
+        'amo_monthly': 'full',
+        'nao_daily': '12m', 'nao_monthly': '12m', 'ao_daily': '12m',
+        'nino12_weekly': '5y', 'nino3_weekly': '5y', 'nino34_weekly': '5y',
+        'nino4_weekly': '5y', 'soi_monthly': '5y',
+        'pna_monthly': '5y', 'pna_daily': '5y'
+    };
+    var TELE_WINDOW_LABEL = {
+        'auto': 'finestra consigliata per famiglia', 'full': 'Storico completo',
+        '5y': '5 anni', '12m': '12 mesi', 'ssw': 'Timeline SSW'
+    };
+    function teleFamilyWindow(s) {
+        var id = (s && s.id) ? String(s.id) : '';
+        if (id.indexOf('ssw') === 0 || (s && s.kind === 'events')) return 'ssw';
+        if (TELE_FAMILY[id]) return TELE_FAMILY[id];
+        // Gli altri modi CPC (EA, WP, EP-NP, EAWR, SCAND, TNH, POL-EUR, PT)
+        // non hanno una finestra di ricerca dedicata: storico completo.
+        return 'full';
+    }
+    function teleEffectiveView(s) {
+        return (teleView === 'auto') ? teleFamilyWindow(s) : teleView;
+    }
+    function teleWindowSpan(w) {
+        if (w === '5y') return 365.25 * 5 * TELE_DAY;
+        if (w === '12m') return 365.25 * TELE_DAY;
+        return 0;
+    }
     function teleWindowValues(s) {
         var vals = (s && Array.isArray(s.values)) ? s.values.slice() : [];
-        if (teleView !== '30') return vals;
+        var span = teleWindowSpan(teleEffectiveView(s));
+        if (!span) return vals;
         var last = -Infinity, i;
         for (i = 0; i < vals.length; i++) {
             var t = Number(vals[i] && vals[i][0]);
             if (isFinite(t) && t > last) last = t;
         }
         if (!isFinite(last)) return [];
-        var from = last - 30 * 86400000;
+        var from = last - span;
         return vals.filter(function (v) {
             return Array.isArray(v) && isFinite(Number(v[0])) && Number(v[0]) >= from;
         });
     }
-    function teleWindowSuffix() {
-        return teleView === '30' ? ' · vista: ultimi 30 giorni (ancorata all ultimo valore della serie)' : '';
+    function teleWindowSuffix(s) {
+        var w = teleEffectiveView(s);
+        var lab = TELE_WINDOW_LABEL[w] || w;
+        return ' · periodo: ' + lab + (teleView === 'auto' ? ' (default per famiglia)' : ' (scelta globale)');
+    }
+    function teleCoverageNote(s, vals) {
+        if (!vals || vals.length < 2) return '';
+        var spanDays = teleWindowSpan(teleEffectiveView(s)) / TELE_DAY;
+        if (!spanDays) return '';
+        var ts = vals.map(function (v) { return Number(v[0]); }).filter(function (t) { return isFinite(t); });
+        if (!ts.length) return '';
+        var covered = (Math.max.apply(null, ts) - Math.min.apply(null, ts)) / TELE_DAY;
+        return (covered < spanDays * 0.95)
+            ? ' · copertura reale ' + Math.round(covered) + ' giorni, inferiore ai ' + Math.round(spanDays) +
+              ' richiesti: finestra ridotta ai dati disponibili'
+            : '';
+    }
+    function teleUpdateViewNote() {
+        var note = document.getElementById('tele-view-note');
+        if (!note) return;
+        note.textContent = teleView === 'auto'
+            ? 'default per famiglia: QBO/ENSO/PNA 5 anni · AMO storico · NAO/AO 12 mesi · SSW timeline — zero richieste di rete'
+            : 'periodo "' + (TELE_WINDOW_LABEL[teleView] || teleView) + '" applicato a tutte le serie — zero richieste di rete';
     }
     function teleSetView(v) {
-        teleView = (v === '30') ? '30' : 'all';
+        teleView = (v === 'full' || v === '5y' || v === '12m' || v === 'ssw') ? v : 'auto';
         var sel = document.getElementById('tele-view-select');
-        if (sel && sel.value !== teleView) sel.value = teleView;
-        var note = document.getElementById('tele-view-note');
-        if (note) note.textContent = teleView === '30'
-            ? 'finestra di 30 gg per serie, calcolata sui dati gia in memoria — zero richieste di rete'
-            : 'serie complete — zero richieste di rete';
+        if (sel && teleView !== 'auto' && sel.value !== teleView) sel.value = teleView;
+        teleUpdateViewNote();
+        if (teleState.data) teleRenderPanel();
+    }
+    function teleResetView() {
+        teleView = 'auto';
+        var sel = document.getElementById('tele-view-select');
+        if (sel) sel.selectedIndex = -1;   // nessuna opzione preselezionata: ogni scelta scatena change
+        teleUpdateViewNote();
         if (teleState.data) teleRenderPanel();
     }
     // 1.3.0.11-FIX - Retry di UNA sola richiesta su HTTP 404, con cache-buster.
@@ -32378,6 +32449,69 @@ function renderContinuousOverlay() {
         for (var i = 0; i < ss.length; i++) if (ss[i] && ss[i].id === id) return ss[i];
         return null;
     }
+    // 1.3.0.14 - nome in maiuscolo/minuscolo normale + riga di significato
+    // in italiano per TUTTE le 22 serie (non solo le 6 schede dedicate).
+    var TELE_LABELS = {
+        ao_daily: { name: 'Oscillazione Artica (AO) — giornaliera',
+            meaning: 'Fase positiva: vortice polare piu compatto e aria fredda contenuta a nord; fase negativa: piu blocking e irruzioni fredde verso l Europa. Indice standardizzato, non previsione.' },
+        nao_daily: { name: 'Oscillazione Nord Atlantica (NAO) — giornaliera',
+            meaning: 'NAO negativa: piu blocking nord-atlantico, con Centro-Sud italiano piu freddo e piovoso in media. Media statistica, non certezza per la singola giornata.' },
+        nao_monthly: { name: 'Oscillazione Nord Atlantica (NAO) — mensile',
+            meaning: 'NAO negativa: piu blocking nord-atlantico, con Centro-Sud italiano piu freddo e piovoso in media. Media statistica, non certezza per la singola giornata.' },
+        ea_monthly: { name: 'Modello East Atlantic (EA) — mensile',
+            meaning: 'Secondo modo dell Atlantico: modula la posizione del getto e il blocking europeo. Contesto statistico, non previsione.' },
+        wp_monthly: { name: 'Modello West Pacific (WP) — mensile',
+            meaning: 'Modello del Pacifico occidentale, legato alla posizione del getto nord-pacifico. Contesto teleconnettivo, non previsione.' },
+        epnp_monthly: { name: 'Modello East Pacific / North Pacific (EP-NP) — mensile',
+            meaning: 'Modello del Pacifico orientale e settentrionale: contesto per la circolazione nord-americana, non un predittore diretto per l Italia.' },
+        pna_monthly: { name: 'Modello Pacifico / Nord America (PNA) — mensile',
+            meaning: 'Modello del Pacifico-Nord America: per l Italia e solo contesto teleconnettivo. I punti dicembre-febbraio sono evidenziati e la loro media e indicata in didascalia.' },
+        eawr_monthly: { name: 'Modello East Atlantic / West Russia (EAWR) — mensile',
+            meaning: 'Modello Atlantico orientale / Russia occidentale: influenza su temperature e precipitazioni europee tramite blocking. Contesto statistico.' },
+        scand_monthly: { name: 'Modello Scandinavia (SCAND) — mensile',
+            meaning: 'Blocking sulla Scandinavia: in inverno favorisce freddo e neve sull Europa. Contesto statistico, non previsione.' },
+        tnh_monthly: { name: 'Modello Tropicale / Emisfero Nord (TNH) — mensile',
+            meaning: 'Modello tropicale-emisferico nord, legato alla posizione dei getti. La serie storica e parziale: dichiarata nella tabella delle coperture.' },
+        poleur_monthly: { name: 'Modello Polare / Eurasia (POL-EUR) — mensile',
+            meaning: 'Modello polare-eurasiano: contesto per la circolazione fredda eurasiatica, non previsione per l Italia.' },
+        pt_monthly: { name: 'Modello Pacific Transition (PT) — mensile',
+            meaning: 'Modello di transizione del Pacifico; serie storica parziale, dichiarata nella tabella delle coperture.' },
+        nino12_weekly: { name: 'ENSO Niño 1+2 — anomalia settimanale della SST',
+            meaning: 'Anomalia della temperatura superficiale del Pacifico equatoriale orientale: contesto per ENSO. Valore standardizzato sulla baseline 1991-2020, non previsione.' },
+        nino3_weekly: { name: 'ENSO Niño 3 — anomalia settimanale della SST',
+            meaning: 'Anomalia della temperatura superficiale del Pacifico equatoriale centrale: contesto per ENSO. Standardizzato 1991-2020, non previsione.' },
+        nino34_weekly: { name: 'ENSO Niño 3.4 — anomalia settimanale della SST',
+            meaning: 'Niño 3.4 e il riferimento standard per ENSO: sopra +0,5 C fase calda (El Niño), sotto -0,5 C fase fredda (La Niña). Standardizzato 1991-2020.' },
+        nino4_weekly: { name: 'ENSO Niño 4 — anomalia settimanale della SST',
+            meaning: 'Anomalia della temperatura superficiale del Pacifico equatoriale occidentale: contesto per ENSO. Standardizzato 1991-2020, non previsione.' },
+        soi_monthly: { name: 'Oscillazione Sud (SOI) — Tahiti meno Darwin',
+            meaning: 'Differenza di pressione Tahiti-Darwin: negativo indica fase El Niño, positivo La Niña. Andamento mensile standardizzato, non previsione.' },
+        qbo30_monthly: { name: 'QBO 30 hPa — vento zonale equatoriale',
+            meaning: 'QBO negativa (easterly): per statistica e associata a vortice polare piu debole, maggiore probabilita di SSW e NAO negativa. Relazione statistica, NON previsione deterministica per l Italia.' },
+        qbo50_monthly: { name: 'QBO 50 hPa — vento zonale equatoriale',
+            meaning: 'La fase del QBO a 50 hPa e il riferimento classico per l accoppiamento stratosfera-troposfera. Anche qui: contesto statistico, non deterministico.' },
+        amo_monthly: { name: 'Oscillazione Multidecadale Atlantica (AMO)',
+            meaning: 'AMO positiva modula il clima dell Atlantico e del Mediterraneo su scale multidecadali. NON e un indicatore stagionale e NON va usata per prevedere singoli eventi sull Italia.' },
+        pna_daily: { name: 'Modello Pacifico / Nord America (PNA) — giornaliero',
+            meaning: 'PNA e un modo del Pacifico-Nord America: per l Italia e SOLO contesto teleconnettivo, non un predittore diretto. I giorni DJF sono evidenziati.' },
+        ssw_events: { name: 'Riscaldamenti stratosferici improvvisi (SSW) — eventi maggiori',
+            meaning: 'Date centrali degli SSW maggiori dal 1958: catalogo storico CSL/SSWC, non fornisce eventi in tempo reale.' }
+    };
+    function teleLabel(s) {
+        var id = (s && s.id) ? String(s.id) : '';
+        if (TELE_LABELS[id]) return TELE_LABELS[id];
+        return { name: (s && s.label) ? String(s.label) : (id || 'serie'), meaning: (s && s.baseline) ? String(s.baseline) : '' };
+    }
+    function teleDjfMean(vals) {
+        var sum = 0, n = 0;
+        for (var i = 0; i < vals.length; i++) {
+            var t = Number(vals[i] && vals[i][0]);
+            if (!isFinite(t)) continue;
+            var m = new Date(t).getUTCMonth() + 1;
+            if (m === 12 || m === 1 || m === 2) { sum += Number(vals[i][1]); n++; }
+        }
+        return n ? { mean: sum / n, n: n } : null;
+    }
     function teleStamp(s) {
         var d = teleState.data || {};
         return 'fonte ' + synEsc(s.source || d.source || 'n/d') +
@@ -32391,8 +32525,8 @@ function renderContinuousOverlay() {
             return Array.isArray(v) && isFinite(Number(v[0])) && isFinite(Number(v[1]));
         });
         if (!vals.length) return '<div class="syn-msg">non disponibile — motivo: nessun valore valido nella serie.</div>';
-        if (teleView === '30' && vals.length < 2) {
-            return '<div class="syn-msg">' + vals.length + ' punto nella finestra di 30 giorni (' + synEsc(s.id || 'n/d') +
+        if (vals.length < 2) {
+            return '<div class="syn-msg">' + vals.length + ' punto nella finestra selezionata (' + synEsc(s.id || 'n/d') +
                 '): la vista completa e piu informativa. Nessun grafico a un solo punto.</div>';
         }
         var xs = vals.map(function (v) { return Number(v[0]); });
@@ -32410,21 +32544,38 @@ function renderContinuousOverlay() {
         }
         var poly = vals.map(function (v) { return X(Number(v[0])).toFixed(1) + ',' + Y(Number(v[1])).toFixed(1); }).join(' ');
         svg += '<polyline points="' + poly + '" fill="none" stroke="#7dd3fc" stroke-width="1.6"/>';
+        var djf = (String(s.id || '').indexOf('pna_') === 0) ? teleDjfMean(vals) : null;
+        if (djf) {
+            for (var d = 0; d < vals.length; d++) {
+                var md = new Date(Number(vals[d][0])).getUTCMonth() + 1;
+                if (md === 12 || md === 1 || md === 2) {
+                    svg += '<circle cx="' + X(Number(vals[d][0])).toFixed(1) + '" cy="' + Y(Number(vals[d][1])).toFixed(1) +
+                        '" r="2.4" fill="#fbbf24" stroke="none"/>';
+                }
+            }
+        }
         svg += '<text x="2" y="' + (T + 9) + '" fill="#94a3b8" font-size="9">' + synEsc(maxY.toFixed(2)) + '</text>';
         svg += '<text x="2" y="' + (H - B + 9) + '" fill="#94a3b8" font-size="9">' + synEsc(minY.toFixed(2)) + '</text>';
         svg += '<text x="' + L + '" y="' + (H - 8) + '" fill="#94a3b8" font-size="9">' + synFmtIso(minX).slice(0, 10) + '</text>';
         svg += '<text x="' + (W - R) + '" y="' + (H - 8) + '" fill="#94a3b8" font-size="9" text-anchor="end">' + synFmtIso(maxX).slice(0, 10) + '</text>';
         svg += '</svg>';
-        return svg + '<div class="syn-tele-cap">Indice OSSERVATO — non previsione · ' + synEsc(s.label || s.id || '') + ' · ' + teleStamp(s) + teleWindowSuffix() + '</div>';
+        return svg + '<div class="syn-tele-cap">Indice OSSERVATO — non previsione · ' + synEsc(s.label || s.id || '') + ' · ' + teleStamp(s) +
+            teleWindowSuffix(s) + teleCoverageNote(s, vals) +
+            (djf ? ' · media DJF (dic-feb) ' + djf.mean.toFixed(2) + ' su ' + djf.n + ' punti evidenziati' : '') + '</div>';
     }
     function teleTimeline(s) {
         if (!s) return '<div class="syn-msg">non disponibile — motivo: timeline SSW assente dal JSON.</div>';
-        var ev = (s.events || []).slice().sort(function (a, b) { return a.ts - b.ts; });
+        if (s.kind !== 'events' || !Array.isArray(s.events)) {
+            return '<div class="syn-msg">Formato SSW dichiarato: ' + synEsc(String(s.kind || 'conteggi')) +
+                ' (' + ((s.values && s.values.length) || 0) + ' valori numerici). Nessun evento ricostruito o inventato: serve una timeline di eventi.</div>';
+        }
+        var ev = s.events.slice().sort(function (a, b) { return a.ts - b.ts; });
         if (!ev.length) return '<div class="syn-msg">non disponibile — motivo: nessun evento SSW nella timeline.</div>';
-        if (teleView === '30') {
+        var span = teleWindowSpan(teleEffectiveView(s));
+        if (span) {
             var lastEv = ev[ev.length - 1].ts;
-            ev = ev.filter(function (e) { return e.ts >= lastEv - 30 * 86400000; });
-            if (!ev.length) return '<div class="syn-msg">nessun evento SSW nella finestra di 30 giorni (ultimo evento storico: ' +
+            ev = ev.filter(function (e) { return e.ts >= lastEv - span; });
+            if (!ev.length) return '<div class="syn-msg">nessun evento SSW nella finestra selezionata (ultimo evento storico: ' +
                 synEsc(String(ev0Date(s))) + '). Nessuna timeline inventata.</div>';
         }
         var min = ev[0].ts, max = ev[ev.length - 1].ts;
@@ -32434,14 +32585,21 @@ function renderContinuousOverlay() {
         svg += '<line x1="' + L + '" y1="' + YY + '" x2="' + (W - R) + '" y2="' + YY + '" stroke="#64748b" stroke-width="1"/>';
         for (var i = 0; i < ev.length; i++) {
             var x = X(ev[i].ts).toFixed(1);
-            svg += '<line x1="' + x + '" y1="' + (YY - 12) + '" x2="' + x + '" y2="' + (YY + 12) + '" stroke="#7dd3fc" stroke-width="2"/>';
+            svg += '<line x1="' + x + '" y1="' + (YY - 12) + '" x2="' + x + '" y2="' + (YY + 12) + '" stroke="#7dd3fc" stroke-width="2"><title>' +
+                synEsc(String(ev[i].date || ev[i].name || '')) + '</title></line>';
         }
         for (var k = 0; k < 4 && k < ev.length; k++) {
             var idx = Math.floor(k * (ev.length - 1) / 3);
-            svg += '<text x="' + X(ev[idx].ts).toFixed(1) + '" y="' + (YY + 30) + '" fill="#94a3b8" font-size="9" text-anchor="middle">' + synEsc(String(ev[idx].date || ev[idx].name)) + '</text>';
+            svg += '<text x="' + X(ev[idx].ts).toFixed(1) + '" y="' + (YY + 30) + '" fill="#94a3b8" font-size="9" text-anchor="middle">' +
+                new Date(ev[idx].ts).getUTCFullYear() + '</text>';
         }
         svg += '</svg>';
-        return svg + '<div class="syn-tele-cap">Timeline storica · ' + ev.length + ' eventi · definizione ' + synEsc(s.definition || 'n/d') + ' · citazione ' + synEsc(s.citation || 'n/d') + ' · ' + teleStamp(s) + teleWindowSuffix() + '</div>';
+        var now = Date.now();
+        var zoomN = ev.filter(function (e) { return e.ts >= now - 60 * TELE_DAY && e.ts <= now + 60 * TELE_DAY; }).length;
+        var zoom = ' · zoom ' + teleSeasonLabel() + ' ±60 gg: ' +
+            (zoomN ? zoomN + ' eventi' : 'nessun evento (catalogo storico, ultimo ' + synEsc(String(ev0Date(s))) + ')');
+        return svg + '<div class="syn-tele-cap">Timeline storica · ' + ev.length + ' eventi · definizione ' + synEsc(s.definition || 'n/d') +
+            ' · citazione ' + synEsc(s.citation || 'n/d') + ' · ' + teleStamp(s) + teleWindowSuffix(s) + zoom + '</div>';
     }
     function ev0Date(s) {
         var ev = (s && Array.isArray(s.events)) ? s.events.slice().sort(function (a, b) { return a.ts - b.ts; }) : [];
@@ -32493,28 +32651,31 @@ function renderContinuousOverlay() {
         if (msg) msg.hidden = true;
         if (body) body.hidden = false;
         if (badge) badge.textContent = 'aggiornato ' + synFmtIso(d.generated_at) + ' · ' + (d.series || []).length + ' serie';
-        var note = document.getElementById('tele-view-note');
-        if (note) note.textContent = teleView === '30'
-            ? 'finestra di 30 gg per serie, calcolata sui dati gia in memoria — zero richieste di rete'
-            : 'serie complete — zero richieste di rete';
+        teleUpdateViewNote();
         var dseries = Array.isArray(d.series) ? d.series : [];
         var sh = '';
         for (var si = 0; si < dseries.length; si++) {
-            sh += '<div class="syn-tele-block">' + teleChart(dseries[si]) + '</div>';
+            var ssi = dseries[si];
+            var lb = teleLabel(ssi);
+            var isEventTimeline = ssi && (ssi.kind === 'events' || Array.isArray(ssi.events));
+            var ch = isEventTimeline ? teleTimeline(ssi) : teleChart(ssi);
+            sh += '<div class="syn-card"><div class="syn-card-head">' + synEsc(lb.name) + '</div>' +
+                '<div class="syn-tele-block">' + ch + '</div>' +
+                '<p class="syn-stamp">' + synEsc(lb.meaning) + '</p></div>';
         }
         var html = '<div class="syn-card"><div class="syn-card-head">Serie osservate (' + dseries.length + ') — indici OSSERVATI</div>' +
             '<div class="syn-tele">' + sh + '</div></div>';
-        html += telePanel('QBO 30 hPa (m/s)', teleChart(teleSeries('qbo30_monthly')),
+        html += telePanel('QBO 30 hPa — vento zonale equatoriale', teleChart(teleSeries('qbo30_monthly')),
             'QBO negativa (easterly): per statistica è associata a vortice polare più debole, maggiore probabilità di SSW e NAO negativa. Relazione statistica, NON previsione deterministica per l Italia.');
-        html += telePanel('QBO 50 hPa (m/s)', teleChart(teleSeries('qbo50_monthly')),
+        html += telePanel('QBO 50 hPa — vento zonale equatoriale', teleChart(teleSeries('qbo50_monthly')),
             'La fase del QBO a 50 hPa è il riferimento classico per l accoppiamento stratosfera-troposfera. Anche qui: contesto statistico, non deterministico.');
-        html += telePanel('AMO (°C, ERSSTv5)', teleChart(teleSeries('amo_monthly')),
+        html += telePanel('Oscillazione Multidecadale Atlantica (AMO)', teleChart(teleSeries('amo_monthly')),
             'AMO positiva modula il clima dell Atlantico e del Mediterraneo su scale multidecadali. NON è un indicatore stagionale e NON va usata per prevedere singoli eventi sull Italia.');
-        html += telePanel('NAO (indice osservato)', teleChart(teleSeries('nao_monthly')),
+        html += telePanel('Oscillazione Nord Atlantica (NAO) — mensile', teleChart(teleSeries('nao_monthly')),
             'NAO negativa: piu blocking nord-atlantico, con Centro-Sud italiano piu freddo e piovoso in media. Media statistica, non certezza per la singola giornata.');
-        html += telePanel('PNA daily (lead=0, member=0)', teleChart(teleSeries('pna_daily')),
+        html += telePanel('Modello Pacifico / Nord America (PNA) — giornaliero', teleChart(teleSeries('pna_daily')),
             'PNA è un modo del Pacifico-Nord America: per l Italia è SOLO contesto teleconnettivo, non un predittore diretto.');
-        html += telePanel('SSW — timeline storica', teleTimeline(teleSeries('ssw_events')),
+        html += telePanel('Riscaldamenti stratosferici improvvisi (SSW) — timeline', teleTimeline(teleSeries('ssw_events')),
             'Date centrali degli SSW maggiori dal 1958. Lacuna real-time dichiarata: il catalogo CSL/SSWC è storico e non fornisce eventi in tempo reale.');
         html += teleContextImages();   // 2 immagini NOAA CPC, nessuna scheda di degrado
         grid.innerHTML = html;
@@ -32526,6 +32687,7 @@ function renderContinuousOverlay() {
         if (!panel) return;
         if (panel.classList.contains('active')) { panel.classList.remove('active'); return; }
         panel.classList.add('active');
+        teleResetView();   // ogni apertura ripristina la finestra consigliata per famiglia
         teleEnsureLoaded().then(function () { teleRenderPanel(); });
     }
     // LAZY all'espansione del riquadro previsioni: qui si popolano le frasi.
@@ -36712,15 +36874,32 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
 })();
 
     /* ===================================================================
-       1.3.0.13-FIX - FEATURE SINOTTICHE SULLA LEAFLET MAP.
-       Solo kind=block con geometria valida [[lat,lon],...]. Nessun
-       raw_field disegnato, nessun simbolo/poligono inventato. Toggle OFF
-       di default, caricamento lazy, legenda con la fonte REALE del JSON.
+       1.3.0.14-FIX - VISIBILITA' DELLE FEATURE SINOTTICHE SULLA MAPPA.
+       Causa MISURATA nel browser interno (1.3.0.14): i 3 blocchi TM90
+       sono linee quasi orizzontali a latitudine costante; al boot la mappa
+       e' sull'Italia (42.5N, 12.5E, z6) e i blocchi sono fuori schermo,
+       con 2 path a bounding-box alto 0. Ora:
+         ON  -> salva center+zoom, disegna e fitBounds sui blocchi;
+         OFF -> ripristina la vista salvata;
+         pulsante "Torna all'Italia" esplicito;
+         tratto 4 px tratteggiato #38bdf8 (azzurro gia' del layer Doppler)
+         + etichetta a meta' con latitudine e intervallo longitudine;
+         simboli frontali convenzionali SOLO se kind=front compare
+         (triangoli blu / semicerchi rossi / entrambi viola); oggi non ci
+         sono fronti, quindi non vengono disegnati e la legenda lo dice.
+       Nessun colore nuovo, nessun raw_field disegnato, nessun dato inventato.
        =================================================================== */
     (function () {
         var PANE = 'synopticPane';
-        var st = { on: false, loaded: false, data: null, error: '', layer: null, drawn: 0, raw: 0, other: 0, invalid: 0 };
-        var BASE_TITLE = 'Feature sinottiche validate (blocchi TM90) sulla mappa: geometrie reali da data/radar/synoptic.json, nessun simbolo inventato. Spento di default.';
+        var SYNC_COLOR = '#38bdf8';   // azzurro gia' usato dall'area Doppler
+        var FRONT_COLD = '#3b82f6';   // blu convenzionale, gia' nel file
+        var FRONT_WARM = '#ef4444';   // rosso convenzionale, gia' nel file
+        var FRONT_OCCL = '#a78bfa';   // viola convenzionale, gia' nel file
+        var WEIGHT = 4;               // richiesti 3-4 px: 4 px
+        var st = { on: false, loaded: false, data: null, error: '', layer: null,
+                   drawn: 0, raw: 0, other: 0, invalid: 0, fronts: 0,
+                   frontUnknown: 0, boundsPts: [], savedView: null, fitted: false };
+        var BASE_TITLE = 'Blocchi TM90 reali da data/radar/synoptic.json: all\'attivazione la mappa fa zoom sui blocchi, alla disattivazione torna alla vista salvata. Nessun simbolo inventato. Spento di default.';
         function byId(id) { return document.getElementById(id); }
         function esc(v) {
             return String(v === null || v === undefined ? '' : v)
@@ -36735,6 +36914,7 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
             var d = new Date(iso);
             return isNaN(d.getTime()) ? String(iso || 'n/d') : d.toISOString().replace('T', ' ').slice(0, 16) + 'Z';
         }
+        function num(v) { return String(Math.round(Number(v) * 100) / 100); }
         function coords(f) {
             var g = f && f.geometry;
             if (!Array.isArray(g) || g.length < 2) return null;
@@ -36748,6 +36928,56 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
             }
             return out;
         }
+        // I fronti, se mai arrivassero, possono avere geometry annidata
+        // (LineString). Nessuna forma viene inventata: solo i punti presenti.
+        function frontCoords(f) {
+            var g = f && f.geometry;
+            if (Array.isArray(g) && g.length && Array.isArray(g[0]) && g[0].length && Array.isArray(g[0][0])) g = g[0];
+            return coords({ geometry: g });
+        }
+        function latTxt(v) { return num(Math.abs(v)) + (v < 0 ? '°S' : '°N'); }
+        function lonTxt(v) { return num(Math.abs(v)) + (v < 0 ? '°W' : '°E'); }
+        function latRange(a, b) {
+            if (a === b) return latTxt(a);
+            if (a >= 0 && b >= 0) return num(a) + '–' + num(b) + '°N';
+            if (a < 0 && b < 0) return num(Math.min(Math.abs(a), Math.abs(b))) + '–' + num(Math.max(Math.abs(a), Math.abs(b))) + '°S';
+            return latTxt(a) + '–' + latTxt(b);
+        }
+        function extentLabel(pts) {
+            var lats = pts.map(function (p) { return p[0]; });
+            var lons = pts.map(function (p) { return p[1]; });
+            var la0 = Math.min.apply(null, lats), la1 = Math.max.apply(null, lats);
+            var lo0 = Math.min.apply(null, lons), lo1 = Math.max.apply(null, lons);
+            return 'lat ' + latRange(la0, la1) + ' · lon ' + lonTxt(lo0) + ' … ' + lonTxt(lo1);
+        }
+        // Punto a meta' della lunghezza cumulata della polilinea: non e'
+        // geometria nuova, e' solo la posizione dell'etichetta.
+        function midPoint(pts) {
+            var total = 0, seg = [], i;
+            for (i = 1; i < pts.length; i++) {
+                var dx = pts[i][1] - pts[i - 1][1], dy = pts[i][0] - pts[i - 1][0];
+                var d = Math.sqrt(dx * dx + dy * dy);
+                seg.push(d); total += d;
+            }
+            if (!total) return pts[Math.floor((pts.length - 1) / 2)];
+            var target = total / 2, acc = 0;
+            for (i = 0; i < seg.length; i++) {
+                if (acc + seg[i] >= target) {
+                    var t = seg[i] ? (target - acc) / seg[i] : 0;
+                    return [pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t,
+                            pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t];
+                }
+                acc += seg[i];
+            }
+            return pts[pts.length - 1];
+        }
+        function addLabel(pts, text) {
+            if (typeof L.divIcon !== 'function' || typeof L.marker !== 'function') return null;
+            var icon = L.divIcon({ className: 'syn-layer-label', html: esc(text), iconSize: null });
+            var m = L.marker(midPoint(pts), { pane: PANE, icon: icon, interactive: false, keyboard: false });
+            m.bindTooltip(esc(text), { sticky: true });
+            return m;
+        }
         function reason() {
             if (st.error) return 'dato non caricato: ' + st.error;
             if (!st.data) return 'synoptic.json non ancora caricato';
@@ -36760,11 +36990,11 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         function statusText() {
             if (!st.on) return 'Layer spento.';
             if (st.drawn) {
-                var t = st.drawn + ' blocchi TM90 disegnati · ' + st.raw + ' raw_field non disegnati';
-                if (st.other) t += ' · ' + st.other + ' altre feature non disegnate';
-                return t + ' · valid time ' + fmt(st.data && st.data.valid_time) + '.';
+                // Testo richiesto: "3 blocchi visibili dopo zoom automatico · 4 campi grezzi non disegnati · valid time …"
+                return st.drawn + ' blocchi visibili dopo zoom automatico · ' + st.raw +
+                    ' campi grezzi non disegnati · valid time ' + fmt(st.data && st.data.valid_time) + '.';
             }
-            return 'Nessuna feature valida: ' + reason();
+            return 'Nessun blocco da inquadrare: ' + reason();
         }
         function render() {
             var p = byId('syn-layer-panel'), s = byId('syn-layer-status'),
@@ -36784,6 +37014,44 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
                 try { map.removeLayer(st.layer); } catch (e) { }
             }
             st.layer = null; st.drawn = 0; st.raw = 0; st.other = 0; st.invalid = 0;
+            st.fronts = 0; st.frontUnknown = 0; st.boundsPts = [];
+        }
+        function frontKind(f) {
+            var s = String(f.front_type || f.type || f.label || f.kind || '').toLowerCase();
+            if (s.indexOf('occl') >= 0) return 'occluded';
+            if (s.indexOf('cald') >= 0 || s.indexOf('warm') >= 0) return 'warm';
+            if (s.indexOf('fredd') >= 0 || s.indexOf('cold') >= 0) return 'cold';
+            return null;   // tipo sconosciuto: nessun simbolo inventato
+        }
+        function frontSymbol(kind, bearing) {
+            var c = kind === 'cold' ? FRONT_COLD : kind === 'warm' ? FRONT_WARM : FRONT_OCCL;
+            var shape = '';
+            // I simboli guardano il lato verso cui si muove il fronte.
+            if (kind === 'cold' || kind === 'occluded')
+                shape += '<path d="M0 0 L6 0 L3 7 Z" fill="' + c + '" stroke="#0f172a" stroke-width="0.5"/>';
+            if (kind === 'warm' || kind === 'occluded')
+                shape += '<path d="M6 0 A3 3 0 0 1 6 6 Z" fill="' + c + '" stroke="#0f172a" stroke-width="0.5"/>';
+            return '<svg width="12" height="12" viewBox="0 0 12 12" style="transform:rotate(' +
+                Math.round(bearing) + 'deg)">' + shape + '</svg>';
+        }
+        function bearingDeg(a, b) {
+            // 0 gradi = Nord, senso orario (come gli azimut del progetto).
+            return Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI;
+        }
+        function drawFront(f, layers) {
+            var pts = frontCoords(f);
+            if (!pts) { st.invalid++; return; }
+            var kind = frontKind(f);
+            if (!kind) { st.frontUnknown++; return; }
+            var color = kind === 'cold' ? FRONT_COLD : kind === 'warm' ? FRONT_WARM : FRONT_OCCL;
+            layers.push(L.polyline(pts, { pane: PANE, color: color, weight: WEIGHT, opacity: 0.9, fill: false }));
+            st.fronts++;
+            var step = Math.max(1, Math.floor(pts.length / 12));
+            for (var i = 0; i < pts.length - 1; i += step) {
+                var icon = L.divIcon({ className: 'syn-front-symbol',
+                    html: frontSymbol(kind, bearingDeg(pts[i], pts[i + 1])), iconSize: null });
+                layers.push(L.marker(pts[i], { pane: PANE, icon: icon, interactive: false, keyboard: false }));
+            }
         }
         function build() {
             clear();
@@ -36791,21 +37059,52 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
             var layers = [];
             for (var i = 0; i < fs.length; i++) {
                 var f = fs[i], kind = f ? String(f.kind || '') : '';
-                if (kind === 'raw_field') { st.raw++; continue; }
-                if (kind !== 'block') { st.other++; continue; }
-                var pts = coords(f);
-                if (!pts) { st.invalid++; continue; }
-                // Stesso azzurro dell'area Doppler (#38bdf8): nessun colore nuovo.
-                var line = L.polyline(pts, { pane: PANE, color: '#38bdf8', weight: 3, opacity: 0.85, fill: false });
-                var label = f.label || f.id || 'blocco';
-                line.bindTooltip('<b>' + esc(label) + '</b><br>confidence: ' +
-                    esc(f.confidence === undefined || f.confidence === null ? 'n/d' : f.confidence) +
-                    '<br>valid time: ' + esc(fmt(st.data.valid_time)) + '<br>' + esc(f.reference || ''),
-                    { sticky: true });
-                layers.push(line);
+                if (kind === 'raw_field') { st.raw++; continue; }   // mai disegnato
+                if (kind === 'block') {
+                    var pts = coords(f);
+                    if (!pts) { st.invalid++; continue; }
+                    // Stesso azzurro dell'area Doppler, peso maggiore e tratteggio.
+                    var line = L.polyline(pts, { pane: PANE, color: SYNC_COLOR,
+                        weight: WEIGHT, opacity: 0.9, fill: false, dashArray: '8 6' });
+                    var label = f.label || f.id || 'blocco';
+                    line.bindTooltip('<b>' + esc(label) + '</b><br>confidence: ' +
+                        esc(f.confidence === undefined || f.confidence === null ? 'n/d' : f.confidence) +
+                        '<br>valid time: ' + esc(fmt(st.data.valid_time)) + '<br>' + esc(f.reference || ''),
+                        { sticky: true });
+                    layers.push(line);
+                    var lab = addLabel(pts, extentLabel(pts));
+                    if (lab) layers.push(lab);
+                    for (var k = 0; k < pts.length; k++) st.boundsPts.push(pts[k]);
+                    st.drawn++;
+                } else if (kind === 'front') {
+                    drawFront(f, layers);                            // solo se presente
+                } else { st.other++; }
             }
             if (layers.length && typeof map !== 'undefined' && map) st.layer = L.layerGroup(layers).addTo(map);
-            st.drawn = layers.length;
+        }
+        function currentView() {
+            try {
+                var c = map.getCenter();
+                return { center: [c.lat, c.lng], zoom: map.getZoom() };
+            } catch (e) { return null; }
+        }
+        function italyView() {
+            return { center: [42.5, 12.5],
+                     zoom: (typeof window !== 'undefined' && window.innerWidth && window.innerWidth <= 950) ? 5 : 6 };
+        }
+        function setView(v) {
+            if (!v || !mapOk()) return;
+            try { map.setView(v.center, v.zoom, { animate: false }); } catch (e) { }
+        }
+        function fitToBlocks() {
+            if (!mapOk() || !st.boundsPts.length) return false;
+            try { if (typeof map.invalidateSize === 'function') map.invalidateSize(); } catch (e) { }
+            try {
+                var b = (typeof L.latLngBounds === 'function') ? L.latLngBounds(st.boundsPts) : st.boundsPts;
+                map.fitBounds(b, { padding: [48, 48], maxZoom: 6, animate: false });
+                st.fitted = true;
+                return true;
+            } catch (e) { return false; }
         }
         function load(done) {
             if (typeof synState !== 'undefined' && synState && synState.syn) {
@@ -36825,13 +37124,30 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         }
         window.toggleSynopticLayer = function (on) {
             var cb = byId('switch-synoptic');
+            var wasOn = st.on;
             st.on = !!on;
             if (cb && cb.checked !== st.on) cb.checked = st.on;
-            if (!st.on) { clear(); render(); return; }
+            if (!st.on) {
+                clear();
+                if (wasOn) { setView(st.savedView || italyView()); st.savedView = null; st.fitted = false; }
+                render();
+                return;
+            }
+            if (!wasOn) { st.savedView = currentView(); st.fitted = false; }
             render();
             if (!mapOk()) { st.error = 'mappa non pronta (Leaflet non caricato)'; render(); return; }
-            function finish() { if (st.data) build(); render(); }
+            function finish() {
+                if (!st.on) return;            // OFF arrivato prima del caricamento
+                if (st.data) build();
+                fitToBlocks();
+                render();
+            }
             if (st.loaded) finish(); else load(finish);
+        };
+        // Azione esplicita: torna alla vista salvata senza spegnere il layer.
+        window.synBackToItaly = function () {
+            setView(st.savedView || italyView());
+            st.savedView = null; st.fitted = false;
         };
         // Default OFF: nessuna chiamata e nessuna richiesta di rete all'avvio.
     })();

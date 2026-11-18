@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.3.0.15 - BLOCCHI TM90 VISIBILI E FINESTRE TELECONNESSIONI PER FAMIGLIA (bump da 1.3.0.14)
+VERSION=1.3.0.15
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=145
+RELEASE_TYPE=release
+DATE=2026-11-18
+NOTE=Release 1.3.0.15 (bump da 1.3.0.14). Unione di due consegne sulla stessa base senza sovrapposizioni di hunk. A: blocchi TM90 visibili - fitBounds all attivazione del layer con ripristino della vista salvata allo spegnimento, tratto azzurro 4 px tratteggiato con etichetta lat/lon a meta blocco, pulsante Torna all Italia, simboli frontali convenzionali solo se il JSON emette kind=front (0 fronti oggi, nessun simbolo inventato). B: finestre teleconnessioni per famiglia con cicli fisici - QBO/ENSO/PNA 5 anni, AMO storico 1856-oggi, NAO/AO 12 mesi, SSW timeline 45 eventi reali 1958-oggi, default automatico per famiglia, nomi leggibili e significato italiano per 22 serie, PNA DJF evidenziato, zero richieste di rete. Vista 30 giorni rimossa dal codice vivo. Bump: VERSION=1.3.0.15 BUILD=145, APP_FILE=mri-light-1.3.0.15.html, sw.js tre cache, README, test .mjs, vecchio html rimosso. Test: A ricostruito da base con 10 hunk byte-identico, 19 REPS B applicate a occorrenza unica, 0 sovrapposizioni, node --check 9/9, A statico 32/32, A logica 3 path/fitBounds/restore/21 simboli, B logica 37/37, tutto rieseguito sull html unito. Correzione dichiarata: rimossa la coda HTML duplicata presente nella consegna A. NON verificato: resa visiva nel browser interno (disconnesso, Edge non usato), run GitHub Actions del dispatch Pages.
+APP_FILE=mri-light-1.3.0.15.html
 MeteoRisk Light - 1.3.0.14 - FEATURE SINOTTICHE SULLA MAPPA E VISTA TELECONNESSIONI 30 GIORNI (bump da 1.3.0.13)
 VERSION=1.3.0.14
 MAJOR=1
