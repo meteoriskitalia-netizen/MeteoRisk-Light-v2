@@ -2652,7 +2652,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <div id="tele-body" hidden>
             <div class="syn-grid" id="tele-grid"></div>
             <p class="syn-stamp" id="tele-stamp"></p>
-            <p class="syn-gaps" id="tele-gaps"></p>
         </div>
         <div class="syn-msg" id="tele-msg" role="status" hidden></div>
     </div>
@@ -3067,9 +3066,12 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.12';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.13';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-18';
     const APP_CHANGELOG = [
+    { version: '1.3.0.13', date: '2026-11-18', changes: [
+        'Schede NAM/ITCZ unificate alle immagini NOAA con licenza; rimossi duplicati e testi di degrado ridondanti',
+    ]},
     { version: '1.3.0.12', date: '2026-11-18', changes: [
         'UI teleconnessioni: retry UNA sola volta su HTTP 404 con cache-buster (?cb=timestamp) dopo 1500 ms; con il prodotto Teleconnessioni attivo .map-card viene nascosta (display:none) e il pannello dedicato prende il suo posto. Nessun dato inventato.',
         'Mappe di contesto nella sezione Teleconnessioni: due immagini NOAA CPC public domain con didascalia e attribuzione obbligatorie. NAM = vento zonale medio 60N a 10 hPa, NON e l indice NAM (aggiornamento giornaliero, nome file costruito per stagione); ITCZ/ITF = posizione aggiornamento DEKADALE, non giornaliero. Nessun valore numerico estratto dalle immagini, nessuna attivita solare.',
@@ -32592,14 +32594,10 @@ function renderContinuousOverlay() {
             '<div class="syn-tele-block">' + chart + '</div>' +
             '<p class="syn-stamp">' + text + '</p></div>';
     }
-    function teleGapHtml(g) {
-        if (!g) return '';
-        return '<div class="syn-card"><div class="syn-card-head">' + synEsc(g.id) + '</div>' +
-            '<div class="syn-msg">non disponibile — motivo: ' + synEsc(g.status) + ' · ' + synEsc(g.reason) + '</div></div>';
-    }
-    // 1.3.0.12 - MAPPE DI CONTESTO (immagini NOAA CPC, public domain).
-    // Nessun valore numerico estratto: non sono indici, solo contesto visivo.
-    // NAM e ITCZ restano RICHIEDE TOKEN / NON VERIFICATO come SERIE nei dati.
+    // 1.3.0.12-DEDUP - MAPPE DI CONTESTO (immagini NOAA CPC, public domain).
+    // Le due immagini SOSTITUISCONO le schede di degrado: nessuna scheda
+    // "non disponibile" e nessun valore numerico estratto. Il dettaglio
+    // tecnico (perche' non e' l'indice NAM) vive solo nel title della scheda.
     function teleSeasonLabel() {
         var d = new Date(), y = d.getFullYear(), m = d.getMonth() + 1;
         // Stagione stratosferica luglio-giugno: a novembre 2026 -> 2026-2027.
@@ -32608,13 +32606,16 @@ function renderContinuousOverlay() {
     function teleContextImages() {
         var namUrl = 'https://www.cpc.ncep.noaa.gov/products/stratosphere/SSW/gif_files/U_10mb_60N_' + teleSeasonLabel() + '.png';
         var itczUrl = 'https://www.cpc.ncep.noaa.gov/products/international/itf/itcz.jpg';
+        var namTitle = 'Vento zonale 60°N · 10 hPa — NOAA CPC, aggiornamento giornaliero. Segnale di contesto per il vortice polare; non è il valore dell\'indice NAM (serve ERA5 con token).';
+        var itczTitle = 'Posizione ITCZ/ITF — NOAA CPC, aggiornamento ogni 10 giorni.';
+        var namCap = 'Vento zonale 60°N · 10 hPa — NOAA CPC, aggiornamento giornaliero. Segnale di contesto per il vortice polare.';
         var h = '';
-        h += '<div class="syn-card"><div class="syn-card-head">Mappa di contesto — vento zonale 60&deg;N a 10 hPa (NON indice NAM)</div>' +
-             '<div class="syn-tele-block"><img class="syn-ctx-img" src="' + namUrl + '" alt="Vento zonale medio 60N a 10 hPa — NOAA CPC"></div>' +
-             '<p class="syn-stamp">Vento zonale medio 60°N a 10 hPa — NON è l\'indice NAM. Fonte: NOAA CPC, public domain, aggiornamento giornaliero</p></div>';
-        h += '<div class="syn-card"><div class="syn-card-head">Mappa di contesto — ITCZ / ITF</div>' +
+        h += '<div class="syn-card" title="' + synEsc(namTitle) + '"><div class="syn-card-head">Vento zonale 60&deg;N · 10 hPa</div>' +
+             '<div class="syn-tele-block"><img class="syn-ctx-img" src="' + namUrl + '" alt="Vento zonale 60°N · 10 hPa — NOAA CPC"></div>' +
+             '<p class="syn-stamp">' + synEsc(namCap) + '</p></div>';
+        h += '<div class="syn-card" title="' + synEsc(itczTitle) + '"><div class="syn-card-head">Posizione ITCZ/ITF</div>' +
              '<div class="syn-tele-block"><img class="syn-ctx-img" src="' + itczUrl + '" alt="Posizione ITCZ/ITF — NOAA CPC"></div>' +
-             '<p class="syn-stamp">Posizione ITCZ/ITF, aggiornamento DEKADALE — non giornaliero. Fonte: NOAA CPC, public domain</p></div>';
+             '<p class="syn-stamp">' + synEsc(itczTitle) + '</p></div>';
         return h;
     }
     function teleRenderPanel() {
@@ -32647,14 +32648,10 @@ function renderContinuousOverlay() {
             'PNA è un modo del Pacifico-Nord America: per l Italia è SOLO contesto teleconnettivo, non un predittore diretto.');
         html += telePanel('SSW — timeline storica', teleTimeline(teleSeries('ssw_events')),
             'Date centrali degli SSW maggiori dal 1958. Lacuna real-time dichiarata: il catalogo CSL/SSWC è storico e non fornisce eventi in tempo reale.');
-        var gaps = (d.not_implemented || []);
-        for (var gi = 0; gi < gaps.length; gi++) html += teleGapHtml(gaps[gi]);
-        html += teleContextImages();   // 1.3.0.12: mappe di contesto, NON indici numerici
+        html += teleContextImages();   // 1.3.0.12-DEDUP: 2 immagini, nessuna scheda di degrado
         grid.innerHTML = html;
         var stamp = document.getElementById('tele-stamp');
         if (stamp) stamp.innerHTML = 'Indici OSSERVATI, non previsioni. Filtro obbligatorio lead=0 e member=0 per le serie GEFS daily. Nessuna attivita solare inclusa (' + synEsc((d.solar_activity && d.solar_activity.implemented) ? 'presente' : 'assente') + ').';
-        var gapsEl = document.getElementById('tele-gaps');
-        if (gapsEl) gapsEl.innerHTML = 'Buchi dichiarati: NAM 10 hPa (RICHIEDE TOKEN) e ITCZ (NON VERIFICATO). Nessun valore inventato per coprirli.';
     }
     function toggleTeleconn() {
         var panel = document.getElementById('teleconn-panel');
