@@ -475,7 +475,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .italia-synth .is-area { margin: 0 0 7px 0; font-size: 12px; line-height: 1.4; color: #e2e8f0; overflow-wrap: anywhere; }
         .italia-synth .is-area:last-child { margin-bottom: 0; }
         .italia-synth .is-area b { color: #7dd3fc; }
-        .italia-synth .is-note { margin: 10px 0 0 0; font-size: 11px; line-height: 1.4; color: #94a3b8; }
         @media (max-width: 600px) {
             .italia-synth { padding: 10px; border-radius: 10px; }
             .italia-synth .is-cols { grid-template-columns: 1fr; gap: 6px; }
@@ -1714,7 +1713,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .fc-pane[hidden] { display: none !important; }
         .fc-pane .tds-card, .fc-pane .wk-card, .fc-pane .italia-synth { border: 0; background: transparent; padding: 0; border-radius: 0; min-height: 0; }
         .fc-pane .italia-synth .is-cols { grid-template-columns: 1fr; }
-        .fc-pane .is-note { margin-top: 8px; }
         /* === 1.2.4.90 - ACCUMULO OSSERVATO ULTIMA ORA (SRT1, Radar-DPC) ===
            Blocco nella linguetta Aree di #forecast-details. Scala delle barre FISSA
            0-30 mm, dichiarata a schermo (oltre 30 mm satura). Solo millimetri e
@@ -1777,14 +1775,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .syn-ctx-img { display: block; width: 100%; max-width: 100%; height: auto; }
         .syn-tele-cap { font-size: 10px; line-height: 1.4; color: #94a3b8; overflow-wrap: anywhere; margin-top: 2px; }
         .syn-burian { margin-top: 6px; font-size: 10.5px; line-height: 1.4; color: #fbbf24; overflow-wrap: anywhere; }
-        /* Frase di contesto/causa aggiunta alle frasi esistenti: vuota (display:none)
-           finche' synoptic.json non e' stato caricato, quindi byte-identica. */
-        .syn-aug { display: none; font-size: 10.5px; line-height: 1.35; color: #7dd3fc; margin-top: 3px; overflow-wrap: anywhere; }
-        .syn-aug.filled { display: block; }
-        .syn-aug .syn-aug-cause { color: #cbd5e1; }
-        .syn-aug .syn-aug-warn { color: #fbbf24; font-weight: 600; }
-        .fc-summary-text .syn-aug-inline { display: none; }
-        .fc-summary-text .syn-aug-inline.filled { display: inline; color: #7dd3fc; font-size: 10px; }
         @media (max-width: 600px) {
             .syn-panel { padding: 10px; }
             .syn-card { flex: 1 1 100%; }
@@ -1981,7 +1971,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <option value="rischi" selected>Mappa dei rischi</option>
             <option value="forecast">Previsioni</option>
             <option value="live">Pannello LIVE</option>
-            <option value="newindices" data-dev="1">Nuovi Indici</option>
             <option value="sources">Fonti e metodologie</option>
             <option value="synoptic">Analisi sinottica</option>
             <option value="teleconn">Teleconnessioni e indici</option>
@@ -2335,6 +2324,12 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <option value="fog" data-metric-dev="1" hidden disabled>Nebbia</option>
         <option value="conv" data-metric-dev="1" hidden disabled>Conv.</option>
         <option value="hail" data-metric-dev="1" hidden disabled>Grandine</option>
+        <!-- 1.3.0.18 - gli indici del vecchio prodotto "Nuovi Indici" diventano
+             voci di metrica: solo con Sviluppo ON e prodotto «Mappa dei rischi». -->
+        <option value="wmaxshear" data-metric-dev="1" data-newindex-metric="1" hidden disabled>WMAXSHEAR</option>
+        <option value="scp" data-metric-dev="1" data-newindex-metric="1" hidden disabled>SCP</option>
+        <option value="ship" data-metric-dev="1" data-newindex-metric="1" hidden disabled>SHIP</option>
+        <option value="hslc" data-metric-dev="1" data-newindex-metric="1" hidden disabled>HSLC</option>
     </select>
     <span id="metric-select-reason" style="font-size:10px;color:#64748b;white-space:nowrap;display:none;" title="Attiva «Rischio» per poter scegliere una metrica"></span>
 </div>
@@ -2629,14 +2624,18 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         </div>
         <div id="tele-body" hidden>
             <div class="syn-viewbar">
-                <span class="syn-badge">Vista</span>
-                <select id="tele-view-select" class="hour-select" onchange="teleSetView(this.value)" title="Il Periodo filtra solo i valori gia in memoria: nessuna nuova richiesta di rete. All apertura ogni serie usa la finestra consigliata per famiglia.">
+                <span class="syn-badge">Indice</span>
+                <select id="tele-index-select" class="hour-select" onchange="teleSetIndex(this.value)" title="Un solo indice alla volta: la finestra temporale usa il default della famiglia. Nessuna nuova richiesta di rete: i dati sono gia in teleconnections.json.">
+                    <option value="">— scegli un indice —</option>
+                </select>
+                <select id="tele-view-select" class="hour-select" onchange="teleSetView(this.value)" title="Finestra temporale: di default quella consigliata per la famiglia dell indice scelto. Filtra solo i valori gia in memoria, zero richieste di rete.">
+                    <option value="auto">Default per famiglia</option>
                     <option value="full">Storico completo</option>
                     <option value="5y">5 anni</option>
                     <option value="12m">12 mesi</option>
                     <option value="ssw">Timeline SSW</option>
                 </select>
-                <span class="syn-badge" id="tele-view-note">default per famiglia: QBO/ENSO/PNA 5 anni · AMO storico · NAO/AO 12 mesi · SSW timeline — zero richieste di rete</span>
+                <span class="syn-badge" id="tele-view-note">scegli un indice: la finestra si adatta alla sua famiglia — zero richieste di rete</span>
             </div>
             <div class="syn-grid" id="tele-grid"></div>
             <p class="syn-stamp" id="tele-stamp"></p>
@@ -2858,7 +2857,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <summary>
                 <span class="fc-summary-label">Previsione</span>
                 <span class="fc-summary-text" id="fc-summary-text">— seleziona una località</span>
-                <span class="syn-aug" id="syn-summary-aug"></span>
             </summary>
             <div class="fc-body">
                 <div class="fc-tabs" role="tablist" aria-label="Vista della previsione">
@@ -2878,13 +2876,12 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                     </div>
                 </div>
                 <div class="fc-pane" id="fc-pane-aree" role="tabpanel" aria-labelledby="fc-tab-aree" hidden>
-                    <div class="italia-synth" id="italia-synth">
+                    <div class="italia-synth" id="italia-synth" title="Sintesi dei punti provincia del dataset, non di un campo continuo. Temperature per fascia altimetrica: pianura &lt;300 m, collina 300-800 m, montagna &gt;800 m; le fasce con meno di tre province sono omesse; una provincia può contribuire a più fasce. Fasce orarie 0-6, 6-12, 12-18, 18-24; mm eq. = equivalente acqua. Cielo derivato dal weathercode (0/1/2/3): cloud_cover non è presente nel dataset; neve solo con equivalente acqua &gt; 0 nelle 24 h; raffiche p50-p90, punte oltre 100 km/h solo se p99 &ge; 100; nessun toponimo nel testo, i nomi restano nei tooltip. Soglie: pioggia debole &le; 14,5 mm (p75), diffusa &le; 39,3 (p90), intensa oltre; rovesci quando la maggioranza dei punti bagnati ha un&rsquo;ora 80-82/95-96/99 e il massimo supera 14,5 mm; quota neve = freezing level &minus; 500 m, &plusmn;300 m. Temperature e gelate: massime e minime comprese fra le fasce mostrate; gelate indicate solo per le fasce con minima &le; 0 &deg;C (pianura, vallate, montagna); quota neve dalle sole ore con neve, distinta per zona quando la forbice supera 400 m, altrimenti una quota &laquo;circa&raquo;.">
                         <div class="is-head">
                             <span class="is-badge" id="italia-synth-badge">in attesa del dataset…</span>
                         </div>
                         <div class="is-cols" id="italia-synth-cols"></div>
-                        <p class="is-note"><b>Sintesi dei punti provincia del dataset, non di un campo continuo.</b> Temperature per fascia altimetrica: pianura &lt;300 m, collina 300-800 m, montagna &gt;800 m; le fasce con meno di tre province sono omesse; una provincia può contribuire a più fasce. Fasce orarie 0-6, 6-12, 12-18, 18-24; mm eq. = equivalente acqua. Cielo derivato dal weathercode (0/1/2/3): <b>cloud_cover non è presente nel dataset</b>; neve solo con equivalente acqua &gt; 0 nelle 24 h; raffiche p50-p90, punte oltre 100 km/h solo se p99 &ge; 100; nessun toponimo nel testo, i nomi restano nei tooltip. Soglie: pioggia debole &le; 14,5 mm (p75), diffusa &le; 39,3 (p90), intensa oltre; rovesci quando la maggioranza dei punti bagnati ha un&rsquo;ora 80-82/95-96/99 e il massimo supera 14,5 mm; quota neve = freezing level &minus; 500 m, &plusmn;300 m. Temperature e gelate: massime e minime comprese fra le fasce mostrate; gelate indicate solo per le fasce con minima &le; 0 &deg;C (pianura, vallate, montagna); quota neve dalle sole ore con neve, distinta per zona quando la forbice supera 400 m, altrimenti una quota &laquo;circa&raquo;.</p>
-                    </div>
+                                            </div>
                     <!-- 1.2.4.90 - ACCUMULO OSSERVATO ULTIMA ORA (SRT1, Radar-DPC).
                          Il corpo resta nascosto finche' il JSON non e' leggibile: ogni
                          valore e ogni statistica arrivano dal file, niente costanti. -->
@@ -17990,6 +17987,96 @@ stopSyncPlay();
         }
         return pts.length ? { pts: pts, km: near.km, field: field, point: near.point } : null;
     }
+    // Rosa dei venti (1.3.0.17): 16 quadranti, raggio = frequenza di
+    // osservazione, colore = velocita media del vento. I GRADI compaiono SOLO
+    // nel <title> dei petali, mai come asse. Dati REALI del giorno: sotto 3
+    // osservazioni la rosa NON e' statistica e viene dichiarata (no cerchio vuoto).
+    function stationsWindRoseHtml(st, src, dayKey) {
+        var counts = [], sums = [], speeds = [], i;
+        for (i = 0; i < 16; i++) { counts[i] = 0; sums[i] = 0; speeds[i] = 0; }
+        var total = 0, all = src.all || [];
+        for (i = 0; i < all.length; i++) {
+            var t = all[i];
+            if (stationsLocalDayKey(t[0]) !== dayKey) continue;
+            var q = stationsWindDirQuadrant(t[4]);          // indice 4 = windDir (gradi)
+            if (!q) continue;
+            var qi = STATIONS_WIND_QUADRANTS.indexOf(q);
+            counts[qi]++; total++;
+            var sp = t[3];                                   // indice 3 = wind speed (m/s)
+            if (typeof sp === 'number' && isFinite(sp)) { sums[qi] += sp; speeds[qi]++; }
+        }
+        var h = '<div style="border-top:1px solid #334155;margin-top:6px;padding-top:5px;">';
+        h += '<div style="font-size:11px;color:#cbd5e1;">Rosa dei venti — Direzione vento · ' +
+             escapeHtml(dayKey) + ' · ' + escapeHtml((st && st.name) || '') + '</div>';
+        var noticeStyle = 'font-size:10px;color:#fbbf24;border:1px solid #334155;border-radius:4px;padding:4px 5px;margin-top:4px;line-height:1.35;';
+        if (src.source === 'stale') {
+            h += '<div class="stations-series-notice" style="' + noticeStyle + '">Serie del server non aggiornata a ' +
+                 escapeHtml(dayKey) + ': nessuna osservazione del giorno corrente. Nessun dato inventato.</div>';
+        }
+        if (total < 3) {
+            h += '<div class="stations-series-notice" style="' + noticeStyle + '">' + total +
+                 (total === 1 ? ' osservazione' : ' osservazioni') +
+                 ' di direzione vento oggi: la rosa NON e statisticamente significativa (servono almeno 3 osservazioni). Nessun cerchio vuoto disegnato.</div></div>';
+            return h;
+        }
+        var maxC = 1, m;
+        for (m = 0; m < 16; m++) if (counts[m] > maxC) maxC = counts[m];
+        var mean = [], maxS = 0;
+        for (m = 0; m < 16; m++) {
+            mean[m] = speeds[m] ? sums[m] / speeds[m] : null;
+            if (mean[m] !== null && mean[m] > maxS) maxS = mean[m];
+        }
+        var W = 300, H = 300, cx = 150, cy = 150, R = 112;
+        var svg = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H +
+                  '" role="img" aria-label="Rosa dei venti: 16 quadranti, raggio = frequenza di osservazione, colore = velocita media">';
+        for (var r = 1; r <= 4; r++) {
+            svg += '<circle cx="' + cx + '" cy="' + cy + '" r="' + (R * r / 4).toFixed(1) +
+                   '" fill="none" stroke="#334155" stroke-width="1"/>';
+        }
+        function polar(qi, rad) {
+            var ang = (qi * 22.5 - 90) * Math.PI / 180;   // 0=N in alto, senso orario
+            return [cx + rad * Math.cos(ang), cy + rad * Math.sin(ang)];
+        }
+        for (var qi2 = 0; qi2 < 16; qi2++) {
+            if (!counts[qi2]) continue;
+            var rad = 8 + (counts[qi2] / maxC) * (R - 8);
+            var half = 8.5 * Math.PI / 180;
+            var a0 = (qi2 * 22.5 - 90) * Math.PI / 180 - half;
+            var a1 = (qi2 * 22.5 - 90) * Math.PI / 180 + half;
+            var x0 = cx + rad * Math.cos(a0), y0 = cy + rad * Math.sin(a0);
+            var x1 = cx + rad * Math.cos(a1), y1 = cy + rad * Math.sin(a1);
+            var col = mean[qi2] === null ? '#64748b' : (function (v) {
+                var f = maxS > 0 ? v / maxS : 0;
+                var stops = [[56, 189, 248], [34, 197, 94], [250, 204, 21], [239, 68, 68]];
+                var seg = Math.min(2, Math.floor(f * 3)), t2 = f * 3 - seg;
+                var c0 = stops[seg], c1 = stops[seg + 1];
+                return 'rgb(' + Math.round(c0[0] + (c1[0] - c0[0]) * t2) + ',' +
+                    Math.round(c0[1] + (c1[1] - c0[1]) * t2) + ',' +
+                    Math.round(c0[2] + (c1[2] - c0[2]) * t2) + ')';
+            })(mean[qi2]);
+            var dpath = 'M' + cx + ' ' + cy + ' L' + x0.toFixed(1) + ' ' + y0.toFixed(1) +
+                        ' A' + rad.toFixed(1) + ' ' + rad.toFixed(1) + ' 0 0 1 ' + x1.toFixed(1) + ' ' + y1.toFixed(1) + ' Z';
+            var deg = Math.round(qi2 * 22.5);
+            var tt = STATIONS_WIND_QUADRANTS[qi2] + ' (' + deg + '\u00B0) · ' + counts[qi2] +
+                     ' osservazioni (' + (counts[qi2] / total * 100).toFixed(0) + '%)' +
+                     (mean[qi2] === null ? ' · velocita media n/d' : ' · velocita media ' + mean[qi2].toFixed(1) + ' m/s');
+            svg += '<path d="' + dpath + '" fill="' + col + '" fill-opacity="0.85" stroke="#0b1220" stroke-width="1"><title>' +
+                   escapeHtml(tt) + '</title></path>';
+        }
+        for (var q2 = 0; q2 < 16; q2++) {
+            var pp = polar(q2, R + 18);
+            var anchor = (pp[0] < cx - 8) ? 'end' : (pp[0] > cx + 8 ? 'start' : 'middle');
+            svg += '<text x="' + pp[0].toFixed(1) + '" y="' + (pp[1] + 3).toFixed(1) +
+                   '" fill="#cbd5e1" font-size="11" text-anchor="' + anchor + '">' +
+                   STATIONS_WIND_QUADRANTS[q2] + '</text>';
+        }
+        svg += '<circle cx="' + cx + '" cy="' + cy + '" r="2" fill="#94a3b8"/>';
+        svg += '</svg>';
+        h += svg;
+        h += '<div style="font-size:10px;color:#94a3b8;">16 quadranti · raggio = frequenza di osservazione · colore = velocita media del vento (m/s). ' +
+             total + ' osservazioni reali del giorno. I gradi compaiono solo nel titolo di ogni petalo.</div></div>';
+        return h;
+    }
     // Grafico SVG inline: SERIE GIORNALIERA osservata + curva NWP affiancata.
     // Le due serie restano distinte (colori/etichette diversi): MAI una media.
     function stationsChartHtml(st) {
@@ -17998,9 +18085,10 @@ stopSyncPlay();
         var dayKey = stationsLocalDayKey(st.time);
         var src = stationsSeriesSource(st.id, dayKey);
         var pts = stationsSeriesPoints(src.all, key, dayKey);
-        var cat = (key === 'windDir');            // direzione = categoria, non numero
+        if (key === 'windDir') return stationsWindRoseHtml(st, src, dayKey);
+        var cat = false;                          // 1.3.0.17: la direzione usa la rosa, non l'asse categorico
         var nwp = stationsNwpSeries(st, key, dayKey);
-        var W = 280, H = cat ? 168 : 112, L = 34, R = 6, T = 8, B = 16;
+        var W = 320, H = cat ? 168 : 152, L = 52, R = 10, T = 18, B = 34;
         var iw = W - L - R, ih = H - T - B, rowH = ih / 16;
         var vmin = 0, vmax = 1;
         if (!cat) {
@@ -18068,15 +18156,17 @@ stopSyncPlay();
                 if (qi % 2 === 0) svg += '<line x1="' + L + '" y1="' + yy.toFixed(1) + '" x2="' +
                     (W - R) + '" y2="' + yy.toFixed(1) + '" stroke="#334155" stroke-width="0.5"/>';
                 svg += '<text x="' + (L - 3) + '" y="' + (yy + 2).toFixed(1) +
-                    '" fill="#64748b" font-size="7" text-anchor="end">' + STATIONS_WIND_QUADRANTS[qi] + '</text>';
+                    '" fill="#64748b" font-size="11" text-anchor="end">' + STATIONS_WIND_QUADRANTS[qi] + '</text>';
             }
         } else {
-            svg += '<text x="' + (L - 3) + '" y="' + (T + 4) + '" fill="#64748b" font-size="8" text-anchor="end">' + vmax.toFixed(cfg.decimals) + '</text>';
-            svg += '<text x="' + (L - 3) + '" y="' + (T + ih) + '" fill="#64748b" font-size="8" text-anchor="end">' + vmin.toFixed(cfg.decimals) + '</text>';
+            svg += '<text x="' + (L - 3) + '" y="' + (T + 4) + '" fill="#94a3b8" font-size="11" text-anchor="end">' + vmax.toFixed(cfg.decimals) + '</text>';
+            svg += '<text x="' + (L - 3) + '" y="' + (T + ih) + '" fill="#94a3b8" font-size="11" text-anchor="end">' + vmin.toFixed(cfg.decimals) + '</text>';
         }
-        svg += '<text x="' + L + '" y="' + (H - 3) + '" fill="#64748b" font-size="8">00</text>';
-        svg += '<text x="' + (L + iw / 2) + '" y="' + (H - 3) + '" fill="#64748b" font-size="8" text-anchor="middle">12</text>';
-        svg += '<text x="' + (W - R) + '" y="' + (H - 3) + '" fill="#64748b" font-size="8" text-anchor="end">24</text>';
+        svg += '<text x="2" y="' + (T - 4) + '" fill="#94a3b8" font-size="11">' + escapeHtml(cfg.unit) + '</text>';
+        svg += '<text x="' + L + '" y="' + (H - B + 14) + '" fill="#94a3b8" font-size="11">00</text>';
+        svg += '<text x="' + (L + iw / 2) + '" y="' + (H - B + 14) + '" fill="#94a3b8" font-size="11" text-anchor="middle">12</text>';
+        svg += '<text x="' + (W - R) + '" y="' + (H - B + 14) + '" fill="#94a3b8" font-size="11" text-anchor="end">24</text>';
+        svg += '<text x="' + ((L + W - R) / 2) + '" y="' + (H - 3) + '" fill="#94a3b8" font-size="11" text-anchor="middle">ora (Europe/Rome)</text>';
         function lineFor(series, color, dash, gapMin) {
             var out = '';
             for (var j = 1; j < series.length; j++) {
@@ -18102,6 +18192,11 @@ stopSyncPlay();
         }
         if (nwp) for (var a = 0; a < nwp.pts.length; a++) svg += mark(nwp.pts[a], '#fbbf24', false);
         for (var b = 0; b < pts.length; b++) svg += mark(pts[b], '#38bdf8', true);
+        if (pts.length) {
+            var lp = pts[pts.length - 1];
+            svg += '<text x="' + (W - R) + '" y="' + (T + 4) + '" fill="#38bdf8" font-size="12" font-weight="600" text-anchor="end">' +
+                   lp.v.toFixed(cfg.decimals) + ' ' + escapeHtml(cfg.unit) + '</text>';
+        }
         svg += '</svg>';
         h += svg;
         var gaps = 0;
@@ -22339,6 +22434,7 @@ function syncContextualToggles() {
     if (bRisk) bRisk.style.display = '';
     if (riskWrap) riskWrap.style.display = riskProductOn ? '' : 'none';
     if (row) row.style.display = (showRadar || showSat) ? 'flex' : 'none';
+    syncDevRiskControls();   // 1.3.0.17: i controlli dev seguono il prodotto attivo
 }
 // 1.3.0.11-FIX - Teleconnessioni SOSTITUISCE la mappa: con il prodotto attivo
 // .map-card viene nascosta e il pannello teleconn prende il suo posto nel flusso
@@ -22367,9 +22463,10 @@ function productOff(id) {
         if (r && typeof r.catch === 'function') r.catch(function () { });
     } catch (e) { }
 }
-// Rigenera le <option> in base a Sviluppo: i prodotti dev (data-dev="1")
-// compaiono solo con isSviluppoActive === true (Nuovi Indici; La Caletta resta
-// sempre fuori perche' non e' nemmeno nel markup della tendina).
+// Rigenera le <option> in base a Sviluppo: i prodotti dev (data-dev="1"),
+// se mai ce ne fossero, compaiono solo con isSviluppoActive === true.
+// 1.3.0.18 - la tendina NON contiene piu' il prodotto «Nuovi Indici»: i suoi
+// indici sono voci del selettore metrica. La funzione resta per compatibilita'.
 function rebuildProductSelect() {
     var sel = document.getElementById('product-select');
     if (!sel) return;
@@ -22484,6 +22581,39 @@ function toggleForecastMaps() {
     // --- Toggle Sviluppo: mostra/nasconde funzionalità sperimentali ---
     // Il toggle ora è uno switch compatto nel footer, accanto al badge versione.
     var isSviluppoActive = false;
+    // 1.3.0.17 - I controlli convettivi (#conv-shear-select) e il selettore
+    // modello (#weather-model-wrapper) NON sono piu' globali: compaiono SOLO
+    // con Sviluppo ON *e* prodotto attivo «Mappa dei rischi». Funzioni invariate.
+    function syncDevRiskControls() {
+        var show = !!(isSviluppoActive && activeProductId === 'rischi');
+        var mw = document.getElementById('weather-model-wrapper');
+        if (mw) mw.style.display = show ? 'flex' : 'none';
+        var csSel = document.getElementById('conv-shear-select');
+        if (csSel) csSel.style.display = show ? '' : 'none';
+        syncNewIndexMetricOptions();   // 1.3.0.18: indici solo con Sviluppo + rischi
+    }
+    // 1.3.0.18 - PUNTO DI ACCESSO dei quattro indici (WMAXSHEAR/SCP/SHIP/HSLC).
+    // Nessun calcolo nuovo e nessun handler eliminato: le voci vivono nel
+    // selettore metrica e attivano la STESSA logica newindices di prima.
+    function isNewIndexMetric(m) {
+        return m === 'wmaxshear' || m === 'scp' || m === 'ship' || m === 'hslc';
+    }
+    function syncNewIndexMetricOptions() {
+        var sel = document.getElementById('metric-select');
+        if (!sel) return;
+        var show = !!(isSviluppoActive && activeProductId === 'rischi');
+        var opts = sel.querySelectorAll('option[data-newindex-metric="1"]');
+        for (var i = 0; i < opts.length; i++) {
+            opts[i].hidden = !show;
+            opts[i].disabled = !show;
+        }
+        if (!show && sel.selectedOptions && sel.selectedOptions.length &&
+            sel.selectedOptions[0].getAttribute &&
+            sel.selectedOptions[0].getAttribute('data-newindex-metric') === '1') {
+            sel.value = 'risk';
+            if (typeof currentMetric !== 'undefined') currentMetric = 'risk';
+        }
+    }
     function toggleSviluppo(force) {
         // force: true/false imposta esplicitamente lo stato; altrimenti lo inverte
         var sw = document.getElementById('sviluppo-switch');
@@ -22510,9 +22640,8 @@ function toggleForecastMaps() {
         // Toggle visibilità controlli Fonte API
         var apiWrap = document.getElementById('api-source-wrapper');
         if (apiWrap) apiWrap.style.display = isSviluppoActive ? 'flex' : 'none';
-        // Toggle visibilità selettore modello meteorologico
-        var mw = document.getElementById('weather-model-wrapper');
-        if (mw) mw.style.display = isSviluppoActive ? 'flex' : 'none';
+        // 1.3.0.17 - il selettore modello e' contestuale: lo decide syncDevRiskControls()
+        // in fondo a questa funzione (Sviluppo ON + prodotto «Mappa dei rischi»).
         // Toggle visibilità metrica Convezione (solo in modalità Sviluppo)
         var ct = document.getElementById('metric-tab-conv');
         if (ct) ct.style.display = isSviluppoActive ? '' : 'none';
@@ -22524,7 +22653,7 @@ function toggleForecastMaps() {
         // e nasconde la tendina "Categorie di Convezione".
         var csSel = document.getElementById('conv-shear-select');
         if (csSel) {
-            csSel.style.display = isSviluppoActive ? '' : 'none';
+            // visibilita' contestuale: syncDevRiskControls() in fondo alla funzione
             if (!isSviluppoActive && convCategory !== 'no') {
                 convCategory = 'no';
                 csSel.value = 'no';
@@ -22624,6 +22753,7 @@ function toggleForecastMaps() {
                 delete window.__METEORISK_DEBUG__;
             }
         }
+        syncDevRiskControls();   // 1.3.0.17: gate contestuale (Sviluppo ON + prodotto rischi)
     }
 
 
@@ -27668,6 +27798,9 @@ function toggleForecastMaps() {
                 var gustApp = (agg.gusts != null ? agg.gusts : agg.wind) || 0;
                 return gustApp;
             }
+            case 'wmaxshear': case 'scp': case 'ship': case 'hslc':
+                // 1.3.0.18 - nessun valore inventato: stessa logica del profilo newindices.
+                return getMetricValue('risk', agg);
             case 'risk': {
                 // COLORE DELLA PROVINCIA = MASSIMO FRA TUTTI I RISCHI ATTIVI.
                 // Valore = indice della fascia: 0 nessuna criticita' attiva (verde/Basso),
@@ -27733,6 +27866,9 @@ function toggleForecastMaps() {
                 return value < 1000 ? '#ef4444' : value < 1013 ? '#f97316' : value < 1020 ? '#eab308' : '#22c55e';
             case 'wind':
                 return value >= 60 ? '#ef4444' : value >= 40 ? '#f97316' : value >= 25 ? '#eab308' : '#22c55e';
+            case 'wmaxshear': case 'scp': case 'ship': case 'hslc':
+                // 1.3.0.18 - nessuna scala inventata: stessa colorazione del rischio.
+                return colorForMetricValue('risk', value);
             case 'risk': {
                 // Nessuna classe grigia: il vecchio sentinello sub-0,75 (potenziale)
                 // resta Verde/Basso, identico alle province senza criticita'. Soglia invariata.
@@ -29215,6 +29351,7 @@ function renderContinuousOverlay() {
             reason.textContent = enabled ? '' : 'Disabilitata — attiva «Mappa dei rischi» per scegliere una metrica';
             reason.style.display = enabled ? 'none' : '';
         }
+        syncNewIndexMetricOptions();   // 1.3.0.18: doppio gate (Sviluppo + prodotto)
     }
     // La tendina disabilitata non puo' cambiare; il guard copre anche un
     // dispatch artificiale di 'change': fuori da «Mappa dei rischi» nessun effetto.
@@ -29224,6 +29361,12 @@ function renderContinuousOverlay() {
     }
     function selectMetric(metric) {
         currentMetric = metric;
+        // 1.3.0.18 - la voce di metrica e' il punto di accesso agli indici:
+        // stesso handler (toggleNewIndices) e stessa logica (getRiskProfileNew).
+        if (typeof toggleNewIndices === 'function' && typeof isNewIndicesActive !== 'undefined') {
+            var wantNI = isNewIndexMetric(metric);
+            if (wantNI !== !!isNewIndicesActive) toggleNewIndices();
+        }
         var _metricSel = document.getElementById('metric-select');
         if (_metricSel) _metricSel.value = metric;
         document.querySelectorAll('.metric-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.metric === metric));
@@ -31284,7 +31427,6 @@ function renderContinuousOverlay() {
         if (!phrase) return;
         var day = tdsState.days[tdsSelectedDay];
         phrase.textContent = day ? tdsPhrase(day, tdsSelectedDay) : '';
-        if (typeof synAugmentAll === 'function') synAugmentAll();
         if (!grid) return;
         var cards = grid.querySelectorAll('[data-tds-day]');
         for (var i = 0; i < cards.length; i++) {
@@ -31925,7 +32067,6 @@ function renderContinuousOverlay() {
             }
             phrase.innerHTML = wkHtml;
         }
-        if (typeof synAugmentAll === 'function') synAugmentAll();
     }
 
     // ================= PANNELLO UNICO PREVISIONE (1.2.4.70) =================
@@ -32064,7 +32205,6 @@ function renderContinuousOverlay() {
         }
         el.innerHTML = segs.join(' \u00B7 ');
         el.title = titles.join(' \u00B7 ');
-        if (typeof synAugmentAll === 'function') synAugmentAll();
     }
 
     if (typeof document !== 'undefined') {
@@ -32073,11 +32213,14 @@ function renderContinuousOverlay() {
     }
 
     // ===================================================================
-    // PRODOTTO SINOTTICO — due usi separati della STESSA analisi:
-    //   1) pannello di SOLO TESTO (feature non mappabili) — niente SVG qui;
-    //      le geometrie validate sono disegnate sulla Leaflet map dal modulo
-    //      in fondo al file, su #synopticPane;
-    //   2) frase di contesto + frase di causa dentro #forecast-details.
+    // PRODOTTO SINOTTICO — un solo uso della STESSA analisi:
+    //   pannello di SOLO TESTO (feature non mappabili) — niente SVG qui;
+    //   le geometrie validate sono disegnate sulla Leaflet map dal modulo
+    //   in fondo al file, su #synopticPane.
+    //   1.3.0.18 — rimosso il vecchio meccanismo di augmentation delle frasi:
+    //   elementi, classi e funzioni di quel meccanismo non esistono piu'.
+    //   Le frasi del bollettino restano generate dalle funzioni storiche,
+    //   byte-identiche (verificato con confronto prima/dopo).
     // Contratto dati (NON scriviamo i dati, li consumiamo solo):
     //   data/radar/synoptic.json
     //     {schema_version, generated_at, source, license, domain,
@@ -32098,7 +32241,6 @@ function renderContinuousOverlay() {
     // ===================================================================
     var SYN_URL = 'data/radar/synoptic.json';
     var TELE_URL = 'data/climate/teleconnections.json';
-    var SYN_STALE_HOURS = 2;   // soglia di scarto: scelta ingegneristica, dichiarata a schermo
     var SYN_MAX_DAYS = 7;      // finestra massima, dichiarata a schermo
     var SYN_BURIAN_TEXT = 'vento da NE/E freddo e secco — configurazione compatibile con burian, non confermato senza osservazioni locali';
     var SYN_DOMAIN_GAPS = 'Domini con buchi dichiarati (non riempiti): dwd_icon_eu 23 h, dwd_icon_d2 44 h, ARPEGE 92 h.';
@@ -32126,18 +32268,6 @@ function renderContinuousOverlay() {
         } catch (e) { }
         return null;
     }
-    function synDiscard() {
-        if (!synState.syn) return false;
-        var vt = Date.parse(synState.syn.valid_time);
-        var pt = Date.parse(synPointsIso());
-        if (!isFinite(vt) || !isFinite(pt)) return false;
-        return Math.abs(vt - pt) > SYN_STALE_HOURS * 3600 * 1000;
-    }
-    function synDiscardText() {
-        return 'frase di scarto: scarto temporale tra contesto sinottico e punti superiore a ' +
-            SYN_STALE_HOURS + ' h — contesto non mostrato (soglia di ' + SYN_STALE_HOURS +
-            ' h, scelta ingegneristica).';
-    }
     // SOLO label presenti nel JSON: se il produttore non ha messo "front",
     // qui non compare mai la parola "fronte".
     function synLabels() {
@@ -32148,48 +32278,6 @@ function renderContinuousOverlay() {
             if (l && out.indexOf(l) < 0) out.push(l);
         });
         return out;
-    }
-    function synPhrases(dayIdx) {
-        if (!synState.syn || !Array.isArray(synState.syn.features) || !synState.syn.features.length) return null;
-        if (synDiscard()) return { context: '', cause: '', discard: synDiscardText() };
-        var labels = synLabels();
-        if (!labels.length) return null;
-        var context = 'Contesto sinottico: ' + labels.join('; ') + '.';
-        var cause = 'Causa (dal medesimo contesto): ' + labels.slice(0, 3).join(', ') + '.';
-        if (dayIdx >= 3) cause += ' Punti non disponibili oltre 72 h.';
-        return { context: context, cause: cause, discard: '' };
-    }
-    function synAugHtml(dayIdx) {
-        var p = synPhrases(dayIdx);
-        if (!p) return null;
-        if (p.discard) return '<span class="syn-aug-warn">' + synEsc(p.discard) + '</span>';
-        return '<span class="syn-aug-ctx">' + synEsc(p.context) + '</span> <span class="syn-aug-cause">' + synEsc(p.cause) + '</span>';
-    }
-    function synSetAug(el, dayIdx) {
-        if (!el) return;
-        var old = el.querySelector(':scope > .syn-aug');
-        if (old && old.parentNode) old.parentNode.removeChild(old);
-        var html = synAugHtml(dayIdx);
-        if (html === null) { el.classList.remove('filled'); return; }
-        var span = document.createElement('span');
-        span.className = 'syn-aug filled';
-        span.innerHTML = html;
-        el.appendChild(span);
-    }
-    function synAugmentAll() {
-        var sum = document.getElementById('syn-summary-aug');
-        if (sum) {
-            var h = synAugHtml(0);
-            if (h === null) { sum.innerHTML = ''; sum.classList.remove('filled'); }
-            else { sum.innerHTML = h; sum.classList.add('filled'); }
-        }
-        synSetAug(document.getElementById('tds-phrase'), (typeof tdsSelectedDay === 'number' ? tdsSelectedDay : 0));
-        synSetAug(document.getElementById('wk-phrase'), 4); // 7 giorni: giorni 4-7 oltre 72 h
-        var cols = document.getElementById('italia-synth-cols');
-        if (cols) {
-            var areas = cols.querySelectorAll('.is-area');
-            for (var i = 0; i < areas.length; i++) synSetAug(areas[i], 0); // 3 giorni x 5 aree
-        }
     }
     function synFetch(url) {
         return fetch(url, { cache: 'no-store' }).then(function (r) {
@@ -32202,7 +32290,6 @@ function renderContinuousOverlay() {
         if (synState.syn) {
             synState.status = 'done';
             if (!synState.promise) synState.promise = Promise.resolve(synState);
-            synAugmentAll();
             return synState.promise;
         }
         if (synState.promise) return synState.promise;
@@ -32216,7 +32303,6 @@ function renderContinuousOverlay() {
             synState.syn = null;
         }).then(function () {
             synState.status = 'done';
-            synAugmentAll();
             return synState;
         });
         return synState.promise;
@@ -32289,6 +32375,7 @@ function renderContinuousOverlay() {
     // la finestra consigliata PER SERIE. Ogni cambio filtra solo i punti GIA'
     // in memoria: nessuna richiesta di rete, nessun dato inventato.
     var teleView = 'auto';   // 'auto' | 'full' | '5y' | '12m' | 'ssw'
+    var teleIndex = '';      // 1.3.0.17: UN solo indice alla volta (id della serie in teleconnections.json)
     var TELE_DAY = 86400000;
     var TELE_FAMILY = {
         'qbo30_monthly': '5y', 'qbo50_monthly': '5y',
@@ -32353,9 +32440,12 @@ function renderContinuousOverlay() {
     function teleUpdateViewNote() {
         var note = document.getElementById('tele-view-note');
         if (!note) return;
-        note.textContent = teleView === 'auto'
-            ? 'default per famiglia: QBO/ENSO/PNA 5 anni · AMO storico · NAO/AO 12 mesi · SSW timeline — zero richieste di rete'
-            : 'periodo "' + (TELE_WINDOW_LABEL[teleView] || teleView) + '" applicato a tutte le serie — zero richieste di rete';
+        var s = teleSelectedSeries();
+        var w = teleEffectiveView(s);
+        note.textContent = s
+            ? ('indice: ' + (s.label || s.id) + ' · finestra: ' + (TELE_WINDOW_LABEL[w] || w) +
+               (teleView === 'auto' ? ' (default per famiglia)' : ' (scelta manuale)') + ' — zero richieste di rete')
+            : 'scegli un indice: la finestra si adatta alla sua famiglia — zero richieste di rete';
     }
     function teleSetView(v) {
         teleView = (v === 'full' || v === '5y' || v === '12m' || v === 'ssw') ? v : 'auto';
@@ -32366,10 +32456,78 @@ function renderContinuousOverlay() {
     }
     function teleResetView() {
         teleView = 'auto';
+        teleIndex = '';
         var sel = document.getElementById('tele-view-select');
-        if (sel) sel.selectedIndex = -1;   // nessuna opzione preselezionata: ogni scelta scatena change
+        if (sel) sel.value = 'auto';
+        var isel = document.getElementById('tele-index-select');
+        if (isel) isel.value = '';
+        teleEnsureIndexOptions();
+        teleChooseDefaultIndex();
         teleUpdateViewNote();
         if (teleState.data) teleRenderPanel();
+    }
+    // 1.3.0.17 - UN INDICE ALLA VOLTA. Le opzioni della tendina nascono dalle
+    // serie GIA presenti in teleconnections.json (nessuna lista cablata, zero
+    // richieste di rete nuove). La finestra di default e' quella della famiglia.
+    function teleAllSeries() {
+        var d = teleState.data;
+        return (d && Array.isArray(d.series)) ? d.series : [];
+    }
+    function teleSelectedSeries() {
+        var all = teleAllSeries();
+        for (var i = 0; i < all.length; i++) if (all[i] && all[i].id === teleIndex) return all[i];
+        return null;
+    }
+    function teleEnsureIndexOptions() {
+        var sel = document.getElementById('tele-index-select');
+        if (!sel) return;
+        var all = teleAllSeries();
+        if (!all.length) return;
+        if (sel.options.length === all.length + 1) return;   // dati immutabili: già costruita
+        var frag = document.createDocumentFragment();
+        var ph = document.createElement('option');
+        ph.value = ''; ph.textContent = '— scegli un indice —'; frag.appendChild(ph);
+        for (var i = 0; i < all.length; i++) {
+            var lb = teleLabel(all[i]);
+            var o = document.createElement('option');
+            o.value = all[i].id || '';
+            o.textContent = lb.name || all[i].id || ('serie ' + i);
+            frag.appendChild(o);
+        }
+        sel.innerHTML = ''; sel.appendChild(frag);
+        if (teleIndex) sel.value = teleIndex;
+    }
+    function teleChooseDefaultIndex() {
+        if (teleIndex) return;
+        var all = teleAllSeries();
+        if (!all.length) return;
+        var pick = all[0];
+        for (var i = 0; i < all.length; i++) if (all[i].id === 'qbo30_monthly') { pick = all[i]; break; }
+        teleIndex = pick.id || '';
+        var sel = document.getElementById('tele-index-select');
+        if (sel) sel.value = teleIndex;
+    }
+    function teleSetIndex(id) {
+        teleIndex = id || '';
+        teleView = teleFamilyWindow(teleSelectedSeries());   // default per famiglia
+        var vs = document.getElementById('tele-view-select');
+        if (vs) vs.value = teleView;
+        teleUpdateViewNote();
+        if (teleState.data) teleRenderPanel();
+    }
+    function teleLongText(s) {
+        var id = String((s && s.id) || '');
+        var T = {
+          'qbo30_monthly': 'QBO negativa (easterly): per statistica e associata a vortice polare piu debole, maggiore probabilita di SSW e NAO negativa. Relazione statistica, NON previsione deterministica per l Italia.',
+          'qbo50_monthly': 'La fase del QBO a 50 hPa e il riferimento classico per l accoppiamento stratosfera-troposfera. Anche qui: contesto statistico, non deterministico.',
+          'amo_monthly': 'AMO positiva modula il clima dell Atlantico e del Mediterraneo su scale multidecadali. NON e un indicatore stagionale e NON va usata per prevedere singoli eventi sull Italia.',
+          'nao_monthly': 'NAO negativa: piu blocking nord-atlantico, con Centro-Sud italiano piu freddo e piovoso in media. Media statistica, non certezza per la singola giornata.',
+          'pna_daily': 'PNA e un modo del Pacifico-Nord America: per l Italia e SOLO contesto teleconnettivo, non un predittore diretto.',
+          'ssw_events': 'Date centrali degli SSW maggiori dal 1958. Lacuna real-time dichiarata: il catalogo CSL/SSWC e storico e non fornisce eventi in tempo reale.'
+        };
+        if (T[id]) return T[id];
+        var lb = teleLabel(s);
+        return lb.meaning || '';
     }
     // 1.3.0.11-FIX - Retry di UNA sola richiesta su HTTP 404, con cache-buster.
     // Nessuna richiesta al boot: teleEnsureLoaded() e' chiamata solo da
@@ -32500,7 +32658,10 @@ function renderContinuousOverlay() {
         var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
         var minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
         if (minY === maxY) { minY -= 1; maxY += 1; }
-        var W = 560, H = 150, L = 44, R = 8, T = 8, B = 24;
+        // 1.3.0.17 - grafico PIU LEGGIBILE: mosaicatura maggiore, font 11-12,
+        // etichette d'asse esplicite e valore dell'ultimo punto in evidenza.
+        // Formule, scala e dati INVARIATI: cambia solo la resa.
+        var W = 640, H = 210, L = 58, R = 14, T = 16, B = 42;
         function X(v) { return L + ((v - minX) / ((maxX - minX) || 1)) * (W - L - R); }
         function Y(v) { return T + ((maxY - v) / (maxY - minY)) * (H - T - B); }
         var svg = '<svg class="syn-tele-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + synEsc(s.label || s.id || '') + '">';
@@ -32509,21 +32670,26 @@ function renderContinuousOverlay() {
             svg += '<line x1="' + L + '" y1="' + Y(0).toFixed(1) + '" x2="' + (W - R) + '" y2="' + Y(0).toFixed(1) + '" stroke="#64748b" stroke-width="1" stroke-dasharray="4 3"/>';
         }
         var poly = vals.map(function (v) { return X(Number(v[0])).toFixed(1) + ',' + Y(Number(v[1])).toFixed(1); }).join(' ');
-        svg += '<polyline points="' + poly + '" fill="none" stroke="#7dd3fc" stroke-width="1.6"/>';
+        svg += '<polyline points="' + poly + '" fill="none" stroke="#7dd3fc" stroke-width="2"/>';
         var djf = (String(s.id || '').indexOf('pna_') === 0) ? teleDjfMean(vals) : null;
         if (djf) {
             for (var d = 0; d < vals.length; d++) {
                 var md = new Date(Number(vals[d][0])).getUTCMonth() + 1;
                 if (md === 12 || md === 1 || md === 2) {
                     svg += '<circle cx="' + X(Number(vals[d][0])).toFixed(1) + '" cy="' + Y(Number(vals[d][1])).toFixed(1) +
-                        '" r="2.4" fill="#fbbf24" stroke="none"/>';
+                        '" r="3" fill="#fbbf24" stroke="none"/>';
                 }
             }
         }
-        svg += '<text x="2" y="' + (T + 9) + '" fill="#94a3b8" font-size="9">' + synEsc(maxY.toFixed(2)) + '</text>';
-        svg += '<text x="2" y="' + (H - B + 9) + '" fill="#94a3b8" font-size="9">' + synEsc(minY.toFixed(2)) + '</text>';
-        svg += '<text x="' + L + '" y="' + (H - 8) + '" fill="#94a3b8" font-size="9">' + synFmtIso(minX).slice(0, 10) + '</text>';
-        svg += '<text x="' + (W - R) + '" y="' + (H - 8) + '" fill="#94a3b8" font-size="9" text-anchor="end">' + synFmtIso(maxX).slice(0, 10) + '</text>';
+        // etichette asse + valori (font 11-12)
+        svg += '<text x="2" y="' + (T + 11) + '" fill="#94a3b8" font-size="11">' + synEsc(maxY.toFixed(2)) + '</text>';
+        svg += '<text x="2" y="' + (H - B + 11) + '" fill="#94a3b8" font-size="11">' + synEsc(minY.toFixed(2)) + '</text>';
+        svg += '<text x="2" y="' + (T - 4) + '" fill="#94a3b8" font-size="11">valore indice</text>';
+        svg += '<text x="' + L + '" y="' + (H - 22) + '" fill="#94a3b8" font-size="11">' + synFmtIso(minX).slice(0, 10) + '</text>';
+        svg += '<text x="' + (W - R) + '" y="' + (H - 22) + '" fill="#94a3b8" font-size="11" text-anchor="end">' + synFmtIso(maxX).slice(0, 10) + '</text>';
+        svg += '<text x="' + ((L + W - R) / 2) + '" y="' + (H - 5) + '" fill="#94a3b8" font-size="11" text-anchor="middle">tempo (UTC)</text>';
+        var lastV = Number(vals[vals.length - 1][1]);
+        svg += '<text x="' + (W - R - 4).toFixed(1) + '" y="' + (Y(lastV) - 7).toFixed(1) + '" fill="#7dd3fc" font-size="12" font-weight="600" text-anchor="end">' + lastV.toFixed(2) + '</text>';
         svg += '</svg>';
         return svg + '<div class="syn-tele-cap">Indice OSSERVATO — non previsione · ' + synEsc(s.label || s.id || '') + ' · ' + teleStamp(s) +
             teleWindowSuffix(s) + teleCoverageNote(s, vals) +
@@ -32545,7 +32711,7 @@ function renderContinuousOverlay() {
                 synEsc(String(ev0Date(s))) + '). Nessuna timeline inventata.</div>';
         }
         var min = ev[0].ts, max = ev[ev.length - 1].ts;
-        var W = 560, H = 120, L = 44, R = 8, YY = 62;
+        var W = 640, H = 150, L = 58, R = 14, YY = 78;
         function X(v) { return L + ((v - min) / ((max - min) || 1)) * (W - L - R); }
         var svg = '<svg class="syn-tele-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Timeline storica SSW">';
         svg += '<line x1="' + L + '" y1="' + YY + '" x2="' + (W - R) + '" y2="' + YY + '" stroke="#64748b" stroke-width="1"/>';
@@ -32556,7 +32722,7 @@ function renderContinuousOverlay() {
         }
         for (var k = 0; k < 4 && k < ev.length; k++) {
             var idx = Math.floor(k * (ev.length - 1) / 3);
-            svg += '<text x="' + X(ev[idx].ts).toFixed(1) + '" y="' + (YY + 30) + '" fill="#94a3b8" font-size="9" text-anchor="middle">' +
+            svg += '<text x="' + X(ev[idx].ts).toFixed(1) + '" y="' + (YY + 34) + '" fill="#94a3b8" font-size="11" text-anchor="middle">' +
                 new Date(ev[idx].ts).getUTCFullYear() + '</text>';
         }
         svg += '</svg>';
@@ -32616,37 +32782,23 @@ function renderContinuousOverlay() {
         }
         if (msg) msg.hidden = true;
         if (body) body.hidden = false;
-        if (badge) badge.textContent = 'aggiornato ' + synFmtIso(d.generated_at) + ' · ' + (d.series || []).length + ' serie';
+        var all = teleAllSeries();
+        if (badge) badge.textContent = 'aggiornato ' + synFmtIso(d.generated_at) + ' · ' + all.length + ' serie disponibili · 1 alla volta';
+        teleEnsureIndexOptions();
+        teleChooseDefaultIndex();
+        var s = teleSelectedSeries();
         teleUpdateViewNote();
-        var dseries = Array.isArray(d.series) ? d.series : [];
-        var sh = '';
-        for (var si = 0; si < dseries.length; si++) {
-            var ssi = dseries[si];
-            var lb = teleLabel(ssi);
-            var isEventTimeline = ssi && (ssi.kind === 'events' || Array.isArray(ssi.events));
-            var ch = isEventTimeline ? teleTimeline(ssi) : teleChart(ssi);
-            sh += '<div class="syn-card"><div class="syn-card-head">' + synEsc(lb.name) + '</div>' +
-                '<div class="syn-tele-block">' + ch + '</div>' +
-                '<p class="syn-stamp">' + synEsc(lb.meaning) + '</p></div>';
-        }
-        var html = '<div class="syn-card"><div class="syn-card-head">Serie osservate (' + dseries.length + ') — indici OSSERVATI</div>' +
-            '<div class="syn-tele">' + sh + '</div></div>';
-        html += telePanel('QBO 30 hPa — vento zonale equatoriale', teleChart(teleSeries('qbo30_monthly')),
-            'QBO negativa (easterly): per statistica è associata a vortice polare più debole, maggiore probabilità di SSW e NAO negativa. Relazione statistica, NON previsione deterministica per l Italia.');
-        html += telePanel('QBO 50 hPa — vento zonale equatoriale', teleChart(teleSeries('qbo50_monthly')),
-            'La fase del QBO a 50 hPa è il riferimento classico per l accoppiamento stratosfera-troposfera. Anche qui: contesto statistico, non deterministico.');
-        html += telePanel('Oscillazione Multidecadale Atlantica (AMO)', teleChart(teleSeries('amo_monthly')),
-            'AMO positiva modula il clima dell Atlantico e del Mediterraneo su scale multidecadali. NON è un indicatore stagionale e NON va usata per prevedere singoli eventi sull Italia.');
-        html += telePanel('Oscillazione Nord Atlantica (NAO) — mensile', teleChart(teleSeries('nao_monthly')),
-            'NAO negativa: piu blocking nord-atlantico, con Centro-Sud italiano piu freddo e piovoso in media. Media statistica, non certezza per la singola giornata.');
-        html += telePanel('Modello Pacifico / Nord America (PNA) — giornaliero', teleChart(teleSeries('pna_daily')),
-            'PNA è un modo del Pacifico-Nord America: per l Italia è SOLO contesto teleconnettivo, non un predittore diretto.');
-        html += telePanel('Riscaldamenti stratosferici improvvisi (SSW) — timeline', teleTimeline(teleSeries('ssw_events')),
-            'Date centrali degli SSW maggiori dal 1958. Lacuna real-time dichiarata: il catalogo CSL/SSWC è storico e non fornisce eventi in tempo reale.');
-        html += teleContextImages();   // 2 immagini NOAA CPC, nessuna scheda di degrado
+        var lb = s ? teleLabel(s) : null;
+        var isEventTimeline = s && (s.kind === 'events' || Array.isArray(s.events));
+        var ch = s ? (isEventTimeline ? teleTimeline(s) : teleChart(s))
+                   : '<div class="syn-msg">Nessun indice selezionato.</div>';
+        var html = '<div class="syn-card"><div class="syn-card-head">' + synEsc(lb ? lb.name : 'Indice') +
+            '</div><div class="syn-tele-block">' + ch + '</div>' +
+            '<p class="syn-stamp">' + synEsc(teleLongText(s)) + '</p></div>';
+        html += teleContextImages();   // 2 immagini NOAA CPC (non SVG)
         grid.innerHTML = html;
         var stamp = document.getElementById('tele-stamp');
-        if (stamp) stamp.innerHTML = 'Indici OSSERVATI, non previsioni. Filtro obbligatorio lead=0 e member=0 per le serie GEFS daily. Nessuna attivita solare inclusa (' + synEsc((d.solar_activity && d.solar_activity.implemented) ? 'presente' : 'assente') + ').';
+        if (stamp) stamp.innerHTML = 'Indice OSSERVATO, non previsione · un solo grafico alla volta. Filtro obbligatorio lead=0 e member=0 per le serie GEFS daily. Nessuna attivita solare inclusa (' + synEsc((d.solar_activity && d.solar_activity.implemented) ? 'presente' : 'assente') + ').';
     }
     function toggleTeleconn() {
         var panel = document.getElementById('teleconn-panel');
@@ -32661,7 +32813,7 @@ function renderContinuousOverlay() {
         var fd = document.getElementById('forecast-details');
         if (!fd) return;
         fd.addEventListener('toggle', function () {
-            if (fd.open) synEnsureLoaded().then(function () { synAugmentAll(); synRenderPanel(); });
+            if (fd.open) synEnsureLoaded().then(function () { synRenderPanel(); });
         });
     })();
 
@@ -35037,7 +35189,6 @@ syncSelect('lightning-source-select', [
         }
         cols.innerHTML = html;
         renderItaliaSentence();
-        if (typeof synAugmentAll === 'function') synAugmentAll();
     }
 
     function renderItaliaSentence() {
@@ -36034,37 +36185,58 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         </div>
         <div class="help-body" id="help-body">
             <div class="help-sec">
-                <h3>1. Cosa significa il colore delle province</h3>
-                <p>Ogni provincia prende il colore del <b>rischio pi&ugrave; alto fra tutti i pericoli previsti dal modello</b> (pioggia e allagamenti, vento, temporali, grandine, caldo, gelo, neve, nebbia, convezione organizzata, vortici), non di un temporale in corso. Il dettaglio &egrave; nelle schede; il tooltip dice quale rischio guida il colore. Sette gradini, con le soglie usate dal codice (il viola &egrave; solo in modalit&agrave; Sviluppo):</p>
+                <h3>1. I prodotti (uno alla volta)</h3>
+                <p>Tre prodotti principali: <b>Mappe previsionali</b> (modello, dominio, variabile e ora, player con isolinee e frecce del vento disegnate nel WebP), <b>Radar Player</b> (radar e satellite, Struttura convettiva, Centraline, Area Doppler) e <b>Mappa dei rischi</b> (colore delle province, slider orario, confronto fra modelli). Sono disponibili anche <b>Previsioni</b> (3 giorni, 5 macro-aree, 7 giorni e sintesi nazionale), <b>Pannello LIVE</b>, <b>Analisi sinottica</b>, <b>Teleconnessioni e indici</b> e <b>Fonti e metodologie</b>. «— nessuno —» spegne il prodotto attivo.</p>
+            </div>
+            <div class="help-sec">
+                <h3>2. Che cosa significa il colore delle province</h3>
+                <p>Il colore e' il <b>rischio piu' alto fra i pericoli previsti dal modello</b>, non un temporale in corso: verde Basso, verde chiaro Lieve, giallo Moderato, arancione Moderato-Alto, rosso Alto. Il viola (Mesociclone) compare solo con Sviluppo ON. Il tooltip dice quale rischio guida il colore.</p>
                 <ul class="help-scale">
-                    <li><span class="hs-dot" style="background:#22c55e;"></span><span><b>Verde — Basso</b>: condizioni stabili, nessun fenomeno rilevante.</span></li>
-                    <li><span class="hs-dot" style="background:#a3e635;"></span><span><b>Verde chiaro — Lieve</b>: pioggia debole (probabilit&agrave; oltre il 20% o 0,2-1 mm).</span></li>
-                    <li><span class="hs-dot" style="background:#eab308;"></span><span><b>Giallo — Moderato</b>: pioggia oltre il 60%, 1-15 mm oppure vento oltre 25 km/h.</span></li>
-                    <li><span class="hs-dot" style="background:#f97316;"></span><span><b>Arancione — Moderato-Alto</b>: 15-45 mm, vento 40-60 km/h o rovescio/temporale.</span></li>
-                    <li><span class="hs-dot" style="background:#ef4444;"></span><span><b>Rosso — Alto</b>: oltre 45 mm, vento oltre 60 km/h oppure temporale.</span></li>
-                    <li class="sviluppo-only-item" hidden><span class="hs-dot" style="background:#a855f7;"></span><span><b>Viola — Mesociclone</b>: codice temporalesco WMO nella stessa ora E criterio del mesociclone soddisfatto (SCP &ge; 1, shear 0-6 km &ge; 20 m/s, SRH 0-3 km &ge; 100 m&sup2;/s&sup2;). &Egrave; un ambiente <b>previsto</b>, non osservato (solo in modalit&agrave; Sviluppo).</span></li>
-                    <li><span class="hs-dot" style="background:#22c55e;"></span><span><b>Verde — Basso / nessuna criticità attiva</b>: ambiente favorevole ma <b>nessun temporale previsto</b> (nessun innesco nella stessa ora). Non &egrave; un evento.</span></li>
+                    <li><span class="hs-dot" style="background:#22c55e;"></span><span><b>Basso</b>: condizioni stabili, nessun fenomeno rilevante.</span></li>
+                    <li><span class="hs-dot" style="background:#a3e635;"></span><span><b>Lieve</b>: pioggia debole (probabilita' oltre il 20% o 0,2-1 mm).</span></li>
+                    <li><span class="hs-dot" style="background:#eab308;"></span><span><b>Moderato</b>: pioggia oltre il 60%, 1-15 mm oppure vento oltre 25 km/h.</span></li>
+                    <li><span class="hs-dot" style="background:#f97316;"></span><span><b>Moderato-Alto</b>: 15-45 mm, vento 40-60 km/h o rovescio/temporale.</span></li>
+                    <li><span class="hs-dot" style="background:#ef4444;"></span><span><b>Alto</b>: oltre 45 mm, vento oltre 60 km/h oppure temporale.</span></li>
                 </ul>
-                <p class="help-note">Il livello sale solo se il modello vede anche una causa concreta (pioggia o temporale): con il cielo pulito resta basso anche quando l'energia in quota &egrave; alta.</p>
-                <p class="help-note"><b>Caldo e gelo</b>: il livello usa la massima/minima del <b>punto pi&ugrave; basso della provincia</b> (pianura o valle), non della cima pi&ugrave; fredda; il livello <b>Estremo</b> (4) &egrave; riservato alle fasce sotto 800 m.</p>
+                <p class="help-note"><b>Potenziale alto non significa temporale in corso.</b> Celle, grandine e struttura convettiva vengono dal radar osservato; il colore delle province viene dal modello. Se un valore manca (n/d) il livello non lo usa.</p>
             </div>
             <div class="help-sec">
-                <h3>2. Potenziale del modello o evento osservato?</h3>
-                <p><b>Colore delle province = potenziale del modello.</b> Viene da grandezze previste: CAPE (energia disponibile per i temporali, in J/kg), vento in quota, pioggia e vento al suolo.</p>
-                <p><b>Celle, grandine e struttura convettiva = radar osservato.</b> Vengono dal radar della Protezione Civile: fenomeni visti, con ora e posizione, nel pannello &laquo;Struttura convettiva&raquo;.</p>
-                <p class="help-example">Esempio: una provincia arancione con CAPE 1.800 J/kg pu&ograve; non avere nessuna cella radar sopra; e viceversa celle forti con la provincia gialla.</p>
-                <p class="help-key">Potenziale alto non significa temporale in corso.</p>
+                <h3>3. Centraline: nove parametri e rosa dei venti</h3>
+                <p>Nel Pannello LIVE il toggle <b>Centraline</b> mostra le stazioni osservate con nove parametri: temperatura a 2 m, umidita' relativa, velocita' del vento a 10 m, direzione del vento, pioggia normalizzata, punto di rugiada, pressione di stazione (non MSL), raffica massima e neve al suolo. La serie giornaliera arriva dal server; con una o due osservazioni il grafico dice quante ne sono, senza inventarne.</p>
+                <p class="help-note">La <b>direzione del vento</b> non usa un asse: viene disegnata come <b>rosa dei venti a 16 quadranti</b>. Il raggio e' la frequenza di osservazione, il colore la velocita' media (m/s). I gradi stanno solo nel tooltip di ogni petalo; con meno di tre osservazioni non si disegna alcun cerchio.</p>
             </div>
             <div class="help-sec">
-                <h3>3. Il pannello di destra, nell'ordine giusto</h3>
+                <h3>4. Nebbia, cono e frecce del nowcast</h3>
+                <p>La <b>nebbia</b> e' una metrica di Sviluppo: il punteggio usa solo ore con punteggio alto, vento debole e umidita' elevata nella stessa ora; sotto la soglia la provincia resta grigia, non viene colorata a caso.</p>
+                <p>La <b>Struttura convettiva</b> mostra il <b>cono di previsione</b> (fascio di traiettorie simulate, non una probabilita' calibrata) con etichette +30/+60/+90 min e, quando il moto e' affidabile, una <b>freccia lunga 30 minuti di tragitto</b> alla velocita' osservata. L'<b>allerta di prossimita'</b> misura la distanza dal bordo del cono, non dal centroide: e' una stima cinematica, non una probabilita'.</p>
+            </div>
+            <div class="help-sec">
+                <h3>5. Criticita DPC</h3>
+                <p>Lo switch <b>Criticita DPC</b> aggiunge il layer ufficiale del bollettino: tre rischi separati (idraulico, temporali, idrogeologico) e quattro livelli con i colori del DPC (verde, giallo, arancione, rosso). La criticita' e' <b>prevista dal DPC</b>: non e' un'allerta emessa da MeteoRisk. I tre rischi restano leggibili separatamente, non vengono sommati in un indice unico; con il layer acceso la colorazione dei rischi si sospende.</p>
+            </div>
+            <div class="help-sec">
+                <h3>6. Teleconnessioni: un indice alla volta</h3>
+                <p>La tendina <b>Indice</b> contiene le serie gia' presenti in <code>teleconnections.json</code>: se ne sceglie <b>una sola alla volta</b>. La finestra temporale parte dal default della famiglia (QBO/ENSO/PNA 5 anni, AMO storico, NAO/AO 12 mesi, SSW timeline) ed e' modificabile. Sono indici <b>osservati</b>, non previsioni: cambiare indice o finestra non fa nuove richieste di rete.</p>
+            </div>
+            <div class="help-sec">
+                <h3>7. Tracking SOI e limiti Doppler</h3>
+                <p>Il <b>Tracking SOI</b> (0-100) e' un descrittore dell'organizzazione stimata dalla morfologia radar: celle, area, dBZ, moto osservato, cono e mini timeline. <b>Non misura la rotazione</b>: il mosaico DPC e' 2D a singola riflettivita', senza velocita' radiale, azimuth o elevazione.</p>
+                <p class="help-note">L'<b>Area Doppler</b> dice dove esiste velocita' radiale misurata, non un cerchio teorico. La velocita' arriva da soli due radar francesi (prodotto VRADH); senza scan lo stato e' dichiarato e nessun dato viene inventato. Il fascio su Roma e' intorno ai 6 km di quota: campiona l'alta troposfera. I quattro stati Doppler sono classi derivate dalla sola velocita' radiale: mai «confermato». Fuori dall'area resta solo la riflettivita'.</p>
+            </div>
+            <div class="help-sec">
+                <h3>8. Il pannello di destra, nell'ordine giusto</h3>
                 <ol class="help-order">
                     <li><b>Zona e badge di rischio</b>: il riassunto in una parola del punto che hai scelto.</li>
                     <li><b>Riga della grandine</b>: mostra l'energia disponibile (CAPE) con gli altri indici.</li>
-                    <li><b>Le sei metriche</b>: temperatura, umidit&agrave;, pressione, raffiche, probabilit&agrave; di pioggia, millimetri previsti.</li>
+                    <li><b>Le sei metriche</b>: temperatura, umidita', pressione, raffiche, probabilita' di pioggia, millimetri previsti.</li>
                     <li><b>Grafico e confronto modelli</b>: come cambia nelle prossime ore e quanto i due modelli concordano.</li>
                     <li><b>Riepilogo finale</b>: la stessa cosa detta in parole, con i fenomeni attesi.</li>
                 </ol>
-                <p class="help-note">Prima il livello, poi i numeri che lo giustificano. Se un valore manca (n/d) il livello non lo usa.</p>
+            </div>
+            <div class="help-sec">
+                <h3>9. Modalita' Sviluppo</h3>
+                <p>Lo switch <b>Sviluppo</b> (nel footer) sblocca le metriche <b>Nebbia</b>, <b>Conv.</b>, <b>Grandine</b> e, nella sola <b>Mappa dei rischi</b>, le quattro voci aggiuntive del selettore metrica <b>WMAXSHEAR, SCP, SHIP, HSLC</b>: attivano la stessa logica di profilo severo di sempre, senza un prodotto separato. Con Sviluppo OFF tutte queste voci spariscono e si torna alla metrica Rischio.</p>
+                <p class="help-note">Dati sperimentali: non sostituiscono i bollettini ufficiali.</p>
             </div>
         </div>
         <div class="help-foot">Chiudi con <b>Esc</b>, con la <b>✕</b> o toccando lo sfondo. Dati sperimentali: non sostituiscono i bollettini ufficiali.</div>
