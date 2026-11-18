@@ -1,3 +1,13 @@
+MeteoRisk Light - 1.3.0.10 - ARCHIVIO PREDIZIONI + BACKFILL 3D (bump da 1.3.0.9)
+VERSION=1.3.0.10
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=140
+RELEASE_TYPE=release
+DATE=2026-11-18
+NOTE=Release 1.3.0.10 (bump da 1.3.0.9). Archivio predizioni severe ADDITIVO su branch cache orphan predictions-archive (blob per giorno, retention 365 gg, commit senza parent, push con --force-with-lease, 17 test verdi): costo MISURATO 818.809 B/giorno = 298,9 MB/anno; registro a 30 giorni su main invariato. Backfill di validazione 3D: 20 file derivati in data/validation/backfill_3d (939.079 B, 88 righe, 77 positivi AFA / 11 negativi); gate >=60/60 NON raggiunto (mancano 49 negativi), nessun POD/FAR/CSI calcolato o pubblicato, AFA e proxy di convezione elettrificata NON di organizzazione. html SOLO APP_VERSION e changelog, sw.js tre cache, README, test .mjs, vecchio html 1.3.0.9 rimosso. NON verificato: run GitHub Actions dei nuovi job, TM90 non validata, gate validazione non raggiunto, AFA proxy non organizzazione, retest completo non eseguito.
+APP_FILE=mri-light-1.3.0.10.html
 MeteoRisk Light - 1.3.0.9 - PRODUTTORE SINOTTICO (bump da 1.3.0.8)
 VERSION=1.3.0.9
 MAJOR=1

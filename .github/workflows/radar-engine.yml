@@ -17,6 +17,10 @@ name: Radar Engine (Fase 1 — Storm Detection & Tracking)
 #     derivati cella/track (alimenta il pannello "Struttura convettiva"
 #     dell'app); data/state/severe_predictions.jsonl e' il registro append-only
 #     delle predizioni (rotazione 30 giorni) per la futura validazione.
+#     2026-11-18 — ARCHIVIO ADDITIVO: le stesse righe vengono accumulate in blob
+#     GIORNALIERI su un branch cache orphan `predictions-archive`
+#     (data/state/predictions/YYYY/MM/DD.jsonl, retention 365 giorni), mai su
+#     main. I consumatori attuali del registro a 30 giorni NON cambiano.
 
 on:
   # 2026-11-12: rimosso l'input `run_unit_tests`. Serviva a ACCENDERE i test
@@ -534,6 +538,86 @@ jobs:
           echo "[ERRORE] push radar-history fallito dopo 3 tentativi (nessuna sovrascrittura: --force-with-lease)."
           exit 1
 
+      # ARCHIVIO DELLE PREDIZIONI (2026-11-18, ADDITIVO): il registro su main
+      # resta a 30 giorni per i consumatori attuali; qui le STESSE righe vengono
+      # accumulate in un blob PER GIORNO su un branch cache ORPHAN, con retention
+      # 365 giorni. Un blob per giorno, MAI un unico file crescente su main.
+      # Leggibile via raw per i backtest:
+      #   https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/predictions-archive/data/state/predictions/YYYY/MM/DD.jsonl
+      # Pubblicazione clone dello step radar-history: commit senza parent e push
+      # con --force-with-lease (nessun --force nudo), 3 tentativi. Concurrency
+      # del job/workflow gia' serializza le run, il lease protegge il ref.
+      - name: Pubblica archivio predizioni (branch predictions-archive)
+        if: success()
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          tmark() { printf '%s\t%s\n' "$1" "$(date +%s%3N)" >> "$RUNNER_TEMP/timings/marks.tsv"; }
+          tmark begin:push_predictions_archive
+          # 1) righe del giorno scritte dal motore in data/state/predictions/
+          NEW="$RUNNER_TEMP/predictions-new"
+          rm -rf "$NEW"; mkdir -p "$NEW"
+          if [ -d data/state/predictions ]; then cp -R data/state/predictions/. "$NEW"/; fi
+          if [ -z "$(find "$NEW" -type f -name '*.jsonl' -print -quit)" ]; then
+            echo "[INFO] Nessuna predizione prodotta: archivio non aggiornato."
+            tmark end:push_predictions_archive
+            exit 0
+          fi
+          # 2) ripristina i blob gia' pubblicati dal branch cache
+          rm -rf data/state/predictions
+          if git fetch --depth 1 origin "+predictions-archive:refs/heads/predictions-archive-base" 2>/dev/null; then
+            git restore --source predictions-archive-base --worktree -- data/state/predictions 2>/dev/null || true
+          else
+            echo "[INFO] Branch predictions-archive assente (primo run): archivio vuoto."
+          fi
+          # 3) unione (old + new, dedup, corrotte contate, retention 365 gg)
+          python scripts/radar_engine/predictions_archive.py \
+            --archive-dir data/state/predictions \
+            --new-dir "$NEW" \
+            --retention-days 365 \
+            --report "$RUNNER_TEMP/predictions-archive-report.json"
+          cat "$RUNNER_TEMP/predictions-archive-report.json"
+          # 4) commit ORPHAN (senza parent) + push protetto
+          export GIT_INDEX_FILE="$RUNNER_TEMP/predictions-archive.index"
+          git read-tree --empty
+          git add -f data/state/predictions/
+          NEW_TREE=$(git write-tree)
+          unset GIT_INDEX_FILE
+          OLD_TREE=""
+          if git rev-parse -q --verify predictions-archive-base >/dev/null; then
+            OLD_TREE=$(git rev-parse predictions-archive-base^{tree})
+          fi
+          if [ "$OLD_TREE" = "$NEW_TREE" ]; then
+            echo "[INFO] Archivio predizioni invariato: push saltato."
+            tmark end:push_predictions_archive
+            exit 0
+          fi
+          COMMIT=$(git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit-tree "$NEW_TREE" -m "[skip ci] radar: archivio predizioni (blob giornalieri, branch orphan)")
+          read_remote_sha() {
+            git ls-remote origin refs/heads/predictions-archive 2>/dev/null | awk 'NR==1 {print $1}'
+          }
+          for attempt in 1 2 3; do
+            PARENT="$(read_remote_sha || true)"
+            if [ -z "$PARENT" ]; then
+              LEASE="--force-with-lease=refs/heads/predictions-archive:"
+              EXPECT="<ref assente>"
+            else
+              LEASE="--force-with-lease=refs/heads/predictions-archive:$PARENT"
+              EXPECT="$PARENT"
+            fi
+            echo "[INFO] push predictions-archive tentativo $attempt/3 (lease su $EXPECT)"
+            if git push "$LEASE" origin "$COMMIT:refs/heads/predictions-archive"; then
+              echo "[INFO] predictions-archive aggiornata (commit ${COMMIT:0:7})."
+              tmark end:push_predictions_archive
+              exit 0
+            fi
+            echo "[WARN] push rifiutato (tentativo $attempt/3): rileggo lo SHA e riprovo."
+            sleep $((attempt * 5))
+          done
+          echo "[ERRORE] push predictions-archive fallito dopo 3 tentativi (nessuna sovrascrittura)."
+          exit 1
+
       # L'ARTEFATTO di deploy contiene: app, dataset derivati, geografie richieste,
       # derivati radar (data/radar: latest.json/storms.geojson/tracks.json/
       # convective_structures.json),
@@ -617,7 +701,7 @@ jobs:
 
           ORDER = ["install_deps", "unit_tests", "restore_history",
                    "engine", "write_timings", "commit_push_main",
-                   "push_history", "build_site"]
+                   "push_history", "push_predictions_archive", "build_site"]
           LABEL = {
               "checkout_and_toolchain": "init + checkout + setup-python + setup-uv (+cache)",
               "install_deps": "install dipendenze (uv)",
@@ -627,6 +711,7 @@ jobs:
               "write_timings": "scrittura timings_ms in latest.json",
               "commit_push_main": "commit + push su main",
               "push_history": "push branch radar-history",
+              "push_predictions_archive": "push archivio predizioni (365 gg)",
               "build_site": "build _site",
           }
 

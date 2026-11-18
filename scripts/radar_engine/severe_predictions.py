@@ -18,6 +18,13 @@ Rotazione: le righe piu' vecchie di `retention_days` (default 30) vengono
 riscritte fuori (file compatto, scrittura atomica). Le righe corrotte si
 scartano e si CONTANO (mai un crash del run: la funzione e' best-effort e
 ritorna il conteggio).
+
+ARCHIVIO ADDITIVO (2026-11-18): le STESSE righe vengono scritte anche in
+`data/state/predictions/YYYY/MM/DD.jsonl` (un blob per giorno, giorno UTC del
+`ts`). Il registro su main resta a 30 giorni per i consumatori attuali;
+l'archivio viene pubblicato dal workflow su un branch cache separato
+(`predictions-archive`), con retention 365 giorni. Nessun valore inventato:
+le righe dell'archivio sono esattamente quelle del registro.
 """
 
 import datetime as _dt
@@ -27,6 +34,9 @@ import tempfile
 
 PREDICTIONS_REL = os.path.join("data", "state", "severe_predictions.jsonl")
 RETENTION_DAYS = 30
+# Archivio storico (branch cache `predictions-archive`, NON su main).
+ARCHIVE_REL = os.path.join("data", "state", "predictions")
+ARCHIVE_RETENTION_DAYS = 365
 
 
 def _now_iso(now=None):
@@ -45,6 +55,23 @@ def _parse_iso(value):
             tzinfo=_dt.timezone.utc)
     except ValueError:
         return None
+
+
+def _utc_day(value):
+    """Giorno UTC `YYYY-MM-DD` di un ts ISO8601; None se non interpretabile."""
+    ts = _parse_iso(value)
+    return None if ts is None else ts.strftime("%Y-%m-%d")
+
+
+def archive_day_path(archive_dir, ts):
+    """Path `archive_dir/YYYY/MM/DD.jsonl` per il giorno UTC del ts.
+
+    Ritorna None per un ts non valido: nessun file con giorno inventato."""
+    day = _utc_day(ts)
+    if day is None:
+        return None
+    y, m, d = day.split("-")
+    return os.path.join(archive_dir, y, m, d + ".jsonl")
 
 
 def prediction_row(record, severe=None, ts=None, version=None):
@@ -151,6 +178,34 @@ def append_rows(rows, path):
     return len(rows)
 
 
+def append_archive_rows(rows, archive_dir):
+    """Scrive le righe nel blob del giorno UTC del loro `ts`.
+
+    Ritorna {"paths": [str], "appended": n, "skipped_invalid_ts": n}.
+    Le righe senza `ts` valido NON vengono scritte (nessun giorno inventato);
+    vengono solo contate. Riutilizza `append_rows`: stessa serializzazione
+    JSON compatta con chiavi ordinate del registro su main."""
+    groups = {}
+    skipped = 0
+    for row in rows or []:
+        if not isinstance(row, dict):
+            skipped += 1
+            continue
+        path = archive_day_path(archive_dir, row.get("ts"))
+        if path is None:
+            skipped += 1
+            continue
+        groups.setdefault(path, []).append(row)
+    written, total = [], 0
+    for path in sorted(groups):
+        n = append_rows(groups[path], path)
+        if n:
+            written.append(path)
+            total += n
+    return {"paths": written, "appended": total,
+            "skipped_invalid_ts": skipped}
+
+
 def default_path(out_dir):
     """Path del JSONL a partire dalla out_dir del motore (data/radar).
 
@@ -166,13 +221,31 @@ def default_path(out_dir):
                         os.path.basename(PREDICTIONS_REL))
 
 
+def default_archive_dir(out_dir):
+    """Directory dell'archivio: `data/state/predictions`, sorella del registro."""
+    return os.path.join(os.path.dirname(default_path(out_dir)),
+                        os.path.basename(ARCHIVE_REL))
+
+
 def record_predictions(bundle, out_dir, version=None, now=None, path=None,
-                       retention_days=RETENTION_DAYS):
+                       retention_days=RETENTION_DAYS, archive_dir=None):
     """Rotazione + append delle predizioni del run corrente (best-effort).
 
-    Ritorna dict {"path", "appended", "rotation"} oppure None se non c'e'
+    SCRIVE DUE VOLTE, in modo additivo:
+      1) il registro corrente `path` (default `data/state/severe_predictions.jsonl`)
+         con rotazione a `retention_days` (30) — comportamento NOTO, invariato;
+      2) il blob giornaliero `archive_dir/YYYY/MM/DD.jsonl` — Archivio che il
+         workflow pubblica sul branch `predictions-archive` (retention 365 gg).
+
+    Le righe sono ESATTAMENTE le stesse in entrambi i file. L'archivio viene
+    scritto PRIMA del registro: se la scrittura del registro fallisce, la riga
+    sopravvive almeno nel blob del giorno e il workflow puo' pubblicarla.
+
+    Ritorna {"path", "appended", "rotation", "archive"} oppure None se non c'e'
     nulla da scrivere (nessuna riga e nessun file da ruotare)."""
     target = path or default_path(out_dir)
+    arch = archive_dir if archive_dir is not None else os.path.join(
+        os.path.dirname(os.path.abspath(target)), os.path.basename(ARCHIVE_REL))
     ts = _now_iso(now)
     records = getattr(bundle, "convective_structures", None) or []
     rows = []
@@ -181,10 +254,15 @@ def record_predictions(bundle, out_dir, version=None, now=None, path=None,
                              version=version)
         if row is not None:
             rows.append(row)
+    # 1) archivio additivo (prima: preserva la riga anche se il registro fallisce)
+    archive = append_archive_rows(rows, arch) if rows else {
+        "paths": [], "appended": 0, "skipped_invalid_ts": 0}
+    # 2) registro corrente (comportamento invariato)
     rotation = rotate(target, retention_days=retention_days, now=now)
     appended = append_rows(rows, target) if rows else 0
     if not rows and appended == 0 and rotation["kept"] == 0 \
             and rotation["dropped_old"] == 0 and rotation["dropped_invalid"] == 0 \
             and not os.path.exists(target):
         return None
-    return {"path": target, "appended": appended, "rotation": rotation}
+    return {"path": target, "appended": appended, "rotation": rotation,
+            "archive": archive}

@@ -3034,9 +3034,15 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.9';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.10';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-18';
     const APP_CHANGELOG = [
+    { version: '1.3.0.10', date: '2026-11-18', changes: [
+        'Archivio delle predizioni severe ADDITIVO: blob giornalieri su branch cache orphan predictions-archive (retention 365 giorni, commit senza parent, push con --force-with-lease). Costo MISURATO 818.809 byte/giorno, pari a 298,9 MB/anno. Il registro a 30 giorni su main resta invariato per i consumatori attuali.',
+        'Backfill di validazione 3D: 20 file derivati in data/validation/backfill_3d (939.079 byte, 88 righe) con 77 etichette AFA positive e 11 negative. Il gate approvato di almeno 60 positivi e 60 negativi NON e raggiunto: mancano 49 negativi.',
+        'Nessun POD, FAR o CSI calcolato o pubblicato: il campione non e bilanciato e l etichetta AFA e un proxy di convezione elettrificata, NON di organizzazione morfologica. probability resta null.',
+        'NON verificato: esecuzione GitHub Actions dei nuovi job, validazione TM90 su eventi italiani, gate di validazione non raggiunto, retest completo non eseguito.',
+    ]},
     { version: '1.3.0.9', date: '2026-11-18', changes: [
         'Produttore sinottico per data/radar/synoptic.json: blocco TM90 da geopotenziale 500 hPa con soglia citata Tibaldi-Molteni 1990 e campi grezzi non calibrati come raw_field, nessun simbolo frontale inventato.',
         'Nuovo workflow synoptic.yml con cron giornaliero alle 12:23 UTC e workflow_dispatch: scrive e committa SOLO data/radar/synoptic.json, con gate scientifico e dispatch di deploy-pages.',
