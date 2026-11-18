@@ -27,7 +27,11 @@ UNA richiesta forecast multi-location con SOLO weathercode+precipitation orarie.
 Exit codes (contratto 1.0.0.8, esteso cooldown 2026-11-16):
    0 = Best Match CAMBIATO (refresh necessario)
   10 = Best Match INVARIATO (clean success)
-  12 = NO-OP DICHIARATO: cooldown canary attivo; zero richieste di rete,
+  12 = NO-OP DICHIARATO: cooldown canary attivo; senza --liveness-probe zero
+       richieste di rete (comportamento storico invariato); con --liveness-probe
+       AL PIU' UNA richiesta leggera allo STESSO endpoint forecast del canary
+       (timeout 10s, zero retry). Se risponde 200 il cooldown viene azzerato e
+       il confronto fingerprint prosegue; se fallisce tutto resta invariato.
        fingerprint invariata, best_changed=false (clean success)
    13 = API forecast non disponibile dopo i retry: DEGRADO ESPLICITO — exit 0,
        best_state=unavailable + motivo, best_changed=false, nessun fetch; il
@@ -45,6 +49,7 @@ import argparse
 import re
 import sys
 import time
+import urllib.parse
 
 sys.path.insert(0, __file__ and __file__[: __file__.rfind("\\")] or ".")
 import common
@@ -56,6 +61,27 @@ import common
 # percorso di canary, che su errore di rete non tocca lo stato (H4).
 COOLDOWN_FIELD = "best_match_cooldown_until"
 DEFAULT_COOLDOWN_S = 3600
+
+# Liveness probe (2026-11-18): UNA sola richiesta leggera, timeout breve,
+# STESSO endpoint forecast usato dal canary (stessi parametri di
+# common.fetch_best_match_check, che pero' fa fino a 3 tentativi).
+PROBE_TIMEOUT_S = 10
+
+
+def best_match_liveness_probe(sentinels):
+    """Una sola richiesta all'endpoint forecast del canary, senza retry e con
+    timeout breve. Stessi parametri di common.fetch_best_match_check; nessun
+    endpoint nuovo. Nessuna scrittura di stato: H4 resta invariato."""
+    params = {
+        "latitude": ",".join(str(s["lat"]) for s in sentinels),
+        "longitude": ",".join(str(s["lon"]) for s in sentinels),
+        "hourly": common.BEST_MATCH_CHECK_HOURLY,
+        "timezone": common.TIMEZONE,
+        "forecast_days": str(common.FORECAST_DAYS),
+        "models": "best_match",
+    }
+    url = common.OPENMETEO_BASE + "?" + urllib.parse.urlencode(params)
+    return common._http_json(url, timeout_s=PROBE_TIMEOUT_S)
 
 
 def response_payload(data, sentinels):
@@ -80,6 +106,11 @@ def response_payload(data, sentinels):
 def main():
     parser = argparse.ArgumentParser(description="Canary Best Match (sentinelle, 1 richiesta).")
     parser.add_argument("--dry-run", action="store_true", help="Non scrivere last_checked_at.")
+    parser.add_argument("--liveness-probe", action="store_true",
+                        help="Con cooldown attivo esegue UNA richiesta leggera allo stesso endpoint "
+                             "forecast del canary (timeout 10s, zero retry): se risponde, azzera il "
+                             "cooldown e prosegue; se fallisce, NO-OP con stato invariato (H4). "
+                             "Senza questo flag il comportamento storico (zero richieste) resta invariato.")
     parser.add_argument("--force-update", action="store_true",
                         help="Ignora il cooldown canary (MAI la validazione del cambiamento reale).")
     parser.add_argument("--record-api-failure", action="store_true",
@@ -101,9 +132,38 @@ def main():
     except (TypeError, ValueError):
         cooldown_until = 0
     if not args.force_update and cooldown_until > int(time.time()):
-        print("[check_best_match] NO-OP DICHIARATO (rc=12): cooldown attivo fino a %d; nessuna "
-              "richiesta forecast, fingerprint invariata, best_changed=false." % cooldown_until)
-        return 12
+        if not args.liveness_probe:
+            # Comportamento STORICO invariato (usato dai test e da ogni chiamante
+            # che non passa il flag): zero richieste di rete, zero scritture.
+            print("[check_best_match] NO-OP DICHIARATO (rc=12): cooldown attivo fino a %d; nessuna "
+                  "richiesta forecast, fingerprint invariata, best_changed=false." % cooldown_until)
+            return 12
+        # Liveness probe: serve almeno una sentinella per costruire la richiesta
+        # allo STESSO endpoint del canary. Senza sentinelle: NO-OP invariato.
+        probe_sentinels = common.best_match_sentinels()
+        if not probe_sentinels:
+            print("[check_best_match] Cooldown attivo, nessuna sentinella per la probe: NO-OP (rc=12).")
+            return 12
+        # Il canary consuma il tetto forecast: non fare la probe a budget esaurito
+        # (soglia NON modificata, solo rispettata anche dalla probe).
+        if common.available_today() < 1:
+            print("[check_best_match] Cooldown attivo, budget forecast esaurito: probe non eseguita, "
+                  "NO-OP (rc=12), stato invariato.")
+            return 12
+        try:
+            best_match_liveness_probe(probe_sentinels)
+        except Exception as exc:  # noqa: BLE001
+            print("[check_best_match] Cooldown attivo, LIVENESS PROBE FALLITA (%s): NO-OP (rc=12), "
+                  "stato invariato (H4), fingerprint non toccata." % exc)
+            return 12
+        print("[check_best_match] Cooldown attivo ma LIVENESS PROBE OK (HTTP 200): "
+              "azzero %s e proseguo con il confronto fingerprint." % COOLDOWN_FIELD)
+        # Aggiornare LO STESSO state gia' caricato: un reload qui verrebbe
+        # riscritto dal normale save del canary piu' avanti (lost-update).
+        state[COOLDOWN_FIELD] = 0
+        if not args.dry_run:
+            common.save_run_state(state)
+        # Nessun return: prosegue con il canary normale.
 
     if common.is_bootstrap_pending():
         print("[check_best_match] INITIAL DATASET BOOTSTRAP pending (state/dataset/fingerprint "

@@ -35,8 +35,12 @@ ROBUSTEZZA RETE / METADATA API (1.0.0.8, PARTE H):
 Exit codes (contratto stabile · Parte H invariato, 1.0.0.8):
   0  = nuovo run ECMWF disponibile (la pipeline continua)
   10 = nessun nuovo run ECMWF (clean SUCCESS nella Action: zero lavoro)
-  11 = NO-OP DICHIARATO: cooldown attivo; nessuna richiesta Metadata API,
-       new_run=false, last_processed_key NON toccato
+  11 = NO-OP DICHIARATO: cooldown attivo; senza --liveness-probe nessuna
+       richiesta Metadata API (comportamento storico invariato); con
+       --liveness-probe AL PIU' UNA richiesta leggera allo STESSO endpoint
+       Metadata API (timeout 10s, zero retry). Se risponde 200 il cooldown
+       viene azzerato e il check prosegue; se fallisce tutto resta invariato.
+       new_run=false e last_processed_key NON toccati in entrambi i casi.
   13 = API Metadata non disponibile dopo i retry: DEGRADO ESPLICITO — exit 0,
        check_state=unavailable + motivo, new_run=false, nessun fetch; il cooldown
        viene persistito dallo step `if: check_state == 'unavailable'`.
@@ -48,6 +52,7 @@ import argparse
 import json
 import sys
 import time
+import urllib.parse
 
 sys.path.insert(0, __file__ and __file__[: __file__.rfind("\\")] or ".")
 import common
@@ -57,6 +62,21 @@ import common
 # percorso di check: H4 vieta di toccare lo stato su errore di rete.
 COOLDOWN_FIELD = "check_cooldown_until"
 DEFAULT_COOLDOWN_S = 3600
+
+# Liveness probe (2026-11-18): UNA sola richiesta leggera, timeout breve,
+# STESSO endpoint Metadata API usato dal check. Non introduce una nuova sorgente
+# e non consuma il tetto forecast (la Metadata API non e' conteggiata).
+PROBE_TIMEOUT_S = 10
+
+
+def metadata_liveness_probe():
+    """Una sola richiesta all'endpoint Metadata API del driver, senza retry e
+    con timeout breve. Ritorna il payload solo se l'endpoint risponde; alza
+    qualunque eccezione di rete/HTTP/JSON (il chiamante decide il NO-OP).
+    Nessuna scrittura di stato: H4 resta invariato."""
+    url = common.OPENMETEO_META_BASE.format(
+        model=urllib.parse.quote(common.DRIVER_MODEL))
+    return common._http_json(url, timeout_s=PROBE_TIMEOUT_S)
 
 
 def query_model_metadata(model_id):
@@ -80,6 +100,11 @@ def main():
                         help="DEV/LOCALE SOLO: registra il run anche se il grace non è ancora scaduto "
                              "(la API forecast lo serve già). MAI usato dalla GitHub Action.")
     parser.add_argument("--dry-run", action="store_true", help="Non scrivere lo stato.")
+    parser.add_argument("--liveness-probe", action="store_true",
+                        help="Con cooldown attivo esegue UNA richiesta leggera allo stesso endpoint "
+                             "Metadata API (timeout 10s, zero retry): se risponde, azzera il cooldown "
+                             "e prosegue; se fallisce, NO-OP con stato invariato (H4). "
+                             "Senza questo flag il comportamento storico (zero richieste) resta invariato.")
     parser.add_argument("--record-api-failure", action="store_true",
                         help="Scrive SOLO il cooldown dopo CHECK FAILED (chiamata dedicata del "
                              "workflow con if: failure(); NON e' il percorso di check).")
@@ -99,9 +124,29 @@ def main():
     except (TypeError, ValueError):
         cooldown_until = 0
     if not args.force_update and cooldown_until > int(time.time()):
-        print("[check_model_runs] NO-OP DICHIARATO (rc=11): cooldown attivo fino a %d; nessuna "
-              "richiesta Metadata API, last_processed_key invariato." % cooldown_until)
-        return 11
+        if not args.liveness_probe:
+            # Comportamento STORICO invariato (usato dai test e da ogni chiamante
+            # che non passa il flag): zero richieste di rete, zero scritture.
+            print("[check_model_runs] NO-OP DICHIARATO (rc=11): cooldown attivo fino a %d; nessuna "
+                  "richiesta Metadata API, last_processed_key invariato." % cooldown_until)
+            return 11
+        # Liveness probe: UNA sola richiesta leggera allo stesso endpoint. Se l'API
+        # e' tornata up il guasto era transiente: azzerare il cooldown e riprendere
+        # subito la logica normale. Se fallisce, H4: stato intatto, NO-OP.
+        try:
+            metadata_liveness_probe()
+        except Exception as exc:  # noqa: BLE001
+            print("[check_model_runs] Cooldown attivo, LIVENESS PROBE FALLITA (%s): NO-OP (rc=11), "
+                  "stato invariato (H4), nessun dato pubblicato." % exc)
+            return 11
+        print("[check_model_runs] Cooldown attivo ma LIVENESS PROBE OK (HTTP 200): "
+              "azzero %s e proseguo con il check normale." % COOLDOWN_FIELD)
+        # Aggiornare LO STESSO state gia' caricato: un reload qui rischierebbe
+        # il lost-update con la scrittura finale del ciclo (H4 resta invariato).
+        state[COOLDOWN_FIELD] = 0
+        if not args.dry_run:
+            common.save_run_state(state)
+        # Nessun return: prosegue con query_model_metadata e la logica di run.
 
     prev_processed = state.get("last_processed_key")
     bootstrap = common.is_bootstrap_pending()

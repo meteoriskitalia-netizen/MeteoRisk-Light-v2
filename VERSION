@@ -1,13 +1,13 @@
-MeteoRisk Light - 1.3.0.11 - FIX RADAR-3D, QBO/AMO/PNA/SSW E GRAFICI TELECONNESSIONI FUORI MAPPA (bump da 1.3.0.10)
-VERSION=1.3.0.11
+MeteoRisk Light - 1.3.0.12 - UI TELECONNESSIONI, IMMAGINI NAM/ITCZ, COPY DATA/CLIMATE, COOLDOWN E RADAR-3D (bump da 1.3.0.11)
+VERSION=1.3.0.12
 MAJOR=1
 MINOR=3
 PATCH=0
-BUILD=141
+BUILD=142
 RELEASE_TYPE=release
 DATE=2026-11-18
-NOTE=Release 1.3.0.11 (bump da 1.3.0.10). Fix radar-3d: aggiunta la riga mkdir -p $RUNNER_TEMP/timings nello step separato (12 failure consecutivi dal 18/11 per redirect di tmark su runner fresco, set -e abortiva in meno di 1s prima del guard); push e lease invariati. Riepilogo rischi: con Sviluppo OFF la voce potenziale sparisce da testo e title del badge, non solo dalla lista; colori, soglie e calcolo invariati. Teleconnessioni: QBO 30/50 hPa (NOAA CPC, m/s, solo blocco ORIGINAL DATA), AMO (NOAA NCEI ERSSTv5, gradi C), PNA daily con filtro lead=0 e member=0, timeline SSW storica CSL/SSWC con citazione Butler et al. 2017 doi 10.5194/essd-9-63-2017 e definizione Charlton e Polvani 2007. NESSUNA attivita solare. Nuova voce separata Teleconnessioni e indici nel selettore prodotto, fuori dall Analisi sinottica, con grafici SVG inline e interpretazione per l Italia: QBO negativa, AMO multidecadale, NAO negativa, PNA solo contesto, SSW con lacuna real-time dichiarata. Legge data/climate/teleconnections.json in lazy, zero richieste al boot. NAM 10 hPa RICHIEDE TOKEN e ITCZ NON VERIFICATO dichiarati come non disponibile con motivo. deploy-pages copia ora data/climate in _site: teleconnections.json era 404 su Pages. Test: radar 661 passati, teleconnessioni 14, sinottici 12, stazioni 35 passati e 1 skipped. NON verificato: resa visiva e overflow nel browser interno se disconnesso, run end-to-end GitHub Actions del job radar-3d e del dispatch Pages, validazione scientifica delle nuove serie su eventi italiani.
-APP_FILE=mri-light-1.3.0.11.html
+NOTE=Release 1.3.0.12 (bump da 1.3.0.11). UI teleconnessioni: retry UNA sola volta su HTTP 404 con cache-buster (?cb=timestamp) dopo 1500 ms e .map-card {display:none} con activeProductId=teleconn, da misurare nel browser interno (none/0). Due mappe di contesto NOAA CPC public domain con didascalia e attribuzione obbligatorie: vento zonale 60N/10 hPa (NON indice NAM, nome file costruito per stagione, aggiornamento giornaliero) e ITCZ/ITF (aggiornamento DEKADALE, non giornaliero). Nessun valore numerico estratto dalle immagini, nessuna attivita solare; NAM e ITCZ restano RICHIEDE TOKEN / NON VERIFICATO come serie nei dati. Copy di data/climate in _site anche in radar-engine.yml e update-weather-data.yml per fermare i 404 transiente di teleconnections.json. Fix cooldown: liveness probe opt-in di UNA richiesta su check_model_runs.py e check_best_match.py (35/35 + 8/8 test), piu il test dedicato. Fix radar-3d (mkdir -p $RUNNER_TEMP/timings) gia su main, mantenuto. Buchi NON risolti e dichiarati: tracking confidenza low (A/B gate rifiutato: reliable 41,5->47,0% ma id_switch 0,351->0,495 peggiora), SOI descrittori a zero (gate non morde, soi_v2 non validato non toccato). Test: radar 661, teleconnessioni 14, sinottici 12, stazioni 35+1 skipped, node --check 0 errori. NON verificato: resa visiva se browser interno disconnesso, run GitHub Actions reali.
+APP_FILE=mri-light-1.3.0.12.html
 MeteoRisk Light - 1.3.0.10 - ARCHIVIO PREDIZIONI + BACKFILL 3D (bump da 1.3.0.9)
 VERSION=1.3.0.10
 MAJOR=1

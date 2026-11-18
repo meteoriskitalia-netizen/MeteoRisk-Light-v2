@@ -1787,6 +1787,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .syn-tele { margin-top: 8px; }
         .syn-tele-block { margin-bottom: 12px; }
         .syn-tele-svg { display: block; width: 100%; height: auto; min-width: 0; }
+        .syn-ctx-img { display: block; width: 100%; max-width: 100%; height: auto; }
         .syn-tele-cap { font-size: 10px; line-height: 1.4; color: #94a3b8; overflow-wrap: anywhere; margin-top: 2px; }
         .syn-burian { margin-top: 6px; font-size: 10.5px; line-height: 1.4; color: #fbbf24; overflow-wrap: anywhere; }
         /* Frase di contesto/causa aggiunta alle frasi esistenti: vuota (display:none)
@@ -3066,9 +3067,16 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.11';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.12';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-18';
     const APP_CHANGELOG = [
+    { version: '1.3.0.12', date: '2026-11-18', changes: [
+        'UI teleconnessioni: retry UNA sola volta su HTTP 404 con cache-buster (?cb=timestamp) dopo 1500 ms; con il prodotto Teleconnessioni attivo .map-card viene nascosta (display:none) e il pannello dedicato prende il suo posto. Nessun dato inventato.',
+        'Mappe di contesto nella sezione Teleconnessioni: due immagini NOAA CPC public domain con didascalia e attribuzione obbligatorie. NAM = vento zonale medio 60N a 10 hPa, NON e l indice NAM (aggiornamento giornaliero, nome file costruito per stagione); ITCZ/ITF = posizione aggiornamento DEKADALE, non giornaliero. Nessun valore numerico estratto dalle immagini, nessuna attivita solare.',
+        'Copy di data/climate in _site anche in radar-engine.yml e update-weather-data.yml: ferma i 404 transiente di teleconnections.json dopo i deploy dei dati. Fix cooldown (liveness probe opt-in su check_model_runs.py e check_best_match.py) e fix radar-3d (mkdir -p $RUNNER_TEMP/timings) uniti senza sovrascritture.',
+        'Buchi NON risolti e dichiarati: tracking confidenza low (A/B con gate contestuale rifiutato: reliable 41,5->47,0% ma id_switch 0,351->0,495 peggiora); SOI descrittori a zero non risolto (gate non morde, soi_v2 non validato non toccato); NAM e ITCZ restano RICHIEDE TOKEN / NON VERIFICATO come serie nei dati. NAM/ITCZ sono solo mappe di contesto, NON indici numerici.',
+        'Bump release: VERSION BUILD=142, tre cache del service worker rinnovate, README e test .mjs allineati, vecchio html 1.3.0.11 rimosso.',
+    ]},
     { version: '1.3.0.11', date: '2026-11-18', changes: [
         'Fix radar-3d: aggiunto mkdir -p $RUNNER_TEMP/timings nello step di pubblicazione del job separato. 12 failure consecutivi dal 18/11: il redirect di tmark falliva su runner fresco e set -e abortiva in meno di 1s prima del guard. Push e lease invariati.',
         'Riepilogo rischi: con Sviluppo OFF la voce di convezione organizzata potenziale sparisce da testo e title del badge (#risk-summary), non solo dalla lista. Colori, soglie e calcolo invariati.',
@@ -22332,8 +22340,23 @@ function syncContextualToggles() {
     if (riskWrap) riskWrap.style.display = riskProductOn ? '' : 'none';
     if (row) row.style.display = (showRadar || showSat) ? 'flex' : 'none';
 }
+// 1.3.0.11-FIX - Teleconnessioni SOSTITUISCE la mappa: con il prodotto attivo
+// .map-card viene nascosta e il pannello teleconn prende il suo posto nel flusso
+// del container. Qualsiasi altro prodotto ripristina la mappa. Non tocca le
+// altre sostituzioni di prodotto (es. Analisi sinottica): agisce solo su
+// .map-card e su #teleconn-panel, in base ad activeProductId.
+function syncTeleconnMapCard() {
+    var mapCard = document.querySelector('.map-card');
+    var teleOn = (activeProductId === 'teleconn');
+    if (mapCard) mapCard.style.display = teleOn ? 'none' : '';
+    var panel = document.getElementById('teleconn-panel');
+    if (panel && !teleOn && panel.classList.contains('active')) {
+        panel.classList.remove('active');   // nessun pannello teleconn residuo
+    }
+}
 function syncProductUI() {
     syncContextualToggles();
+    syncTeleconnMapCard();
     if (typeof syncMetricSelectEnabled === 'function') syncMetricSelectEnabled();
 }
 function productOff(id) {
@@ -32465,16 +32488,42 @@ function renderContinuousOverlay() {
     // simulato: ogni pannello mostra fonte, licenza, ultimo aggiornamento.
     // ===================================================================
     var teleState = { promise: null, data: null, error: '' };
+    // 1.3.0.11-FIX - Retry di UNA sola richiesta su HTTP 404, con cache-buster.
+    // Nessuna richiesta al boot: teleEnsureLoaded() e' chiamata solo da
+    // toggleTeleconn(), cioe' all'apertura del prodotto. Ogni altro errore
+    // viene riferito onestamente e NON viene ripetuto.
+    function teleNotFound(e) {
+        var m = (e && e.message) ? String(e.message) : String(e || '');
+        return m.indexOf('404') >= 0;
+    }
+    function teleAccept(j) {
+        teleState.data = j;
+        teleState.error = '';
+        if (synState && !synState.tele) synState.tele = j;
+        return j;
+    }
+    function teleFail(e) {
+        teleState.error = (e && e.message) ? e.message : String(e);
+        teleState.data = null;
+        return null;
+    }
     function teleEnsureLoaded() {
         if (teleState.promise) return teleState.promise;
-        teleState.promise = synFetch(TELE_URL).then(function (j) {
-            teleState.data = j;
-            if (synState && !synState.tele) synState.tele = j;
-            return j;
-        }, function (e) {
-            teleState.error = (e && e.message) ? e.message : String(e);
-            teleState.data = null;
-            return null;
+        teleState.promise = synFetch(TELE_URL).then(teleAccept, function (e) {
+            if (!teleNotFound(e)) return teleFail(e);
+            // Primo 404: UNA sola riprova dopo ~1,5 s con ?cb=<timestamp>
+            // sullo STESSO URL. Nessun dato inventato, nessun URL diverso.
+            return new Promise(function (resolve) {
+                setTimeout(function () {
+                    synFetch(TELE_URL + '?cb=' + Date.now()).then(function (j) {
+                        resolve(teleAccept(j));
+                    }, function (e2) {
+                        // Anche il retry fallito: messaggio onesto (HTTP 404 se
+                        // anche il secondo e' 404, altrimenti lo status vero).
+                        resolve(teleFail(e2));
+                    });
+                }, 1500);
+            });
         });
         return teleState.promise;
     }
@@ -32548,6 +32597,26 @@ function renderContinuousOverlay() {
         return '<div class="syn-card"><div class="syn-card-head">' + synEsc(g.id) + '</div>' +
             '<div class="syn-msg">non disponibile — motivo: ' + synEsc(g.status) + ' · ' + synEsc(g.reason) + '</div></div>';
     }
+    // 1.3.0.12 - MAPPE DI CONTESTO (immagini NOAA CPC, public domain).
+    // Nessun valore numerico estratto: non sono indici, solo contesto visivo.
+    // NAM e ITCZ restano RICHIEDE TOKEN / NON VERIFICATO come SERIE nei dati.
+    function teleSeasonLabel() {
+        var d = new Date(), y = d.getFullYear(), m = d.getMonth() + 1;
+        // Stagione stratosferica luglio-giugno: a novembre 2026 -> 2026-2027.
+        return (m >= 7) ? (y + '-' + (y + 1)) : ((y - 1) + '-' + y);
+    }
+    function teleContextImages() {
+        var namUrl = 'https://www.cpc.ncep.noaa.gov/products/stratosphere/SSW/gif_files/U_10mb_60N_' + teleSeasonLabel() + '.png';
+        var itczUrl = 'https://www.cpc.ncep.noaa.gov/products/international/itf/itcz.jpg';
+        var h = '';
+        h += '<div class="syn-card"><div class="syn-card-head">Mappa di contesto — vento zonale 60&deg;N a 10 hPa (NON indice NAM)</div>' +
+             '<div class="syn-tele-block"><img class="syn-ctx-img" src="' + namUrl + '" alt="Vento zonale medio 60N a 10 hPa — NOAA CPC"></div>' +
+             '<p class="syn-stamp">Vento zonale medio 60°N a 10 hPa — NON è l\'indice NAM. Fonte: NOAA CPC, public domain, aggiornamento giornaliero</p></div>';
+        h += '<div class="syn-card"><div class="syn-card-head">Mappa di contesto — ITCZ / ITF</div>' +
+             '<div class="syn-tele-block"><img class="syn-ctx-img" src="' + itczUrl + '" alt="Posizione ITCZ/ITF — NOAA CPC"></div>' +
+             '<p class="syn-stamp">Posizione ITCZ/ITF, aggiornamento DEKADALE — non giornaliero. Fonte: NOAA CPC, public domain</p></div>';
+        return h;
+    }
     function teleRenderPanel() {
         var grid = document.getElementById('tele-grid');
         var msg = document.getElementById('tele-msg');
@@ -32580,6 +32649,7 @@ function renderContinuousOverlay() {
             'Date centrali degli SSW maggiori dal 1958. Lacuna real-time dichiarata: il catalogo CSL/SSWC è storico e non fornisce eventi in tempo reale.');
         var gaps = (d.not_implemented || []);
         for (var gi = 0; gi < gaps.length; gi++) html += teleGapHtml(gaps[gi]);
+        html += teleContextImages();   // 1.3.0.12: mappe di contesto, NON indici numerici
         grid.innerHTML = html;
         var stamp = document.getElementById('tele-stamp');
         if (stamp) stamp.innerHTML = 'Indici OSSERVATI, non previsioni. Filtro obbligatorio lead=0 e member=0 per le serie GEFS daily. Nessuna attivita solare inclusa (' + synEsc((d.solar_activity && d.solar_activity.implemented) ? 'presente' : 'assente') + ').';

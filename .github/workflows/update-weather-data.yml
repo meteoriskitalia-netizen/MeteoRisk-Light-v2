@@ -107,7 +107,7 @@ jobs:
           if [ "${{ inputs.force_update }}" = "true" ]; then
             python scripts/check_model_runs.py --force-update || rc=$?
           else
-            python scripts/check_model_runs.py || rc=$?
+            python scripts/check_model_runs.py --liveness-probe || rc=$?
           fi
           python scripts/workflow_gate.py check "$rc"
           exit $?
@@ -151,7 +151,7 @@ jobs:
         id: best
         run: |
           rc=0
-          python scripts/check_best_match.py || rc=$?
+          python scripts/check_best_match.py --liveness-probe || rc=$?
           python scripts/workflow_gate.py best "$rc"
           exit $?
 
@@ -356,6 +356,7 @@ jobs:
           cp icons/icon-512.png _site/icons/icon-512.png
           cp -R data/latest _site/data/latest                    # dataset derivato
           cp -R data/geography _site/data/geography              # boundaries richieste
+          if [ -d data/climate ]; then cp -R data/climate _site/data/climate; fi
           if [ -d data/stations ]; then cp -R data/stations _site/data/stations; fi
           # Archivio rolling radar (branch radar-history, clone dello step radar-engine):
           # senza questo ripristino i deploy di questo workflow cancellerebbero da
@@ -414,7 +415,7 @@ jobs:
                 echo "⚠️ **CHECK/PLAN FAILED** — errore visibile, nessun file falso/parziale (requisito G6)."
               fi
             elif [ "${{ steps.check.outputs.check_state }}" = "noop" ] || [ "${{ steps.best.outputs.best_state }}" = "noop" ]; then
-              echo "ℹ️ **NO-OP dichiarato (cooldown attivo):** ECMWF=\`${{ steps.check.outputs.check_state || 'n/a' }}\`, Best Match=\`${{ steps.best.outputs.best_state || 'n/a' }}\`. Nessuna richiesta di rete, nessun fetch/deploy — nessun dato falso pubblicato."
+              echo "ℹ️ **NO-OP dichiarato (cooldown attivo):** ECMWF=\`${{ steps.check.outputs.check_state || 'n/a' }}\`, Best Match=\`${{ steps.best.outputs.best_state || 'n/a' }}\`. Al massimo UNA richiesta leggera di liveness per check (timeout 10s); se l'endpoint risponde il cooldown si azzera. Nessun fetch/deploy — nessun dato falso pubblicato."
             elif [ "${{ steps.plan.outputs.bootstrap_pending }}" = "true" ] && [ "${{ steps.publish.outputs.new_dataset }}" = "true" ]; then
               echo "✅ **INITIAL DATASET BOOTSTRAP COMPLETED:** primo dataset reale generato da GitHub Actions, committato e deployato."
             elif [ "${{ steps.check.outputs.new_run }}" = "false" ] && [ "${{ steps.best.outputs.best_changed }}" = "false" ]; then
