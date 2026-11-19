@@ -1356,7 +1356,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
                le track restano anche con pochi bottoni (nessun toggle si allunga a riga
                piena). Il selettore per righe è minimo 140px: a 320px entrano 2 colonne. */
             .toolbar-row { display: grid !important; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; align-items: stretch; width: 100%; }
-            .toolbar .tool-btn { min-height: var(--touch-min); padding: 10px 14px; font-size: 12px; flex: 0 1 auto; justify-content: center; text-align: center; }
+            .toolbar .tool-btn { min-height: 0; padding: 6px 12px; font-size: 11px; flex: 0 1 auto; justify-content: center; text-align: center; }
             .controls { gap: 6px; }
             .controls > *, .btn-timeline { min-height: var(--touch-min); }
             .btn-timeline { padding: 6px 12px; }
@@ -3065,10 +3065,11 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.24';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.25';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-19';
     const APP_CHANGELOG = [
-    { version: '1.3.0.24', date: '2026-11-19', note: 'Selettori toolbar 32px su mobile' },
+    { version: '1.3.0.25', date: '2026-11-19', note: 'Toolbar mobile come desktop' },
+        { version: '1.3.0.24', date: '2026-11-19', note: 'Selettori toolbar 32px su mobile' },
         { version: '1.3.0.23', date: '2026-11-19', changes: [
         'Mappa dei rischi = PREVISIONE: con Sviluppo OFF zero occorrenze di "organizzat"/"osservat" in #risk-summary (innerText e title). La categoria Convezione organizzata (evento e potenziale) resta visibile solo in Sviluppo; in Sviluppo riappare con etichetta tecnica ma senza "osservat".',
         'Temporali: la frase "possibile cella organizzata" diventa "possibile temporale intenso" fuori Sviluppo. Grandine: il suffisso tecnico "(potenziale NWP)" compare solo in Sviluppo, fuori resta "Grandine". Rovescio convettivo e temporale attivo, stesso fenomeno, sono una sola voce nel riepilogo: fulmini, raffiche e grandine restano.',
