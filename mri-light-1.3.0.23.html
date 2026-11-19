@@ -3065,9 +3065,14 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.22';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.23';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-19';
     const APP_CHANGELOG = [
+    { version: '1.3.0.23', date: '2026-11-19', changes: [
+        'Mappa dei rischi = PREVISIONE: con Sviluppo OFF zero occorrenze di "organizzat"/"osservat" in #risk-summary (innerText e title). La categoria Convezione organizzata (evento e potenziale) resta visibile solo in Sviluppo; in Sviluppo riappare con etichetta tecnica ma senza "osservat".',
+        'Temporali: la frase "possibile cella organizzata" diventa "possibile temporale intenso" fuori Sviluppo. Grandine: il suffisso tecnico "(potenziale NWP)" compare solo in Sviluppo, fuori resta "Grandine". Rovescio convettivo e temporale attivo, stesso fenomeno, sono una sola voce nel riepilogo: fulmini, raffiche e grandine restano.',
+        'Verifiche: node --check 9/9 blocchi inline; frasi vento/pioggia/neve byte-identiche; zero "organizzat"/"osservat" con Sviluppo OFF, voci ridotte di almeno 1, categoria riapparsa senza "osservat" con Sviluppo ON.',
+    ]},
     { version: '1.3.0.19', date: '2026-11-19', changes: [
         'Disattivata Analisi sinottica: rimossa la option dal selettore prodotto, il pannello #synoptic-panel e le funzioni dedicate (SYN_URL, synRunHour, synPointsIso, synLabels, synEnsureLoaded, synFeatureText, synRenderText, synBurianCheck, synRenderPanel, toggleSynoptic). Restano intatti Teleconnessioni e indici e i WebP sinottici SPERIMENTALI: gli helper condivisi synState, synEsc, synFmtIso e synFetch non sono stati toccati. Le frasi del bollettino #forecast-details sono byte-identiche.',
         'Fix dei toggle che restavano ON dopo il reload: scShowTrails, scShowForecast, scShowPhenomena e scShowHail partono ora false e le 8 classi statiche sc-toggle/live-toggle non portano piu la classe on al boot. La logica di click (scSetToggleBtn e toggleSc*) e invariata; gli altri toggle del pannello LIVE partono gia OFF.',
@@ -5734,11 +5739,18 @@ function enabledLightningSourceIds() {
     // assessConvOrg / mergeComponentLists / mergeRiskLists) restano INVARIATI.
     function visibleSummaryRisks(risks) {
         if (isSviluppoActive || !risks) return risks;
-        return risks.filter(function (r) { return !(r && r.id === 'supercell' && r.potential); });
+        // 1.3.0.23 — la categoria Convezione organizzata (POTENZIALE ed EVENTO) e' solo Sviluppo.
+        return risks.filter(function (r) { return !(r && r.id === 'supercell'); });
     }
     function visibleSummaryComponents(comps) {
         if (isSviluppoActive || !comps) return comps;
-        return comps.filter(function (c) { return !(c && c.id === 'supercell' && c.potential); });
+        // 1.3.0.23 — stesso gate per i componenti che alimentano "Colore dovuto a".
+        return comps.filter(function (c) { return !(c && c.id === 'supercell'); });
+    }
+    // 1.3.0.23 — il suffisso tecnico "(potenziale NWP)" della grandine e' solo Sviluppo.
+    function summaryRiskLabel(id, def) {
+        if (id === 'hail' && !isSviluppoActive) return 'Grandine';
+        return def && def.label ? def.label : '';
     }
     var RISK_DEFS = {
         rain:         { label: 'Rovesci / pioggia', color: '#38bdf8', title: 'Possibili rovesci e pioggia anche intensa' },
@@ -5752,10 +5764,10 @@ function enabledLightningSourceIds() {
         supercell:    { label: 'Convezione organizzata (NWP)', color: '#a855f7',
                         potentialLabel: CONV_POTENTIAL_LABEL,
                         mesoLabel: 'Mesociclone (NWP)',
-                        mesoTitle: 'Mesociclone previsto dal modello NWP (SCP >= 1, shear 0-6 km >= 20 m/s, SRH 0-3 km >= 100 m2/s2): ambiente favorevole, NON osservato',
-                        title: 'Convezione organizzata con codice WMO temporalesco nella stessa ora: descrizione ambientale del modello NWP, NON un rilevamento radar e NON un\'osservazione diretta dell\'organizzazione della cella',
+                        mesoTitle: 'Mesociclone previsto dal modello NWP (SCP >= 1, shear 0-6 km >= 20 m/s, SRH 0-3 km >= 100 m2/s2): ambiente favorevole previsto',
+                        title: 'Convezione organizzata con codice WMO temporalesco nella stessa ora: descrizione ambientale prevista dal modello NWP, NON un rilevamento radar',
                         potentialTitle: 'Ambiente favorevole a convezione organizzata SENZA alcun innesco previsto nella stessa ora' },
-        vorticosi:    { label: 'Ambiente favorevole a vortici (NWP)', color: '#7d93a8', title: 'Condizioni del modello NWP favorevoli a fenomeni vorticosi: informazione ambientale, non un vortice osservato' },
+        vorticosi:    { label: 'Ambiente favorevole a vortici (NWP)', color: '#7d93a8', title: 'Condizioni del modello NWP favorevoli a fenomeni vorticosi: informazione ambientale, non un vortice previsto come evento' },
         downburst:    { label: 'Downburst / raffiche (potenziale NWP)', color: '#f43f5e', title: 'Possibile downburst con raffiche convettive intense secondo il modello' },
         fog:          { label: 'Nebbia prevista (codice NWP)', color: '#94a3b8', title: 'Il codice WMO del modello indica nebbia. Non è una misura di visibilità né un dato radar.' },
     };
@@ -5839,7 +5851,7 @@ function enabledLightningSourceIds() {
         // 1.3.0.11 — con Sviluppo OFF il disco verde del potenziale NON si disegna:
         // il suo title era "Basso — nessuna criticità attiva: Ambiente favorevole
         // a convezione organizzata SENZA alcun innesco previsto nella stessa ora".
-        if (!isSviluppoActive && risk && risk.id === 'supercell' && risk.potential) return '';
+        if (!isSviluppoActive && risk && risk.id === 'supercell') return '';
         // Pioggia INFORMATIVA (risk.info): stile grigio, comunicata come previsione
         // e non come allerta — non è una criticità colorata (es. pioggerella sub-soglia).
         var color, label, title;
@@ -5866,7 +5878,7 @@ function enabledLightningSourceIds() {
             title = def.title;
         } else {
             color = risk.info ? '#94a3b8' : ((BADGE_LEVEL_COLOR && risk.level >= 1 && risk.level <= 4) ? BADGE_LEVEL_COLOR[risk.level] : def.color);
-            label = def.label;
+            label = summaryRiskLabel(risk.id, def);
             title = risk.info ? 'pioggia debole prevista, non critica' : def.title;
             // 1.2.4.92 - tooltip con la temperatura e la soglia che hanno deciso il livello.
             var tempDetail = riskTempDetail(risk);
@@ -6353,19 +6365,20 @@ function enabledLightningSourceIds() {
                 // Potenziale (verde/Basso): ambiente favorevole, nessun innesco nella stessa ora.
                 // Evento (viola/rosso): codice WMO 95-99 nella stessa ora; pioggia cumulata oraria separata.
                 // 1.3.0.11 — con Sviluppo OFF la voce potenziale non va nel riepilogo.
+                // 1.3.0.23 — nessun "osservato"/"non osservato": la mappa dei rischi e' PREVISIONE.
                 if (r.potential && !isSviluppoActive) return '';
                 if (r.potential) return 'Ambiente favorevole a convezione organizzata: potenziale, nessun temporale previsto';
-                if (r.mesoCapped) return 'Innesco presente e ambiente organizzato previsto: convezione organizzata prevista, non osservata (categoria solo in modalita Sviluppo)';
+                if (r.mesoCapped) return 'Innesco presente e ambiente organizzato previsto: convezione organizzata prevista (categoria disponibile solo in modalita Sviluppo)';
                 var scTxt = {
                     2: 'Innesco presente ma ambiente secco alle quote medie: organizzazione improbabile',
                     3: 'Innesco presente (codice WMO 95-99 nella stessa ora): possibile organizzazione convettiva',
                     4: 'Innesco presente e ambiente secco alle quote medie: organizzazione improbabile',
-                    5: 'Innesco presente e parametri di organizzazione sopra soglia: mesociclone (SCP >= 1, shear >= 20 m/s, SRH >= 100 m2/s2) - ambiente favorevole NWP, non osservato'
+                    5: 'Innesco presente e parametri di organizzazione sopra soglia: mesociclone (SCP >= 1, shear >= 20 m/s, SRH >= 100 m2/s2) - ambiente favorevole NWP'
                 };
                 return scTxt[r.level] || 'Innesco presente';
             }
             case 'vorticosi': {
-                return 'Ambiente favorevole (NWP) a fenomeni vorticosi: condizioni favorevoli secondo il modello, nessun vortice osservato';
+                return 'Ambiente favorevole (NWP) a fenomeni vorticosi: condizioni favorevoli secondo il modello, nessun vortice previsto come evento';
             }
             case 'downburst': return ['Possibili raffiche convettive improvvise', 'Downburst moderato con raffiche intense', 'Downburst forte con raffiche violente', 'Downburst estremo con raffiche devastanti'][r.level - 1];
             default:             return '';
@@ -6461,20 +6474,20 @@ function enabledLightningSourceIds() {
                     return 'Ambiente favorevole con segnale temporalesco previsto nella giornata.';
                 }
                 if (r.mesoCapped) {
-                    return 'Ambiente previsto favorevole a convezione organizzata: possibile organizzazione convettiva, non osservata (il dettaglio della categoria e\' solo in modalita Sviluppo). Seguire gli aggiornamenti.';
+                    return 'Ambiente previsto favorevole a convezione organizzata: possibile organizzazione convettiva (il dettaglio della categoria e\' solo in modalita Sviluppo). Seguire gli aggiornamenti.';
                 }
                 var scImp = {
                     2: 'Innesco presente ma ambiente secco alle quote medie: possibile rovescio convettivo, organizzazione improbabile.',
                     3: 'Possibile organizzazione convettiva, con rovesci forti, raffiche e grandine.',
                     4: 'Innesco presente e ambiente secco alle quote medie: organizzazione improbabile, restano possibili rovesci forti.',
-                    5: 'Mesociclone previsto dal modello NWP (SCP >= 1, shear 0-6 km >= 20 m/s, SRH 0-3 km >= 100 m2/s2): possibili grandine grande e raffiche intense; non osservato, seguire gli aggiornamenti.'
+                    5: 'Mesociclone previsto dal modello NWP (SCP >= 1, shear 0-6 km >= 20 m/s, SRH 0-3 km >= 100 m2/s2): possibili grandine grande e raffiche intense; seguire gli aggiornamenti.'
                 };
                 var txt = scImp[r.level] || 'Possibile cella organizzata; prestare attenzione e seguire gli aggiornamenti.';
                 if (r.dryVeto) txt += ' Motivo del declassamento: aria secca alle quote medie (RH 850-700 ' + (r.rhMid != null ? Math.round(r.rhMid) + '%' : 'n/d') + ').';
                 return txt;
             }
             case 'vorticosi': {
-                return 'Informazione ambientale del modello NWP: l\'ambiente e\' favorevole a fenomeni vorticosi, ma non e\' previsto ne\' osservato un vortice. Il rischio della provincia resta quello di pioggia, vento e temporale.';
+                return 'Informazione ambientale del modello NWP: l\'ambiente e\' favorevole a fenomeni vorticosi, ma un vortice non e\' previsto come evento. Il rischio della provincia resta quello di pioggia, vento e temporale.';
             }
             case 'downburst': {
                 return [
@@ -6499,6 +6512,11 @@ function enabledLightningSourceIds() {
         // "Altri rischi" (che passano da riskDriverLine). Colore e livello del
         // badge restano calcolati su `agg`, NON su questa lista filtrata.
         var summaryRisks = visibleSummaryRisks(risks) || [];
+        // 1.3.0.23 — temporale attivo e rovescio convettivo sono lo stesso fenomeno:
+        // una sola voce. Non si toccano grandine, fulmini (nel temporale) ne' raffiche.
+        if (summaryRisks.some(function (r) { return r && r.id === 'thunderstorm'; })) {
+            summaryRisks = summaryRisks.filter(function (r) { return !(r && r.id === 'rain' && (r.heat || r.conv)); });
+        }
         // 1.2.4.69 - il badge dice il MASSIMO fra tutti i rischi e la sua causa.
         var zr = computeZoneRiskSummary(agg);
         var zrColor = colorForMetricValue('risk', getMetricValue('risk', agg));
@@ -6550,7 +6568,7 @@ function enabledLightningSourceIds() {
                 var name = (r.id === 'supercell')
                     ? (r.potential ? 'Convezione organizzata potenziale'
                         : (r.level >= 5 ? 'Mesociclone' : 'Convezione organizzata (evento)'))
-                    : def.label;
+                    : summaryRiskLabel(r.id, def);
                 var _rl = riskLevelLine(r, agg);
                 var _head = (_rl && _rl.toLowerCase().indexOf((name || '').toLowerCase()) === 0) ? _rl : (name + ' — ' + _rl);
                 return '<li><b>' + _head + '.</b>' + infoTag + '<br><span style="color:#94a3b8;">' +
@@ -26453,8 +26471,8 @@ function toggleForecastMaps() {
         var code = (o.code == null || !isFinite(o.code)) ? 0 : o.code;
         var cape = (o.cape == null || !isFinite(o.cape)) ? 0 : o.cape;
         if (o.meso) return isSviluppoActive
-            ? 'mesociclone (SCP >= 1, shear >= 20 m/s, SRH >= 100 m2/s2) - ambiente favorevole NWP, non osservato'
-            : 'convezione organizzata prevista (ambiente favorevole NWP)';
+            ? 'mesociclone (SCP >= 1, shear >= 20 m/s, SRH >= 100 m2/s2) - ambiente favorevole NWP'
+            : 'temporale con innesco previsto (ambiente favorevole NWP)';
         if (rain > 45) return 'pioggia oltre 45 mm';
         if (gusts > 100) return 'raffiche oltre 100 km/h';
         if (code >= 95 && rain >= 10 && cape >= 300) return 'temporale con pioggia >= 10 mm/h e CAPE >= 300 J/kg nella stessa ora';
@@ -26643,14 +26661,14 @@ function toggleForecastMaps() {
     // riskDiscHtml:5532, il riepilogo hover e il badge sticky.
     function orgPhrase(r) {
         var c = orgClassOf(r);
-        if (c === 'meso') return isSviluppoActive ? 'possibile mesociclone' : 'possibile cella organizzata';
+        if (c === 'meso') return isSviluppoActive ? 'possibile mesociclone' : 'possibile temporale intenso';
         if (c === 'env') return 'ambiente favorevole';
         if (c === 'none') return '';
         return '';
     }
     function orgShortOf(r) {
         var c = orgClassOf(r);
-        if (c === 'meso') return isSviluppoActive ? 'possibile mesociclone' : 'possibile cella organizzata';
+        if (c === 'meso') return isSviluppoActive ? 'possibile mesociclone' : 'possibile temporale intenso';
         if (c === 'env') return 'ambiente favorevole';
         if (c === 'none') return '';
         return '';
@@ -26676,7 +26694,7 @@ function toggleForecastMaps() {
         var c = orgClassOf(r);
         if (!c) return '';
         // A5 — stessa regola di orgPhrase/orgShortOf, anche nella nota d'impatto.
-        if (c === 'meso') return isSviluppoActive ? ' Possibile mesociclone previsto.' : ' Possibile cella organizzata prevista.';
+        if (c === 'meso') return isSviluppoActive ? ' Possibile mesociclone previsto.' : ' Possibile temporale intenso previsto.';
         if (c === 'env') return ' Ambiente favorevole.';
         return '';
     }    // Un solo record per provincia: se i due modelli non concordano si mostra la classe PIU'
@@ -26702,10 +26720,10 @@ function toggleForecastMaps() {
             // "mesociclonico" nel testo della componente in quel caso.
             if (r.potential && r.mesoPotential) return isSviluppoActive
                 ? 'Potenziale mesociclonico (ambiente NWP; innesco non richiesto)'
-                : 'Potenziale di cella organizzata (ambiente NWP; innesco non richiesto)';
-            if (r.potential) return CONV_POTENTIAL_LABEL;
-            if (r.level >= 5 && isSviluppoActive) return 'Mesociclone (SCP >= 1, shear >= 20 m/s, SRH >= 100 m2/s2) - ambiente favorevole NWP, non osservato';
-            return 'convezione organizzata prevista (evento con innesco)';
+                : 'Ambiente favorevole previsto (NWP; innesco non richiesto)';
+            if (r.potential) return isSviluppoActive ? CONV_POTENTIAL_LABEL : 'Ambiente favorevole previsto (NWP), nessun temporale previsto';
+            if (r.level >= 5 && isSviluppoActive) return 'Mesociclone (SCP >= 1, shear >= 20 m/s, SRH >= 100 m2/s2) - ambiente favorevole NWP';
+            return isSviluppoActive ? 'convezione organizzata prevista (evento con innesco)' : 'temporale con innesco previsto (ambiente favorevole NWP)';
         }
         var name = RISK_PLAIN_NAMES[r.id] || r.id;
         if (r.info) return name + ' (informativa)';
@@ -28359,8 +28377,8 @@ function toggleForecastMaps() {
                 // solo in Sviluppo; fuori da Sviluppo il livello mostrato e' 4.
                 var convLvl = isSviluppoActive ? 5 : 4;
                 var convWhy = isSviluppoActive
-                    ? 'mesociclone (SCP >= 1, shear >= 20 m/s, SRH >= 100 m2/s2) - ambiente favorevole NWP, non osservato'
-                    : 'convezione organizzata prevista (ambiente favorevole NWP) - dettaglio della categoria solo in modalita Sviluppo';
+                    ? 'mesociclone (SCP >= 1, shear >= 20 m/s, SRH >= 100 m2/s2) - ambiente favorevole NWP'
+                    : 'temporale con innesco previsto (ambiente favorevole NWP)';
                 r2 = { level: convLvl, reason: convWhy, hour: dm.scHour };
             }
         }
