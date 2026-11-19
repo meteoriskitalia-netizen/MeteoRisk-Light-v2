@@ -453,7 +453,8 @@ def test_track_fields_complete():
     tr = out["tracks"][0]
     for k in ("meso_id", "first_detection", "last_detection", "persistence",
               "classification", "parent_cell_ids", "events", "points",
-              "source", "reference", "limits"):
+              "source", "reference", "limits",
+              "lat", "lon", "rotation_diameter"):
         assert k in tr
     assert set(out["counts"]) == set(models.ROTATION_STATES)
 

@@ -714,6 +714,122 @@ class MesocycloneTrack:
         self.limits = []
 
     def to_dict(self):
+        # 1.3.0: tre campi nuovi (lat, lon, rotation_diameter) derivati da
+        # points[]. Nessun dato inventato: se un punto non espone lo shear
+        # azimutale si usa il primo punto con coordinate valide (scelta
+        # dichiarata in field_meta); se non espone couplet_distance_km il
+        # diametro resta null con null_reason. Gli altri campi non cambiano.
+
+        def _point_shear(point):
+            """Shear azimutale assoluto di un punto, o None se non presente."""
+            if not isinstance(point, dict):
+                return None
+            for key in ("azimuthal_shear_ms_km", "shear"):
+                value = point.get(key)
+                if value is None:
+                    continue
+                try:
+                    shear = abs(float(value))
+                except (TypeError, ValueError):
+                    continue
+                if math.isfinite(shear):
+                    return shear
+            return None
+
+        def _couplet_distance(point):
+            """Distanza gate-to-gate del velocity couplet, se valida."""
+            if not isinstance(point, dict):
+                return None
+            value = point.get("couplet_distance_km")
+            if value is None:
+                return None
+            try:
+                distance = float(value)
+            except (TypeError, ValueError):
+                return None
+            return distance if math.isfinite(distance) and distance >= 0.0 else None
+
+        located = []
+        for p in self.points:
+            if not isinstance(p, dict):
+                continue
+            try:
+                plat = round(float(p["lat"]), 5)
+                plon = round(float(p["lon"]), 5)
+            except (KeyError, TypeError, ValueError):
+                continue
+            located.append((p, plat, plon))
+
+        peak, peak_shear = None, None
+        for candidate in located:
+            shear = _point_shear(candidate[0])
+            if shear is not None and (peak_shear is None or shear > peak_shear):
+                peak, peak_shear = candidate, shear
+        if peak is not None:
+            location_selection = "max_shear_point"
+        elif located:
+            peak = located[0]
+            location_selection = "first_point_no_per_point_shear"
+        else:
+            location_selection = "none"
+
+        if peak is None:
+            lat = lon = None
+            location_null_reason = "no_point_with_valid_lat_lon"
+        else:
+            _, lat, lon = peak
+            location_null_reason = None
+
+        # Diametro = proxy geometrico 2 * distanza gate-to-gate del couplet.
+        # Se il punto di picco non la espone si cerca il primo punto che la
+        # porta; altrimenti null motivato (nessun valore fabbricato).
+        distance = _couplet_distance(peak[0]) if peak is not None else None
+        if distance is not None:
+            diameter_selection = "max_shear_point"
+        else:
+            diameter_selection = None
+            for p in self.points:
+                found = _couplet_distance(p)
+                if found is not None:
+                    distance, diameter_selection = found, "first_available_point"
+                    break
+        if distance is None:
+            rotation_diameter = None
+            diameter_null_reason = "couplet_distance_km_unavailable_in_points"
+            diameter_selection = "none"
+        else:
+            rotation_diameter = round(distance * 2.0, 2)
+            diameter_null_reason = None
+
+        source = self.source or "MesocycloneTrack.points[]"
+        reference_base = (self.reference + " | ") if self.reference else ""
+        field_meta = {
+            "lat": {
+                "source": source,
+                "reference": reference_base
+                + "Latitudine del punto con massimo shear azimutale; fallback "
+                  "al primo punto se lo shear per punto non e' disponibile",
+                "null_reason": location_null_reason,
+                "selection": location_selection,
+            },
+            "lon": {
+                "source": source,
+                "reference": reference_base
+                + "Longitudine del punto con massimo shear azimutale; fallback "
+                  "al primo punto se lo shear per punto non e' disponibile",
+                "null_reason": location_null_reason,
+                "selection": location_selection,
+            },
+            "rotation_diameter": {
+                "source": source,
+                "reference": reference_base
+                + "rotation_diameter = 2 * couplet_distance_km: proxy geometrico "
+                  "del diametro del vortice, SCELTA INGEGNERISTICA non calibrata",
+                "null_reason": diameter_null_reason,
+                "selection": diameter_selection,
+            },
+        }
+
         return {
             "meso_id": self.meso_id,
             "first_detection": self.first_detection,
@@ -737,4 +853,8 @@ class MesocycloneTrack:
             "source": self.source,
             "reference": self.reference,
             "limits": list(self.limits),
+            "lat": lat,
+            "lon": lon,
+            "rotation_diameter": rotation_diameter,
+            "field_meta": field_meta,
         }
