@@ -77,7 +77,7 @@ import numpy as np
 from . import footprint as footprint_mod
 from . import models
 from . import nwp_motion
-from .tracking import bearing_deg, dest_from, haversine_km
+from .tracking import bearing_deg, dest_from, haversine_km, is_latest_frame
 
 HORIZON_MIN = 120
 STEP_MIN = 30
@@ -975,14 +975,11 @@ def _resolve_track(candidate_ctx, bundle):
 
 def _on_latest_frame(candidate_ctx, track, bundle):
     """True se il candidato e' vivo sull'ultimo frame (chiave del ctx, oppure
-    derivata da frame_index == ultimo frame con celle nel bundle)."""
+    regola UNICA condivisa con convective_structure.py via tracking.py)."""
     if isinstance(candidate_ctx, dict) and "on_latest_frame" in candidate_ctx:
         return bool(candidate_ctx["on_latest_frame"])
     cells_by_frame = getattr(bundle, "cells_by_frame", None) or []
-    n_frames = sum(1 for f in cells_by_frame if f)
-    if not n_frames:
-        return False
-    return track.points[-1].frame_index == n_frames - 1
+    return is_latest_frame(track.points[-1].frame_index, cells_by_frame)
 
 
 def _anchor_ms(bundle, last):

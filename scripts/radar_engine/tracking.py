@@ -118,6 +118,21 @@ def dest_from(lonlat, bearing, dist_km):
     return (math.degrees(lon2), math.degrees(lat2))
 
 
+def is_latest_frame(frame_index, cells_by_frame):
+    """REGOLA UNICA: `frame_index` e' l'ultimo frame della timeline.
+
+    L'indice dell'ultimo frame e' SEMPRE `len(cells_by_frame) - 1`, anche se
+    la timeline contiene frame VUOTI intercalati: contare i soli frame non
+    vuoti faceva divergere forecast.py da convective_structure.py. Usata da
+    entrambi i call site; nessuna altra regola di "ultimo frame" resta nel
+    motore. Frame_index None o timeline vuota -> False.
+    """
+    frames = cells_by_frame or []
+    if not frames or frame_index is None:
+        return False
+    return int(frame_index) == len(frames) - 1
+
+
 def _circle_iou(lonlat1, area1, lonlat2, area2):
     """IoU di due dischi (raggio da area) a distanza d = haversine."""
     r1 = math.sqrt(max(area1, _EPS) / math.pi)
@@ -408,18 +423,29 @@ def tracking_metrics(tracks, track_type="cell", max_speed_kmh=None,
     }
 
 
-def build_tracking_metrics(cell_tracks, storm_tracks, **kwargs):
+def build_tracking_metrics(cell_tracks, storm_tracks,
+                           cell_continuity_rejections=0,
+                           storm_continuity_rejections=0, **kwargs):
     """Blocco `tracking_metrics` per latest.json: per-layer + aggregato.
 
     I campi piatti (pct_reliable, median_duration_min, id_switch_rate,
     lineage_split, lineage_merge) sono l'AGGREGATO cella+storm object: nessuna
     selezione a posteriori del layer che migliora. Il dettaglio per layer e'
     in `cell` e `storm_object`.
+
+    `continuity_rejections` conta i rigetti del gate 110 km/h per run (uno per
+    associazione rifiutata, NON per coppia di track): solo il conteggio, mai i
+    dettagli dei singoli rigetti (non gonfiano latest.json).
     """
     cell = tracking_metrics(cell_tracks, "cell", **kwargs)
     storm = tracking_metrics(storm_tracks, "storm_object", **kwargs)
     combined = tracking_metrics(list(cell_tracks or []) + list(storm_tracks or []),
                                 "combined", **kwargs)
+    n_cell_rej = int(cell_continuity_rejections or 0)
+    n_storm_rej = int(storm_continuity_rejections or 0)
+    for block, n in ((cell, n_cell_rej), (storm, n_storm_rej),
+                     (combined, n_cell_rej + n_storm_rej)):
+        block["continuity_rejections"] = n
     # I re-ID NON si contano fra layer diversi: una cella che nasce vicino a
     # uno storm object morto non e' un ID switch. L'aggregato somma i conteggi
     # per layer e ricalcola il rate sul totale (bug corretto il 2026-11-11:
@@ -440,7 +466,8 @@ def build_tracking_metrics(cell_tracks, storm_tracks, **kwargs):
                 "lineage_links", "id_switch_jumps", "id_switch_reids",
                 "n_tracks", "n_active_tracks", "n_reliable",
                 "n_frames_ge_3", "n_frames_current_ge_3",
-                "continued_from_history", "thresholds"):
+                "continued_from_history", "continuity_rejections",
+                "thresholds"):
         out[key] = combined[key]
     out["cell"] = cell
     out["storm_object"] = storm
@@ -576,6 +603,10 @@ class Tracker:
         self.tracks = []
         self._next_track_id = 1
         self.diag = []                      # diagnostica per-match (opzionale)
+        # Contatore per RUN dei rigetti del gate di continuita' (110 km/h).
+        # SEMPRE disponibile, anche con diagnostics=False: il dettaglio dei
+        # singoli rigetti NON viene pubblicato (solo il conteggio).
+        self.continuity_rejections = 0
         self._diagnostics = bool(diagnostics or cfg_tracking.get("diagnostics", False))
         self._improved = str(cfg_tracking.get("cost_formula", "legacy")) == "improved"
         # D2 (1.2.4.17): ultimo frame PROCESSATO. Serve a complete_cycles per
@@ -789,6 +820,7 @@ class Tracker:
                 if dt_h > 0.0 and d / dt_h > max_cont_kmh:
                     # GATE DI CONTINUITA': salto > ~110 km/h -> nessuna
                     # associazione (INF). La detection aprira' una nuova track.
+                    self.continuity_rejections += 1
                     continue
                 if sg is not None and d > sg:
                     continue  # fuori gate -> INF (rejected)

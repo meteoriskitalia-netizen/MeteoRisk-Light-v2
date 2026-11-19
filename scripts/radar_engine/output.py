@@ -208,6 +208,19 @@ def _doppler_coverage_summary(bundle, previous):
     }
 
 
+def _continuity_rejections_summary(bundle):
+    """1.3.0.27 — conteggio per-run dei rigetti del gate 110 km/h.
+
+    Solo l'intero aggregato: nessun dettaglio dei singoli rigetti entra in
+    latest.json. Chiave assente se il bundle non ha ancora le metriche di
+    tracking (run parziali / libreria / test).
+    """
+    tm = getattr(bundle, "tracking_metrics", None)
+    if not isinstance(tm, dict) or "continuity_rejections" not in tm:
+        return {}
+    return {"continuity_rejections": int(tm["continuity_rejections"])}
+
+
 def build_latest(bundle, engine_meta=None, previous=None):
     """latest.json (stato del run, mai dati raw)."""
     payload = {
@@ -230,6 +243,7 @@ def build_latest(bundle, engine_meta=None, previous=None):
         "tracking_confidence": _tracking_confidence(bundle.tracks),
         "structure_tracks_evaluated": getattr(
             bundle, "structure_tracks_evaluated", 0),
+        **_continuity_rejections_summary(bundle),
         **_structure_summary(bundle),
         **_phase2_summary(bundle),
         **_as_of_summary(bundle),

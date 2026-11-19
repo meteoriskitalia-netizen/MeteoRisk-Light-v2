@@ -2234,6 +2234,9 @@ def _run_pipeline(config, out_dir, product, max_frames, dry_run,
     # Il layer cella resta intatto; l'aggregazione e lo storm tracking sono
     # un layer di identità aggiuntivo. Errori -> warning (non fa fallire il run).
     storm_cfg = config.get("storm", {"enabled": False})
+    # 1.3.0.27 — contatore dei rigetti del gate 110 km/h (sempre intero,
+    # anche se il layer storm e' disabilitato o fallisce).
+    storm_continuity_rejections = 0
     if storm_cfg.get("enabled"):
         try:
             from radar_engine import aggregation as agg_mod
@@ -2248,6 +2251,8 @@ def _run_pipeline(config, out_dir, product, max_frames, dry_run,
                     history_dir=seed_history)
                 for idx, objs in enumerate(bundle.storm_objects_by_frame):
                     storm_tracker.update(objs, idx)
+                storm_continuity_rejections = getattr(
+                    storm_tracker, "continuity_rejections", 0)
                 storm_tracker.complete_cycles()
                 bundle.storm_tracks = storm_tracker.finalize(
                     cfg_scoring=config.get("scoring"))
@@ -2262,7 +2267,10 @@ def _run_pipeline(config, out_dir, product, max_frames, dry_run,
     # calcolate, anche se il layer storm fallisce: il blocco e' additivo.
     with timers.stage("tracking_metrics"):
         bundle.tracking_metrics = track_mod.build_tracking_metrics(
-            bundle.tracks, getattr(bundle, "storm_tracks", None) or [])
+            bundle.tracks, getattr(bundle, "storm_tracks", None) or [],
+            cell_continuity_rejections=getattr(
+                tracker, "continuity_rejections", 0),
+            storm_continuity_rejections=storm_continuity_rejections)
 
     # ---- CONVECTIVE STRUCTURE (descrittore SOI, additivo) ------------------
     # SOI su celle + storm object tracciati (stessi dati Fase 1, zero richieste
@@ -2828,6 +2836,10 @@ def main(argv=None):
         # coerente, dichiarate qui e in latest.json.
         "structures": len(published_structures),
         "skipped_incoherent": skipped_incoherent,
+        # 1.3.0.27 — rigetti del gate 110 km/h in questo run (solo conteggio).
+        "continuity_rejections": (
+            getattr(bundle, "tracking_metrics", None) or {}).get(
+                "continuity_rejections", 0),
         "radar_timestamp": bundle.radar_timestamp_iso,
         "latency_min": bundle.data_latency_minutes,
         "warnings": bundle.warnings,
@@ -2863,6 +2875,8 @@ def main(argv=None):
             fh.write("structure_candidates={}\n".format(
                 len(published_structures)))
             fh.write(f"skipped_incoherent={skipped_incoherent}\n")
+            fh.write("continuity_rejections={}\n".format(
+                summary["continuity_rejections"]))
             fh.write(f"phase2_status={summary['phase2_status']}\n")
             fh.write(f"radar_timestamp={bundle.radar_timestamp_iso or ''}\n")
     return rc

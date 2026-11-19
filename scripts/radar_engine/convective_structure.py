@@ -65,7 +65,7 @@ scartate il file pubblicato resta valido con `structures: []`.
 """
 
 from . import forecast as forecast_mod
-from .tracking import haversine_km
+from .tracking import haversine_km, is_latest_frame
 
 DATA_LIMITS_NOTE = (
     "Radar-DPC VMI a singola riflettivita' (nessun Doppler): rotazione "
@@ -352,7 +352,7 @@ def _track_coherence(points):
     return True, worst
 
 
-def _candidate_dict(bundle, track, track_type, latest_frame_index, cfg, soi,
+def _candidate_dict(bundle, track, track_type, cfg, soi,
                     level, candidate, gates, components):
     """Rappresentazione JSON (solo track candidate)."""
     n = len(track.points)
@@ -375,8 +375,10 @@ def _candidate_dict(bundle, track, track_type, latest_frame_index, cfg, soi,
         if motion_quality == "reliable":
             motion_quality = "unreliable"
         motion_null_reason = motion_null_reason or "velocity_unavailable"
-    on_latest = (last.frame_index == latest_frame_index) if latest_frame_index is not None \
-        else False
+    # REGOLA UNICA (tracking.is_latest_frame): len(cells_by_frame)-1, anche con
+    # frame vuoti intercalati. Stessa funzione usata da forecast.py.
+    on_latest = is_latest_frame(last.frame_index,
+                                getattr(bundle, "cells_by_frame", None))
     phase = "birth" if candidate and n <= int(cfg.get("birth_frames", 3)) else \
         ("sustained" if candidate else "n/a")
     max_dbz_max = max(p.max_dbz for p in track.points)
@@ -615,13 +617,6 @@ def evaluate(bundle, cfg=None):
     `fit_not_used`, `velocity_missing`, `motion_unreliable` o un motivo di
     non computabilita')."""
     cfg = cfg or _cfg_defaults()
-    latest_frame_index = None
-    frames = getattr(bundle, "cells_by_frame", None)
-    if frames:
-        # D1 (1.2.4.17): l'indice del frame piu' recente e' len(cells_by_frame)-1.
-        # Prima si contavano i frame NON VUOTI: con un frame vuoto in mezzo
-        # l'indice scendeva e `on_latest_frame` diventava falso per tutti.
-        latest_frame_index = len(frames) - 1
     raw = []
     for track, track_type in _evaluated_tracks(bundle):
         if len(track.points) < 2:
@@ -630,7 +625,7 @@ def evaluate(bundle, cfg=None):
         if not candidate:
             continue
         raw.append(_candidate_dict(
-            bundle, track, track_type, latest_frame_index, cfg, soi, level,
+            bundle, track, track_type, cfg, soi, level,
             candidate, gates, components))
     records = dedup_records(raw)
     for rec in records:

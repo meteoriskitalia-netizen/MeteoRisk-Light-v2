@@ -625,10 +625,23 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
            Visibile SOLO quando il layer radar e' attivo (isRadarActive): il
            display viene forzato a flex da updateRadarDopplerUI(). Nessuna
            larghezza minima: il testo va a capo e non genera overflow. */
-        .radar-legend { display: none; flex-direction: column; align-items: flex-start; gap: 3px;
-            margin-top: 8px; padding: 8px 10px; background: rgba(15,23,42,0.78);
+        /* 1.3.0.28 - legenda radar retraibile: <details> chiuso di default.
+           Lo stile del summary riusa il pattern delle altre legende a <details>
+           (font/.legend-title, marker nascosto, chevron come .forecast-details).
+           Da chiuso resta una sola riga (~28 px) contro i 168 px misurati. */
+        .radar-legend { display: none; flex-direction: column; align-items: stretch; gap: 0;
+            margin-top: 8px; padding: 0; background: rgba(15,23,42,0.78);
             border: 1px solid #334155; border-radius: 8px; font-size: 10px;
             line-height: 1.4; color: #cbd5e1; max-width: 100%; overflow-wrap: anywhere; }
+        .radar-legend > summary { cursor: pointer; list-style: none; padding: 7px 10px;
+            font-size: 10px; font-weight: 700; color: #e2e8f0; font-variant-numeric: tabular-nums; }
+        .radar-legend > summary::-webkit-details-marker { display: none; }
+        .radar-legend > summary::before { content: '\25B8'; color: #7dd3fc; margin-right: 6px; }
+        .radar-legend[open] > summary::before { content: '\25BE'; }
+        .radar-legend > .radar-legend-body { display: flex; flex-direction: column;
+            align-items: flex-start; gap: 3px; padding: 0 10px 8px 10px; }
+        .radar-legend:not([open]) > .radar-legend-body { display: none !important; }
+        .radar-legend[open] > .radar-legend-body > .legend-title { display: none; }
         .radar-legend .legend-title { font-size: 10px; font-weight: 700; color: #e2e8f0; margin-bottom: 2px; }
         .radar-legend .legend-row { display: flex; align-items: flex-start; gap: 6px; flex-wrap: wrap; }
         /* FIX 1.3.0.7 - scala dBZ di RainViewer/LibreWXR (la sola mancante).
@@ -2342,7 +2355,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
 <div class="metric-tabs" id="metric-select-row" style="display:none; align-items:center;">
     <label for="metric-select" style="font-size:11px;color:#94a3b8;white-space:nowrap;">Metrica</label>
     <select id="metric-select" class="fm-select" onchange="onMetricSelectChange(this.value)" style="font-size:12px;">
-        <option value="risk">Rischio</option>
+        <option value="risk">Pericolo</option>
         <option value="tempmax">Temp. Max</option>
         <option value="tempmin">Temp. Min</option>
         <option value="humidity">Umidità</option>
@@ -2516,18 +2529,26 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
              Vive sotto la mappa, nello stesso punto della legenda colori; viene
              mostrata/nascosta da updateRadarDopplerUI() insieme al layer radar.
              I testi delle fonti sono riempiti da renderRadarLegend() con i dati
-             reali di data/radar/latest.json e data/radar/collimation.json. -->
-        <div class="legend radar-legend" id="radar-legend" aria-live="polite">
-            <div class="legend-title">Radar — fonti e fusione DPC + OPERA</div>
-            <div class="legend-row" id="radar-legend-sources">
-                <span>Fonti: <b>DPC (Italia)</b> · <b>OPERA CIRRUS / EUMETNET</b> (fuori copertura DPC, CC BY 4.0).</span>
+             reali di data/radar/latest.json e data/radar/collimation.json.
+             1.3.0.28 - RETRAIBILE: <details> chiuso di default con <summary>
+             compatto (DPC%, OPERA%, MAE) leggibile anche da chiuso. Tutto il
+             contenuto tecnico resta nel body: nessuna informazione rimossa.
+             Stato open/close nella STESSA localStorage delle altre legende
+             (meteorisk.legendCollapse.v1), nessuna chiave nuova. -->
+        <details class="legend radar-legend" id="radar-legend" aria-live="polite">
+            <summary class="radar-legend-summary" id="radar-legend-summary" title="Clicca per espandere fonti, licenze e MAE della legenda radar">Radar · dettagli fonti e fusione</summary>
+            <div class="radar-legend-body">
+                <div class="legend-title">Radar — fonti e fusione DPC + OPERA</div>
+                <div class="legend-row" id="radar-legend-sources">
+                    <span>Fonti: <b>DPC (Italia)</b> · <b>OPERA CIRRUS / EUMETNET</b> (fuori copertura DPC, CC BY 4.0).</span>
+                </div>
+                <div class="legend-row" id="radar-legend-opera" style="display:none;"></div>
+                <div class="legend-row" id="radar-legend-collimation" style="display:none;"></div>
+                <!-- FIX 1.3.0.7 - scala dBZ mancante di RainViewer/LibreWXR: visibile
+                     solo per quei due provider, mai per DPC/OPERA (scale validate). -->
+                <div class="legend-row" id="radar-legend-dbz" style="display:none;"></div>
             </div>
-            <div class="legend-row" id="radar-legend-opera" style="display:none;"></div>
-            <div class="legend-row" id="radar-legend-collimation" style="display:none;"></div>
-            <!-- FIX 1.3.0.7 - scala dBZ mancante di RainViewer/LibreWXR: visibile
-                 solo per quei due provider, mai per DPC/OPERA (scale validate). -->
-            <div class="legend-row" id="radar-legend-dbz" style="display:none;"></div>
-        </div>
+        </details>
         <!-- Selettore ORARIO a slider sotto la mappa (sostituisce la tendina) -->
         <div class="hour-slider" id="hour-slider-wrap" style="display:none;">
             <label class="hour-slider-label" id="hour-slider-label">Scegli l'ora</label>
@@ -2820,6 +2841,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                     <div class="src-item">Non rappresenta un <b>servizio meteorologico ufficiale</b> e non rappresenta il <b>Dipartimento della Protezione Civile</b> né altri enti di protezione civile o ARPA.</div>
                     <div class="src-item">Le informazioni mostrate <b>non sostituiscono bollettini o allerte ufficiali</b>. In caso di allerte o emergenze fare SEMPRE riferimento alle autorità competenti (Protezione Civile, ARPA, servizi meteorologici nazionali).</div>
                     <div class="src-item">Le <b>valutazioni di rischio</b> generate dall'app sono <b>algoritmiche e sperimentali</b>: combinano dati previsionali ed euristiche adattate dalla letteratura scientifica, possono contenere errori o semplificazioni e non vanno usate per decisioni sulla propria incolumità o proprietà.</div>
+                    <div class="src-item">Questo colore è il livello più alto tra i pericoli. Non è una stima di impatto o di rischio. Esposizione, vulnerabilità ed effetti combinati non sono inclusi.</div>
                     <div class="src-item">Ogni <b>fonte dati esterna</b> utilizzata mantiene le proprie <b>condizioni d'uso, termini di servizio e attribuzioni</b>; l'uso educativo e non commerciale di questo progetto <b>non costituisce di per sé un'autorizzazione all'uso</b> dei dati di terze parti.</div>
                 </div>
             </div>
@@ -2890,7 +2912,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                     </div>
                 </div>
                 <div class="fc-pane" id="fc-pane-aree" role="tabpanel" aria-labelledby="fc-tab-aree" hidden>
-                    <div class="italia-synth" id="italia-synth" title="Sintesi dei punti provincia del dataset, non di un campo continuo. Temperature per fascia altimetrica: pianura &lt;300 m, collina 300-800 m, montagna &gt;800 m; le fasce con meno di tre province sono omesse; una provincia può contribuire a più fasce. Fasce orarie 0-6, 6-12, 12-18, 18-24; mm eq. = equivalente acqua. Cielo derivato dal weathercode (0/1/2/3): cloud_cover non è presente nel dataset; neve solo con equivalente acqua &gt; 0 nelle 24 h; raffiche p50-p90, punte oltre 100 km/h solo se p99 &ge; 100; nessun toponimo nel testo, i nomi restano nei tooltip. Soglie: pioggia debole &le; 14,5 mm (p75), diffusa &le; 39,3 (p90), intensa oltre; rovesci quando la maggioranza dei punti bagnati ha un&rsquo;ora 80-82/95-96/99 e il massimo supera 14,5 mm; quota neve = freezing level &minus; 500 m, &plusmn;300 m. Temperature e gelate: massime e minime comprese fra le fasce mostrate; gelate indicate solo per le fasce con minima &le; 0 &deg;C (pianura, vallate, montagna); quota neve dalle sole ore con neve, distinta per zona quando la forbice supera 400 m, altrimenti una quota &laquo;circa&raquo;.">
+                    <div class="italia-synth" id="italia-synth" title="Sintesi dei punti provincia del dataset, non di un campo continuo. Temperature per fascia altimetrica: pianura &lt;300 m, collina 300-800 m, montagna &gt;800 m; le fasce con meno di tre province sono omesse; una provincia può contribuire a più fasce. Fasce orarie 0-6, 6-12, 12-18, 18-24; mm eq. = equivalente acqua. Cielo derivato dal weathercode (0/1/2/3): cloud_cover non è presente nel dataset; neve solo con equivalente acqua &gt; 0 nelle 24 h; raffiche p50-p90, punte oltre 100 km/h solo se p99 &ge; 100; nessun toponimo nel testo, i nomi restano nei tooltip. Soglie: pioggia debole &le; 14,5 mm (p75), diffusa &le; 39,3 (p90), intensa oltre; rovesci quando la maggioranza dei punti bagnati ha un&rsquo;ora 80-82/95-96/99 e il massimo supera 14,5 mm; quota neve = freezing level &minus; 500 m, &plusmn;300 m. Regola pratica ARPAV: quota di precipitazione ~90% solida in quota. Inversioni e wet-bulb possono spostarla di centinaia di metri; non e' quota di accumulo al suolo. Temperature e gelate: massime e minime comprese fra le fasce mostrate; gelate indicate solo per le fasce con minima &le; 0 &deg;C (pianura, vallate, montagna); quota neve dalle sole ore con neve, distinta per zona quando la forbice supera 400 m, altrimenti una quota &laquo;circa&raquo;.">
                         <div class="is-head">
                             <span class="is-badge" id="italia-synth-badge">in attesa del dataset…</span>
                         </div>
@@ -3065,9 +3087,15 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.27';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.30';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-19';
     const APP_CHANGELOG = [
+    { version: '1.3.0.30', date: '2026-11-19', changes: [
+        'Unione di due lavori verificati sulla base 1.3.0.28: legenda radar retraibile (#radar-legend come <details> chiuso con summary compatto, stato persistente) piu le correzioni semantiche Fase A della 1.3.0.29 (testi, commenti, etichette e tooltip). Zero modifiche a calcoli, soglie numeriche, colori, dati e funzioni meteorologiche.',
+        'Allineamento semantico: voce metrica "Pericolo" (era "Rischio"); disclaimer Météo-France una sola volta in Fonti & Metodologie; nota ARPAV nella legenda neve; nota "Effetti combinati non quantificati" in riskDriverLine solo con almeno due pericoli di livello >=2; 4 annotazioni REF_TECHNICAL_CHOICE (WMS/SRH, R2 pioggia/prob, termiche, K-index); commento fulmini Westermayer 2017 senza 0,45; RH 850-700 nel commento.',
+        'Verifiche: node --check 9/9 blocchi inline; #radar-legend resta <details> senza open; 1 occorrenza di Pericolo, ARPAV, disclaimer e compounding; 0 occorrenze di 0,45 nei commenti attivi; regioni con calcoli byte-identiche alla 1.3.0.28; ricostruzione inversa byte-per-byte.',
+    ]},
+    { version: '1.3.0.28', date: '2026-11-19', note: 'ADD legenda radar retraibile: <details> chiuso di default con summary compatto che mostra DPC%, OPERA% e MAE; tutto il contenuto tecnico (fonti, licenze, percentuali, MAE, mediana anelli, coppie, nota differenza fra prodotti) resta nel body espandibile, nessuna informazione persa; stato open/close salvato nella stessa localStorage delle altre legende (meteorisk.legendCollapse.v1).' },
     { version: '1.3.0.27', date: '2026-11-19', note: 'Day selector come desktop su mobile' },
         { version: '1.3.0.26', date: '2026-11-19', note: 'Riparazione JS rotto dalla 1.3.0.24' },
         { version: '1.3.0.25', date: '2026-11-19', note: 'Toolbar mobile come desktop' },
@@ -6181,6 +6209,9 @@ function enabledLightningSourceIds() {
         // 2.300 m non puo' portare la provincia a "gelo estremo" con la pianura mite.
         // Le soglie restano quelle simmetriche caldo/gelo; il livello "estremo" (4)
         // richiede una fascia sotto 800 m, dove il fenomeno e' realmente critico.
+        // REF_TECHNICAL_CHOICE (scelta ingegneristica): 30/32/35/38 C (caldo) e 0/-2/-5/-8 C
+        // (gelo) sono SCELTA INGEGNERISTICA: valori assoluti didattici sul punto piu' basso della
+        // provincia, non percentili ne' soglia universale (nessuna fonte scientifica unica).
         var tempBand = agg.tempRefBand || null;
         var heatTemp = currentHour === 'all'
             ? (agg.tempMaxRef !== null && agg.tempMaxRef !== undefined ? agg.tempMaxRef : agg.tempMax)
@@ -6269,6 +6300,9 @@ function enabledLightningSourceIds() {
             others.push(comps[i].label + ' (' + comps[i].level + ')');
         }
         if (others.length) head += '. Altri rischi: ' + others.join(', ');
+        // 1.3.0.29 — nota presentazionale (nessuna modifica al calcolo del livello): gli
+        // effetti congiunti non sono sommati; il colore resta il massimo dei singoli livelli.
+        if (comps.length >= 2 && comps[0].level >= 2 && comps[1].level >= 2) head += '. Effetti combinati non quantificati: il colore e\' il massimo dei livelli, non una somma.';
         return head;
     }
     // Costruisce l'HTML della nuvola hover: nome provincia + disco dei rischi attivi
@@ -9683,6 +9717,22 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
             }
         } else {
             colEl.style.display = "none";
+        }
+        // 1.3.0.28 - sintesi compatta nel <summary>: riusa gli STESSI dati
+        // calcolati sopra (dpcPct, opPct, m), nessun nuovo calcolo e nessuna
+        // stringa tecnica duplicata nel DOM. Cosi' le cifre chiave restano
+        // leggibili anche con la legenda chiusa.
+        var sumEl = document.getElementById("radar-legend-summary");
+        if (sumEl) {
+            var core;
+            if (opera && String(opera.status) === "unavailable") {
+                core = "solo DPC · OPERA non disponibile";
+            } else {
+                core = (dpcPct ? "DPC " + dpcPct : "DPC —") + " + " +
+                       (opPct ? "OPERA " + opPct : "OPERA —");
+            }
+            var maeTxt = (m && m.value !== null) ? (" · MAE " + m.value.toFixed(2) + " dBZ") : "";
+            sumEl.textContent = "Radar · " + core + maeTxt;
         }
     }
 
@@ -26357,10 +26407,10 @@ function toggleForecastMaps() {
     // sopra ~800 J/kg la frequenza di fulmini resta piatta al ~20%: oltre quella soglia
     // il CAPE non aggiunge punteggio ne' puo' da solo alzare la classe a "estremo".
     //
-    // VETO DI UMIDITA' (stessa fonte): RH 850-500 < 50% -> frequenza di fulmini < 0,15;
-    // RH > 80% con CAPE > 800 -> > 0,45. rh_mid = media di relative_humidity_850hPa e
-    // relative_humidity_700hPa (le ore disponibili si DICHIARANO: rhHours). Sotto 50%
-    // la classe scende di UN livello, con il motivo scritto nel tooltip.
+    // VETO DI UMIDITA' (stessa fonte): CAPE >= 200-400 J/kg e' sufficiente; oltre ~800 la frequenza di fulmini non cresce (Westermayer 2017). Veto: RH<50% -> <0,15.
+    // RH 850-700: rh_mid = media di relative_humidity_850hPa e relative_humidity_700hPa
+    // (le ore disponibili si DICHIARANO: rhHours). Sotto 50% la classe scende di UN livello,
+    // con il motivo scritto nel tooltip.
     var CONV_CAPE_SAT = 800;
     var CONV_RH_DRY = 50;
     // A4 — WMAXSHEAR: UNA sola soglia condivisa (CONV_WMS_MIN). Prima c'erano tre
@@ -26370,6 +26420,9 @@ function toggleForecastMaps() {
     // la seconda dichiarazione lo sovrascriveva. Scelta: 800 — e' la soglia usata
     // dalla classificazione dell'organizzazione ATTIVA (ORG_WMS_MIN), quindi la si
     // adotta anche qui invece dei 1000/500 storici.
+    // REF_TECHNICAL_CHOICE (provenienza): CONV_WMS_MIN = 800 -> Taszarek et al. 2017 /
+    // Gruenwald & Brooks 2011 (fonti complete in Fonti & Metodologie); SRH 0-3 >= 80 con
+    // CAPE >= 150 -> Ingrosso et al. 2020. Soglie letterarie, non valori inventati.
     var CONV_WMS_MIN = 800;
     function assessConvOrg(o) {
         o = o || {};
@@ -26443,6 +26496,9 @@ function toggleForecastMaps() {
     //   2 = prob>60 or rain>1 or gusts>50
     //   1 = prob>20 or rain>0.2
     //   0 = resto
+    // REF_TECHNICAL_CHOICE (scelta ingegneristica): 0,2/1/15/45 mm (pioggia oraria) e
+    // 20/60% (probabilita') sono SCELTA INGEGNERISTICA su scala R2 oraria/istantanea;
+    // NON sono la cumulata 24h 1/15/45/90 mm (Arpa Piemonte/regioni). Nessuna soglia universale.
     // COERENZA: rain, cape, code di una condizione congiunta sono della STESSA ora
     // e dello STESSO modello (vedi computeR2ForStore). Se non c'e' coerenza la
     // condizione NON si applica.
@@ -27321,6 +27377,8 @@ function toggleForecastMaps() {
             var capeScore = Math.min(capeVal, CONV_CAPE_SAT);
             var cThermo = Math.min(capeScore / 2500, 1);
             if (li != null && li < -4) cThermo = Math.max(cThermo, 0.6);
+            // REF_TECHNICAL_CHOICE: K-index > 28 (e LI < -4) e' SCELTA INGEGNERISTICA locale:
+            // non esiste una soglia universale di K-index; il valore non e' calibrato qui.
             if (kIdx != null && kIdx > 28) cThermo = Math.max(cThermo, 0.45);
             // Shear / organizzazione (30%): WMAXSHEAR (robusto per l'Europa) + deep shear
             var cShear = Math.min(wms / 1200, 1);
@@ -36538,6 +36596,19 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         else panel.classList.remove('collapsed');
         bound++;
     });
+    // 1.3.0.28 - legenda radar (#radar-legend): <details> con stato persistente
+    // nella STESSA chiave delle altre legende (meteorisk.legendCollapse.v1),
+    // tramite l'API gia' esistente mriLegendPref: nessuna chiave nuova.
+    // Chiusa di default quando non c'e' preferenza salvata.
+    (function () {
+        var d = document.getElementById('radar-legend');
+        if (!d || d.tagName !== 'DETAILS') return;
+        try { d.open = !!window.mriLegendPref.get('radar', false); } catch (e) {}
+        d.addEventListener('toggle', function () {
+            try { window.mriLegendPref.set('radar', d.open); } catch (e) {}
+        });
+        bound++;
+    })();
     window.mriLegendBound = bound;
 
     /* ---------- guida: apertura, chiusura, focus trap ---------- */
