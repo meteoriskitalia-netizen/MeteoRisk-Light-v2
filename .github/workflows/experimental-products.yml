@@ -75,7 +75,7 @@ jobs:
           export GIT_INDEX_FILE="$RUNNER_TEMP/fm2-syn-webp.index"
           git read-tree --empty
           git add -f data/syn_webp/*.webp data/syn_webp/index.json
-          staged=$(git diff --cached --name-only | wc -l)
+          staged=$(git ls-files | wc -l)
           if [ "$staged" -ne 7 ]; then
             echo "FATAL: allowlist violata, $staged file staged (attesi 7)" >&2
             exit 1
