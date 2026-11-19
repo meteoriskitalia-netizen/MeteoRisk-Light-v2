@@ -1346,7 +1346,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             .app-title p { font-size: 11px; line-height: 1.45; }
             .time-controls { width: 100%; }
             .day-selector { flex: 1; }
-            .day-btn { flex: 1; text-align: center; min-height: var(--touch-min); }
+            .day-btn { flex: 1; text-align: center; min-height: 0; padding: 6px 10px; font-size: 11px; }
             /* 1.0.0.14 — TOGGLE A DIMENSIONE COSTANTE: la riga dei toggle è una CSS grid
                "repeat(auto-fill, minmax(140px,1fr))": ogni toggle ha larghezza fissa e
                identica, che NON cambia mai quando si apre/chiude il player o quando
@@ -3065,10 +3065,11 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.26';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.27';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-19';
     const APP_CHANGELOG = [
-    { version: '1.3.0.26', date: '2026-11-19', note: 'Riparazione JS rotto dalla 1.3.0.24' },
+    { version: '1.3.0.27', date: '2026-11-19', note: 'Day selector come desktop su mobile' },
+        { version: '1.3.0.26', date: '2026-11-19', note: 'Riparazione JS rotto dalla 1.3.0.24' },
         { version: '1.3.0.25', date: '2026-11-19', note: 'Toolbar mobile come desktop' },
         { version: '1.3.0.24', date: '2026-11-19', note: 'Selettori toolbar 32px su mobile' },
         { version: '1.3.0.23', date: '2026-11-19', changes: [
