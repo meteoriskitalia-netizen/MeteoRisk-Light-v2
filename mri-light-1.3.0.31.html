@@ -1716,7 +1716,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .forecast-details > summary::before { content: '\25B8'; color: #7dd3fc; font-size: 11px; flex: 0 0 auto; }
         .forecast-details[open] > summary::before { content: '\25BE'; }
         .fc-summary-label { font-size: 12px; font-weight: 700; color: #e2e8f0; flex: 0 0 auto; }
-        .fc-summary-text { font-size: 11px; color: #cbd5e1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .fc-summary-text { font-size: 11px; color: #cbd5e1; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
         .fc-body { padding: 0 10px 10px 10px; }
         .fc-tabs { display: flex; gap: 4px; border-bottom: 1px solid #334155; margin: 0 0 8px 0; }
         .fc-tab { appearance: none; background: transparent; border: 1px solid transparent; border-bottom: 0; color: #94a3b8; font: inherit; font-size: 12px; font-weight: 600; padding: 7px 10px; min-height: 34px; cursor: pointer; border-radius: 6px 6px 0 0; }
@@ -2355,7 +2355,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
 <div class="metric-tabs" id="metric-select-row" style="display:none; align-items:center;">
     <label for="metric-select" style="font-size:11px;color:#94a3b8;white-space:nowrap;">Metrica</label>
     <select id="metric-select" class="fm-select" onchange="onMetricSelectChange(this.value)" style="font-size:12px;">
-        <option value="risk">Pericolo</option>
+        <option value="risk">Rischio complessivo</option>
         <option value="tempmax">Temp. Max</option>
         <option value="tempmin">Temp. Min</option>
         <option value="humidity">Umidità</option>
@@ -3087,9 +3087,14 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.30';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.31';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-19';
     const APP_CHANGELOG = [
+    { version: '1.3.0.31', date: '2026-11-19', changes: [
+        'Summary del pannello Previsione riscritto sulla STESSA fonte della tab Aree: usa italiaSynthesis (gia calcolato da buildItaliaSynthesis) e italiaAreaSentenceBuild/italiaSynthesisSentence esistenti, senza un nuovo generatore. Per ogni macro-area mostra dove fisiografico, cielo, fenomeni con fascia 6-12/12-18/18-6 e ora di picco, temperatura, vento, neve; piu la sintesi nazionale in testa.',
+        'Portati nel summary i campi di tdsBuildDay prima ignorati (minima, probabilita massima, banda e vento/raffica, CAPE e ore oltre soglia, zero termico, neve, ora della massima) leggendoli dai valori gia calcolati: ogni campo assente dichiara il motivo, nessuno zero inventato. Massime della localita mostrate come range min-max della banda piu popolosa con il numero di punti in testo visibile, non piu Math.round secco nel title.',
+        'Rimosso il troncamento di #fc-summary-text (niente nowrap/ellipsis, testo a capo). Nessun conteggio di province ne "Provincia di" nel summary, nessuna informazione affidata al solo title. Riga viva della guida corretta da 5 a 6 macro-aree; changelog storici intatti. Calcoli meteorologici, colori, scale, gate e dati invariati.'
+    ]},
     { version: '1.3.0.30', date: '2026-11-19', changes: [
         'Unione di due lavori verificati sulla base 1.3.0.28: legenda radar retraibile (#radar-legend come <details> chiuso con summary compatto, stato persistente) piu le correzioni semantiche Fase A della 1.3.0.29 (testi, commenti, etichette e tooltip). Zero modifiche a calcoli, soglie numeriche, colori, dati e funzioni meteorologiche.',
         'Allineamento semantico: voce metrica "Pericolo" (era "Rischio"); disclaimer Météo-France una sola volta in Fonti & Metodologie; nota ARPAV nella legenda neve; nota "Effetti combinati non quantificati" in riskDriverLine solo con almeno due pericoli di livello >=2; 4 annotazioni REF_TECHNICAL_CHOICE (WMS/SRH, R2 pioggia/prob, termiche, K-index); commento fulmini Westermayer 2017 senza 0,45; RH 850-700 nel commento.',
@@ -32308,56 +32313,109 @@ function renderContinuousOverlay() {
         for (var i = 0; i < order.length; i++) {
             var b = days[dayIdx][order[i]];
             if (b && b.n > 0 && b.tmax !== null && (best === null || b.n > best.n)) {
-                best = { band: order[i], n: b.n, tmax: b.tmax };
+                best = { band: order[i], n: b.n, tmax: b.tmax, tmin: (b.tmin !== null && b.tmin !== undefined && isFinite(b.tmin)) ? b.tmin : null };
             }
         }
         if (!best) return null;
         var mtn = days[dayIdx].montagna;
         var mountainMin = (mtn && mtn.n > 0 && mtn.tmin !== null) ? mtn.tmin : null;
-        return { band: best.band, n: best.n, tmax: best.tmax, mountainMin: mountainMin };
+        return { band: best.band, n: best.n, tmax: best.tmax, tmin: best.tmin, mountainMin: mountainMin };
+    }
+
+    // "Dove" fisiografico, mai toponimi e mai conteggi: usa solo cio' che
+    // buildItaliaSynthesis ha gia' calcolato (settore e fasce mostrate).
+    function fcSummaryWhere(ar) {
+        if (!ar) return '';
+        if (ar.sector) return ar.sector;
+        var shown = ar.bandShown || [];
+        var names = { pianura: 'in pianura', collina: 'in collina', montagna: 'in montagna' };
+        if (shown.length === 1 && names[shown[0]]) return names[shown[0]];
+        var words = [];
+        for (var i = 0; i < shown.length; i++) if (names[shown[i]]) words.push(names[shown[i]]);
+        if (words.length === 2) return words[0] + ' e ' + words[1];
+        if (words.length >= 3) return 'in pianura, in collina e in montagna';
+        return '';
+    }
+
+    // Dettaglio della localita scelta dall'utente: tutti i campi di tdsBuildDay
+    // prima ignorati, letti dai valori gia calcolati. Un campo mancante dichiara
+    // il motivo: nessuno zero inventato.
+    function fcSummaryCityDetail(day) {
+        if (!day) return '';
+        var p = [];
+        var band = fcSummaryBand(tdsSelectedDay);
+        if (band && band.tmax !== null && isFinite(band.tmax)) {
+            var lo = (band.tmin !== null && isFinite(band.tmin)) ? italiaTempVal(band.tmin) + '\u2013' + italiaTempVal(band.tmax) + ' \u00B0C'
+                : italiaTempVal(band.tmax) + ' \u00B0C (minima n/d: nessun valore nella banda)';
+            p.push(band.band + ' ' + lo + ' (' + band.n + ' punti)');
+        } else {
+            p.push('fascia n/d: nessuna banda con punti');
+        }
+        p.push(day.tMax && day.tMax.v !== null && isFinite(day.tMax.v)
+            ? 'massima locale ' + italiaTempVal(day.tMax.v) + ' \u00B0C alle ' + tdsClock(day.tMax.hour)
+            : 'massima locale n/d: nessuna ora valida');
+        p.push(day.tMin && day.tMin.v !== null && isFinite(day.tMin.v)
+            ? 'minima ' + italiaTempVal(day.tMin.v) + ' \u00B0C alle ' + tdsClock(day.tMin.hour)
+            : 'minima n/d: nessuna ora valida');
+        if (day.precip && day.precip.probMax && day.precip.probMax.v !== null && isFinite(day.precip.probMax.v)) {
+            p.push('prob. pioggia max ' + Math.round(day.precip.probMax.v) + '%');
+        } else {
+            p.push('prob. pioggia n/d: campo non nel dataset');
+        }
+        var ps = (day.precip && day.precip.sum && day.precip.sum.v !== null && isFinite(day.precip.sum.v)) ? day.precip.sum.v : null;
+        p.push(ps !== null ? 'pioggia ' + italiaNum(ps, ps < 1 ? 1 : 0) + ' mm' : 'pioggia n/d: nessuna ora valida');
+        if (day.precip && day.precip.band) {
+            p.push('fascia pioggia ' + tdsClock(day.precip.band.from) + '-' + tdsClock(day.precip.band.to) + ' (' + day.precip.band.hours + ' h)');
+        } else {
+            p.push('fascia pioggia n/d: nessun episodio oltre 0,1 mm');
+        }
+        var gv = (day.gust && day.gust.v !== null && isFinite(day.gust.v)) ? Math.round(day.gust.v) + ' km/h' : 'n/d: nessuna ora valida';
+        var wv = (day.wind && day.wind.v !== null && isFinite(day.wind.v)) ? Math.round(day.wind.v) + ' km/h' : 'n/d: nessuna ora valida';
+        p.push('raffica ' + gv + ', vento ' + wv);
+        if (day.cape && day.cape.v !== null && isFinite(day.cape.v)) {
+            p.push('CAPE ' + Math.round(day.cape.v) + ' J/kg, ' + day.capeHours + ' h \u2265 ' + TDS_CAPE_THRESHOLD);
+        } else {
+            p.push('CAPE n/d: nessuna ora valida');
+        }
+        p.push(day.zf && day.zf.v !== null && isFinite(day.zf.v)
+            ? 'zero termico ' + Math.round(day.zf.v / 100) * 100 + ' m'
+            : 'zero termico n/d: nessuna ora valida');
+        if (!day.hasSnowField) p.push('neve n/d: campo non nel dataset');
+        else if (day.snow === null) p.push('neve n/d: nessuna ora valida');
+        else if (day.snow.v > 0) p.push('neve ' + italiaNum(day.snow.v, day.snow.v < 1 ? 1 : 0) + ' mm eq');
+        else p.push('neve assente: equivalente acqua 0');
+        return p.join('; ') + '.';
     }
 
     function fcUpdateSummary() {
         var el = document.getElementById('fc-summary-text');
         if (!el) return;
-        var days = (typeof tdsState !== 'undefined' && tdsState && tdsState.days) ? tdsState.days : [];
+        el.title = '';
+        var days = (typeof italiaSynthesis !== 'undefined' && italiaSynthesis && italiaSynthesis.days) ? italiaSynthesis.days : [];
         if (!days.length) {
-            el.textContent = '\u2014 seleziona una localit\u00E0';
-            el.title = '';
+            el.innerHTML = '\u2014 sintesi non ancora calcolata';
             return;
         }
-        var labels = ['oggi', 'domani', 'dopodomani'];
-        var segs = [], titles = [];
-        for (var i = 0; i < days.length && i < 3; i++) {
-            var day = days[i];
-            var seg = labels[i];
-            var hasData = false;
-            if (day.precip && day.precip.sum && day.precip.sum.v !== null && day.precip.sum.v !== undefined && isFinite(day.precip.sum.v)) {
-                hasData = true;
-                if (day.precip.sum.v > 0) seg += ' pioggia ' + italiaNum(day.precip.sum.v, day.precip.sum.v < 1 ? 1 : 0) + ' mm';
-                else seg += ' asciutto';
-            }
-            var bandInfo = fcSummaryBand(i);
-            var tmax = (day.tMax && day.tMax.v !== null && day.tMax.v !== undefined && isFinite(day.tMax.v)) ? day.tMax.v : null;
-            if (bandInfo && bandInfo.tmax !== null) tmax = bandInfo.tmax;
-            if (tmax !== null) {
-                hasData = true;
-                seg += (seg.length > labels[i].length ? ', ' : ' ') + 'max ' + Math.round(tmax) + ' \u00B0C';
-                if (bandInfo && bandInfo.mountainMin !== null && bandInfo.mountainMin < 0) {
-                    seg += ' (montagna ' + italiaNum(bandInfo.mountainMin, Math.abs(bandInfo.mountainMin) < 1 ? 1 : 0) + ' \u00B0C)';
-                }
-            }
-            if (!hasData) seg += ' n/d';
-            if (i === tdsSelectedDay) seg = '<b>' + seg + '</b>';
-            var titleSeg = seg.replace(/<[^>]+>/g, '');
-            if (bandInfo && bandInfo.tmax !== null) {
-                titleSeg += ' [' + bandInfo.band + ' max ' + Math.round(bandInfo.tmax) + ' \u00B0C, ' + bandInfo.n + ' punti]';
-            }
-            segs.push(seg);
-            titles.push(titleSeg);
+        var di = (typeof currentDay === 'number' && currentDay >= 0 && currentDay < days.length) ? currentDay : 0;
+        var dd = days[di];
+        var segs = [];
+        segs.push('<b>Sintesi:</b> ' + italiaSynthesisSentence(dd, true));
+        for (var ai = 0; ai < dd.areas.length; ai++) {
+            var ar = dd.areas[ai];
+            var dove = fcSummaryWhere(ar);
+            var txt = italiaAreaSentenceBuild(ar, {
+                trend: true, amount: true, exception: true, bandNote: true,
+                summary: true, dove: dove, doveShown: !!dove
+            });
+            segs.push('<b>' + ar.name + ':</b> ' + txt);
         }
-        el.innerHTML = segs.join(' \u00B7 ');
-        el.title = titles.join(' \u00B7 ');
+        var cityDay = (typeof tdsState !== 'undefined' && tdsState && tdsState.days) ? tdsState.days[tdsSelectedDay] : null;
+        var cityChosen = (typeof selectedIndex === 'number' && selectedIndex >= 0) ||
+            (typeof isCustomCity !== 'undefined' && isCustomCity);
+        if (cityDay && cityChosen) {
+            segs.push('<b>Localita selezionata:</b> ' + fcSummaryCityDetail(cityDay));
+        }
+        el.innerHTML = segs.join('<br>');
     }
 
     if (typeof document !== 'undefined') {
@@ -35273,13 +35331,18 @@ syncSelect('lightning-source-select', [
         return s ? s.split(' ').length : 0;
     }
 
+    // Generatore UNICO delle frasi per area. Di default (tab Aree) l'ordine resta
+    // cielo, pioggia, temperatura, neve, vento, trend: byte-identico a prima.
+    // Con opt.summary, usato SOLO dal summary, si antepose il "dove" fisiografico
+    // gia calcolato e si mette il vento prima della neve, con fasce 6-12/12-18/18-6.
     function italiaAreaSentenceBuild(st, opt) {
         opt = opt || {};
-        var parts = [];
-        if (st.skyPhrase) parts.push(st.skyPhrase);
+        var doveParts = [], skyParts = [], phenParts = [], tempParts = [], windParts = [], snowParts = [], trendParts = [];
+        if (opt.summary && opt.dove) doveParts.push(String(opt.dove).replace(/\.$/, '') + '.');
+        if (st.skyPhrase) skyParts.push(st.skyPhrase);
         if (st.maxP !== null) {
             if (st.nWet === 0) {
-                parts.push('Nessuna precipitazione.');
+                phenParts.push('Nessuna precipitazione.');
             } else {
                 var convShare = st.nWet ? st.nConvWet / st.nWet : 0;
                 var sparse = st.nData && st.nWet / st.nData < 0.5;
@@ -35290,29 +35353,38 @@ syncSelect('lightning-source-select', [
                 else kind = sparse ? 'Piogge deboli sparse' : 'Piogge deboli';
                 var dec = (st.p75Wet !== null && st.p75Wet >= 10) ? 0 : 1;
                 var range = italiaFmtRange(st.p25Wet, st.p75Wet, ' mm', dec);
-                var where = st.sector ? ' ' + st.sector : '';
+                var where = (!opt.doveShown && st.sector) ? ' ' + st.sector : '';
                 var punte = italiaRainPunte(st.maxP, st.p75Wet);
                 var pre = kind + (range ? ' ' + range : '') + where + (punte ? ', ' + punte : '') + '.';
-                parts.push(pre);
+                phenParts.push(pre);
                 if (st.peakHour !== null) {
-                    var bestBand = 0;
-                    for (var b = 1; b < 4; b++) if (st.bands[b] > st.bands[bestBand]) bestBand = b;
-                    var bandLabels = ['nella notte', 'al mattino', 'nel pomeriggio', 'in serata'];
-                    parts.push('Pi\u00F9 piovoso ' + bandLabels[bestBand] + ', picco ' + italiaHourText(st.peakHour) + '.');
+                    if (opt.summary) {
+                        // Somme orarie GIA' calcolate in st.bands: solo raggruppamento
+                        // nelle tre fasce 6-12 / 12-18 / 18-6, nessun nuovo calcolo.
+                        var b3 = [st.bands[1], st.bands[2], st.bands[3] + st.bands[0]];
+                        var best3 = 0;
+                        for (var k3 = 1; k3 < 3; k3++) if (b3[k3] > b3[best3]) best3 = k3;
+                        var names3 = ['al mattino (6-12)', 'nel pomeriggio (12-18)', 'in serata e notte (18-6)'];
+                        phenParts.push('Pi\u00F9 piovoso ' + names3[best3] + ', picco ' + italiaHourText(st.peakHour) + '.');
+                    } else {
+                        var bestBand = 0;
+                        for (var b = 1; b < 4; b++) if (st.bands[b] > st.bands[bestBand]) bestBand = b;
+                        var bandLabels = ['nella notte', 'al mattino', 'nel pomeriggio', 'in serata'];
+                        phenParts.push('Pi\u00F9 piovoso ' + bandLabels[bestBand] + ', picco ' + italiaHourText(st.peakHour) + '.');
+                    }
                 }
             }
         }
-        // 1.2.4.93 - ordine naturale: temperature, gelate, neve, vento, trend.
-        if (st.bandText) parts.push(st.bandText);
-        if (st.gelateText) parts.push(st.gelateText);
+        if (st.bandText) tempParts.push(st.bandText);
+        if (st.gelateText) tempParts.push(st.gelateText);
         var sp = italiaSnowParts(st, opt);
         if (sp) {
             var sn = sp.core;
             if (opt.exception && sp.exception) sn += sp.exception;
             if (opt.amount && sp.amount) sn += sp.amount;
-            parts.push(sn + '.');
+            snowParts.push(sn + '.');
         } else if (st.snowAmountP25 !== null) {
-            parts.push('Neve, ' + italiaFmtRange(st.snowAmountP25, st.snowAmountP75, ' mm', 1) + ' eq.');
+            snowParts.push('Neve, ' + italiaFmtRange(st.snowAmountP25, st.snowAmountP75, ' mm', 1) + ' eq.');
         }
         if (st.p90Gust !== null) {
             var w = 'Vento';
@@ -35322,7 +35394,7 @@ syncSelect('lightning-source-select', [
                 w += ', raffiche ' + italiaFmtRange(st.p50Gust, st.p90Gust, ' km/h', 0);
                 if (st.p99GustMax !== null && st.p99GustMax >= 100 && st.p90Gust < 100) w += ', punte oltre 100 km/h';
             }
-            parts.push(w + '.');
+            windParts.push(w + '.');
             if (st.gustDisagree) {
                 var consP90 = Math.min(st.p90Gust, st.p90GustEC);
                 var extP90 = Math.max(st.p90Gust, st.p90GustEC);
@@ -35330,10 +35402,13 @@ syncSelect('lightning-source-select', [
                 var extTxt = extP90 >= 100 ? 'oltre 100 km/h' : 'oltre ' + Math.round(extP90) + ' km/h';
                 var dis = 'Modelli discordi: ' + italiaFmtRange(consP50, consP90, ' km/h', 0) + ' il pi\u00F9 prudente, ' + extTxt + ' il pi\u00F9 estremo.';
                 if (st.p99GustMax !== null && st.p99GustMax >= 100 && extP90 < 100) dis += ' Punte oltre 100 km/h.';
-                parts.push(dis);
+                windParts.push(dis);
             }
         }
-        if (opt.trend && st.bandTrendText) parts.push(st.bandTrendText);
+        if (opt.trend && st.bandTrendText) trendParts.push(st.bandTrendText);
+        var parts = opt.summary
+            ? doveParts.concat(skyParts, phenParts, tempParts, windParts, snowParts, trendParts)
+            : skyParts.concat(phenParts, tempParts, snowParts, windParts, trendParts);
         if (!parts.length) return 'dato non disponibile';
         return parts.join(' ');
     }
@@ -35383,6 +35458,25 @@ syncSelect('lightning-source-select', [
         renderItaliaSentence();
     }
 
+    // Frase di sintesi condivisa: la usa la tab Aree e la usa il summary.
+    // noLabel=true toglie solo l'etichetta relativa (quella che direbbe
+    // oggi/domani/dopodomani): nel summary resta la data, non la label.
+    function italiaSynthesisSentence(dd, noLabel) {
+        if (!dd || !dd.areas) return '';
+        var wet = [], dry = [];
+        for (var i = 0; i < dd.areas.length; i++) {
+            if (dd.areas[i].nWet > 0) wet.push(dd.areas[i].name);
+            else dry.push(dd.areas[i].name);
+        }
+        var s = '';
+        if (!noLabel) s += (dd.label || 'Giorno');
+        if (dd.ddmm) s += (s ? ' ' : '') + '(' + dd.ddmm + ')';
+        s += ': ';
+        if (!wet.length) s += 'asciutto su tutte le aree.';
+        else if (!dry.length) s += 'pioggia su tutte le aree.';
+        else s += 'pioggia su ' + wet.join(', ') + '; asciutto su ' + dry.join(', ') + '.';
+        return s;
+    }
     function renderItaliaSentence() {
         var el = document.getElementById('italia-synth-sentence');
         if (!el) return;
@@ -35391,17 +35485,7 @@ syncSelect('lightning-source-select', [
             return;
         }
         var di = (typeof currentDay === 'number' && currentDay >= 0 && currentDay < italiaSynthesis.days.length) ? currentDay : 0;
-        var dd = italiaSynthesis.days[di];
-        var wet = [], dry = [];
-        for (var i = 0; i < dd.areas.length; i++) {
-            if (dd.areas[i].nWet > 0) wet.push(dd.areas[i].name);
-            else dry.push(dd.areas[i].name);
-        }
-        var s = (dd.label || 'Giorno') + (dd.ddmm ? ' (' + dd.ddmm + ')' : '') + ': ';
-        if (!wet.length) s += 'asciutto su tutte le aree.';
-        else if (!dry.length) s += 'pioggia su tutte le aree.';
-        else s += 'pioggia su ' + wet.join(', ') + '; asciutto su ' + dry.join(', ') + '.';
-        el.textContent = s;
+        el.textContent = italiaSynthesisSentence(italiaSynthesis.days[di]);
     }
 
     // ============ 1.2.4.90 - ACCUMULO OSSERVATO ULTIMA ORA (SRT1, Radar-DPC) ============
@@ -36378,7 +36462,7 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         <div class="help-body" id="help-body">
             <div class="help-sec">
                 <h3>1. I prodotti (uno alla volta)</h3>
-                <p>Tre prodotti principali: <b>Mappe previsionali</b> (modello, dominio, variabile e ora, player con isolinee e frecce del vento disegnate nel WebP), <b>Radar Player</b> (radar e satellite, Struttura convettiva, Centraline, Area Doppler) e <b>Mappa dei rischi</b> (colore delle province, slider orario, confronto fra modelli). Sono disponibili anche <b>Previsioni</b> (3 giorni, 5 macro-aree, 7 giorni e sintesi nazionale), <b>Pannello LIVE</b>, <b>Analisi sinottica</b>, <b>Teleconnessioni e indici</b> e <b>Fonti e metodologie</b>. «— nessuno —» spegne il prodotto attivo.</p>
+                <p>Tre prodotti principali: <b>Mappe previsionali</b> (modello, dominio, variabile e ora, player con isolinee e frecce del vento disegnate nel WebP), <b>Radar Player</b> (radar e satellite, Struttura convettiva, Centraline, Area Doppler) e <b>Mappa dei rischi</b> (colore delle province, slider orario, confronto fra modelli). Sono disponibili anche <b>Previsioni</b> (3 giorni, 6 macro-aree, 7 giorni e sintesi nazionale), <b>Pannello LIVE</b>, <b>Analisi sinottica</b>, <b>Teleconnessioni e indici</b> e <b>Fonti e metodologie</b>. «— nessuno —» spegne il prodotto attivo.</p>
             </div>
             <div class="help-sec">
                 <h3>2. Che cosa significa il colore delle province</h3>
