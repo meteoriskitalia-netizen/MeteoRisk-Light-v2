@@ -3065,10 +3065,11 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.23';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.24';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-19';
     const APP_CHANGELOG = [
-    { version: '1.3.0.23', date: '2026-11-19', changes: [
+    { version: '1.3.0.24', date: '2026-11-19', note: 'Selettori toolbar 32px su mobile' },
+        { version: '1.3.0.23', date: '2026-11-19', changes: [
         'Mappa dei rischi = PREVISIONE: con Sviluppo OFF zero occorrenze di "organizzat"/"osservat" in #risk-summary (innerText e title). La categoria Convezione organizzata (evento e potenziale) resta visibile solo in Sviluppo; in Sviluppo riappare con etichetta tecnica ma senza "osservat".',
         'Temporali: la frase "possibile cella organizzata" diventa "possibile temporale intenso" fuori Sviluppo. Grandine: il suffisso tecnico "(potenziale NWP)" compare solo in Sviluppo, fuori resta "Grandine". Rovescio convettivo e temporale attivo, stesso fenomeno, sono una sola voce nel riepilogo: fulmini, raffiche e grandine restano.',
         'Verifiche: node --check 9/9 blocchi inline; frasi vento/pioggia/neve byte-identiche; zero "organizzat"/"osservat" con Sviluppo OFF, voci ridotte di almeno 1, categoria riapparsa senza "osservat" con Sviluppo ON.',
@@ -3428,7 +3429,10 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
   'MAPPE= TRE MAPPE DI ANOMALIA NEL MENU: "Anomalia T 850 hPa", "Anomalia geopotenziale 500 hPa", "Anomalia pressione (MSL)". I WebP li pubblicava gia\' il renderer su Europa e sull\'emisfero nord (ANOMALY_REGIONS), ma il client non conosceva ne\' le etichette ne\' le scale: il menu non le mostrava e i WebP restavano invisibili. Ora le tre voci compaiono nel gruppo "Anomalie" SOLO se l\'index.json della regione servita pubblica quella variabile per il dominio corrente: su Italia e dominio la voce NON compare (non resta disabilitata, perche\' non c\'e\' nessun WebP da disegnare). Nessuna delle tre entra in FM_CURATED_VARS: le 28 voci curate restano identiche.',
   'MAPPE= LA LEGENDA DICHIARA LA NORMA: "Anomalia rispetto alla norma 1991-2020 (NCEP/NCAR Reanalysis 1, griglia 5°)". Le tre scale sono copiate identiche da color_scales.json, non riscritte a mano: T850 15 bande da -12 a +12 °C, Z500 13 bande da -24 a +24 dam, MSL 15 bande da -20 a +20 hPa, con la banda dello zero in BIANCO PURO. Lo Z500 e\' in DECAMETRI come la scala con cui il renderer colora il WebP (palette_scale 0,1 applicato PRIMA di indicizzare la palette), non in metri: il client non applica palette_scale perche\' sui WebP non mappa valori in colori, disegna solo la legenda, e l\'unico punto in cui servirebbe la conversione sarebbero le isolinee, che qui non ci sono.',
   'MAPPE= NESSUNA ISOLINEA SULLE ANOMALIE. Il renderer non le disegna e il client non le chiede: fmContourInterval restituisce 0 per le tre variabili e il parametro intervals non viene mandato. Senza questa uscita il match per prefisso avrebbe chiesto 40 su Z500 e 5 su MSL, cioe\' un\'isolinea ogni 40 dam su un campo che il renderer pubblica senza isolinee.',
-        ] },
+        ] 
+        /* 1.3.0.24 - selettori toolbar compatti su mobile (tap target 32px) */
+        #product-select, #metric-select, #tele-view-select, #tele-index-select, .tool-btn.select, select.tool-btn { min-height:32px !important; height:32px !important; padding:2px 6px !important; font-size:11px !important; line-height:28px !important; }
+    },
         { version: '1.2.4.59', date: '2026-10-28', changes: [
   'CONFRONTO MODELLI= NIENTE PIU\' SCADENZA AUTOMATICA, AGGIORNAMENTO A RICHIESTA. La cache del pannello non scade piu\' ogni 10 minuti: il record resta valido finche\' non premi il pulsante "Aggiorna" accanto ai selettori. Prima, ogni 10 minuti, un semplice updateUI rifaceva 2 richieste (GFS) senza che nessuno le avesse chieste; ora dopo il primo caricamento le richieste sono 0 finche\' non decidi tu.',
   'PULSANTE "Aggiorna" NEL PANNELLO. Svuota la chiave della localita\' corrente e rifa\' le richieste dichiarando la fonte; quando i dati vengono dalla cache la nota lo scrive ("in cache: premi ↻ Aggiorna per ricaricare"). Verificato: cambio giorno 0 richieste, slider 0 richieste, solo il pulsante fa partire le 2 richieste del confronto.',
