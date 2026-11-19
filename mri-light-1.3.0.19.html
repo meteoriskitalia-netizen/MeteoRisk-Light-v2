@@ -1972,7 +1972,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             <option value="forecast">Previsioni</option>
             <option value="live">Pannello LIVE</option>
             <option value="sources">Fonti e metodologie</option>
-            <option value="synoptic">Analisi sinottica</option>
             <option value="teleconn">Teleconnessioni e indici</option>
             <option value="synwebp">Analisi sinottica WebP (sperimentale)</option>
         </select>
@@ -2084,10 +2083,10 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         <button type="button" id="live-toggle-cells" class="sc-toggle" onclick="toggleLiveCells()" title="Tutti i track di cella di data/radar/tracks.json: marcatori piccoli colorati per riflettività massima del track. Indipendente da Struttura convettiva, Top-N, coni e area Doppler. Spento di default.">Celle tracciate</button>
         <!-- Sub-toggle spostati dal pannello #sc-radar-panel: stessa logica, stessi handler,
              id dedicati (live-toggle-*), visibili SOLO con celle organizzate attive (come #live-sc-*). -->
-        <button type="button" id="live-toggle-trails" class="sc-toggle on" onclick="toggleScTrails()" title="Traccia 2h dei candidati attivi (archivio rolling radar-history)" style="display:none;">Traccia 2h</button>
-        <button type="button" id="live-toggle-forecast" class="sc-toggle on" onclick="toggleScForecast()" title="Cono di forecast cinematico ≤2h per candidato (opacità per confidence)" style="display:none;">Forecast ≤2h</button>
-        <button type="button" id="live-toggle-phenomena" class="sc-toggle on" onclick="toggleScPhenomena()" title="Badge grandine/struttura asimmetrica (proxy riflettività, senza Doppler)" style="display:none;">Fenomeni</button>
-        <button type="button" id="live-toggle-hail" class="sc-toggle on" onclick="toggleScHail()" title="Badge grandine (proxy riflettività, senza Doppler)" style="display:none;">Grandine</button>
+        <button type="button" id="live-toggle-trails" class="sc-toggle" onclick="toggleScTrails()" title="Traccia 2h dei candidati attivi (archivio rolling radar-history)" style="display:none;">Traccia 2h</button>
+        <button type="button" id="live-toggle-forecast" class="sc-toggle" onclick="toggleScForecast()" title="Cono di forecast cinematico ≤2h per candidato (opacità per confidence)" style="display:none;">Forecast ≤2h</button>
+        <button type="button" id="live-toggle-phenomena" class="sc-toggle" onclick="toggleScPhenomena()" title="Badge grandine/struttura asimmetrica (proxy riflettività, senza Doppler)" style="display:none;">Fenomeni</button>
+        <button type="button" id="live-toggle-hail" class="sc-toggle" onclick="toggleScHail()" title="Badge grandine (proxy riflettività, senza Doppler)" style="display:none;">Grandine</button>
     </div>
     <!-- 1.2.4.54 - Centraline osservate: blocco del pannello LIVE comandato SOLO dal
          toggle #live-toggle-stations (toggleLiveStations -> stationsSetActive), non dal
@@ -2222,10 +2221,10 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     <div id="sc-status" style="font-size:11px;color:#94a3b8;padding:2px 10px 6px 10px;">Caricamento...</div>
     <div id="sc-confidence" class="sc-confidence" style="display:none;"></div>
     <div class="sc-toggles">
-        <button type="button" id="sc-toggle-trails" class="sc-toggle on" onclick="toggleScTrails()" title="Traccia 2h dei candidati attivi (archivio rolling radar-history)">Traccia 2h</button>
-        <button type="button" id="sc-toggle-forecast" class="sc-toggle on" onclick="toggleScForecast()" title="Cono di forecast cinematico ≤2h, solo con fit usato e track coerente">Forecast ≤2h</button>
-        <button type="button" id="sc-toggle-phenomena" class="sc-toggle on" onclick="toggleScPhenomena()" title="Badge grandine/struttura asimmetrica (proxy riflettività, senza Doppler)">Fenomeni</button>
-        <button type="button" id="sc-toggle-hail" class="sc-toggle on" onclick="toggleScHail()" title="Badge grandine (proxy riflettività, senza Doppler)">Grandine</button>
+        <button type="button" id="sc-toggle-trails" class="sc-toggle" onclick="toggleScTrails()" title="Traccia 2h dei candidati attivi (archivio rolling radar-history)">Traccia 2h</button>
+        <button type="button" id="sc-toggle-forecast" class="sc-toggle" onclick="toggleScForecast()" title="Cono di forecast cinematico ≤2h, solo con fit usato e track coerente">Forecast ≤2h</button>
+        <button type="button" id="sc-toggle-phenomena" class="sc-toggle" onclick="toggleScPhenomena()" title="Badge grandine/struttura asimmetrica (proxy riflettività, senza Doppler)">Fenomeni</button>
+        <button type="button" id="sc-toggle-hail" class="sc-toggle" onclick="toggleScHail()" title="Badge grandine (proxy riflettività, senza Doppler)">Grandine</button>
     </div>
     <!-- 1.2.4.76 - ALLERTA DI PROSSIMITA' (fase 3 nowcasting, solo client): punto
          scelto dall'utente (posizione del dispositivo o clic sulla mappa), soglia
@@ -2587,29 +2586,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             floscia = calma, dritta = forte, strappata = estremo.
             La temperatura mostra il valore massimo (o max/min in modalità "Tutto il giorno").
         </div>
-    </div>
-
-    <!-- ===================================================================
-         PRODOTTO SINOTTICO — SOLO TESTO/CAMPI NON MAPPAFIBILI.
-         Nessun SVG, nessuna barra TM90, nessun grafico teleconnessioni qui:
-         le geometrie validate stanno sulla Leaflet map, le 22 serie stanno
-         nel prodotto Teleconnessioni. Caricamento LAZY invariato.
-         =================================================================== -->
-    <div id="synoptic-panel" class="syn-panel" aria-label="Analisi sinottica">
-        <div class="syn-head">
-            <span class="syn-title">Analisi sinottica — testo</span>
-            <span class="syn-badge" id="syn-badge">in caricamento…</span>
-        </div>
-        <div id="syn-body" hidden>
-            <div class="syn-grid">
-                <div class="syn-card">
-                    <div class="syn-card-head">Feature sinottiche non mappabili — testo dal JSON</div>
-                    <ul class="syn-text-list" id="syn-text-list"></ul>
-                    <div class="syn-burian" id="syn-burian" hidden></div>
-                </div>
-            </div>
-        </div>
-        <div class="syn-msg" id="syn-msg" role="status" hidden></div>
     </div>
 
     <!-- ===================================================================
@@ -3068,9 +3044,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.18';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.19';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-19';
     const APP_CHANGELOG = [
+    { version: '1.3.0.19', date: '2026-11-19', changes: [
+        'Disattivata Analisi sinottica: rimossa la option dal selettore prodotto, il pannello #synoptic-panel e le funzioni dedicate (SYN_URL, synRunHour, synPointsIso, synLabels, synEnsureLoaded, synFeatureText, synRenderText, synBurianCheck, synRenderPanel, toggleSynoptic). Restano intatti Teleconnessioni e indici e i WebP sinottici SPERIMENTALI: gli helper condivisi synState, synEsc, synFmtIso e synFetch non sono stati toccati. Le frasi del bollettino #forecast-details sono byte-identiche.',
+        'Fix dei toggle che restavano ON dopo il reload: scShowTrails, scShowForecast, scShowPhenomena e scShowHail partono ora false e le 8 classi statiche sc-toggle/live-toggle non portano piu la classe on al boot. La logica di click (scSetToggleBtn e toggleSc*) e invariata; gli altri toggle del pannello LIVE partono gia OFF.',
+        'NON verificato: resa visiva nel browser. Verificato: node --check su 9/9 blocchi inline, test_html_js_syntax 1 passed, harness Node sul boot con tutti i toggle OFF, sha256 del bollettino invariato.',
+    ]},
     { version: '1.3.0.18', date: '2026-11-19', changes: [
         'Vista dedicata dei 6 WebP sinottici da frame .om ECMWF reali (run 2026-11-18T00Z, lead +0/+27/+72/+108/+144/+192h) su branch cache orphan fm2-syn-webp. Didascalia con run, valid time, lead, fonte Open-Meteo .om / CC BY 4.0 e riga evidente SPERIMENTALE — non validato, nessuna accuratezza misurata. Nessun blocco TM90 disegnato.',
         'Teleconnessioni: AO CDAS a 1000 mb come serie OSSERVATA (grafico SVG inline, etichetta Indice OSSERVATO — non previsione), fonte NOAA CPC, licenza public domain con attribuzione, baseline 1979-2000, ultimo aggiornamento. NON chiamato NAM. Profilo 17 livelli dichiarato fino al 17/03/2026 — rianalisi, non corrente, con null_reason.',
@@ -11435,10 +11416,10 @@ removeLightningTile();
     var CELLS_NWP_RADIUS_KM = 40;
     var CELLS_RADIUS_PX = 4.5;
     var CELLS_HIT_PX = 7;
-    var scShowTrails = true;        // toggle UI (default ON)
-    var scShowForecast = true;      // toggle UI (default ON, opacità per confidence)
-    var scShowPhenomena = true;     // toggle UI (default ON)
-    var scShowHail = true;          // toggle UI "Grandine" (default ON; ha effetto solo se scShowPhenomena)
+    var scShowTrails = false;       // toggle UI (default OFF al boot; 1.3.0.19)
+    var scShowForecast = false;     // toggle UI (default OFF al boot; 1.3.0.19)
+    var scShowPhenomena = false;    // toggle UI (default OFF al boot; 1.3.0.19)
+    var scShowHail = false;         // toggle UI "Grandine" (default OFF al boot; ha effetto solo se scShowPhenomena)
     var scLastCands = [];           // ultimi candidati renderizzati (refresh pennant con badge)
     var scLatestMeta = null;        // ultimo latest.json (warnings: tentativi fulmini 403)
     var scTrailUidMap = {};         // track_type#track_id -> 'u#uid' (dai slot history)
@@ -22425,8 +22406,6 @@ function productDefs() {
             on: function () { return isNewIndicesActive; }, label: 'Nuovi Indici' },
         'sources':       { run: toggleSourcesPanel, off: toggleSourcesPanel, dev: false,
             on: function () { var p = document.getElementById('sources-panel'); return !!(p && p.classList.contains('active')); }, label: 'Fonti e metodologie' },
-        'synoptic':      { run: toggleSynoptic, off: toggleSynoptic, dev: false,
-            on: function () { var p = document.getElementById('synoptic-panel'); return !!(p && p.classList.contains('active')); }, label: 'Analisi sinottica' },
         /* 1.3.0.11 - prodotto SEPARATO, fuori dall Analisi sinottica:
            legge solo data/climate/teleconnections.json, lazy, zero fetch al boot. */
         'teleconn':      { run: toggleTeleconn, off: toggleTeleconn, dev: false,
@@ -32239,38 +32218,14 @@ function renderContinuousOverlay() {
     }
 
     // ===================================================================
-    // PRODOTTO SINOTTICO — un solo uso della STESSA analisi:
-    //   pannello di SOLO TESTO (feature non mappabili) — niente SVG qui;
-    //   le geometrie validate sono disegnate sulla Leaflet map dal modulo
-    //   in fondo al file, su #synopticPane.
-    //   1.3.0.18 — rimosso il vecchio meccanismo di augmentation delle frasi:
-    //   elementi, classi e funzioni di quel meccanismo non esistono piu'.
-    //   Le frasi del bollettino restano generate dalle funzioni storiche,
-    //   byte-identiche (verificato con confronto prima/dopo).
-    // Contratto dati (NON scriviamo i dati, li consumiamo solo):
-    //   data/radar/synoptic.json
-    //     {schema_version, generated_at, source, license, domain,
-    //      run_reference_time, valid_time, grid:{nx,ny,dx,dy},
-    //      features:[{id,kind,geometry:[[lat,lon],...],label,confidence,
-    //                 fields,null_reason}],
-    //      availability:{fields_missing,horizon_exhausted}}
-    //     kind presenti nel contratto: block (TM90, soglia citata) e
-    //     raw_field (non calibrato). Solo block ha geometria disegnabile;
-    //     i raw_field restano TESTO e non sono mai disegnati.
-    //   data/climate/teleconnections.json
-    //     {schema_version, generated_at,
-    //      series:[{id,label,values:[[epochMs,value]...] (lead==0),
-    //               source,license,last_modified,baseline}]}
-    // LAZY: zero richieste al boot; solo apertura scheda / espansione details.
-    // Le 22 serie teleconnessioni NON sono piu' in questo pannello: vivono
-    // solo nel prodotto #teleconn-panel.
+    // 1.3.0.19 - PRODOTTO SINOTTICO (pannello di testo) DISATTIVATO.
+    // Rimosse le funzioni dedicate e il fetch di data/radar/synoptic.json:
+    // restano SOLO gli helper condivisi (synState, synEsc, synFmtIso,
+    // synFetch), usati da Teleconnessioni, WebP sinottici e AO. I produttori
+    // di synoptic.json e le frasi del bollettino NON sono stati modificati.
+    // TELE_URL resta lazy: zero richieste al boot.
     // ===================================================================
-    var SYN_URL = 'data/radar/synoptic.json';
     var TELE_URL = 'data/climate/teleconnections.json';
-    var SYN_MAX_DAYS = 7;      // finestra massima, dichiarata a schermo
-    var SYN_BURIAN_TEXT = 'vento da NE/E freddo e secco — configurazione compatibile con burian, non confermato senza osservazioni locali';
-    var SYN_DOMAIN_GAPS = 'Domini con buchi dichiarati (non riempiti): dwd_icon_eu 23 h, dwd_icon_d2 44 h, ARPEGE 92 h.';
-
     var synState = { status: 'idle', syn: null, tele: null, synError: '', teleError: '', promise: null };
 
     function synEsc(s) {
@@ -32283,112 +32238,12 @@ function renderContinuousOverlay() {
         if (isNaN(d.getTime())) return String(iso || 'n/d');
         return d.toISOString().replace('T', ' ').slice(0, 16) + 'Z';
     }
-    function synRunHour(iso) {
-        var d = new Date(iso);
-        if (isNaN(d.getTime())) return String(iso || 'n/d');
-        return ('0' + d.getUTCHours()).slice(-2) + 'Z';
-    }
-    function synPointsIso() {
-        try {
-            if (typeof datasetState !== 'undefined' && datasetState && datasetState.generatedAt) return datasetState.generatedAt;
-        } catch (e) { }
-        return null;
-    }
-    // SOLO label presenti nel JSON: se il produttore non ha messo "front",
-    // qui non compare mai la parola "fronte".
-    function synLabels() {
-        var out = [];
-        if (!synState.syn || !Array.isArray(synState.syn.features)) return out;
-        synState.syn.features.forEach(function (f) {
-            var l = (f && f.label) ? String(f.label).trim() : '';
-            if (l && out.indexOf(l) < 0) out.push(l);
-        });
-        return out;
-    }
     function synFetch(url) {
         return fetch(url, { cache: 'no-store' }).then(function (r) {
             if (!r.ok) throw new Error('HTTP ' + r.status);
             return r.json();
         });
     }
-    function synEnsureLoaded() {
-        // Il layer puo' aver gia' caricato synoptic.json: riusa i byte in memoria.
-        if (synState.syn) {
-            synState.status = 'done';
-            if (!synState.promise) synState.promise = Promise.resolve(synState);
-            return synState.promise;
-        }
-        if (synState.promise) return synState.promise;
-        synState.status = 'loading';
-        // Il pannello mostra solo testo sinottico: una sola richiesta.
-        // Le teleconnessioni sono caricate dal prodotto separato, in lazy.
-        synState.promise = synFetch(SYN_URL).then(function (j) {
-            synState.syn = j;
-        }, function (e) {
-            synState.synError = (e && e.message) ? e.message : String(e);
-            synState.syn = null;
-        }).then(function () {
-            synState.status = 'done';
-            return synState;
-        });
-        return synState.promise;
-    }
-
-    // ---------- TESTO: feature sinottiche non mappabili (nessun SVG qui) ----------
-    function synFeatureText(f) {
-        if (!f) return '';
-        var kind = (f.kind === undefined || f.kind === null) ? 'n/d' : String(f.kind);
-        var label = f.label ? String(f.label) : (f.id ? String(f.id) : 'n/d');
-        var conf = (f.confidence === undefined || f.confidence === null) ? 'n/d' : String(f.confidence);
-        var t = '<b>' + synEsc(kind) + '</b> — ' + synEsc(label) + ' · confidence: ' + synEsc(conf);
-        if (f.null_reason) t += ' · null_reason: ' + synEsc(f.null_reason);
-        if (f.reference) t += ' · reference: ' + synEsc(f.reference);
-        return t;
-    }
-    function synRenderText() {
-        var box = document.getElementById('syn-text-list');
-        if (!box) return;
-        var feats = (synState.syn && Array.isArray(synState.syn.features)) ? synState.syn.features : [];
-        if (!feats.length) { box.innerHTML = ''; return; }
-        var h = '';
-        for (var i = 0; i < feats.length; i++) h += '<li class="syn-text-item">' + synFeatureText(feats[i]) + '</li>';
-        box.innerHTML = h;
-    }
-
-    function synBurianCheck() {
-        var el = document.getElementById('syn-burian');
-        if (!el) return;
-        var hit = synLabels().some(function (l) { return /burian/i.test(l); });
-        if (!hit) { el.hidden = true; el.innerHTML = ''; return; }
-        el.hidden = false;
-        el.setAttribute('data-confermato', 'false');
-        el.innerHTML = synEsc(SYN_BURIAN_TEXT) + ' <b>[confermato:false]</b>';
-    }
-    function synRenderPanel() {
-        var msg = document.getElementById('syn-msg'), body = document.getElementById('syn-body'), badge = document.getElementById('syn-badge');
-        if (!msg || !body) return;
-        var syn = synState.syn;
-        if (!syn || !Array.isArray(syn.features) || !syn.features.length) {
-            var motivo = synState.synError ? ('synoptic.json: ' + synState.synError)
-                : (!syn ? 'synoptic.json non disponibile' : 'features vuoto');
-            msg.hidden = false; msg.textContent = 'Analisi sinottica non disponibile: ' + motivo;
-            body.hidden = true;
-            if (badge) badge.textContent = 'non disponibile';
-            return;
-        }
-        msg.hidden = true; body.hidden = false;
-        if (badge) badge.textContent = 'run ' + synRunHour(syn.run_reference_time) + ' · valid time ' + synFmtIso(syn.valid_time) + ' · ' + (syn.domain || 'n/d');
-        synRenderText();
-        synBurianCheck();
-    }
-    function toggleSynoptic() {
-        var panel = document.getElementById('synoptic-panel');
-        if (!panel) return;
-        if (panel.classList.contains('active')) { panel.classList.remove('active'); return; }
-        panel.classList.add('active');
-        synEnsureLoaded().then(function () { synRenderPanel(); });
-    }
-
     // ===================================================================
     // 1.3.0.11 - TELECONNESSIONI E INDICI (prodotto separato, fuori mappa).
     // Legge SOLO TELE_URL, lazy, zero richieste al boot. Condivide la cache
@@ -32838,14 +32693,6 @@ function renderContinuousOverlay() {
         // 1.3.0.18 — AO osservato: secondo fetch LAZY, solo all apertura.
         if (typeof aoEnsureLoaded === 'function') aoEnsureLoaded().then(function () { teleRenderPanel(); });
     }
-    // LAZY all'espansione del riquadro previsioni: qui si popolano le frasi.
-    (function () {
-        var fd = document.getElementById('forecast-details');
-        if (!fd) return;
-        fd.addEventListener('toggle', function () {
-            if (fd.open) synEnsureLoaded().then(function () { synRenderPanel(); });
-        });
-    })();
 
     // ===================================================================
     // 1.3.0.18 — DUE NUOVI PRODOTTI:
