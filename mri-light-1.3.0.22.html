@@ -2004,7 +2004,6 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
             <option value="live">Pannello LIVE</option>
             <option value="sources">Fonti e metodologie</option>
             <option value="teleconn">Teleconnessioni e indici</option>
-            <option value="synwebp">Analisi sinottica WebP (sperimentale)</option>
         </select>
         <!-- FIX 1.3.0.7 - #btn-high-risk subito dopo il selettore prodotto (non in fondo).
              Il wrapper e' comandato da syncContextualToggles(); handler storico invariato. -->
@@ -2656,16 +2655,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
          Legge l'indice dal branch cache fm2-syn-webp (fallback su Pages).
          Dichiarazione di onesta' SEMPRE visibile sopra le immagini.
          =================================================================== -->
-    <div id="synwebp-panel" class="syn-panel" aria-label="Analisi sinottica WebP sperimentale">
-        <div class="syn-head">
-            <span class="syn-title">Analisi sinottica — WebP sperimentale</span>
-            <span class="syn-badge" id="swb-badge">in caricamento…</span>
-        </div>
-        <p id="swb-warning" style="display:block;color:#b91c1c;font-weight:700;border:1px solid #b91c1c;padding:6px 8px;margin:6px 0;">SPERIMENTALE — non validato, nessuna accuratezza misurata</p>
-        <div id="synwebp-grid" class="syn-grid"></div>
-        <p class="syn-stamp" id="swb-stamp"></p>
-        <div class="syn-msg" id="swb-msg" role="status" hidden></div>
-    </div>
+    
 
     <!-- Pannello Fonti & Metodologie — fonti dati + metodologie dalla letteratura + disclaimer -->
     <div id="sources-panel" class="forecast-legend-panel sources-panel">
@@ -3075,7 +3065,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.21';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.22';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-19';
     const APP_CHANGELOG = [
     { version: '1.3.0.19', date: '2026-11-19', changes: [
@@ -22453,7 +22443,7 @@ function productDefs() {
         'teleconn':      { run: toggleTeleconn, off: toggleTeleconn, dev: false,
             on: function () { var p = document.getElementById('teleconn-panel'); return !!(p && p.classList.contains('active')); }, label: 'Teleconnessioni e indici' },
         /* 1.3.0.18 — vista dedicata dei WebP sinottici, SPERIMENTALE dichiarato. */
-        'synwebp':       { run: toggleSynWebp, off: toggleSynWebp, dev: false,
+        'synwebp':       { disabled: true, run: toggleSynWebp, off: toggleSynWebp, dev: false,
             on: function () { var p = document.getElementById('synwebp-panel'); return !!(p && p.classList.contains('active')); }, label: 'Analisi sinottica WebP (sperimentale)' }
     };
 }

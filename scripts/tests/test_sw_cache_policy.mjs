@@ -132,7 +132,7 @@ function buildContext() {
 }
 
 const APP_VER = (() => {
-  // 1.3.0.21: la versione dichiarata e' la chiave VERSION= del file VERSION.
+  // 1.3.0.22: la versione dichiarata e' la chiave VERSION= del file VERSION.
   // MAJOR.MINOR.PATCH.BUILD non coincide piu' con la stringa di release:
   // BUILD=149 e' il contatore globale delle build, mentre la release e' 1.3.0.21.
   const declared = (VERSION_SRC.match(/^VERSION=(.+)$/m) || [])[1];
