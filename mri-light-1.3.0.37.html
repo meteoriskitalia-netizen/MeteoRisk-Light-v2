@@ -1785,10 +1785,6 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .syn-tele-svg { display: block; width: 100%; height: auto; min-width: 0; }
         .syn-ctx-img { display: block; width: 100%; max-width: 100%; height: auto; }
         .syn-tele-cap { font-size: 10px; line-height: 1.4; color: #94a3b8; overflow-wrap: anywhere; margin-top: 2px; }
-        /* 1.3.0.36 - Colonna atmosferica: profilo verticale dai dati gia in memoria. */
-        .tele-col-grid { display: flex; flex-wrap: wrap; gap: 12px; min-width: 0; margin-top: 12px; }
-        .tele-col-svg { display: block; width: 100%; height: auto; min-width: 0; }
-        .tele-col-na { font-size: 11px; line-height: 1.5; color: #cbd5e1; overflow-wrap: anywhere; border: 1px solid #334155; border-radius: 6px; padding: 8px 10px; background: #0b1220; margin: 0 0 6px 0; }
         .syn-burian { margin-top: 6px; font-size: 10.5px; line-height: 1.4; color: #fbbf24; overflow-wrap: anywhere; }
         @media (max-width: 600px) {
             .syn-panel { padding: 10px; }
@@ -2668,11 +2664,6 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                 <span class="syn-badge" id="tele-view-note">scegli un indice: la finestra si adatta alla sua famiglia — zero richieste di rete</span>
             </div>
             <div class="syn-grid" id="tele-grid"></div>
-            <!-- 1.3.0.36 - COLONNA ATMOSFERICA. Profilo verticale costruito SOLO
-                 dai livelli di pressione gia presenti in weatherStore.hourly:
-                 zero nuove richieste di rete. Il riquadro 10 hPa dichiara il
-                 dato mancante con null_reason, non un grafico vuoto. -->
-            <section id="tele-column" class="tele-col-grid" aria-label="Colonna atmosferica — profilo verticale"></section>
             <p class="syn-stamp" id="tele-stamp"></p>
         </div>
         <div class="syn-msg" id="tele-msg" role="status" hidden></div>
@@ -3094,7 +3085,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.36';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.37';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-20';
     const APP_CHANGELOG = [
     { version: '1.3.0.33', date: '2026-11-20', changes: [
@@ -33045,9 +33036,6 @@ function renderContinuousOverlay() {
         var body = document.getElementById('tele-body');
         var badge = document.getElementById('tele-badge');
         if (!grid) return;
-        // 1.3.0.36 - la colonna atmosferica e' indipendente dall'indice
-        // selezionato e usa SOLO dati gia in memoria: nessun fetch aggiuntivo.
-        if (typeof teleRenderColumn === 'function') teleRenderColumn();
         var d = teleState.data;
         if (!d) {
             if (msg) { msg.hidden = false; msg.textContent = 'Teleconnessioni non disponibili: ' + (teleState.error || 'JSON assente'); }
@@ -33224,165 +33212,6 @@ function renderContinuousOverlay() {
         var prof = d.profile_10hpa || {};
         var pnote = '<p class="syn-stamp">Profilo 10 hPa: ' + synEsc(prof.status || 'non disponibile') + ' — ' + synEsc(prof.null_reason || 'non corrente') + ' · ' + synEsc(prof.label || '') + '</p>';
         return head + '<div class="syn-tele-block">' + svg + '</div>' + note + pnote + meta + '</div>';
-    }
-
-    // ===================================================================
-    // 1.3.0.36 - COLONNA ATMOSFERICA (difetto 2: "mancano analisi sui vari
-    // livelli atmosferici ... che descrivono la colonna d'aria").
-    //
-    // COSTRUTTA SOLO DA DATI GIA IN MEMORIA: weatherStore[selectedIndex].hourly
-    // (Open-Meteo, livelli 1000/975/950/925/900/850/800/700/600/500 hPa per
-    // il vento; 850/700/500 per temperatura e geopotenziale). ZERO nuove
-    // richieste di rete, zero immagini di terzi, zero valori interpolati o
-    // inventati: un livello assente resta assente.
-    //
-    // IL LIVELLO 10 hPa NON C'E': PSL R1 dailyavgs e' fermo al 2026-03-17 e
-    // un profilo corrente richiederebbe ERA5/CDS con token. Viene mostrato un
-    // riquadro onesto con null_reason, NON un grafico vuoto.
-    // ===================================================================
-    var TELE_COL_LEVELS = [
-        { hpa: 1000, ws: 'wind_speed_1000hPa' },
-        { hpa: 975,  ws: 'wind_speed_975hPa' },
-        { hpa: 950,  ws: 'wind_speed_950hPa' },
-        { hpa: 925,  ws: 'wind_speed_925hPa' },
-        { hpa: 900,  ws: 'wind_speed_900hPa' },
-        { hpa: 850,  ws: 'wind_speed_850hPa', t: 'temperature_850hPa', z: 'geopotential_height_850hPa' },
-        { hpa: 800,  ws: 'wind_speed_800hPa' },
-        { hpa: 700,  ws: 'wind_speed_700hPa', t: 'temperature_700hPa', z: 'geopotential_height_700hPa' },
-        { hpa: 600,  ws: 'wind_speed_600hPa' },
-        { hpa: 500,  ws: 'wind_speed_500hPa', t: 'temperature_500hPa', z: 'geopotential_height_500hPa' }
-    ];
-    function teleColumnStore() {
-        if (typeof weatherStore === 'undefined' || !Array.isArray(weatherStore)) return null;
-        return weatherStore[selectedIndex] || null;
-    }
-    function teleColumnIndex() {
-        var d = (typeof currentDay === 'number' && isFinite(currentDay)) ? currentDay : 0;
-        var h = (currentHour === 'all') ? 23 : parseInt(currentHour, 10);
-        if (!isFinite(h) || h < 0 || h > 23) h = 23;
-        return d * 24 + h;
-    }
-    function teleColumnValidTime(store, idx) {
-        var times = (store && store.hourly && Array.isArray(store.hourly.time)) ? store.hourly.time : null;
-        if (times && idx >= 0 && idx < times.length) return String(times[idx]);
-        if (typeof datasetDateKey === 'function') {
-            var key = datasetDateKey(currentDay);
-            if (key && typeof key === 'string') {
-                return key + 'T' + String(((idx % 24) + 24) % 24).padStart(2, '0') + ':00 (ricostruito da day0)';
-            }
-        }
-        return 'n/d';
-    }
-    function teleProfilePanel(pts, title, unit, color, x0, panelW, top, bottom, yFn) {
-        var s = '<rect x="' + x0 + '" y="' + top + '" width="' + panelW + '" height="' + (bottom - top) +
-            '" fill="#0b1220" stroke="#334155"/>';
-        s += '<text x="' + (x0 + 4) + '" y="' + (top - 6) + '" fill="#7dd3fc" font-size="10">' +
-            synEsc(title) + ' (' + synEsc(unit) + ')</text>';
-        var good = pts.filter(function (p) { return isFinite(p.v); });
-        if (!good.length) {
-            s += '<text x="' + (x0 + panelW / 2) + '" y="' + ((top + bottom) / 2) +
-                '" fill="#64748b" font-size="10" text-anchor="middle">nessun livello con dato</text>';
-            return s;
-        }
-        var vs = good.map(function (p) { return p.v; });
-        var lo = Math.min.apply(null, vs), hi = Math.max.apply(null, vs);
-        if (hi === lo) { lo -= 1; hi += 1; }
-        var pad = (hi - lo) * 0.12; lo -= pad; hi += pad;
-        function X(v) { return x0 + 8 + ((v - lo) / (hi - lo)) * (panelW - 34); }
-        var poly = good.map(function (p) { return X(p.v).toFixed(1) + ',' + yFn(p.hpa).toFixed(1); }).join(' ');
-        s += '<polyline points="' + poly + '" fill="none" stroke="' + color + '" stroke-width="2"/>';
-        for (var i = 0; i < good.length; i++) {
-            var gx = X(good[i].v).toFixed(1), gy = yFn(good[i].hpa).toFixed(1);
-            s += '<circle cx="' + gx + '" cy="' + gy + '" r="2.8" fill="' + color + '"><title>' +
-                synEsc(good[i].hpa + ' hPa: ' + good[i].v.toFixed(1) + ' ' + unit) + '</title></circle>';
-        }
-        s += '<text x="' + (x0 + 4) + '" y="' + (bottom + 12) + '" fill="#94a3b8" font-size="9">' +
-            lo.toFixed(1) + ' … ' + hi.toFixed(1) + ' ' + synEsc(unit) + '</text>';
-        return s;
-    }
-    function teleRenderColumn() {
-        var box = document.getElementById('tele-column');
-        if (!box) return;
-        var store = teleColumnStore();
-        var idx = teleColumnIndex();
-        var hourly = (store && store.hourly) ? store.hourly : null;
-        var rows = TELE_COL_LEVELS.map(function (L) {
-            var r = { hpa: L.hpa, ws: NaN, t: NaN, z: NaN };
-            ['ws', 't', 'z'].forEach(function (k) {
-                var name = L[k];
-                if (!name || !hourly || !Array.isArray(hourly[name])) return;
-                var v = Number(hourly[name][idx]);
-                if (isFinite(v)) r[k] = v;
-            });
-            return r;
-        });
-        var have = rows.filter(function (r) { return isFinite(r.ws) || isFinite(r.t) || isFinite(r.z); });
-        var vtime = teleColumnValidTime(store, idx);
-        var h = '';
-        if (have.length) {
-            var W = 640, H = 210, top = 28, bottom = 166, x0s = [44, 242, 440], panelW = 190;
-            function yFn(hpa) {
-                var a = Math.log(1000), b = Math.log(500);
-                return bottom - ((a - Math.log(hpa)) / (a - b)) * (bottom - top);
-            }
-            var svg = '<svg class="tele-col-svg" viewBox="0 0 ' + W + ' ' + H +
-                '" role="img" aria-label="Profilo verticale 1000-500 hPa — dati Open-Meteo in memoria">' +
-                '<title>Colonna atmosferica 1000–500 hPa: vento (m/s), temperatura (°C) e geopotenziale (m). ' +
-                'Fonte Open-Meteo gia in memoria, valid time ' + synEsc(vtime) + '. Nessuna nuova richiesta di rete.</title>';
-            var marks = [1000, 850, 700, 500];
-            for (var mi = 0; mi < marks.length; mi++) {
-                var yy = yFn(marks[mi]).toFixed(1);
-                for (var pi = 0; pi < x0s.length; pi++) {
-                    svg += '<line x1="' + x0s[pi] + '" y1="' + yy + '" x2="' + (x0s[pi] + panelW) +
-                        '" y2="' + yy + '" stroke="#1e293b" stroke-width="1"/>';
-                }
-                svg += '<text x="40" y="' + (Number(yy) + 3).toFixed(1) +
-                    '" fill="#94a3b8" font-size="10" text-anchor="end">' + marks[mi] + '</text>';
-            }
-            svg += '<text x="4" y="' + (top - 6) + '" fill="#94a3b8" font-size="9">hPa</text>';
-            var defs = [
-                { key: 'ws', title: 'Vento', unit: 'm/s', color: '#7dd3fc' },
-                { key: 't', title: 'Temperatura', unit: '°C', color: '#fbbf24' },
-                { key: 'z', title: 'Geopotenziale', unit: 'm', color: '#86efac' }
-            ];
-            for (var di = 0; di < defs.length; di++) {
-                var D = defs[di];
-                var pts = rows.map(function (r) { return { hpa: r.hpa, v: r[D.key] }; });
-                svg += teleProfilePanel(pts, D.title, D.unit, D.color, x0s[di], panelW, top, bottom, yFn);
-            }
-            svg += '<text x="4" y="' + (H - 8) + '" fill="#64748b" font-size="9">asse Y: pressione (hPa, scala log) — 1000 in basso, 500 in alto</text>';
-            svg += '</svg>';
-            h += '<div class="syn-card"><div class="syn-card-head">Colonna atmosferica — profilo verticale 1000–500 hPa</div>' +
-                '<div class="syn-tele-block">' + svg + '</div>' +
-                '<p class="syn-stamp">Fonte: Open-Meteo, già caricata in weatherStore · licenza CC BY 4.0 · valid time ' +
-                synEsc(vtime) + ' · livelli con almeno un dato: ' + have.length + '/' + TELE_COL_LEVELS.length +
-                ' · nessuna nuova richiesta di rete · i livelli senza dato restano vuoti, non interpolati.</p></div>';
-        } else {
-            h += '<div class="syn-card"><div class="syn-card-head">Colonna atmosferica — profilo verticale 1000–500 hPa</div>' +
-                '<p class="tele-col-na">Profili in quota NON presenti nei dati attualmente in memoria: nessun grafico vuoto. ' +
-                'Motivo: weatherStore.hourly non contiene i livelli di pressione 1000–500 hPa per la località/ora corrente.</p></div>';
-        }
-        // Riquadro onesto per il livello 10 hPa (null_reason reale dal JSON).
-        var prof = (typeof aoState !== 'undefined' && aoState && aoState.data && aoState.data.profile_10hpa)
-            ? aoState.data.profile_10hpa : null;
-        var tenReason = (prof && prof.null_reason) ? String(prof.null_reason) : 'psl_r1_dailyavgs_stale_since_2026-03-17';
-        var tenText = 'Profilo 10 hPa non disponibile — PSL R1 fermo al 2026-03-17; servirebbe ERA5/CDS con token.';
-        var ni = (teleState.data && Array.isArray(teleState.data.not_implemented)) ? teleState.data.not_implemented : [];
-        var namNote = '';
-        for (var niI = 0; niI < ni.length; niI++) {
-            if (ni[niI] && ni[niI].id === 'nam_10hpa') {
-                namNote = ' · NAM 10 hPa: ' + synEsc(ni[niI].status || 'RICHIEDE TOKEN') + ' — ' + synEsc(ni[niI].reason || '');
-                break;
-            }
-        }
-        h += '<div class="syn-card" style="flex: 1 1 100%;"><div class="syn-card-head">10 hPa — dato NON disponibile</div>' +
-            '<p class="tele-col-na">' + synEsc(tenText) + '</p>' +
-            '<p class="syn-stamp">motivo: ' + synEsc(tenReason) +
-            ' · stato AO CDAS: ' + synEsc((prof && prof.status) || 'STORICO_FINO_2026-03-17') +
-            ' · ultima data disponibile: ' + synEsc((prof && prof.last_available_date) || '2026-03-17') +
-            ' · campo value: ' + ((prof && prof.value !== null && prof.value !== undefined) ? 'presente' : 'null (nessun proxy sostituito)') +
-            ' · fonte: ' + synEsc((prof && prof.source) || 'NOAA PSL NCEP/NCAR Reanalysis 1 dailyavgs') + namNote + '</p></div>';
-        box.innerHTML = h;
     }
 
     function updateUI() {
