@@ -66,11 +66,15 @@ def _cfg(enabled=True, min_soi=77.0):
     return cfg
 
 
-def test_disabled_by_default_and_declaration_complete():
+def test_enabled_by_default_and_declaration_complete():
     cfg = eng.load_config()
     scfg = cfg["phase2"]["structure"]
-    assert scfg["candidate_cappi_trigger"]["enabled"] is False
-    t = eng._candidate_cappi_trigger(_bundle(), scfg)
+    # 2026-11-20: trigger ATTIVO per decisione esplicita; il ramo disabilitato
+    # resta verificato con una config esplicita qui sotto ( nessun allentamento).
+    assert scfg["candidate_cappi_trigger"]["enabled"] is True
+    off = copy.deepcopy(scfg)
+    off["candidate_cappi_trigger"]["enabled"] = False
+    t = eng._candidate_cappi_trigger(_bundle(), off)
     assert t["value"] is False
     assert t["null_reason"] == "trigger_disabled"
     for key in ("value", "null_reason", "source", "reference"):
