@@ -3087,7 +3087,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.33';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.34';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-20';
     const APP_CHANGELOG = [
     { version: '1.3.0.33', date: '2026-11-20', changes: [
@@ -11043,12 +11043,13 @@ removeLightningTile();
             removeLightningTile();
             // Svuota la cache dedicata prima di avviare (ripulizia da sessioni precedenti)
             liveStrikeCache = [];
-            await startLivePanel();
-            // #live-panel resta nel DOM anche quando Blitzortung è disabilitato
-            // (ospita la funzione interna "Struttura convettiva", #live-toggle-supercells);
-            // accesso comunque null-safe per robustezza.
+            // 1.3.0.34 - RACE: la classe 'active' va aggiunta PRIMA dell'await.
+            // toggleLivePanel() e' async: se la classe veniva aggiunta dopo
+            // `await startLivePanel()`, un cambio prodotto durante l'await
+            // chiudeva il pannello e poi l'await lo riapriva sul prodotto nuovo.
             var livePanelEl = document.getElementById('live-panel');
             if (livePanelEl) livePanelEl.classList.add('active');
+            await startLivePanel();
             scheduleInvalidate();
             // Handler zoom: aggiorna i marker quando cambia lo zoom (sistema proporzionale)
             liveZoomHandler = function() { refreshLiveLightningMarkers(); };
