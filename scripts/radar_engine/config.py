@@ -529,6 +529,35 @@ CONFIG = {
                 "levels_when_implausible": "low_high",
             },
             # -------------------------------------------------------------
+            # 1.3-CAPPI-SELETTIVO — trigger ADDITIVO e OPT-IN: quando il gate
+            # grandine esclude il set da 10 ma esiste una cella convettiva
+            # candidata FORTE, si scaricano 4 CAPPI invece di 2. NON tocca
+            # `hail_gate`: se il gate grandine passa restano 10 CAPPI come
+            # prima. I 4 livelli alimentano SOLO il volume 3D / morfologia:
+            # lo stack severo (MESH/overhang) continua a vedere i soli
+            # low/high (2 livelli), quindi soi/soi_v2/severita' restano
+            # byte-identici.
+            # MISURA (severe_predictions.jsonl, 2366 snapshot reali
+            # 2026-10-23..2026-11-20, vedi REPORT.md): max_soi>=65
+            # (candidate_soi DI PRODOTTO) = 100% dei candidati -> NESSUNA
+            # selettivita'; max_soi>=77 = 35,5%; max_soi>=80 = 23,9%.
+            # Soglia 77 = banda alta "strong" di convective_structure:
+            # SCELTA INGEGNERISTICA, nessuna calibrazione su etichette.
+            # I livelli 2/4/6/8 km sono il MINIMO accettato da volume3d
+            # (>=4) con copertura della colonna convettiva: anch'essi
+            # SCELTA INGEGNERISTICA dichiarata.
+            "candidate_cappi_trigger": {
+                "enabled": False,          # OPT-IN: default = comportamento 1.3.0.34
+                "min_soi": 77.0,
+                "levels_km": [2.0, 4.0, 6.0, 8.0],
+                "reference": (
+                    "SCELTA INGEGNERISTICA: trigger opt-in con SOI>=77 "
+                    "(banda strong di convective_structure; la soglia di "
+                    "prodotto candidate_soi=65 e' MISURATA al 100% dei "
+                    "candidati, quindi non selettiva). 4 livelli 2/4/6/8 km "
+                    "= minimo volume3d (>=4). Nessuna calibrazione locale."),
+            },
+            # -------------------------------------------------------------
             # 1.3-VAL3D — MODALITA' DI VALIDAZIONE (solo flag --validate-3d).
             # Default False = gate grandine invariato, output operativo
             # identico. Con True = SEMPRE i 10 CAPPI in ogni run e DIVIETO

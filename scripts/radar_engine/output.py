@@ -426,6 +426,23 @@ def _cappi_fetch_summary(bundle):
                 "passed": counter.get("fetch_full_set"),
                 "reason": counter.get("reason"),
             }
+    # 1.3-CAPPI-SELETTIVO: chiave NUOVA SOLO quando il trigger e' OPT-IN
+    # esplicitamente abilitato. Con default (disabilitato) latest.json resta
+    # byte-identico al baseline. Ogni campo pubblicato porta value,
+    # null_reason, source e reference (nessun dato inventato, nessun buco
+    # silenzioso).
+    ct = cf.get("candidate_trigger")
+    if isinstance(ct, dict) and ct.get("enabled"):
+        out["cappi_mode"] = cf.get("cappi_mode")
+        out["candidate_cappi_trigger"] = {
+            "value": ct.get("value"),
+            "null_reason": ct.get("null_reason"),
+            "source": ct.get("source"),
+            "reference": ct.get("reference"),
+            "threshold_soi": ct.get("threshold_soi"),
+            "max_soi": ct.get("max_soi"),
+            "levels_km": ct.get("levels_km"),
+        }
     # 1.3-VAL3D: chiavi NUOVE SOLO in modalita' validazione. I run normali
     # restano byte-identici; un run di raccolta e' riconoscibile dal
     # pubblicato e non puo' essere scambiato per produzione operativa.

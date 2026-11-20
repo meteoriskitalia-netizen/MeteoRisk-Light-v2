@@ -422,13 +422,18 @@ def _crop(window, arr):
     return arr[r0:r1 + 1, c0:c1 + 1]
 
 
-def _cappi_product_map(scfg):
+def _cappi_product_map(scfg, levels_km=None):
     """{quota_km: product_type} dei livelli CAPPI da scaricare per MESH.
 
     `mesh_levels_enabled=False` limita il set a product_low/product_high (il
     comportamento 1.2.4.17): MESH esce null con "cappi_levels<4" e il costo
     per run torna quello della release precedente. Nessun livello inventato:
-    la mappa e' quella dichiarata in config."""
+    la mappa e' quella dichiarata in config.
+
+    1.3-CAPPI-SELETTIVO: `levels_km` (opzionale) restringe ULTERIORMENTE il set
+    alle quote dichiarate. I nomi dei prodotti restano quelli di `cappi_products`:
+    nessun prodotto inventato, solo un sottoinsieme di quelli dichiarati.
+    Chiamato senza `levels_km` (tutti i chiamanti storici) e' byte-identico."""
     out = {}
     for key, name in (scfg.get("cappi_products") or {}).items():
         try:
@@ -436,7 +441,17 @@ def _cappi_product_map(scfg):
         except (TypeError, ValueError):
             continue
         out[h] = str(name)
-    if not scfg.get("mesh_levels_enabled", True):
+    if levels_km is not None:
+        # Il set esplicito vince sul taglio low/high: e' un sottoinsieme
+        # dichiarato dei 10 prodotti, non un livello inventato.
+        keep = set()
+        for v in levels_km:
+            try:
+                keep.add(float(v))
+            except (TypeError, ValueError):
+                continue
+        out = {h: n for h, n in out.items() if h in keep}
+    elif not scfg.get("mesh_levels_enabled", True):
         low = scfg.get("product_low")
         high = scfg.get("product_high")
         out = {h: n for h, n in out.items()
@@ -610,8 +625,78 @@ def _hail_plausibility_gate(products, scfg):
     return out
 
 
+def _candidate_cappi_trigger(bundle, scfg):
+    """Trigger ADDITIVO e OPT-IN per 4 CAPPI su cella convettiva candidata.
+
+    NON e' un gate grandine: la decisione usa SOI, gia' calcolato in Fase 1
+    (`bundle.convective_structures`, riga ~2284) prima che i CAPPI vengano
+    scaricati. Nessuna nuova richiesta di rete per DECIDERE, nessun dato
+    inventato. Il gate grandine esistente resta intatto e ha la priorita':
+    se passa, il set completo da 10 CAPPI viene scaricato come oggi.
+
+    Perche' SOI>=77 e non `candidate_soi=65` (MISURA su 2366 snapshot reali):
+    con 65 il trigger scatta nel 100% dei run con candidati, cioe' non e'
+    selettivo; con 77 scatta nel 35,5%. Soglia e' SCELTA INGEGNERISTICA
+    dichiarata nel campo `reference` del payload pubblicato.
+
+    Il dizionario ritornato porta SEMPRE `value`, `null_reason`, `source`,
+    `reference`: nessun campo pubblicato senza motivo/origine. `value=False`
+    con `null_reason` dichiarato significa "non valutabile", non "assente".
+    """
+    cfg = (scfg or {}).get("candidate_cappi_trigger") or {}
+    thr = 77.0
+    try:
+        thr = float(cfg.get("min_soi", 77.0))
+    except (TypeError, ValueError):
+        pass
+    levels = []
+    raw_levels = cfg.get("levels_km") or [2.0, 4.0, 6.0, 8.0]
+    for v in raw_levels:
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            continue
+        levels.append(float(v))
+    if not levels:
+        levels = [2.0, 4.0, 6.0, 8.0]
+    out = {
+        "value": False,
+        "null_reason": None,
+        "source": ("bundle.convective_structures (SOI Fase 1, gia' calcolato; "
+                   "zero richieste di rete aggiuntive)"),
+        "reference": str(cfg.get("reference") or (
+            "SCELTA INGEGNERISTICA: trigger opt-in SOI>=77; 4 livelli "
+            "2/4/6/8 km = minimo volume3d (>=4); nessuna calibrazione locale")),
+        "enabled": bool(cfg.get("enabled", False)),
+        "threshold_soi": thr,
+        "levels_km": levels,
+        "max_soi": None,
+    }
+    if not out["enabled"]:
+        out["null_reason"] = "trigger_disabled"
+        return out
+    candidates = getattr(bundle, "convective_structures", None) or []
+    if not candidates:
+        out["null_reason"] = "no_candidate_structures"
+        return out
+    sois = []
+    for c in candidates:
+        v = c.get("soi") if isinstance(c, dict) else None
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            continue
+        if v != v:  # NaN
+            continue
+        sois.append(float(v))
+    if not sois:
+        out["null_reason"] = "soi_unavailable"
+        return out
+    mx = max(sois)
+    out["max_soi"] = round(mx, 3)
+    out["value"] = bool(mx >= thr)
+    out["null_reason"] = None
+    return out
+
+
 def _fetch_cappi_levels(config, scfg, ref_rd, warnings, full_set=True,
-                        validation_mode=False):
+                        validation_mode=False, levels_km=None):
     """Scarica il SET dei CAPPI allo STESSO productDate della VMI (1.2.4.18).
 
     `full_set=False` (1.2.4.26, gate grandine): si scaricano SOLO
@@ -627,9 +712,14 @@ def _fetch_cappi_levels(config, scfg, ref_rd, warnings, full_set=True,
 
     1.3-VAL3D: con `validation_mode=True` il fetch vieta il fallback a t-5min
     e lo dichiara nel summary. L'allineamento al productDate della VMI e il
-    download parallelo sono quelli gia' misurati (9,75 s per 10 CAPPI)."""
+    download parallelo sono quelli gia' misurati (9,75 s per 10 CAPPI).
+
+    1.3-CAPPI-SELETTIVO: `levels_km` restringe il set alle quote richieste dal
+    trigger (4 livelli). I nomi dei prodotti sono sempre quelli dichiarati in
+    config; nessun livello viene inventato ne' generato localmente."""
     cmap = _cappi_product_map(scfg if full_set
-                              else dict(scfg, mesh_levels_enabled=False))
+                              else dict(scfg, mesh_levels_enabled=False),
+                              levels_km=levels_km)
     names = list(dict.fromkeys(cmap.values()))
     results = {h: None for h in cmap}
     by_name = {}
@@ -1590,10 +1680,43 @@ def _phase2_evaluate(bundle, config):
         # non puo' dipendere da una chiave di config dimenticata.
         cappi_scfg = (dict(scfg, mesh_levels_enabled=True)
                       if v3d is not None else scfg)
+        # 1.3-CAPPI-SELETTIVO: il trigger e' ADDITIVO al gate grandine.
+        # Priorita' invariata: gate PASSA -> 10 CAPPI come prima. Solo se il
+        # gate NON passa puo' scattare il set da 4 per il volume 3D.
+        trig = _candidate_cappi_trigger(bundle, scfg)
+        if gate["fetch_full_set"]:
+            cappi_mode = "full_set_hail_gate"
+            trig_levels = None
+        elif trig["value"]:
+            cappi_mode = "candidate_4"
+            trig_levels = trig["levels_km"]
+            warnings.append(
+                "phase2 cappi: gate grandine negativo ma cella convettiva "
+                "candidata con SOI max {} >= {} — 4 CAPPI ({}) per il volume "
+                "3D; MESH/overhang restano su low/high (2 livelli).".format(
+                    trig.get("max_soi"), trig["threshold_soi"],
+                    trig["levels_km"]))
+        else:
+            cappi_mode = "low_high"
+            trig_levels = None
         cappi, cappi_by_name, cappi_summary = _fetch_cappi_levels(
             config, cappi_scfg, frames[-1], warnings,
             full_set=gate["fetch_full_set"],
-            validation_mode=v3d is not None)
+            validation_mode=v3d is not None,
+            levels_km=trig_levels)
+        cappi_summary["candidate_trigger"] = trig
+        cappi_summary["cappi_mode"] = cappi_mode
+        # 1.3-CAPPI-SELETTIVO: i 4 livelli extra alimentano SOLO il volume 3D.
+        # Lo stack severo continua a vedere i 2 livelli low/high di sempre:
+        # MESH/overhang/severita' restano byte-identici al baseline.
+        severe_cappi = cappi
+        if cappi_mode == "candidate_4":
+            _full_map = _cappi_product_map(
+                dict(cappi_scfg, mesh_levels_enabled=True))
+            _low = str(cappi_scfg.get("product_low"))
+            _high = str(cappi_scfg.get("product_high"))
+            _keep = {h for h, n in _full_map.items() if n in (_low, _high)}
+            severe_cappi = {h: rd for h, rd in cappi.items() if h in _keep}
         # 1.3 — VOLUME 3D: il set CAPPI gia' allineato alla VMI e la VMI stessa
         # sono gia' in memoria qui. Li teniamo sul bundle per il publisher, che
         # gira in _run() DOPO il gate dry-run: nessuna seconda richiesta di
@@ -1871,7 +1994,7 @@ def _phase2_evaluate(bundle, config):
                 fp_source = "candidate_window ({})".format(fp_src)
         try:
             parts = _severe_stack_for_candidate(
-                window, products, cappi, env_detail, ot_details, bundle,
+                window, products, severe_cappi, env_detail, ot_details, bundle,
                 footprint=footprint,
                 observed_motion={"velocity_kmh": (c.get("motion") or {}).get(
                                      "velocity_kmh"),
