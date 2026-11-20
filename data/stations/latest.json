@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-20T08:38:08Z",
+  "generated_at": "2026-11-20T08:40:28Z",
   "source": "MeteoHub (Agenzia ItaliaMeteo / CINECA), osservazioni di stazione",
   "source_url": "https://meteohub.agenziaitaliameteo.it/api/observations",
   "licence": "CC BY 4.0",
@@ -10,7 +10,7 @@
   "max_age_minutes": 180,
   "omitted_fields": {"pressure_msl":"la sorgente espone solo pressione di stazione (B10004, livello 1,0,0,0), non riducibile al livello del mare senza la quota; pubblicata come station_pressure_hPa, MAI come MSL; nel campione reale 56.730-163.820 Pa (567,3-1638,2 hPa), estremi anomali scartati fuori dalla finestra 600-1085 hPa","visibility":"non esposta dalla sorgente","cloud_cover":"non esposta dalla sorgente"},
   "derived_fields": {"dew_point_2m":"Magnus, gamma=ln(RH/100)+17.625*T/(243.04+T), Td=243.04*gamma/(17.625-gamma) (Alduchov & Eskridge 1996)","station_pressure_hPa":"B10004 (PRESSURE PA) al livello 1,0,0,0 = pressione di STAZIONE, non MSL; valore/100 in hPa; fuori da 600-1085 hPa scartato e contato","wind_gust_10m":"B11041 MAXIMUM WIND GUST SPEED M/S: massimo sulla finestra della sorgente (trange 2,0,N), non normalizzato a 10 min","snow_depth_m":"B13013 TOTAL SNOW DEPTH M, metri","fresh_snow_depth_m":"B13012 DEPTH OF FRESH SNOW M, metri","river_level_m":"B13215 River level M: grandezza IDROLOGICA separata, non meteo, quota riferita allo zero locale della stazione","id":"sintetico `<rete>:<lat>,<lon>` a 5 decimali (la sorgente non ha un id di stazione)"},
-  "counts": {"stations":5062,"networks_used":27,"stations_excluded_no_data":22,"stations_excluded_unknown_network":1,"values_out_of_range":137,"values_dropped_too_old":1786,"stations_with_duplicate_record":0,"stations_fallback_trange":0,"id_collisions_at_4_decimals":1},
+  "counts": {"stations":5062,"networks_used":27,"stations_excluded_no_data":22,"stations_excluded_unknown_network":1,"values_out_of_range":137,"values_dropped_too_old":6099,"stations_with_duplicate_record":0,"stations_fallback_trange":0,"id_collisions_at_4_decimals":1},
   "excluded_networks": {"ofa-01-cmcc":1},
   "stations": [
     {"id":"agrmet:43.92610,12.71139","lat":43.9261,"lon":12.71139,"name":"Morciano","network":"agrmet","obs_time":"2026-11-20T08:15:00Z","temperature_2m":17.2,"relative_humidity_2m":54,"precipitation":0,"precipitation_period_s":900,"dew_point_2m":7.8},
@@ -4138,7 +4138,7 @@
     {"id":"open-trentino:46.18142,10.63482","lat":46.18142,"lon":10.63482,"name":"T0433 - SM Val Genova","network":"open-trentino","obs_time":"2026-11-20T08:00:00Z","temperature_2m":-2.5,"relative_humidity_2m":89,"wind_speed_10m":1.0,"wind_direction_10m":186,"precipitation":0,"precipitation_period_s":900,"dew_point_2m":-4.1},
     {"id":"open-trentino:46.18727,11.10443","lat":46.18727,"lon":11.10443,"name":"T0408 - SM Mezzolombardo","network":"open-trentino","obs_time":"2026-11-20T08:15:00Z","temperature_2m":2.6,"precipitation":0,"precipitation_period_s":900},
     {"id":"open-trentino:46.19202,11.68391","lat":46.19202,"lon":11.68391,"name":"T0421 - SM Caoria","network":"open-trentino","obs_time":"2026-11-20T08:15:00Z","temperature_2m":0.9,"relative_humidity_2m":100,"wind_speed_10m":0.7,"wind_direction_10m":345,"precipitation":0,"precipitation_period_s":900,"dew_point_2m":0.9},
-    {"id":"open-trentino:46.19590,11.91573","lat":46.1959,"lon":11.91573,"name":"T0024 - SM Passo Cereda","network":"open-trentino","obs_time":"2026-11-20T08:15:00Z","temperature_2m":1.7,"precipitation":0,"precipitation_period_s":900},
+    {"id":"open-trentino:46.19590,11.91573","lat":46.1959,"lon":11.91573,"name":"T0024 - SM Passo Cereda","network":"open-trentino","obs_time":"2026-11-20T08:30:00Z","temperature_2m":1.8,"precipitation":0,"precipitation_period_s":900},
     {"id":"open-trentino:46.19893,11.86567","lat":46.19893,"lon":11.86567,"name":"T0419 - SM Castelpietra","network":"open-trentino","obs_time":"2026-11-20T08:15:00Z","temperature_2m":0.1,"wind_speed_10m":0.4,"wind_direction_10m":28,"precipitation":0,"precipitation_period_s":900},
     {"id":"open-trentino:46.20062,11.79348","lat":46.20062,"lon":11.79348,"name":"T0429 - SM Lago Di Calaita","network":"open-trentino","obs_time":"2026-11-20T08:00:00Z","temperature_2m":0,"precipitation":0,"precipitation_period_s":900},
     {"id":"open-trentino:46.21772,10.88975","lat":46.21772,"lon":10.88975,"name":"T0169 - SM Rifugio Graffer","network":"open-trentino","obs_time":"2026-11-20T08:15:00Z","temperature_2m":-1.7,"relative_humidity_2m":53,"precipitation":0,"precipitation_period_s":900,"dew_point_2m":-10.0},
