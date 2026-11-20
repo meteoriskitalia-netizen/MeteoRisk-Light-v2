@@ -183,6 +183,9 @@ class StormObjectTracker:
         self.tracks = []
         self._next_track_id = 1
         self.diag = []
+        # 1.3.0.30: contatore per run dei rigetti del gate di continuita'
+        # (stessa semantica del layer cella, tracking.py:609,823).
+        self.continuity_rejections = 0
         self._diagnostics = bool(
             diagnostics if diagnostics is not None
             else self.tracking_cfg.get("diagnostics", False))
@@ -366,6 +369,9 @@ class StormObjectTracker:
                 sg, pg = self._gate_limits(feats, obj)
                 d = haversine_km(feats["last_lonlat"], obj.centroid_lonlat)
                 if sg is not None and d > sg:
+                    # Gate di continuita': salto oltre max_storm_speed_kmh
+                    # -> nessuna associazione, nuova track. Contato per audit.
+                    self.continuity_rejections += 1
                     continue
                 pred_target = self._target_prediction(feats, obj.timestamp_ms)
                 if (pg is not None and pred_target is not None
