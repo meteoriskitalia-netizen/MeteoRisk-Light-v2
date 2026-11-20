@@ -516,6 +516,7 @@ def _structure_summary(bundle):
             "soi_max": None,
             "skipped_incoherent": skipped_incoherent,
             **morph_summary,
+            **_advanced_summary(bundle),
         }
     births = sum(1 for c in cells if c.get("phase") == "birth")
     on_latest = sum(1 for c in cells if c.get("on_latest_frame"))
@@ -527,6 +528,41 @@ def _structure_summary(bundle):
         "soi_max": soi_max,
         "skipped_incoherent": skipped_incoherent,
         **morph_summary,
+        **_advanced_summary(bundle),
+    }
+
+
+def _advanced_summary(bundle):
+    """FASE 7: conteggi verificabili per latest.json (nessun dato raw).
+
+    I payload COMPLETI dei 5 campi vivono nei record di
+    convective_structures.json; qui vanno SOLO i conteggi per categoria e i
+    motivi di null. Nessuna chiave se il layer non e' girato (bundle pristino).
+    """
+    adv = getattr(bundle, "advanced_summary", None) or {}
+    if not isinstance(adv, dict) or not adv:
+        return {}
+    return {
+        "advanced_morphology_class_counts": dict(
+            adv.get("morphology_class_counts") or {}),
+        "advanced_morphology_class_null": int(
+            adv.get("morphology_class_null") or 0),
+        "advanced_morphology_null_reasons": dict(
+            adv.get("morphology_null_reasons") or {}),
+        "advanced_lifecycle_stage_counts": dict(
+            adv.get("lifecycle_stage_counts") or {}),
+        "advanced_lifecycle_null": int(adv.get("lifecycle_null") or 0),
+        "advanced_lifecycle_null_reasons": dict(
+            adv.get("lifecycle_null_reasons") or {}),
+        "advanced_bwer_candidate_true": int(adv.get("bwer_candidate_true") or 0),
+        "advanced_overhang_candidate_true": int(
+            adv.get("overhang_candidate_true") or 0),
+        "advanced_hail_nuclei_tracks_total": int(
+            adv.get("hail_nuclei_tracks_total") or 0),
+        "advanced_rotation_evidence_available": bool(
+            adv.get("rotation_evidence_available")),
+        "advanced_supercell_null_reason": adv.get("supercell_null_reason"),
+        "advanced_cappi_levels": adv.get("cappi_levels"),
     }
 
 
@@ -822,6 +858,8 @@ def build_convective_structures(bundle, engine_meta=None):
             if (c.get("morphology_organization") or {}).get("classification")
             == "organized_vertical"),
         "morphology_null_reasons": _morphology_null_reason_counts(cells),
+        # FASE 7: conteggi verificabili (payload completo nei record).
+        **_advanced_summary(bundle),
     }
     payload = {
         "generated_at": bundle.generated_at_iso,

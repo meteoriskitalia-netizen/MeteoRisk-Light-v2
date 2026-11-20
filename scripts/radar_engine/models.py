@@ -530,6 +530,14 @@ class EngineBundle:
         self.storm_tracks = []          # lista StormTrack (Fase 1.7)
         self.convective_structures = []  # record del descrittore SOI (1.2.4.17)
         self.structure_tracks_evaluated = 0
+        # FASE 7 (additivo): campi Nuovi nei record convective_structures
+        # (morphology_class / lifecycle_stage / bwer_candidate /
+        # overhang_candidate / hail_nuclei_tracking) + riepilogo per latest.json.
+        # None = layer non eseguito (nessuna chiave nuova nell'output).
+        self.advanced_summary = None
+        # Livelli CAPPI REALI e frame dei nuclei (passati dal layer main.py).
+        self.advanced_cappi_levels = None
+        self.advanced_hail_nuclei_frames = None
         # 1.2.4.84 - DOPPLER (shear azimutale OPERA FR): riepilogo del layer
         # (siti, candidati, costo, copertura). None = layer non eseguito.
         self.doppler = None

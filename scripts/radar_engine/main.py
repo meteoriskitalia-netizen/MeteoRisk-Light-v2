@@ -2316,6 +2316,20 @@ def _run_pipeline(config, out_dir, product, max_frames, dry_run,
                 "source": "CAPPI_3D",
             }
 
+    # ---- FASE 7 (additivo): 7 classi morfologiche, lifecycle a 6 fasi, ------
+    # BWER/overhang come STRUTTURE CANDIDATE e tracking nuclei grandine.
+    # Gira DOPO morphology (gli serve morphology_organization/overhang/hail)
+    # e DOPO phase2 (e' li' che CAPPI/hail/overhang vengono calcolati).
+    # SOLO chiavi nuove: soi/soi_v2/rotation_*/severe_stack restano INTATTI.
+    try:
+        from radar_engine import advanced as _adv
+        _cappi = getattr(bundle, "_volume_cappi", None) or {}
+        bundle.advanced_cappi_levels = sum(
+            1 for _rd in _cappi.values() if _rd is not None)
+        _adv.attach_advanced(bundle, config)
+    except Exception as exc:  # layer additivo: mai rompere il pipeline base
+        bundle.warnings.append(f"advanced fase7 layer failed: {exc}")
+
     # ---- DOPPLER (1.2.4.84, additivo): shear azimutale OPERA FR ------------
     # Solo radar francesi (frale = Aleria, fraja = Ajaccio): il mosaico DPC
     # VMI non ha velocita' radiale. Nessun errore fa fallire il run; ogni

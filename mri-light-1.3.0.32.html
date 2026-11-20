@@ -3087,9 +3087,15 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.31';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-11-19';
+    const APP_VERSION = '1.3.0.32';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-11-20';
     const APP_CHANGELOG = [
+    { version: '1.3.0.32', date: '2026-11-20', changes: [
+        '#fc-summary-text torna a essere una sintesi BREVE (1 frase): la sintesi nazionale gia calcolata da buildItaliaSynthesis, letta con italiaSynthesisSentence. Il bollettino completo resta nelle colonne #italia-synth-cols. Nessun nuovo generatore di frasi, nessuna richiesta di rete, niente "Provincia di" e nessun conteggio di province nel summary.',
+        'Le regole delle colonne (range termici, fasce 6-12/12-18/18-6, ora di picco, dove fisiografico) restano dove sono: verificate, non riscritte. Nessun calcolo, colore, scala, gate o dato toccato.',
+        '#wk-scope dichiara SEMPRE la localita a cui si riferiscono #wk-row e #wk-phrase ("Riferito a: ... - area macro"), riutilizzando scopeLabel/ITALIA_AREAS gia in memoria; senza localita dice "Italia - sintesi nazionale". Nessun valore inventato.',
+        'Verifiche: node --check sui 9 blocchi inline, harness sulle funzioni reali (summary < 300 char, colonne con range/fasce/picco/dove, intestazione weekly), ricostruzione inversa byte-per-byte. SOI, Doppler, tracking, teleconnessioni, WebP, AO CDAS, priorita allerte ed etichetta del rischio complessivo invariati.'
+    ]},
     { version: '1.3.0.31', date: '2026-11-19', changes: [
         'Summary del pannello Previsione riscritto sulla STESSA fonte della tab Aree: usa italiaSynthesis (gia calcolato da buildItaliaSynthesis) e italiaAreaSentenceBuild/italiaSynthesisSentence esistenti, senza un nuovo generatore. Per ogni macro-area mostra dove fisiografico, cielo, fenomeni con fascia 6-12/12-18/18-6 e ora di picco, temperatura, vento, neve; piu la sintesi nazionale in testa.',
         'Portati nel summary i campi di tdsBuildDay prima ignorati (minima, probabilita massima, banda e vento/raffica, CAPE e ore oltre soglia, zero termico, neve, ora della massima) leggendoli dai valori gia calcolati: ogni campo assente dichiara il motivo, nessuno zero inventato. Massime della localita mostrate come range min-max della banda piu popolosa con il numero di punti in testo visibile, non piu Math.round secco nel title.',
@@ -32173,7 +32179,7 @@ function renderContinuousOverlay() {
             return;
         }
         var days = WK_STATE.data.days || [];
-        var recs = null, scopeLabel = '';
+        var recs = null, scopeLabel = '', zona = '';
         if (isCustom) {
             // 1) serie del comune (se esiste nel file); 2) provincia di appartenenza;
             // 3) area macro dichiarata. Nessuna richiesta di rete.
@@ -32195,10 +32201,39 @@ function renderContinuousOverlay() {
                     scopeLabel = 'area ' + areaName + ' (comune di ' + cityName + ')';
                 }
             }
+            // La zona e' l'area macro GIA' usata dalle colonne: stessa tabella
+            // ITALIA_AREAS, nessun valore inventato e zero richieste di rete.
+            var customArea = wkCustomArea();
+            if (customArea) zona = customArea;
         } else {
             recs = wkFindProvince(sigla);
+            if (sigla) {
+                scopeLabel = 'provincia di ' + wkProvName(sigla);
+                if (typeof regionsData !== 'undefined' && regionsData && regionsData[idx] && regionsData[idx].region &&
+                    typeof ITALIA_AREAS !== 'undefined' && ITALIA_AREAS) {
+                    var regioneSel = regionsData[idx].region;
+                    for (var zi = 0; zi < ITALIA_AREAS.length; zi++) {
+                        if (ITALIA_AREAS[zi] && ITALIA_AREAS[zi].regions && ITALIA_AREAS[zi].regions[regioneSel]) {
+                            zona = ITALIA_AREAS[zi].name;
+                            break;
+                        }
+                    }
+                }
+            }
         }
-        if (scopeEl && scopeLabel) scopeEl.textContent = 'Prossimi 7 giorni \u2014 ' + scopeLabel;
+        // Un capoluogo selezionato come comune resta senza scopeLabel: dichiara
+        // comunque il comune, senza inventare una provincia diversa da quella nota.
+        if (!scopeLabel && isCustom && cityName) scopeLabel = 'comune di ' + cityName;
+        // 1.3.0.32 - intestazione SEMPRE visibile: dichiara a cosa si riferiscono
+        // le 7 celle (#wk-row) e le frasi (#wk-phrase). Riutilizza scopeEl e
+        // scopeLabel della 1.2.4.91. Senza localita': sintesi nazionale.
+        if (scopeEl) {
+            if (scopeLabel) {
+                scopeEl.textContent = 'Prossimi 7 giorni \u2014 Riferito a: ' + scopeLabel + (zona ? ' \u2014 ' + zona : '');
+            } else {
+                scopeEl.textContent = 'Prossimi 7 giorni \u2014 Italia \u2014 sintesi nazionale';
+            }
+        }
         var cells = '';
         if (recs) cells = wkSeriesCells(recs, days);
         if (!cells) {
@@ -32387,6 +32422,12 @@ function renderContinuousOverlay() {
         return p.join('; ') + '.';
     }
 
+    // 1.3.0.32 - IL SUMMARY TORNA A ESSERE UNA SINTESI BREVE.
+    // Il bollettino completo (18 frasi di macro-area, range termici, fasce
+    // orarie, ora di picco, dove fisiografico) resta nel pannello, nelle
+    // colonne #italia-synth-cols. Qui dentro ci sono solo 1-2 frasi: la frase
+    // di sintesi nazionale GIA' calcolata da buildItaliaSynthesis, senza un
+    // nuovo generatore, senza conteggi di province e senza richieste di rete.
     function fcUpdateSummary() {
         var el = document.getElementById('fc-summary-text');
         if (!el) return;
@@ -32398,24 +32439,7 @@ function renderContinuousOverlay() {
         }
         var di = (typeof currentDay === 'number' && currentDay >= 0 && currentDay < days.length) ? currentDay : 0;
         var dd = days[di];
-        var segs = [];
-        segs.push('<b>Sintesi:</b> ' + italiaSynthesisSentence(dd, true));
-        for (var ai = 0; ai < dd.areas.length; ai++) {
-            var ar = dd.areas[ai];
-            var dove = fcSummaryWhere(ar);
-            var txt = italiaAreaSentenceBuild(ar, {
-                trend: true, amount: true, exception: true, bandNote: true,
-                summary: true, dove: dove, doveShown: !!dove
-            });
-            segs.push('<b>' + ar.name + ':</b> ' + txt);
-        }
-        var cityDay = (typeof tdsState !== 'undefined' && tdsState && tdsState.days) ? tdsState.days[tdsSelectedDay] : null;
-        var cityChosen = (typeof selectedIndex === 'number' && selectedIndex >= 0) ||
-            (typeof isCustomCity !== 'undefined' && isCustomCity);
-        if (cityDay && cityChosen) {
-            segs.push('<b>Localita selezionata:</b> ' + fcSummaryCityDetail(cityDay));
-        }
-        el.innerHTML = segs.join('<br>');
+        el.innerHTML = '<b>Sintesi:</b> ' + italiaSynthesisSentence(dd, true);
     }
 
     if (typeof document !== 'undefined') {
