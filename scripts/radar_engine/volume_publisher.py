@@ -40,6 +40,7 @@ from datetime import datetime, timezone
 import numpy as np
 from scipy import ndimage
 
+from . import compact3d as _c3
 from . import cross_section as _cs
 
 SCHEMA = "meteorisk.volume/1"
@@ -65,6 +66,13 @@ REF_VI = "Zhang et al. 2005: VI scheme, interpolazione lineare su buchi singoli"
 REF_VOL = "conteggio voxel (>=soglia) x 1 km^3, griglia DPC 1 km"
 REF_MORPH = "SCELTA INGEGNERISTICA: estensione verticale = quota max - quota min con Z>=soglia"
 REF_GROWTH = "delta fra due slot consecutivi (richiede volume precedente)"
+
+# Percorso compatto (Iride: SOLO il campionamento, non la semantica)
+SRC_VOL_COMPACT = ("DPC CAPPI_1..CAPPI_10 -> cubo compatto {}x{}x10 uint8 "
+                   "(encoding 0/1/2..246, code=(dBZ+32)*2+2)")
+REF_COMPACT = ("parametri calcolati SOPRA il cubo compatto con le stesse formule "
+               "del volume pieno; CELL_VOLUME = conteggio bin >= soglia x area bin "
+               "(pool^2 km^2), riportato a voxel 1 km^2")
 
 QUALITY_LEGEND = {
     "A_observed": "valore letto direttamente da voxel CAPPI originali (nessun voxel VI nel sotto-volume)",
@@ -302,6 +310,176 @@ def _analyze_cells(volume, vmi, labeled, comps, thresholds,
     return out_cells
 
 
+# ---------------------------------------------------------------------------
+# percorso COMPATTO: parametri calcolati sopra il cubo 32x32x10 uint8
+# ---------------------------------------------------------------------------
+def _compact_cube_field(meta, timestamp, requested_side=None):
+    """Campo `compact_cube`: array encoded + metadati di campionamento."""
+    side = int(meta["side"])
+    cube = meta["cube"]
+    return {
+        "available": True,
+        "dtype": "uint8",
+        "shape": [10, side, side],
+        "data_base64": _c3.encode_cube_to_b64(cube),
+        "encoding": {
+            "0": "missing / fuori copertura (-9999 oppure NaN)",
+            "1": "in copertura senza eco (-9998)",
+            "2..246": "dBZ = (code - 2)/2 - 32  [code = (dBZ+32)*2+2; passo 0,5 dBZ; -32..+90 dBZ]",
+        },
+        "sampling": meta["sampling"],
+        "reduction": meta["reduction"],
+        "side": side,
+        "requested_side": int(requested_side or side),
+        "side_promoted": bool(requested_side and int(requested_side) != side),
+        "pool": int(meta["pool"]),
+        "bin_km": _r2(meta["bin_km"], 4),
+        "window_shape_zyx": [10, int(meta["win"]), int(meta["win"])],
+        "window_full_rc": [int(v) for v in meta["window_full_rc"]],
+        "subvolume_shape_hw": [int(v) for v in meta["sub_shape_hw"]],
+        "source": SRC_VOL_COMPACT.format(side, side),
+        "timestamp": timestamp,
+        "quality": "A_observed",
+        "null_reason": None,
+        "reference": meta["reference"] + "; " + REF_COMPACT,
+    }
+
+
+def _analyze_cells_compact(volume, vmi, labeled, comps, thresholds,
+                           interp_mask, source, timestamp, pad,
+                           compact_side, cappi, pixel_km):
+    """Come `_analyze_cells`, ma i parametri sono calcolati sul cubo compatto.
+
+    La semantica e' invariata: stesse formule, stessi 5 threshold, stessi
+    null_reason, stessi campi quality/source/reference. Cambia solo la griglia
+    di lettura: il sotto-volume viene campionato in bin `pool x pool` con
+    massimo valido (Iride) e l'area di bin e' dichiarata.
+    """
+    out_cells = []
+    src = SRC_VOL_COMPACT.format(int(compact_side), int(compact_side))
+    for comp in comps:
+        _, (r0, r1, c0, c1) = _subvolume(volume, comp, pad)
+        meta = _c3.build_compact_cube(
+            cappi=cappi, volume=volume,
+            r0=r0, r1=r1, c0=c0, c1=c1,
+            side=compact_side, pixel_km=pixel_km)
+        # MISURATO: con pool>1 il max pooling gonfia CELL_VOLUME/VIL
+        # (+59%/+122%/+19,5% su CAPPI reali con finestra 64x64). Se la cella
+        # non entra in 32 km si promuove a SIDE=64 (pool torna 1, delta 0).
+        if meta["pool"] > 1 and int(compact_side) < 64:
+            meta = _c3.build_compact_cube(
+                cappi=cappi, volume=volume,
+                r0=r0, r1=r1, c0=c0, c1=c1,
+                side=64, pixel_km=pixel_km)
+        cube = meta["cube"]
+        sv = _c3.decode_code(cube)                      # (10, S, S) float32, NaN
+        cell_mask = _c3.cell_mask_in_cube(labeled, comp["label_id"], meta)
+        finite = np.isfinite(sv)
+        n_valid = int(finite.sum())
+        q, n_interp = _quality_for(interp_mask, r0, r1, c0, c1)
+        det = {"interpolated_voxels_in_subvolume": n_interp,
+               "compact_pool": int(meta["pool"]),
+               "bin_area_km2": _r2(meta["bin_km"] ** 2, 4)}
+
+        cell = {
+            "cell_id": comp["label_id"],
+            "area_px": comp["area_px"],
+            "bbox_rc_full": comp["bbox_rc"],
+            "centroid_rc_geometric": [_r2(v, 3) for v in comp["centroid_rc"]],
+            "centroid_rc_weighted": [_r2(v, 3) for v in comp["centroid_weighted_rc"]],
+            "max_dbz_vmi": comp["max_dbz_vmi"],
+            "quality": q,
+            "detail": det,
+            "compact_cube": _compact_cube_field(meta, timestamp, compact_side),
+        }
+
+        maxref = float(np.nanmax(sv)) if n_valid > 0 else None
+        meanref = float(np.nanmean(sv)) if n_valid > 0 else None
+        if maxref is not None:
+            cand = np.argwhere(finite & (sv == maxref))
+            maxalt = float(ELEVATIONS_KM[int(cand[:, 0].max())]) if len(cand) else None
+        else:
+            maxalt = None
+        cell["MAX_REFLECTIVITY"] = _field(
+            _r2(maxref, 1), src, timestamp, q, "max dBZ sui voxel validi del sotto-volume",
+            null_reason="no_valid_voxels")
+        cell["MEAN_REFLECTIVITY"] = _field(
+            _r2(meanref, 2), src, timestamp, q, "media dBZ sui voxel validi del sotto-volume",
+            null_reason="no_valid_voxels")
+        cell["MAX_ALTITUDE"] = _field(
+            maxalt, src, timestamp, q, "quota (km) del voxel con riflettivita' massima",
+            null_reason="no_valid_voxels")
+
+        et18_arr = _column_echo_top(sv, 18.0)
+        et18 = _r2(float(np.nanmax(et18_arr))) if np.any(np.isfinite(et18_arr)) else None
+        # VIL: stesse colonne della cella della griglia piena, mappate nei bin del cubo
+        ys, xs = np.where(cell_mask)
+        peaks = []
+        nz = int(sv.shape[0])
+        for rr, cc in zip(ys.tolist(), xs.tolist()):
+            col = sv[:, rr, cc]
+            vil = 0.0
+            has = False
+            for z in range(nz):
+                zdbz = col[z]
+                if np.isfinite(zdbz):
+                    zlin = 10.0 ** (float(zdbz) / 10.0)
+                    vil += 3.44e-6 * (zlin ** (4.0 / 7.0)) * 1000.0
+                    has = True
+            if has:
+                peaks.append(vil)
+        vil_peak = _r2(max(peaks), 6) if peaks else None
+        vil_mean = _r2(float(np.mean(peaks)), 6) if peaks else None
+        vd = _r2(vil_peak / et18, 6) if (vil_peak is not None and et18) else None
+        cell["VIL"] = _field(vil_peak, src, timestamp, "C_derived", REF_VIL,
+                             null_reason="no_valid_reflectivity_in_cell_columns")
+        cell["VIL_MEAN_OVER_CELL"] = _field(
+            vil_mean, src, timestamp, "C_derived", "media VIL colonnare sulla cella",
+            null_reason="no_valid_reflectivity_in_cell_columns")
+        cell["VIL_DENSITY"] = _field(
+            vd, src, timestamp, "C_derived",
+            "VIL (kg/m2)/echo_top_18 (km) -> g/m3 (Greene & Clark 1972; Lakshmanan 2013)",
+            null_reason="vil_or_echo_top_18_missing")
+        cell["ECHO_TOP_18"] = _field(
+            et18, src, timestamp, q, REF_ET,
+            null_reason="no_voxel_ge_18dbz_in_cell")
+
+        bin_area = float(meta["bin_km"]) ** 2
+        per_thr = {}
+        for thr in thresholds:
+            t = int(thr)
+            voxels = finite & (sv >= t)
+            cv_bins = int(voxels.sum())
+            cv = int(round(cv_bins * bin_area))
+            et_arr = _column_echo_top(sv, t)
+            et = _r2(float(np.nanmax(et_arr))) if np.any(np.isfinite(et_arr)) else None
+            alt_min = None
+            if np.any(voxels):
+                zs = np.where(voxels.any(axis=(1, 2)))[0]
+                alt_min = float(ELEVATIONS_KM[int(zs.min())]) if len(zs) else None
+            extent = _r2(et - alt_min) if (et is not None and alt_min is not None) else None
+            per_thr[str(t)] = {
+                "CELL_VOLUME": _field(cv, src, timestamp, q, REF_VOL + "; " + REF_COMPACT,
+                                      detail=dict(det, bins_above_threshold=cv_bins)),
+                "ECHO_TOP": _field(et, src, timestamp, q, REF_ET,
+                                   null_reason="no_voxel_ge_{}dbz_in_cell".format(t)),
+                "VERTICAL_EXTENT": _field(
+                    extent, src, timestamp, q, REF_MORPH,
+                    null_reason="no_voxel_ge_{}dbz_in_cell".format(t),
+                    detail={"echo_base_km": alt_min, "echo_top_km": et}),
+                "VIL": dict(cell["VIL"]),
+                "VIL_DENSITY": dict(cell["VIL_DENSITY"]),
+                "MAX_REFLECTIVITY": dict(cell["MAX_REFLECTIVITY"]),
+                "MEAN_REFLECTIVITY": dict(cell["MEAN_REFLECTIVITY"]),
+                "MAX_ALTITUDE": dict(cell["MAX_ALTITUDE"]),
+                "VERTICAL_GROWTH": None,
+                "VOLUME_GROWTH": None,
+            }
+        cell["by_threshold"] = per_thr
+        out_cells.append(cell)
+    return out_cells
+
+
 def _destination(lat, lon, bearing_deg, dist_km):
     """Punto a distanza/rotamento dati (formula sferica, come in cross_section.py)."""
     R = 6371.0
@@ -412,7 +590,8 @@ def build_volume_payload(volume, vmi, *, timestamp_utc,
                          prev=None, motions=None, pad=5, min_area_px=4,
                          n_section_points=200, section_length_km=60.0,
                          pixel_km=1.0, max_match_km=20.0,
-                         include_sections=True):
+                         include_sections=True,
+                         compact_side=None, cappi=None, generated_utc=None):
     """Costruisce il payload del blob `data/radar/3d/volume.json`.
 
     volume : ndarray (10,H,W) float32 dBZ (prodotto da volume3d.build_volume_from_cappi)
@@ -427,7 +606,8 @@ def build_volume_payload(volume, vmi, *, timestamp_utc,
     null_reason="volume_unavailable" se volume e' None.
     """
     thresholds = tuple(int(t) for t in (thresholds or DEFAULT_THRESHOLDS))
-    generated = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    generated = (generated_utc or
+                 datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
     payload = {
         "schema": SCHEMA,
         "generated_at_utc": generated,
@@ -478,8 +658,28 @@ def build_volume_payload(volume, vmi, *, timestamp_utc,
         return payload
 
     labeled, comps = _label_cells(vmi, min_area_px)
-    cells = _analyze_cells(volume, vmi, labeled, comps, thresholds,
-                           interp_mask, source_label, timestamp_utc, pad)
+    if compact_side:
+        cells = _analyze_cells_compact(
+            volume, vmi, labeled, comps, thresholds, interp_mask,
+            source_label, timestamp_utc, pad, int(compact_side), cappi, pixel_km)
+        payload["compact_sampling"] = {
+            "enabled": True,
+            "side": int(compact_side),
+            "side_policy": ("per-cell side may be promoted 32 -> 64 when the cell "
+                            "window exceeds 32 km; actual side/pool are declared "
+                            "in each cell.compact_cube"),
+            "encoding": "uint8 0/1/2..246; code=(dBZ+32)*2+2; passo 0,5 dBZ; -32..+90 dBZ",
+            "sampling": _c3.SAMPLING,
+            "reduction": _c3.REDUCTION,
+            "parameters_computed_on": "compact cube (same formulas as full grid)",
+            "cell_volume_normalization": "bins above threshold x bin area (pool^2 km^2) -> voxel 1 km^2",
+            "floor": "NON pubblicato come misura fisica",
+            "floor_note": _c3.REF_NOT_FLOOR,
+            "reference": _c3.REF_IRIDE,
+        }
+    else:
+        cells = _analyze_cells(volume, vmi, labeled, comps, thresholds,
+                               interp_mask, source_label, timestamp_utc, pad)
 
     # --- growth temporale (solo con volume precedente) --------------------
     # Due forme di `prev`, entrambe reali:
@@ -805,6 +1005,11 @@ def build_and_publish(cappi, ref_rd, vmi_rd, *, timestamp_utc,
     vmi_arr = getattr(vmi_rd, "data", None) if vmi_rd is not None else None
     crs_wkt = getattr(ref_rd, "crs_wkt", None) if ref_rd is not None else None
     transform = getattr(ref_rd, "transform", None) if ref_rd is not None else None
+    # Il cubo compatto legge i CAPPI GREZZI per distinguere 0 (missing) da
+    # 1 (no echo). Senza compact_side questo ramo non esiste (comportamento
+    # pristino byte-identico).
+    if kwargs.get("compact_side") and "cappi" not in kwargs:
+        kwargs["cappi"] = cappi
     return build_volume_payload(
         volume, vmi_arr, timestamp_utc=timestamp_utc, thresholds=thresholds,
         crs_wkt=crs_wkt, transform=transform, **kwargs)
