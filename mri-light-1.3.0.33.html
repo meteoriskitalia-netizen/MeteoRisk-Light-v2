@@ -1992,7 +1992,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
         <button class="tool-btn" id="btn-radar-player" onclick="toggleRadarPlayer()" style="border-color:#0284c7;">▶️ Radar Player</button>
         <button class="tool-btn" id="btn-forecast" onclick="toggleForecast()">🌤️ Previsioni (OFF)</button>
         <button class="tool-btn" id="btn-caletta" onclick="showCaletta()" style="display:none;">🍽️ La Caletta</button>
-        <button class="tool-btn" id="btn-live" onclick="toggleLivePanel()" style="border-color:#fbbf24;">🔴 LIVE Panel (OFF)</button>
+        <button class="tool-btn" id="btn-live" onclick="selectLiveFromProductButton()" style="border-color:#fbbf24;">🔴 LIVE Panel (OFF)</button>
         <button class="tool-btn" id="btn-newindices" onclick="toggleNewIndices()" style="border-color:#06b6d4; display:none;" title="Nuovi Indici: aggiunge escalation continua (WMAXSHEAR, SCP, SHIP, HSLC) alla logica base. Disponibile solo in Sviluppo. Default OFF.">🔬 Nuovi Indici (OFF)</button>
         <button class="tool-btn" id="btn-sources" onclick="toggleSourcesPanel()" style="border-color:#a855f7;">📚 Fonti &amp; Metodologie</button>
         <!-- 1.2.3.1: attivazione Celle organizzate spostata nel pannello LIVE (#live-toggle-supercells) -->
@@ -3087,9 +3087,15 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.32';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.33';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-20';
     const APP_CHANGELOG = [
+    { version: '1.3.0.33', date: '2026-11-20', changes: [
+        'DIFETTO 1 - #btn-live apriva il pannello LIVE senza aggiornare #product-select: con «Mappa dei rischi» selezionata restavano due prodotti attivi insieme (pannello alto 97 px e 4 toggle LIVE visibili). Ora il pulsante imposta #product-select = "live" e richiama selectProduct(), la stessa funzione usata dalla tendina; il secondo click chiude il prodotto come «— nessuno —». Unico percorso di attivazione: productDefs().live.run, richiamato da selectProduct().',
+        'DIFETTO 2 - i controlli radar/satellite (#btn-radar, #btn-satellite, #radar-provider-select, #radar-provider-label, #dpc-product-select, #radar-embed-select e il pane radar) erano legati al solo prodotto «Radar Player»: nel pannello LIVE le richieste tile partivano ma i tile restavano nascosti da body.radar-product-off. Ora la funzione condivisa isRadarToolsProduct() abilita i controlli sia per «Radar Player» sia per «Pannello LIVE»; con rischi, teleconn e tutti gli altri restano nascosti.',
+        'Vincolo prodotto: passando da LIVE a «Mappa dei rischi» il pannello va a height 0 con 0 toggle LIVE visibili; passando da radar a «Mappa dei rischi» restano 0 tile radar nel DOM. Invariati colori, palette, scale radar, etichetta «Rischio complessivo», SOI, Doppler, soglie, calcoli, workflow e Python.',
+        'Verifiche: node --check 9/9 blocchi script inline, harness Node su funzioni reali estratte (valore #product-select e display dei controlli radar per rischi, live, radar-player, teleconn; toggle LIVE prima e dopo il cambio prodotto), ricostruzione inversa byte-per-byte dell HTML baseline.'
+    ]},
     { version: '1.3.0.32', date: '2026-11-20', changes: [
         '#fc-summary-text torna a essere una sintesi BREVE (1 frase): la sintesi nazionale gia calcolata da buildItaliaSynthesis, letta con italiaSynthesisSentence. Il bollettino completo resta nelle colonne #italia-synth-cols. Nessun nuovo generatore di frasi, nessuna richiesta di rete, niente "Provincia di" e nessun conteggio di province nel summary.',
         'Le regole delle colonne (range termici, fasce 6-12/12-18/18-6, ora di picco, dove fisiografico) restano dove sono: verificate, non riscritte. Nessun calcolo, colore, scala, gate o dato toccato.',
@@ -8984,8 +8990,13 @@ removeLightningTile();
                 document.getElementById('status-msg').innerText = '🛰️ Satellite disattivato in questa edizione (nessuna sorgente abilitata).';
                 return;
             }
-            // Se il LIVE Panel è attivo, chiudilo prima di aprire il player
-            if (isLivePanelActive) { document.getElementById('btn-live').click(); }
+            // 1.3.0.33 - Satellite e' un toggle indipendente e deve funzionare
+            // ANCHE con il prodotto «Pannello LIVE»: in quel caso il LIVE resta
+            // aperto. Si chiude solo se e' attivo fuori dal suo prodotto.
+            if (isLivePanelActive && activeProductId !== 'live') {
+                var liveBtnSat = document.getElementById('btn-live');
+                if (liveBtnSat) liveBtnSat.click();
+            }
             // Chiudi l'embed radar se attivo (solo all'apertura, non alla chiusura
             // per evitare che toggleRadarEmbed('off') → showSyncPanelIfNeeded()
             // scateni fullPlayerCleanup che rimuove anche i layer radar)
@@ -9088,8 +9099,14 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
     }
 
     async function toggleRadar() {
-        // Se il LIVE Panel è attivo, chiudilo prima di aprire il player
-        if (isLivePanelActive) { document.getElementById('btn-live').click(); }
+        // 1.3.0.33 - Radar/Satellite sono toggle indipendenti e devono
+        // funzionare ANCHE con il prodotto «Pannello LIVE»: in quel caso il
+        // LIVE resta aperto. Si chiude solo se e' attivo fuori dal suo
+        // prodotto (stato ereditato), sempre via tendina prodotti.
+        if (isLivePanelActive && activeProductId !== 'live') {
+            var liveBtn0 = document.getElementById('btn-live');
+            if (liveBtn0) liveBtn0.click();
+        }
         const btn = document.getElementById('btn-radar');
         if (!isRadarActive) {
             // Se nessun provider radar e' abilitato in questa edizione, non cercare
@@ -22491,6 +22508,13 @@ function fmRestoreRiskOverlays() {
 // sono toggle indipendenti nella toolbar e restano richiamabili qui (map).
 var activeProductId = '';
 var productSelectTemplate = null;
+// 1.3.0.33 - UNICA fonte di verita' per la visibilita' dei controlli
+// Radar/Satellite: sono contestuali a «Radar Player» E al «Pannello LIVE».
+// Prima ogni funzione decideva da sola (solo radar-player), quindi dal pannello
+// LIVE i tile radar venivano scaricati ma restavano nascosti dal CSS.
+function isRadarToolsProduct() {
+    return activeProductId === 'radar-player' || activeProductId === 'live';
+}
 function productDefs() {
     function txt(id) { var el = document.getElementById(id); return el ? (el.textContent || '') : ''; }
     function onText(id) { return txt(id).indexOf('(ON)') >= 0; }
@@ -22538,10 +22562,10 @@ function setProductStatus(txt) { var s = document.getElementById('product-status
 // Evidenzia Zone a Rischio solo con «Mappa dei rischi» attiva.
 // Nessun handler toccato: cambia SOLO la visibilita' (display) dei pulsanti.
 function syncContextualToggles() {
-    var radarPlayerOn = (activeProductId === 'radar-player');
+    var radarToolsOn = isRadarToolsProduct();
     var riskProductOn = (activeProductId === 'rischi');
-    var showRadar = radarPlayerOn && (typeof enabledRadarProviderIds !== 'function' || enabledRadarProviderIds().length > 0);
-    var showSat = radarPlayerOn && (typeof enabledSatSourceIds !== 'function' || enabledSatSourceIds().length > 0);
+    var showRadar = radarToolsOn && (typeof enabledRadarProviderIds !== 'function' || enabledRadarProviderIds().length > 0);
+    var showSat = radarToolsOn && (typeof enabledSatSourceIds !== 'function' || enabledSatSourceIds().length > 0);
     var bRadar = document.getElementById('btn-radar');
     var bSat = document.getElementById('btn-satellite');
     var bRisk = document.getElementById('btn-high-risk');
@@ -22587,7 +22611,7 @@ function syncTeleconnMapCard() {
 // pulsante con prodotto «nessuno», i controlli restavano visibili e i path
 // radar restavano nella mappa. Nessuna logica meteorologica toccata.
 function syncRadarProductVisuals() {
-    var on = (activeProductId === 'radar-player');
+    var on = isRadarToolsProduct();
     var ids = ['radar-provider-label', 'radar-provider-select',
                'dpc-product-select', 'radar-embed-select'];
     for (var i = 0; i < ids.length; i++) {
@@ -22692,6 +22716,24 @@ function selectProduct(v) {
         setProductStatus(p.label + ': ' + (e && e.message ? e.message : 'errore'));
     }
     if (typeof syncProductUI === 'function') syncProductUI();
+}
+// 1.3.0.33 - DIFETTO 1: #btn-live apriva il pannello senza aggiornare la
+// tendina, lasciando due prodotti attivi insieme. Ora il pulsante storico
+// passa SEMPRE da selectProduct(): imposta il valore e richiama la stessa
+// funzione usata dall'onchange della select. Nessun secondo handler di
+// attivazione: productDefs().live.run resta l'unico avvio del pannello.
+// Col LIVE gia' attivo il click chiude il prodotto, come «— nessuno —».
+function selectLiveFromProductButton() {
+    var sel = document.getElementById('product-select');
+    var liveOn = false;
+    try { liveOn = !!(productDefs()['live'].on()); } catch (e) { }
+    if (liveOn) {
+        if (sel) sel.value = '';
+        selectProduct('');
+    } else {
+        if (sel) sel.value = 'live';
+        selectProduct('live');
+    }
 }
 function toggleForecastMaps() {
     if (!isFeatureEnabled('forecastMaps')) return;
