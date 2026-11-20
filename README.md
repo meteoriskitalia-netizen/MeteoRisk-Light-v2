@@ -6,7 +6,7 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.3.0.34
+## Versione attiva: 1.3.0.35
 
 - File applicativo: `mri-light-1.3.0.21.html` (`APP_VERSION = '1.3.0.21'`; changelog in-app) + `sw.js` (`CACHE_NAME = 'mri-1.3.0.21'`, `TILE_CACHE = 'mri-tiles-1.3.0.21'`, `FRAME_CACHE = 'mri-frames-1.3.0.21'`)
 - **1.3.0.21 - Analisi sinottica disattivata e toggle OFF al boot**: rimossa la voce Analisi sinottica dal selettore prodotto (10 -> 9 opzioni), il pannello #synoptic-panel e le funzioni dedicate. Restano intatti Teleconnessioni e indici e la vista WebP sinottica SPERIMENTALE: gli helper condivisi synState, synEsc, synFmtIso e synFetch non sono stati toccati. Le frasi del bollettino #forecast-details sono byte-identiche. I toggle Traccia 2h / Forecast / Fenomeni / Grandine partono ora OFF come gli altri toggle del pannello LIVE (stati a false e classi statiche senza on); la logica di click e invariata. BUILD=149, tre cache del service worker rinnovate, vecchio html `mri-light-1.3.0.18.html` rimosso. Verificato: node --check 9/9 blocchi, test_html_js_syntax 1 passed, harness boot 8/8 toggle OFF. NON verificato: resa visiva nel browser.

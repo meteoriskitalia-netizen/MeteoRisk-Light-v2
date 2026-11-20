@@ -1463,21 +1463,19 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             .toolbar-row .tool-btn { flex: 0 0 auto; min-width: 150px; }
             .metric-tabs { margin-bottom: 6px; }
 
-            /* Pannello LIVE: foglio in basso, non sposta la mappa; scroll col dito.
-               z-index 10050 > #stale-badge (fixed, z 10000) che altrimenti copre
-               le ultime 58 px del pannello; #risk-summary (1200) resta sotto. */
+            /* 1.3.0.34-LIVE-ANCHOR - Il pannello LIVE TORNA NEL FLUSSO.
+               Prima era `position: fixed` in basso: si sovrapponeva a toolbar e
+               mappa e rendeva difficoltosa la navigazione (segnalazione utente).
+               Nel flusso, subito dopo toolbar/timeline e prima della mappa:
+               quando e' attivo spinge la mappa in basso SENZA sovrapporsi.
+               max-height + overflow-y mantengono la mappa raggiungibile. */
             #live-panel {
-                position: fixed;
-                left: 8px;
-                right: 8px;
-                bottom: calc(8px + var(--safe-bottom));
-                margin: 0;
-                max-height: 48dvh;
+                position: static;
+                margin: 0 auto 10px auto;
+                max-height: 32dvh;
                 overflow-y: auto;
                 -webkit-overflow-scrolling: touch;
                 overscroll-behavior: contain;
-                z-index: 10050;
-                box-shadow: 0 -8px 24px rgba(0, 0, 0, .45);
             }
 
             /* Tap target: la misura conta <32 px. Erano 5/23 a pannello chiuso
@@ -1937,8 +1935,8 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                            padding: 2px 6px; gap: 4px; font-size: 11px; }
   .mp-switch .mp-label, .mp-select .mp-label { font-size: 11px; }
 
-  /* punto 3 - foglio LIVE a scorrimento, non meta' pagina bloccante. */
-  #live-panel { max-height: 40dvh; overflow-y: auto;
+  /* punto 3 - pannello LIVE nel flusso: scroll interno, mai sopra la mappa. */
+  #live-panel { max-height: 32dvh; overflow-y: auto;
                 -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
 
   /* punto 3 - mappa piu' bassa e through-swipe verticale: il browser puo'
@@ -3087,7 +3085,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.34';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.35';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-20';
     const APP_CHANGELOG = [
     { version: '1.3.0.33', date: '2026-11-20', changes: [
