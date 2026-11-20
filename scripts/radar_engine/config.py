@@ -547,7 +547,7 @@ CONFIG = {
             # (>=4) con copertura della colonna convettiva: anch'essi
             # SCELTA INGEGNERISTICA dichiarata.
             "candidate_cappi_trigger": {
-                "enabled": False,          # OPT-IN: default = comportamento 1.3.0.34
+                "enabled": True,           # 2026-11-20: attivo, derivati byte-identici (726 test)
                 "min_soi": 77.0,
                 "levels_km": [2.0, 4.0, 6.0, 8.0],
                 "reference": (
