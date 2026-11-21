@@ -623,11 +623,12 @@ CONFIG = {
             # il gate non scarta mai un run che il criterio per cella terrebbe
             # (la misura 14,7% e' un LIMITE INFERIORE di selettivita').
             "hail_gate": {
-                "enabled": True,
+                # DECISIONE UTENTE 2026-11-21: set completo sempre; costo 703,9 MB/giorno accettato
+                "enabled": False,
                 "vil_density_threshold_g_m3": 3.5,
                 # Livelli scaricati quando il gate dice "non plausibile":
                 # "low_high" = product_low + product_high (2 CAPPI).
-                "levels_when_implausible": "low_high",
+                "levels_when_implausible": "full",
             },
             # -------------------------------------------------------------
             # 1.3-CAPPI-SELETTIVO — trigger ADDITIVO e OPT-IN: quando il gate
@@ -744,6 +745,8 @@ CONFIG = {
                 "timeout_s": 30,
                 "cache_dir": "data/cache/lightning_afa",
                 "legacy_fallback": True,           # vecchio feed: 1 sonda
+                # SCELTA INGEGNERISTICA NON TARATA; frame reale 14:35Z = 582 px
+                "activity_ref_px": 600,
             },
         },
         "severe_stack": {

@@ -1,3 +1,17 @@
+VERSION=1.3.0.41
+BUILD=171
+DATE=2026-11-21
+APP_FILE=mri-light-1.3.0.41.html
+MeteoRisk Light - 1.3.0.41 - 10 CAPPI SEMPRE, AFA DESCRITTORE GRADUATO, CREA WDA, DPC LEGGENDA E NEVE REALE (bump da 1.3.0.40)
+VERSION=1.3.0.41
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=171
+RELEASE_TYPE=release
+DATE=2026-11-21
+NOTE=Release 1.3.0.41 (bump da 1.3.0.40). (1) 10 CAPPI sempre: hail_gate disabilitato e levels_when_implausible=full per decisione utente 2026-11-21, costo 703,9 MB/giorno accettato. (2) AFA descrittore graduato: activity_0_100 = 100*min(1, active_pixels/600) con activity_ref_px=600 (SCELTA INGEGNERISTICA NON TARATA, frame reale 14:35Z = 582 px); nessun peso SOI, tracking invariato. (3) CREA WDA: import dataset Weather-related Disasters in Agriculture, join province, documentazione di validazione. (4) HTML base 1.3.0.40 con DPC legenda sempre visibile, neve Bolzano e AFA nel LIVE. Bump: BUILD=171, APP_FILE=mri-light-1.3.0.41.html, CACHE_NAME mri-1.3.0.41, README, test .mjs, vecchi html .38/.39 assenti. Verifiche: pytest radar, test_html_js_syntax, test_crea_wda_import, node --check 8/8.
+APP_FILE=mri-light-1.3.0.41.html
 VERSION=1.3.0.39
 BUILD=169
 DATE=2026-11-21

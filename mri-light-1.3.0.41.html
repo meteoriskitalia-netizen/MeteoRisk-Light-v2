@@ -1876,12 +1876,8 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         /* FIX 1.3.0.7 - vista compatta ripiegabile: nessuna emoji/ombra/gradiente
            nuovo. I 3 rischi restano badge separati, non fusi in un indice unico. */
         .hydro-details { width: 100%; }
-        .hydro-summary { display: flex; flex-direction: column; gap: 4px; cursor: pointer; list-style: none; }
-        .hydro-summary::-webkit-details-marker { display: none; }
+        .hydro-summary { display: flex; flex-direction: column; gap: 4px; list-style: none; }
         .hydro-summary-main { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; flex-wrap: wrap; font-size: 12px; font-weight: 700; }
-        .hydro-summary-hint { color: #94a3b8; font-size: 10px; font-weight: 400; }
-        .hydro-summary-hint::before { content: '[+]'; }
-        .hydro-details[open] .hydro-summary-hint::before { content: '[−]'; }
         .hydro-mini { display: flex; gap: 4px; flex-wrap: wrap; }
         .hydro-mini-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; color: #cbd5e1; background: rgba(15,23,42,.45); border: 1px solid #334155; border-radius: 4px; padding: 2px 3px; font-variant-numeric: tabular-nums; }
         .hydro-mini-badge b { color: #e2e8f0; font-weight: 700; }
@@ -2202,6 +2198,14 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     </div>
     <div id="live-sc-confidence" class="sc-confidence" style="display:none;"></div>
     <div id="live-sc-summary" style="display:none;gap:8px;flex-wrap:wrap;padding:0 10px 6px 10px;font-size:11px;color:#e2e8f0;"></div>
+    <!-- FIX 1.3.0.40 - indicatore qualitativo ONESTO dell'attivita' elettrica.
+         `latest.json` NON pubblica un campo `lightning_afa` con conteggio (verificato
+         sul payload reale 2026-11-21: solo `engine.stage_timings_ms.stages.lightning_afa`,
+         un tempo di esecuzione, e `phase2_best_candidate.lightning: null`). Il conteggio
+         viene quindi letto dalle strutture gia' caricate (convective_structures.json),
+         dove `lightning_afa.value` e' un booleano per struttura. Nessun numero inventato:
+         se il campo manca si dice che il dato non e' pubblicato. -->
+    <div id="live-afa-status" class="sc-cells-count" style="display:none;margin-top:0;"></div>
     <div id="live-sc-phenomena" style="display:none;"></div>
     <div id="live-sc-list" style="max-height:220px;overflow-y:auto;border-top:1px solid #334155;"></div>
     <div id="live-sc-timeline" class="sc-timeline" style="display:none;"></div>
@@ -2404,18 +2408,18 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
              (nessuna/gialla/arancione/rossa) e attribuzione obbligatoria.
              `hidden` finche' il layer non viene acceso. -->
         <div id="hydro-panel" class="hydro-panel" hidden>
-            <!-- FIX 1.3.0.7 - vista compatta ripiegabile chiusa di default: i 3
-                 rischi DPC restano SEPARATI e leggibili nella riga di badge,
-                 il dettaglio si apre su richiesta. Nessuna informazione persa. -->
-            <details id="hydro-details" class="hydro-details">
-                <summary class="hydro-summary">
+            <!-- FIX 1.3.0.40 - legenda DPC SEMPRE VISIBILE: il pannello non e' piu'
+                 un <details> chiuso con [+], unica legenda dell'app a richiedere un
+                 click. Stessi ID/classi per CSS e JS (nessun codice usa .open/toggle
+                 su questo elemento: verificato 0 riferimenti nel sorgente). -->
+            <div id="hydro-details" class="hydro-details">
+                <div class="hydro-summary">
                     <span class="hydro-summary-main">
                         <span id="hydro-panel-title">Criticità DPC — 3 rischi separati</span>
                         <span class="hydro-bulletin" id="hydro-bulletin"></span>
                     </span>
                     <span class="hydro-mini" id="hydro-mini" title="Il bollettino DPC pubblica solo 3 rischi: idraulico, temporali, idrogeologico. Vento, neve, caldo, gelate e gelicidio NON sono pubblicati nel bollettino nazionale DPC."></span>
-                    <span class="hydro-summary-hint" aria-hidden="true"></span>
-                </summary>
+                </div>
                 <div class="hydro-body">
                     <div class="hydro-legend" id="hydro-legend"></div>
                     <div class="hydro-status" id="hydro-status">Bollettino non ancora caricato.</div>
@@ -2424,7 +2428,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                         Criticità <b>prevista</b> dal DPC: non è un'allerta emessa da MeteoRisk.
                     </div>
                 </div>
-            </details>
+            </div>
         </div>
         </div>
         <!-- Mappe previsionali (Open-Meteo Weather Map Layer) -->
@@ -3093,9 +3097,19 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.39';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.41';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-21';
     const APP_CHANGELOG = [
+    { version: '1.3.0.41', date: '2026-11-21', changes: [
+      "10 CAPPI SEMPRE: per decisione utente il set completo dei 10 livelli CAPPI viene scaricato in ogni run, senza gate grandine selettivo; costo 703,9 MB/giorno accettato. MESH e overhang leggono sempre il profilo verticale completo.",
+      "AFA COME DESCRITTORE GRADUATO: il campo AFA espone activity_0_100 = 100*min(1, active_pixels/600) con soglia di riferimento SCELTA INGEGNERISTICA NON TARATA su etichette indipendenti (frame reale 14:35Z = 582 px). Resta un descrittore, NON una componente del SOI e NON tocca il tracking.",
+      "CREA WDA: import dei dataset Weather-related Disasters in Agriculture (WDA) con join sulle province italiane e documentazione di validazione; sorgente dichiarata, nessuna etichetta inventata."
+    ]},
+    { version: '1.3.0.40', date: '2026-11-21', changes: [
+      "DPC LEGGENDA SEMPRE VISIBILE: il pannello criticita non e piu un details chiuso con [+]; texture chiara (righe e puntini bianchi) su fill opacita 0.82, bordo del colore del livello e lettere G/A/R nella legenda per distinguere giallo/arancio/rosso. Nessun JS usava .open o toggle su quell elemento.",
+      "NEVE - NOME REALE DEL LUOGO: la quota neve piu bassa dice la provincia e la regione vere (es. fino a 1300 m sul Trentino-Alto Adige (Bolzano, 1710 m)) invece dell eufemismo versanti/valli piu freddi. L elevazione e del punto neve, NON row[3] che e n_points; fallback compatto dichiarato se il luogo non e determinabile.",
+      "AFA NEL LIVE - INDICATORE ONESTO: nuova riga con il numero di strutture con emissione ottica MTG-I LI AFA nelle ultime 30 min, letta dalle strutture gia caricate (latest.json non pubblica un conteggio AFA). Dichiara che e attivita ottica NON conteggio di scariche, non distingue intra-nube da terra, fonte EUMETSAT CC BY 4.0. Nessun collegamento a tracking o SOI."
+    ]},
     { version: '1.3.0.39', date: '2026-11-21', changes: [
       "RISCHIO GENERICO: il badge avviso senza un fenomeno predominante ora dichiara nel tooltip la causa misurata (codice WMO 80-90, vento medio oltre 25 km/h con raffiche sotto soglia, oppure profilo generale sfavorevole). Nessun colore, soglia, calcolo o gate Sviluppo toccato.",
       "CRITICITA DPC COME FA LA DPC: vista combinata con un solo layer — pieno=idraulico, righe diagonali=idrogeologico, puntini=temporali (pattern SVG); colore = livello massimo dpc_map_class con priorita idraulico > temporali > idrogeologico. Verificato 0 violazioni su 187 zone. Tabella e popup mantengono i 3 valori ufficiali separati.",
@@ -11467,6 +11481,8 @@ removeLightningTile();
         // 1.2.4.77+: stessa confidence globale e stessa mini timeline della vista SC.
         scRenderTrackingConfidence();
         scRefreshTimelineSelection();
+        // FIX 1.3.0.40 - indicatore AFA onesto (letto dalle strutture caricate).
+        liveUpdateAfaStatus();
     }
 
     // Lista compatta fenomeni osservati nella vista LIVE (id dedicato).
@@ -11506,6 +11522,9 @@ removeLightningTile();
         if (list) list.innerHTML = '';
         var box = document.getElementById('live-sc-phenomena');
         if (box) { box.innerHTML = ''; box.style.display = 'none'; }
+        // FIX 1.3.0.40 - nascondo anche l'indicatore AFA quando il LIVE si chiude.
+        var afaEl = document.getElementById('live-afa-status');
+        if (afaEl) { afaEl.innerHTML = ''; afaEl.style.display = 'none'; }
         if (!isScRadarActive) {
             if (scRadarLayer && map && map.hasLayer(scRadarLayer)) map.removeLayer(scRadarLayer);
             scRadarLayer = null;
@@ -12332,6 +12351,43 @@ removeLightningTile();
             '<span class="sc-chip sc-chip-neutral">SOI max ' + ((c.soi_max !== null && c.soi_max !== undefined) ? c.soi_max : '—') + '/100</span>' +
             '<span class="sc-chip sc-chip-neutral">Top ' + Math.min(scTopN(), list.length) + ' per SOI</span>' +
             (shearKnown ? '<span class="sc-chip sc-chip-neutral" title="Shear azimutale osservato dal radar Doppler: solo le strutture con una misura valida hanno il simbolo; le altre portano il motivo nella riga.">Shear Doppler ' + shearValued + '/' + shearKnown + '</span>' : '');
+    }
+
+    // FIX 1.3.0.40 - indicatore AFA onesto nel Pannello LIVE.
+    // `latest.json` NON contiene un campo `lightning_afa` con conteggio: viene
+    // letto dalle strutture gia' caricate (scRadarData.structures), dove
+    // lightning_afa.value e' un booleano (area con emissione ottica nel raggio,
+    // NON conteggio di scariche). Nessun collegamento al tracking o al SOI
+    // (nessuna soglia validata, memoria #218): e' solo un conteggio descrittivo.
+    function liveAfaStatusHtml() {
+        var structures = (scRadarData && Array.isArray(scRadarData.structures)) ? scRadarData.structures : [];
+        var disclaimer = 'Indicatore di attività ottica, NON conteggio di scariche; non distingue fulmini intra-nube da terra. Fonte: EUMETSAT CC BY 4.0';
+        if (!structures.length) {
+            return '<b>Attività elettrica (MTG-I LI AFA):</b> dato non pubblicato in latest.json — vedi strutture' +
+                '<span class="sc-cells-sub">' + disclaimer + '</span>';
+        }
+        var known = 0, active = 0, i, a;
+        for (i = 0; i < structures.length; i++) {
+            a = structures[i] && structures[i].lightning_afa;
+            if (a && typeof a === 'object' && (a.value === true || a.value === false)) {
+                known++;
+                if (a.value === true) active++;
+            }
+        }
+        var head = known
+            ? '<b>Attività elettrica (MTG-I LI AFA): ' + active + ' strutture con emissione ottica nelle ultime 30 min</b>' +
+              '<span class="sc-cells-sub">su ' + known + ' strutture con campo AFA disponibile · ' +
+              'conteggio letto da convective_structures.json (latest.json non pubblica un conteggio AFA)</span>'
+            : '<b>Attività elettrica (MTG-I LI AFA):</b> dato non pubblicato in latest.json — vedi strutture';
+        return head + '<span class="sc-cells-sub' + (known ? '' : ' sc-cells-warn') + '">' + disclaimer + '</span>';
+    }
+
+    function liveUpdateAfaStatus() {
+        var el = document.getElementById('live-afa-status');
+        if (!el) return;
+        if (!liveShowSupercells) { el.style.display = 'none'; el.innerHTML = ''; return; }
+        el.style.display = '';
+        el.innerHTML = liveAfaStatusHtml();
     }
 
     // ---- 1.2.4.77+: GERARCHIA, CONFIDENCE GLOBALE, MINI TIMELINE ----
@@ -35176,6 +35232,7 @@ syncSelect('lightning-source-select', [
                     snowProvs: [], snowPoints: [], snowQuotas: [],
                     snowQMin: null, snowQMax: null, snowP25: null, snowP50: null, snowP75: null,
                     snowLowBand: null, snowLowElev: null,
+                    snowLowProvIdx: null, snowLowSigla: '', snowLowRegion: '', snowLowProvName: '',
                     snowQuotaMin: null, snowQuotaMax: null,
                     snowAmountP25: null, snowAmountP75: null, snowMax: null, snowProvIdx: null,
                     windU: 0, windV: 0, windW: 0,
@@ -35309,10 +35366,21 @@ syncSelect('lightning-source-select', [
                     for (var sq2 = 0; sq2 < st.snowPoints.length; sq2++) {
                         var sp2 = st.snowPoints[sq2];
                         var mn = Math.min.apply(null, sp2.qs);
-                        if (qLow === null || mn < qLow.q) qLow = { q: mn, band: sp2.band, elev: sp2.elev };
+                        // FIX 1.3.0.40 - conservo l'indice provincia del punto con quota piu' bassa
+                        if (qLow === null || mn < qLow.q) qLow = { q: mn, band: sp2.band, elev: sp2.elev, idx: sp2.idx };
                     }
                     st.snowLowBand = qLow ? qLow.band : null;
                     st.snowLowElev = qLow ? qLow.elev : null;
+                    // FIX 1.3.0.40 - nome reale della provincia/regione al posto
+                    // del vecchio eufemismo: sp2.idx e' l'indice in regionsData
+                    // (pt.provinceIdx, verificato), italiaProvName/italiaProvRegion
+                    // sono le helper gia' presenti nel file.
+                    st.snowLowProvIdx = (qLow && qLow.idx !== undefined && qLow.idx !== null) ? qLow.idx : null;
+                    if (st.snowLowProvIdx !== null && typeof regionsData !== 'undefined' && regionsData && regionsData[st.snowLowProvIdx]) {
+                        st.snowLowSigla = String(regionsData[st.snowLowProvIdx].sigla || '');
+                        st.snowLowRegion = italiaProvRegion(st.snowLowProvIdx);
+                        st.snowLowProvName = italiaProvName(st.snowLowProvIdx);
+                    }
                     st.snowQuotaMin = Math.max(0, Math.round(st.snowQMin / 100) * 100);
                     st.snowQuotaMax = Math.max(0, Math.round(st.snowQMax / 100) * 100);
                 }
@@ -35493,6 +35561,19 @@ syncSelect('lightning-source-select', [
         return 'Gelate ' + where + '.';
     }
     function italiaRound100(v) { return Math.max(0, Math.round(Number(v) / 100) * 100); }
+    // FIX 1.3.0.40 - dice il nome vero del luogo con la quota neve piu' bassa.
+    // Usa i 4 campi popolati in qLow (snowLowRegion/ProvName/ProvIdx/elev).
+    // NOTA: l'elevazione e' qLow.elev (quota del punto, 1710 m nel caso BZ);
+    // NON si corregge row[3]: e' n_points, non elevazione (verificato).
+    // Se il luogo non e' determinabile ritorna '' (fallback compatto, nessun
+    // eufemismo e nessun dato inventato).
+    function italiaSnowLowPlace(st) {
+        if (!st || !st.snowLowRegion) return '';
+        var name = st.snowLowProvName || st.snowLowSigla || '';
+        var elev = (st.snowLowElev !== null && st.snowLowElev !== undefined && isFinite(st.snowLowElev))
+            ? ' ' + Math.round(Number(st.snowLowElev)) + ' m' : ' (elevazione 0 m, fall back)';
+        return ' sul ' + st.snowLowRegion + (name ? ' (' + name + ', ' + elev.replace(/^\s*/, '') + ')' : elev);
+    }
     function italiaSnowParts(st, opt) {
         opt = opt || {};
         if (st.snowQMin === null || st.snowQMin === undefined) return null;
@@ -35503,8 +35584,9 @@ syncSelect('lightning-source-select', [
         } else {
             var lo = italiaRound100(st.snowP25), hi = italiaRound100(st.snowP75);
             out.core = 'Neve ' + oltre + lo + (hi > lo ? '-' + hi : '') + ' m';
-            var zone = opt.compactSnow ? '' :
-                (' ' + (st.snowLowBand === 'montagna' ? 'sui versanti pi\u00F9 freddi' : 'nelle valli pi\u00F9 fredde'));
+            // FIX 1.3.0.40 - nome reale della provincia/regione con quota neve
+            // minima, NON l'eufemismo "versanti/valli piu' fredde".
+            var zone = opt.compactSnow ? '' : italiaSnowLowPlace(st);
             if (st.snowQMin < st.snowP25 - 150) {
                 out.exception = ', fino a ' + italiaRound100(st.snowQMin) + ' m' + zone;
             } else if (st.snowQMax > st.snowP75 + 150) {
@@ -37131,7 +37213,10 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         return (l && l[key]) || 'unknown';
     }
     function baseStyle(pane) {
-        return { pane: pane, className: 'hydro-zone', color: 'rgba(15,23,42,0.75)', weight: 0.7, opacity: 0.9 };
+        // FIX 1.3.0.40 - bordo piu' marcato: il perimetro della zona porta il
+        // colore del livello (impostato in styleDpc/styleSingle), cosi' la
+        // classificazione resta leggibile anche con texture chiara sopra.
+        return { pane: pane, className: 'hydro-zone', color: 'rgba(15,23,42,0.85)', weight: 1.1, opacity: 1 };
     }
     var HYDRO_PATTERN = { hydraulic: '', hydrogeological: 'stripe', thunderstorm: 'dot', none: '' };
     var RISK_RANK = { hydraulic: 3, thunderstorm: 2, hydrogeological: 1 };
@@ -37165,9 +37250,14 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
             var LV = ['none', 'yellow', 'orange', 'red'], i2;
             for (i2 = 0; i2 < LV.length; i2++) {
                 var lv = LV[i2], cap = lv.charAt(0).toUpperCase() + lv.slice(1);
+                // FIX 1.3.0.40 - texture CHIARA per leggibilita': righe/puntini bianchi
+                // semi-trasparenti sul colore del livello, NON scuri. Il bordo del
+                // livello resta visibile perche' lo stroke delle zone e' colorato
+                // (vedi styleDpc/baseStyle), quindi la distinzione giallo/arancio/rosso
+                // non si perde nelle zone rigate o puntinate (187 zone).
                 var base = '<rect width="8" height="8" fill="' + HYDRO_COLORS[lv] + '"/>';
-                pat('hydroStripe' + cap, base + '<rect x="0" y="0" width="3" height="8" fill="rgba(15,23,42,.30)"/>');
-                pat('hydroDot' + cap, base + '<circle cx="4" cy="4" r="1.7" fill="rgba(15,23,42,.45)"/>');
+                pat('hydroStripe' + cap, base + '<rect x="0" y="0" width="3" height="8" fill="rgba(255,255,255,.55)"/>');
+                pat('hydroDot' + cap, base + '<circle cx="4" cy="4" r="1.7" fill="rgba(255,255,255,.70)"/>');
             }
             svg.insertBefore(defs, svg.firstChild);
         }
@@ -37177,7 +37267,10 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         var dom = dominantRisk(props);
         var code = props.dpc_map_class || dom.code;
         s.fillColor = HYDRO_COLORS[code] || HYDRO_COLORS.unknown;
-        s.fillOpacity = code === 'none' ? 0.12 : (code === 'unknown' ? 0.18 : 0.55);
+        s.fillOpacity = code === 'none' ? 0.12 : (code === 'unknown' ? 0.18 : 0.82);
+        // FIX 1.3.0.40 - bordo del colore del livello per distinguere
+        // giallo/arancio/rosso anche sulle zone rigate/puntinate.
+        if (code !== 'none' && code !== 'unknown') s.color = HYDRO_COLORS[code];
         if (dom.key === 'hydrogeological' || dom.key === 'thunderstorm') {
             var lv = (code === 'unknown') ? 'none' : code;
             s.className = 'hydro-zone hydro-fill-' + dom.key + '-' + lv;
@@ -37189,7 +37282,8 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
     function styleSingle(feature) {
         var s = baseStyle('hydroPaneGeo'), code = levelOf(feature, st.risk);
         s.fillColor = HYDRO_COLORS[code] || HYDRO_COLORS.unknown;
-        s.fillOpacity = code === 'none' ? 0.12 : (code === 'unknown' ? 0.18 : 0.5);
+        s.fillOpacity = code === 'none' ? 0.12 : (code === 'unknown' ? 0.18 : 0.82);
+        if (code !== 'none' && code !== 'unknown') s.color = HYDRO_COLORS[code];
         return s;
     }
     function ensurePanes() {
@@ -37329,13 +37423,18 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         var container = byId('hydro-legend');
         if (container) {
             var html = '<div class="hydro-combined-head">Vista combinata come la DPC — i 3 rischi restano SEPARATI (nessuna somma in un indice unico)</div>';
-            html += '<div class="hydro-combined-key">Come leggere la mappa (convenzione DPC): <b>pieno = idraulico</b> · ' +
-                '<b>righe diagonali = idrogeologico</b> · <b>puntini = temporali</b>. Il colore è il livello MASSIMO ufficiale ' +
-                '(dpc_map_class); a parità di livello la priorità è idraulico &gt; temporali &gt; idrogeologico: ' +
-                '<span style="color:' + HYDRO_COLORS.none + '">verde nessuna</span>, ' +
-                '<span style="color:' + HYDRO_COLORS.yellow + '">gialla</span>, ' +
-                '<span style="color:' + HYDRO_COLORS.orange + '">arancione</span>, ' +
-                '<span style="color:' + HYDRO_COLORS.red + '">rossa</span>. I tre valori ufficiali restano separati nella tabella.</div>';
+            // FIX 1.3.0.40 - legenda DPC riscritta: pieno/righe/puntini e i tre
+            // colori di livello con lettera di classificazione (G/A/R), ben
+            // visibili. Nessun testo "clicca": il pannello e' sempre aperto.
+            html += '<div class="hydro-combined-key">Come leggere la mappa (convenzione DPC): <b>pieno = rischio idraulico</b> · ' +
+                '<b>righe bianche diagonali = rischio idrogeologico</b> · <b>puntini bianchi = temporali</b>. ' +
+                'Il colore del riempimento e del bordo e il livello MASSIMO ufficiale (dpc_map_class); ' +
+                'a parita di livello la priorita e idraulico &gt; temporali &gt; idrogeologico.<br>' +
+                '<span style="display:inline-block;padding:1px 5px;border-radius:3px;background:' + HYDRO_COLORS.none + ';color:#0b1220;font-weight:700;">verde — nessuna</span> ' +
+                '<span style="display:inline-block;padding:1px 5px;border-radius:3px;background:' + HYDRO_COLORS.yellow + ';color:#0b1220;font-weight:700;">G — gialla</span> ' +
+                '<span style="display:inline-block;padding:1px 5px;border-radius:3px;background:' + HYDRO_COLORS.orange + ';color:#0b1220;font-weight:700;">A — arancione</span> ' +
+                '<span style="display:inline-block;padding:1px 5px;border-radius:3px;background:' + HYDRO_COLORS.red + ';color:#ffffff;font-weight:700;">R — rossa</span>' +
+                '<br>I tre valori ufficiali restano separati nella tabella qui sotto.</div>';
             html += riskTableHtml(zones);
             html += availabilityHtml();
             // FIX 1.3.0.7 - nota didattica .hydro-only3 RIMOSSA dallo schermo:

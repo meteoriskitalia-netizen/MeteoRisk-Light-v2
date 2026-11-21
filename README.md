@@ -6,9 +6,10 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
-## Versione attiva: 1.3.0.39
+## Versione attiva: 1.3.0.41
 
-- File applicativo: `mri-light-1.3.0.39.html` (`APP_VERSION = '1.3.0.39'`; changelog in-app) + `sw.js` (`CACHE_NAME = 'mri-1.3.0.39'`, `TILE_CACHE = 'mri-tiles-1.3.0.39'`, `FRAME_CACHE = 'mri-frames-1.3.0.39'`) + `VERSION` (`BUILD=169`, `DATE=2026-11-21`).
+- File applicativo: `mri-light-1.3.0.41.html` (`APP_VERSION = '1.3.0.41'`; changelog in-app) + `sw.js` (`CACHE_NAME = 'mri-1.3.0.41'`, `TILE_CACHE = 'mri-tiles-1.3.0.41'`, `FRAME_CACHE = 'mri-frames-1.3.0.41'`) + `VERSION` (`BUILD=171`, `DATE=2026-11-21`).
+- **1.3.0.41 - 10 CAPPI sempre, AFA descrittore graduato, CREA WDA**: per decisione utente il `hail_gate` e disabilitato (`levels_when_implausible=full`): tutti i 10 CAPPI vengono scaricati in ogni run, costo 703,9 MB/giorno accettato. L AFA espone `activity_0_100 = 100*min(1, active_pixels/600)` con `activity_ref_px=600` (SCELTA INGEGNERISTICA NON TARATA, frame reale 14:35Z = 582 px): descrittore, NON componente SOI, tracking invariato. Aggiunti `import_crea_wda.py`, `join_crea_wda_provinces.py`, `docs/VALIDAZIONE_CREA_WDA.md` e il relativo test. HTML base 1.3.0.40 con DPC legenda sempre visibile, neve Bolzano e AFA nel LIVE. Verifiche: radar 822 passati (atteso), test_html_js_syntax, test_crea_wda_import, node --check 8/8. NON verificato prima del dispatch: resa visiva su Pages.
 - **1.3.0.39 - Rischio generico con driver reale, criticita DPC con pattern ufficiali**: Fix A: il rischio generico usa il driver reale (etichetta `driverLabel` generica) invece di un valore fisso. Fix B: pattern DPC ufficiali con `ensurePatterns` corretto nei 3 pani (righe/puntini/pieno); verificato nel browser su 187 zone, 40 gialle + 3 arancioni per domani, CSS computed `url(#hydroStripe)`/`url(#hydroDot)` confermati. Solo client HTML: codice radar invariato. Verifiche: node --check 9/9, test_html_js_syntax e suite radar. NON verificato: resa visiva finale su Pages prima del dispatch.
 
 ## Versione attiva: 1.3.0.37

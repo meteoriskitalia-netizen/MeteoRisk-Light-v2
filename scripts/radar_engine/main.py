@@ -2171,6 +2171,15 @@ def _phase2_evaluate(bundle, config):
         # value True/False/None + null_reason, source e reference dichiarati.
         c["lightning_afa"] = lightning_afa.field_for_candidate(
             afa_frame, lon, lat, ltg_radius, null_reason=afa_null_reason)
+        _afa = c["lightning_afa"]
+        _px = _afa.get("active_pixels")
+        _ref = float((lcfg.get("afa") or {}).get("activity_ref_px") or 600.0)
+        _afa["activity_0_100"] = (
+            round(100.0 * min(1.0, max(0.0, float(_px)) / _ref), 1)
+            if _px is not None and not isinstance(_px, bool) else None)
+        _afa["activity_reference"] = (
+            "100*min(1, active_pixels/600); SCELTA INGEGNERISTICA NON TARATA "
+            "su etichette indipendenti — descrittore, NON componente soi_v2")
         c["env"] = env_score
         c["env_scp"] = env_score        # chip 'Env' (0-100; SCP grezzo sopra)
         if replay:
