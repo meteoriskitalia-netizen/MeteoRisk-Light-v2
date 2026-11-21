@@ -1852,8 +1852,14 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .hydro-pop .hydro-pop-row { display: flex; gap: 6px; align-items: center; }
         .hydro-pop .hydro-pop-n { margin-left: auto; color: #94a3b8; }
         .hydro-pop .hydro-pop-note { color: #94a3b8; font-size: 9.5px; margin-top: 4px; }
-        .hydro-fill-hydrogeological { fill: url(#hydroStripe); }
-        .hydro-fill-thunderstorm    { fill: url(#hydroDot); }
+        .hydro-fill-hydrogeological-none   { fill: url(#hydroStripeNone); }
+        .hydro-fill-hydrogeological-yellow { fill: url(#hydroStripeYellow); }
+        .hydro-fill-hydrogeological-orange { fill: url(#hydroStripeOrange); }
+        .hydro-fill-hydrogeological-red    { fill: url(#hydroStripeRed); }
+        .hydro-fill-thunderstorm-none      { fill: url(#hydroDotNone); }
+        .hydro-fill-thunderstorm-yellow    { fill: url(#hydroDotYellow); }
+        .hydro-fill-thunderstorm-orange    { fill: url(#hydroDotOrange); }
+        .hydro-fill-thunderstorm-red       { fill: url(#hydroDotRed); }
         #switch-hydro-wrap { width: auto; min-width: 110px; }
         #hydro-risk-wrap { display: none; width: auto; min-width: 110px; }
         .hydro-risks-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 5px; margin: 6px 0; }
@@ -3092,7 +3098,8 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     const APP_CHANGELOG = [
     { version: '1.3.0.39', date: '2026-11-21', changes: [
       "RISCHIO GENERICO: il badge avviso senza un fenomeno predominante ora dichiara nel tooltip la causa misurata (codice WMO 80-90, vento medio oltre 25 km/h con raffiche sotto soglia, oppure profilo generale sfavorevole). Nessun colore, soglia, calcolo o gate Sviluppo toccato.",
-      "CRITICITA DPC COME FA LA DPC: vista combinata con un solo layer — pieno=idraulico, righe diagonali=idrogeologico, puntini=temporali (pattern SVG); colore = livello massimo dpc_map_class con priorita idraulico > temporali > idrogeologico. Verificato 0 violazioni su 187 zone. Tabella e popup mantengono i 3 valori ufficiali separati."
+      "CRITICITA DPC COME FA LA DPC: vista combinata con un solo layer — pieno=idraulico, righe diagonali=idrogeologico, puntini=temporali (pattern SVG); colore = livello massimo dpc_map_class con priorita idraulico > temporali > idrogeologico. Verificato 0 violazioni su 187 zone. Tabella e popup mantengono i 3 valori ufficiali separati.",
+      "FIX PATTERN DPC: il colore del livello (giallo/arancione/rosso) resta visibile anche nelle zone rigate (idrogeologico) e puntinate (temporali): 8 pattern SVG con rettangolo di fondo colorato, uno per combinazione dominio x livello. Verificato 1600/1600 pixel opaci e 0 riferimenti a pattern senza suffisso di livello."
     ]},
     { version: '1.3.0.38', date: '2026-11-21', changes: [
       "BADGE MESOCICLONICI CON SVILUPPO OFF = 0 NEL DOM DELLA MAPPA. Causa esatta: buildBadgeLegendBar() disegnava la riga della legenda badge Ambiente favorevole a vortici (NWP) senza verificare isSviluppoActive; buildRiskBadgeIcon() e riskDiscHtml() usavano RISK_DEFS.vorticosi.label/title (contenenti vortice/vortici) nei title dei marker e dei dischi sulla mappa, sempre senza il gate. Misurato in Edge headless CDP Sviluppo OFF: 1 elemento badge con testo vortici prima del fix, 0 dopo; Sviluppo ON: 2 voci (Mesociclone NWP e Ambiente favorevole a vortici NWP) riappaiono dove il test passa.",
@@ -37126,12 +37133,7 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
     function baseStyle(pane) {
         return { pane: pane, className: 'hydro-zone', color: 'rgba(15,23,42,0.75)', weight: 0.7, opacity: 0.9 };
     }
-    var HYDRO_PATTERN = {
-        hydraulic:       '',
-        hydrogeological: 'url(#hydroStripe)',
-        thunderstorm:    'url(#hydroDot)',
-        none:            ''
-    };
+    var HYDRO_PATTERN = { hydraulic: '', hydrogeological: 'stripe', thunderstorm: 'dot', none: '' };
     var RISK_RANK = { hydraulic: 3, thunderstorm: 2, hydrogeological: 1 };
     var LV_RANK = { none: 0, yellow: 1, orange: 2, red: 3 };
     function dominantRisk(props) {
@@ -37149,7 +37151,7 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         var ns = 'http://www.w3.org/2000/svg';
         for (i = 0; i < sel.length; i++) {
             var svg = document.querySelector(sel[i]);
-            if (!svg || svg.querySelector('#hydroStripe')) continue;
+            if (!svg || svg.querySelector('#hydroStripeNone')) continue;
             var defs = document.createElementNS(ns, 'defs');
             function pat(id, draw) {
                 var p = document.createElementNS(ns, 'pattern');
@@ -37160,9 +37162,13 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
                 p.innerHTML = draw;
                 defs.appendChild(p);
             }
-            pat('hydroStripe', '<rect width="8" height="8" fill="transparent"/>' +
-                '<rect x="0" y="0" width="3" height="8" fill="rgba(15,23,42,.42)"/>');
-            pat('hydroDot', '<circle cx="4" cy="4" r="1.7" fill="rgba(15,23,42,.55)"/>');
+            var LV = ['none', 'yellow', 'orange', 'red'], i2;
+            for (i2 = 0; i2 < LV.length; i2++) {
+                var lv = LV[i2], cap = lv.charAt(0).toUpperCase() + lv.slice(1);
+                var base = '<rect width="8" height="8" fill="' + HYDRO_COLORS[lv] + '"/>';
+                pat('hydroStripe' + cap, base + '<rect x="0" y="0" width="3" height="8" fill="rgba(15,23,42,.30)"/>');
+                pat('hydroDot' + cap, base + '<circle cx="4" cy="4" r="1.7" fill="rgba(15,23,42,.45)"/>');
+            }
             svg.insertBefore(defs, svg.firstChild);
         }
     }
@@ -37172,7 +37178,12 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         var code = props.dpc_map_class || dom.code;
         s.fillColor = HYDRO_COLORS[code] || HYDRO_COLORS.unknown;
         s.fillOpacity = code === 'none' ? 0.12 : (code === 'unknown' ? 0.18 : 0.55);
-        s.className = 'hydro-zone hydro-fill-' + dom.key;
+        if (dom.key === 'hydrogeological' || dom.key === 'thunderstorm') {
+            var lv = (code === 'unknown') ? 'none' : code;
+            s.className = 'hydro-zone hydro-fill-' + dom.key + '-' + lv;
+        } else {
+            s.className = 'hydro-zone hydro-fill-' + dom.key;
+        }
         return s;
     }
     function styleSingle(feature) {
