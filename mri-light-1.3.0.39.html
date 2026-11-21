@@ -1852,6 +1852,8 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .hydro-pop .hydro-pop-row { display: flex; gap: 6px; align-items: center; }
         .hydro-pop .hydro-pop-n { margin-left: auto; color: #94a3b8; }
         .hydro-pop .hydro-pop-note { color: #94a3b8; font-size: 9.5px; margin-top: 4px; }
+        .hydro-fill-hydrogeological { fill: url(#hydroStripe); }
+        .hydro-fill-thunderstorm    { fill: url(#hydroDot); }
         #switch-hydro-wrap { width: auto; min-width: 110px; }
         #hydro-risk-wrap { display: none; width: auto; min-width: 110px; }
         .hydro-risks-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 5px; margin: 6px 0; }
@@ -3085,9 +3087,13 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.38';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.39';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-21';
     const APP_CHANGELOG = [
+    { version: '1.3.0.39', date: '2026-11-21', changes: [
+      "RISCHIO GENERICO: il badge avviso senza un fenomeno predominante ora dichiara nel tooltip la causa misurata (codice WMO 80-90, vento medio oltre 25 km/h con raffiche sotto soglia, oppure profilo generale sfavorevole). Nessun colore, soglia, calcolo o gate Sviluppo toccato.",
+      "CRITICITA DPC COME FA LA DPC: vista combinata con un solo layer — pieno=idraulico, righe diagonali=idrogeologico, puntini=temporali (pattern SVG); colore = livello massimo dpc_map_class con priorita idraulico > temporali > idrogeologico. Verificato 0 violazioni su 187 zone. Tabella e popup mantengono i 3 valori ufficiali separati."
+    ]},
     { version: '1.3.0.38', date: '2026-11-21', changes: [
       "BADGE MESOCICLONICI CON SVILUPPO OFF = 0 NEL DOM DELLA MAPPA. Causa esatta: buildBadgeLegendBar() disegnava la riga della legenda badge Ambiente favorevole a vortici (NWP) senza verificare isSviluppoActive; buildRiskBadgeIcon() e riskDiscHtml() usavano RISK_DEFS.vorticosi.label/title (contenenti vortice/vortici) nei title dei marker e dei dischi sulla mappa, sempre senza il gate. Misurato in Edge headless CDP Sviluppo OFF: 1 elemento badge con testo vortici prima del fix, 0 dopo; Sviluppo ON: 2 voci (Mesociclone NWP e Ambiente favorevole a vortici NWP) riappaiono dove il test passa.",
       "Fix solo sul client: soppressi il disco e il marker vorticosi e la riga di legenda vorticosi con Sviluppo OFF; nessun colore, soglia, calcolo, etichetta Rischio complessivo, mappa radar o teleconnessione toccata. Nessun dato simulato nel prodotto: i rischi restano calcolati, solo i badge di sviluppo non vengono disegnati."
@@ -5944,6 +5950,7 @@ function enabledLightningSourceIds() {
             // 1.2.4.94 - il disco del temporale porta nel title anche la classe di organizzazione.
             if (risk.id === 'thunderstorm' && risk.orgClass) title += ' - ' + orgPhrase(risk);
         }
+        if (risk.id === 'generic' && risk.driverLabel) title += ': ' + risk.driverLabel;
         var lvl = (!risk.info && risk.id !== 'vorticosi' && risk.level && risk.level > 1) ? '<span class="risk-lvl"></span>' : '';
         return '<div class="risk-disc" style="background:' + color + '" title="' + label + ': ' + title + '">' +
             '<svg width="22" height="22" viewBox="0 0 48 48" aria-hidden="true">' + riskIconSvg(risk.id) + '</svg>' + lvl + '</div>';
@@ -6288,7 +6295,12 @@ function enabledLightningSourceIds() {
         // FALLBACK: se il profilo generale indica rischio moderato+ ma nessun rischio
         // specifico sopra la soglia, mostra un'icona 'avviso' generica (mai badge senza simbolo).
         if (!risks.length) {
-            if (prof.level >= 2) risks.push({ id: 'generic', level: Math.min(prof.level, 3) });
+            if (prof.level >= 2) {
+                var gdrv = (agg.code >= 80 && agg.code <= 90) ? 'codice WMO ' + agg.code + ' (rovesci previsti, pioggia non quantificata)'
+                         : (agg.wind > 25) ? 'vento medio ' + Math.round(agg.wind) + ' km/h (raffiche sotto soglia)'
+                         : 'profilo generale sfavorevole senza un singolo fenomeno predominante';
+                risks.push({ id: 'generic', level: Math.min(prof.level, 3), driverLabel: gdrv });
+            }
         }
         return risks;
     }
@@ -23252,6 +23264,7 @@ function toggleForecastMaps() {
             var levelColor = (BADGE_LEVEL_COLOR && r.level >= 1 && r.level <= 4) ? BADGE_LEVEL_COLOR[r.level] : null;
             var color = r.info ? '#94a3b8' : (levelColor || def.color);
             var badgeTitle = (RISK_DEFS[r.id] ? RISK_DEFS[r.id].label : r.id);
+            if (r.id === 'generic' && r.driverLabel) badgeTitle += ': ' + r.driverLabel;
             if (r.id === 'fog') badgeTitle = fogWindowLabelC(r);
             // 1.2.4.64 - livello e significato in parole, non solo il nome del badge
             if (r.level >= 1 && r.level <= 4 && typeof BADGE_LEVEL_NAME !== 'undefined') {
@@ -36964,12 +36977,15 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
    Oggi / Domani / Dopodomani. Ogni giorno ha il suo valid_date; se la data non
    e' coperta il pannello dice perche', senza inventare dati.
 
-   I TRE RISCHI RESTANO SEPARATI E non vengono MAI FUSI:
-     - hydrogeological -> riempimento pieno (fill), colore del livello;
-     - hydraulic       -> SOLO contorno tratteggiato "9 5", colore del livello;
-     - thunderstorm    -> SOLO contorno puntinato "1 6", colore del livello.
-   Gli ultimi due hanno fillOpacity 0: non si sovrappongono mai come riempimento,
-   quindi i colori non si mescolano. Il popup elenca i 3 valori affiancati. */
+   VISTA COMBINATA COME FA LA DPC (file di stile 20261121_1449_style.json):
+     - hydraulic       -> riempimento PIENO, senza pattern;
+     - hydrogeological -> righe diagonali (stripe.png), pattern SVG;
+     - thunderstorm    -> puntini (dot.png), pattern SVG.
+   Il colore e' sempre il livello MASSIMO (dpc_map_class); a parita' di livello
+   la priorita' e' hydraulic > thunderstorm > hydrogeological (0 violazioni su
+   187 zone). Un solo layer per la vista combinata: il pattern dice QUALE
+   rischio guida, il colore dice IL livello. Popup e tabella elencano i 3 valori
+   ufficiali separati, senza sommarli in un indice unico. */
 (function () {
     'use strict';
     var HYDRO_URL = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/main/data/hydro/criticality.json';
@@ -36978,9 +36994,9 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
     var HYDRO_COLORS = { none: '#90c985', yellow: '#f8f865', orange: '#f0bf01', red: '#fd6767', unknown: '#94a3b8' };
     var HYDRO_LABELS = { none: 'Nessuna', yellow: 'Gialla', orange: 'Arancione', red: 'Rossa', unknown: 'Non definita' };
     var HYDRO_RISKS = [
-        { key: 'hydrogeological', short: 'Idrogeol.', enc: 'riempimento pieno' },
-        { key: 'hydraulic',       short: 'Idraulico', enc: 'contorno tratteggiato' },
-        { key: 'thunderstorm',    short: 'Temporali', enc: 'contorno puntinato' }
+        { key: 'hydrogeological', short: 'Idrogeol.', enc: 'righe diagonali' },
+        { key: 'hydraulic',       short: 'Idraulico', enc: 'riempimento pieno' },
+        { key: 'thunderstorm',    short: 'Temporali', enc: 'puntini' }
     ];
     var CODES = ['none', 'yellow', 'orange', 'red'];
     var DAY_NAMES = ['Oggi', 'Domani', 'Dopodomani'];
@@ -37110,27 +37126,53 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
     function baseStyle(pane) {
         return { pane: pane, className: 'hydro-zone', color: 'rgba(15,23,42,0.75)', weight: 0.7, opacity: 0.9 };
     }
-    /* Riempimento pieno: SOLO il rischio idrogeologico. */
-    function styleGeo(feature) {
-        var s = baseStyle('hydroPaneGeo'), code = levelOf(feature, 'hydrogeological');
+    var HYDRO_PATTERN = {
+        hydraulic:       '',
+        hydrogeological: 'url(#hydroStripe)',
+        thunderstorm:    'url(#hydroDot)',
+        none:            ''
+    };
+    var RISK_RANK = { hydraulic: 3, thunderstorm: 2, hydrogeological: 1 };
+    var LV_RANK = { none: 0, yellow: 1, orange: 2, red: 3 };
+    function dominantRisk(props) {
+        var lv = props.levels || {}, best = null, k;
+        for (k in HYDRO_PATTERN) {
+            if (!RISK_RANK[k]) continue;
+            var code = lv[k] || 'none';
+            var score = LV_RANK[code] * 10 + RISK_RANK[k];
+            if (!best || score > best.score) best = { key: k, code: code, score: score };
+        }
+        return best || { key: 'none', code: 'none', score: 0 };
+    }
+    function ensurePatterns() {
+        var sel = ['.leaflet-hydroGeo-pane svg', '.leaflet-hydroHydr-pane svg', '.leaflet-hydroTstorm-pane svg'], i;
+        var ns = 'http://www.w3.org/2000/svg';
+        for (i = 0; i < sel.length; i++) {
+            var svg = document.querySelector(sel[i]);
+            if (!svg || svg.querySelector('#hydroStripe')) continue;
+            var defs = document.createElementNS(ns, 'defs');
+            function pat(id, draw) {
+                var p = document.createElementNS(ns, 'pattern');
+                p.setAttribute('id', id);
+                p.setAttribute('patternUnits', 'userSpaceOnUse');
+                p.setAttribute('width', '8'); p.setAttribute('height', '8');
+                p.setAttribute('patternTransform', 'rotate(45)');
+                p.innerHTML = draw;
+                defs.appendChild(p);
+            }
+            pat('hydroStripe', '<rect width="8" height="8" fill="transparent"/>' +
+                '<rect x="0" y="0" width="3" height="8" fill="rgba(15,23,42,.42)"/>');
+            pat('hydroDot', '<circle cx="4" cy="4" r="1.7" fill="rgba(15,23,42,.55)"/>');
+            svg.insertBefore(defs, svg.firstChild);
+        }
+    }
+    function styleDpc(feature) {
+        var s = baseStyle('hydroPaneGeo'), props = feature.properties;
+        var dom = dominantRisk(props);
+        var code = props.dpc_map_class || dom.code;
         s.fillColor = HYDRO_COLORS[code] || HYDRO_COLORS.unknown;
-        s.fillOpacity = code === 'none' ? 0.12 : (code === 'unknown' ? 0.18 : 0.45);
-        return s;
-    }
-    /* Contorno tratteggiato: SOLO il rischio idraulico, zero riempimento. */
-    function styleHydr(feature) {
-        var s = baseStyle('hydroPaneHydr'), code = levelOf(feature, 'hydraulic');
-        s.fillOpacity = 0;
-        s.color = HYDRO_COLORS[code] || HYDRO_COLORS.unknown;
-        s.weight = 3; s.opacity = 0.95; s.dashArray = '9 5';
-        return s;
-    }
-    /* Contorno puntinato: SOLO il rischio temporali, zero riempimento. */
-    function styleStorm(feature) {
-        var s = baseStyle('hydroPaneTstorm'), code = levelOf(feature, 'thunderstorm');
-        s.fillOpacity = 0;
-        s.color = HYDRO_COLORS[code] || HYDRO_COLORS.unknown;
-        s.weight = 3; s.opacity = 0.95; s.dashArray = '1 6';
+        s.fillOpacity = code === 'none' ? 0.12 : (code === 'unknown' ? 0.18 : 0.55);
+        s.className = 'hydro-zone hydro-fill-' + dom.key;
         return s;
     }
     function styleSingle(feature) {
@@ -37194,18 +37236,12 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         var fc = { type: 'FeatureCollection', features: [] }, i;
         for (i = 0; i < zones.length; i++) fc.features.push(toFeature(zones[i], st.doc.geometry));
         if (st.risk === 'combined') {
-            /* Tre livelli sovrapposti con codifiche DIVERSE: nessuna fusione. */
-            var defs = [
-                ['hydrogeological', 'hydroPaneGeo', styleGeo, true],
-                ['hydraulic', 'hydroPaneHydr', styleHydr, false],
-                ['thunderstorm', 'hydroPaneTstorm', styleStorm, false]
-            ];
-            for (i = 0; i < defs.length; i++) {
-                var lyr = makeLayer(defs[i][1], defs[i][2], defs[i][3]);
-                lyr.addData(fc);
-                if (!map.hasLayer(lyr)) map.addLayer(lyr);
-                st.layers[defs[i][0]] = lyr;
-            }
+            /* UN solo layer: pattern = rischio dominante, colore = livello massimo. */
+            var lyr = makeLayer('hydroPaneGeo', styleDpc, true);
+            lyr.addData(fc);
+            if (!map.hasLayer(lyr)) map.addLayer(lyr);
+            ensurePatterns();
+            st.layers.combined = lyr;
         } else {
             var single = makeLayer('hydroPaneGeo', styleSingle, true);
             single.addData(fc);
@@ -37281,13 +37317,14 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
         }
         var container = byId('hydro-legend');
         if (container) {
-            var html = '<div class="hydro-combined-head">Vista combinata — i 3 rischi restano SEPARATI (nessuna somma in un indice unico)</div>';
-            html += '<div class="hydro-combined-key">Come leggere la mappa: <b>pieno = idrogeologico</b> · ' +
-                '<b>tratteggio lungo = idraulico</b> · <b>puntini = temporali</b>. Il colore di ogni tratto è il livello ufficiale ' +
-                'del SUO rischio: <span style="color:' + HYDRO_COLORS.none + '">verde nessuna</span>, ' +
+            var html = '<div class="hydro-combined-head">Vista combinata come la DPC — i 3 rischi restano SEPARATI (nessuna somma in un indice unico)</div>';
+            html += '<div class="hydro-combined-key">Come leggere la mappa (convenzione DPC): <b>pieno = idraulico</b> · ' +
+                '<b>righe diagonali = idrogeologico</b> · <b>puntini = temporali</b>. Il colore è il livello MASSIMO ufficiale ' +
+                '(dpc_map_class); a parità di livello la priorità è idraulico &gt; temporali &gt; idrogeologico: ' +
+                '<span style="color:' + HYDRO_COLORS.none + '">verde nessuna</span>, ' +
                 '<span style="color:' + HYDRO_COLORS.yellow + '">gialla</span>, ' +
                 '<span style="color:' + HYDRO_COLORS.orange + '">arancione</span>, ' +
-                '<span style="color:' + HYDRO_COLORS.red + '">rossa</span>. I tre valori non vengono mai fusi.</div>';
+                '<span style="color:' + HYDRO_COLORS.red + '">rossa</span>. I tre valori ufficiali restano separati nella tabella.</div>';
             html += riskTableHtml(zones);
             html += availabilityHtml();
             // FIX 1.3.0.7 - nota didattica .hydro-only3 RIMOSSA dallo schermo:
