@@ -251,6 +251,12 @@ CONFIG = {
     # Il reference di ogni campo e' in multiscale.REFERENCE.
     "multiscale": {
         "enabled": False,                  # SCELTA INGEGNERISTICA: default OFF
+        # Flag SEPARATO da `enabled`: pubblica i descrittori di forma/scala sui
+        # componenti GIA' noti (footprint delle celle), SENZA watershed e senza
+        # attivare alcuna classe. Default OFF (SCELTA INGEGNERISTICA). Indipendente
+        # da `enabled`: se True con enabled=False i descrittori vengono comunque
+        # calcolati sui footprint noti.
+        "publish_descriptors": False,      # SCELTA INGEGNERISTICA: default OFF
         "envelope_dbz": 20.0,              # = detect.dbz_threshold
         "peak_levels_dbz": [20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0],
         "marker_dbz": 30.0,                # plateau nucleo per i marker watershed
@@ -263,7 +269,9 @@ CONFIG = {
             "SCELTA INGEGNERISTICA: layer additivo disabilitato di default; "
             "soglie tarate su 1 frame reale (prominenza p75=5 dB, distanza "
             "NN p10=5 km). Nessuna calibrazione su etichette, nessun "
-            "derivato di produzione toccato."),
+            "derivato di produzione toccato. `publish_descriptors` e' un flag "
+            "SEPARATO (default OFF): pubblica descrittori numerici di "
+            "forma/scala senza watershed e senza classi."),
     },
     "tracking": {
         # Cost function combinata (Hungarian / linear_sum_assignment):
@@ -288,9 +296,41 @@ CONFIG = {
         "prediction_gate_km": None,        # None -> = step gate da max_storm_speed
         "diagnostics": False,              # per-match diag (Mai nel dataset pubbl.)
         # ---- Fase 1.8 (M1) — GRACE/COASTING — EXPERIMENTAL ----
+        # VALORE STORICO 0, INVARIATO per retrocompatibilita' delle firme
+        # Tracker(cfg_tracking)/StormObjectTracker(cfg_storm). Il coasting di
+        # produzione e' attivato SOLO dal blocco `coasting` qui sotto, passato
+        # esplicitamente da main.py. NON toccare il gate 110 km/h.
         "max_coast_frames": 0,             # 0=OFF: frame senza celle -> morte
                                            # immediata; N>0: sopravvive N frame
                                            # consecutivi privi di celle.
+    },
+    # -----------------------------------------------------------------
+    # COASTING DI 1 FRAME (aggiuntivo, 2026-11-21).
+    # Il valore vecchio resta in `tracking.max_coast_frames` e
+    # `storm.tracking.max_coast_frames` (= 0) per retrocompatibilita'; solo
+    # questo blocco, passato esplicitamente ai tracker da main.py, attiva il
+    # comportamento di produzione. Un punto coasted e' una POSIZIONE STIMATA
+    # dall'ultimo moto OSSERVATO: non e' un'osservazione, non entra nel fit del
+    # moto, non allunga duration_observed_min e non puo' mascherare un buco
+    # di dato (frame invalido / copertura insufficiente / dato stale).
+    "coasting": {
+        "max_coast_frames": 1,
+        "legacy_max_coast_frames": 0,      # valore vecchio, solo dichiarazione
+        "min_coverage_fraction": 0.05,     # sotto -> nessun coasting
+        "max_data_latency_min": 30.0,      # oltre -> nessun coasting (stale)
+        "reference": (
+            "SCELTA INGEGNERISTICA: 1 frame di coasting per evitare la morte "
+            "di una traccia su un singolo frame senza associazione. Non e' "
+            "una taratura su etichette: nessun guadagno di accuratezza e' "
+            "dimostrato. Il punto propagato usa l'ultimo moto osservato, e' "
+            "marcato position_source=coasted / observed=false, NON entra nel "
+            "fit del moto e NON allunga duration_observed_min. Se il frame e' "
+            "no_valid_frame / copertura < min_coverage_fraction / latenza > "
+            "max_data_latency_min il coasting e' VIETATO e viene pubblicato un "
+            "null_reason esplicito: il buco di dato resta visibile. Il gate "
+            "di continuita' 110 km/h e' INVARIATO e si misura sempre "
+            "dall'ultima osservazione. Il valore storico 0 resta nelle chiavi "
+            "legacy per retrocompatibilita'."),
     },
     "storm": {
         # Fase 1.7 — LAYER MULTISCALA (CELL -> STORM OBJECT -> STORM SYSTEM).
@@ -343,7 +383,7 @@ CONFIG = {
             "max_storm_speed_kmh": _SPEED_RANGE_KMH[1],
             "prediction_gate_km": None,
             "diagnostics": False,
-            "max_coast_frames": 0,          # 0=OFF (M1 grace/coasting, v. tracking)
+            "max_coast_frames": 0,          # 0=OFF, storico (v. blocco `coasting`)
         },
         "ambiguity": {
             # metrica DIAGNOSTICA di qualità dell'identificazione (non meteo):
@@ -422,6 +462,27 @@ CONFIG = {
             (65.0, 79.0, "strong"),
             (80.0, 100.0, "intense"),
         ],
+    },
+    # -----------------------------------------------------------------
+    # 2026-11-21 — TASSONOMIA MULTI-ASSE AGGIUNTIVA (script/radar_engine/
+    # taxonomy.py). DEFAULT OFF: con `enabled=False` nessun campo nuovo viene
+    # pubblicato e l'output resta byte-identico. Se attivo, ogni record
+    # convective_structures riceve SOLO chiavi nuove (`taxonomy`, schema
+    # meteorisk.taxonomy/1): nessun campo esistente e' toccato, nessuna
+    # classe e' mai promossa a "confirmed" e il contesto NWP resta separato.
+    # Le soglie 75/100 km, ratio 3 e 3 frame sono SCELTA INGEGNERISTICA NON
+    # validata su casi italiani (fonti e motivi in taxonomy.REFERENCE).
+    "taxonomy": {
+        "enabled": False,
+        "schema": "meteorisk.taxonomy/1",
+        "hysteresis_consecutive_frames": 2,
+        "reference": (
+            "SCELTA INGEGNERISTICA non validata su casi italiani: gate "
+            "linea >=75 km / ratio 3 / 3 frame e MCS >=100 km / ratio 3 / "
+            "3 frame (Gallus et al. 2008 WAF 23(1); BAMS 105(8) E1619; "
+            "Ashley et al. 2019 WAF 34(6)). Tutti i valori restano "
+            "CANDIDATI, rule_support e' supporto di regole NON probabilita'; "
+            "il contesto NWP non entra nella confidenza."),
     },
     "phase2": {
         # Fase 2 (EXPERIMENTAL): layer additivi A1 -> indice v2 del descrittore.

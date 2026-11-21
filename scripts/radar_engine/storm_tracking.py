@@ -45,7 +45,9 @@ from scipy.optimize import linear_sum_assignment
 
 from . import models
 from .tracking import (haversine_km, bearing_deg, dest_from, _circle_iou,
-                       lineage_plan, apply_lineage, _speed_range_kmh)
+                       lineage_plan, apply_lineage, _speed_range_kmh,
+                       COAST_POSITION_SOURCE, coast_frame_context,
+                       coasting_counters, _coasted_point)
 
 _EPS = 1e-12
 
@@ -174,8 +176,10 @@ class StormObjectTracker:
 
     def __init__(self, cfg_storm, cfg_scoring=None, diagnostics=None,
                  history_dir=None, seed_max_km=20.0, seed_max_age_min=30.0,
-                 seed_max_speed_kmh=None):
+                 seed_max_speed_kmh=None, coasting_cfg=None):
         self.cfg = cfg_storm
+        self.coasting_cfg = coasting_cfg
+        self.coasting = coasting_counters()
         self.tracking_cfg = cfg_storm["tracking"]
         self.amb_cfg = cfg_storm["ambiguity"]
         self.motion_cfg = cfg_storm.get("motion", {})
@@ -207,8 +211,14 @@ class StormObjectTracker:
     def _features(self, track):
         # Come nel layer cella: il punto di archivio (frame_index=-1) non
         # partecipa alla predizione del matching, solo alla storia/moto.
+        # Coasting: il gate 110 km/h e la predizione si misurano sempre
+        # dall'ultima OSSERVAZIONE, mai dal punto stimato.
         pts = [p for p in track.points
-               if getattr(p, "frame_index", 0) >= 0] or track.points
+               if getattr(p, "observed", True)
+               and getattr(p, "frame_index", 0) >= 0]
+        if not pts:
+            pts = [p for p in track.points if getattr(p, "observed", True)] \
+                or track.points
         last = pts[-1]
         predicted = None
         if len(pts) >= 2:
@@ -312,6 +322,57 @@ class StormObjectTracker:
             used_seeds.add(si)
         return out
 
+    def _max_coast_frames(self):
+        src = self.coasting_cfg or self.tracking_cfg or {}
+        try:
+            return max(0, int(src.get("max_coast_frames", 0) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def _note_coast_reason(self, track, reason):
+        track.coasting_null_reason = reason
+        counts = self.coasting["null_reasons"]
+        counts[reason] = counts.get(reason, 0) + 1
+
+    def _try_coast(self, track, frame_index, frame_ts_ms, frame_context,
+                   max_coast, rows):
+        """Aggiunge UN punto stimato se il frame e' valido. False = far morire."""
+        if max_coast <= 0 or getattr(track, "_coast_frames", 0) >= max_coast:
+            return False
+        if frame_ts_ms is None and self.coasting_cfg is None:
+            # Retrocompatibilita': v. Tracker._try_coast (grace M1, no point).
+            track._coast_frames = getattr(track, "_coast_frames", 0) + 1
+            rows.append({"track_id": track.track_id,
+                         "prev_storm_object_id": track.points[-1].storm_object_id,
+                         "current_storm_object_id": None,
+                         "status": "coasting"})
+            return True
+        allowed, reason = coast_frame_context(frame_context)
+        if not allowed:
+            self._note_coast_reason(track, reason)
+            return False
+        pt, err = _coasted_point(track, frame_index, frame_ts_ms,
+                                 models.StormTrackPoint, "storm_object_id")
+        if pt is None:
+            self._note_coast_reason(track, err)
+            return False
+        track.points.append(pt)
+        track._coast_frames = getattr(track, "_coast_frames", 0) + 1
+        track.coasted_points = getattr(track, "coasted_points", 0) + 1
+        self.coasting["coasted_points"] += 1
+        rows.append({"track_id": track.track_id,
+                     "prev_storm_object_id": track.points[-2].storm_object_id,
+                     "current_storm_object_id": None,
+                     "status": "coasting",
+                     "position_source": COAST_POSITION_SOURCE})
+        return True
+
+    def _note_coast_recovery(self, track):
+        if (getattr(track, "coasted_points", 0) > 0
+                and not getattr(track, "coasted_recovered", False)):
+            track.coasted_recovered = True
+            self.coasting["coasted_tracks_recovered"] += 1
+
     def _gate_limits(self, feats, obj):
         """Raggi massimi (km) del gate di continuita' (110 km/h di default).
 
@@ -328,8 +389,10 @@ class StormObjectTracker:
         return step_gate, pred_gate
 
     # ------------------------------------------------------------------
-    def update(self, objs, frame_index):
+    def update(self, objs, frame_index, frame_ts_ms=None, frame_context=None):
+        """Come `Tracker.update`: frame_ts_ms/frame_context opzionali (coasting)."""
         self._last_frame_index = int(frame_index)
+        max_coast = self._max_coast_frames()
         active = [t for t in self.tracks if t.status == models.STATUS_ACTIVE]
         seed_map = self._seed_matches(objs) if not active else {}
         if not active or not objs:
@@ -341,15 +404,10 @@ class StormObjectTracker:
                              "prev_storm_object_id": None,
                              "current_storm_object_id": obj.storm_object_id,
                              "status": "new_track"})
-            max_coast = int(self.tracking_cfg.get("max_coast_frames", 0) or 0)
             for t in active:
-                if not objs and max_coast > 0 and \
-                        getattr(t, "_coast_frames", 0) < max_coast:
-                    t._coast_frames = getattr(t, "_coast_frames", 0) + 1
-                    rows.append({"track_id": t.track_id,
-                                 "prev_storm_object_id": t.points[-1].storm_object_id,
-                                 "current_storm_object_id": None,
-                                 "status": "coasting"})
+                if not objs and self._try_coast(
+                        t, frame_index, frame_ts_ms, frame_context,
+                        max_coast, rows):
                     continue
                 t.status = models.STATUS_DEAD
                 t.death_ms = t.points[-1].timestamp_ms
@@ -459,6 +517,7 @@ class StormObjectTracker:
             pt.bearing_to_prev_deg = bearing_deg(prev_last.lonlat, obj.centroid_lonlat)
             track.points.append(pt)
             track._coast_frames = 0
+            self._note_coast_recovery(track)
             if ti in amb_rows or ci in amb_cols:
                 track.events.append(models.EVENT_AMBIGUOUS)
             obj.track_id = track.track_id
@@ -520,6 +579,9 @@ class StormObjectTracker:
         apply_lineage(active, new_tracks_by_col, lineage)
         for ti, t in enumerate(active):
             if ti not in assignment:
+                if self._try_coast(t, frame_index, frame_ts_ms,
+                                   frame_context, max_coast, rows):
+                    continue
                 t.status = models.STATUS_DEAD
                 t.death_ms = t.points[-1].timestamp_ms
                 t.events.append(models.EVENT_DEATH)
@@ -542,11 +604,12 @@ class StormObjectTracker:
         for track in self.tracks:
             if track.status != models.STATUS_ACTIVE:
                 continue
-            if last is not None and track.points and \
-                    track.points[-1].frame_index == last:
+            obs = [p for p in track.points
+                   if getattr(p, "observed", True)] or track.points
+            if last is not None and obs and obs[-1].frame_index == last:
                 continue
             track.status = models.STATUS_DEAD
-            track.death_ms = track.points[-1].timestamp_ms
+            track.death_ms = obs[-1].timestamp_ms if obs else None
         return self.tracks
 
     # ------------------------------------------------------------------
@@ -571,7 +634,14 @@ class StormObjectTracker:
                 track.points = pts_now
                 if pts_now:
                     track.birth_ms = pts_now[0].timestamp_ms
-            pts = track.points
+            all_pts = track.points
+            # Coasting: ogni statistica di moto usa SOLO le osservazioni.
+            pts = [p for p in all_pts if getattr(p, "observed", True)] or all_pts
+            duration_min = ((all_pts[-1].timestamp_ms
+                             - all_pts[0].timestamp_ms) / 60000.0)
+            duration_observed_min = (
+                (pts[-1].timestamp_ms - pts[0].timestamp_ms) / 60000.0
+                if len(pts) >= 2 else 0.0)
             n = len(pts)
             if n < 2:
                 track.tracking_confidence = "insufficient"
@@ -582,14 +652,17 @@ class StormObjectTracker:
             track.score_confidence = (
                 "high" if n >= full_frames and max(p.max_dbz for p in pts) >= 35.0
                 else ("medium" if n >= 3 else "low"))
-            track.motion_confidence = self._motion_confidence(track)
+            # motion_confidence legge track.points: gli si passa solo l'osservato.
+            _saved_points = track.points
+            track.points = pts
+            try:
+                track.motion_confidence = self._motion_confidence(track)
+            finally:
+                track.points = _saved_points
             amb_codes = [_AMB_CODE.get(p.ambiguity, 1) for p in pts
                          if p.ambiguity is not None]
             track.tracking_ambiguity = _AMB_TEXT.get(max(amb_codes), "high") \
                 if amb_codes else "high"
-
-            t0, t1 = pts[0].timestamp_ms, pts[-1].timestamp_ms
-            duration_min = (t1 - t0) / 60000.0
             if duration_min <= 0:
                 track.motion = {
                     "velocity_kmh": None,
@@ -605,6 +678,7 @@ class StormObjectTracker:
                     "total_segments": max(n - 1, 0),
                     "ambiguous_segments": 0,
                     "duration_min": round(duration_min, 1),
+                    "duration_observed_min": round(duration_observed_min, 1),
                 }
                 continue
             kin = robust_track_velocity(pts)
@@ -660,6 +734,7 @@ class StormObjectTracker:
                 "direction_toward_deg": round(toward, 1),
                 "direction_from_deg": round(from_deg, 1),
                 "duration_min": round(duration_min, 1),
+                "duration_observed_min": round(duration_observed_min, 1),
                 "area_growth_pct": round(growth, 1),
                 "intensity_delta_dbz": round(idelta, 2),
                 "mean_cell_count": round(sum(p.cell_count for p in pts) / n, 2),

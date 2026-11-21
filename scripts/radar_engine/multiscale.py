@@ -397,3 +397,157 @@ def segment_multiscale(data, pixel_area_km2, *, cfg=None,
     objects.sort(key=lambda o: o["envelope_area_km2"]["value"], reverse=True)
     return {"enabled": True, "thresholds": th, "objects": objects,
             "domain": dom_report, "note": None}
+
+
+# ---------------------------------------------------------------------------
+# DESCRITTORI DI FORMA PUBBLICABILI (senza watershed, senza classi)
+# ---------------------------------------------------------------------------
+SHAPE_SCHEMA = "meteorisk.shape_descriptors/1"
+
+REFERENCE["shape_schema"] = (
+    "meteorisk.shape_descriptors/1: descrittori numerici di FORMA/SCALA su "
+    "componenti GIA' noti (footprint delle celle). Nessun watershed_ift, "
+    "nessuna classificazione, nessuna etichetta di classe. Ogni valore "
+    "assente e' null con motivo, mai 0. Soglie come in DEFAULT_THRESHOLDS "
+    "(misurate su 1 crop reale 64x64, vedi REPORT.md).")
+
+
+def shape_descriptors_null(reason):
+    """Payload di degrado per un candidato senza footprint risolvibile."""
+    return {
+        "descriptors_schema": SHAPE_SCHEMA,
+        "components": [],
+        "domain": None,
+        "null_reason": reason or "unknown",
+        "source": SOURCE,
+        "reference": REFERENCE["shape_schema"],
+    }
+
+
+def shape_descriptors(data, pixel_area_km2, *, cfg=None, component_masks=None,
+                      nodata_values=(-9999.0, -9998.0), seed=None):
+    """Descrittori numerici di forma/scala su componenti GIA' NOTI.
+
+    Contratto (identico a `field`): restituisce SOLO valori numerici con
+    `value`/`null_reason`/`source`/`reference`. Nessuna etichetta di classe
+    (`level`, `soi`, `classification`), nessun flag di segmentazione
+    (`split_by_watershed`): e' un descrittore, non una diagnosi.
+
+    `component_masks`: lista di maschere booleane gia' note (es. il footprint
+    delle celle calcolato da detect/_cell_footprint). Se None le componenti si
+    ottengono etichettando l'inviluppo (Z >= envelope_dbz) con 8-connessione.
+    IN ENTRAMBI I CASI `watershed_ift` NON VIENE MAI CHIAMATO: i "nuclei" sono
+    i plateau prominenti dopo il gate di prominenza/distanza, non regioni
+    watershed. `seed` e' accettato solo per il contratto di riproducibilita':
+    nessuna sorgente casuale viene usata.
+    """
+    th = thresholds_from_config(cfg)
+    low = th["envelope_dbz"]
+    Z, numeric, domain, dom_report = classify_domain(
+        data, nodata_values=nodata_values, envelope_dbz=low,
+        coverage_min_fraction=th["coverage_min_fraction"])
+    conn = np.ones((3, 3), bool)
+    filt = int(th["peak_filter_px"])
+
+    if component_masks is None:
+        env_lab, n = ndi.label((Z >= low), structure=conn)
+        comps = [env_lab == i for i in range(1, n + 1)]
+    else:
+        comps = [np.asarray(m, dtype=bool) for m in component_masks]
+
+    # plateau di tutti i livelli calcolati una volta (deterministico)
+    plateaus = {t: _plateaus(Z, t, filt) for t in th["peak_levels_dbz"]}
+    peaks_low = _peak_list(Z, plateaus[low])
+
+    # Reference specifiche del descrittore: qui NON c'e' watershed, quindi le
+    # references storiche di segment_multiscale (che citano watershed_ift)
+    # verrebbero usate impropriamente.
+    ref_nuclei = ("Descrittore di forma: conteggio dei plateau prominenti "
+                  "(prominenza >= {} dB, separazione >= {} km). NESSUN watershed: "
+                  "vedi shape_schema.".format(th["prominence_min_dbz"],
+                                              th["min_sep_km"]))
+    ref_nuclei_area = ("Descrittore di forma: area dei pixel >= {} dBZ nella "
+                       "componente nota. NESSUN watershed: vedi shape_schema."
+                       .format(th["marker_dbz"]))
+
+    components = []
+    for raw in comps:
+        comp = raw & np.isfinite(Z)          # nessun valore inventato fuori copertura
+        if not comp.any():
+            continue
+        finite_vals = Z[comp]
+        dbz = (field(round(float(finite_vals.max()), 3),
+                     reference=REFERENCE["dbz_max"])
+               if finite_vals.size else
+               field(None, null_reason="no_valid_dbz",
+                     reference=REFERENCE["dbz_max"]))
+
+        # nuclei = plateau prominenti (NESSUN watershed)
+        comp_peaks = [p for p in peaks_low
+                      if comp[int(round(p["r"])), int(round(p["c"]))]]
+        prom = _prominence(Z, comp_peaks, comp, low)
+        kept = _dedup(comp_peaks, prom, th["prominence_min_dbz"], th["min_sep_km"])
+        prom_vals = [prom.get(p["id"], 0.0) for p in kept]
+        dists = [math.hypot(p["r"] - q["r"], p["c"] - q["c"])
+                 for i, p in enumerate(kept) for q in kept[i + 1:]]
+        core_px = int(((Z >= th["marker_dbz"]) & comp).sum())
+        nuclei_area = float(core_px * pixel_area_km2)
+
+        lin, ang = _pca(comp)
+        rr, cc = np.nonzero(comp)
+        obs = float(domain[rr.min():rr.max() + 1,
+                           cc.min():cc.max() + 1].mean())
+        if obs >= th["coverage_min_fraction"]:
+            compl = field(round(obs, 6), reference=REFERENCE["completeness"])
+        else:
+            compl = field(None, null_reason="insufficient_coverage",
+                          reference=REFERENCE["completeness"],
+                          observed_fraction=round(obs, 6))
+
+        scan = []
+        for t in th["peak_levels_dbz"]:
+            pl = _peak_list(Z, plateaus[t])
+            n_in = sum(1 for p in pl
+                       if comp[int(round(p["r"])), int(round(p["c"]))])
+            scan.append(field(n_in, reference=REFERENCE["threshold_scan"], dbz=t))
+
+        components.append({
+            "n_nuclei": field(len(kept), reference=ref_nuclei),
+            "dbz_max": dbz,
+            "prominence": (field(round(max(prom_vals), 3),
+                                 reference=REFERENCE["prominence"])
+                           if prom_vals else
+                           field(None, null_reason="no_prominent_peak",
+                                 reference=REFERENCE["prominence"])),
+            "min_dist_nuclei_km": (field(round(min(dists), 3),
+                                         reference=REFERENCE["min_dist_nuclei_km"])
+                                   if len(kept) >= 2 else
+                                   field(None, null_reason="fewer_than_two_nuclei",
+                                         reference=REFERENCE["min_dist_nuclei_km"])),
+            "envelope_area_km2": field(round(float(comp.sum() * pixel_area_km2), 3),
+                                       reference=REFERENCE["envelope_area_km2"]),
+            "envelope_bbox_px": field((int(rr.min()), int(cc.min()),
+                                       int(rr.max()), int(cc.max())),
+                                      reference=REFERENCE["envelope_bbox_px"]),
+            "nuclei_area_km2": field(round(nuclei_area, 3),
+                                     reference=ref_nuclei_area),
+            "linearity": (field(round(lin, 6), reference=REFERENCE["linearity"])
+                          if lin is not None else
+                          field(None, null_reason="too_few_pixels",
+                                reference=REFERENCE["linearity"])),
+            "orientation_deg": (field(round(ang, 3),
+                                      reference=REFERENCE["orientation_deg"])
+                                if ang is not None else
+                                field(None, null_reason="too_few_pixels",
+                                      reference=REFERENCE["orientation_deg"])),
+            "completeness": compl,
+            "threshold_scan": scan,
+        })
+
+    components.sort(key=lambda o: o["envelope_area_km2"]["value"], reverse=True)
+    return {
+        "descriptors_schema": SHAPE_SCHEMA,
+        "thresholds": th,
+        "components": components,
+        "domain": dom_report,
+    }

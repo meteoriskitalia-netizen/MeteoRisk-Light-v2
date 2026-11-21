@@ -29,6 +29,8 @@ from . import convective_structure as cs_mod
 from . import tracking as _tracking
 
 SOURCE_LABEL = "Radar-DPC VMI (GeoTIFF quantitativo)"
+# Descrittori di forma/scala pubblicabili (senza watershed, senza classi).
+SHAPE_SCHEMA = "meteorisk.shape_descriptors/1"
 
 
 def _json_default(obj):
@@ -233,6 +235,23 @@ def _continuity_rejections_summary(bundle):
     }
 
 
+def _coasting_summary(bundle):
+    """Contatori del coasting (2026-11-21): solo interi e motivi, mai dati raw.
+
+    Legge `bundle.tracking_metrics`, che e' gia' l'aggregato cella+storm object.
+    Chiave assente se il bundle non ha metriche (run parziale/libreria/test).
+    """
+    tm = getattr(bundle, "tracking_metrics", None)
+    if not isinstance(tm, dict) or "coasted_points" not in tm:
+        return {}
+    reasons = tm.get("coasting_null_reasons") or {}
+    return {
+        "coasted_points": int(tm.get("coasted_points", 0) or 0),
+        "coasted_tracks_recovered": int(tm.get("coasted_tracks_recovered", 0) or 0),
+        "coasting_null_reasons": {str(k): int(v) for k, v in reasons.items()},
+    }
+
+
 def build_latest(bundle, engine_meta=None, previous=None):
     """latest.json (stato del run, mai dati raw)."""
     payload = {
@@ -256,6 +275,8 @@ def build_latest(bundle, engine_meta=None, previous=None):
         "structure_tracks_evaluated": getattr(
             bundle, "structure_tracks_evaluated", 0),
         **_continuity_rejections_summary(bundle),
+        **_shape_descriptors_summary(bundle),
+        **_coasting_summary(bundle),
         **_structure_summary(bundle),
         **_phase2_summary(bundle),
         **_as_of_summary(bundle),
@@ -380,6 +401,27 @@ def build_latest(bundle, engine_meta=None, previous=None):
     covsum = _doppler_coverage_summary(bundle, previous)
     if covsum is not None:
         payload["doppler_coverage"] = covsum
+    # 2026-11-21 — riepilogo TASSONOMIA (additivo): presente SOLO se il layer
+    # e' stato eseguito (config taxonomy.enabled=True). Nessuna chiave
+    # esistente cambia; il payload completo sta nei record di
+    # convective_structures.json sotto `structures[*].taxonomy`.
+    tax = getattr(bundle, "taxonomy_summary", None)
+    if isinstance(tax, dict) and tax:
+        payload["taxonomy"] = {
+            "schema": tax.get("schema"),
+            "version": tax.get("version"),
+            "structures_total": tax.get("structures_total"),
+            "echo_regime_counts": tax.get("echo_regime_counts"),
+            "organization_mode_counts": tax.get("organization_mode_counts"),
+            "system_scale_counts": tax.get("system_scale_counts"),
+            "morphology_tag_counts": tax.get("morphology_tag_counts"),
+            "evolution_tag_counts": tax.get("evolution_tag_counts"),
+            "unknown_rate_echo_regime": tax.get("unknown_rate_echo_regime"),
+            "unknown_rate_all_axes": tax.get("unknown_rate_all_axes"),
+            "confirmed_count": tax.get("confirmed_count"),
+            "nwp_influence": tax.get("nwp_influence"),
+            "rule_support_is_probability": tax.get("rule_support_is_probability"),
+        }
     return payload
 
 
@@ -592,6 +634,25 @@ def _advanced_summary(bundle):
             adv.get("rotation_evidence_available")),
         "advanced_supercell_null_reason": adv.get("supercell_null_reason"),
         "advanced_cappi_levels": adv.get("cappi_levels"),
+    }
+
+
+def _shape_descriptors_summary(bundle):
+    """Conteggio verificabile dei descrittori di forma pubblicati (ADDITIVO).
+
+    Presente SOLO se almeno un record di convective_structures porta il blocco
+    `shape_descriptors`: un run pristino resta byte-identico ({} -> nessuna
+    chiave). Nessun dato grezzo (griglie/maschere) entra in latest.json."""
+    cells = getattr(bundle, "convective_structures", None) or []
+    blocks = [c.get("shape_descriptors") for c in cells
+              if isinstance(c.get("shape_descriptors"), dict)]
+    if not blocks:
+        return {}
+    components = sum(len(b.get("components") or []) for b in blocks)
+    return {
+        "shape_schema": SHAPE_SCHEMA,
+        "shape_descriptors_present": len(blocks),
+        "shape_descriptors_components": int(components),
     }
 
 
@@ -860,6 +921,11 @@ def build_convective_structures(bundle, engine_meta=None):
             "source": "radar_engine.main",
             "reference": "VMI DPC 2D — no radial velocity",
         })
+        # Descrittori di forma/scala: schema versionato SOLO se il blocco e'
+        # presente (campo aggiunto da main.py quando publish_descriptors=True).
+        # Nessun campo esistente viene rimosso o modificato.
+        if "shape_descriptors" in c:
+            c.setdefault("shape_schema", SHAPE_SCHEMA)
     cone_shapes = _cone_shape_counts(cells)
     summary = {
         "tracks_evaluated": getattr(bundle, "structure_tracks_evaluated", 0),
@@ -925,6 +991,12 @@ def build_convective_structures(bundle, engine_meta=None):
     product_bundle = _product_bundle_summary(bundle)
     if product_bundle is not None:
         payload["product_bundle"] = product_bundle
+    # 2026-11-21 — riepilogo TASSONOMIA (additivo, solo se presente). I record
+    # portano il blocco completo in `structures[*].taxonomy` (schema .../1):
+    # qui va solo il conteggio verificabile, senza dati grezzi.
+    tax = getattr(bundle, "taxonomy_summary", None)
+    if isinstance(tax, dict) and tax:
+        payload["taxonomy"] = tax
     return payload
 
 
@@ -1075,4 +1147,27 @@ def validate_outputs(out_dir):
             errors.append("convective_structures.json missing 'phase2'")
         if sp.get("rotation_measurable") is not False:
             errors.append("convective_structures.json rotation_measurable!=False")
+        # Tassonomia: ADDITIVA, solo se presente. Nessuna classe puo' essere
+        # "confirmed" e ogni blocco deve dichiarare lo schema versionato.
+        tx = sp.get("taxonomy")
+        if isinstance(tx, dict) and tx:
+            if tx.get("schema") != "meteorisk.taxonomy/1":
+                errors.append("convective_structures.json taxonomy schema wrong")
+            for rec in sp.get("structures") or []:
+                block = rec.get("taxonomy") if isinstance(rec, dict) else None
+                if not isinstance(block, dict):
+                    continue
+                if block.get("confirmed") is not False:
+                    errors.append("taxonomy confirmed flag != False")
+                if block.get("nwp_influence") != "none":
+                    errors.append("taxonomy nwp_influence != none")
+                for axis in ("echo_regime", "organization_mode", "system_scale",
+                             "morphology_tags", "evolution_stage", "enhanced_V_IR"):
+                    f = block.get(axis)
+                    if not isinstance(f, dict):
+                        continue
+                    if "rule_support" not in f or "confidence" not in f:
+                        errors.append("taxonomy field missing support/confidence")
+                    if f.get("status") == "confirmed":
+                        errors.append("taxonomy field status confirmed")
     return errors

@@ -198,6 +198,10 @@ class TrackPoint:
     def __init__(self, track_id, frame_index, cell):
         self.track_id = track_id
         self.frame_index = int(frame_index)
+        # Coasting (2026-11-21): default OSSERVATO. Solo i punti stimati
+        # ricevono observed=False / position_source='coasted'.
+        self.observed = True
+        self.position_source = None
         self.timestamp_ms = int(cell.timestamp_ms)
         self.timestamp_iso = cell.timestamp_iso
         self.cell_id = cell.cell_id
@@ -210,7 +214,7 @@ class TrackPoint:
         self.eccentricity = getattr(cell, "eccentricity", None)
 
     def to_dict(self):
-        return {
+        out = {
             "track_id": self.track_id,
             "frame_index": self.frame_index,
             "timestamp": self.timestamp_iso,
@@ -227,6 +231,12 @@ class TrackPoint:
             "compactness": (round(self.compactness, 4)
                             if self.compactness is not None else None),
         }
+        # Coasting (2026-11-21): i due campi compaiono SOLO sui punti stimati,
+        # quindi i record dei punti osservati restano byte-identici.
+        if getattr(self, "position_source", None):
+            out["position_source"] = self.position_source
+            out["observed"] = bool(getattr(self, "observed", True))
+        return out
 
 
 class Track:
@@ -290,6 +300,7 @@ class Track:
             "direction_from_deg": self.motion.get("direction_from_deg"),
             "distance_km": self.motion.get("distance_km"),
             "duration_min": self.motion.get("duration_min"),
+            "duration_observed_min": self.motion.get("duration_observed_min"),
             "area_growth_pct": self.motion.get("area_growth_pct"),
             "intensity_delta_dbz": self.motion.get("intensity_delta_dbz"),
             "points": pts,
@@ -388,6 +399,9 @@ class StormTrackPoint:
     def __init__(self, track_id, frame_index, obj):
         self.track_id = track_id
         self.frame_index = int(frame_index)
+        # Coasting (2026-11-21): v. TrackPoint.
+        self.observed = True
+        self.position_source = None
         self.timestamp_ms = int(obj.timestamp_ms)
         self.timestamp_iso = obj.timestamp_iso
         self.storm_object_id = obj.storm_object_id
@@ -405,7 +419,7 @@ class StormTrackPoint:
         self.bearing_to_prev_deg = None
 
     def to_dict(self):
-        return {
+        out = {
             "track_id": self.track_id,
             "frame_index": self.frame_index,
             "timestamp": self.timestamp_iso,
@@ -424,6 +438,11 @@ class StormTrackPoint:
             "bearing_to_prev_deg": (round(self.bearing_to_prev_deg, 1)
                                     if self.bearing_to_prev_deg is not None else None),
         }
+        # Coasting: come TrackPoint, solo sui punti stimati.
+        if getattr(self, "position_source", None):
+            out["position_source"] = self.position_source
+            out["observed"] = bool(getattr(self, "observed", True))
+        return out
 
 
 class StormTrack:
@@ -503,6 +522,7 @@ class StormTrack:
             "direction_from_deg": self.motion.get("direction_from_deg"),
             "distance_km": self.motion.get("distance_km"),
             "duration_min": self.motion.get("duration_min"),
+            "duration_observed_min": self.motion.get("duration_observed_min"),
             "area_growth_pct": self.motion.get("area_growth_pct"),
             "intensity_delta_dbz": self.motion.get("intensity_delta_dbz"),
             "mean_cell_count": self.motion.get("mean_cell_count"),

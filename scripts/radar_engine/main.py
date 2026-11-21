@@ -1047,6 +1047,68 @@ def _cell_footprint(bundle, candidate, config, target_window=None):
     return (r0, r1, c0, c1), mask, source
 
 
+def _candidate_frame_index(bundle, cand):
+    """Indice del frame del candidato (dalla cella/oggetto, MAI inventato)."""
+    sid = cand.get("storm_object_id")
+    if sid is not None:
+        for objs in (getattr(bundle, "storm_objects_by_frame", None) or []):
+            for obj in objs or []:
+                if str(getattr(obj, "storm_object_id", "")) == str(sid):
+                    return int(getattr(obj, "frame_index", -1))
+    cid = cand.get("cell_id")
+    if cid is not None:
+        for cells in (getattr(bundle, "cells_by_frame", None) or []):
+            for cell in cells or []:
+                if cell.cell_id == cid:
+                    return int(getattr(cell, "frame_index", -1))
+    return None
+
+
+def _attach_shape_descriptors(bundle, config):
+    """ADDITIVO (`multiscale.publish_descriptors`): descrittori di forma/scala
+    sui footprint GIA' noti, SENZA watershed e senza nuove classi.
+
+    Con `publish_descriptors=False` (default) non fa nulla: output identico al
+    pristino. Con True calcola i descrittori sui componenti noti (footprint
+    delle celle) anche quando `multiscale.enabled=False`. Nessun campo
+    esistente (soi/soi_v2/severe_stack/rotation_*) viene toccato."""
+    mcfg = config.get("multiscale") or {}
+    if not mcfg.get("publish_descriptors"):
+        return
+    import numpy as np
+    from radar_engine import multiscale as ms
+    candidates = getattr(bundle, "convective_structures", None) or []
+    frames = list(getattr(bundle, "frames", []) or [])
+    rasters = getattr(bundle, "raster_by_frame_index", None)
+    for c in candidates:
+        try:
+            win, mask, src = _cell_footprint(bundle, c, config)
+            if win is None or mask is None:
+                c["shape_descriptors"] = ms.shape_descriptors_null(
+                    "footprint_unavailable:" + str(src))
+                continue
+            idx = _candidate_frame_index(bundle, c)
+            raster = (rasters.get(idx) if isinstance(rasters, dict) else None)
+            if raster is None and idx is not None and 0 <= idx < len(frames):
+                raster = frames[idx]
+            if raster is None and frames:
+                raster = frames[-1]
+            if raster is None:
+                c["shape_descriptors"] = ms.shape_descriptors_null(
+                    "frame_raster_unavailable")
+                continue
+            r0, r1, c0, c1 = win
+            data = np.asarray(raster.data[r0:r1 + 1, c0:c1 + 1], dtype=float)
+            valid = np.asarray(raster.valid_mask[r0:r1 + 1, c0:c1 + 1], dtype=bool)
+            Z = np.where(valid, data, -9999.0)
+            c["shape_descriptors"] = ms.shape_descriptors(
+                Z, float(raster.pixel_area_km2), cfg=mcfg,
+                component_masks=[mask])
+        except Exception as exc:  # layer additivo: mai rompere il pipeline
+            c["shape_descriptors"] = ms.shape_descriptors_null(
+                "shape_error:" + exc.__class__.__name__)
+
+
 def _candidate_frame_ms(bundle, cand):
     """epoch ms del frame a cui appartiene il candidato.
 
@@ -2492,13 +2554,55 @@ def _run_pipeline(config, out_dir, product, max_frames, dry_run,
     # Seed dall'archivio rolling (2026-11-11): al primo frame una track viva
     # nell'archivio entro 20 km/30 min continua invece di nascere. In replay
     # (--as-of) il seed e' DISATTIVATO: un replay non dipende dallo stato live.
+    # ---- COASTING (2026-11-21): contesto di qualita' del frame -------------
+    # Il coasting NON deve mascherare un buco di dato: per ogni frame si
+    # dichiara validita', copertura osservativa (pixel validi VMI) ed eventuale
+    # stato stale per latenza. Nel output entrano SOLO i contatori aggregati
+    # (v. output._coasting_summary): nessuna posizione/raw finisce in latest.
+    coast_cfg = config.get("coasting") or {}
+    try:
+        min_cov = float(coast_cfg.get("min_coverage_fraction", 0.05))
+    except (TypeError, ValueError):
+        min_cov = 0.05
+    try:
+        max_lat = float(coast_cfg.get("max_data_latency_min", 30.0))
+    except (TypeError, ValueError):
+        max_lat = 30.0
+    stale_run = (bundle.data_latency_minutes is not None and max_lat > 0
+                 and float(bundle.data_latency_minutes) > max_lat)
+    frame_contexts = []
+    for _idx in range(len(bundle.cells_by_frame)):
+        _raster = bundle.raster_by_frame_index.get(_idx)
+        if _raster is None:
+            # Slot ricostruito dall'archivio: le celle sono OSSERVAZIONI reali.
+            # Senza raster e senza celle il frame NON e' valido.
+            _ok = bool(bundle.cells_by_frame[_idx])
+            frame_contexts.append({
+                "valid": _ok,
+                "null_reason": None if _ok else "no_valid_frame"})
+            continue
+        _mask = getattr(_raster, "valid_mask", None)
+        _cov = float(_mask.mean()) if _mask is not None else None
+        _ctx = {"valid": True,
+                "coverage_fraction": round(_cov, 4) if _cov is not None else None,
+                "min_coverage_fraction": min_cov,
+                "coverage_ok": (_cov is None or _cov >= min_cov)}
+        if stale_run:
+            _ctx["stale"] = True
+            _ctx["null_reason"] = "stale_data"
+        frame_contexts.append(_ctx)
+    bundle.frame_contexts = frame_contexts
+
     seed_history = None if clock.replay else history_dir
     with timers.stage("tracking_cells"):
         tracker = track_mod.Tracker(config["tracking"],
                                     cfg_scoring=config.get("scoring"),
-                                    history_dir=seed_history)
+                                    history_dir=seed_history,
+                                    coasting_cfg=coast_cfg)
         for idx, cells in enumerate(bundle.cells_by_frame):
-            tracker.update(cells, idx)
+            tracker.update(cells, idx,
+                           frame_ts_ms=bundle.frame_slots_ms[idx],
+                           frame_context=frame_contexts[idx])
         tracker.complete_cycles()
         bundle.tracks = tracker.finalize(cfg_scoring=config.get("scoring"))
 
@@ -2509,6 +2613,7 @@ def _run_pipeline(config, out_dir, product, max_frames, dry_run,
     # 1.3.0.27 — contatore dei rigetti del gate 110 km/h (sempre intero,
     # anche se il layer storm e' disabilitato o fallisce).
     storm_continuity_rejections = 0
+    storm_coasting = None
     if storm_cfg.get("enabled"):
         try:
             from radar_engine import aggregation as agg_mod
@@ -2520,11 +2625,14 @@ def _run_pipeline(config, out_dir, product, max_frames, dry_run,
             with timers.stage("storm_tracking"):
                 storm_tracker = storm_mod.StormObjectTracker(
                     storm_cfg, cfg_scoring=config.get("scoring"),
-                    history_dir=seed_history)
+                    history_dir=seed_history, coasting_cfg=coast_cfg)
                 for idx, objs in enumerate(bundle.storm_objects_by_frame):
-                    storm_tracker.update(objs, idx)
+                    storm_tracker.update(objs, idx,
+                                         frame_ts_ms=bundle.frame_slots_ms[idx],
+                                         frame_context=frame_contexts[idx])
                 storm_continuity_rejections = getattr(
                     storm_tracker, "continuity_rejections", 0)
+                storm_coasting = getattr(storm_tracker, "coasting", None)
                 storm_tracker.complete_cycles()
                 bundle.storm_tracks = storm_tracker.finalize(
                     cfg_scoring=config.get("scoring"))
@@ -2542,7 +2650,9 @@ def _run_pipeline(config, out_dir, product, max_frames, dry_run,
             bundle.tracks, getattr(bundle, "storm_tracks", None) or [],
             cell_continuity_rejections=getattr(
                 tracker, "continuity_rejections", 0),
-            storm_continuity_rejections=storm_continuity_rejections)
+            storm_continuity_rejections=storm_continuity_rejections,
+            cell_coasting=getattr(tracker, "coasting", None),
+            storm_coasting=storm_coasting)
 
     # ---- CONVECTIVE STRUCTURE (descrittore SOI, additivo) ------------------
     # SOI su celle + storm object tracciati (stessi dati Fase 1, zero richieste
@@ -2568,6 +2678,17 @@ def _run_pipeline(config, out_dir, product, max_frames, dry_run,
     except Exception as exc:  # layer additivo: mai rompere il pipeline base
         bundle.warnings.append(f"phase2 layer failed: {exc}")
         bundle.phase2 = {"status": "unavailable", "warnings": bundle.warnings}
+
+    # ---- DESCRITTORI DI FORMA (additivo, publish_descriptors): -------------
+    # Solo se il flag separato e' True: descrittori numerici sui footprint GIA'
+    # noti, SENZA watershed e senza classi. Indipendente da multiscale.enabled.
+    # Nessun campo protetto (soi/soi_v2/severe_stack/rotation_*) viene toccato.
+    if (config.get("multiscale") or {}).get("publish_descriptors"):
+        try:
+            with timers.stage("shape_descriptors"):
+                _attach_shape_descriptors(bundle, config)
+        except Exception as exc:  # layer additivo: mai rompere il pipeline base
+            bundle.warnings.append(f"shape_descriptors layer failed: {exc}")
 
     # ---- MORPHOLOGY 3D (1.3, additivo): EVIDENZA volumetrica nel -----------
     # classificatore delle strutture. NON e' un pannello e NON e' un file
@@ -2601,6 +2722,20 @@ def _run_pipeline(config, out_dir, product, max_frames, dry_run,
         _adv.attach_advanced(bundle, config)
     except Exception as exc:  # layer additivo: mai rompere il pipeline base
         bundle.warnings.append(f"advanced fase7 layer failed: {exc}")
+
+    # ---- TASSONOMIA MULTI-ASSE (2026-11-21, additiva, DEFAULT OFF) ---------
+    # Quattro assi separati (echo_regime / organization_mode / system_scale /
+    # tag morfologici+evolutivi) con schema meteorisk.taxonomy/1. Legge SOLO
+    # descrittori radar osservati: il contesto NWP resta in
+    # nwp_environment_context e NON puo' aumentare la confidenza. Nessun campo
+    # esistente viene toccato; con `taxonomy.enabled=False` non viene scritto
+    # nulla. Le evidenze multi-frame, se disponibili, vanno passate dal
+    # chiamante in `bundle.taxonomy_frame_evidence` (dict per structure_id).
+    try:
+        from radar_engine import taxonomy as _taxonomy
+        _taxonomy.attach(bundle, config)
+    except Exception as exc:  # layer additivo: mai rompere il pipeline base
+        bundle.warnings.append(f"taxonomy layer failed: {exc}")
 
     # ---- DOPPLER (1.2.4.84, additivo): shear azimutale OPERA FR ------------
     # Solo radar francesi (frale = Aleria, fraja = Ajaccio): il mosaico DPC

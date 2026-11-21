@@ -82,6 +82,107 @@ _LINEAGE_IOU = 0.2
 CONTINUITY_REJECTIONS_BASIS = "final_associations_after_hungarian_v2"
 
 # ---------------------------------------------------------------------------
+# COASTING DI 1 FRAME (2026-11-21) — posizione STIMATA, mai un'osservazione
+# ---------------------------------------------------------------------------
+# Un punto coasted propaga l'ULTIMO MOTO OSSERVATO di un passo di frame. Non
+# e' una misura: non entra nel fit del moto, non allunga `duration_observed_min`,
+# non conta come frame osservato. Soprattutto NON viene creato quando il frame
+# e' un buco di dato: in quel caso la traccia muore con un null_reason esplicito.
+COAST_POSITION_SOURCE = "coasted"
+COAST_NULL_NO_VALID_FRAME = "no_valid_frame"
+COAST_NULL_INSUFFICIENT_COVERAGE = "insufficient_coverage"
+COAST_NULL_STALE_DATA = "stale_data"
+COAST_NULL_NO_TIMESTAMP = "frame_timestamp_missing"
+COAST_NULL_INSUFFICIENT_OBS = "insufficient_observed_points"
+COAST_NULL_NON_POSITIVE = "non_positive_coast_interval"
+
+
+def coast_frame_context(frame_context):
+    """Verdetto (allowed, null_reason) per il coasting su questo frame.
+
+    Un contesto assente (libreria/test storici) equivale a frame valido, quindi
+    il comportamento di chi non passa il contesto resta invariato. Qualsiasi
+    segnale esplicito di buco di dato VIETA il coasting e restituisce il motivo.
+    """
+    ctx = frame_context or {}
+    reason = ctx.get("null_reason")
+    if reason:
+        return False, str(reason)
+    if ctx.get("valid") is False:
+        return False, COAST_NULL_NO_VALID_FRAME
+    if ctx.get("stale"):
+        return False, COAST_NULL_STALE_DATA
+    if ctx.get("coverage_ok") is False:
+        return False, COAST_NULL_INSUFFICIENT_COVERAGE
+    cov, min_cov = ctx.get("coverage_fraction"), ctx.get("min_coverage_fraction")
+    if cov is not None and min_cov is not None:
+        try:
+            if float(cov) < float(min_cov):
+                return False, COAST_NULL_INSUFFICIENT_COVERAGE
+        except (TypeError, ValueError):
+            pass
+    return True, None
+
+
+def coasting_counters():
+    """Struttura dei contatori per-run (solo interi, nessun dato raw)."""
+    return {"coasted_points": 0, "coasted_tracks_recovered": 0,
+            "null_reasons": {}}
+
+
+def _coasted_point(track, frame_index, frame_ts_ms, point_cls, id_attr):
+    """Costruisce il punto coasted oppure (None, motivo).
+
+    La posizione e' `ultima_osservazione + ultimo_moto_osservato * dt`, con dt
+    calcolato dal timestamp REALE del frame. Se il moto osservato e' nullo la
+    posizione resta quella osservata (nessuna velocita' inventata). Tutti gli
+    attributi non posizionali sono COPIA dell'ultima osservazione: il punto
+    non inventa area/intensita' nuove.
+    """
+    pts = [p for p in track.points
+           if getattr(p, "observed", True) and getattr(p, "frame_index", -1) >= 0]
+    if len(pts) < 2:
+        return None, COAST_NULL_INSUFFICIENT_OBS
+    if frame_ts_ms is None:
+        return None, COAST_NULL_NO_TIMESTAMP
+    a, b = pts[-2], pts[-1]
+    dt_h = (float(frame_ts_ms) - float(b.timestamp_ms)) / 3600000.0
+    dt_obs_h = (float(b.timestamp_ms) - float(a.timestamp_ms)) / 3600000.0
+    if dt_h <= 0 or dt_obs_h <= 0:
+        return None, COAST_NULL_NON_POSITIVE
+    d = haversine_km(a.lonlat, b.lonlat)
+    lonlat = (dest_from(b.lonlat, bearing_deg(a.lonlat, b.lonlat),
+                        (d / dt_obs_h) * dt_h) if d > 1e-9
+              else tuple(b.lonlat))
+
+    class _CoastedSource:
+        pass
+
+    src = _CoastedSource()
+    src.timestamp_ms = int(frame_ts_ms)
+    src.timestamp_iso = _dt.datetime.fromtimestamp(
+        int(frame_ts_ms) / 1000.0, _dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    setattr(src, id_attr, None)          # nessuna cella/oggetto osservato
+    src.centroid_lonlat = lonlat
+    src.area_km2 = b.area_km2
+    src.max_dbz = b.max_dbz
+    src.mean_dbz = b.mean_dbz
+    src.solidity = getattr(b, "solidity", 1.0)
+    src.compactness = getattr(b, "compactness", 1.0)
+    src.eccentricity = getattr(b, "eccentricity", None)
+    src.cell_count = getattr(b, "cell_count", 1)
+    src.cell_density = getattr(b, "cell_count", 1)
+    src.tracking_ambiguity = getattr(b, "ambiguity", None)
+    pt = point_cls(track.track_id, frame_index, src)
+    pt.position_source = COAST_POSITION_SOURCE
+    pt.observed = False
+    for attr in ("iou_to_prev", "speed_to_prev_kmh", "bearing_to_prev_deg"):
+        if hasattr(pt, attr):
+            setattr(pt, attr, None)
+    return pt, None
+
+
+# ---------------------------------------------------------------------------
 # Geografia / distanza
 # ---------------------------------------------------------------------------
 def haversine_km(lonlat1, lonlat2):
@@ -356,7 +457,9 @@ def tracking_metrics(tracks, track_type="cell", max_speed_kmh=None,
         else float(_speed_range_kmh()[1])
     jumps = 0
     for t in published:
-        for a, b in zip(t.points, t.points[1:]):
+        # Un punto coasted e' una stima: NON puo' generare un falso ID switch.
+        obs = [p for p in t.points if getattr(p, "observed", True)]
+        for a, b in zip(obs, obs[1:]):
             dt_h = (b.timestamp_ms - a.timestamp_ms) / 3600000.0
             if dt_h > 0 and haversine_km(a.lonlat, b.lonlat) / dt_h > max_speed:
                 jumps += 1
@@ -432,7 +535,8 @@ def tracking_metrics(tracks, track_type="cell", max_speed_kmh=None,
 
 def build_tracking_metrics(cell_tracks, storm_tracks,
                            cell_continuity_rejections=0,
-                           storm_continuity_rejections=0, **kwargs):
+                           storm_continuity_rejections=0,
+                            cell_coasting=None, storm_coasting=None, **kwargs):
     """Blocco `tracking_metrics` per latest.json: per-layer + aggregato.
 
     I campi piatti (pct_reliable, median_duration_min, id_switch_rate,
@@ -473,6 +577,32 @@ def build_tracking_metrics(cell_tracks, storm_tracks,
         round((combined["id_switch_jumps"] + combined["id_switch_reids"])
               / n_combined, 3) if n_combined else None)
     combined["n_reliable"] = cell["n_reliable"] + storm["n_reliable"]
+    # COASTING (2026-11-21): contatori per-run, per layer e aggregati. Solo
+    # interi + un dict motivo->conteggio: nessun dato raw, nessuna posizione.
+    def _merge_coast(dst, src):
+        src = src or {}
+        for key in ("coasted_points", "coasted_tracks_recovered"):
+            dst[key] = int(src.get(key, 0) or 0)
+        reasons = {}
+        for reason, count in (src.get("null_reasons") or {}).items():
+            reasons[str(reason)] = int(count)
+        dst["coasting_null_reasons"] = reasons
+
+    nul = {}
+    for src in (cell_coasting, storm_coasting):
+        for reason, count in ((src or {}).get("null_reasons") or {}).items():
+            nul[str(reason)] = nul.get(str(reason), 0) + int(count)
+    combined_coast = {
+        "coasted_points": (int((cell_coasting or {}).get("coasted_points", 0) or 0)
+                           + int((storm_coasting or {}).get("coasted_points", 0) or 0)),
+        "coasted_tracks_recovered": (
+            int((cell_coasting or {}).get("coasted_tracks_recovered", 0) or 0)
+            + int((storm_coasting or {}).get("coasted_tracks_recovered", 0) or 0)),
+        "null_reasons": nul,
+    }
+    for block, src in ((cell, cell_coasting), (storm, storm_coasting),
+                       (combined, combined_coast)):
+        _merge_coast(block, src)
     out = {"primary_layer": "combined"}
     # 1.3.0.38: dichiara la base del contatore (retrocompatibile: la chiave
     # `continuity_rejections` resta, cambia solo la semantica del valore).
@@ -484,7 +614,8 @@ def build_tracking_metrics(cell_tracks, storm_tracks,
                 "n_tracks", "n_active_tracks", "n_reliable",
                 "n_frames_ge_3", "n_frames_current_ge_3",
                 "continued_from_history", "continuity_rejections",
-                "thresholds"):
+                "coasted_points", "coasted_tracks_recovered",
+                "coasting_null_reasons", "thresholds"):
         out[key] = combined[key]
     out["cell"] = cell
     out["storm_object"] = storm
@@ -614,8 +745,12 @@ class Tracker:
 
     def __init__(self, cfg_tracking, cfg_scoring=None, diagnostics=False,
                  history_dir=None, seed_max_km=20.0, seed_max_age_min=30.0,
-                 seed_max_speed_kmh=None):
+                 seed_max_speed_kmh=None, coasting_cfg=None):
         self.cfg = cfg_tracking
+        # Config COASTING dedicata: se assente vale il vecchio `max_coast_frames`
+        # del layer (=0), quindi le firme storiche non cambiano comportamento.
+        self.coasting_cfg = coasting_cfg
+        self.coasting = coasting_counters()
         self.cfg_scoring = cfg_scoring
         self.tracks = []
         self._next_track_id = 1
@@ -649,8 +784,15 @@ class Tracker:
         Altrimenti un seed a 20 km sposterebbe la previsione al frame 1 e
         cambierebbe l'associazione rispetto al codice senza seed.
         """
+        # Il punto COASTED e' una stima: non puo' diventare origine del gate
+        # 110 km/h ne' della velocita' di predizione. Si misura sempre
+        # dall'ultima OSSERVAZIONE (il gate resta invariato).
         pts = [p for p in track.points
-               if getattr(p, "frame_index", 0) >= 0] or track.points
+               if getattr(p, "observed", True)
+               and getattr(p, "frame_index", 0) >= 0]
+        if not pts:
+            pts = [p for p in track.points if getattr(p, "observed", True)] \
+                or track.points
         last = pts[-1]
         mem = int(cfg.get("memory_frames", 3))
         tail = pts[-mem:]
@@ -758,6 +900,61 @@ class Tracker:
             used_seeds.add(si)
         return out
 
+    def _max_coast_frames(self):
+        src = self.coasting_cfg or self.cfg or {}
+        try:
+            return max(0, int(src.get("max_coast_frames", 0) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def _note_coast_reason(self, track, reason):
+        """Registra un coasting VIETATO: il buco di dato resta esplicito."""
+        track.coasting_null_reason = reason
+        counts = self.coasting["null_reasons"]
+        counts[reason] = counts.get(reason, 0) + 1
+
+    def _try_coast(self, track, frame_index, frame_ts_ms, frame_context,
+                   max_coast, rows):
+        """Aggiunge UN punto stimato se il frame e' valido. False = far morire."""
+        if max_coast <= 0 or getattr(track, "_coast_frames", 0) >= max_coast:
+            return False
+        if frame_ts_ms is None and self.coasting_cfg is None:
+            # RETROCOMPATIBILITA': le firme storiche (solo cfg_tracking, senza
+            # timestamp/contesto di frame) mantengono il "grace" M1 originale:
+            # nessun punto stimato viene creato, la track sopravvive N frame.
+            track._coast_frames = getattr(track, "_coast_frames", 0) + 1
+            rows.append({"track_id": track.track_id,
+                         "prev_cell_id": track.points[-1].cell_id,
+                         "current_cell_id": None,
+                         "assignment_status": "coasting"})
+            return True
+        allowed, reason = coast_frame_context(frame_context)
+        if not allowed:
+            self._note_coast_reason(track, reason)
+            return False
+        pt, err = _coasted_point(track, frame_index, frame_ts_ms,
+                                 models.TrackPoint, "cell_id")
+        if pt is None:
+            self._note_coast_reason(track, err)
+            return False
+        track.points.append(pt)
+        track._coast_frames = getattr(track, "_coast_frames", 0) + 1
+        track.coasted_points = getattr(track, "coasted_points", 0) + 1
+        self.coasting["coasted_points"] += 1
+        rows.append({"track_id": track.track_id,
+                     "prev_cell_id": track.points[-2].cell_id,
+                     "current_cell_id": None,
+                     "assignment_status": "coasting",
+                     "position_source": COAST_POSITION_SOURCE})
+        return True
+
+    def _note_coast_recovery(self, track):
+        """Una track coasted che SI riassocia e' stata 'recuperata'."""
+        if (getattr(track, "coasted_points", 0) > 0
+                and not getattr(track, "coasted_recovered", False)):
+            track.coasted_recovered = True
+            self.coasting["coasted_tracks_recovered"] += 1
+
     def _gate_limits(self, features, cell, cfg):
         """Raggi massimi (km): rispetto all'ultima posizione e (se predizione
         attiva) rispetto alla posizione prevista. Gate = None -> disabled."""
@@ -775,8 +972,12 @@ class Tracker:
             self.diag.append({"frame": frame_index, "matches": rows})
 
     # -----------------------------------------------------------------------
-    def update(self, cells, frame_index):
+    def update(self, cells, frame_index, frame_ts_ms=None, frame_context=None):
         """Frame corrente (celle rilevate) -> aggiorna le track attive.
+
+        `frame_ts_ms` e' il timestamp REALE del frame (serve a propagare il
+        moto); `frame_context` dichiara la qualita' del frame. Entrambi sono
+        OPZIONALI: senza di essi non si fa coasting (nessun tempo inventato).
 
         Coasting (grace): config `max_coast_frames`, default 0 = OFF. Con il
         default una track attiva muore al primo frame senza celle assegnabili
@@ -797,6 +998,7 @@ class Tracker:
         None=off) e si applica solo con dt > 0: a dt nullo la velocita' non e'
         definita e vale il comportamento storico."""
         self._last_frame_index = int(frame_index)
+        max_coast = self._max_coast_frames()
         active = [t for t in self.tracks if t.status == models.STATUS_ACTIVE]
         seed_map = self._seed_matches(cells) if not active else {}
         if not active or not cells:
@@ -807,15 +1009,10 @@ class Tracker:
                 rows.append({"track_id": self._next_track_id - 1,
                              "prev_cell_id": None, "current_cell_id": cell.cell_id,
                              "assignment_status": "new_track"})
-            max_coast = int(self.cfg.get("max_coast_frames", 0) or 0)
             for t in active:
-                if not cells and max_coast > 0 and \
-                        getattr(t, "_coast_frames", 0) < max_coast:
-                    t._coast_frames = getattr(t, "_coast_frames", 0) + 1
-                    rows.append({"track_id": t.track_id,
-                                 "prev_cell_id": t.points[-1].cell_id,
-                                 "current_cell_id": None,
-                                 "assignment_status": "coasting"})
+                if not cells and self._try_coast(
+                        t, frame_index, frame_ts_ms, frame_context,
+                        max_coast, rows):
                     continue
                 t.status = models.STATUS_DEAD
                 t.death_ms = t.points[-1].timestamp_ms
@@ -923,6 +1120,7 @@ class Tracker:
             track = active[ti]
             track.points.append(models.TrackPoint(track.track_id, frame_index, cell))
             track._coast_frames = 0
+            self._note_coast_recovery(track)
             if ti in amb_rows or ci in amb_cols:
                 track.events.append(models.EVENT_AMBIGUOUS)
 
@@ -968,6 +1166,9 @@ class Tracker:
 
         for ti, track in enumerate(active):
             if ti not in assignment:
+                if self._try_coast(track, frame_index, frame_ts_ms,
+                                   frame_context, max_coast, rows):
+                    continue
                 track.status = models.STATUS_DEAD
                 track.death_ms = track.points[-1].timestamp_ms
                 track.events.append(models.EVENT_DEATH)
@@ -1018,6 +1219,14 @@ class Tracker:
                 if pts_now:
                     track.birth_ms = pts_now[0].timestamp_ms
             pts = track.points
+            # Coasting: il fit e TUTTE le statistiche di moto usano solo i
+            # punti OSSERVATI. `duration_min` resta lo span temporale del
+            # record (incluso l'eventuale punto stimato); la durata ONesta e'
+            # il nuovo campo separato `duration_observed_min`.
+            obs = [p for p in pts if getattr(p, "observed", True)] or pts
+            duration_observed_min = (
+                (obs[-1].timestamp_ms - obs[0].timestamp_ms) / 60000.0
+                if len(obs) >= 2 else 0.0)
             if len(pts) < 2:
                 track.tracking_confidence = "insufficient"
                 track.score_confidence = "low"
@@ -1030,18 +1239,19 @@ class Tracker:
                     "motion_null_reason": "insufficient_points",
                     "motion_source": "none",
                     "duration_min": 0.0,
+                    "duration_observed_min": 0.0,
                 }
                 continue
-            n = len(pts)
+            n = len(obs)
             track.tracking_confidence = ("full" if n >= full_frames else "low")
             track.score_confidence = (
-                "high" if n >= full_frames and max(p.max_dbz for p in pts) >= 35.0
+                "high" if n >= full_frames and max(p.max_dbz for p in obs) >= 35.0
                 else ("medium" if n >= 3 else "low"))
             t0 = pts[0].timestamp_ms
             t1 = pts[-1].timestamp_ms
             duration_min = (t1 - t0) / 60000.0
             dist = 0.0
-            for a, b in zip(pts, pts[1:]):
+            for a, b in zip(obs, obs[1:]):
                 dist += haversine_km(a.lonlat, b.lonlat)
             if duration_min <= 0:
                 # Nessuna durata -> nessuna velocita' e nessuna direzione
@@ -1056,9 +1266,10 @@ class Tracker:
                     "motion_null_reason": "non_positive_duration",
                     "motion_source": "none",
                     "duration_min": round(duration_min, 1),
+                    "duration_observed_min": round(duration_observed_min, 1),
                 }
                 continue
-            fit = _forecast.fit_motion(pts)
+            fit = _forecast.fit_motion(obs)
             use_fit = bool(fit["fit_used"]) and \
                 float(fit["resid_std_km"]) < _MOTION_MAX_RESID_KM
             if use_fit:
@@ -1077,9 +1288,9 @@ class Tracker:
                 motion_quality = "unreliable"
                 motion_source = "fallback"
             growth = 0.0
-            if pts[0].area_km2 > 0:
-                growth = (pts[-1].area_km2 - pts[0].area_km2) / pts[0].area_km2 * 100.0
-            idelta = pts[-1].max_dbz - pts[0].max_dbz
+            if obs[0].area_km2 > 0:
+                growth = (obs[-1].area_km2 - obs[0].area_km2) / obs[0].area_km2 * 100.0
+            idelta = obs[-1].max_dbz - obs[0].max_dbz
             track.motion = {
                 "distance_km": round(dist, 2),
                 "velocity_kmh": round(velocity, 1) if velocity is not None else None,
@@ -1089,10 +1300,11 @@ class Tracker:
                 "motion_null_reason": null_reason,
                 "motion_source": motion_source,
                 "duration_min": round(duration_min, 1),
+                "duration_observed_min": round(duration_observed_min, 1),
                 "area_growth_pct": round(growth, 1),
                 "intensity_delta_dbz": round(idelta, 2),
-                "_avg_solidity": round(sum(p.solidity for p in pts) / n, 4),
-                "_avg_compactness": round(sum(p.compactness for p in pts) / n, 4),
+                "_avg_solidity": round(sum(p.solidity for p in obs) / n, 4),
+                "_avg_compactness": round(sum(p.compactness for p in obs) / n, 4),
             }
             score, label, probs, _comps = scoring.organization_score(track, scfg)
             track.motion["organization_score"] = score
@@ -1111,11 +1323,14 @@ class Tracker:
         for track in self.tracks:
             if track.status != models.STATUS_ACTIVE:
                 continue
-            if last is not None and track.points and \
-                    track.points[-1].frame_index == last:
+            # Un punto COASTED sull'ultimo frame NON e' un'osservazione: la
+            # track va chiusa come se l'ultimo frame fosse vuoto.
+            obs = [p for p in track.points
+                   if getattr(p, "observed", True)] or track.points
+            if last is not None and obs and obs[-1].frame_index == last:
                 continue                      # osservata sull'ultimo frame
             track.status = models.STATUS_DEAD
-            track.death_ms = track.points[-1].timestamp_ms
+            track.death_ms = obs[-1].timestamp_ms if obs else None
         return self.tracks
 
 
