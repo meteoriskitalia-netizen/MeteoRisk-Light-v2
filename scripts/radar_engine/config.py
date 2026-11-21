@@ -242,6 +242,29 @@ CONFIG = {
         "morph_radius_px": 1,              # EXPERIMENTAL (SE quadrato 2r+1)
         "connectivity_8": True,            # labelling 8-connesso (np.ones(3,3))
     },
+    # -----------------------------------------------------------------
+    # SEGMENTAZIONE MULTI-SOGLIA ADDITIVA (scripts/radar_engine/multiscale.py).
+    # LAYER OPZIONALE, DISABILITATO di default: nessun derivato di produzione
+    # lo richiama e `detect`/`config['detect']` restano byte-identici.
+    # Le soglie sono MISURATE su 1 crop CAPPI/VMI reale 64x64
+    # (slot 2026-11-15T16:15:00Z, 982 px validi): vedi REPORT.md.
+    # Il reference di ogni campo e' in multiscale.REFERENCE.
+    "multiscale": {
+        "enabled": False,                  # SCELTA INGEGNERISTICA: default OFF
+        "envelope_dbz": 20.0,              # = detect.dbz_threshold
+        "peak_levels_dbz": [20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0],
+        "marker_dbz": 30.0,                # plateau nucleo per i marker watershed
+        "prominence_min_dbz": 5.0,         # p75 prominenza misurata (23 plateau)
+        "min_sep_km": 5.0,                 # ~p10 distanza NN fra picchi prominenti
+        "min_nucleus_area_km2": 4.0,       # = min_area_px volume_publisher
+        "coverage_min_fraction": 0.60,     # inviluppo reale osservato al 67,8%
+        "peak_filter_px": 3,
+        "reference": (
+            "SCELTA INGEGNERISTICA: layer additivo disabilitato di default; "
+            "soglie tarate su 1 frame reale (prominenza p75=5 dB, distanza "
+            "NN p10=5 km). Nessuna calibrazione su etichette, nessun "
+            "derivato di produzione toccato."),
+    },
     "tracking": {
         # Cost function combinata (Hungarian / linear_sum_assignment):
         #   cost = w_distance*d[km] + w_area*Δarea_norm + w_intensity*ΔdBZ

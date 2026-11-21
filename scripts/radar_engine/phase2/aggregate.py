@@ -12,6 +12,12 @@ Pesi DEFAULT (somma ESATTAMENTE 1.00, nessun iperparametro):
   hook      0.15   morphologia uncino (hook.py)
   structure 0.10   struttura verticale VIL/ETM/POH/overhang (vertical_structure)
   env       0.08   ambiente NWP SCP/STP/SHIP (environment)
+
+NOTA 2026-11-21 (capitolato): il peso 0.08 di `env` resta INVARIATO — e' un
+DESCRITTORE separato di soi_v2, non un contributo alla confidenza
+dell'osservazione radar. La confidenza (main.py / derive_confidence) conta
+ora solo hook/structure/ot/lightning: la presenza o il valore del NWP non
+puo' farla salire. Nessuna soglia/ponderazione e' stata tarata qui.
   ot        0.04   overshooting top (overshoot)
   lightning 0.03   tasso/jump fulmini (lightning)
 

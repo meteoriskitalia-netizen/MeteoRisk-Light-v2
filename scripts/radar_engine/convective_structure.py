@@ -234,8 +234,11 @@ def derive_confidence(gates=None, n_points=0, coverage=None, cfg=None):
         G = gate superati / gate totali          (0, 1/3, 2/3, 1)
         P = clamp01((n_points - 1) / (persistence_ref_frames - 1))
             persistenza osservata: 1.0 a `persistence_ref_frames` frame
-        C = descrittori Fase 2 disponibili / 5
-            (hook, structure, env, ot, lightning)
+        C = descrittori dell'OSSERVAZIONE disponibili / 4
+            (hook, structure, ot, lightning). DAL 2026-11-21 il chiamante
+            Fase 2 (main.py) esclude `env`: e' il contesto NWP previsto e non
+            puo' aumentare la confidenza del radar. `env` resta un descrittore
+            SEPARATO in soi_v2 (aggregate.DEFAULT_WEIGHTS["env"] = 0.08).
 
     C e' ignoto quando la confidenza viene emessa dalla Fase 1 (la Fase 2 gira
     dopo, per candidato): in quel caso i pesi di G e P si RINORMALIZZANO sulla

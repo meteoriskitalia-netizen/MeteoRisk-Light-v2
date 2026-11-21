@@ -70,6 +70,12 @@ _STRUCTURE_PRODUCTS = (("vil", "product_vil"), ("etm", "product_etm"),
                        ("high", "product_high"))
 # Componenti Fase 2 calcolati PER CANDIDATO (B2).
 _PHASE2_COMPONENTS = ("hook", "structure", "env", "ot", "lightning")
+# 2026-11-21 (capitolato: osservazione radar != contesto NWP). Soltanto i
+# descrittori dell'OSSERVAZIONE entrano nella copertura della confidenza:
+# `env` e' il contesto NWP PREVISTO e non puo' aumentare la confidenza del
+# radar perche' "concorda". SOI/SOI_v2 restano descrittori separati e `env`
+# continua a pesarci (aggregate.DEFAULT_WEIGHTS["env"] = 0.08, documentato).
+_RADAR_OBSERVATION_COMPONENTS = ("hook", "structure", "ot", "lightning")
 # Campi di `aggregate_ssi_v2` pubblicati PER RECORD in `soi_v2_detail`
 # (2026-11-12): sono quelli che rendono attribuibile un soi_v2 (pesi usati,
 # componenti presenti/assenti/invalidi/zeri misurati, livello, status).
@@ -88,6 +94,134 @@ def _soi_v2_detail(v2):
     ValueError se `aggregate_ssi_v2` non ha prodotto una chiave attesa: meglio
     un warning esplicito che un dettaglio pubblicato a meta'."""
     return {k: v2[k] for k in _SOI_V2_DETAIL_KEYS}
+
+
+# ---------------------------------------------------------------------------
+# 2026-11-21 — CONTESTO NWP SEPARATO DALL'OSSERVAZIONE RADAR (capitolato)
+# ---------------------------------------------------------------------------
+# Due campi NUOVI, entrambi costruiti con severe_stack.field():
+#   nwp_environment_context  = previsione/analisi NWP (mai un'osservazione)
+#   radar_observed_class     = classe OSSERVATA dal radar (VMI DPC, non .om)
+# Nessun campo esistente rimosso/rinominato, nessun bump di versione.
+_NWP_CONTEXT_SCHEMA = "meteorisk.radar_nwp_context/1"
+_NWP_CONTEXT_SOURCE = "Open-Meteo forecast/archive API (Fase 2 environment.py)"
+_NWP_CONTEXT_REFERENCE = "context_schema: meteorisk.radar_nwp_context/1"
+_RADAR_CLASS_SOURCE = "Radar-DPC VMI (convective_structure, Fase 1)"
+_RADAR_CLASS_REFERENCE = "classe SOI osservata sulla VMI DPC: NON e' una probabilita'"
+
+
+def _nwp_ctx_field(severe_stack, value, null_reason=None, **extra):
+    """Sotto-campo del contesto NWP: field() con source/reference dichiarati."""
+    return severe_stack.field(value, _NWP_CONTEXT_SOURCE,
+                              _NWP_CONTEXT_REFERENCE,
+                              null_reason=null_reason, **extra)
+
+
+def _iso_to_ms(iso):
+    """ISO8601 -> epoch ms (UTC). None se il valore e' assente/non parsabile."""
+    if iso is None:
+        return None
+    raw = str(iso).strip()
+    if not raw:
+        return None
+    norm = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+    try:
+        parsed = _dt.datetime.fromisoformat(norm)
+    except ValueError:
+        for candidate_s, fmt in ((raw[:19], "%Y-%m-%dT%H:%M:%S"),
+                                 (raw[:16], "%Y-%m-%dT%H:%M"),
+                                 (raw[:10], "%Y-%m-%d")):
+            try:
+                parsed = _dt.datetime.strptime(candidate_s, fmt)
+                break
+            except ValueError:
+                continue
+        else:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=_dt.timezone.utc)
+    return int(parsed.timestamp() * 1000)
+
+
+def _build_nwp_environment_context(severe_stack, detail, radar_time_iso):
+    """Contesto NWP (schema .../1) con source/reference su OGNI sotto-campo.
+
+    Cio' che il provider NON pubblica (id del modello, ciclo, lead time,
+    dominio nominato) resta null con null_reason ESPLICITO: nessun valore
+    inventato. Il lead non si calcola senza ciclo, quindi e' sempre null finche'
+    l'API non espone l'istante di inizio del run.
+    """
+    if not detail:
+        return severe_stack.field(
+            None, _NWP_CONTEXT_SOURCE, _NWP_CONTEXT_REFERENCE,
+            null_reason="nwp_environment_unavailable",
+            context_schema=_NWP_CONTEXT_SCHEMA)
+
+    env_src = str(detail.get("environment_source") or "")
+    if "ERA5" in env_src:                     # replay: rianalisi dichiarata
+        model = _nwp_ctx_field(severe_stack, "ERA5 (archive reanalysis)")
+    else:                                     # forecast: best_match, id non noto
+        model = _nwp_ctx_field(
+            severe_stack, None,
+            "model_id_not_published_by_provider (Open-Meteo best_match)")
+
+    cycle = _nwp_ctx_field(severe_stack, None,
+                           "cycle_not_published_by_provider")
+    lead = _nwp_ctx_field(severe_stack, None,
+                          "lead_time_not_derivable_without_cycle")
+
+    valid_iso = detail.get("time_iso")
+    valid = (_nwp_ctx_field(severe_stack, valid_iso) if valid_iso else
+             _nwp_ctx_field(severe_stack, None, "nwp_valid_time_missing"))
+
+    domain = _nwp_ctx_field(severe_stack, None,
+                            "named_model_domain_not_published (point forecast)")
+
+    var_keys = ("cape", "cin", "lifted_index", "temperature_2m",
+                "dew_point_2m", "pressure_msl", "freezing_level_height",
+                "temperature_700hPa", "temperature_500hPa",
+                "geopotential_height_700hPa", "geopotential_height_500hPa",
+                "scp", "stp", "ship", "srh_0_3", "ebwd_ms", "wind_profile")
+    available = [k for k in var_keys if detail.get(k) is not None]
+    variables = _nwp_ctx_field(
+        severe_stack, available or None,
+        None if available else "no_nwp_variables_available")
+
+    nwp_ms = _iso_to_ms(valid_iso)
+    radar_ms = _iso_to_ms(radar_time_iso)
+    if nwp_ms is not None and radar_ms is not None:
+        offset = _nwp_ctx_field(
+            severe_stack, round((nwp_ms - radar_ms) / 1000.0, 3),
+            radar_valid_time_iso=radar_time_iso)
+    else:
+        reason = ("nwp_valid_time_missing" if nwp_ms is None
+                  else "radar_observation_time_missing")
+        offset = _nwp_ctx_field(severe_stack, None, reason)
+
+    value = {
+        "model": model,
+        "cycle": cycle,
+        "valid_time": valid,
+        "lead_time_s": lead,
+        "domain": domain,
+        "available_variables": variables,
+        "radar_time_offset_s": offset,
+        "position": {"lat": detail.get("lat"), "lon": detail.get("lon")},
+    }
+    return severe_stack.field(value, _NWP_CONTEXT_SOURCE,
+                              _NWP_CONTEXT_REFERENCE,
+                              context_schema=_NWP_CONTEXT_SCHEMA)
+
+
+def _build_radar_observed_class(severe_stack, candidate):
+    """Classe OSSERVATA dal radar (VMI DPC). Mai da .om o dal NWP."""
+    level = candidate.get("level")
+    if level is None:
+        return severe_stack.field(
+            None, _RADAR_CLASS_SOURCE, _RADAR_CLASS_REFERENCE,
+            null_reason="radar_class_unavailable")
+    return severe_stack.field(level, _RADAR_CLASS_SOURCE,
+                              _RADAR_CLASS_REFERENCE, soi=candidate.get("soi"))
 
 
 def _utcnow_str():
@@ -1534,6 +1668,7 @@ def _phase2_evaluate(bundle, config):
         return
     try:
         from radar_engine import phase2 as p2_mod
+        from radar_engine import severe_stack as severe_stack_mod
         from radar_engine.phase2 import (aggregate, environment, hook,
                                          lightning, lightning_afa, satellite_ot,
                                          vertical_structure)
@@ -2026,6 +2161,15 @@ def _phase2_evaluate(bundle, config):
             c["bunkers"] = None
             c["footprint"] = {"source": fp_source, "pixels": fp_pixels}
 
+        # --- 2026-11-21: CONTESTO NWP vs OSSERVAZIONE RADAR (campi nuovi) ---
+        # Due campi AGGIUNTIVI: nessun campo esistente rimosso o rinominato.
+        # Il contesto NWP e' SEPARATO: non entra nella confidenza del radar.
+        radar_valid_iso = frames[-1].time_iso if frames else None
+        c["nwp_environment_context"] = _build_nwp_environment_context(
+            severe_stack_mod, env_detail, radar_valid_iso)
+        c["radar_observed_class"] = _build_radar_observed_class(
+            severe_stack_mod, c)
+
         # --- 2026-11-12: PIOGGIA (SRI) e GRANDINE (POH) dal bundle ----------
         # Feature calcolate dai prodotti GIA' allineati (nessuna richiesta
         # HTTP): maschera della cella del frame del candidato; un prodotto
@@ -2083,13 +2227,18 @@ def _phase2_evaluate(bundle, config):
             # senza i componenti esclusi non e' verificabile dal record.
             c["soi_v2_detail"] = _soi_v2_detail(v2)
             # A (1.2.4.17): la confidenza si RICALCOLA con la copertura dati
-            # nota (5 descrittori Fase 2) invece di restare la costante "low".
-            present = sum(1 for k in _PHASE2_COMPONENTS
+            # nota invece di restare la costante "low".
+            # 2026-11-21 (capitolato): la copertura della CONFIDENZA dell'
+            # osservazione radar conta SOLO i descrittori osservati. `env` e'
+            # il contesto NWP previsto: la sua presenza NON puo' far salire la
+            # confidenza del radar. SOI/SOI_v2 e components_status qui sopra
+            # restano intatti (descrittori separati; env pesa 0.08 in soi_v2).
+            present = sum(1 for k in _RADAR_OBSERVATION_COMPONENTS
                           if c.get(k) is not None)
             conf = derive_confidence(
                 gates=c.get("gates") or {},
                 n_points=int(c.get("n_points") or 0),
-                coverage=present / float(len(_PHASE2_COMPONENTS)),
+                coverage=present / float(len(_RADAR_OBSERVATION_COMPONENTS)),
                 cfg=cs_cfg)
             c["confidence"] = conf["confidence"]
             c["confidence_detail"] = conf
@@ -2973,10 +3122,15 @@ def main(argv=None):
         # coerente, dichiarate qui e in latest.json.
         "structures": len(published_structures),
         "skipped_incoherent": skipped_incoherent,
-        # 1.3.0.27 — rigetti del gate 110 km/h in questo run (solo conteggio).
+        # Rigetti del gate 110 km/h in questo run (solo conteggio). 1.3.0.38:
+        # base = associazioni finali post-Hungarian, dichiarata nel campo
+        # `continuity_rejections_basis` (la chiave conteggio e' invariata).
         "continuity_rejections": (
             getattr(bundle, "tracking_metrics", None) or {}).get(
                 "continuity_rejections", 0),
+        "continuity_rejections_basis": (
+            getattr(bundle, "tracking_metrics", None) or {}).get(
+                "continuity_rejections_basis"),
         "radar_timestamp": bundle.radar_timestamp_iso,
         "latency_min": bundle.data_latency_minutes,
         "warnings": bundle.warnings,
@@ -3014,6 +3168,8 @@ def main(argv=None):
             fh.write(f"skipped_incoherent={skipped_incoherent}\n")
             fh.write("continuity_rejections={}\n".format(
                 summary["continuity_rejections"]))
+            fh.write("continuity_rejections_basis={}\n".format(
+                summary["continuity_rejections_basis"]))
             fh.write(f"phase2_status={summary['phase2_status']}\n")
             fh.write(f"radar_timestamp={bundle.radar_timestamp_iso or ''}\n")
     return rc

@@ -26,6 +26,7 @@ import numpy as np
 
 from . import models
 from . import convective_structure as cs_mod
+from . import tracking as _tracking
 
 SOURCE_LABEL = "Radar-DPC VMI (GeoTIFF quantitativo)"
 
@@ -209,7 +210,13 @@ def _doppler_coverage_summary(bundle, previous):
 
 
 def _continuity_rejections_summary(bundle):
-    """1.3.0.27 — conteggio per-run dei rigetti del gate 110 km/h.
+    """Conteggio per-run delle ASSOCIAZIONI FINALI rifiutate dal gate 110 km/h.
+
+    1.3.0.38: la chiave `continuity_rejections` e' retrocompatibile ma il suo
+    VALORE cambia base (v1 = coppie (i,j) della matrice di costo, v2 =
+    associazioni uno-a-uno post-Hungarian eliminate dal gate). Il token
+    `continuity_rejections_basis` dichiara la base: i payload scritti in v1
+    vanno rigenerati col prossimo run, non confrontare i valori tra versioni.
 
     Solo l'intero aggregato: nessun dettaglio dei singoli rigetti entra in
     latest.json. Chiave assente se il bundle non ha ancora le metriche di
@@ -218,7 +225,12 @@ def _continuity_rejections_summary(bundle):
     tm = getattr(bundle, "tracking_metrics", None)
     if not isinstance(tm, dict) or "continuity_rejections" not in tm:
         return {}
-    return {"continuity_rejections": int(tm["continuity_rejections"])}
+    return {
+        "continuity_rejections": int(tm["continuity_rejections"]),
+        "continuity_rejections_basis": tm.get(
+            "continuity_rejections_basis",
+            _tracking.CONTINUITY_REJECTIONS_BASIS),
+    }
 
 
 def build_latest(bundle, engine_meta=None, previous=None):
@@ -830,6 +842,24 @@ def build_convective_structures(bundle, engine_meta=None):
     che forma, e perche' quelle che non ce l'hanno non ce l'hanno."""
     all_cells = getattr(bundle, "convective_structures", None) or []
     cells, skipped_incoherent = cs_mod.split_publishable(all_cells)
+    # 2026-11-21 — contesto NWP SEPARATO dall'osservazione radar.
+    # I due campi sono gia' calcolati in main.py con severe_stack.field(): qui
+    # vengono solo pubblicati. Nessun campo esistente viene toccato e lo schema
+    # e' versionato: assenza => null con motivo (mai un valore inventato).
+    for c in cells:
+        c.setdefault("context_schema", "meteorisk.radar_nwp_context/1")
+        c.setdefault("nwp_environment_context", {
+            "value": None,
+            "null_reason": "context_not_computed",
+            "source": "radar_engine.main",
+            "reference": "meteorisk.radar_nwp_context/1",
+        })
+        c.setdefault("radar_observed_class", {
+            "value": None,
+            "null_reason": "observation_class_not_computed",
+            "source": "radar_engine.main",
+            "reference": "VMI DPC 2D — no radial velocity",
+        })
     cone_shapes = _cone_shape_counts(cells)
     summary = {
         "tracks_evaluated": getattr(bundle, "structure_tracks_evaluated", 0),

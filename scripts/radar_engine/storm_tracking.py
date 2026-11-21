@@ -183,8 +183,9 @@ class StormObjectTracker:
         self.tracks = []
         self._next_track_id = 1
         self.diag = []
-        # 1.3.0.30: contatore per run dei rigetti del gate di continuita'
-        # (stessa semantica del layer cella, tracking.py:609,823).
+        # 1.3.0.38: contatore per run delle ASSOCIAZIONI FINALI rifiutate dal
+        # gate di continuita' (stessa semantica del layer cella: uno per legame
+        # uno-a-uno post-Hungarian, NON per coppia (i,j) della matrice di costo).
         self.continuity_rejections = 0
         self._diagnostics = bool(
             diagnostics if diagnostics is not None
@@ -362,29 +363,36 @@ class StormObjectTracker:
 
         feats_list = [self._features(t) for t in active]
         n_r, n_c = len(active), len(objs)
+        max_cost = float(self.tracking_cfg["max_assignment_cost"])
         cost = np.full((n_r, n_c), np.inf, dtype=float)
+        # 1.3.0.38: matrice SENZA gate (solo tetto di costo) + insieme delle
+        # coppie rifiutate dal gate, per contare le associazioni FINALI perse.
+        cost_ungated = np.full((n_r, n_c), np.inf, dtype=float)
+        gated_pairs = set()
         meta = {}
         for i, (t, feats) in enumerate(zip(active, feats_list)):
             for j, obj in enumerate(objs):
                 sg, pg = self._gate_limits(feats, obj)
                 d = haversine_km(feats["last_lonlat"], obj.centroid_lonlat)
-                if sg is not None and d > sg:
-                    # Gate di continuita': salto oltre max_storm_speed_kmh
-                    # -> nessuna associazione, nuova track. Contato per audit.
-                    self.continuity_rejections += 1
-                    continue
+                speed_gate = sg is not None and d > sg
+                if speed_gate:
+                    gated_pairs.add((i, j))
                 pred_target = self._target_prediction(feats, obj.timestamp_ms)
-                if (pg is not None and pred_target is not None
-                        and haversine_km(pred_target, obj.centroid_lonlat) > pg):
-                    continue
                 prev = _PtAdapter(
                     lonlat=feats["last_lonlat"],
                     area=feats["area"], max_dbz=feats["max_dbz"],
                     cell_count=feats["cell_count"],
                     predicted_lonlat=pred_target)
                 c = storm_cost(prev, obj, self.tracking_cfg)
-                if c <= float(self.tracking_cfg["max_assignment_cost"]):
-                    cost[i, j] = c
+                if c <= max_cost:
+                    cost_ungated[i, j] = c
+                # Matrice gated: comportamento storico (INF sui rigetti).
+                if speed_gate:
+                    continue
+                if (pg is not None and pred_target is not None
+                        and haversine_km(pred_target, obj.centroid_lonlat) > pg):
+                    continue
+                cost[i, j] = c
                 meta[(i, j)] = {
                     "distance_km": round(d, 3),
                     "iou": round(_circle_iou(feats["last_lonlat"], feats["area"],
@@ -398,7 +406,6 @@ class StormObjectTracker:
                     "gates": (sg, pg),
                 }
 
-        max_cost = float(self.tracking_cfg["max_assignment_cost"])
         # merge/split co-locazione (<=25 km) come nel layer cella
         near_row = np.zeros(n_r, dtype=int)
         near_col = np.zeros(n_c, dtype=int)
@@ -409,17 +416,29 @@ class StormObjectTracker:
         amb_rows = set(np.where(near_row > 1)[0].tolist())
         amb_cols = set(np.where(near_col > 1)[0].tolist())
 
-        assignment, reversed_assign = {}, {}
-        if cost.size:
-            fin = np.isfinite(cost)
-            if fin.any():
-                big = max_cost * max(cost.shape) + 1.0
-                work = np.where(fin, cost, big)
-                r_idx, c_idx = linear_sum_assignment(work)
-                for ti, ci in zip(r_idx, c_idx):
-                    if np.isfinite(cost[ti, ci]) and cost[ti, ci] <= max_cost:
-                        assignment[ti] = ci
-                        reversed_assign[ci] = ti
+        def _hungarian(matrix):
+            """Assignment uno-a-uno (Hungarian) sulla matrice data."""
+            out, rev = {}, {}
+            if matrix.size:
+                fin = np.isfinite(matrix)
+                if fin.any():
+                    big = max_cost * max(matrix.shape) + 1.0
+                    work = np.where(fin, matrix, big)
+                    r_idx, c_idx = linear_sum_assignment(work)
+                    for ti, ci in zip(r_idx, c_idx):
+                        if (np.isfinite(matrix[ti, ci])
+                                and matrix[ti, ci] <= max_cost):
+                            out[ti] = ci
+                            rev[ci] = ti
+            return out, rev
+
+        assignment, reversed_assign = _hungarian(cost)
+        ungated_assignment, _ = _hungarian(cost_ungated)
+        # 1.3.0.38 — una per associazione finale rifiutata dal gate, NON una
+        # per coppia (i,j): N track x M candidati tutti fuori gate conta
+        # min(N,M), non N*M.
+        self.continuity_rejections += sum(
+            1 for i, j in ungated_assignment.items() if (i, j) in gated_pairs)
 
         # Lineage merge/split (2026-11-11): piano prima della creazione delle
         # track nuove, cosi' i figli ereditano parent_ids.
