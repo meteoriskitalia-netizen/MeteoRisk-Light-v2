@@ -316,8 +316,8 @@ def test_20_output_publishes_only_when_present():
 
 
 def test_21_real_run_distribution_and_no_confirmed():
-    path = (Path(__file__).resolve().parents[3] / "data" / "radar"
-            / "convective_structures.json")
+    path = (Path(__file__).resolve().parents[1] / "fixtures"
+            / "real_1446_convective_structures.json")
     with open(path, encoding="utf-8") as fh:
         payload = json.load(fh)
     recs = copy.deepcopy(payload.get("structures") or [])
