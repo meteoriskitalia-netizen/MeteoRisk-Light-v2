@@ -76,6 +76,21 @@ _PHASE2_COMPONENTS = ("hook", "structure", "env", "ot", "lightning")
 # radar perche' "concorda". SOI/SOI_v2 restano descrittori separati e `env`
 # continua a pesarci (aggregate.DEFAULT_WEIGHTS["env"] = 0.08, documentato).
 _RADAR_OBSERVATION_COMPONENTS = ("hook", "structure", "ot", "lightning")
+
+
+def radar_observation_coverage(candidate, observation_keys=None):
+    """Copertura della confidenza sul SOLO osservato radar (guard #5, 2026-11-21).
+
+    `env` e' il contesto NWP PREVISTO e NON e' in `observation_keys`: la sua
+    presenza o assenza non puo' cambiare coverage ne' confidence. Ritorna
+    (coverage 0..1, n_present, total). Funzione PURA, nessun I/O.
+    """
+    keys = tuple(observation_keys) if observation_keys is not None else _RADAR_OBSERVATION_COMPONENTS
+    if "env" in keys:
+        raise ValueError("env_is_nwp_context_not_radar_observation")
+    n = sum(1 for k in keys if (candidate or {}).get(k) is not None)
+    total = len(keys)
+    return (n / float(total) if total else 0.0), n, total
 # Campi di `aggregate_ssi_v2` pubblicati PER RECORD in `soi_v2_detail`
 # (2026-11-12): sono quelli che rendono attribuibile un soi_v2 (pesi usati,
 # componenti presenti/assenti/invalidi/zeri misurati, livello, status).
@@ -2295,12 +2310,11 @@ def _phase2_evaluate(bundle, config):
             # il contesto NWP previsto: la sua presenza NON puo' far salire la
             # confidenza del radar. SOI/SOI_v2 e components_status qui sopra
             # restano intatti (descrittori separati; env pesa 0.08 in soi_v2).
-            present = sum(1 for k in _RADAR_OBSERVATION_COMPONENTS
-                          if c.get(k) is not None)
+            cov, present, _nkeys = radar_observation_coverage(c)  # #5: env escluso
             conf = derive_confidence(
                 gates=c.get("gates") or {},
                 n_points=int(c.get("n_points") or 0),
-                coverage=present / float(len(_RADAR_OBSERVATION_COMPONENTS)),
+                coverage=cov,
                 cfg=cs_cfg)
             c["confidence"] = conf["confidence"]
             c["confidence_detail"] = conf

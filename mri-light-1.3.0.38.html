@@ -3085,9 +3085,13 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.37';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-11-20';
+    const APP_VERSION = '1.3.0.38';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-11-21';
     const APP_CHANGELOG = [
+    { version: '1.3.0.38', date: '2026-11-21', changes: [
+      "BADGE MESOCICLONICI CON SVILUPPO OFF = 0 NEL DOM DELLA MAPPA. Causa esatta: buildBadgeLegendBar() disegnava la riga della legenda badge Ambiente favorevole a vortici (NWP) senza verificare isSviluppoActive; buildRiskBadgeIcon() e riskDiscHtml() usavano RISK_DEFS.vorticosi.label/title (contenenti vortice/vortici) nei title dei marker e dei dischi sulla mappa, sempre senza il gate. Misurato in Edge headless CDP Sviluppo OFF: 1 elemento badge con testo vortici prima del fix, 0 dopo; Sviluppo ON: 2 voci (Mesociclone NWP e Ambiente favorevole a vortici NWP) riappaiono dove il test passa.",
+      "Fix solo sul client: soppressi il disco e il marker vorticosi e la riga di legenda vorticosi con Sviluppo OFF; nessun colore, soglia, calcolo, etichetta Rischio complessivo, mappa radar o teleconnessione toccata. Nessun dato simulato nel prodotto: i rischi restano calcolati, solo i badge di sviluppo non vengono disegnati."
+    ]},
     { version: '1.3.0.33', date: '2026-11-20', changes: [
         'DIFETTO 1 - #btn-live apriva il pannello LIVE senza aggiornare #product-select: con «Mappa dei rischi» selezionata restavano due prodotti attivi insieme (pannello alto 97 px e 4 toggle LIVE visibili). Ora il pulsante imposta #product-select = "live" e richiama selectProduct(), la stessa funzione usata dalla tendina; il secondo click chiude il prodotto come «— nessuno —». Unico percorso di attivazione: productDefs().live.run, richiamato da selectProduct().',
         'DIFETTO 2 - i controlli radar/satellite (#btn-radar, #btn-satellite, #radar-provider-select, #radar-provider-label, #dpc-product-select, #radar-embed-select e il pane radar) erano legati al solo prodotto «Radar Player»: nel pannello LIVE le richieste tile partivano ma i tile restavano nascosti da body.radar-product-off. Ora la funzione condivisa isRadarToolsProduct() abilita i controlli sia per «Radar Player» sia per «Pannello LIVE»; con rischi, teleconn e tutti gli altri restano nascosti.',
@@ -5899,7 +5903,13 @@ function enabledLightningSourceIds() {
         // 1.3.0.11 — con Sviluppo OFF il disco verde del potenziale NON si disegna:
         // il suo title era "Basso — nessuna criticità attiva: Ambiente favorevole
         // a convezione organizzata SENZA alcun innesco previsto nella stessa ora".
-        if (!isSviluppoActive && risk && risk.id === 'supercell') return '';
+        // 1.3.0.38 - i badge "mesociclonici" (supercell/meso e vorticosi) sono
+        // esclusivi di Sviluppo: con Sviluppo OFF non devono comparire NE' come
+        // testo NE' come title sul DOM della mappa (vincolo verificabile).
+        // Nessun colore, soglia o calcolo viene toccato: si sopprime solo il
+        // disco del badge, che per vorticosi e' comunque informativo (livello 1
+        // fisso, non colorante, zoneRiskComponents lo salta).
+        if (!isSviluppoActive && risk && (risk.id === 'supercell' || risk.id === 'vorticosi')) return '';
         // Pioggia INFORMATIVA (risk.info): stile grigio, comunicata come previsione
         // e non come allerta — non è una criticità colorata (es. pioggerella sub-soglia).
         var color, label, title;
@@ -23211,6 +23221,15 @@ function toggleForecastMaps() {
     // Costruisce il marker (divIcon) con i rischi attivi.
     // Se showAll=true mostra TUTTI i rischi affiancati; altrimenti solo il più importante.
     function buildRiskBadgeIcon(risks, showAll) {
+        // 1.3.0.38 - i badge vorticosi/mesociclonici sono di Sviluppo: con
+        // Sviluppo OFF NON vengono disegnati sulla mappa (nessun title con
+        // "vortice"/"vortici"/"mesociclone"). Il rischio resta calcolato, solo
+        // il marker sparisce: nessun colore o soglia e' modificato.
+        if (!isSviluppoActive && Array.isArray(risks)) {
+            risks = risks.filter(function(r) {
+                return !(r && (r.id === 'vorticosi' || r.id === 'supercell'));
+            });
+        }
         if (!risks.length) return null;
         var pick = function(arr, n) {
             var sorted = arr.slice().sort(function(a, b) {
@@ -29494,6 +29513,11 @@ function renderContinuousOverlay() {
         badgeOrder.forEach(function(id) {
             var d = RISK_DEFS[id];
             if (!d) return;
+            // 1.3.0.38 - la riga "Ambiente favorevole a vortici (NWP)" e'
+            // una voce DI SVILUPPO (cfr. "Fenomeni vorticosi (Sviluppo)" nelle
+            // Fonti & Metodologie): con Sviluppo OFF non va nel DOM della mappa.
+            // Con Sviluppo ON riappare, cosi' come la riga Mesociclone (NWP).
+            if (!isSviluppoActive && id === 'vorticosi') return;
             var range = BADGE_LEVEL_RANGE[id] || [1,2,3,4];
             // 1.2.4.89 - fuori da Sviluppo la categoria mesociclone non esiste:
             // il dischetto di riferimento resta rosso (convezione prevista).

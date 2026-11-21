@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Coasting di 1 frame (2026-11-21) — TEST UNITARI SINTETICI DICHIARATI.
+"""Coasting di 2 frame (2026-11-21) — TEST UNITARI SINTETICI DICHIARATI.
 
 Tutti i casi qui sotto usano celle/oggetti e timestamp SINTETICI: servono a
 verificare la MECCANICA (sopravvivenza, morte, null_reason, invarianza del
@@ -95,17 +95,25 @@ def test_one_missing_frame_storm_layer():
 
 
 # (b) -----------------------------------------------------------------
-def test_two_missing_frames_kill_track():
+def test_two_missing_frames_coast_twice_and_third_kills_track():
     t = _tracker()
     t.update([_cell(0, 12.00)], 0, frame_ts_ms=T0, frame_context=VALID)
     t.update([_cell(1, 12.10)], 1, frame_ts_ms=T0 + STEP, frame_context=VALID)
     t.update([], 2, frame_ts_ms=T0 + 2 * STEP, frame_context=VALID)
+    # con max_coast_frames=2 la track sopravvive al SECONDO frame vuoto
     t.update([], 3, frame_ts_ms=T0 + 3 * STEP, frame_context=VALID)
     track = t.tracks[0]
+    assert track.status == models.STATUS_ACTIVE
+    assert len(track.points) == 4          # 2 osservati + 2 stimati
+    assert [p.position_source for p in track.points[2:]] == ["coasted", "coasted"]
+    assert all(p.observed is False for p in track.points[2:])
+    assert t.coasting["coasted_points"] == 2
+    # il terzo frame vuoto esaurisce il grace: morte
+    t.update([], 4, frame_ts_ms=T0 + 4 * STEP, frame_context=VALID)
     assert track.status == models.STATUS_DEAD
     assert models.EVENT_DEATH in track.events
-    assert len(track.points) == 3          # 2 osservati + 1 stimato, poi morte
-    assert t.coasting["coasted_points"] == 1
+    assert len(track.points) == 4
+    assert t.coasting["coasted_points"] == 2
     assert t.coasting["coasted_tracks_recovered"] == 0
 
 
@@ -163,7 +171,7 @@ def test_motion_fit_identical_with_and_without_coasted_point():
 
 # config / output ------------------------------------------------------
 def test_config_enables_only_new_block_and_keeps_110kmh_gate():
-    assert CONFIG["coasting"]["max_coast_frames"] == 1
+    assert CONFIG["coasting"]["max_coast_frames"] == 2
     assert CONFIG["tracking"]["max_coast_frames"] == 0
     assert CONFIG["storm"]["tracking"]["max_coast_frames"] == 0
     assert CONFIG["storm"]["tracking"]["max_storm_speed_kmh"] == 110.0

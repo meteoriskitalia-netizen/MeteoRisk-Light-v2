@@ -6,6 +6,13 @@ back-end applicativo, nessuna dipendenza runtime oltre agli asset statici.
 
 Repository: https://github.com/meteoriskitalia-netizen/MeteoRisk-Light-v2
 
+## Versione attiva: 1.3.0.38
+
+- File applicativo: `mri-light-1.3.0.38.html` (`APP_VERSION = '1.3.0.38'`; changelog in-app) + `sw.js` (`CACHE_NAME = 'mri-1.3.0.38'`, `TILE_CACHE = 'mri-tiles-1.3.0.38'`, `FRAME_CACHE = 'mri-frames-1.3.0.38'`) + `VERSION` (`BUILD=168`, `DATE=2026-11-21`).
+- **1.3.0.38 - Badge Sviluppo OFF = 0 nel DOM, lifecycle esplicito, validazioni**: gate dei badge vorticosi/mesociclonici con Sviluppo OFF (misurato in Edge headless CDP 1 -> 0, ON 2 -> 2); nuclei separati su 4 VMI reali; peso `env` 0.08 -> 0.00 in `soi_v2` (1 cambio classe su 6 record reali, dichiarato; `env` resta pubblicato come contesto NWP separato ed escluso dalla confidenza radar); confidenza invariante con/senza NWP su 6 record; `continuity_rejections` validata su 90 run reali (min 42 / max 172 / mediana 113,5); blocco additivo `tracking_events/1` con 7 tipi e null_reason espliciti (`ambiguous_candidate_unresolved`, `lineage_not_available`); coasting 2 frame con durata osservata invariata (15 -> 15) e re-id 5 -> 1; confronto T-DaTing essenziale su 211 detezioni reali (138/162 associazioni condivise = 85,2%), pysteps NON installabile su questo host e tracker di produzione NON modificato. Nessun dato simulato nel prodotto, nessuna soglia tarata, rotazione resta non misurabile. NON verificato: resa visiva nel browser e run GitHub Actions (nessun push prima di questa release).
+
+## Storico versioni
+
 ## Versione attiva: 1.3.0.37
 
 - File applicativo: `mri-light-1.3.0.21.html` (`APP_VERSION = '1.3.0.21'`; changelog in-app) + `sw.js` (`CACHE_NAME = 'mri-1.3.0.21'`, `TILE_CACHE = 'mri-tiles-1.3.0.21'`, `FRAME_CACHE = 'mri-frames-1.3.0.21'`)

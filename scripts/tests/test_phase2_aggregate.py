@@ -20,14 +20,16 @@ UNKNOWN = dict(agg.DEFAULT_WEIGHTS, poc=0.1)
 def test_component_keys_order_and_weights_sum():
     assert agg.COMPONENT_KEYS == ("base", "hook", "structure", "env", "ot",
                                   "lightning")
-    assert round(sum(agg.DEFAULT_WEIGHTS.values()), 6) == 1.0
+    # #4: env rimosso (0.0) -> somma richiesta 0.92 (non 1.0).
+    assert round(sum(agg.DEFAULT_WEIGHTS.values()), 6) == 0.92
+    assert agg.DEFAULT_WEIGHTS['env'] == 0.0
 
 
 def test_aggregate_all_present():
     out = agg.aggregate_ssi_v2(80, 60, 50, 40, 100, 100)
-    assert out["ssi_v2"] == 72
+    assert out["ssi_v2"] == 75  # #4: env non pesa piu'
     assert out["weights"] == agg.DEFAULT_WEIGHTS
-    assert out["weights_sum"] == 1.0
+    assert out["weights_sum"] == pytest.approx(0.92)  # #4: env rimosso
     assert out["missing"] == []
     assert out["partial"] is False
     assert out["base"] == 80.0
@@ -39,15 +41,15 @@ def test_aggregate_all_present():
 
 
 def test_aggregate_base_clamped_high_and_low():
-    assert agg.aggregate_ssi_v2(150, 60, 50, 40, 100, 100)["ssi_v2"] == 84
-    assert agg.aggregate_ssi_v2(-10, 60, 50, 40, 100, 100)["ssi_v2"] == 24
+    assert agg.aggregate_ssi_v2(150, 60, 50, 40, 100, 100)["ssi_v2"] == 88
+    assert agg.aggregate_ssi_v2(-10, 60, 50, 40, 100, 100)["ssi_v2"] == 23
 
 
 def test_aggregate_missing_components_are_partial():
     # B2: pesi RINORMALIZZATI sui presenti (0.60+0.10+0.08+0.03 = 0.81):
     # (59.259 + 6.173 + 3.951 + 3.704) / 0.81 = 73.086 -> 73
     out = agg.aggregate_ssi_v2(80, None, 50, 40, None, 100)
-    assert out["ssi_v2"] == 73
+    assert out["ssi_v2"] == 77  # #4
     assert out["missing"] == ["hook", "ot"]
     assert out["partial"] is True
     # None resta None in output: MAI un valore inventato 0.0
@@ -56,7 +58,7 @@ def test_aggregate_missing_components_are_partial():
     # i pesi usati coprono esattamente i componenti presenti e sommano 1.00
     assert set(out["weights_effective"]) == set(out["present"])
     assert round(out["weights_effective_sum"], 6) == 1.0
-    assert round(out["weights_effective"]["base"], 6) == 0.740741
+    assert round(out["weights_effective"]["base"], 6) == 0.821918
 
 
 def test_effective_weights_renormalization():
@@ -66,7 +68,10 @@ def test_effective_weights_renormalization():
     assert round(eff["hook"], 6) == 0.2
     assert round(sum(eff.values()), 6) == 1.0
     eff_all = agg.effective_weights(agg.DEFAULT_WEIGHTS, agg.COMPONENT_KEYS)
-    assert {k: round(v, 6) for k, v in eff_all.items()} == agg.DEFAULT_WEIGHTS
+    # #4: con env a 0 i pesi si rinormalizzano sui 5 componenti rimasti.
+    assert round(sum(eff_all.values()), 6) == 1.0
+    assert eff_all["env"] == 0.0
+    assert round(eff_all["base"], 6) == 0.652174
     with pytest.raises(ValueError, match="unknown_weight_keys"):
         agg.effective_weights(agg.DEFAULT_WEIGHTS, ["base", "poc"])
 
@@ -77,9 +82,9 @@ def test_aggregate_base_missing_redistributes_heavy_weight():
     out = agg.aggregate_ssi_v2(None, 60, 50, 40, 100, 90)
     assert out["missing"] == ["base"]
     assert out["base"] is None
-    assert out["ssi_v2"] == 60
+    assert out["ssi_v2"] == 65  # #4
     assert round(out["weights_effective_sum"], 6) == 1.0
-    assert round(out["weights_effective"]["hook"], 6) == 0.375
+    assert round(out["weights_effective"]["hook"], 6) == 0.46875
 
 
 def test_aggregate_only_base_present_uses_full_weight():
@@ -111,14 +116,14 @@ def test_aggregate_all_weights_zero_gives_no_score():
 def test_aggregate_weights_explicit_override_same_result():
     out = agg.aggregate_ssi_v2(80, 60, 50, 40, 100, 100,
                                weights=dict(agg.DEFAULT_WEIGHTS))
-    assert out["ssi_v2"] == 72
-    assert out["weights_sum"] == 1.0
+    assert out["ssi_v2"] == 75  # #4
+    assert out["weights_sum"] == pytest.approx(0.92)
 
 
 def test_invalid_weights_raise_no_fabricated_total():
     with pytest.raises(ValueError, match=r"unknown_weight_keys:\['poc'\]"):
         agg.aggregate_ssi_v2(50, 50, 50, 50, 50, 50, weights=UNKNOWN)
-    with pytest.raises(ValueError, match="weights_sum_gt_1:1.1"):
+    with pytest.raises(ValueError, match="weights_sum_gt_1:1.02"):  # #4
         agg.aggregate_ssi_v2(50, 50, 50, 50, 50, 50,
                              weights=dict(agg.DEFAULT_WEIGHTS, base=0.7))
     with pytest.raises(ValueError,

@@ -305,7 +305,7 @@ CONFIG = {
                                            # consecutivi privi di celle.
     },
     # -----------------------------------------------------------------
-    # COASTING DI 1 FRAME (aggiuntivo, 2026-11-21).
+    # COASTING DI 2 FRAME (aggiuntivo, 2026-11-21).
     # Il valore vecchio resta in `tracking.max_coast_frames` e
     # `storm.tracking.max_coast_frames` (= 0) per retrocompatibilita'; solo
     # questo blocco, passato esplicitamente ai tracker da main.py, attiva il
@@ -313,19 +313,36 @@ CONFIG = {
     # dall'ultimo moto OSSERVATO: non e' un'osservazione, non entra nel fit del
     # moto, non allunga duration_observed_min e non puo' mascherare un buco
     # di dato (frame invalido / copertura insufficiente / dato stale).
+    #
+    # 2026-11-21 — A/B SU REPLAY REALE (scripts/validation/coast_acceptance.py,
+    # JSON pubblicati in data/radar, nessun dato sintetico nel prodotto):
+    #   max_coast_frames 1 -> 2:
+    #     re-ID 5 -> 1, id_switch_rate 0.071 -> 0.014,
+    #     durata mediana TUTTE le track 10 -> 15 min,
+    #     durata OSSERVATA (duration_observed_min) INVARIATA a 10 min,
+    #     punti coasted 57 -> 95, salti >110 km/h 0 -> 0.
+    # La durata mediana "tutte" sale SOLO perche' i punti extra sono STIMATI
+    # (position_source='coasted', observed=False): NON e' nuova evidenza
+    # osservativa. duration_observed_min resta la misura onesta della durata.
+    # Il gate di continuita' 110 km/h e' INVARIATO e si misura sempre
+    # dall'ultima osservazione: i punti stimati non lo alterano.
     "coasting": {
-        "max_coast_frames": 1,
+        "max_coast_frames": 2,
         "legacy_max_coast_frames": 0,      # valore vecchio, solo dichiarazione
         "min_coverage_fraction": 0.05,     # sotto -> nessun coasting
         "max_data_latency_min": 30.0,      # oltre -> nessun coasting (stale)
         "reference": (
-            "SCELTA INGEGNERISTICA: 1 frame di coasting per evitare la morte "
-            "di una traccia su un singolo frame senza associazione. Non e' "
-            "una taratura su etichette: nessun guadagno di accuratezza e' "
-            "dimostrato. Il punto propagato usa l'ultimo moto osservato, e' "
-            "marcato position_source=coasted / observed=false, NON entra nel "
-            "fit del moto e NON allunga duration_observed_min. Se il frame e' "
-            "no_valid_frame / copertura < min_coverage_fraction / latenza > "
+            "SCELTA INGEGNERISTICA: 2 frame di coasting (A/B su replay reale: "
+            "re-ID 5->1, id_switch_rate 0.071->0.014, punti coasted 57->95, "
+            "salti >110 km/h 0). Non e' una taratura su etichette: nessun "
+            "guadagno di accuratezza spaziale e' dimostrato. I punti "
+            "propagati usano l'ultimo moto osservato, sono marcati "
+            "position_source=coasted / observed=false, NON entrano nel fit "
+            "del moto e NON allungano duration_observed_min (misurato: 10 min "
+            "invariato fra 1 e 2 frame). La durata mediana calcolata su TUTTI "
+            "i punti sale da 10 a 15 min SOLO per i punti STIMATI: non e' "
+            "nuova evidenza osservativa. Se il frame e' no_valid_frame / "
+            "copertura < min_coverage_fraction / latenza > "
             "max_data_latency_min il coasting e' VIETATO e viene pubblicato un "
             "null_reason esplicito: il buco di dato resta visibile. Il gate "
             "di continuita' 110 km/h e' INVARIATO e si misura sempre "

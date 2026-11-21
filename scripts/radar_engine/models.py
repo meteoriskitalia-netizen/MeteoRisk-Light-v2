@@ -193,6 +193,97 @@ EVENT_AMBIGUOUS = "ambiguous"   # merge/split candidato (Fase 1: NON inferito)
 STATUS_ACTIVE = "active"
 STATUS_DEAD = "dead"
 
+# 2026-11-21 (#12): blocco `lifecycle` ESPLICITO e ONESTO in tracks.json e
+# storm_tracks.json. Deriva SOLO da dati gia' presenti (events, status,
+# lineage, parent_ids/child_ids, position_source dei punti). NON inventa
+# eventi: split/merge restano null con null_reason quando il candidato e'
+# ambiguo e non risolto (EVENT_AMBIGUOUS senza relazione di lineage).
+COAST_POSITION_SOURCE = "coasted"   # mesmo token usato dai tracker (tracking/storm_tracking)
+LIFECYCLE_NULL_REASON_AMBIGUOUS = "ambiguous_candidate_unresolved"
+LIFECYCLE_NULL_REASON_NO_LINEAGE = "lineage_not_available"
+
+
+def lifecycle_summary(track):
+    """Riassunto di ciclo di vita di una track (cell o storm object).
+
+    Campi (tutti derivati, nessun valore fabbricato):
+      birth: True se EVENT_BIRTH presente (track nata in questo run).
+      continuation: True se continua una track (storico o lineage).
+      death: True se EVENT_DEATH presente o status=='dead'.
+      coasting: {observed_any, n_coasted_points, recovered, null_reason}.
+        `recovered` e' True se esiste un punto OSSERVATO dopo un punto
+        coasted (la track e' tornata); null_reason se non ci sono punti.
+      split / merge: True/False se la relazione e' risolta dal lineage,
+        null con null_reason se il candidato e' ambiguo e NON inferito,
+        oppure se l'attributo lineage non esiste (track legacy).
+      ambiguous: True se EVENT_AMBIGUOUS presente (candidato non risolto).
+      events: copia grezza degli eventi (audit).
+    """
+    events = list(getattr(track, "events", []) or [])
+    status = getattr(track, "status", None)
+    pts = list(getattr(track, "points", []) or [])
+    lineage = getattr(track, "lineage", None) if hasattr(track, "lineage") else "__missing__"
+    child_ids = list(getattr(track, "child_ids", []) or [])
+    parent_ids = list(getattr(track, "parent_ids", []) or [])
+    ambiguous = EVENT_AMBIGUOUS in events
+    continued = (bool(getattr(track, "continued_from_history", False))
+                 or lineage == "continuation"
+                 or "continued_from_history" in events)
+
+    n_coasted = sum(1 for p in pts
+                    if getattr(p, "position_source", None) == COAST_POSITION_SOURCE)
+    # recovered: un punto osservato DOPO un punto coasted.
+    seen_coast = False
+    recovered = False
+    for p in pts:
+        if getattr(p, "position_source", None) == COAST_POSITION_SOURCE:
+            seen_coast = True
+        elif seen_coast and getattr(p, "observed", True):
+            recovered = True
+            break
+    coasting = {
+        "observed_any": n_coasted > 0,
+        "n_coasted_points": n_coasted,
+        "recovered": recovered if pts else None,
+        "null_reason": None if pts else "no_points",
+    }
+
+    def _relation(kind):
+        marker = "lineage_" + kind
+        if lineage == kind or marker in events:
+            return True, None
+        if lineage == "__missing__":
+            return None, LIFECYCLE_NULL_REASON_NO_LINEAGE
+        # Se il lineage ha RISOLTO la relazione opposta (split o merge),
+        # allora questa e' definitivamente False: non e' un candidato ambiguo.
+        if lineage in ("split", "merge") and ambiguous:
+            return False, None
+        if ambiguous:
+            # EVENT_AMBIGUOUS senza risoluzione: candidato NON inferito.
+            return None, LIFECYCLE_NULL_REASON_AMBIGUOUS
+        # lineage noto (incluso None = nessuna relazione osservata in questo
+        # run) e nessun evento ambiguo: relazione NON avvenuta.
+        return False, None
+
+    split_v, split_why = _relation("split")
+    merge_v, merge_why = _relation("merge")
+
+    return {
+        "birth": EVENT_BIRTH in events,
+        "continuation": continued,
+        "death": EVENT_DEATH in events or status == STATUS_DEAD,
+        "coasting": coasting,
+        "split": split_v,
+        "split_null_reason": split_why,
+        "merge": merge_v,
+        "merge_null_reason": merge_why,
+        "ambiguous": ambiguous,
+        "parent_ids": parent_ids,
+        "child_ids": child_ids,
+        "lineage": (None if lineage == "__missing__" else lineage),
+        "events": events,
+    }
+
 
 class TrackPoint:
     def __init__(self, track_id, frame_index, cell):
@@ -277,6 +368,7 @@ class Track:
             "track_id": self.track_id,
             "status": self.status,
             "events": self.events,
+            "lifecycle": lifecycle_summary(self),
             "n_frames": n_frames,
             "birth_time": birth,
             "death_time": death,
@@ -488,6 +580,7 @@ class StormTrack:
             "type": "storm_object",
             "status": self.status,
             "events": self.events,
+            "lifecycle": lifecycle_summary(self),
             "n_frames": n_frames,
             "birth_time": birth,
             "death_time": death,

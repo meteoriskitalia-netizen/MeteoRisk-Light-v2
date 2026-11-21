@@ -61,8 +61,10 @@ def test_soi_v2_detail_weights_sum_one_and_zero_measured():
     assert detail["level"] == v2["level"]
     assert detail["level_thresholds"] == v2["level_thresholds"]
     # il peso NON e' quello richiesto: lightning e' escluso e rinormalizzato
-    assert detail["weights_used"]["base"] == pytest.approx(0.60 / 0.97)
-    assert detail["sum_present_weights"] == pytest.approx(0.97)
+    # #4: env peso 0.0 e lightning escluso -> rinormalizzazione su 0.89.
+    assert detail["weights_used"]["base"] == pytest.approx(0.60 / 0.89)
+    assert detail["weights_used"]["env"] == 0.0
+    assert detail["sum_present_weights"] == pytest.approx(0.89)
 
 
 def test_soi_v2_detail_raises_if_aggregate_loses_a_key():

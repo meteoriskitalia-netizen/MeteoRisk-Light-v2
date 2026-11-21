@@ -37,6 +37,11 @@ def _call(**kw):
 @pytest.mark.parametrize("size", range(1, len(ALL) + 1))
 def test_weights_used_sum_one_for_every_present_set(size):
     for present in itertools.combinations(ALL, size):
+        # #4 (2026-11-21): env ha peso 0.0 -> da solo non da' punteggio.
+        if present == ("env",):
+            out = _call(env=60.0)
+            assert out["soi_v2"] is None and out["status"] == "unavailable"
+            continue
         out = _call(**{k: 60.0 for k in present})
         assert sorted(out["components_present"]) == sorted(present)
         assert sorted(out["weights_used"]) == sorted(present)
@@ -63,10 +68,11 @@ def test_missing_components_are_not_counted_as_zero():
     out = _call(base=80.0, env=40.0)
     assert out["components_present"] == ["base", "env"]
     assert out["components_missing"] == ["hook", "structure", "ot", "lightning"]
-    # (0.60*80 + 0.08*40) / 0.68 = 75.29 -> 75
-    assert out["soi_v2"] == 75
-    assert out["soi_v2"] != int(round(0.60 * 80.0))
-    assert abs(out["soi_v2"] - (0.60 * 80.0 + 0.08 * 40.0) / 0.68) <= 0.5
+    # #4: env peso 0.0 -> non contribuisce; resta solo base (80).
+    assert out["soi_v2"] == 80
+    assert "env" in out["components_present"]
+    assert out["weights_used"]["env"] == 0.0
+    assert out["weights_used"]["base"] == pytest.approx(1.0)
 
 
 def test_only_base_gives_exactly_soi():
@@ -84,13 +90,13 @@ def test_zero_measured_component_is_present_and_counts():
     assert "hook" in out["components_present"]
     assert "hook" not in out["components_missing"]
     assert out["components_zero_measured"] == ["hook"]
-    # (0.60*80 + 0.15*0 + 0.08*40) / 0.83 = 61.69 -> 62
-    assert out["soi_v2"] == 62
+    # #4: env peso 0 -> (0.60*80 + 0.15*0)/0.75 = 64
+    assert out["soi_v2"] == 64
     # lo stesso record con hook ASSENTE vale di piu': il peso si ridistribuisce
     out_missing = _call(base=80.0, hook=None, env=40.0)
     assert out_missing["components_missing"] == ["hook", "structure", "ot",
                                                  "lightning"]
-    assert out_missing["soi_v2"] == 75
+    assert out_missing["soi_v2"] == 80
     assert out_missing["soi_v2"] > out["soi_v2"]
 
 
@@ -194,16 +200,18 @@ def test_level_is_published_for_every_score():
 def test_real_record_2026_11_12():
     """Record CS-2026-11-12T17-cel101 (convective_structures.json, main).
 
-    soi=65, hook=0.0, structure=1.2, env=9.2, ot=0.0, lightning=null ->
-    soi_v2=41 pubblicato. I pesi usati sono 0.60/0.97, 0.15/0.97, ...
-    (lightning escluso: era null, non 0.0)."""
+    soi=65, hook=0.0, structure=1.2, env=9.2, ot=0.0, lightning=null.
+    PRIMA del #4: soi_v2=41 (env pesava 0.08). DOPO #4 (env peso 0.0):
+    soi_v2=44, stessa classe 'unorganized'. Misurato, non dedotto."""
     out = _call(base=65, hook=0.0, structure=1.2, env=9.2, ot=0.0)
-    assert out["soi_v2"] == 41
+    assert out["soi_v2"] == 44
     assert out["level"] == "unorganized"
     assert out["status"] == "partial"
     assert out["components_missing"] == ["lightning"]
     assert out["components_zero_measured"] == ["hook", "ot"]
-    assert out["weights_used"]["base"] == pytest.approx(0.60 / 0.97)
+    assert out["weights_used"]["base"] == pytest.approx(0.60 / 0.89)
+    assert out["weights_used"]["env"] == 0.0
+    assert out["env_excluded_from_score"] is True
     assert "lightning" not in out["weights_used"]
     assert abs(out["weights_used_sum"] - 1.0) <= 1e-9
 

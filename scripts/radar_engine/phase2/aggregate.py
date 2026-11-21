@@ -11,13 +11,17 @@ Pesi DEFAULT (somma ESATTAMENTE 1.00, nessun iperparametro):
   base      0.60   SOI Fase 1 (convective_structure) — resta la base
   hook      0.15   morphologia uncino (hook.py)
   structure 0.10   struttura verticale VIL/ETM/POH/overhang (vertical_structure)
-  env       0.08   ambiente NWP SCP/STP/SHIP (environment)
+   env       0.00   ambiente NWP SCP/STP/SHIP (environment) — RIMOSSO (#4, 2026-11-21)
 
-NOTA 2026-11-21 (capitolato): il peso 0.08 di `env` resta INVARIATO — e' un
-DESCRITTORE separato di soi_v2, non un contributo alla confidenza
-dell'osservazione radar. La confidenza (main.py / derive_confidence) conta
-ora solo hook/structure/ot/lightning: la presenza o il valore del NWP non
-puo' farla salire. Nessuna soglia/ponderazione e' stata tarata qui.
+NOTA 2026-11-21 (capitolato #4 — PESO env RIMOSSO): il peso di `env` e'
+passato da 0.08 a 0.00. Il contesto NWP non entra PIU' in soi_v2: l'indice
+pesa solo i layer dell'osservazione radar/Fase 2 (base/hook/structure/ot/
+lightning, rinormalizzati sui presenti). `env` resta PUBBLICATO nel record
+come contesto separato (`nwp_environment_context`, `env`, `env_scp`) e resta
+ESCLUSO dalla confidenza radar (main.py, `_RADAR_OBSERVATION_COMPONENTS`),
+ma non ne fa piu' salire ne' scendere il valore. Nessuna soglia/ponderazione
+e' stata tarata qui. Misura prima/dopo su 6 record reali in REPORT.md:
+delta -1..+5, 1 cambio di classe su 6 (unorganized -> organized).
   ot        0.04   overshooting top (overshoot)
   lightning 0.03   tasso/jump fulmini (lightning)
 
@@ -89,7 +93,7 @@ DEFAULT_WEIGHTS = {
     "base": 0.60,
     "hook": 0.15,
     "structure": 0.10,
-    "env": 0.08,
+    "env": 0.0,
     "ot": 0.04,
     "lightning": 0.03,
 }
@@ -306,4 +310,7 @@ def aggregate_ssi_v2(base_ssi, hook, structure, env, ot, lightning,
     out["missing"] = missing
     out["invalid"] = invalid
     out["partial"] = bool(missing)
+    # Audit #4: il peso env e' 0.0 — il contesto NWP e' pubblicato ma
+    # NON contribuisce al punteggio. Nessun campo protetto toccato.
+    out["env_excluded_from_score"] = (w.get("env", 0.0) == 0.0)
     return out

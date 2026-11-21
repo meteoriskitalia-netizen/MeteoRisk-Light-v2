@@ -399,6 +399,78 @@ def segment_multiscale(data, pixel_area_km2, *, cfg=None,
             "domain": dom_report, "note": None}
 
 
+def multi_frame_stability(per_frame, *, min_frames=3):
+    """Statistiche di stabilita' della separazione su PIU' frame reali (#2).
+
+    `per_frame`: lista di risultati di `segment_multiscale` (uno per frame).
+    Per ogni frame si prende l'oggetto dominante (area inviluppo maggiore) e
+    si raccolgono: numero nuclei, prominenza, distanza minima, area. Restituisce
+    campi con value/null_reason/source/reference (nessun valore inventato):
+    con meno di `min_frames` frame il campo e' null con motivo esplicito.
+    Nessuna dipendenza da dati sintetici: i valori arrivano dai frame passati.
+    """
+    def _f(value, ref, reason=None, **extra):
+        if value is None:
+            return field(None, null_reason=reason or "insufficient_frames",
+                         reference=ref, **extra)
+        return field(value, reference=ref, **extra)
+
+    refs = {
+        "n_frames": "Conteggio dei frame reali passati alla misura (#2).",
+        "nuclei_count_min": REFERENCE["n_nuclei"],
+        "nuclei_count_max": REFERENCE["n_nuclei"],
+        "nuclei_count_mean": REFERENCE["n_nuclei"],
+        "prominence_min_dbz": REFERENCE["prominence"],
+        "prominence_max_dbz": REFERENCE["prominence"],
+        "min_dist_min_km": REFERENCE["min_dist_nuclei_km"],
+        "min_dist_max_km": REFERENCE["min_dist_nuclei_km"],
+        "envelope_area_min_km2": REFERENCE["envelope_area_km2"],
+        "envelope_area_max_km2": REFERENCE["envelope_area_km2"],
+        "split_rate": "Frazione di frame con split_by_watershed=True sull'oggetto dominante.",
+    }
+    recs = []
+    for res in (per_frame or []):
+        objs = (res or {}).get("objects") or []
+        if not objs:
+            continue
+        dom = max(objs, key=lambda o: (o.get("envelope_area_km2") or {}).get("value") or 0)
+        g = lambda k: (dom.get(k) or {}).get("value")
+        recs.append({"n": g("n_nuclei"), "p": g("prominence"),
+                     "d": g("min_dist_nuclei_km"), "a": g("envelope_area_km2"),
+                     "s": bool(g("split_by_watershed"))})
+    n = len(recs)
+    out = {"descriptors_schema": SHAPE_SCHEMA,
+           "n_frames": _f(n if n else None, refs["n_frames"])}
+    if n < min_frames:
+        for k in ("nuclei_count_min", "nuclei_count_max", "nuclei_count_mean",
+                  "prominence_min_dbz", "prominence_max_dbz", "min_dist_min_km",
+                  "min_dist_max_km", "envelope_area_min_km2",
+                  "envelope_area_max_km2", "split_rate"):
+            out[k] = _f(None, refs[k], reason="insufficient_frames")
+        out["null_reason"] = "insufficient_frames"
+        return out
+    ns = [r["n"] for r in recs if r["n"] is not None]
+    ps = [r["p"] for r in recs if r["p"] is not None]
+    ds = [r["d"] for r in recs if r["d"] is not None]
+    aas = [r["a"] for r in recs if r["a"] is not None]
+    out.update({
+        "nuclei_count_min": _f(min(ns) if ns else None, refs["nuclei_count_min"]),
+        "nuclei_count_max": _f(max(ns) if ns else None, refs["nuclei_count_max"]),
+        "nuclei_count_mean": _f(round(sum(ns)/len(ns), 3) if ns else None,
+                                refs["nuclei_count_mean"]),
+        "prominence_min_dbz": _f(min(ps) if ps else None, refs["prominence_min_dbz"]),
+        "prominence_max_dbz": _f(max(ps) if ps else None, refs["prominence_max_dbz"]),
+        "min_dist_min_km": _f(min(ds) if ds else None, refs["min_dist_min_km"]),
+        "min_dist_max_km": _f(max(ds) if ds else None, refs["min_dist_max_km"]),
+        "envelope_area_min_km2": _f(min(aas) if aas else None, refs["envelope_area_min_km2"]),
+        "envelope_area_max_km2": _f(max(aas) if aas else None, refs["envelope_area_max_km2"]),
+        "split_rate": _f(round(sum(1 for r in recs if r["s"])/float(n), 3),
+                         refs["split_rate"]),
+        "null_reason": None,
+    })
+    return out
+
+
 # ---------------------------------------------------------------------------
 # DESCRITTORI DI FORMA PUBBLICABILI (senza watershed, senza classi)
 # ---------------------------------------------------------------------------

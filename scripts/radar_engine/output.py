@@ -31,6 +31,17 @@ from . import tracking as _tracking
 SOURCE_LABEL = "Radar-DPC VMI (GeoTIFF quantitativo)"
 # Descrittori di forma/scala pubblicabili (senza watershed, senza classi).
 SHAPE_SCHEMA = "meteorisk.shape_descriptors/1"
+# Blocco ADDITIVO di eventi di lifecycle del tracking (nessun campo esistente
+# viene toccato: v. build_tracking_events).
+TRACKING_EVENTS_SCHEMA = "meteorisk.tracking_events/1"
+TRACKING_EVENTS_SOURCE = "radar_engine.tracking / radar_engine.storm_tracking"
+TRACKING_EVENTS_REFERENCE = (
+    "Eventi ricostruiti SOLO da evidenza in-memory: track.events, lineage/"
+    "parent_ids/child_ids, tracking_ambiguity, coasting_null_reason, punti "
+    "observed=False. Nessun evento viene inferito o inventato: assenza di "
+    "evidenza => value=null con null_reason esplicito e timestamp = istante "
+    "di valutazione del run (radar_timestamp), non un orario inventato."
+)
 
 
 def _json_default(obj):
@@ -745,13 +756,120 @@ def build_storms_geojson(bundle):
     }
 
 
+def build_tracking_events(track, radar_timestamp_iso=None):
+    """Blocco ADDITIVO `tracking_events/1` per una singola track.
+
+    Ogni evento ha `timestamp`, `type`, `value`, `null_reason`, `source`,
+    `reference`. Il valore viene SOLO da evidenza in-memory (nessuna
+    inferenza): se il run non contiene evidenza per un tipo, il valore e'
+    null con un null_reason esplicito. Il timestamp di un evento ASSENTE e'
+    l'istante di valutazione del run (`radar_timestamp_iso`), NON un orario
+    inventato per un evento che non e' mai accaduto.
+
+    I campi esistenti della track NON vengono modificati: il chiamante
+    aggiunge il blocco al dizionario gia' prodotto da `Track.to_dict()`.
+    """
+    events = list(getattr(track, "events", None) or [])
+    points = list(getattr(track, "points", None) or [])
+    first = points[0] if points else None
+    last = points[-1] if points else None
+    birth_ts = getattr(first, "timestamp_iso", None) or radar_timestamp_iso
+    death_ms = getattr(track, "death_ms", None)
+    death_ts = (getattr(last, "timestamp_iso", None) if death_ms is not None
+                else None) or radar_timestamp_iso
+    lineage = getattr(track, "lineage", None)
+    parent_ids = list(getattr(track, "parent_ids", None) or [])
+    child_ids = list(getattr(track, "child_ids", None) or [])
+    coasted = [p for p in points
+               if getattr(p, "position_source", None) == "coasted"
+               and getattr(p, "observed", True) is False]
+    ambiguity = getattr(track, "tracking_ambiguity", None)
+
+    def ev(kind, value, null_reason, timestamp):
+        return {
+            "type": kind,
+            "timestamp": timestamp,
+            "value": value,
+            "null_reason": null_reason,
+            "source": TRACKING_EVENTS_SOURCE,
+            "reference": TRACKING_EVENTS_REFERENCE,
+        }
+
+    out = []
+    # nascita
+    if models.EVENT_BIRTH in events or (first is not None):
+        out.append(ev("birth",
+                      {"track_id": getattr(track, "track_id", None),
+                       "frame_index": getattr(first, "frame_index", None)},
+                      None, birth_ts))
+    else:
+        out.append(ev("birth", None, "no_birth_evidence_in_run", radar_timestamp_iso))
+    # prosecuzione (continuazione stessa run o cross-run)
+    if lineage == "continuation" or "continued_from_history" in events:
+        out.append(ev("continuation",
+                      {"continued_from_history":
+                       bool(getattr(track, "continued_from_history", False)),
+                       "history_uid": getattr(track, "history_uid", None)},
+                      None, birth_ts))
+    else:
+        out.append(ev("continuation", None, "no_continuation_evidence_in_run",
+                      radar_timestamp_iso))
+    # morte
+    if models.EVENT_DEATH in events and death_ms is not None:
+        out.append(ev("death", {"death_ms": int(death_ms)}, None, death_ts))
+    else:
+        out.append(ev("death", None, "no_death_observed_track_still_active",
+                      radar_timestamp_iso))
+    # mancata osservazione temporanea (coasting = punto STIMATO)
+    if coasted:
+        coast_reason = getattr(track, "coasting_null_reason", None)
+        out.append(ev("temporary_non_observation",
+                      {"coasted_points": len(coasted),
+                       "position_source": "coasted", "observed": False,
+                       "coasting_null_reason": coast_reason},
+                      None, getattr(coasted[-1], "timestamp_iso", None) or radar_timestamp_iso))
+    else:
+        out.append(ev("temporary_non_observation", None,
+                      "no_coasted_point_in_run", radar_timestamp_iso))
+    # split
+    if lineage == "split" or any("lineage_split" == e for e in events):
+        out.append(ev("split", {"child_ids": child_ids,
+                                "parent_ids": parent_ids}, None, birth_ts))
+    else:
+        out.append(ev("split", None, "no_split_evidence_in_run", radar_timestamp_iso))
+    # merge
+    if lineage == "merge" or any("lineage_merge" == e for e in events):
+        out.append(ev("merge", {"parent_ids": parent_ids,
+                                "child_ids": child_ids}, None, birth_ts))
+    else:
+        out.append(ev("merge", None, "no_merge_evidence_in_run", radar_timestamp_iso))
+    # associazione ambigua
+    if models.EVENT_AMBIGUOUS in events or ambiguity is not None:
+        out.append(ev("ambiguous_association",
+                      {"tracking_ambiguity": ambiguity,
+                       "ambiguity_reason": getattr(track, "ambiguity_reason", None)},
+                      None, birth_ts))
+    else:
+        out.append(ev("ambiguous_association", None,
+                      "no_ambiguous_association_evidence_in_run",
+                      radar_timestamp_iso))
+    return {"schema": TRACKING_EVENTS_SCHEMA, "events": out}
+
+
+def _with_tracking_events(track_dict, track, radar_timestamp_iso):
+    """Aggiunge il blocco additivo senza toccare nessun campo esistente."""
+    track_dict["tracking_events"] = build_tracking_events(track, radar_timestamp_iso)
+    return track_dict
+
+
 def build_tracks(bundle):
     tracks = [t for t in bundle.tracks if len(t.points) >= 2]
     return {
         "generated_at": bundle.generated_at_iso,
         "radar_timestamp": bundle.radar_timestamp_iso,
         "status": bundle.status,
-        "tracks": [t.to_dict() for t in tracks],
+        "tracks": [_with_tracking_events(t.to_dict(), t, bundle.radar_timestamp_iso)
+                   for t in tracks],
     }
 
 
@@ -816,7 +934,8 @@ def build_storm_tracks(bundle):
         "generated_at": bundle.generated_at_iso,
         "radar_timestamp": bundle.radar_timestamp_iso,
         "status": bundle.status,
-        "tracks": [t.to_dict() for t in tracks],
+        "tracks": [_with_tracking_events(t.to_dict(), t, bundle.radar_timestamp_iso)
+                   for t in tracks],
     }
 
 

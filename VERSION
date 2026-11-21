@@ -1,7 +1,17 @@
-VERSION=1.3.0.37
-BUILD=167
-DATE=2026-11-19
-APP_FILE=mri-light-1.3.0.37.html
+VERSION=1.3.0.38
+BUILD=168
+DATE=2026-11-21
+APP_FILE=mri-light-1.3.0.38.html
+MeteoRisk Light - 1.3.0.38 - BADGE SVILUPPO OFF, CICLO DI VITA ESPLICITO, VALIDAZIONI (bump da 1.3.0.37)
+VERSION=1.3.0.38
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=168
+RELEASE_TYPE=release
+DATE=2026-11-21
+NOTE=Release 1.3.0.38 (bump da 1.3.0.37). SETTE COMPITI FINALI DEL CAPITOLATO SENIOR + BADGE. (A) Client: badge mesociclonici con Sviluppo OFF eliminati dal DOM (buildBadgeLegendBar, buildRiskBadgeIcon, riskDiscHtml gate-ati): CDP 1 -> 0 OFF, 2 -> 2 ON. (B) #2/#4/#5: separazione nuclei su 4 VMI reali (multi_frame_stability con null motivati), peso env 0.08 -> 0.00 in soi_v2 (1 cambio classe su 6 record reali, dichiarato; env resta pubblicato come contesto separato), confidenza radar invariante con e senza NWP (coverage 0.75 / score 0.95 / high su 6 record). (C) #9/#12/#19: continuity_rejections validata su 90 run reali (min 42 / max 172 / mediana 113,5, basis final_associations_after_hungarian_v2), blocco additivo tracking_events/1 con 7 tipi e null_reason espliciti (ambiguous_candidate_unresolved, lineage_not_available), coasting 2 frame con durata osservata invariata 15 -> 15 e re-id 5 -> 1. (D) #13: confronto T-DaTing essenziale (pysteps non installabile su questo host: C ext + skimage/pandas assenti); 162 associazioni engine / 144 TD, 138 condivise (85,2%), tracker di produzione NON modificato. Nessun dato simulato nel prodotto, nessuna soglia tarata, rotazione resta non misurabile. Verifiche: node --check blocchi inline, pytest test_html_js_syntax e suite radar. Bump: BUILD=168, APP_FILE=mri-light-1.3.0.38.html, tre cache del service worker, README, test .mjs, vecchio html mri-light-1.3.0.37.html rimosso.
+APP_FILE=mri-light-1.3.0.38.html
 MeteoRisk Light - 1.3.0.19 - ANALISI SINOTTICA DISATTIVATA E TOGGLE OFF AL BOOT (bump da 1.3.0.18)
 VERSION=1.3.0.19
 MAJOR=1
