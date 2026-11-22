@@ -2,9 +2,45 @@
   "schema_version": 3,
   "status": "calibrated",
   "publication_status": "development_only",
-  "publication_reason": "soglie MISURATE e percentile-stabili su 14 frame reali per dominio, ma lo score per evento NON e' informativo: ecmwf CSI piatto 0.5 per fattori <=1 (rilevatore saturato); dwd_icon_eu CSI massimo 0.143 con 0 hit alle soglie finali. I positivi sono definiti da un proxy di pioggia forte nel box Europa, non da etichette indipendenti. Servono eventi negativi credibili e verita' indipendente: NON pubblicare.",
-  "publication_note": "Non validato: CSI non discriminante su etichette interne (ecmwf piatto 0,5, dwd 0 hit). Solo in modalità Sviluppo. Nessun POD/FAR/CSI pubblicato.",
+  "publication_reason": "VERITA' INDIPENDENTE ORA DISPONIBILE (METAR/SPECI IEM, 312 eventi pioggia su 74 stazioni, 2026-11-18..22) e circolarita' RIMOSSA: score_calibration.py:74-77 usava hf=rain+showers>2mm/h della STESSA variabile predittore. Validazione eseguita con scripts/validation/validate_fronts_independent.py (gate #233 RISPETTATO: ECMWF 82 positivi/732 negativi, DWD 61/901): POD 0,000 (upper 95% Wilson 0,0448 / 0,0592), FAR 1,000, CSI 0,000 a 50 km/+-3h; controllo +6h da 1 solo hit (POD 0,007). I fronti rilevati distano 154-1545 km dal centro Italia nella maggior parte dei frame. Portare a 'validated' significherebbe dichiarare verde un layer per cui la validazione indipendente dice 'nessuna abilita': NON pubblicare come affidabile.",
+  "publication_note": "Validazione indipendente COMPLETATA ed esito NEGATIVO pubblicato in docs/VALIDAZIONE_FRONTI.md e evidence/validate_fronts_{ecmwf,dwd}.json. Resta development_only per esito, non per mancanza di verita'. Solo in modalita' Sviluppo.",
   "measured_on": "2026-11-18T12:36:07Z",
+  "independent_validation": {
+    "validated_on": "2026-11-22",
+    "truth": {
+      "value": "METAR/SPECI NOAA/NCEI via IEM IT__ASOS: 6329 bollettini, 74 stazioni, 312 eventi pioggia (306 RA, 6 SHRA, 0 TSRA), 2026-11-18T00:45Z..2026-11-22T06:55Z",
+      "source": "mesonet.agron.iastate.edu/cgi-bin/request/asos.py (HTTP 200 misurato il 2026-11-22)",
+      "reference": "17 U.S.C. 105 public domain; WMO table 4678; parser scripts/validation/build_labels.py"
+    },
+    "design": {
+      "value": "coppia (valid_time, stazione): fronte entro 50 km e pioggia osservata entro +-3h; negativo = finestra senza pioggia; controllo a +6h",
+      "source": "SCELTA DI DISEGNO dichiarata a priori, non tarata",
+      "reference": "docs/VALIDAZIONE_FRONTI.md sezione 3"
+    },
+    "ecmwf_ifs025": {
+      "frames_in_coverage": 11, "pairs": 814, "hits": 0, "misses": 82,
+      "false_alarms": 18, "correct_negatives": 714, "positives": 82, "negatives": 732,
+      "POD": 0.0, "FAR": 1.0, "CSI": 0.0, "POD_wilson95_upper": 0.04475,
+      "control_6h_hits": 1, "control_6h_POD": 0.007092, "control_6h_CSI": 0.006329,
+      "source": "evidence/validate_fronts_ecmwf.json", "reference": "validate_fronts_independent.py v1.0.0"
+    },
+    "dwd_icon_eu": {
+      "frames_in_coverage": 13, "pairs": 962, "hits": 0, "misses": 61,
+      "false_alarms": 13, "correct_negatives": 888, "positives": 61, "negatives": 901,
+      "POD": 0.0, "FAR": 1.0, "CSI": 0.0, "POD_wilson95_upper": 0.05924,
+      "control_6h_hits": 1, "control_6h_POD": 0.006849, "control_6h_CSI": 0.006329,
+      "source": "evidence/validate_fronts_dwd.json", "reference": "validate_fronts_independent.py v1.0.0"
+    },
+    "feasibility_gate": {
+      "value": "RISPETTATO (>=60 positivi E >=60 negativi in entrambi i domini); metriche pubblicate",
+      "source": "conteggi misurati", "reference": "regola #233 / TODO 1.3 riga 33"
+    },
+    "outcome": {
+      "value": "negative_no_skill_measured",
+      "null_reason": null,
+      "source": "conteggi misurati", "reference": "docs/VALIDAZIONE_FRONTI.md sezione 5"
+    }
+  },
   "method": "TFP Hewson 1998 / front_id MIT (MIT license); theta_e 850 Bolton 1980",
   "sample_rule": "R1: P90/P95 stabili (<10% variazione relativa) per 2 passi consecutivi + almeno 1 evento positivo e 1 negativo; campione dimensionato dal dato, NON 30 giorni fissi",
   "global": {

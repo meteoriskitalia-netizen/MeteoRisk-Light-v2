@@ -29,6 +29,7 @@ chiamante e restituisce un summary serializzabile.
 from __future__ import annotations
 
 import math
+from datetime import datetime, timezone
 
 ADVANCED_VERSION = "1.0.0"
 SOURCE = "radar_engine.advanced (campi gia' calcolati dal motore)"
@@ -42,6 +43,17 @@ LIFECYCLE_STAGES = (
     "GENESIS", "DEVELOPING", "INTENSIFYING", "MATURE", "WEAKENING",
     "DISSIPATING",
 )
+# Fase derivata SOLO dal blocco `meteorisk.tracking_events/1` (7 tipi di
+# evento di tracking gia' pubblicati in tracks.json). Lessico chiuso e
+# DISJOINT da LIFECYCLE_STAGES: quest'ultimo e' un proxy di intensita',
+# qui si descrive lo STATO DEL TRACK. La sesta etichetta e' `ambiguous`
+# perche' tracking_events/1 NON contiene alcun segnale di indebolimento:
+# introdurre "weakening" qui significherebbe inventare un dato (#207).
+TRACKING_PHASES = (
+    "forming", "organizing", "mature", "coasting", "dissipating",
+    "ambiguous",
+)
+TRACKING_EVENTS_SCHEMA = "meteorisk.tracking_events/1"
 SUPERCELL_CLASSES = ("SUPERCELL_CANDIDATE", "HP_SUPERCELL_CANDIDATE")
 
 # Motivo esplicito per i due valori supercell senza Doppler.
@@ -90,6 +102,9 @@ DEFAULT_THRESHOLDS = {
     "life_mature_max_growth_pct": 15.0,
     "life_mature_max_delta_dbz": 3.0,
     "life_mature_min_dbz": 50.0,
+    # SCELTA INGEGNERISTICA NON TARATA: eta' minima perche' un track
+    # continuato sia descritto come `mature` invece di `organizing`.
+    "tracking_mature_min_age_min": 30.0,
 }
 
 REFERENCE = {
@@ -115,6 +130,16 @@ REFERENCE = {
         "duration_min). PROXY del ciclo di vita, NON tarato, NON una probabilita'. "
         "NON sono i 7 eventi Doppler (appearance/intensification/weakening/"
         "displacement/merge/separation/dissipation), che restano invariati."),
+    "tracking_phase": (
+        "CLASSIFICAZIONE EURISTICA DI COMODO, SCELTA INGEGNERISTICA NON TARATA: "
+        "6 etichette derivate SOLO dai timestamp/valori del blocco "
+        "meteorisk.tracking_events/1 gia' pubblicato (birth, continuation, "
+        "death, temporary_non_observation, split, merge, "
+        "ambiguous_association). NON e' una misura fisica, NON e' una "
+        "probabilita' e NON sostituisce `lifecycle_stage` (proxy di "
+        "intensita'). Nessuna etichetta di indebolimento perche' il blocco "
+        "eventi non contiene quel segnale: la sesta fase e' `ambiguous`. "
+        "Nessun orario inventato: l'eta' usa i timestamp degli eventi stessi."),
     "bwer_candidate": (
         "BWER = Bounded Weak Echo Region: colonna di eco debole sotto eco elevata. "
         "Richiede profilo CAPPI verticale (>=4 livelli). SCELTA INGEGNERISTICA: "
@@ -616,6 +641,140 @@ def track_hail_nuclei(frames=None, *, cappi_levels=None, config=None):
 
 
 # ---------------------------------------------------------------------------
+# 4b) Fase del tracking derivata da `tracking_events/1` (ADDITIVA, NON fisica)
+# ---------------------------------------------------------------------------
+def _parse_event_ts(value):
+    """ISO8601 -> datetime UTC, o None. Nessun orario inventato."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        dt = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def derive_tracking_phase(tracking_events, *, reference_time=None, config=None):
+    """Fase a 6 etichette da un blocco `meteorisk.tracking_events/1`.
+
+    Il blocco e' QUELLO GIA' PUBBLICATO da ``output.build_tracking_events``:
+    qui non si crea nessun evento nuovo e non si tocca nessun evento esistente.
+    Le regole sono deterministische e usano solo ``type``/``value``/
+    ``timestamp`` degli eventi. Se il blocco non basta, il valore e' null con
+    ``null_reason`` esplicito (nessuna inferenza silenziosa).
+
+    `reference_time` e' opzionale: se assente si usa il massimo timestamp
+    presente nel blocco, quindi la funzione resta pura e indipendente
+    dall'orologio di sistema (regola: mai `Date.now()`).
+    """
+    th = thresholds_from_config(config)
+    ref = _parse_event_ts(reference_time)
+    block = tracking_events if isinstance(tracking_events, dict) else None
+    if block is None:
+        return field(None, null_reason="tracking_events_unavailable",
+                     reference=REFERENCE["tracking_phase"])
+    if block.get("schema") != TRACKING_EVENTS_SCHEMA:
+        return field(None, null_reason="tracking_events_schema_unexpected",
+                     reference=REFERENCE["tracking_phase"],
+                     schema_seen=block.get("schema"))
+    events = block.get("events")
+    if not isinstance(events, list) or not events:
+        return field(None, null_reason="tracking_events_empty",
+                     reference=REFERENCE["tracking_phase"])
+    by_type = {}
+    for event in events:
+        if isinstance(event, dict) and isinstance(event.get("type"), str):
+            by_type.setdefault(event["type"], event)
+    required = ("birth", "continuation", "death")
+    missing = [kind for kind in required if kind not in by_type]
+    if missing:
+        return field(None, null_reason="tracking_events_missing:"
+                     + ",".join(missing),
+                     reference=REFERENCE["tracking_phase"])
+
+    def observed(kind):
+        event = by_type.get(kind)
+        return bool(event is not None and event.get("value") is not None)
+
+    # SOLO eventi OSSERVATI: il timestamp di un evento assente e' l'istante di
+    # valutazione del run, NON un'evidenza temporale (v. output.py).
+    stamps = [e.get("timestamp") for e in events
+              if isinstance(e, dict) and e.get("timestamp")
+              and e.get("value") is not None]
+    if ref is None:
+        parsed = [dt for dt in (_parse_event_ts(s) for s in stamps) if dt is not None]
+        ref = max(parsed) if parsed else None
+    birth_ts = _parse_event_ts(by_type["birth"].get("timestamp"))
+    age_min = None
+    if ref is not None and birth_ts is not None:
+        age_min = (ref - birth_ts).total_seconds() / 60.0
+        # Scarto di orologio/arrotondamento: un'eta' negativa non e' un dato.
+        if age_min < 0:
+            age_min = 0.0
+        age_min = round(age_min, 2)
+
+    present = {kind: observed(kind) for kind in (
+        "birth", "continuation", "death", "temporary_non_observation",
+        "split", "merge", "ambiguous_association")}
+    if present["death"]:
+        value, rule = "dissipating", "death_observed"
+    elif present["temporary_non_observation"]:
+        value, rule = "coasting", "coasted_point_observed"
+    elif present["ambiguous_association"]:
+        value, rule = "ambiguous", "ambiguous_association_observed"
+    elif present["split"] or present["merge"]:
+        value, rule = "organizing", "split_or_merge_observed"
+    elif present["continuation"]:
+        if (age_min is not None
+                and age_min >= th["tracking_mature_min_age_min"]):
+            value, rule = "mature", "continued_long_lived"
+        else:
+            value, rule = "organizing", "continued_short_lived"
+    elif present["birth"]:
+        value, rule = "forming", "birth_only"
+    else:
+        return field(
+            None, null_reason="tracking_events_insufficient_for_phase",
+            reference=REFERENCE["tracking_phase"], events_observed=present,
+            age_min=age_min)
+
+    if value not in TRACKING_PHASES:  # pragma: no cover
+        raise AssertionError("tracking_phase_out_of_lexicon")
+    return field(
+        value, reference=REFERENCE["tracking_phase"], rule=rule,
+        schema=TRACKING_EVENTS_SCHEMA, events_observed=present,
+        age_min=age_min,
+        thresholds={"tracking_mature_min_age_min":
+                    th["tracking_mature_min_age_min"]},
+        note="euristica NON tarata; NON e' una misura fisica")
+
+
+def _tracking_events_index(bundle):
+    """Indice track_id -> blocco eventi GIA' generato da output.py.
+
+    Riusa `output.build_tracking_events`: nessun evento viene creato o
+    modificato qui. Indice separato per celle e storm object; le due
+    collezioni hanno namespace di ID distinto nel motore.
+    """
+    from . import output as _out
+    radar_ts = getattr(bundle, "radar_timestamp_iso", None)
+    out = {"cell": {}, "storm_object": {}}
+    for kind, attr in (("cell", "tracks"), ("storm_object", "storm_tracks")):
+        for track in (getattr(bundle, attr, None) or []):
+            tid = getattr(track, "track_id", None)
+            if tid is None:
+                continue
+            try:
+                out[kind][tid] = _out.build_tracking_events(track, radar_ts)
+            except Exception:
+                # Layer additivo: un track non leggibile non rompe il run.
+                continue
+    return out
+
+
+# ---------------------------------------------------------------------------
 # 5) Wiring additivo
 # ---------------------------------------------------------------------------
 def _rotation_evidence(bundle):
@@ -680,7 +839,7 @@ def _shape_2d_for(bundle, candidate):
 
 
 def attach_advanced(bundle, config=None):
-    """Aggiunge i 5 campi FASE 7 a Ogni record e restituisce il summary.
+    """Aggiunge i 6 campi FASE 7 a Ogni record e restituisce il summary.
 
     SOLO chiavi nuove: nessun campo esistente viene modificato. ``soi``,
     ``soi_v2``, ``rotation_*``, ``severe_stack`` e
@@ -703,6 +862,9 @@ def attach_advanced(bundle, config=None):
         "lifecycle_stage_counts": {k: 0 for k in LIFECYCLE_STAGES},
         "lifecycle_null": 0,
         "lifecycle_null_reasons": {},
+        "tracking_phase_counts": {k: 0 for k in TRACKING_PHASES},
+        "tracking_phase_null": 0,
+        "tracking_phase_null_reasons": {},
         "bwer_candidate_true": 0,
         "bwer_candidate_null": 0,
         "overhang_candidate_true": 0,
@@ -714,11 +876,20 @@ def attach_advanced(bundle, config=None):
         "cappi_levels": cappi_levels,
         "reference": dict(REFERENCE),
     }
+    events_index = _tracking_events_index(bundle)
     for rec in structures:
         shape = _shape_2d_for(bundle, rec)
         mfield = classify_morphology(rec, shape_2d=shape,
                                      rotation_evidence=rot, config=cfg)
         lfield = derive_lifecycle(rec, config=cfg)
+        tid = rec.get("track_id")
+        kind = "storm_object" if rec.get("track_type") == "storm_object" else "cell"
+        ev_block = events_index[kind].get(tid)
+        if ev_block is None:
+            ev_block = events_index["cell"].get(tid)
+        if ev_block is None:
+            ev_block = events_index["storm_object"].get(tid)
+        pfield = derive_tracking_phase(ev_block, config=cfg)
         bfield = bwer_candidate(rec, cappi_levels=cappi_levels, config=cfg)
         ofield = overhang_candidate(rec, config=cfg)
         hfield = track_hail_nuclei(
@@ -726,6 +897,7 @@ def attach_advanced(bundle, config=None):
             cappi_levels=cappi_levels, config=cfg)
         rec["morphology_class"] = mfield
         rec["lifecycle_stage"] = lfield
+        rec["tracking_phase"] = pfield
         rec["bwer_candidate"] = bfield
         rec["overhang_candidate"] = ofield
         rec["hail_nuclei_tracking"] = hfield
@@ -746,6 +918,14 @@ def attach_advanced(bundle, config=None):
                 summary["lifecycle_null_reasons"].get(r, 0) + 1)
         else:
             summary["lifecycle_stage_counts"][lv] += 1
+        pv = pfield["value"]
+        if pv is None:
+            summary["tracking_phase_null"] += 1
+            r = pfield["null_reason"] or "unknown"
+            summary["tracking_phase_null_reasons"][r] = (
+                summary["tracking_phase_null_reasons"].get(r, 0) + 1)
+        else:
+            summary["tracking_phase_counts"][pv] += 1
         if bfield["candidate"] is True:
             summary["bwer_candidate_true"] += 1
         else:

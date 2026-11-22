@@ -1,3 +1,17 @@
+VERSION=1.3.0.44
+BUILD=174
+DATE=2026-11-22
+APP_FILE=mri-light-1.3.0.43.html
+MeteoRisk Light - 1.3.0.44 - FASE 7 tracking_phase, tabella radar 5 stati, validazione fronti indipendente (bump da 1.3.0.43)
+VERSION=1.3.0.44
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=174
+RELEASE_TYPE=release
+DATE=2026-11-22
+NOTE=Release 1.3.0.44 (bump da 1.3.0.43). Quattro flussi lato scripts/docs: HTML, sw.js e test .mjs NON cambiano (APP_FILE resta mri-light-1.3.0.43.html). (1) FASE 7 tracking_phase: advanced.py +182, output.py +6, test_fase7_tracking_phase.py (17 test passati). (2) Tabella radar: nuovo site_availability.py (13 campi, 5 stati), COVERAGE_STATUS_VALUES esteso a 5 stati in doppler.py, docs OPERA_VRADH_AVAILABILITY.md con sezione 8 (ok=0 misurato, non difetto di codice), test + 2 fixture. (3) Validazione fronti indipendente: validate_fronts_independent.py + test + docs + evidence, calibration.json con blocco independent_validation (ECMWF 82/732, DWD 61/901, POD 0, CSI 0) e publication_status development_only INVARIATO. (4) CREA WDA: 4 file gia' su main dalla 1.3.0.41, nessuna azione. Verifiche: pytest radar/fronts/crea_wda, py_compile, coda VERSION byte-identica.
+APP_FILE=mri-light-1.3.0.43.html
 VERSION=1.3.0.43
 BUILD=173
 DATE=2026-11-22

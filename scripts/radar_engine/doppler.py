@@ -1261,7 +1261,7 @@ def point_in_ring(lon, lat, ring):
 # ---------------------------------------------------------------------------
 COVERAGE_NULL_REASON = "no_vradh_scan_for_doppler_coverage"
 COVERAGE_STALE_REASON = "no_vradh_scan_for_site"
-COVERAGE_STATUS_VALUES = ("ok", "unavailable", "stale")
+COVERAGE_STATUS_VALUES = ("ok", "unavailable", "stale", "partial", "invalid")
 
 
 def _coverage_age_seconds(scan_iso, now):

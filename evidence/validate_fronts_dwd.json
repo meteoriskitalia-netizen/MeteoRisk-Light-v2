@@ -1,0 +1,144 @@
+{
+  "schema_version": "1.0",
+  "tool": "validate_fronts_independent",
+  "tool_version": "1.0.0",
+  "generated_at": "2026-11-22T07:46:15Z",
+  "design": {
+    "unit": "coppia (frame_valid_time, stazione METAR)",
+    "positive_forecast": "fronte previsto entro radius_km dalla stazione",
+    "positive_observation": "pioggia osservata (RA/SHRA/TSRA) entro window_hours",
+    "negative": "finestra spazio-temporale senza pioggia osservata",
+    "control": "stessa valutazione a +control_hours per escludere ritardi di fase",
+    "circularity_removed": "nessuna etichetta da rain+showers del modello; verita' = METAR",
+    "source": "SCELTA DI DISEGNO dichiarata a priori (non tarata sull'osservato)",
+    "reference": "TODO 1.3 riga 33; regole #207/#218/#233/#237"
+  },
+  "truth": {
+    "reports_read": 6329,
+    "stations": 74,
+    "rain_events": 312,
+    "kinds": {
+      "RA": 306,
+      "SHRA": 6,
+      "TSRA": 0
+    },
+    "source": "NOAA/NCEI Integrated Surface Database (17 U.S.C. 105, public domain), trasporto IEM mesonet.agron.iastate.edu/cgi-bin/request/asos.py, rete IT__ASOS, campo metar (bollettino WMO originale)",
+    "reference": "WMO table 4678 (present weather); parser: scripts/validation/build_labels.py"
+  },
+  "forecasts": {
+    "domain": "dwd_icon_eu",
+    "frames": 14,
+    "S_km": 100.0,
+    "thresh_t": -1.1195110623206401e-10,
+    "thresh_g": 3.729252072020075e-05,
+    "status": "calibrated",
+    "grid": {
+      "nx": 881,
+      "ny": 449,
+      "dx": 0.0625,
+      "dy": 0.0625,
+      "latMin": 34.0,
+      "lonMin": -15.0
+    },
+    "box": {
+      "lat_min": 30.0,
+      "lon_min": -12.0,
+      "lat_max": 62.0,
+      "lon_max": 30.0
+    },
+    "source": "Open-Meteo .om (CC BY 4.0), frame reali",
+    "reference": "TFP Hewson 1998 / front_id MIT; theta_e 850 Bolton 1980; soglie MISURATE in calibration.json",
+    "frames_total": 14,
+    "frames_within_observation_coverage": 13,
+    "observation_window": {
+      "start": "2026-11-18T00:45:00Z",
+      "end": "2026-11-22T06:55:00Z",
+      "source": "bollettini METAR presenti nel CSV"
+    }
+  },
+  "primary": {
+    "counts": {
+      "hits": 0,
+      "misses": 61,
+      "false_alarms": 13,
+      "correct_negatives": 888
+    },
+    "positives": 61,
+    "negatives": 901,
+    "event_hits": 0,
+    "scores": {
+      "POD": {
+        "value": 0.0,
+        "null_reason": null
+      },
+      "FAR": {
+        "value": 1.0,
+        "null_reason": null
+      },
+      "CSI": {
+        "value": 0.0,
+        "null_reason": null
+      },
+      "source": "conteggi misurati su coppie (valid_time, stazione) — questo modulo",
+      "reference": "CSI/POD/FAR: definizioni standard (WMO/OGMet verification guidance)"
+    },
+    "radius_km": {
+      "value": 50.0,
+      "source": "SCELTA DI DISEGNO dichiarata a priori (non tarata sull'osservato)"
+    },
+    "window_hours": {
+      "value": 3.0,
+      "source": "SCELTA DI DISEGNO dichiarata a priori (non tarata sull'osservato)"
+    }
+  },
+  "control_6h": {
+    "counts": {
+      "hits": 1,
+      "misses": 145,
+      "false_alarms": 12,
+      "correct_negatives": 804
+    },
+    "positives": 146,
+    "negatives": 816,
+    "event_hits": 1,
+    "scores": {
+      "POD": {
+        "value": 0.006849,
+        "null_reason": null
+      },
+      "FAR": {
+        "value": 0.923077,
+        "null_reason": null
+      },
+      "CSI": {
+        "value": 0.006329,
+        "null_reason": null
+      },
+      "source": "conteggi misurati su coppie (valid_time, stazione) — questo modulo",
+      "reference": "CSI/POD/FAR: definizioni standard (WMO/OGMet verification guidance)"
+    },
+    "radius_km": {
+      "value": 50.0,
+      "source": "SCELTA DI DISEGNO dichiarata a priori (non tarata sull'osservato)"
+    },
+    "window_hours": {
+      "value": 6.0,
+      "source": "SCELTA DI DISEGNO dichiarata a priori (non tarata sull'osservato)"
+    }
+  },
+  "publication_gate": {
+    "feasible": true,
+    "rule": ">= 60 positivi E >= 60 negativi osservati (regola #233)",
+    "measured_positives": 61,
+    "measured_negatives": 901,
+    "publish_metrics": true,
+    "null_reason": null
+  },
+  "limits": [
+    "La verita' e' una rete di punti (stazioni METAR), non un piano: l'assenza di bollettino non e' assenza di pioggia (sampling ~60 min).",
+    "I fronti sono istantanei ai soli valid_time dei frame disponibili: il campionamento temporale dei frame limita il POD indipendentemente dall'abilita' del rilevatore.",
+    "Le soglie 50 km / 3 h / 6 h sono scelte di disegno, non tarate.",
+    "Nessun campo e' simulato; nessuna etichetta ESWD; nessun dato inventato."
+  ],
+  "compute_s": 8.95
+}

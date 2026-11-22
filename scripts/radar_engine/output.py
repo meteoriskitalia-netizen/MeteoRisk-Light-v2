@@ -636,6 +636,12 @@ def _advanced_summary(bundle):
         "advanced_lifecycle_null": int(adv.get("lifecycle_null") or 0),
         "advanced_lifecycle_null_reasons": dict(
             adv.get("lifecycle_null_reasons") or {}),
+        "advanced_tracking_phase_counts": dict(
+            adv.get("tracking_phase_counts") or {}),
+        "advanced_tracking_phase_null": int(
+            adv.get("tracking_phase_null") or 0),
+        "advanced_tracking_phase_null_reasons": dict(
+            adv.get("tracking_phase_null_reasons") or {}),
         "advanced_bwer_candidate_true": int(adv.get("bwer_candidate_true") or 0),
         "advanced_overhang_candidate_true": int(
             adv.get("overhang_candidate_true") or 0),
