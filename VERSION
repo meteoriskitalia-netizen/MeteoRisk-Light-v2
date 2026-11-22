@@ -1,3 +1,17 @@
+VERSION=1.3.0.47
+BUILD=177
+DATE=2026-11-22
+APP_FILE=mri-light-1.3.0.45.html
+MeteoRisk Light - 1.3.0.47 - Correzione NOTE 1.3.0.46 e test sw cache policy (client invariato)
+VERSION=1.3.0.47
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=177
+RELEASE_TYPE=release
+DATE=2026-11-22
+NOTE=Correzione dei due residui della 1.3.0.46, SENZA cambiamenti al client (APP_FILE resta mri-light-1.3.0.45.html e CACHE_NAME resta mri-1.3.0.45). (1) NOTE onesta: i valori -42% tempo render e 75/75 WebP byte-identici della 1.3.0.46 NON sono riproducibili nel setup di questa sessione (erano misure del parent sulla sola fase contour). MISURATO in questa sessione: 1,38x (-27,5%) end-to-end sul frame reale dwd_icon_d2 2026-10-26T1200.om, 96/96 WebP byte-identici, 243/243 test renderer verdi; come nota, il 6,6x del profilo e' sulla SOLA fase contour, NON end-to-end. (2) test_sw_cache_policy.mjs A2/A2b: APP_VER derivato da APP_VERSION del client attivo (APP_FILE) invece che dalla chiave VERSION=, perche' la cache del SW si aggancia al CLIENT e non al numero di release. Coda VERSION byte-identica.
+APP_FILE=mri-light-1.3.0.45.html
 VERSION=1.3.0.46
 BUILD=176
 DATE=2026-11-22

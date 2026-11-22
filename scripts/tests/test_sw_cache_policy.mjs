@@ -132,18 +132,27 @@ function buildContext() {
 }
 
 const APP_VER = (() => {
-  // 1.3.0.45: la versione dichiarata e' la chiave VERSION= del file VERSION.
-  // MAJOR.MINOR.PATCH.BUILD non coincide piu' con la stringa di release:
-  // BUILD=175 e' il contatore globale delle build, mentre la release e' 1.3.0.45.
-  const declared = (VERSION_SRC.match(/^VERSION=(.+)$/m) || [])[1];
+  // 1.3.0.47: CACHE_NAME e' la cache del CLIENT (sw.js), NON il numero di release.
+  // La 1.3.0.46 ha cambiato SOLO il renderer lato server: APP_FILE e CACHE_NAME
+  // restano 1.3.0.45. Confrontare CACHE_NAME con la chiave VERSION= (la release)
+  // significa confrontare due cose che NON devono essere uguali: la cache si
+  // bumpa quando cambia il CLIENT, non quando cambia il numero di release.
+  // Si deriva quindi APP_VER dall'APP_VERSION dell'HTML attivo dichiarato da APP_FILE.
+  const appFile = (VERSION_SRC.match(/^APP_FILE=(.+)$/m) || [])[1];
+  if (!appFile) return '';
+  const clientPath = path.join(ROOT, appFile.trim());
+  if (!fs.existsSync(clientPath)) return '';
+  const clientSrc = fs.readFileSync(clientPath, 'utf8');
+  const declared = (clientSrc.match(/APP_VERSION\s*=\s*['"]([^'"]+)['"]/) || [])[1];
   return declared ? declared.trim() : '';
 })();
 
 // ---------- A. STATICHE DI SICUREZZA (prima di eseguire) ----------
 ok('A1: CACHE_NAME e\' la costante del modulo', /var CACHE_NAME = '[^']+';/.test(swSrc));
-// 1.3.0.45: il valore atteso e' la versione corrente (APP_VER), non un letterale congelato.
-ok('A2: CACHE_NAME versionata con la versione della release', new RegExp("var CACHE_NAME = 'mri-" + APP_VER.replace(/\./g, '\\.') + "';").test(swSrc), 'app=' + APP_VER);
-ok('A2b: CACHE_NAME corrisponde alla chiave VERSION= dichiarata', swSrc.indexOf("'mri-" + APP_VER + "'") >= 0);
+// 1.3.0.47: il valore atteso e' la versione del CLIENT attivo (APP_VER da APP_VERSION
+// dell'APP_FILE), non la release e non un letterale congelato.
+ok('A2: CACHE_NAME versionata con la versione del CLIENT (APP_VERSION)', new RegExp("var CACHE_NAME = 'mri-" + APP_VER.replace(/\./g, '\\.') + "';").test(swSrc), 'client=' + APP_VER);
+ok('A2b: CACHE_NAME corrisponde ad APP_VERSION del client attivo (APP_FILE)', swSrc.indexOf("'mri-" + APP_VER + "'") >= 0);
 ok('A3: precache minima dichiarata (solo index.html + manifest + offline.html), nessun addAll',
   (() => {
     const m = swSrc.match(/var PRECACHE_PATHS = \[([^\]]*)\];/);
