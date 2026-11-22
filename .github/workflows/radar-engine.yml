@@ -37,36 +37,17 @@ permissions:
   pages: write
   id-token: write
 
-# 2026-11-12 — CONCURRENCY A LIVELLO DI WORKFLOW (nuova, group DEDICATO).
-# Perche': l'11/11/2026 un run e' fallito allo step "Commit output derivato"
-# per un conflitto git con un run sovrapposto (13:15 vs 13:16). Il group
-# include il ref, quindi due run dello stesso ref non si sovrappongono piu':
-# la seconda resta in coda e parte quando la prima ha finito (commit e push
-# compresi). cancel-in-progress: false -> un run NON viene MAI annullato a
-# meta' commit: annullarlo mentre scrive su main o su radar-history
-# lascerebbe lo stato a meta'. Costo della coda: trascurabile, la cadenza
-# resta 10 minuti e un run misurato dura ~1-2 minuti.
-concurrency:
-  group: radar-engine-${{ github.ref }}
-  cancel-in-progress: false
-
-# NOTA (fase A4 — separazione concurrency): rimossa la concurrency di
-# WORKFLOW (ex group "pages" condiviso con update-weather-data e
-# satellite-engine, cancel-in-progress: false). Essa serializzava l'INTERO
-# run radar (checkout, test, motore, commit) dietro i run lunghi del meteo:
-# due workflow che si accodano l'uno all'altro fanno slittare gli schedule
-# (run partito con decine di minuti di ritardo). La serializzazione vive
-# ORA SOLO sul job deploy-pages (concurrency a livello di job, group
-# "pages-deploy-2", cancel-in-progress: false): il job dati/motore parte
-# subito, il deploy si accoda solo ad altri deploy.
-# NOTA (tracking 2h + nowcast): aggiunta inoltre una concurrency a livello
-# di JOB sul SOLO radar-engine (group proprio "radar-history", cancel-in-
-# progress: false). Le due cron del motore ("*/5" e "7,22,37,52") si
-# sovrappongono e gareggerebbero sul fetch+push dell'archivio rolling
-# radar-history (stesso race "fetch first" gia' osservato su main, che
-# rischiava di corrompere la finestra): qui le run del motore si
-# SERIALIZZANO tra loro. Il group "pages-deploy-2" e la struttura a livello
-# di workflow NON vengono toccati.
+# 1.3.0.45 — CONCURRENCY: restano SOLO i due gruppi a livello di JOB.
+# Il blocco `concurrency` di WORKFLOW (`group: radar-engine-${{ github.ref }}`,
+# introdotto il 2026-11-12) e' stato RIMOSSO: l'audit misura 98/100 run verdi
+# e zero failure transitorie, quindi la coda NON proteggeva nulla e faceva
+# slittare i dispatch successivi (cadenza 10 minuti, run da ~1-2 minuti).
+# Restano: (a) il gruppo di JOB `radar-history`, che serializza le run del
+# motore sul fetch+push dell'archivio rolling (niente race sullo stesso
+# ref); (b) il gruppo di JOB `pages-deploy-2`, che serializza i soli deploy
+# di Pages insieme a update-weather-data senza bloccare il job dati/motore.
+# satellite-engine NON usa `pages-deploy-2`: il suo gruppo e'
+# `satellite-cache` (omonimo del branch dati), quindi non entra in coda qui.
 
 jobs:
   radar-engine:
@@ -376,6 +357,37 @@ jobs:
             echo "radar timestamp: \`${{ steps.run.outputs.radar_timestamp || 'n/a' }}\`"
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Health check — freschezza radar (soglia 20 min)
+        if: always()
+        timeout-minutes: 2
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          path = "data/radar/latest.json"
+          try:
+              with open(path, encoding="utf-8") as fh:
+                  data = json.load(fh)
+              raw = data.get("data_latency_minutes")
+              # Il campo puo' essere "11,1" (virgola decimale): senza il
+              # replace il confronto con la soglia 20 e' sbagliato.
+              age = float(str(raw).replace(",", ".")) if raw is not None else None
+          except Exception as exc:
+              print("::warning::health check radar: impossibile leggere %s (%s)" % (path, exc))
+              sys.exit(0)
+          if age is None:
+              msg = "health check radar: data_latency_minutes assente, freschezza non verificabile"
+              print("::warning::" + msg)
+          elif age > 20:
+              msg = "health check radar: dati vecchi di %.1f minuti (soglia 20)" % age
+              print("::warning::" + msg)
+          else:
+              msg = "health check radar: freschezza OK (%.1f minuti, soglia 20)" % age
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as fh:
+                  fh.write("- " + msg + "\n")
+          PY
 
       - name: Commit output derivato (only if changed)
         if: success()
@@ -864,10 +876,10 @@ jobs:
           exit 1
 
   # JOB DI DEPLOY PAGES — unico punto serializzato del workflow.
-  # group "pages-deploy-2" condiviso con update-weather-data e satellite-engine:
+  # group "pages-deploy-2" condiviso con update-weather-data e deploy-pages:
   # i deploy si serializzano tra loro (cancel-in-progress: false) SENZA bloccare
-  # i job dati/motore. NOTA: la condivisione vale SOLO se anche gli altri due
-  # workflow adottano lo stesso group a livello di job (fase A4).
+  # i job dati/motore. satellite-engine NON e' in questo gruppo: usa
+  # "satellite-cache" (gruppo e branch omonimi) e non entra in coda qui.
   # L'artifact "github-pages" (upload-pages-artifact) viene prodotto nel job
   # radar-engine e consumato qui da deploy-pages (stessa workflow run).
   deploy-pages:
@@ -881,4 +893,5 @@ jobs:
       - name: Deploy su GitHub Pages
         if: success()
         id: deployment
+        timeout-minutes: 5
         uses: actions/deploy-pages@v4

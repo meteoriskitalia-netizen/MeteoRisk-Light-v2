@@ -1,3 +1,17 @@
+VERSION=1.3.0.45
+BUILD=175
+DATE=2026-11-22
+APP_FILE=mri-light-1.3.0.45.html
+MeteoRisk Light - 1.3.0.45 - AFA multi-frame static-first, radar DPC robustezza (bump da 1.3.0.44)
+VERSION=1.3.0.45
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=175
+RELEASE_TYPE=release
+DATE=2026-11-22
+NOTE=Release 1.3.0.45 (bump da 1.3.0.44). (1) MAPPE: --existing-list sullo slot parziale NON applicato (run_id = _run_id(reference_time) cambia a ogni run e il path include run_id: riutilizzare i WebP della run precedente servirebbe pixel di un altro reference_time); code partial/complete NON separate (i due slot condividono lo stesso run_id/path su fm2-rendered e il commit orphan con --force-with-lease richiede serializzazione; inoltre non esiste un input che distingua i due slot). (2) AFA MULTI-FRAME: satellite_engine.py pubblica 25 slot mtg_fd:li_afa in satellite/afa/<slot>.webp come sorgente AUSILIARIA (SOURCES resta 6, failed e exit code invariati), manifest additivo con sources.afa e afa_meta (served_iso, active_pixels, has_signal, sha256, bytes, layer, license); HTTP 500/502/ServiceException -> file non scritto e slot omesso; client static-first senza secondo fetch ne fallback WMS, showAfaFrameAt con tolleranza 10 minuti e tetto satManifestNewestMs(afa), hook in applySyncFrame; nessun conteggio di scariche ne modifica a lightning_afa. (3) RADAR DPC: rimossa concurrency di workflow, health check freschezza 20 minuti (replace della virgola decimale, if always, timeout 2, warning + GITHUB_STEP_SUMMARY), timeout 5 minuti sul deploy, commento pages-deploy-2 corretto (satellite usa satellite-cache). Verifiche: AFA 5/5, pytest radar, html/js 1 passed, node --check 9/9, sw policy OK. Coda VERSION byte-identica.
+APP_FILE=mri-light-1.3.0.45.html
 VERSION=1.3.0.44
 BUILD=174
 DATE=2026-11-22

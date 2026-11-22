@@ -49,14 +49,17 @@ Exit codes (valutati sullo slot corrente):
 
 import argparse
 import datetime as _dt
+import hashlib
 import io
 import json
 import math
 import os
 import random
+import re
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -112,6 +115,15 @@ WEBP_HEADER = b"WEBP"
 # compresso di Pillow) - i frame restano a risoluzione piena.
 WEBP_QUALITY = 80
 WEBP_METHOD = 6
+
+# 1.3.0.45 — AFA (MTG-I LI) come sorgente AUSILIARIA: NON entra in SOURCES.
+# Le 6 sorgenti restano 6, `failed = len(SOURCES) - ok` e l'exit code restano
+# invariati: un fallimento AFA non puo' far arrossire la run. Il WMS resta
+# lato workflow (qui), il client legge solo i WebP pubblicati dal manifest.
+AFA_SOURCE_ID = "afa"
+AFA_LAYER = "mtg_fd:li_afa"
+AFA_LICENSE = "CC BY 4.0"
+AFA_TOLERANCE_MIN = 10  # documentale: il client accetta lo slot entro 10 minuti
 
 _LOG_LOCK = threading.Lock()
 
@@ -219,6 +231,99 @@ def png_to_webp(body):
         out = io.BytesIO()
         image.save(out, "WEBP", quality=WEBP_QUALITY, method=WEBP_METHOD)
     return out.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# 1.3.0.45 — AFA MULTI-FRAME (sorgente ausiliaria)
+# ---------------------------------------------------------------------------
+def afa_frame_stats(body):
+    """(pixel con alpha>0, has_signal) da un frame WebP/PNG in bytes.
+
+    `alpha>0 = 0` con HTTP 200 e' un'osservazione VALIDA: il frame va pubblicato
+    con `has_signal: false`, non va omesso ne' trasformato in errore.
+    """
+    with Image.open(io.BytesIO(body)) as src:
+        alpha = src.convert("RGBA").getchannel("A")
+        active = sum(alpha.histogram()[1:])
+    return active, active > 0
+
+
+def _warning_iso(warning):
+    """Estrae l'ISO del frame servito dall'header Warning del WMS, se presente."""
+    if not warning:
+        return None
+    found = re.search(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z",
+                      str(warning))
+    return found.group(0) if found else None
+
+
+def fetch_afa_png(url):
+    """UN solo GET senza retry (AFA e' ausiliario: 1 GET in steady-state).
+
+    Ritorna ``(body, warning)`` oppure ``None``. HTTP 500/502/503/504,
+    ServiceException e risposte non-immagine -> None: il file NON viene scritto,
+    lo slot viene omesso dal manifest e l'evento e' solo loggato.
+    """
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT,
+                                               "Accept": "image/png"})
+    try:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as resp:
+            body = resp.read()
+            warning = resp.headers.get("Warning") or None
+    except urllib.error.HTTPError as exc:
+        if exc.code in (500, 502, 503, 504):
+            _log("[satellite_engine] afa status=errore-http code=%d" % exc.code)
+            return None
+        _log("[satellite_engine] afa status=errore-http code=%s" % exc.code)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        _log("[satellite_engine] afa status=errore-rete motivo=%s" % exc)
+        return None
+    if b"ServiceException" in body[:4096] or not (body.startswith(PNG_MAGIC) or is_webp(body)):
+        _log("[satellite_engine] afa status=risposta-non-immagine bytes=%d" % len(body))
+        return None
+    return body, warning
+
+
+def process_afa_source(slot, out_root, prev_meta=None):
+    """Scarica (o riusa) UN slot AFA e ne ritorna i metadati additivi.
+
+    Il path e' `satellite/afa/<slot_name>.webp`, identico a quello usato dal
+    client via `satStaticUrl('afa', iso)`. I frame gia' presenti e validi non
+    generano richieste (steady-state: 1 GET solo per lo slot mancante).
+    """
+    src_dir = out_root / AFA_SOURCE_ID
+    src_dir.mkdir(parents=True, exist_ok=True)
+    name = slot_name(slot)
+    target = src_dir / (name + EXT)
+    served = None
+    if is_webp_file(target):
+        body = target.read_bytes()
+        served = (prev_meta or {}).get(name, {}).get("served_iso")
+    else:
+        url = build_getmap_url(AFA_LAYER, slot_time(slot), ITALY_FRAME_WIDTH,
+                               (IT_WEST, IT_EAST, IT_SOUTH, IT_NORTH))
+        fetched = fetch_afa_png(url)
+        if fetched is None:
+            return None
+        raw, warning = fetched
+        served = _warning_iso(warning)
+        body = raw if is_webp(raw) else png_to_webp(raw)
+        with open(target, "wb") as fh:
+            fh.write(body)
+    active, has_signal = afa_frame_stats(body)
+    _log("[satellite_engine] afa slot=%s status=ok bytes=%d active_pixels=%d has_signal=%s"
+         % (name, len(body), active, has_signal))
+    return {
+        "requested_iso": slot_time(slot),
+        "served_iso": served,
+        "active_pixels": active,
+        "has_signal": has_signal,
+        "sha256": hashlib.sha256(body).hexdigest(),
+        "bytes": len(body),
+        "layer": AFA_LAYER,
+        "license": AFA_LICENSE,
+    }
 
 
 # L5: cache in-memory delle directory già sottoposte a migrazione legacy
@@ -354,7 +459,7 @@ def prune_source(source_id, out_root):
                  % (source_id, path.name))
 
 
-def write_manifest(out_root, slot, generated_at):
+def write_manifest(out_root, slot, generated_at, afa_meta=None):
     sources = {}
     for source_id in SOURCES:
         src_dir = out_root / source_id
@@ -362,7 +467,16 @@ def write_manifest(out_root, slot, generated_at):
         if src_dir.is_dir():
             slots = sorted(p.stem for p in src_dir.glob("*" + EXT) if is_webp_file(p))
         sources[source_id] = slots
+    # 1.3.0.45 — AFA ADDITIVA: `sources.afa` ha la stessa forma delle altre
+    # sorgenti, quindi il client puo' usare satStaticUrl('afa', iso) senza
+    # modifiche. `afa_meta` e' una chiave NUOVA, separata dalle 6 sorgenti.
+    afa_dir = out_root / AFA_SOURCE_ID
+    sources[AFA_SOURCE_ID] = (sorted(p.stem for p in afa_dir.glob("*" + EXT)
+                                     if is_webp_file(p)) if afa_dir.is_dir() else [])
     manifest = {"generated_at": generated_at, "slot": slot_name(slot), "sources": sources}
+    if afa_meta is not None:
+        manifest["afa_meta"] = {k: v for k, v in afa_meta.items()
+                                if k in sources[AFA_SOURCE_ID]}
     with open(out_root / "manifest.json", "w", encoding="utf-8") as fh:
         json.dump(manifest, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
@@ -415,26 +529,49 @@ def main():
     # Accodando anche il backfill i worker liberi continuano a scaricare: stesso
     # carico (MAX_WORKERS invariato), nessuna richiesta in piu', nessuna
     # modifica alla finestra rolling (25 slot) ne' all'exit code.
+    # 1.3.0.45: gli slot AFA entrano nello STESSO pool (MAX_WORKERS invariato),
+    # ma come kind "afa": i loro esiti NON entrano in `results`, quindi non
+    # toccano `failed` ne' l'exit code (6 sorgenti, non 7).
+    prev_meta = {}
+    try:
+        with open(out_root / "manifest.json", encoding="utf-8") as fh:
+            prev_meta = (json.load(fh) or {}).get("afa_meta") or {}
+    except (OSError, ValueError):
+        pass
+
     tasks = [("current", source_id, slot, src) for source_id, src in SOURCES.items()]
     tasks += [("backfill", source_id, s, src)
               for s in slots[1:] for source_id, src in SOURCES.items()]
+    tasks += [("afa", AFA_SOURCE_ID, s, None) for s in slots]
     results = {}
+    afa_meta = {}
     backfill = {"ok": 0, "skip": 0, "errore": 0}
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-        pending = {pool.submit(process_source, source_id, src, s, out_root): (kind, source_id)
-                   for kind, source_id, s, src in tasks}
+        pending = {}
+        for kind, source_id, s, src in tasks:
+            if kind == "afa":
+                future = pool.submit(process_afa_source, s, out_root, prev_meta)
+            else:
+                future = pool.submit(process_source, source_id, src, s, out_root)
+            pending[future] = (kind, source_id, slot_name(s))
         for future in as_completed(pending):
-            kind, source_id = pending[future]
+            kind, source_id, name = pending[future]
             res = future.result()
             if kind == "current":
                 results[source_id] = res
+            elif kind == "afa":
+                if res is not None:
+                    afa_meta[name] = res
             else:
                 backfill[res["status"]] += 1
     for source_id in SOURCES:
         prune_source(source_id, out_root)
+    prune_source(AFA_SOURCE_ID, out_root)
 
     generated_at = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    manifest = write_manifest(out_root, slot, generated_at)
+    merged_afa = dict(prev_meta)
+    merged_afa.update(afa_meta)
+    manifest = write_manifest(out_root, slot, generated_at, merged_afa)
 
     counts = {"ok": 0, "skip": 0, "errore": 0}
     for res in results.values():
@@ -449,6 +586,11 @@ def main():
          % (counts["ok"], counts["skip"], counts["errore"], len(slots) - 1,
             backfill["ok"], backfill["skip"], backfill["errore"]))
 
+    _log("[satellite_engine] AFA (ausiliario): slot=%d pubblicati=%d con-segnale=%d "
+         "(non influisce su failed/exit code)"
+         % (len(slots), len(manifest["sources"][AFA_SOURCE_ID]),
+            sum(1 for m in manifest.get("afa_meta", {}).values() if m.get("has_signal"))))
+
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         lines = ["## Meteorisk Satellite Engine — EUMETSAT WMS", "",
@@ -458,6 +600,12 @@ def main():
             lines.append("- `%s` (%s): **%s** — %d byte — %d frame nella finestra"
                          % (src["layer"], source_id, res["status"], res["bytes"],
                             len(manifest["sources"][source_id])))
+        lines.append("- `%s` (%s, AUSILIARIO — non conteggiato nelle 6 sorgenti): "
+                     "%d frame nella finestra, %d con segnale"
+                     % (AFA_LAYER, AFA_SOURCE_ID,
+                        len(manifest["sources"][AFA_SOURCE_ID]),
+                        sum(1 for m in manifest.get("afa_meta", {}).values()
+                            if m.get("has_signal"))))
         lines.append("")
         with open(summary_path, "a", encoding="utf-8") as fh:
             fh.write("\n".join(lines) + "\n")
