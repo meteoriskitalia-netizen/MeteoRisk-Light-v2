@@ -102,6 +102,176 @@ def test_contour_segments_ignores_nan_and_non_finite():
     assert mod.contour_segments(np.zeros((1, 1)), 1.0).shape == (0, 4)
 
 
+# --------------------------------------------------------------------------- #
+# 1.3.0.46: equivalenza dell'ottimizzazione contour (senza artefatti)
+# --------------------------------------------------------------------------- #
+def _contour_segments_ref(z, level):
+    """Implementazione 16-casi ORIGINALE (prima dell'ottimizzazione 1.3.0.46).
+
+    Copia letterale del corpo di ``contour_segments`` di 1.3.0.45: iterazione
+    su ``range(16)``, ``np.nonzero(case == c)`` per ogni caso. Usata solo come
+    riferimento di confronto, non e' il sistema sotto test.
+    """
+    z = np.asarray(z)
+    if z.ndim != 2 or z.shape[0] < 2 or z.shape[1] < 2:
+        return np.zeros((0, 4), dtype=np.float64)
+    level = float(level)
+    z00 = z[:-1, :-1]
+    z01 = z[:-1, 1:]
+    z11 = z[1:, 1:]
+    z10 = z[1:, :-1]
+    fin = np.isfinite(z)
+    v00 = fin[:-1, :-1]
+    v01 = fin[:-1, 1:]
+    v11 = fin[1:, 1:]
+    v10 = fin[1:, :-1]
+    b00 = (z00 >= level) & v00
+    b01 = (z01 >= level) & v01
+    b11 = (z11 >= level) & v11
+    b10 = (z10 >= level) & v10
+    case = (b00.astype(np.int16)
+            | (b10.astype(np.int16) << 1)
+            | (b11.astype(np.int16) << 2)
+            | (b01.astype(np.int16) << 3))
+    ok = v00 & v01 & v11 & v10
+    case = np.where(ok, case, 16).astype(np.int16)
+
+    out = []
+    for c in range(16):
+        sel = (case == c)
+        if not sel.any():
+            continue
+        rows, cols = np.nonzero(sel)
+        a00 = z00[rows, cols].astype(np.float64)
+        a01 = z01[rows, cols].astype(np.float64)
+        a11 = z11[rows, cols].astype(np.float64)
+        a10 = z10[rows, cols].astype(np.float64)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            tL = (level - a00) / (a10 - a00)
+            tT = (level - a10) / (a11 - a10)
+            tR = (level - a01) / (a11 - a01)
+            tB = (level - a00) / (a01 - a00)
+        okL = np.isfinite(tL) & (tL >= 0.0) & (tL <= 1.0)
+        okT = np.isfinite(tT) & (tT >= 0.0) & (tT <= 1.0)
+        okR = np.isfinite(tR) & (tR >= 0.0) & (tR <= 1.0)
+        okB = np.isfinite(tB) & (tB >= 0.0) & (tB <= 1.0)
+        r = rows.astype(np.float64)
+        cc = cols.astype(np.float64)
+        pts = {
+            0: (cc, r + tL),
+            1: (cc + tT, r + 1.0),
+            2: (cc + 1.0, r + tR),
+            3: (cc + tB, r),
+        }
+        good = {0: okL, 1: okT, 2: okR, 3: okB}
+        base_pairs = mod._MS_CASE_PAIRS[c]
+        if base_pairs is None:
+            centre = (a00 + a01 + a10 + a11) * 0.25
+            inside = centre >= level
+            groups = []
+            for flag in (True, False):
+                m = (inside == flag)
+                if m.any():
+                    groups.append((m, mod._MS_AMBIGUOUS[c][flag]))
+        else:
+            groups = [(None, base_pairs)]
+        for mask, pairs in groups:
+            for ea, eb in pairs:
+                m = good[ea] & good[eb]
+                if mask is not None:
+                    m = m & mask
+                if not m.any():
+                    continue
+                x0, y0 = pts[ea]
+                x1, y1 = pts[eb]
+                out.append(np.stack([x0[m], y0[m], x1[m], y1[m]], axis=1))
+    if not out:
+        return np.zeros((0, 4), dtype=np.float64)
+    segs = np.concatenate(out, axis=0)
+    length = np.hypot(segs[:, 2] - segs[:, 0], segs[:, 3] - segs[:, 1])
+    segs = segs[length > 1e-12]
+    if segs.shape[0] == 0:
+        return np.zeros((0, 4), dtype=np.float64)
+    return segs
+
+
+def _chain_segments_ref(segs):
+    """Implementazione ORIGINALE del concatenamento (prima di 1.3.0.46)."""
+    if segs is None or len(segs) == 0:
+        return []
+
+    def key(x, y):
+        return (round(float(x), 9), round(float(y), 9))
+
+    items = [(float(s[0]), float(s[1]), float(s[2]), float(s[3])) for s in segs]
+    adj = {}
+    for idx, (x0, y0, x1, y1) in enumerate(items):
+        adj.setdefault(key(x0, y0), []).append((idx, True))
+        adj.setdefault(key(x1, y1), []).append((idx, False))
+    used = [False] * len(items)
+    lines = []
+    for i in range(len(items)):
+        if used[i]:
+            continue
+        used[i] = True
+        x0, y0, x1, y1 = items[i]
+        pts = [(x0, y0), (x1, y1)]
+        while True:
+            nxt = None
+            for idx, from_start in adj.get(key(pts[-1][0], pts[-1][1]), []):
+                if not used[idx]:
+                    nxt = (idx, from_start)
+                    break
+            if nxt is None:
+                break
+            idx, from_start = nxt
+            used[idx] = True
+            a, b, c, d = items[idx]
+            pts.append((c, d) if from_start else (a, b))
+        lines.append(pts)
+    return lines
+
+
+def test_contour_segments_optimized_equals_16_case_reference():
+    """1.3.0.46: la scansione singola (casi 1..14) e' equivalente ai 16 casi.
+
+    Campo sintetico con casi ambigui 5/10, NaN (cella non finita) e livello
+    che passa ESATTAMENTE per un vertice. Il confronto e' ``np.array_equal``
+    (non approssimato): anche l'ORDINE dei segmenti deve coincidere, perche'
+    e' cio' che garantisce WebP byte-identici.
+    """
+    rng = np.random.default_rng(46)
+    z = rng.normal(0.0, 1.0, size=(17, 19))
+    # casi ambigui 5 e 10 (angoli diagonali sopra/sotto il livello 0)
+    z[3:5, 4:6] = np.array([[1.0, -1.0], [-1.0, 1.0]])    # caso 5
+    z[9:11, 10:12] = np.array([[-1.0, 1.0], [1.0, -1.0]])  # caso 10
+    z[7, 8] = np.nan                                        # cella non finita
+    z[12, 12] = 0.0                                         # livello su un vertice
+    for level in (-1.5, -0.5, 0.0, 0.5, 1.5):
+        got = mod.contour_segments(z, level)
+        ref = _contour_segments_ref(z, level)
+        assert got.dtype == np.float64
+        assert np.array_equal(got, ref), (level, got.shape, ref.shape)
+        assert got.shape[0] > 0, "il campo sintetico deve produrre segmenti"
+
+
+def test_chain_segments_cached_keys_are_identical_to_reference():
+    """1.3.0.46: il caching delle chiavi non cambia le polilinee (valori esatti)."""
+    rng = np.random.default_rng(4646)
+    z = rng.normal(0.0, 1.0, size=(31, 29))
+    segs = mod.contour_segments(z, 0.0)
+    assert segs.shape[0] > 20
+    assert mod._chain_segments(segs) == _chain_segments_ref(segs)
+    # campo radiale: polilinea chiusa, esercita piu' iterazioni del while
+    ii, jj = np.meshgrid(np.arange(21, dtype=np.float64),
+                          np.arange(21, dtype=np.float64))
+    zr = -((ii - 10.0) ** 2 + (jj - 10.0) ** 2)
+    segs_r = mod.contour_segments(zr, -1.0)
+    assert len(mod._chain_segments(segs_r)) == 1
+    assert mod._chain_segments(segs_r) == _chain_segments_ref(segs_r)
+    assert mod._chain_segments(np.zeros((0, 4))) == []
+
+
 def test_contour_levels_respects_interval():
     levels = mod.contour_levels(1.0, 0.0, 20.0)
     assert levels == [float(v) for v in range(0, 21)]

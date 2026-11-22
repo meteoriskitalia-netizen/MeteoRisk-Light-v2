@@ -1736,55 +1736,62 @@ def contour_segments(z, level):
     case = np.where(ok, case, 16).astype(np.int16)
 
     out = []
-    for c in range(16):
-        sel = (case == c)
-        if not sel.any():
-            continue
-        rows, cols = np.nonzero(sel)
-        a00 = z00[rows, cols].astype(np.float64)
-        a01 = z01[rows, cols].astype(np.float64)
-        a11 = z11[rows, cols].astype(np.float64)
-        a10 = z10[rows, cols].astype(np.float64)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            tL = (level - a00) / (a10 - a00)
-            tT = (level - a10) / (a11 - a10)
-            tR = (level - a01) / (a11 - a01)
-            tB = (level - a00) / (a01 - a00)
-        okL = np.isfinite(tL) & (tL >= 0.0) & (tL <= 1.0)
-        okT = np.isfinite(tT) & (tT >= 0.0) & (tT <= 1.0)
-        okR = np.isfinite(tR) & (tR >= 0.0) & (tR <= 1.0)
-        okB = np.isfinite(tB) & (tB >= 0.0) & (tB <= 1.0)
-        r = rows.astype(np.float64)
-        cc = cols.astype(np.float64)
-        # Punto di attraversamento di ogni lato (coordinate del grid dati).
-        pts = {
-            0: (cc, r + tL),          # ovest: fra z00 (SO) e z10 (NO)
-            1: (cc + tT, r + 1.0),    # nord:  fra z10 (NO) e z11 (NE)
-            2: (cc + 1.0, r + tR),    # est:   fra z01 (SE) e z11 (NE)
-            3: (cc + tB, r),          # sud:   fra z00 (SO) e z01 (SE)
-        }
-        good = {0: okL, 1: okT, 2: okR, 3: okB}
-        base_pairs = _MS_CASE_PAIRS[c]
-        if base_pairs is None:
-            centre = (a00 + a01 + a10 + a11) * 0.25
-            inside = centre >= level
-            groups = []
-            for flag in (True, False):
-                m = (inside == flag)
-                if m.any():
-                    groups.append((m, _MS_AMBIGUOUS[c][flag]))
-        else:
-            groups = [(None, base_pairs)]
-        for mask, pairs in groups:
-            for ea, eb in pairs:
-                m = good[ea] & good[eb]
-                if mask is not None:
-                    m = m & mask
-                if not m.any():
-                    continue
-                x0, y0 = pts[ea]
-                x1, y1 = pts[eb]
-                out.append(np.stack([x0[m], y0[m], x1[m], y1[m]], axis=1))
+    # Una sola scansione della griglia: i casi 0/15 non hanno coppie e il 16
+    # segna celle non finiti, quindi 1..14 e' esattamente l'insieme originale.
+    cross = (case > 0) & (case < 15)
+    cross_rows, cross_cols = np.nonzero(cross)
+    if cross_rows.size:
+        cross_case = case[cross_rows, cross_cols]
+        for c in range(1, 15):
+            sel = (cross_case == c)
+            if not sel.any():
+                continue
+            rows = cross_rows[sel]
+            cols = cross_cols[sel]
+            a00 = z00[rows, cols].astype(np.float64)
+            a01 = z01[rows, cols].astype(np.float64)
+            a11 = z11[rows, cols].astype(np.float64)
+            a10 = z10[rows, cols].astype(np.float64)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                tL = (level - a00) / (a10 - a00)
+                tT = (level - a10) / (a11 - a10)
+                tR = (level - a01) / (a11 - a01)
+                tB = (level - a00) / (a01 - a00)
+            okL = np.isfinite(tL) & (tL >= 0.0) & (tL <= 1.0)
+            okT = np.isfinite(tT) & (tT >= 0.0) & (tT <= 1.0)
+            okR = np.isfinite(tR) & (tR >= 0.0) & (tR <= 1.0)
+            okB = np.isfinite(tB) & (tB >= 0.0) & (tB <= 1.0)
+            r = rows.astype(np.float64)
+            cc = cols.astype(np.float64)
+            # Punto di attraversamento di ogni lato (coordinate del grid dati).
+            pts = {
+                0: (cc, r + tL),          # ovest: fra z00 (SO) e z10 (NO)
+                1: (cc + tT, r + 1.0),    # nord:  fra z10 (NO) e z11 (NE)
+                2: (cc + 1.0, r + tR),    # est:   fra z01 (SE) e z11 (NE)
+                3: (cc + tB, r),          # sud:   fra z00 (SO) e z01 (SE)
+            }
+            good = {0: okL, 1: okT, 2: okR, 3: okB}
+            base_pairs = _MS_CASE_PAIRS[c]
+            if base_pairs is None:
+                centre = (a00 + a01 + a10 + a11) * 0.25
+                inside = centre >= level
+                groups = []
+                for flag in (True, False):
+                    m = (inside == flag)
+                    if m.any():
+                        groups.append((m, _MS_AMBIGUOUS[c][flag]))
+            else:
+                groups = [(None, base_pairs)]
+            for mask, pairs in groups:
+                for ea, eb in pairs:
+                    m = good[ea] & good[eb]
+                    if mask is not None:
+                        m = m & mask
+                    if not m.any():
+                        continue
+                    x0, y0 = pts[ea]
+                    x1, y1 = pts[eb]
+                    out.append(np.stack([x0[m], y0[m], x1[m], y1[m]], axis=1))
     if not out:
         return np.zeros((0, 4), dtype=np.float64)
     segs = np.concatenate(out, axis=0)
@@ -2078,9 +2085,13 @@ def _chain_segments(segs):
 
     items = [(float(s[0]), float(s[1]), float(s[2]), float(s[3])) for s in segs]
     adj = {}
+    keys = [None] * len(items)
     for idx, (x0, y0, x1, y1) in enumerate(items):
-        adj.setdefault(key(x0, y0), []).append((idx, True))
-        adj.setdefault(key(x1, y1), []).append((idx, False))
+        k0 = key(x0, y0)
+        k1 = key(x1, y1)
+        keys[idx] = (k0, k1)
+        adj.setdefault(k0, []).append((idx, True))
+        adj.setdefault(k1, []).append((idx, False))
     used = [False] * len(items)
     lines = []
     for i in range(len(items)):
@@ -2089,9 +2100,10 @@ def _chain_segments(segs):
         used[i] = True
         x0, y0, x1, y1 = items[i]
         pts = [(x0, y0), (x1, y1)]
+        pkeys = [keys[i][0], keys[i][1]]
         while True:
             nxt = None
-            for idx, from_start in adj.get(key(pts[-1][0], pts[-1][1]), []):
+            for idx, from_start in adj.get(pkeys[-1], []):
                 if not used[idx]:
                     nxt = (idx, from_start)
                     break
@@ -2101,6 +2113,7 @@ def _chain_segments(segs):
             used[idx] = True
             a, b, c, d = items[idx]
             pts.append((c, d) if from_start else (a, b))
+            pkeys.append(keys[idx][1] if from_start else keys[idx][0])
         lines.append(pts)
     return lines
 
