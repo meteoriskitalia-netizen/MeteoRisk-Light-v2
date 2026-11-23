@@ -2031,12 +2031,12 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     </div>
     <div style="max-width:1200px; margin:0 auto 10px auto; display:flex; gap:8px; align-items:center; overflow-x:auto; padding-bottom:4px;" class="map-toolbar-scroll">
         <span id="radar-provider-label" style="font-size: 11px; color: #94a3b8; display:none; flex-shrink:0">Sorgente Radar:</span>
-        <select id="radar-provider-select" class="tool-btn" onchange="changeRadarProvider(this.value)" style="font-size:11px; display:none; flex-shrink:0">
+        <select id="radar-provider-select" class="tool-btn" onchange="changeRadarProvider(this.value)" title="Scegli la sorgente radar: RainViewer, LibreWXR (DPC+OPERA) o DPC Italia" style="font-size:11px; display:none; flex-shrink:0">
             <option value="rainviewer" selected>RainViewer</option>
             <option value="librewxr">LibreWXR (DPC+OPERA)</option>
             <option value="dpc">DPC Italia (WebP)</option>
         </select>
-        <select id="dpc-product-select" class="tool-btn" onchange="changeDpcProduct(this.value)" style="font-size:11px; display:none; flex-shrink:0">
+        <select id="dpc-product-select" class="tool-btn" onchange="changeDpcProduct(this.value)" title="Scegli il prodotto radar DPC: riflettività massima, pioggia al suolo, cumulate o temperatura" style="font-size:11px; display:none; flex-shrink:0">
             <option value="VMI" selected>VMI — Riflettività Max</option>
             <option value="SRI">SRI — Pioggia al Suolo</option>
             <option value="SRT1">SRT1 — Cumulata 1h</option>
@@ -2048,7 +2048,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
             <option value="TEMP">TEMP — Temperatura</option>
             <option value="IR_108">IR_108 — Nuvolosità</option>
         </select>
-        <select id="radar-embed-select" class="tool-btn" onchange="toggleRadarEmbed(this.value)" style="font-size:11px; display:none; flex-shrink:0">
+        <select id="radar-embed-select" class="tool-btn" onchange="toggleRadarEmbed(this.value)" title="Mostra o nasconde l'embed ufficiale del radar della Protezione Civile" style="font-size:11px; display:none; flex-shrink:0">
             <option value="off">Radar embed: off</option>
             <option value="dpc">Protezione Civile (DPC)</option>
         </select>
@@ -2059,7 +2059,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
              da liveAfaSlotIso(), che legge SOLO scRadarData e restituiva null
              quando il pannello SC non aveva dati (il pulsante non faceva nulla). -->
         <button type="button" class="tool-btn" id="btn-radar-afa" data-label="AFA · emissione ottica" onclick="liveToggleAfaLayer(!liveAfaEnabled, afaSlotIsoForUi())" title="Attività elettrica (AFA) MTG-I LI: area con emissione ottica, non conteggio di scariche. Fonte: EUMETSAT CC BY 4.0." style="font-size:11px; display:none; border-color:#a855f7;">AFA · emissione ottica · OFF</button>
-        <select id="sat-source-select" class="tool-btn" onchange="changeSatSource(this.value)" style="font-size:11px; display:none; flex-shrink:0">
+        <select id="sat-source-select" class="tool-btn" onchange="changeSatSource(this.value)" title="Scegli il canale satellite EUMETSAT: infrarosso, Airmass RGB o Geo Colour RGB" style="font-size:11px; display:none; flex-shrink:0">
             <option value="eumetsat_italy" selected>EUMETSAT IR Italia (timeline)</option>
             <option value="eumetsat_airmass_italy">EUMETSAT / Airmass RGB Italia</option>
             <option value="eumetsat_geocolour_italy">EUMETSAT / Geo Colour RGB Italia</option>
@@ -2067,12 +2067,12 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
             <option value="eumetsat_airmass">EUMETSAT / Airmass RGB</option>
             <option value="eumetsat_geocolour">EUMETSAT / Geo Colour RGB</option>
         </select>
-        <select id="thermalrisk-index-select" class="tool-btn" onchange="selectThermalRiskIndex(this.value)" style="font-size:11px; display:none; flex-shrink:0">
+        <select id="thermalrisk-index-select" class="tool-btn" onchange="selectThermalRiskIndex(this.value)" title="Scegli l'indice del rischio termico: Heat Index, Humidex o Wind Chill" style="font-size:11px; display:none; flex-shrink:0">
             <option value="heatindex">🌡️ Heat Index (NOAA)</option>
             <option value="humidex">💧 Humidex (Canada)</option>
             <option value="windchill">❄️ Wind Chill (WCT)</option>
         </select>
-        <select id="conv-shear-select" class="tool-btn" onchange="selectConvCategory(this.value)" style="font-size:11px; display:none; flex-shrink:0">
+        <select id="conv-shear-select" class="tool-btn" onchange="selectConvCategory(this.value)" title="Scegli la categoria convettiva da colorare sulla mappa" style="font-size:11px; display:none; flex-shrink:0">
             <option value="no">⚡ Conv. Senza shear</option>
             <option value="yes">⚡ Conv. Con shear</option>
             <option value="thunderprob">🌩️ Potenziale temporalesco</option>
@@ -2106,7 +2106,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
         </select>
     </div>
     <div class="time-display" id="sync-time-display">--:--</div>
-    <input type="range" class="slider-timeline" id="sync-slider" min="0" max="24" value="24" oninput="onSyncSliderChange(this.value)">
+    <input type="range" class="slider-timeline" id="sync-slider" min="0" max="24" value="24" oninput="onSyncSliderChange(this.value)" title="Scorri i frame della timeline sincronizzata (radar, satellite e fulmini)">
     <div id="tile-load-box" class="tile-load-box">Frame: <span class="loaded" id="tile-loaded">0</span>/<span class="total" id="tile-total">0</span></div>
     <div style="font-size:10px; color:#64748b; white-space:nowrap;" id="sync-caption">
         Timeline sincronizzata · ultime 2h · Radar + Satellite IR (slot 5 min)
@@ -2157,7 +2157,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
         <div class="legend-title" id="live-stations-title">Centraline osservate — etichette con il valore (osservato, non modello)</div>
         <div class="legend-row" id="live-stations-param-row" style="gap:8px;">
             <label for="stations-param-select" style="font-size:10px;color:#94a3b8;">Parametro</label>
-            <select id="stations-param-select" class="fm-select" onchange="stationsParamChanged(this.value)" style="font-size:11px;">
+            <select id="stations-param-select" class="fm-select" onchange="stationsParamChanged(this.value)" title="Scegli il parametro osservato da mostrare sulle centraline della mappa" style="font-size:11px;">
                 <option value="temp">Temperatura 2 m (°C)</option>
                 <option value="rh">Umidità relativa 2 m (%)</option>
                 <option value="wind">Velocità vento 10 m (m/s)</option>
@@ -2305,7 +2305,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
             <button type="button" id="sc-alert-pick" class="sc-toggle" onclick="scAlertPickMode()" title="Scegli il punto con un clic sulla mappa: il segnaposto è trascinabile">Punto sulla mappa</button>
             <button type="button" id="sc-alert-clear" class="sc-toggle" onclick="scAlertClearPoint()" title="Rimuove il punto, il cerchio della soglia e l'allerta (la soglia resta)">Rimuovi punto</button>
             <label class="sc-alert-thr" for="sc-alert-threshold">Soglia
-                <select id="sc-alert-threshold" onchange="scAlertSetThreshold(this.value)">
+                <select id="sc-alert-threshold" onchange="scAlertSetThreshold(this.value)" title="Distanza entro cui il punto scelto segnala una struttura convettiva avvicinata">
                     <option value="10">10 km</option>
                     <option value="25" selected>25 km</option>
                     <option value="50">50 km</option>
@@ -2359,7 +2359,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
          i numeri si vedono senza espandere la lista. -->
     <div id="sc-cells-count" class="sc-cells-count" style="display:none;"></div>
     <details id="sc-tracked-details" class="sc-tracked-details">
-        <summary id="sc-tracked-summary">Celle tracciate</summary>
+        <summary id="sc-tracked-summary" title="Apri o chiudi l'elenco delle celle tracciate dal radar">Celle tracciate</summary>
         <div id="sc-tracked-list" class="sc-tracked-list"></div>
     </details>
 </div>
@@ -2380,7 +2380,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
 </div>
 <div class="metric-tabs" id="metric-select-row" style="display:none; align-items:center;">
     <label for="metric-select" style="font-size:11px;color:#94a3b8;white-space:nowrap;">Metrica</label>
-    <select id="metric-select" class="fm-select" onchange="onMetricSelectChange(this.value)" style="font-size:12px;">
+    <select id="metric-select" class="fm-select" onchange="onMetricSelectChange(this.value)" title="Scegli la metrica da mostrare: rischio, temperature, umidità, vento e altre" style="font-size:12px;">
         <option value="risk">Rischio complessivo</option>
         <option value="tempmax">Temp. Max</option>
         <option value="tempmin">Temp. Min</option>
@@ -2406,7 +2406,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     <div class="map-card">
         <div id="forecast-slot-container" style="position:absolute; top:8px; left:50%; transform:translateX(-50%); z-index:1000; display:none; gap:4px; align-items:center; background:rgba(15,23,42,0.85); padding:6px 10px; border-radius:8px; border:1px solid #10b981;">
             <label style="font-size:10px; color:#94a3b8; white-space:nowrap;">Fascia:</label>
-            <select id="forecast-slot" onchange="onForecastSlotChange(this.value)" style="font-size:11px; background:#1e293b; color:#e2e8f0; border:1px solid #334155; border-radius:4px; padding:3px 6px;">
+            <select id="forecast-slot" onchange="onForecastSlotChange(this.value)" title="Scegli la fascia oraria della previsione da mostrare sulla mappa" style="font-size:11px; background:#1e293b; color:#e2e8f0; border:1px solid #334155; border-radius:4px; padding:3px 6px;">
                 <option value="all">Tutto il giorno</option>
                 <option value="morning">🌅 Mattina</option>
                 <option value="afternoon">☀️ Pomeriggio</option>
@@ -2450,31 +2450,31 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
         <div id="forecast-maps-panel" class="fm-panel">
             <div class="fm-header">
                 <span>🗺️ Mappe previsionali</span>
-                <span class="fm-close" onclick="toggleForecastMaps()">✕</span>
+                <span class="fm-close" role="button" tabindex="0" title="Chiudi il pannello delle mappe previsionali" onclick="toggleForecastMaps()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleForecastMaps();}">✕</span>
             </div>
             <div class="fm-body">
                 <label class="fm-row"><span>Modello / Dominio</span>
-                    <select id="fm-domain-select" class="fm-select" onchange="fmDomainChanged()"></select>
+                    <select id="fm-domain-select" class="fm-select" onchange="fmDomainChanged()" title="Scegli il modello e il dominio delle mappe previsionali"></select>
                 </label>
                 <label class="fm-row"><span>Variabile</span>
-                    <select id="fm-variable-select" class="fm-select" onchange="fmVariableChanged()"></select>
+                    <select id="fm-variable-select" class="fm-select" onchange="fmVariableChanged()" title="Scegli la variabile meteo da disegnare sulle mappe previsionali"></select>
                 </label>
                 <label class="fm-row"><span>Area geografica</span>
-                    <select id="fm-region-select" class="fm-select" onchange="fmRegionChanged()"></select>
+                    <select id="fm-region-select" class="fm-select" onchange="fmRegionChanged()" title="Scegli l'area geografica delle mappe previsionali"></select>
                 </label>
                 <div class="fm-player">
                     <button id="fm-play-btn" title="Avvia/ferma l'animazione delle mappe previsionali" class="fm-btn" onclick="fmTogglePlay()">▶</button>
-                    <button class="fm-btn" onclick="fmPrevFrame()">⏮</button>
-                    <button class="fm-btn" onclick="fmNextFrame()">⏭</button>
+                    <button class="fm-btn" onclick="fmPrevFrame()" title="Frame precedente delle mappe previsionali">⏮</button>
+                    <button class="fm-btn" onclick="fmNextFrame()" title="Frame successivo delle mappe previsionali">⏭</button>
                     <select id="fm-run-select" class="fm-select fm-run-select" onchange="fmRunChanged()" title="Seleziona run del modello"></select>
                     <span id="fm-run-completion" class="fm-run-completion">—</span>
                     <button id="fm-preload-btn" class="fm-btn fm-btn-preload" onclick="fmStartPreload()" title="Precarica tutti i frame">⏬ Preload</button>
                     <span id="fm-preload-status" class="fm-preload-status"></span>
                     <div class="fm-slider-wrap">
-                        <input type="range" id="fm-slider" class="fm-slider" min="0" max="0" value="0" oninput="fmSliderChange(this.value)">
+                        <input type="range" id="fm-slider" class="fm-slider" min="0" max="0" value="0" oninput="fmSliderChange(this.value)" title="Scorri i frame delle mappe previsionali">
                         <span id="fm-timeline-run" class="fm-timeline-run" aria-live="polite"></span>
                     </div>
-                    <select id="fm-speed" class="fm-select fm-speed" onchange="fmSetSpeed(this.value)">
+                    <select id="fm-speed" class="fm-select fm-speed" onchange="fmSetSpeed(this.value)" title="Scegli la velocità di animazione delle mappe previsionali">
                         <option value="1200">Lenta</option>
                         <option value="800" selected>Normale</option>
                         <option value="400">Veloce</option>
@@ -2501,7 +2501,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
             </label>
             <label class="mp-select" id="continuous-style-wrap" title="Metodo della vista continua (v10.52.1.1): V1 = IDW classico sui punti campione (può lasciare 'pois'), V2 = uniforme per province (ancore provinciali + raggio adattivo + sfumatura), V3 = reticolo virtuale 0,25° con valori interpolati dai punti reali (solo raster, previsioni invariate)">
                 <span class="mp-label">Sfumatura</span>
-                <select id="continuous-style-select" onchange="setContinuousStyle(this.value)">
+                <select id="continuous-style-select" onchange="setContinuousStyle(this.value)" title="Scegli il metodo della vista continua: V1, V2 o V3">
                     <option value="v1">V1</option>
                     <option value="v2" selected>V2</option>
                     <option value="v3">V3</option>
@@ -2511,6 +2511,12 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                 <input type="checkbox" id="switch-colors" checked onchange="toggleMapColors()">
                 <span class="mp-knob"></span>
                 <span class="mp-label">Colori</span>
+            </label>
+            <!-- 1.3.0.57 - OVERRIDE MANUALE del layer province fuori dal prodotto "Mappa dei rischi". -->
+            <label class="mp-switch" id="switch-provinces-wrap" title="Province = riempimento e confini delle province anche fuori dalla Mappa dei rischi, con la scala della metrica attiva. I badge di rischio restano spenti.">
+                <input type="checkbox" id="switch-provinces" onchange="toggleRiskLayerOverride()">
+                <span class="mp-knob"></span>
+                <span class="mp-label">Province</span>
             </label>
         <!-- 1.2.4.85 - Switch del layer "Criticita' DPC". Sta nello stesso
              gruppo degli altri layer meteo (.map-corner-switches), default OFF:
@@ -2538,7 +2544,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
         </div>
         <!-- Popup La Caletta -->
         <div id="caletta-popup" class="caletta-popup">
-            <button class="close-caletta" onclick="closeCaletta()">✕</button>
+            <button class="close-caletta" onclick="closeCaletta()" title="Chiudi la finestra La Caletta">✕</button>
             <h3 id="caletta-title">🍽️ La Caletta</h3>
             <div class="address" id="caletta-address">Via Provinciale Vigna di Valle, 42, Anguillara Sabazia</div>
             <div class="caletta-toggle">
@@ -2600,7 +2606,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
         <!-- Selettore ORARIO a slider sotto la mappa (sostituisce la tendina) -->
         <div class="hour-slider" id="hour-slider-wrap" style="display:none;">
             <label class="hour-slider-label" id="hour-slider-label">Scegli l'ora</label>
-            <input type="range" id="hour-slider" min="0" max="24" step="1" value="0" oninput="selectHourFromSlider(this.value)" onchange="commitHourFromSlider(this.value)">
+            <input type="range" id="hour-slider" min="0" max="24" step="1" value="0" oninput="selectHourFromSlider(this.value)" title="Scorri le ore della giornata per la metrica selezionata" onchange="commitHourFromSlider(this.value)">
             <span class="hour-slider-disp" id="hour-slider-disp">Tutto il giorno (Max)</span>
         </div>
         <!-- Legenda BADGE rischio sotto la mappa: nascosta di default, si apre con il pulsante -->
@@ -2619,7 +2625,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     <!-- Selettore modello meteorologico (visibile solo con Sviluppo ON) -->
     <div id="weather-model-wrapper" style="max-width:1200px; margin:0 auto 10px auto; display:none; align-items:center; gap:8px; flex-wrap:wrap;">
         <label for="weather-model-select" style="font-size:11px; color:#94a3b8; white-space:nowrap;">Modello:</label>
-    <select id="weather-model-select" class="tool-btn" onchange="onWeatherModelChange(this.value)" style="font-size:11px;">
+    <select id="weather-model-select" class="tool-btn" onchange="onWeatherModelChange(this.value)" title="Scegli il modello meteo usato per la previsione puntuale" style="font-size:11px;">
         <option value="dual_best_ecmwf" selected>Best Match + ECMWF — Analisi combinata</option>
         <option value="best_match">Best Match (ICON-EU 7km + ICON Global 11km)</option>
         <option value="ecmwf_ifs">ECMWF IFS (9km Globale)</option>
@@ -2628,15 +2634,15 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     </select>
         <span id="api-source-wrapper" style="display:none; align-items:center; gap:8px;">
             <span style="font-size:11px; color:#94a3b8; white-space:nowrap;">Fonte API:</span>
-            <select id="api-source-select" class="tool-btn" onchange="onApiSourceChange(this.value)" style="font-size:11px;">
+            <select id="api-source-select" class="tool-btn" onchange="onApiSourceChange(this.value)" title="Scegli la fonte API: Open-Meteo gratuito o con la tua chiave" style="font-size:11px;">
                 <option value="openmeteo_free" selected>Open-Meteo (gratis)</option>
                 <option value="openmeteo_key">Open-Meteo (con API key)</option>
             </select>
-            <input type="password" id="api-key-input" placeholder="API key" style="font-size:11px; padding:4px 8px; background:#1e293b; border:1px solid #334155; border-radius:6px; color:#f8fafc; display:none; width:180px;">
+            <input type="password" id="api-key-input" placeholder="API key" title="Inserisci la tua API key di Open-Meteo (resta solo in questa scheda)" style="font-size:11px; padding:4px 8px; background:#1e293b; border:1px solid #334155; border-radius:6px; color:#f8fafc; display:none; width:180px;">
         </span>
         <span id="sampling-wrapper" style="align-items:center; gap:8px;">
             <span style="font-size:11px; color:#94a3b8; white-space:nowrap;">Coordinate/provincia:</span>
-            <select id="sampling-coords-select" class="tool-btn" onchange="onSamplingCoordsChange(this.value)" style="font-size:11px;">
+            <select id="sampling-coords-select" class="tool-btn" onchange="onSamplingCoordsChange(this.value)" title="Scegli quante coordinate campionare per ogni provincia" style="font-size:11px;">
                 <option value="0" selected>Auto: per area provincia (1-4 pt)</option>
                 <option value="4">4: max (solo grandi province)</option>
                 <option value="3">3: capoluogo + interno-1 + interno-2</option>
@@ -2653,7 +2659,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
         </span>
         <span id="strategy-wrapper" style="align-items:center; gap:8px;">
             <span style="font-size:11px; color:#94a3b8; white-space:nowrap;">Modalità invio:</span>
-            <select id="fetch-strategy-select" class="tool-btn" onchange="onFetchStrategyChange(this.value)" style="font-size:11px;">
+            <select id="fetch-strategy-select" class="tool-btn" onchange="onFetchStrategyChange(this.value)" title="Scegli come inviare le richieste: a blocchi o punto per punto" style="font-size:11px;">
                 <option value="batch">A blocchi (1 richiesta per coordinata)</option>
                 <option value="paced" selected>Punto per punto (cadenza 400ms entro i limiti)</option>
             </select>
@@ -2662,7 +2668,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
 
     <!-- Legenda previsioni — visibile solo quando Previsioni è attivo -->
     <div id="forecast-legend-panel" class="forecast-legend-panel">
-        <div class="fl-title" onclick="toggleForecastLegend()">
+        <div class="fl-title" role="button" tabindex="0" title="Apri o chiudi la legenda dei simboli delle previsioni" onclick="toggleForecastLegend()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleForecastLegend();}">
             <span class="fl-chevron">▼</span>
             🌤️ Legenda Simboli Previsioni
         </div>
@@ -2728,7 +2734,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
 
     <!-- Pannello Fonti & Metodologie — fonti dati + metodologie dalla letteratura + disclaimer -->
     <div id="sources-panel" class="forecast-legend-panel sources-panel">
-        <div class="fl-title" onclick="toggleSourcesPanelCollapse()">
+        <div class="fl-title" role="button" tabindex="0" title="Apri o chiudi il pannello con fonti dati e metodologie" onclick="toggleSourcesPanelCollapse()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSourcesPanelCollapse();}">
             <span class="fl-chevron">▼</span>
             📚 Fonti Dati &amp; Metodologie
         </div>
@@ -2737,20 +2743,20 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
             <div class="fl-section">
                 <div class="fl-section-title">Previsioni &amp; Modelli Numerici (NWP)</div>
                 <div class="src-list">
-                    <div class="src-item"><b>Open-Meteo API</b> — <a href="https://api.open-meteo.com/v1/forecast" target="_blank" rel="noopener">api.open-meteo.com</a><br>Dati orari e giornalieri ad alta precisione: T2m, umidità relativa, pressione al livello del mare (msl), vento a 10 e 100 m con raffiche, precipitazioni totali e convective (rovesci), probabilità di precipitazione, codice meteo WMO, indici convettivi (CAPE, Lifted Index, K-Index, CIN), quota dello zero termico (freezing level) e profili in quota (vento, temperatura e geopotenziale a 925/850/700/500 hPa, umidità a 850/700 hPa). I dati vengono serviti sia via fetch live, sia tramite dataset statico centralizzato pre-calcolato (pipeline di consolidamento orario). Servizio Open-Meteo con licenza CC BY 4.0; supporto opzionale ad API key personalizzata (<a href="https://customer-api.open-meteo.com/v1/forecast" target="_blank" rel="noopener">customer-api</a>) configurabile in modalità Sviluppo.</div>
+                    <div class="src-item"><b>Open-Meteo API</b> — <a href="https://api.open-meteo.com/v1/forecast" title="Apri api.open-meteo.com in una nuova scheda" target="_blank" rel="noopener">api.open-meteo.com</a><br>Dati orari e giornalieri ad alta precisione: T2m, umidità relativa, pressione al livello del mare (msl), vento a 10 e 100 m con raffiche, precipitazioni totali e convective (rovesci), probabilità di precipitazione, codice meteo WMO, indici convettivi (CAPE, Lifted Index, K-Index, CIN), quota dello zero termico (freezing level) e profili in quota (vento, temperatura e geopotenziale a 925/850/700/500 hPa, umidità a 850/700 hPa). I dati vengono serviti sia via fetch live, sia tramite dataset statico centralizzato pre-calcolato (pipeline di consolidamento orario). Servizio Open-Meteo con licenza CC BY 4.0; supporto opzionale ad API key personalizzata (<a href="https://customer-api.open-meteo.com/v1/forecast" title="Apri customer-api.open-meteo.com in una nuova scheda" target="_blank" rel="noopener">customer-api</a>) configurabile in modalità Sviluppo.</div>
                     <div class="src-item"><b>Modelli previsionali puntuali</b>:<br>
                     • <b>Best Match + ECMWF (Dual-Model)</b>: analisi combinata a conservazione del massimo fattore di rischio tra il modello locale e quello sinottico globale.<br>
                     • <b>Best Match</b>: composito continuo DWD/COSMO (ICON-EU 7 km per le prime 132h + ICON Global 11 km fino a 168h).<br>
                     • <b>ECMWF IFS</b>: modello globale europeo ad alta risoluzione (9 km).<br>
                     • <b>NOAA GFS</b>: modello globale americano (13 km seamless).<br>
                     • <b>ARPAE ICON-2I</b>: modello ad altissima risoluzione (2 km) focalizzato sul territorio italiano.</div>
-                    <div class="src-item"><b>Geocoding</b> — <a href="https://open-meteo.com/en/docs/geocoding-api" target="_blank" rel="noopener">Geocoding API Open-Meteo</a> per la ricerca toponomastica istantanea dei comuni e delle province italiane.<span class="src-ref">Licenze: CC-BY / condizioni Open-Meteo.</span></div>
+                    <div class="src-item"><b>Geocoding</b> — <a href="https://open-meteo.com/en/docs/geocoding-api" title="Apri open-meteo.com in una nuova scheda" target="_blank" rel="noopener">Geocoding API Open-Meteo</a> per la ricerca toponomastica istantanea dei comuni e delle province italiane.<span class="src-ref">Licenze: CC-BY / condizioni Open-Meteo.</span></div>
                 </div>
             </div>
             <div class="fl-section">
                 <div class="fl-section-title">Mappe Previsionali (Weather Map Layer &amp; WebP Fast-Path)</div>
                 <div class="src-list">
-                    <div class="src-item"><b>Tecnologia Mappe Previsionali</b> — Protocollo <a href="https://open-meteo.com/en/docs/weather-map-layer" target="_blank" rel="noopener">Open-Meteo Weather Map Layer</a> (formato compresso <code>.om</code>) con motore di pre-rendering raster WebP multi-run su branch dedicati: i WebP e gli indici aggregati stanno su <code>fm2-rendered</code> (scrittore unico <code>forecast-maps-index.yml</code>), i frame <code>.om</code> sui cinque branch per fornitore (<code>fm2-dwdicon</code>, <code>fm2-dwd</code>, <code>fm2-ecmwf</code>, <code>fm2-ncep</code>, <code>fm2-meteofrance</code>). I WebP includono isolinee ad alta densità numerate e vettori del vento disegnati direttamente a bordo immagine. Supporta sia la proiezione standard Web Mercator sia la proiezione polare stereografica (Emisfero Nord) per lo studio delle onde planetarie e del vortice polare.</div>
+                    <div class="src-item"><b>Tecnologia Mappe Previsionali</b> — Protocollo <a href="https://open-meteo.com/en/docs/weather-map-layer" title="Apri open-meteo.com in una nuova scheda" target="_blank" rel="noopener">Open-Meteo Weather Map Layer</a> (formato compresso <code>.om</code>) con motore di pre-rendering raster WebP multi-run su branch dedicati: i WebP e gli indici aggregati stanno su <code>fm2-rendered</code> (scrittore unico <code>forecast-maps-index.yml</code>), i frame <code>.om</code> sui cinque branch per fornitore (<code>fm2-dwdicon</code>, <code>fm2-dwd</code>, <code>fm2-ecmwf</code>, <code>fm2-ncep</code>, <code>fm2-meteofrance</code>). I WebP includono isolinee ad alta densità numerate e vettori del vento disegnati direttamente a bordo immagine. Supporta sia la proiezione standard Web Mercator sia la proiezione polare stereografica (Emisfero Nord) per lo studio delle onde planetarie e del vortice polare.</div>
                     <div class="src-item"><b>Modelli e Domini coperti nelle mappe (7 domini)</b>:<br>
                     • <b>DWD ICON-EU</b> (0.0625° Europa) &amp; <b>DWD ICON Global</b> (13 km globale).<br>
                     • <b>DWD ICON-D2</b> (2 km ad altissima risoluzione per Alpi e bacino padano/nord Italia, orizzonte 48h per la convezione).<br>
@@ -2762,7 +2768,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
             <div class="fl-section">
                 <div class="fl-section-title">Previsioni d'Insieme (Ensemble)</div>
                 <div class="src-list">
-                    <div class="src-item"><b>Open-Meteo Ensemble API</b> — <a href="https://open-meteo.com/en/docs/ensemble-api" target="_blank" rel="noopener">api.open-meteo.com/v1/ensemble</a><br>Modulo per la valutazione probabilistica e dello spread previsionale (spaghetti-plot interattivi, percentili 10/25/50/75/90 e spread di temperatura a 850 hPa e precipitazioni):<br>
+                    <div class="src-item"><b>Open-Meteo Ensemble API</b> — <a href="https://open-meteo.com/en/docs/ensemble-api" title="Apri open-meteo.com in una nuova scheda" target="_blank" rel="noopener">api.open-meteo.com/v1/ensemble</a><br>Modulo per la valutazione probabilistica e dello spread previsionale (spaghetti-plot interattivi, percentili 10/25/50/75/90 e spread di temperatura a 850 hPa e precipitazioni):<br>
                     • <b>ECMWF IFS ENS</b> (51 membri, 25 km, fino a 14 giorni).<br>
                     • <b>DWD ICON EPS</b> (40 membri, 20/40 km).<br>
                     • <b>NOAA GEFS</b> (31 membri, 25 km).<br>
@@ -2772,34 +2778,34 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
             <div class="fl-section">
                 <div class="fl-section-title">Radar Meteorologico &amp; Nowcasting</div>
                 <div class="src-list">
-                    <div class="src-item"><b>Radar DPC Italia</b> — <a href="https://radar.protezionecivile.it/" target="_blank" rel="noopener">radar.protezionecivile.it</a> · <a href="https://radar-api.protezionecivile.it" target="_blank" rel="noopener">radar-api</a><br>Mosaico nazionale composito della rete radar del <b>Dipartimento della Protezione Civile</b>. Prodotti elaborati e visualizzati: VMI (Vertical Maximum Intensity), SRI (Surface Rainfall Intensity), SRT (Surface Rainfall Total su 1h, 3h, 6h, 12h, 24h), HRD (Heavy Rain Detection), TEMP (top delle nubi) e IR_108. © Dipartimento della Protezione Civile.</div>
+                    <div class="src-item"><b>Radar DPC Italia</b> — <a href="https://radar.protezionecivile.it/" title="Apri radar.protezionecivile.it in una nuova scheda" target="_blank" rel="noopener">radar.protezionecivile.it</a> · <a href="https://radar-api.protezionecivile.it" title="Apri radar-api.protezionecivile.it in una nuova scheda" target="_blank" rel="noopener">radar-api</a><br>Mosaico nazionale composito della rete radar del <b>Dipartimento della Protezione Civile</b>. Prodotti elaborati e visualizzati: VMI (Vertical Maximum Intensity), SRI (Surface Rainfall Intensity), SRT (Surface Rainfall Total su 1h, 3h, 6h, 12h, 24h), HRD (Heavy Rain Detection), TEMP (top delle nubi) e IR_108. © Dipartimento della Protezione Civile.</div>
                     <div class="src-item"><b>Struttura convettiva &amp; Tracking (SOI Engine)</b> — Algoritmo analitico su dati radar DPC: clustering delle celle temporalesche, calcolo dell'indice SOI (structural organization index), cono cinematico di forecast a brevissimo termine (nowcasting ≤2h), archivio rolling traccia 2h su branch <code>radar-history</code> e stima proxy di probabilità grandine e asimmetria strutturale.</div>
                     <div class="src-item"><b>Limiti Doppler (dichiarati esplicitamente, non aggirati)</b> — la velocità radiale disponibile arriva da <b>soli 2 radar francesi</b> (Aléria / <code>frale</code> e Ajaccio / <code>fraja</code>) con prodotto <code>VRADH</code>; senza scan VRADH lo stato è <code>no_opera_vradh_data</code> e non si inventa alcun dato. Il fascio su <b>Roma sta intorno ai ~6 km di quota</b>: campiona l'alta troposfera, non la bassa atmosfera. Il <b>dealiasing è region-based</b>, <b>non dual-PRF come il DWD</b>. I <b>4 stati</b> (NO_ROTATION, ROTATION_SUSPECTED, ROTATION_DETECTED, MESOCYCLONE_CANDIDATE) sono classi derivate <b>solo dalla velocità radiale</b>: mai l'etichetta «confermato». Dal <b>mosaico DPC 2D</b> (singola riflettività, senza velocità radiale, azimuth o elevazione) <b>nessuna rotazione è misurabile</b>.</div>
-                    <div class="src-item"><b>Radar RainViewer</b> — <a href="https://api.rainviewer.com/public/weather-maps.json" target="_blank" rel="noopener">api.rainviewer.com</a> · Mosaico radar globale continuo e nowcasting a breve termine. © RainViewer.</div>
-                    <div class="src-item"><b>Radar OPERA / LibreWXR</b> — <a href="https://librewxr.net/" target="_blank" rel="noopener">librewxr.net</a> · Composito europeo radar della rete OPERA (EUMETNET).</div>
-                    <div class="src-item"><b>Embed radar DPC ufficiale</b> — <a href="https://radar.protezionecivile.it/" target="_blank" rel="noopener">radar.protezionecivile.it</a> (interfaccia radar ufficiale della Protezione Civile visualizzabile direttamente in iframe integrato).</div>
+                    <div class="src-item"><b>Radar RainViewer</b> — <a href="https://api.rainviewer.com/public/weather-maps.json" title="Apri api.rainviewer.com in una nuova scheda" target="_blank" rel="noopener">api.rainviewer.com</a> · Mosaico radar globale continuo e nowcasting a breve termine. © RainViewer.</div>
+                    <div class="src-item"><b>Radar OPERA / LibreWXR</b> — <a href="https://librewxr.net/" title="Apri librewxr.net in una nuova scheda" target="_blank" rel="noopener">librewxr.net</a> · Composito europeo radar della rete OPERA (EUMETNET).</div>
+                    <div class="src-item"><b>Embed radar DPC ufficiale</b> — <a href="https://radar.protezionecivile.it/" title="Apri radar.protezionecivile.it in una nuova scheda" target="_blank" rel="noopener">radar.protezionecivile.it</a> (interfaccia radar ufficiale della Protezione Civile visualizzabile direttamente in iframe integrato).</div>
                 </div>
             </div>
             <div class="fl-section">
                 <div class="fl-section-title">Satellite Meteorologico</div>
                 <div class="src-list">
-                    <div class="src-item"><b>EUMETSAT / EUMETView WMS</b> — <a href="https://view.eumetsat.int/geoserver/wms" target="_blank" rel="noopener">EUMETView WMS</a> · <a href="https://www.eumetsat.int" target="_blank" rel="noopener">eumetsat.int</a><br>Flussi satellitari in tempo reale georeferenziati via WMS:<br>
+                    <div class="src-item"><b>EUMETSAT / EUMETView WMS</b> — <a href="https://view.eumetsat.int/geoserver/wms" title="Apri view.eumetsat.int in una nuova scheda" target="_blank" rel="noopener">EUMETView WMS</a> · <a href="https://www.eumetsat.int" title="Apri eumetsat.int in una nuova scheda" target="_blank" rel="noopener">eumetsat.int</a><br>Flussi satellitari in tempo reale georeferenziati via WMS:<br>
                     • <b>MTG-I (Meteosat Third Generation)</b>: canale infrarosso termico ad alta risoluzione <code>mtg_fd:ir105_hrfi</code> (IR 10.5 μm) e Geo Colour RGB <code>mtg_fd:rgb_geocolour</code> (composito realistico giorno/notte).<br>
                     • <b>MSG (Meteosat Second Generation)</b>: Airmass RGB <code>msg_fes:rgb_airmass</code> (discriminazione masse d'aria, umidità in alta troposfera e vorticità potenziale).<br>
                     Integrazione con vista sinottica e crop ad alta definizione sull'Italia; caricamento lazy e pre-buffering. © EUMETSAT / EUMETView.</div>
-                    <div class="src-item"><b>EUMETSAT MTG Lightning Imager — AFA</b> — <a href="https://view.eumetsat.int/geoserver/wms" target="_blank" rel="noopener">EUMETView WMS</a>, layer <code>mtg_fd:li_afa</code><br>Accumulated Flash Area: area coperta dall'emissione ottica delle scariche accumulate (finestra di 30 s, passo 5 minuti, archivio dal 2025-05-30). Alimenta il campo «fulmini nell'area» di ogni cella/candidato: <b>non</b> è un conteggio di scariche (la legenda del layer non riporta valori numerici). © EUMETSAT / EUMETView — licenza <b>CC BY 4.0</b>, la stessa dichiarata dall'engine radar (`satellite_engine.py`, costante `AFA_LICENSE`) e usata nell'attribuzione del layer.</div>
+                    <div class="src-item"><b>EUMETSAT MTG Lightning Imager — AFA</b> — <a href="https://view.eumetsat.int/geoserver/wms" title="Apri view.eumetsat.int in una nuova scheda" target="_blank" rel="noopener">EUMETView WMS</a>, layer <code>mtg_fd:li_afa</code><br>Accumulated Flash Area: area coperta dall'emissione ottica delle scariche accumulate (finestra di 30 s, passo 5 minuti, archivio dal 2025-05-30). Alimenta il campo «fulmini nell'area» di ogni cella/candidato: <b>non</b> è un conteggio di scariche (la legenda del layer non riporta valori numerici). © EUMETSAT / EUMETView — licenza <b>CC BY 4.0</b>, la stessa dichiarata dall'engine radar (`satellite_engine.py`, costante `AFA_LICENSE`) e usata nell'attribuzione del layer.</div>
                 </div>
             </div>
             <div class="fl-section">
                 <div class="fl-section-title">Osservazioni al Suolo Live (METAR)</div>
                 <div class="src-list">
-                    <div class="src-item"><b>Iowa Environmental Mesonet (IEM)</b> — <a href="https://mesonet.agron.iastate.edu/" target="_blank" rel="noopener">mesonet.agron.iastate.edu</a> (Iowa State University)<br>Rete aeroportuale <b>IT__ASOS</b>: bollettini METAR orari in tempo reale per tutti gli aeroporti e le stazioni meteo aeronautiche italiane (temperatura, dew point, pressione QNH, velocità e direzione del vento, raffiche, visibilità e tempo presente).</div>
+                    <div class="src-item"><b>Iowa Environmental Mesonet (IEM)</b> — <a href="https://mesonet.agron.iastate.edu/" title="Apri mesonet.agron.iastate.edu in una nuova scheda" target="_blank" rel="noopener">mesonet.agron.iastate.edu</a> (Iowa State University)<br>Rete aeroportuale <b>IT__ASOS</b>: bollettini METAR orari in tempo reale per tutti gli aeroporti e le stazioni meteo aeronautiche italiane (temperatura, dew point, pressione QNH, velocità e direzione del vento, raffiche, visibilità e tempo presente).</div>
                 </div>
             </div>
             <div class="fl-section">
                 <div class="fl-section-title">Osservazioni al Suolo — Rete di Centraline</div>
                 <div class="src-list">
-                    <div class="src-item"><b>MeteoHub — Agenzia ItaliaMeteo / CINECA</b> — <a href="https://meteohub.agenziaitaliameteo.it/" target="_blank" rel="noopener">meteohub.agenziaitaliameteo.it</a><br>Rete di centraline al suolo aggregata dal portale del progetto MISTRAL: <b>circa 4.270 stazioni</b> su <b>26 reti</b> (ARPA regionali e MeteoNetwork). Campi: temperatura a 2 m, umidità relativa, vento a 10 m (velocità e direzione), precipitazione. <b>Nessuna visibilità</b> e <b>nessuna pressione al livello del mare</b>: la sorgente espone solo la pressione di stazione, che non è riducibile al livello del mare senza la quota.</div>
+                    <div class="src-item"><b>MeteoHub — Agenzia ItaliaMeteo / CINECA</b> — <a href="https://meteohub.agenziaitaliameteo.it/" title="Apri meteohub.agenziaitaliameteo.it in una nuova scheda" target="_blank" rel="noopener">meteohub.agenziaitaliameteo.it</a><br>Rete di centraline al suolo aggregata dal portale del progetto MISTRAL: <b>circa 4.270 stazioni</b> su <b>26 reti</b> (ARPA regionali e MeteoNetwork). Campi: temperatura a 2 m, umidità relativa, vento a 10 m (velocità e direzione), precipitazione. <b>Nessuna visibilità</b> e <b>nessuna pressione al livello del mare</b>: la sorgente espone solo la pressione di stazione, che non è riducibile al livello del mare senza la quota.</div>
                     <div class="src-item"><b>Licenza: CC BY 4.0</b>, con <b>attribuzione per ente</b> (es. Arpae Emilia-Romagna, ARPA Lombardia, Provincia autonoma di Trento, MeteoNetwork OdV). L'attribuzione completa, rete per rete, è nel campo <code>attribution</code> di <code>data/stations/latest.json</code>.</div>
                     <div class="src-item"><b>Aggiornamento</b>: ogni 10 minuti. Latenza mediana <b>~38 minuti</b>; oltre il <b>98%</b> delle osservazioni arriva entro <b>90 minuti</b> e le osservazioni più vecchie di 90 minuti vengono <b>scartate dal client</b>.</div>
                     <div class="src-item"><b>Precipitazione</b>: ogni stazione dichiara il proprio <b>periodo di accumulo</b> (<code>precipitation_period_s</code>: 60, 300, 600, 900, 1800, 3600 s nei casi prevalenti, con pochi casi a 180 e 360 s). I millimetri <b>non sono confrontabili</b> fra stazioni senza normalizzare al periodo.</div>
@@ -2811,8 +2817,8 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                 <div class="fl-section-title">Territorio · Allerte · Mappe Base</div>
                 <div class="src-list">
                     <div class="src-item"><b>Limiti provinciali e regionali</b> — GeoJSON statico locale derivato dai confini amministrativi ufficiali ISTAT (generalizzati, aggiornamento 01.01.2025): <code>data/geography/province_italiane.geojson</code>, incorporato nell'app (nessun download a runtime). © Istat.</div>
-                    <div class="src-item"><b>Allerte DPC</b> — <a href="https://github.com/pcm-dpc/DPC-Bollettini-Criticita-Idrogeologica-Idraulica" target="_blank" rel="noopener">Bollettini di Criticità Idrogeologica e Idraulica (pcm-dpc)</a> con mappatura dei livelli di criticità (verde, gialla, arancione, rossa) per ciascuna zona d'allerta e comune italiano. © Dipartimento della Protezione Civile.</div>
-                    <div class="src-item"><b>Mappe base</b> — OpenStreetMap (<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OSM contributors, ODbL</a>).</div>
+                    <div class="src-item"><b>Allerte DPC</b> — <a href="https://github.com/pcm-dpc/DPC-Bollettini-Criticita-Idrogeologica-Idraulica" title="Apri github.com in una nuova scheda" target="_blank" rel="noopener">Bollettini di Criticità Idrogeologica e Idraulica (pcm-dpc)</a> con mappatura dei livelli di criticità (verde, gialla, arancione, rossa) per ciascuna zona d'allerta e comune italiano. © Dipartimento della Protezione Civile.</div>
+                    <div class="src-item"><b>Mappe base</b> — OpenStreetMap (<a href="https://www.openstreetmap.org/copyright" title="Apri openstreetmap.org in una nuova scheda" target="_blank" rel="noopener">© OSM contributors, ODbL</a>).</div>
                     <div class="src-item"><b>Librerie client</b> — Leaflet 1.9.4 (motore cartografico web), Chart.js (grafici orari ed ensemble).</div>
                 </div>
             </div>
@@ -2901,8 +2907,8 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     <div class="details-card">
         <div class="search-box">
             <div class="search-row">
-                <input type="text" id="city-search" class="search-input" placeholder="🔍 Cerca comune o provincia..." oninput="handleSearch(this.value)" onkeydown="handleCitySearchKeydown(event)">
-                <button type="button" id="city-search-btn" class="search-btn" aria-label="Cerca comune o provincia" title="Cerca" onmousedown="event.preventDefault()" onclick="runCitySearch()">🔍</button>
+                <input type="text" id="city-search" class="search-input" placeholder="🔍 Cerca comune o provincia..." title="Cerca un comune o una provincia per nome" oninput="handleSearch(this.value)" onkeydown="handleCitySearchKeydown(event)">
+                <button type="button" id="city-search-btn" class="search-btn" aria-label="Cerca comune o provincia"  title="Avvia la ricerca del comune o della provincia scritti" onmousedown="event.preventDefault()" onclick="runCitySearch()">🔍</button>
             </div>
             <div id="search-results" class="search-results"></div>
 
@@ -2920,7 +2926,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                 <div id="mnw-live-panel" style="display:none;margin-top:6px;padding:6px 8px;background:rgba(15,23,42,0.85);border-radius:6px;border:1px solid #22d3ee;font-family:system-ui,sans-serif;">
                     <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
                         <label style="font-size:10px;color:#94a3b8;" for="mnw-source-select">Sorgente:</label>
-                        <select id="mnw-source-select" class="hour-select" style="font-size:10px;padding:2px 6px;" onchange="refreshMnwPanel()">
+                        <select id="mnw-source-select" class="hour-select" style="font-size:10px;padding:2px 6px;" onchange="refreshMnwPanel()" title="Scegli la sorgente del pannello locale: dati live, modelli o centraline">
                             <option value="live">Dati Live (METAR)</option>
                             <option value="model">Estratto Modelli</option>
                             <option value="stations">Centraline (osservato, ~30 min)</option>
@@ -2929,7 +2935,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                     <div id="mnw-live-content"></div>
                 </div>
             </div>
-            <button class="export-btn" onclick="exportDataCSV()">📥 CSV</button>
+            <button class="export-btn" onclick="exportDataCSV()" title="Scarica i dati della zona selezionata in un file CSV">📥 CSV</button>
         </div>
 
         <!-- 1.2.4.70 - UN SOLO PANNELLO PREVISIONE: details chiuso di default,
@@ -2938,7 +2944,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
              le 5 macro-aree e le 7 celle + 5 frasi vivono dentro le pane: una sola
              pane visibile per volta, nessuna duplicazione contemporanea. -->
         <details class="forecast-details" id="forecast-details">
-            <summary>
+            <summary title="Apri o chiudi la previsione dettagliata della località selezionata">
                 <span class="fc-summary-label">Previsione</span>
                 <span class="fc-summary-text" id="fc-summary-text">— seleziona una località</span>
             </summary>
@@ -3011,7 +3017,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
 
         <div style="display:flex; gap:8px; align-items:center; margin-bottom:4px;">
             <label style="font-size:11px; color:#94a3b8;">Modello grafico:</label>
-            <select id="chart-model-select" class="hour-select" onchange="onChartModelChange()" style="font-size:11px;">
+            <select id="chart-model-select" class="hour-select" onchange="onChartModelChange()" title="Scegli il modello del grafico orario: locale, ECMWF o GFS" style="font-size:11px;">
                 <option value="locale">Locale</option>
                 <option value="ecmwf">ECMWF</option>
                 <option value="gfs">GFS</option>
@@ -3025,11 +3031,11 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                 <span style="font-size:9px; color:#64748b;">ECMWF vs GFS</span>
             </div>
             <div style="display:flex; gap:8px; margin-bottom:8px; align-items:center; flex-wrap:wrap;">
-                <select id="model-compare-mode" class="hour-select" onchange="onModelCompareModeChange()" style="font-size:11px;">
+                <select id="model-compare-mode" class="hour-select" onchange="onModelCompareModeChange()" title="Scegli la vista del confronto fra ECMWF e GFS: giornaliera o oraria" style="font-size:11px;">
                     <option value="daily">Giornaliero (3 giorni)</option>
                     <option value="hourly">Orario</option>
                 </select>
-                <select id="model-compare-day" class="hour-select" onchange="renderModelComparison()" style="font-size:11px; display:none;">
+                <select id="model-compare-day" class="hour-select" onchange="renderModelComparison()" title="Scegli il giorno del confronto orario fra i modelli" style="font-size:11px; display:none;">
                     <option value="0">Oggi</option>
                     <option value="1">Domani</option>
                     <option value="2">Dopodomani</option>
@@ -3060,7 +3066,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
              locale su canvas. Fetch ON-DEMAND: il pannello parte chiuso e non
              parte alcuna richiesta finche' l'utente non lo apre. -->
         <div class="ens-section" id="ens-section">
-            <div class="ens-head" id="ens-head" role="button" tabindex="0" aria-expanded="false" aria-controls="ens-body" aria-label="Apri o chiudi il modulo Ensemble">
+            <div class="ens-head" id="ens-head" role="button" tabindex="0" title="Apri o chiudi il modulo ensemble: spaghetti plot e percentili" aria-expanded="false" aria-controls="ens-body" aria-label="Apri o chiudi il modulo Ensemble">
                 <span class="ens-title">🌦️ Ensemble (Open-Meteo)</span>
                 <span class="ens-head-meta" id="ens-head-meta">chiuso · carica a richiesta</span>
                 <span class="ens-caret" id="ens-caret">▸</span>
@@ -3068,11 +3074,11 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
             <div class="ens-body" id="ens-body" hidden>
                 <div class="ens-controls">
                     <label class="ens-label" for="ens-model">Modello:</label>
-                    <select id="ens-model" class="hour-select" aria-label="Modello ensemble"></select>
+                    <select id="ens-model" class="hour-select" aria-label="Modello ensemble" title="Scegli il modello ensemble da disegnare"></select>
                     <label class="ens-label" for="ens-var">Variabile:</label>
-                    <select id="ens-var" class="hour-select" aria-label="Variabile ensemble"></select>
+                    <select id="ens-var" class="hour-select" aria-label="Variabile ensemble" title="Scegli la variabile ensemble da disegnare"></select>
                     <label class="ens-label" for="ens-range">Giorni:</label>
-                    <select id="ens-range" class="hour-select" aria-label="Orizzonte di previsione (giorni)"></select>
+                    <select id="ens-range" class="hour-select" aria-label="Orizzonte di previsione (giorni)" title="Scegli quanti giorni di previsione ensemble mostrare"></select>
                     <button type="button" id="ens-refresh" class="ens-refresh" title="Ricarica i dati ensemble">↻</button>
                 </div>
                 <div id="ens-msg" class="ens-msg" role="status"></div>
@@ -3083,7 +3089,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                     </div>
                     <div id="ens-legend" class="ens-legend"></div>
                 </div>
-                <div class="ens-attribution">Dati ensemble: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> · modelli ECMWF · ICON · GEFS · UKMO</div>
+                <div class="ens-attribution">Dati ensemble: <a href="https://open-meteo.com/" title="Apri open-meteo.com in una nuova scheda" target="_blank" rel="noopener">Open-Meteo.com</a> · modelli ECMWF · ICON · GEFS · UKMO</div>
             </div>
         </div>
 
@@ -3135,9 +3141,13 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.55';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.57';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-23';
     const APP_CHANGELOG = [
+    { version: '1.3.0.57', date: '2026-11-23', changes: [
+      "OVERRIDE PROVINCE: lo switch Province (accanto a Colori) accende riempimento e confini delle province anche fuori dal prodotto Mappa dei rischi, con la scala della metrica attiva; i badge di rischio restano spenti, la legenda resta legata al prodotto e il cambio di prodotto nasconde lo switch dove non serve. Con l override attivo la tendina della metrica torna selezionabile, e la firma hydroPaintSignature include lo stato dell override.",
+      "TOOLTIP SU TUTTA L APP: 60 controlli statici (select, slider, summary, campi di ricerca, 18 link esterni con Apri <dominio> in una nuova scheda) e 12 tooltip generati dal codice (righe struttura convettiva, dettagli, fenomeni, giorni a 3 giorni, retry ensemble, intestazioni legenda, suggerimenti di ricerca) hanno ora il title; tre intestazioni cliccabili diventano raggiungibili da tastiera (role button, tabindex, Enter/Spazio). Nuovo test di copertura scripts/tests/test_tooltips_coverage.py: misurato 60 controlli senza title sull html 1.3.0.55, 0 sul 1.3.0.57."
+    ]},
     { version: '1.3.0.55', date: '2026-11-23', changes: [
       "CAPTION, BORDI E TOOLTIP: la didascalia della timeline sincronizzata non nomina piu Blitzortung, perche in questa edizione le sorgenti fulmini sono disattivate: isLightningActive diventa vero solo se enabledLightningSourceIds() restituisce almeno una sorgente, e non c e piu il fallback a una sorgente spenta. I confini provinciali spariscono fuori dal prodotto Mappa dei rischi (la provincia selezionata resta azzurra) e 23 pulsanti e linguette hanno il tooltip title.",
       "AFA CON CROCETTE E MASTER DELLE STRUTTURE CONVETTIVE: il motore satellite disegna una texture di crocette scure sui soli pixel attivi dell area AFA (alpha identico pixel per pixel, nessun buco riempito, nessuna nuova libreria) e la legenda la dichiara come texture di lettura, non come posizione dei fulmini; attivando le strutture convettive nel pannello LIVE si accendono traccia, forecast e fenomeni prima del fetch, senza spegnimenti in cascata."
@@ -13238,6 +13248,7 @@ removeLightningTile();
             var empty = document.createElement('div');
             empty.className = 'sc-item';
             empty.style.color = '#94a3b8';
+            empty.title = 'Nessun candidato disponibile in questa scansione';
             empty.textContent = live
                 ? 'Nessun candidato cella organizzata allo scan corrente.'
                 : 'Nessun candidato nell\'ultima scansione radar (avvio = nessun record emesso).';
@@ -13264,6 +13275,9 @@ removeLightningTile();
             det.appendChild(box);
             list.appendChild(det);
         }
+        // 1.3.0.57 - tooltip sulle righe generate e sul gruppo secondario.
+        mriTip(list, '.sc-item', 'Struttura convettiva: clic per selezionarla e centrare la mappa');
+        mriTip(list, 'details.sc-secondary-details > summary', 'Mostra le altre strutture ordinate per SOI, oltre le prime ' + topN);
     }
 
     // Elemento riga candidato: 7 punti. 1-4 sempre visibili; 5-7 nel <details>
@@ -13277,7 +13291,7 @@ removeLightningTile();
         row.className = 'sc-item' + (topRank ? ' sc-top-item' : '');
         if (topRank) {
             row.setAttribute('data-sc-rank', String(topRank));
-            row.title = 'Top ' + topRank + ' per SOI decrescente';
+            row.title = 'Top ' + topRank + ' per SOI: clic per selezionare la struttura e centrare la mappa';
         }
         var rowKey = scTrackKey(c);
         row.setAttribute('data-sc-key', rowKey);
@@ -13375,6 +13389,7 @@ removeLightningTile();
             '<span>' + soiV2Txt + hookTxt + ' · ' + structTxt + ' · ' + otTxt + ' · ' + lightningTxt + ' · ' + envTxt + '</span>' +
             '<span>' + scForecastLine(c) + '</span>' +
             '</div></details>';
+        mriTip(row, 'details.sc-row-detail > summary', 'Apri il dettaglio di traccia, descrittori verticali e forecast della cella');
         return row;
     }
 
@@ -15972,6 +15987,11 @@ removeLightningTile();
         } else if (badges.length && html && box) {
             box.innerHTML = '<div class="legend-title" style="padding:4px 10px 0 10px;">Fenomeni osservati (radar)</div>' + html;
             box.style.display = 'block';
+        }
+        // 1.3.0.57 - tooltip su righe fenomeno e sul gruppo dei sospetti.
+        if (box) {
+            mriTip(box, '.sc-phenomena-row', 'Fenomeno osservato dal radar: clic per centrare la mappa sulla posizione');
+            mriTip(box, 'details.sc-phenomena-suspects > summary', 'Mostra i sospetti non confermati entro 10 minuti dal frame delle strutture');
         }
         if (markers.length) scPhenomenaLayer = L.layerGroup(markers).addTo(map);
         scRefreshMarkerIcons();
@@ -23133,6 +23153,17 @@ function isRadarToolsProduct() {
 // appartiene al prodotto «rischi». Funzione PURA (testabile).
 function riskLayerAllowedFor(productId) { return productId === 'rischi'; }
 function isRiskProductActive() { return riskLayerAllowedFor(activeProductId); }
+// 1.3.0.57 - OVERRIDE MANUALE del layer province: lo switch «Province» consente
+// riempimento e confini anche fuori dal prodotto «Mappa dei rischi». Badge e
+// legenda restano invece gated al prodotto (nessun badge, nessuna legenda).
+var riskLayerOverride = false;
+function riskLayerPaintAllowed() { return isRiskProductActive() || riskLayerOverride; }
+// 1.3.0.57 - TOOLTIP: riempie il title dei nodi generati dal codice senza
+// sovrascrivere un title gia' scritto dal generatore (il testo specifico vince).
+function mriTip(root, sel, text) {
+    var n = (root || document).querySelectorAll(sel);
+    for (var i = 0; i < n.length; i++) if (!n[i].getAttribute('title')) n[i].title = text;
+}
 function productDefs() {
     function txt(id) { var el = document.getElementById(id); return el ? (el.textContent || '') : ''; }
     function onText(id) { return txt(id).indexOf('(ON)') >= 0; }
@@ -23199,6 +23230,10 @@ function syncContextualToggles() {
     // prodotto: il wrapper e' la <label class="mp-switch"> che contiene l'input.
     var rbSw = document.getElementById('switch-riskbadges');
     if (rbSw && rbSw.parentNode && rbSw.parentNode.style) rbSw.parentNode.style.display = riskProductOn ? '' : 'none';
+    // 1.3.0.57 - lo switch «Province» (override manuale) e' l'opposto: nei rischi
+    // non serve (il layer e' gia' acceso dal prodotto), fuori dai rischi si vede.
+    var pvSw = document.getElementById('switch-provinces');
+    if (pvSw && pvSw.parentNode && pvSw.parentNode.style) pvSw.parentNode.style.display = riskProductOn ? 'none' : '';
     if (row) row.style.display = (showRadar || showSat) ? 'flex' : 'none';
     syncDevRiskControls();   // 1.3.0.17: i controlli dev seguono il prodotto attivo
 }
@@ -23820,6 +23855,16 @@ function toggleForecastMaps() {
         restyleBorderOverlay();
     }
 
+    // 1.3.0.57 - Switch «Province»: accende il riempimento/bordi anche fuori dal
+    // prodotto «Mappa dei rischi». Ripittura e riabilita la metrica.
+    function toggleRiskLayerOverride() {
+        var sw = document.getElementById('switch-provinces');
+        riskLayerOverride = !!(sw && sw.checked);
+        updateMapColors();
+        restyleBorderOverlay();
+        if (typeof syncMetricSelectEnabled === 'function') syncMetricSelectEnabled();
+    }
+
     // ================= BADGE DI RISCHIO NEI POLIGONI =================
     var riskBadgesActive = true;
     var riskBadgeLayer = null;
@@ -24004,7 +24049,7 @@ function toggleForecastMaps() {
             if (isSelected) {
                 layer.setStyle({ color: '#38bdf8', weight: 3, opacity: 1 });
                 if (layer.bringToFront) { try { layer.bringToFront(); } catch (e) {} }
-            } else if (!isRiskProductActive()) {
+            } else if (!riskLayerPaintAllowed()) {
                 // 1.3.0.55 - i confini appartengono alla mappa dei rischi: fuori dal
                 // prodotto niente rete bianca. La provincia selezionata resta azzurra
                 // (ramo sopra), quindi il clic continua a dare un riscontro visivo.
@@ -24024,7 +24069,8 @@ function toggleForecastMaps() {
         // NON si toccano i fill, cosi' un click non cancella le palette attive.
         // 1.3.0.54 - SECONDO pittore della mappa dei rischi: un clic provincia
         // ridipinge i fill, quindi il gate va PRIMA di ogni ramo.
-        if (!isRiskProductActive()) {
+        // 1.3.0.57 - vale anche l'override manuale «Province».
+        if (!riskLayerPaintAllowed()) {
             restyleBorderOverlay();
             return;
         }
@@ -29911,7 +29957,8 @@ function renderContinuousOverlay() {
             // appartiene al SOLO prodotto «rischi». Fuori da quel prodotto i
             // poligoni restano NEUTRI ma interattivi: NESSUN map.removeLayer,
             // quindi hover e clic provincia continuano a funzionare.
-            if (!isRiskProductActive()) {
+            // 1.3.0.57 - con l'override «Province» il layer resta dipinto.
+            if (!riskLayerPaintAllowed()) {
                 hideContinuousOverlay();
                 provinceGeoJsonLayer.setStyle({ fillColor: '#334155', fillOpacity: 0, opacity: 1, color: 'transparent', weight: 0 });
                 clearRiskBadges();
@@ -30234,7 +30281,7 @@ function renderContinuousOverlay() {
         var sel = document.getElementById('metric-select');
         var reason = document.getElementById('metric-select-reason');
         var row = document.getElementById('metric-select-row');
-        var enabled = (activeProductId === 'rischi');
+        var enabled = (activeProductId === 'rischi') || riskLayerOverride;
         if (row) row.style.display = enabled ? 'flex' : 'none';
         if (sel) {
             sel.disabled = !enabled;
@@ -30250,7 +30297,7 @@ function renderContinuousOverlay() {
     // La tendina disabilitata non puo' cambiare; il guard copre anche un
     // dispatch artificiale di 'change': fuori da «Mappa dei rischi» nessun effetto.
     function onMetricSelectChange(v) {
-        if (activeProductId !== 'rischi') { syncMetricSelectEnabled(); return; }
+        if (activeProductId !== 'rischi' && !riskLayerOverride) { syncMetricSelectEnabled(); return; }
         // 1.3.0.42 - le vecchie voci WMAXSHEAR/SCP/SHIP/HSLC non sono piu'
         // selezionabili: non disegnare una mappa con etichetta fuorviante.
         if (typeof isNewIndexMetric === 'function' && isNewIndexMetric(v)) {
@@ -31508,6 +31555,7 @@ function renderContinuousOverlay() {
             btn.textContent = 'Riprova';
             btn.addEventListener('click', function() { ensLoad(); });
             msg.appendChild(btn);
+            mriTip(msg, 'button.ens-retry', 'Riprova a caricare i dati ensemble per questa località');
         }
         msg.style.display = 'block';
     }
@@ -32405,6 +32453,7 @@ function renderContinuousOverlay() {
         var html = '';
         for (var d = 0; d < tdsState.days.length; d++) html += tdsDayHtml(tdsState.days[d], d);
         grid.innerHTML = html;
+        mriTip(grid, '.tds-day', 'Giorno della sintesi a 3 giorni: clic per selezionarlo');
         tdsBindGrid(grid);
         tdsRenderPhrase();
     }
@@ -35166,6 +35215,7 @@ function renderContinuousOverlay() {
                 };
                 resultsBox.appendChild(div);
             });
+            mriTip(resultsBox, '.search-item:not(.search-empty)', 'Provincia suggerita: clic per andare alla mappa');
             resultsBox.style.display = 'block';
             return;
         }
@@ -35187,6 +35237,7 @@ function renderContinuousOverlay() {
                 div.onclick = () => selectCity(city);
                 resultsBox.appendChild(div);
             });
+            mriTip(resultsBox, '.search-item:not(.search-empty)', 'Comune suggerito: clic per caricare la previsione');
             resultsBox.style.display = 'block';
         }).catch(function() {
             if (thisSignal.aborted) return;   // errore da richiesta abbandonata: ignora
@@ -37502,6 +37553,7 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
             head.setAttribute('data-legend-key', cfg.key);
             head.innerHTML = '<span class="lc-chev" aria-hidden="true">\u25be</span><span class="lc-txt"></span>';
             head.querySelector('.lc-txt').textContent = cfg.title;
+            head.title = cfg.title + ' (clic per mostrare o nascondere)';
             body.parentNode.insertBefore(head, body);
             body.classList.add('legend-head-dup');
         }
@@ -38108,7 +38160,11 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
                 // 1.3.0.54 - il prodotto attivo entra nella firma: senza questa voce
                 // resumeRiskPaint() ripristinava i colori di un prodotto che non e'
                 // piu' quello attivo (colori stale).
-                typeof activeProductId !== 'undefined' ? activeProductId : ''
+                typeof activeProductId !== 'undefined' ? activeProductId : '',
+                // 1.3.0.57 - anche l'override manuale «Province» entra nella firma:
+                // senza questa voce resumeRiskPaint() poteva ripristinare i colori
+                // di uno stato (override ON/OFF) che non e' piu' quello corrente.
+                (typeof riskLayerOverride !== 'undefined' && riskLayerOverride) ? 1 : 0
             ].join('|');
         } catch (e) { return 'unknown'; }
     }

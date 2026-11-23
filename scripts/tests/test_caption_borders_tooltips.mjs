@@ -103,16 +103,16 @@ ok('A: con flag stale e zero sorgenti abilitate la caption resta pulita',
 // ---------------------------------------------------------------- B) bordi
 const borderSrc = extractFn(src, 'restyleBorderOverlay');
 const iSel = borderSrc.indexOf('if (isSelected)');
-const iRisk = borderSrc.indexOf('!isRiskProductActive()');
+const iRisk = borderSrc.indexOf('!riskLayerPaintAllowed()');
 const iCont = borderSrc.indexOf('else if (continuousMode)');
-ok('B: restyleBorderOverlay contiene !isRiskProductActive()', iRisk >= 0);
+ok('B: restyleBorderOverlay contiene !riskLayerPaintAllowed() (prodotto rischi O override Province)', iRisk >= 0);
 ok('B: il ramo sta DOPO isSelected', iSel >= 0 && iRisk > iSel, `isSelected=${iSel} risk=${iRisk}`);
 ok('B: il ramo sta PRIMA di continuousMode', iCont >= 0 && iRisk < iCont, `risk=${iRisk} continuous=${iCont}`);
 ok('B: il ramo nasconde senza removeLayer',
   /layer\.setStyle\(\{\s*fill:\s*false,\s*weight:\s*0,\s*opacity:\s*0\s*\}\)/.test(borderSrc) &&
   borderSrc.indexOf('removeLayer') < 0);
 ok('B: updateMapColors chiama restyleBorderOverlay fuori dal prodotto',
-  /if \(!isRiskProductActive\(\)\) \{[\s\S]{0,400}?restyleBorderOverlay\(\);/.test(extractFn(src, 'updateMapColors')));
+  /if \(!riskLayerPaintAllowed\(\)\) \{[\s\S]{0,400}?restyleBorderOverlay\(\);/.test(extractFn(src, 'updateMapColors')));
 
 // ---------------------------------------------------------------- C) tooltip
 const TOOLTIPS = {

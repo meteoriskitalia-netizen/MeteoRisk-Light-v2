@@ -1,3 +1,17 @@
+VERSION=1.3.0.57
+BUILD=187
+DATE=2026-11-23
+APP_FILE=mri-light-1.3.0.57.html
+MeteoRisk Light - 1.3.0.57 - Override manuale del layer province fuori dalla Mappa dei rischi e tooltip su tutta l'app con test di copertura (BUILD=187)
+VERSION=1.3.0.57
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=187
+RELEASE_TYPE=release
+DATE=2026-11-23
+NOTE=Release 1.3.0.57 (bump da 1.3.0.56; client: APP_FILE mri-light-1.3.0.57.html). (1) OVERRIDE PROVINCE: nuovo switch #switch-provinces accanto a Colori; riskLayerPaintAllowed() = isRiskProductActive() || riskLayerOverride entra nei gate di updateMapColors, updateMarkerSelection e restyleBorderOverlay; updateRiskBadges, renderLegend e fmHideRiskOverlays/fmRestoreRiskOverlays restano gated al prodotto (nessun badge e nessuna legenda fuori dai rischi, nessun map.removeLayer). syncContextualToggles nasconde lo switch nel prodotto rischi e lo mostra altrove; con override attivo syncMetricSelectEnabled abilita la tendina e onMetricSelectChange non scarta il cambio; hydroPaintSignature include riskLayerOverride. (2) TOOLTIP: 60 controlli statici e 12 tooltip generati (mriTip) su tutta l'app, 18 link esterni con Apri <dominio> in una nuova scheda, role=button/tabindex/Enter-Spazio su .fm-close e sui due .fl-title; le checkbox dentro label[title] sono accettate dal pattern .mp-switch. (3) TEST: nuovo scripts/tests/test_tooltips_coverage.py (html.parser, 119 controlli obbligati, allowlist motivata legacy-toolbar-row/legacy-metric-tabs solo con display:none piu easter-egg, scansione delle stringhe JS che generano button): MISURATO 60 controlli senza title sull'html 1.3.0.55, 0 sull'html 1.3.0.57. Nuovo scripts/tests/test_risk_layer_override.mjs (12 assert O1-O12) e test_risk_layer_product.mjs aggiornato a riskLayerPaintAllowed. (4) INVARIATI: nessuna modifica al motore radar, ai workflow o ai dati; sw.js rinnova le tre cache a mri-1.3.0.57, mri-tiles-1.3.0.57 e mri-frames-1.3.0.57.
+APP_FILE=mri-light-1.3.0.57.html
 VERSION=1.3.0.56
 BUILD=186
 DATE=2026-11-23

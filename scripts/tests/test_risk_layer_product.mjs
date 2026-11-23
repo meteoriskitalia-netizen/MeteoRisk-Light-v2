@@ -77,6 +77,7 @@ try {
   code = [
     extractFn(src, 'riskLayerAllowedFor'),
     extractFn(src, 'isRiskProductActive'),
+    extractFn(src, 'riskLayerPaintAllowed'),
     extractFn(src, 'renderLegend'),
     extractFn(src, 'updateMapColors')
   ].join('\n\n');
@@ -108,6 +109,7 @@ const sandbox = {
     latLngToContainerPoint() { return { x: 0, y: 0 }; }
   },
   activeProductId: '',
+  riskLayerOverride: false,
   mapColorsVisible: true,
   continuousMode: false,
   dpcAlertMode: 'off',
@@ -225,12 +227,14 @@ const strip = (s) => s.replace(/\/\/[^\r\n]*/g, '');
 const occurrences = (src.match(/isRiskProductActive/g) || []).length;
 ok('S1: isRiskProductActive compare almeno 5 volte nel file', occurrences >= 5, 'occorrenze=' + occurrences);
 
-const fnGate = (name) => {
+const fnGate = (name, gateFn) => {
   const body = strip(extractFn(src, name));
-  return /if \(!isRiskProductActive\(\)\)/.test(body);
+  return new RegExp('if \\(!' + (gateFn || 'isRiskProductActive') + '\\(\\)\\)').test(body);
 };
-ok('S2: updateMapColors ha il gate come primo controllo del riempimento', fnGate('updateMapColors'));
-ok('S3: updateMarkerSelection ha il gate (secondo pittore, clic provincia)', fnGate('updateMarkerSelection'));
+ok('S2: updateMapColors ha il gate come primo controllo del riempimento (riskLayerPaintAllowed: prodotto O override Province)',
+  fnGate('updateMapColors', 'riskLayerPaintAllowed'));
+ok('S3: updateMarkerSelection ha il gate (secondo pittore, clic provincia; riskLayerPaintAllowed)',
+  fnGate('updateMarkerSelection', 'riskLayerPaintAllowed'));
 ok('S4: updateRiskBadges ha il gate (nessun badge fuori dal prodotto)', fnGate('updateRiskBadges'));
 ok('S5: renderLegend ha il gate (legenda solo nel prodotto)', fnGate('renderLegend'));
 
