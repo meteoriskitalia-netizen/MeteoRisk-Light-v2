@@ -38,6 +38,15 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const SW_PATH = path.join(ROOT, 'sw.js');
 if (!fs.existsSync(SW_PATH)) { console.error('FATAL: sw.js non trovato in ' + ROOT); process.exit(1); }
 const swSrc = fs.readFileSync(SW_PATH, 'utf8');
+// 1.3.0.60 - I NOMI DELLE TRE CACHE SI LEGGONO DAL MODULO, non si congelano nella
+// release. Prima erano stringhe fisse ('mri-1.3.0.57' ... poi 'mri-1.3.0.59') sparse
+// in ~10 punti: un bump di CACHE_NAME faceva fallire i controlli di COMPORTAMENTO
+// (install, fetch, potatura, tile) pur essendo il comportamento corretto. La fonte
+// di verita' dei nomi e' sw.js; A2/A2b continuano a verificare che CACHE_NAME segua
+// APP_VERSION del client attivo.
+const CACHE_NAME_SW = (swSrc.match(/var CACHE_NAME = '([^']+)';/) || [])[1] || '';
+const TILE_CACHE_SW = (swSrc.match(/var TILE_CACHE = '([^']+)';/) || [])[1] || '';
+const FRAME_CACHE_SW = (swSrc.match(/var FRAME_CACHE = '([^']+)';/) || [])[1] || '';
 const VERSION_SRC = fs.readFileSync(path.join(ROOT, 'VERSION'), 'utf8');
 // 1.3.0.48: il client attivo e' APP_FILE di VERSION, NON il "primo html" che
 // capita in `readdirSync` (ordine del filesystem, cambia quando si rimuovono
@@ -188,9 +197,12 @@ ok('A12: TTL dichiarati (tile 7 giorni, frame 30 minuti, 6 frame per famiglia)',
   /var FRAME_TTL_MS = 30 \* 60 \* 1000;/.test(swSrc) &&
   /var MAX_FRAMES_PER_FAMILY = 6;/.test(swSrc));
 ok('A13: cache separate per tile e frame (la potatura non tocca i WebP previsionali)',
-  /var TILE_CACHE = 'mri-tiles-1.3.0.59';/.test(swSrc) &&
-  /var FRAME_CACHE = 'mri-frames-1.3.0.59';/.test(swSrc) &&
-  /var APP_CACHES = \[CACHE_NAME, TILE_CACHE, FRAME_CACHE\];/.test(swSrc));
+  TILE_CACHE_SW.length > 0 && FRAME_CACHE_SW.length > 0 &&
+  TILE_CACHE_SW !== CACHE_NAME_SW && FRAME_CACHE_SW !== CACHE_NAME_SW &&
+  swSrc.indexOf("var TILE_CACHE = '" + TILE_CACHE_SW + "';") >= 0 &&
+  swSrc.indexOf("var FRAME_CACHE = '" + FRAME_CACHE_SW + "';") >= 0 &&
+  /var APP_CACHES = \[CACHE_NAME, TILE_CACHE, FRAME_CACHE\];/.test(swSrc),
+  'tile=' + TILE_CACHE_SW + ' frame=' + FRAME_CACHE_SW);
 ok('A14: satellite/manifest.json usa il network-first degli indici',
   /RE_SAT_MANIFEST\.test\(path\)\) \{ event\.respondWith\(networkFirstIndex\(request\)\); return; \}/.test(swSrc));
 
@@ -201,16 +213,16 @@ ok('A14: satellite/manifest.json usa il network-first degli indici',
   h.fire('install', installEvent);
   ok('B1: install chiama skipWaiting', installEvent.pending !== undefined);
   await installEvent.pending;
-  const appStore = h.caches._map('mri-1.3.0.59');
+  const appStore = h.caches._map(CACHE_NAME_SW);
   const installKeys = Array.from(appStore.keys());
   ok('B2: install precache SOLO i 3 asset dichiarati (html, manifest, offline.html)',
     h.flags.skipWaiting === true && appStore.size === 3 && h.caches._stores.size === 1 &&
     installKeys.every((k) => /(index\.html|manifest\.webmanifest|offline\.html)$/.test(k)) &&
     h.fetchCalls.length === 3, JSON.stringify(installKeys));
 
-  h.caches._map('mri-1.3.0.59').set('https://x/y', new Response('cur', { status: 200 }));
-  h.caches._map('mri-tiles-1.3.0.59').set('https://x/t', new Response('tile', { status: 200 }));
-  h.caches._map('mri-frames-1.3.0.59').set('https://x/f', new Response('frame', { status: 200 }));
+  h.caches._map(CACHE_NAME_SW).set('https://x/y', new Response('cur', { status: 200 }));
+  h.caches._map(TILE_CACHE_SW).set('https://x/t', new Response('tile', { status: 200 }));
+  h.caches._map(FRAME_CACHE_SW).set('https://x/f', new Response('frame', { status: 200 }));
   h.caches._map('mri-1.2.4.14').set('https://x/y', new Response('old', { status: 200 }));
   h.caches._map('altro-prefisso').set('https://x/z', new Response('old', { status: 200 }));
   const activateEvent = { waitUntil: (p) => { activateEvent.pending = p; } };
@@ -218,7 +230,7 @@ ok('A14: satellite/manifest.json usa il network-first degli indici',
   await activateEvent.pending;
   const names = Array.from(h.caches._stores.keys());
   ok('B3: activate tiene le 3 cache dell\'app e cancella quelle di altre release',
-    names.length === 3 && ['mri-1.3.0.59', 'mri-tiles-1.3.0.59', 'mri-frames-1.3.0.59'].every((n) => names.indexOf(n) !== -1),
+    names.length === 3 && [CACHE_NAME_SW, TILE_CACHE_SW, FRAME_CACHE_SW].every((n) => names.indexOf(n) !== -1),
     JSON.stringify(names));
   ok('B4: activate chiama clients.claim', h.flags.claim === true);
 }
@@ -239,7 +251,7 @@ ok('A14: satellite/manifest.json usa il network-first degli indici',
 }
 
 // ---------- D. NETWORK-FIRST CON TIMEOUT (indici aggregati) ----------
-const CACHE = 'mri-1.3.0.59';
+const CACHE = CACHE_NAME_SW;
 const IDX = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/refs/heads/fm2-rendered/data/fm2-rendered/north/index.json';
 const IDX_JSON = { 'content-type': 'application/json' };
 const bodyOfCache = async (h, url) => {
@@ -402,12 +414,12 @@ const rejects = async (p) => { try { await p; return false; } catch (e) { return
   h.ctx._respond = async () => new Response('nope', { status: 404 });
   await (await h.dispatchFetch(new Request(url))).responded;
   await new Promise((r) => setTimeout(r, 10));
-  ok('G1: una 404 non viene messa in cache', h.caches._map('mri-1.3.0.59').size === 0);
+  ok('G1: una 404 non viene messa in cache', h.caches._map(CACHE_NAME_SW).size === 0);
   const webp = 'https://x.test/data/fm2-rendered/north/ncep_gfs025/temperature_2m/2026102300.webp';
   h.ctx._respond = async () => new Response('partial', { status: 206 });
   await (await h.dispatchFetch(new Request(webp))).responded;
   await new Promise((r) => setTimeout(r, 10));
-  ok('G2: una 206 non viene messa in cache', h.caches._map('mri-1.3.0.59').size === 0);
+  ok('G2: una 206 non viene messa in cache', h.caches._map(CACHE_NAME_SW).size === 0);
 }
 
 // ---------- H. LIMITE DI VOCI (potatura delle piu' vecchie) ----------
@@ -420,14 +432,14 @@ const rejects = async (p) => { try { await p; return false; } catch (e) { return
     await e.responded;
     await new Promise((r) => setTimeout(r, 5));
   }
-  const keys = Array.from(h.caches._map('mri-1.3.0.59').keys());
+  const keys = Array.from(h.caches._map(CACHE_NAME_SW).keys());
   ok('H1: oltre MAX_ENTRIES le voci piu\' vecchie vengono eliminate', keys.length === 3, `keys=${keys.length}`);
   ok('H2: restano le 3 piu\' recenti (ordine di inserimento)', keys.every((k) => /2026102[234]\.webp$/.test(k)), JSON.stringify(keys));
 }
 
 // ---------- M. TILE DELLA MAPPA BASE (cache-first 7 giorni, 700 voci) ----------
-const TILE_CACHE_NAME = 'mri-tiles-1.3.0.59';
-const FRAME_CACHE_NAME = 'mri-frames-1.3.0.59';
+const TILE_CACHE_NAME = TILE_CACHE_SW;
+const FRAME_CACHE_NAME = FRAME_CACHE_SW;
 const OSM_TILE = 'https://tile.openstreetmap.org/6/33/23.png';
 {
   const h = buildContext();
