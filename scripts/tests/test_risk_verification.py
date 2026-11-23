@@ -407,6 +407,9 @@ def test_gate_requires_60_positives_and_60_negatives():
     few_pos = rv.hazard_metrics(_counts(59, 0, 0, 61))
     assert few_pos["feasible"] is False
     assert few_pos["pod"]["value"] is None
+    # sotto soglia anche bias/hss sono null (conteggi conservati)
+    assert few_pos["bias"] is None and few_pos["hss"] is None
+    assert few_pos["pod"]["k"] == 59 and few_pos["pod"]["n"] == 59
     assert "positive_labeled=59<60" in few_pos["null_reason"]
 
     few_neg = rv.hazard_metrics(_counts(61, 0, 0, 59))

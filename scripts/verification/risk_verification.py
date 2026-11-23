@@ -943,8 +943,9 @@ def hazard_metrics(counts, min_cases=MIN_CASES):
         "pod": pod_block,
         "far": far_block,
         "csi": csi_block,
-        "bias": None if bias is None else round(bias, 4),
-        "hss": None if hss is None else round(hss, 4),
+        # Sotto il gate 60/60 nessuna metrica e' pubblicata: i conteggi restano.
+        "bias": None if (bias is None or not feasible) else round(bias, 4),
+        "hss": None if (hss is None or not feasible) else round(hss, 4),
         "feasible": feasible,
         "null_reason": None if feasible else "; ".join(reasons),
         "definitions": {
