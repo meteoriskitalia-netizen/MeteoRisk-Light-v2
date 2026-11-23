@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Test di JOB A — cattura dei livelli previsti (STILE B).
 
-I casi soglia sono quelli del client 1.3.0.45:
+I casi soglia sono quelli del client 1.3.0.53:
   * R2: rain 45.1/15.1/1.1/0.21, gusts 100.1/75.1/50.1, code 95 + CAPE 300,
     80-90 + rain 8;
   * componenti: caldo 30/32/35/38, freddo 0/-2/-5/-8, neve con quota gelo,
@@ -66,8 +66,8 @@ def _write_fixture(tmp_path, days_a, days_b=None):
     version = tmp_path / "VERSION"
     version.write_text(
         "VERSION=1.3.0.49\nBUILD=179\nDATE=2026-11-23\n"
-        "APP_FILE=mri-light-1.3.0.45.html\n"
-        "VERSION=1.3.0.45\nBUILD=175\n",
+        "APP_FILE=mri-light-1.3.0.53.html\n"
+        "VERSION=1.3.0.53\nBUILD=183\n",
         encoding="utf-8")
     meta_p = tmp_path / "metadata.json"
     prov_p = tmp_path / "provinces.json"
@@ -205,7 +205,7 @@ def test_capture_writes_zero_level_negatives(tmp_path):
     assert all(r["sp"] in (0, 1) and r["el"] in (120, 800) for r in rain)
     assert all(r["ls"] == "r2_from_provinces" and r["v"] == 1 for r in rain)
     meta_row = [r for r in rows if r.get("t") == "meta"][0]
-    assert meta_row["ev"] == "1.3.0.45"
+    assert meta_row["ev"] == "1.3.0.53"
     assert meta_row["rows"] == 2 * len(cap.HAZARDS)
 
 
@@ -273,8 +273,8 @@ def test_rotation_drops_old_validity_days(tmp_path):
 def test_engine_version_from_version_file(tmp_path):
     version = tmp_path / "VERSION"
     version.write_text("VERSION=1.3.0.49\nBUILD=179\n"
-                       "APP_FILE=mri-light-1.3.0.45.html\n", encoding="utf-8")
-    assert cap.engine_version_from_version_file(version) == "1.3.0.45"
+                       "APP_FILE=mri-light-1.3.0.53.html\n", encoding="utf-8")
+    assert cap.engine_version_from_version_file(version) == "1.3.0.53"
 
 
 def test_engine_version_falls_back_to_version_line(tmp_path):

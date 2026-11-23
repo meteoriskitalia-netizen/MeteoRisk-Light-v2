@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""AFA multi-frame (1.3.0.45) — finestra 25 slot, manifest additivo,
+"""AFA multi-frame — finestra 25 slot, manifest additivo,
 frame vuoto con has_signal=false, client static-only senza fallback WMS.
 
 I test sono scritti CONTRO l'implementazione: sul pristino 1.3.0.44 falliscono
@@ -22,7 +22,7 @@ import satellite_engine as SE  # noqa: E402
 REPO = Path(__file__).resolve().parents[2]
 # 1.3.0.48: la 1.3.0.43 non e' piu' nel repo (pulizia release vecchie): resta
 # il solo client attivo, APP_FILE di VERSION.
-HTML_CANDIDATES = ("mri-light-1.3.0.45.html",)
+HTML_CANDIDATES = ("mri-light-1.3.0.53.html",)
 
 
 def _webp_bytes(size=(8, 8), alpha=0):

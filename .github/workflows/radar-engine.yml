@@ -37,7 +37,7 @@ permissions:
   pages: write
   id-token: write
 
-# 1.3.0.45 — CONCURRENCY: restano SOLO i due gruppi a livello di JOB.
+# CONCURRENCY: restano SOLO i due gruppi a livello di JOB.
 # Il blocco `concurrency` di WORKFLOW (`group: radar-engine-${{ github.ref }}`,
 # introdotto il 2026-11-12) e' stato RIMOSSO: l'audit misura 98/100 run verdi
 # e zero failure transitorie, quindi la coda NON proteggeva nulla e faceva

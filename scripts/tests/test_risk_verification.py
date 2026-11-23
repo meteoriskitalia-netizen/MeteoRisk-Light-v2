@@ -132,13 +132,13 @@ def _write_snapshots(tmp_path):
     for (sigla, hazard), pv in PV.items():
         row = {"ts": "2026-11-19T12:00:00Z", "d": DAY, "p": sigla, "h": hazard,
                "pv": pv, "pm": PM.get((sigla, hazard)),
-               "ev": "1.3.0.45", "ls": "r2_from_provinces", "v": 1}
+               "ev": "1.3.0.53", "ls": "r2_from_provinces", "v": 1}
         rows.append(row)
     for sigla in ("AA", "BB", "CC"):
         rows.append({"ts": "2026-11-19T12:00:00Z", "d": DAY, "p": sigla,
                      "h": "hail", "pv": None, "pm": None,
                      "nr": "component_not_replicated_phaseB",
-                     "ev": "1.3.0.45", "ls": "r2_from_provinces", "v": 1})
+                     "ev": "1.3.0.53", "ls": "r2_from_provinces", "v": 1})
     path = tmp_path / "snapshots.jsonl"
     path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
     return path
@@ -440,7 +440,7 @@ def _detail_row(day, sigla, hazard, result):
     return {"d": day, "s": "ALL", "p": sigla, "h": hazard, "pv": 1,
             "pm": 1.0, "ob": 1, "mv": 1.0, "u": "mm", "th": 1.0,
             "src": "stations", "r": result, "ld": 1.0, "n": 1, "nr": None,
-            "ev": "1.3.0.45", "ls": "r2_from_provinces", "v": 1}
+            "ev": "1.3.0.53", "ls": "r2_from_provinces", "v": 1}
 
 
 def test_compact_rotates_and_aggregates(tmp_path):

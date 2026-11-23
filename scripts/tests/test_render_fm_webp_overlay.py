@@ -108,7 +108,8 @@ def test_contour_segments_ignores_nan_and_non_finite():
 def _contour_segments_ref(z, level):
     """Implementazione 16-casi ORIGINALE (prima dell'ottimizzazione 1.3.0.46).
 
-    Copia letterale del corpo di ``contour_segments`` di 1.3.0.45: iterazione
+    Copia letterale del corpo di ``contour_segments`` del renderer client
+    (versione in uso quando fu copiata): iterazione
     su ``range(16)``, ``np.nonzero(case == c)`` per ogni caso. Usata solo come
     riferimento di confronto, non e' il sistema sotto test.
     """

@@ -387,11 +387,13 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .metric-tabs { max-width: 1200px; margin: 0 auto 14px auto; display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
         .metric-tab { flex-shrink: 0; background: #1e293b; border: 1px solid #334155; color: #94a3b8; padding: 8px 14px; border-radius: 8px; font-weight: 600; font-size: 12px; cursor: pointer; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
         .metric-tab.active { background: #0284c7; color: #fff; border-color: #0284c7; }
-        /* DPC radar: Tile CANVAS con ricolorazione a SOGLIE (blu->giallo->rosso->viola,
-           vedi DPCRadarLayer/dpcRecolorPixels). 1.1.0.0: il radar DPC e' ora OPACO e
-           sta sopra la mappa — niente piu' mix-blend-mode:screen ne' filtri di fusione
-           (i pixel neri "no-data" diventano trasparenti direttamente nel canvas, vedi
-           dpcRecolorPixels), quindi nessun "sbavo" dei colori del radar sulla mappa. */
+        /* DPC radar: Tile CANVAS con ricolorazione PER PRODOTTO (1.3.0.53: la
+           tabella Universal Blue RADAR_DBZ_SCALE per la VMI, ramp dichiarate per
+           SRI / cumulate / temperatura — vedi DPCRadarLayer/dpcRecolorPixels).
+           1.1.0.0: il radar DPC e' OPACO e sta sopra la mappa — niente piu'
+           mix-blend-mode:screen ne' filtri di fusione (i pixel senza dato diventano
+           trasparenti direttamente nel canvas, vedi dpcRecolorPixels), quindi
+           nessun "sbavo" dei colori del radar sulla mappa. */
         /* FIX flickering player radar/satellite: nessuna transizione CSS sui singoli
            tile (vedi anche fadeAnimation:false in initMap). Senza questa regola,
            alcuni browser continuano ad applicare un fade-in per-tile quando un nuovo
@@ -2052,8 +2054,11 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
         </select>
         <!-- 1.3.0.43 - AFA nel Radar Player: stesso layer del pannello LIVE,
              attivato dallo slot reale dei dati. E' un'area di emissione ottica,
-             NON un conteggio di fulmini puntuali. -->
-        <button type="button" class="tool-btn" id="btn-radar-afa" data-label="AFA · emissione ottica" onclick="liveToggleAfaLayer(!liveAfaEnabled, liveAfaSlotIso())" title="Attività elettrica (AFA) MTG-I LI: area con emissione ottica, non conteggio di scariche. Fonte: EUMETSAT CC BY 4.0." style="font-size:11px; display:none; border-color:#a855f7;">AFA · emissione ottica · OFF</button>
+             NON un conteggio di fulmini puntuali.
+             1.3.0.53 - lo slot arriva da afaSlotIsoForUi(): prima del fix partiva
+             da liveAfaSlotIso(), che legge SOLO scRadarData e restituiva null
+             quando il pannello SC non aveva dati (il pulsante non faceva nulla). -->
+        <button type="button" class="tool-btn" id="btn-radar-afa" data-label="AFA · emissione ottica" onclick="liveToggleAfaLayer(!liveAfaEnabled, afaSlotIsoForUi())" title="Attività elettrica (AFA) MTG-I LI: area con emissione ottica, non conteggio di scariche. Fonte: EUMETSAT CC BY 4.0." style="font-size:11px; display:none; border-color:#a855f7;">AFA · emissione ottica · OFF</button>
         <select id="sat-source-select" class="tool-btn" onchange="changeSatSource(this.value)" style="font-size:11px; display:none; flex-shrink:0">
             <option value="eumetsat_italy" selected>EUMETSAT IR Italia (timeline)</option>
             <option value="eumetsat_airmass_italy">EUMETSAT / Airmass RGB Italia</option>
@@ -2133,8 +2138,10 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
         <!-- 1.3.0.43/45 - ATTIVITÀ ELETTRICA (AFA): overlay con frame statici (1.3.0.45)
              dell'area con emissione ottica MTG-I LI. Mostra l'AREA coperta, NON i fulmini
              puntuali e NON un conteggio di scariche. Spento di default; lo slot
-             temporale e' quello reale dei dati radar (slot_iso/radar_timestamp). -->
-        <button type="button" id="live-toggle-afa" class="sc-toggle" data-label="Attività elettrica (AFA)" onclick="liveToggleAfaLayer(!liveAfaEnabled, liveAfaSlotIso())" title="Area con emissione ottica rilevata da MTG-I LI (AFA). Non e' un conteggio di scariche e non distingue fulmini intra-nube da terra. Fonte: EUMETSAT CC BY 4.0. Spento di default.">Attività elettrica (AFA) · OFF</button>
+             temporale e' quello reale dei dati radar (slot_iso/radar_timestamp).
+             1.3.0.53 - slot da afaSlotIsoForUi() (timeline del player -> ultimo frame
+             radar -> slot SC), non piu' dal solo scRadarData. -->
+        <button type="button" id="live-toggle-afa" class="sc-toggle" data-label="Attività elettrica (AFA)" onclick="liveToggleAfaLayer(!liveAfaEnabled, afaSlotIsoForUi())" title="Area con emissione ottica rilevata da MTG-I LI (AFA). Non e' un conteggio di scariche e non distingue fulmini intra-nube da terra. Fonte: EUMETSAT CC BY 4.0. Spento di default.">Attività elettrica (AFA) · OFF</button>
         <!-- Sub-toggle spostati dal pannello #sc-radar-panel: stessa logica, stessi handler,
              id dedicati (live-toggle-*), visibili SOLO con celle organizzate attive (come #live-sc-*). -->
         <button type="button" id="live-toggle-trails" class="sc-toggle" onclick="toggleScTrails()" title="Traccia 2h dei candidati attivi (archivio rolling radar-history)" style="display:none;">Traccia 2h</button>
@@ -2322,7 +2329,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
         <div class="legend-row"><span><b>Hook</b> — 0-100: quanto il nucleo ≥45 dBZ ha forma di uncino. È morfologia radar, non una diagnosi.</span></div>
         <div class="legend-row"><span><b>Strutt.V</b> — 0-100: struttura verticale dai prodotti DPC (VIL 35%, ETM 25%, POH 25%, overhang 15%).</span></div>
         <div class="legend-row"><span><b>OT</b> — 0-100: overshooting top da satellite IR_108: area di pixel a ≤ 215 K (-58 °C) che sono almeno 6,5 °C più freddi dell'anvillo a ~8 km. Indica una corrente ascensionale forte.</span></div>
-        <div class="legend-row"><span><b>Fulmini</b> — area con scariche accumulate (AFA) del Lightning Imager di MTG-I (EUMETSAT) nel raggio di 30 km: «area attiva» se il frame campionato ha almeno un pixel AFA acceso, «nessuna scarica» se non ne ha. <b>Non</b> è un conteggio di fulmini: l'AFA misura l'area dell'emissione ottica. Il punteggio 0-100 resta solo quando è disponibile il vecchio feed DPC (rate dell'ultimo slot da 5 minuti, satura a 100, più la tendenza); "n/d" se nessuna delle due sorgenti risponde.</span></div>
+        <div class="legend-row"><span><b>Fulmini</b> — area con emissione ottica (AFA) del Lightning Imager di MTG-I (EUMETSAT) nel raggio di 30 km: «area attiva» se il frame campionato ha almeno un pixel AFA acceso, «nessuna emissione ottica» se non ne ha. <b>Non</b> è un conteggio di fulmini: l'AFA misura l'area dell'emissione ottica. Il punteggio 0-100 resta solo quando è disponibile il vecchio feed DPC (rate dell'ultimo slot da 5 minuti, satura a 100, più la tendenza); "n/d" se nessuna delle due sorgenti risponde.</span></div>
         <div class="legend-row"><span><b>Env</b> — 0-100: ambiente previsto dal modello NWP (100·tanh(SCP/3), corretto per la completezza). È potenziale previsto dal modello.</span></div>
         <div class="legend-row"><span><b>Track</b> — identificativo del track: <b>cella #N</b> (cella convettiva) o <b>sistema #N</b> (storm object = celle vicine raggruppate dal tracking).</span></div>
         <div class="legend-row"><span><b>Pos</b> — ultima posizione del centro (latitudine/longitudine).</span></div>
@@ -2562,11 +2569,34 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                 </div>
                 <div class="legend-row" id="radar-legend-opera" style="display:none;"></div>
                 <div class="legend-row" id="radar-legend-collimation" style="display:none;"></div>
-                <!-- FIX 1.3.0.7 - scala dBZ mancante di RainViewer/LibreWXR: visibile
-                     solo per quei due provider, mai per DPC/OPERA (scale validate). -->
+                <!-- FIX 1.3.0.7 - scala dBZ: dalla 1.3.0.53 e' visibile per TUTTI i
+                     provider (anche DPC, che usa la stessa tabella Universal Blue);
+                     per SRI/cumulate/TEMP la legenda mostra l'asse del prodotto
+                     (mm/h, mm, °C). -->
                 <div class="legend-row" id="radar-legend-dbz" style="display:none;"></div>
             </div>
         </details>
+        <!-- 1.3.0.53 - LEGENDA AFA: dice a cosa corrisponde la macchia gialla e cosa
+             NON significa un frame senza pixel. Riusa .live-legend/.legend-title/
+             .legend-row/.legend-swatch (righe 381-384): nessun CSS nuovo.
+             Visibile solo con il layer acceso (showAfaFrameAt -> display:block,
+             liveAfaRemoveLayer -> display:none). -->
+        <div class="live-legend" id="afa-legend-box" style="display:none; margin-top:6px;">
+            <div class="legend-title" id="afa-legend-title">AFA · area con emissione ottica (MTG-I LI) — osservato, non un conteggio</div>
+            <div class="legend-row">
+                <span class="legend-swatch" style="background:#fff8bd; border-color:#a16207; opacity:.85;"></span>
+                <span><b>Macchia giallo pallido</b>: area in cui lo strumento LI ha rilevato emissione ottica nello slot di 5 minuti. È l'<b>area coperta</b>, non la posizione dei fulmini e non un numero di eventi. Non distingue emissioni intra-nube da quelle al suolo.</span>
+            </div>
+            <div class="legend-row" id="afa-legend-status" style="font-size:10px;color:#94a3b8;">
+                Nessun pixel attivo = in quello slot non è stata rilevata emissione ottica nell'area inquadrata: <b>non</b> significa «zero fulmini» né «nessun temporale».
+            </div>
+            <div class="legend-row" style="font-size:10px;color:#94a3b8;">
+                Cadenza: uno slot ogni 5 minuti; il player usa lo slot più vicino entro 10 minuti, altrimenti l'ultimo disponibile (finestra pubblicata: 25 slot, ~2 ore). Inquadratura: 6,6-18,8°E / 36,5-47,2°N; le aree fuori dal ritaglio sono tagliate sul bordo.
+            </div>
+            <div class="legend-row" style="font-size:10px;color:#94a3b8;">
+                Fonte: EUMETSAT MTG-I LI — layer <code>mtg_fd:li_afa</code> · CC BY 4.0 · © EUMETSAT.
+            </div>
+        </div>
         <!-- Selettore ORARIO a slider sotto la mappa (sostituisce la tendina) -->
         <div class="hour-slider" id="hour-slider-wrap" style="display:none;">
             <label class="hour-slider-label" id="hour-slider-label">Scegli l'ora</label>
@@ -2757,7 +2787,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                     • <b>MTG-I (Meteosat Third Generation)</b>: canale infrarosso termico ad alta risoluzione <code>mtg_fd:ir105_hrfi</code> (IR 10.5 μm) e Geo Colour RGB <code>mtg_fd:rgb_geocolour</code> (composito realistico giorno/notte).<br>
                     • <b>MSG (Meteosat Second Generation)</b>: Airmass RGB <code>msg_fes:rgb_airmass</code> (discriminazione masse d'aria, umidità in alta troposfera e vorticità potenziale).<br>
                     Integrazione con vista sinottica e crop ad alta definizione sull'Italia; caricamento lazy e pre-buffering. © EUMETSAT / EUMETView.</div>
-                    <div class="src-item"><b>EUMETSAT MTG Lightning Imager — AFA</b> — <a href="https://view.eumetsat.int/geoserver/wms" target="_blank" rel="noopener">EUMETView WMS</a>, layer <code>mtg_fd:li_afa</code><br>Accumulated Flash Area: area coperta dall'emissione ottica delle scariche accumulate (finestra di 30 s, passo 5 minuti, archivio dal 2025-05-30). Alimenta il campo «fulmini nell'area» di ogni cella/candidato: <b>non</b> è un conteggio di scariche (la legenda del layer non riporta valori numerici). © EUMETSAT / EUMETView — <code>AccessConstraints: none</code> dichiarato dal servizio WMS.</div>
+                    <div class="src-item"><b>EUMETSAT MTG Lightning Imager — AFA</b> — <a href="https://view.eumetsat.int/geoserver/wms" target="_blank" rel="noopener">EUMETView WMS</a>, layer <code>mtg_fd:li_afa</code><br>Accumulated Flash Area: area coperta dall'emissione ottica delle scariche accumulate (finestra di 30 s, passo 5 minuti, archivio dal 2025-05-30). Alimenta il campo «fulmini nell'area» di ogni cella/candidato: <b>non</b> è un conteggio di scariche (la legenda del layer non riporta valori numerici). © EUMETSAT / EUMETView — licenza <b>CC BY 4.0</b>, la stessa dichiarata dall'engine radar (`satellite_engine.py`, costante `AFA_LICENSE`) e usata nell'attribuzione del layer.</div>
                 </div>
             </div>
             <div class="fl-section">
@@ -3105,9 +3135,13 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.45';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-11-22';
+    const APP_VERSION = '1.3.0.53';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-11-23';
     const APP_CHANGELOG = [
+    { version: '1.3.0.53', date: '2026-11-23', changes: [
+      "AFA ATTIVO E CON LEGENDA: i due pulsanti (pannello LIVE e Radar Player) partono dallo slot che il player sta mostrando (frame della timeline, poi ultimo frame radar, poi slot del pannello SC) invece del solo scRadarData: con il pannello SC vuoto il toggle non accendeva nulla. Stato coerente quando lo slot manca, retry del manifest satellite se il fetch di avvio e fallito, opacita 0.85 e riquadro di legenda con slot servito, has_signal e pixel attivi dal manifest. L emissione ottica resta un AREA, non un conteggio di fulmini.",
+      "PALETTE E LEGENDE UNIFICATE: la ricolorazione DPC decodifica ora il valore per prodotto (R*60/255 dBZ, R*100/255 mm/h, R*200/255 mm, -70+R*105/255 gradi C) e usa la tabella Universal Blue RADAR_DBZ_SCALE per la VMI, con rampe dichiarate per SRI, cumulate e temperatura al posto della vecchia LUT a 4 bande sul valore R grezzo. La legenda precipitazioni e visibile anche per DPC e dichiara asse e unita del prodotto, gli mm/h equivalenti (stima Z=200*R^1,6), il tile lossy (piu o meno 1-2 dBZ) e la VMI come massimo sulla verticale."
+    ]},
     { version: '1.3.0.45', date: '2026-11-22', changes: [
       "AFA MULTI-FRAME STATIC-FIRST: 25 slot WebP pubblicati da satellite_engine sul branch satellite-cache e letti dallo stesso manifest del satellite, senza secondo fetch e senza WMS nel client. Lo scrubbing del Radar Player aggiorna l overlay AFA allo slot piu vicino entro 10 minuti; se manca mostra l ultimo frame disponibile con la sua ora reale e un messaggio esplicito. Nessun conteggio di scariche: resta area con emissione ottica."
     ]},
@@ -6779,18 +6813,25 @@ function enabledLightningSourceIds() {
     // Ogni provider espone: id, label, type ('xyz'|'wms'), fetchFrames(), buildTileUrl(), attribution
     let radarProvider = 'rainviewer';  // default
 
-    // Configurazione prodotti DPC: tipo, label, descrizione, passo (min), unità
+    // Configurazione prodotti DPC: tipo, label, descrizione, passo (min), unita'
+    // 1.3.0.53 - `srcMin`/`srcMax`/`unit`/`scale` dichiarano la DECODIFICA del tile
+    // DPC, MISURATA: il valore sta nel solo canale R (G=B=0) e il renderer ufficiale
+    // DPC usa una scala lineare su R/255:
+    //   VMI (dBZ) = R*60/255 · SRI (mm/h) = R*100/255 · cumulate SRT* (mm) = R*200/255
+    //   TEMP / IR_108 (°C) = -70 + R*105/255
+    // `scale`: 'dbz' | 'mmh' | 'mm' | 'temp' | 'none'. 'none' = codifica NON misurata
+    // (HRD): nessuna ricolorazione, nessuna palette inventata.
     var DPC_PRODUCTS = {
-        'VMI':   { label: 'VMI — Riflettività Max (dBZ)',     stepMin: 5,  desc: 'Vertical Maximum Intensity' },
-        'SRI':   { label: 'SRI — Pioggia al Suolo (mm/h)',     stepMin: 5,  desc: 'Surface Rainfall Intensity' },
-        'SRT1':  { label: 'SRT1 — Cumulata 1h (mm)',           stepMin: 5,  desc: 'Cumulata precipitazione 1 ora' },
-        'SRT3':  { label: 'SRT3 — Cumulata 3h (mm)',           stepMin: 60, desc: 'Cumulata precipitazione 3 ore' },
-        'SRT6':  { label: 'SRT6 — Cumulata 6h (mm)',           stepMin: 60, desc: 'Cumulata precipitazione 6 ore' },
-        'SRT12': { label: 'SRT12 — Cumulata 12h (mm)',         stepMin: 60, desc: 'Cumulata precipitazione 12 ore' },
-        'SRT24': { label: 'SRT24 — Cumulata 24h (mm)',         stepMin: 60, desc: 'Cumulata precipitazione 24 ore' },
-        'HRD':   { label: 'HRD — Heavy Rain Detection',        stepMin: 5,  desc: 'Rilevazione pioggia intensa' },
-        'TEMP':  { label: 'TEMP — Temperatura (°C)',           stepMin: 60, desc: 'Temperatura al suolo' },
-        'IR_108':{ label: 'IR_108 — Copertura Nuvolosa (°C)',  stepMin: 5,  desc: 'MSG Infrared Channel' }
+        'VMI':   { label: 'VMI — Riflettività Max (dBZ)',     stepMin: 5,  desc: 'Vertical Maximum Intensity',        srcMin: 0,   srcMax: 60,  unit: 'dBZ',  scale: 'dbz'  },
+        'SRI':   { label: 'SRI — Pioggia al Suolo (mm/h)',     stepMin: 5,  desc: 'Surface Rainfall Intensity',        srcMin: 0,   srcMax: 100, unit: 'mm/h', scale: 'mmh'  },
+        'SRT1':  { label: 'SRT1 — Cumulata 1h (mm)',           stepMin: 5,  desc: 'Cumulata precipitazione 1 ora',     srcMin: 0,   srcMax: 200, unit: 'mm',   scale: 'mm'   },
+        'SRT3':  { label: 'SRT3 — Cumulata 3h (mm)',           stepMin: 60, desc: 'Cumulata precipitazione 3 ore',     srcMin: 0,   srcMax: 200, unit: 'mm',   scale: 'mm'   },
+        'SRT6':  { label: 'SRT6 — Cumulata 6h (mm)',           stepMin: 60, desc: 'Cumulata precipitazione 6 ore',     srcMin: 0,   srcMax: 200, unit: 'mm',   scale: 'mm'   },
+        'SRT12': { label: 'SRT12 — Cumulata 12h (mm)',         stepMin: 60, desc: 'Cumulata precipitazione 12 ore',    srcMin: 0,   srcMax: 200, unit: 'mm',   scale: 'mm'   },
+        'SRT24': { label: 'SRT24 — Cumulata 24h (mm)',         stepMin: 60, desc: 'Cumulata precipitazione 24 ore',    srcMin: 0,   srcMax: 200, unit: 'mm',   scale: 'mm'   },
+        'HRD':   { label: 'HRD — Heavy Rain Detection',        stepMin: 5,  desc: 'Rilevazione pioggia intensa',       srcMin: 0,   srcMax: 255, unit: '',     scale: 'none' },
+        'TEMP':  { label: 'TEMP — Temperatura (°C)',           stepMin: 60, desc: 'Temperatura al suolo',              srcMin: -70, srcMax: 35,  unit: '°C',   scale: 'temp' },
+        'IR_108':{ label: 'IR_108 — Copertura Nuvolosa (°C)',  stepMin: 5,  desc: 'MSG Infrared Channel',              srcMin: -70, srcMax: 35,  unit: '°C',   scale: 'temp' }
     };
     var dpcProductType = 'VMI';
 
@@ -6999,6 +7040,8 @@ function enabledLightningSourceIds() {
             if (btn) btn.innerText = '📡 Caricamento...';
             toggleRadar();
         }
+        // 1.3.0.53 - la legenda dipende dal prodotto (dBZ / mm/h / mm / °C).
+        if (typeof renderRadarDbzScale === 'function') renderRadarDbzScale();
     }
 
     // 1.1.0.0 — NO-OP: la fusione CSS del radar DPC e' stata ELIMINATA. Prima questa
@@ -8343,7 +8386,10 @@ var liLabel;
     // esplicitamente dai due controlli (LIVE e Radar Player) e spento di default.
     // Dalla 1.3.0.45 il client NON chiama il WMS: il layer WMS resta solo lato
     // workflow (satellite_engine.py), che pubblica 25 slot WebP nel manifest.
-    var AFA_OPACITY = 0.55;
+    // 1.3.0.53 - OPACITA' 0.85 (era 0.55): la macchia AFA e' un giallo pallido e
+    // piccola; a 0.55 sulla mappa scura si vedeva a malapena. Il colore del layer
+    // non e' toccato (arriva dal WebP del motore), cambia solo l'opacita' dell'overlay.
+    var AFA_OPACITY = 0.85;
     var AFA_ATTRIBUTION = 'EUMETSAT MTG-I LI AFA — area con emissione ottica, non conteggio di scariche — CC BY 4.0';
     var liveAfaLayer = null;
     var liveAfaEnabled = false;
@@ -8355,6 +8401,14 @@ var liLabel;
     // Riutilizza loadSatelliteManifest(): nessun secondo fetch del manifesto.
     var liveAfaMissMsg = null;
     function showAfaFrameAt(slotMs) {
+        // 1.3.0.53 - RETRY DEL MANIFEST: se il fetch di boot fallisce il manifest
+        // resta null e OGNI tentativo successivo usciva subito da qui (il toggle AFA
+        // non faceva nulla per tutta la sessione). loadSatelliteManifest() ha gia'
+        // cache 5 minuti e un solo fetch in volo, quindi questa guardia non produce
+        // richieste ripetute: al massimo un retry per chiamata.
+        if (!satStaticManifest || !satStaticManifest.sources) {
+            if (typeof loadSatelliteManifest === 'function') loadSatelliteManifest();
+        }
         if (!satStaticManifest || !satStaticManifest.sources) return false;
         var list = satStaticManifest.sources.afa;
         if (!list || typeof list.length !== 'number' || !list.length) return false;
@@ -8392,8 +8446,6 @@ var liLabel;
         } else {
             liveAfaMissMsg = null;
         }
-        var status = document.getElementById('afa-status');
-        if (status) status.textContent = liveAfaMissMsg || '';
         try {
             if (liveAfaLayer) {
                 liveAfaLayer.setUrl(url);
@@ -8408,12 +8460,47 @@ var liLabel;
                     alt: 'Area con emissione ottica MTG-I LI AFA — non conteggio di scariche'
                 }).addTo(map);
             }
+            // 1.3.0.53 - se il layer esisteva gia' con l'opacita' vecchia, la allinea.
+            if (typeof liveAfaLayer.setOpacity === 'function') liveAfaLayer.setOpacity(AFA_OPACITY);
             liveAfaLastIso = iso;
+            afaUpdateLegend(servedIso, meta, missed, iso);
             liveAfaSyncButtons(true);
             return true;
         } catch (e) {
             return false;
         }
+    }
+
+    // 1.3.0.53 - LEGENDA AFA: mostra il riquadro e scrive lo stato dello slot
+    // servito con i campi reali del manifest (afa_meta: has_signal, active_pixels).
+    // `has_signal === false` NON e' un errore: e' un'osservazione di assenza di
+    // emissione ottica in quello slot, e la legenda lo dice esplicitamente.
+    function afaUpdateLegend(servedIso, meta, missed, wantedIso) {
+        var box = document.getElementById('afa-legend-box');
+        var st = document.getElementById('afa-legend-status');
+        if (box) box.style.display = 'block';
+        if (!st) return;
+        var served = String(servedIso || '');
+        var parts = [];
+        if (meta && typeof meta.has_signal !== 'undefined') {
+            if (meta.has_signal === false) {
+                parts.push('slot ' + served.substr(11, 5) + ': nessun pixel attivo (nessuna emissione ottica in quello slot)');
+            } else {
+                var px = (typeof meta.active_pixels === 'number') ? meta.active_pixels : null;
+                parts.push('slot ' + served.substr(11, 5) + ': emissione ottica rilevata' +
+                    (px !== null ? ' (' + px + ' pixel attivi)' : ''));
+            }
+        } else {
+            parts.push('slot ' + served.substr(11, 5));
+        }
+        if (missed && wantedIso) {
+            parts.push('slot richiesto ' + String(wantedIso).substr(11, 5) + ' non disponibile: mostrato l\'ultimo');
+        }
+        st.textContent = parts.join(' · ');
+    }
+    function afaHideLegend() {
+        var box = document.getElementById('afa-legend-box');
+        if (box) box.style.display = 'none';
     }
 
     // Lo slot usato e' SEMPRE quello dei dati radar (campo `slot_iso` quando
@@ -8422,6 +8509,23 @@ var liLabel;
         var d = (typeof scRadarData !== 'undefined' && scRadarData && typeof scRadarData === 'object') ? scRadarData : null;
         if (!d) return null;
         return d.slot_iso || d.radar_timestamp || d.generated_at || null;
+    }
+
+    // 1.3.0.53 - SLOT PER LA UI (fix del pulsante AFA che non si accendeva).
+    // Prima l'onclick dei due pulsanti usava liveAfaSlotIso(), che legge SOLO
+    // scRadarData: con il pannello Struttura convettiva vuoto restituiva null e il
+    // toggle usciva senza mostrare nulla. Lo slot da usare e' quello che il PLAYER
+    // sta mostrando: frame della timeline sincronizzata -> ultimo frame radar ->
+    // slot del pannello SC -> null.
+    function afaSlotIsoForUi() {
+        if (typeof syncTimeline !== 'undefined' && syncTimeline && syncTimeline.length &&
+            typeof syncIndex === 'number' && syncTimeline[syncIndex] && syncTimeline[syncIndex].iso) {
+            return syncTimeline[syncIndex].iso;
+        }
+        if (typeof radarFrames !== 'undefined' && radarFrames && radarFrames.length) {
+            return new Date(radarFrames[radarFrames.length - 1].time * 1000).toISOString().replace(/\.\d{3}Z$/, '.000Z');
+        }
+        return liveAfaSlotIso();
     }
 
     function liveAfaEnsureLayer(iso) {
@@ -8435,6 +8539,8 @@ var liLabel;
         if (liveAfaLayer && typeof map !== 'undefined' && map && map.hasLayer(liveAfaLayer)) {
             map.removeLayer(liveAfaLayer);
         }
+        // 1.3.0.53 - la legenda AFA sparisce con il layer: nessun riquadro orfano.
+        afaHideLegend();
         liveAfaSyncButtons(false);
     }
 
@@ -8457,10 +8563,19 @@ var liLabel;
         if (!liveAfaEnabled) { liveAfaRemoveLayer(); return; }
         var slot = iso || liveAfaSlotIso();
         if (!slot) {
+            // 1.3.0.53 - STATO COERENTE: senza slot il layer non puo' esistere, quindi
+            // il flag torna false PRIMA di ridisegnare i pulsanti (prima restava true
+            // e il pulsante OFF non coincideva con lo stato reale).
+            liveAfaEnabled = false;
             liveAfaSyncButtons(false);
             return;
         }
-        liveAfaEnsureLayer(slot);
+        // 1.3.0.53 - stesso motivo se il frame non e' mostrabile (manifest assente
+        // anche dopo il retry): niente flag acceso senza layer.
+        if (!liveAfaEnsureLayer(slot)) {
+            liveAfaEnabled = false;
+            liveAfaSyncButtons(false);
+        }
     }
 
     // Radar Player: visibilità del pulsante e sincronizzazione dello strato
@@ -9886,22 +10001,111 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
         { dbz: 55, color: 'rgba(255,170,255,1)' },
         { dbz: 60, color: 'rgba(255,119,255,1)' }
     ];
+    // 1.3.0.53 - LEGENDA PRECIPITAZIONI PER TUTTI I PROVIDER --------------------
+    // Rimosso il gate `isXyz` che NASCONDEVA la legenda proprio per DPC. La rampa
+    // e' la stessa in tutti i casi: DPC usa RADAR_DBZ_SCALE (dpcRecolorPixels),
+    // RainViewer color=2 e LibreWXR color=2 espongono la stessa tabella Universal
+    // Blue. La legenda dichiara l'asse del PRODOTTO attivo:
+    //   VMI / RainViewer / LibreWXR -> dBZ + mm/h equivalenti (stima Z=200*R^1,6)
+    //   SRI     -> mm/h (MISURA del prodotto, non una conversione da dBZ)
+    //   SRT*    -> mm (cumulata)
+    //   TEMP / IR_108 -> °C (scala termica dichiarata)
+    //   HRD     -> nessuna legenda di colore: codifica non misurata
+    // Il tile DPC e' lossy (+-1-2 dBZ) e la VMI e' il massimo sulla verticale.
+    function radarDbzToMmh(dbz) {
+        var z = Math.pow(10, dbz / 10);      // dBZ -> Z (mm^6/m^3)
+        return Math.pow(z / 200, 1 / 1.6);   // inversa di Z = 200 * R^1,6
+    }
+    function radarFmtMmh(v) {
+        var s = (v < 1) ? v.toFixed(2) : (v < 100 ? v.toFixed(1) : v.toFixed(0));
+        return s.replace('.', ',');
+    }
+    function radarRampHtml(items) {
+        var ramp = '', ticks = '', i;
+        for (i = 0; i < items.length; i++) {
+            ramp += '<span class="radar-dbz-sw" title="' + escapeHtml(String(items[i].title || items[i].label)) +
+                '" style="background:' + items[i].color + '"></span>';
+            ticks += '<span class="radar-dbz-tick">' + escapeHtml(String(items[i].label)) + '</span>';
+        }
+        return '<div class="radar-dbz-ramp">' + ramp + '</div>' +
+            '<div class="radar-dbz-ticks">' + ticks + '</div>';
+    }
     function renderRadarDbzScale() {
         var row = document.getElementById('radar-legend-dbz');
         if (!row) return;
-        var isXyz = (radarProvider === 'rainviewer' || radarProvider === 'librewxr');
-        row.style.display = isXyz ? '' : 'none';
-        if (!isXyz) { row.innerHTML = ''; return; }
-        var ramp = '', ticks = '', i, last = RADAR_DBZ_SCALE.length - 1;
+        // 1.3.0.53 - SEMPRE visibile: nessun `display:none` per DPC.
+        row.style.display = '';
+        var isDpc = (radarProvider === 'dpc');
+        var product = (typeof dpcProductType === 'string' && DPC_PRODUCTS[dpcProductType]) ? dpcProductType : 'VMI';
+        var prod = DPC_PRODUCTS[product];
+        var scale = isDpc ? prod.scale : 'dbz';
+        var noteStyle = 'font-size:10px;color:#94a3b8;line-height:1.35;margin-top:2px;';
+        var i, items;
+
+        if (isDpc && scale === 'none') {
+            row.innerHTML = '<div class="radar-dbz-label">Prodotto <b>' + escapeHtml(product) +
+                '</b> · nessuna legenda di colore</div>' +
+                '<div style="' + noteStyle + '">La codifica colore di questo prodotto non è misurata: il tile DPC resta con la sua resa originale. <b>Non</b> viene applicata una palette inventata.</div>';
+            return;
+        }
+        if (isDpc && scale === 'mmh') {
+            items = [];
+            for (i = 0; i < DPC_SRI_STOPS.length; i++) {
+                items.push({
+                    label: DPC_SRI_STOPS[i][0] + (i === DPC_SRI_STOPS.length - 1 ? '+' : ''),
+                    color: 'rgb(' + DPC_SRI_STOPS[i][1].join(',') + ')',
+                    title: DPC_SRI_STOPS[i][0] + ' mm/h'
+                });
+            }
+            row.innerHTML = '<div class="radar-dbz-label">Pioggia al suolo <b>mm/h</b> · SRI (DPC)</div>' +
+                radarRampHtml(items) +
+                '<div style="' + noteStyle + '">Asse in <b>mm/h</b>: è la misura del prodotto SRI, <b>non</b> una conversione da dBZ. Rampa 1/5/10/20/50/100 mm/h = SCELTA INGEGNERISTICA, non tarata.</div>';
+            return;
+        }
+        if (isDpc && scale === 'mm') {
+            items = [];
+            for (i = 0; i < DPC_CUM_STOPS.length; i++) {
+                items.push({
+                    label: DPC_CUM_STOPS[i][0] + (i === DPC_CUM_STOPS.length - 1 ? '+' : ''),
+                    color: 'rgb(' + DPC_CUM_STOPS[i][1].join(',') + ')',
+                    title: DPC_CUM_STOPS[i][0] + ' mm'
+                });
+            }
+            row.innerHTML = '<div class="radar-dbz-label">Cumulata <b>mm</b> · ' + escapeHtml(product) + ' (DPC)</div>' +
+                radarRampHtml(items) +
+                '<div style="' + noteStyle + '">Asse in <b>mm</b> (cumulata del prodotto). Stessa rampa di famiglia del SRI portata su 5/10/25/50/100/200 mm: scelta dichiarata, non tarata.</div>';
+            return;
+        }
+        if (isDpc && scale === 'temp') {
+            items = [];
+            for (i = 0; i < DPC_TEMP_STOPS.length; i++) {
+                items.push({
+                    label: DPC_TEMP_STOPS[i][0] + (i === DPC_TEMP_STOPS.length - 1 ? '+' : ''),
+                    color: 'rgb(' + DPC_TEMP_STOPS[i][1].join(',') + ')',
+                    title: DPC_TEMP_STOPS[i][0] + ' °C'
+                });
+            }
+            row.innerHTML = '<div class="radar-dbz-label">Temperatura <b>°C</b> · ' + escapeHtml(product) + ' (DPC)</div>' +
+                radarRampHtml(items) +
+                '<div style="' + noteStyle + '">Scala termica dichiarata: blu ≤ -20, ciano 0, verde 10, giallo 20, arancio 28, rosso ≥ 35 °C. Non è la palette dBZ.</div>';
+            return;
+        }
+
+        // dBZ: VMI (DPC), RainViewer, LibreWXR.
+        var ramp = '', ticks = '', last = RADAR_DBZ_SCALE.length - 1;
         for (i = 0; i <= last; i++) {
             ramp += '<span class="radar-dbz-sw" title="' + RADAR_DBZ_SCALE[i].dbz + ' dBZ" style="background:' +
                 RADAR_DBZ_SCALE[i].color + '"></span>';
             ticks += '<span class="radar-dbz-tick">' +
                 (i % 2 === 0 ? RADAR_DBZ_SCALE[i].dbz + (i === last ? '+' : '') : '') + '</span>';
         }
-        row.innerHTML = '<div class="radar-dbz-label">Riflettività <b>dBZ</b> · Universal Blue (RainViewer)</div>' +
+        var eq = [];
+        for (i = 10; i <= 60; i += 10) eq.push(i + ' dBZ ≈ ' + radarFmtMmh(radarDbzToMmh(i)) + ' mm/h');
+        row.innerHTML = '<div class="radar-dbz-label">Riflettività <b>dBZ</b> · Universal Blue (DPC · RainViewer · LibreWXR)</div>' +
             '<div class="radar-dbz-ramp">' + ramp + '</div>' +
-            '<div class="radar-dbz-ticks">' + ticks + '</div>';
+            '<div class="radar-dbz-ticks">' + ticks + '</div>' +
+            '<div style="' + noteStyle + '">mm/h equivalenti (stima Z=200·R<sup>1,6</sup>): ' + eq.join(' · ') + '</div>' +
+            '<div style="' + noteStyle + '">DPC: tile lossy (±1-2 dBZ); il prodotto VMI è il massimo sulla verticale.</div>';
     }
 
     function renderRadarLegend() {
@@ -10101,42 +10305,131 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
         });
         return DPCRadarLayer;
     }
-    // Rimappa le soglie d'intensità sui pixel (RGBA) di un tile DPC.
+    // 1.3.0.53 - RICOLORAZIONE DPC PER PRODOTTO --------------------------------
+    // MISURATO: il tile DPC porta il valore nel SOLO canale R (G=B=0) e il renderer
+    // ufficiale usa una scala lineare su R/255:
+    //   VMI dBZ = R*60/255 · SRI mm/h = R*100/255 · cumulate mm = R*200/255
+    //   TEMP / IR_108 °C = -70 + R*105/255
+    // Prima di questa release UNA sola rampa a 4 bande sul valore R GREZZO veniva
+    // applicata a TUTTI i prodotti: SRI, cumulate e temperatura ricevevano la
+    // palette della riflettivita' (una cumulata da 120 mm finiva nel viola dei
+    // 37,6 dBZ). Ora il valore e' decodificato con srcMin/srcMax del prodotto e
+    // mappato sulla rampa del prodotto stesso.
+    //
+    // SOGLIA DI TRASPARENZA: R < 25, INVARIATA. E' il fondo del tile (nessun dato),
+    // NON una soglia fisica; sul valore decodificato equivale a 5,9 dBZ / 9,8 mm/h /
+    // 19,6 mm / -59,7 °C. Conseguenza DICHIARATA: sulle cumulate SRT* restano
+    // trasparenti i valori sotto ~19,6 mm (era gia' cosi' prima del fix).
+    var DPC_TRANSPARENT_R = 25;
+    // Rampe per prodotto: stop = [valore, [r, g, b, a]] con a in 0-1.
+    // SRI: SCELTA INGEGNERISTICA, NON tarata su eventi, su 1/5/10/20/50/100 mm/h con
+    // i colori della tabella Universal Blue. Universal Blue NON contiene un verde:
+    // la progressione resta blu -> azzurro -> ciano -> giallo -> arancio -> rosso
+    // (nessun colore fuori tabella inventato).
+    var DPC_SRI_STOPS = [
+        [1,   [0, 85, 136, 1]],
+        [5,   [0, 163, 224, 1]],
+        [10,  [136, 221, 238, 1]],
+        [20,  [255, 238, 0, 1]],
+        [50,  [255, 170, 0, 1]],
+        [100, [193, 0, 0, 1]]
+    ];
+    // Cumulate SRT*: stessa famiglia di colori del SRI portata sull'asse mm 0-200
+    // (stop 5/10/25/50/100/200 mm). SCELTA DICHIARATA, non tarata.
+    var DPC_CUM_STOPS = [
+        [5,   [0, 85, 136, 1]],
+        [10,  [0, 163, 224, 1]],
+        [25,  [136, 221, 238, 1]],
+        [50,  [255, 238, 0, 1]],
+        [100, [255, 170, 0, 1]],
+        [200, [193, 0, 0, 1]]
+    ];
+    // TEMP / IR_108: scala termica dichiarata (blu <= -20, ciano 0, verde 10,
+    // giallo 20, arancio 28, rosso >= 35 °C). NON e' la palette dBZ.
+    var DPC_TEMP_STOPS = [
+        [-40, [30, 64, 175, 1]],
+        [-20, [0, 119, 170, 1]],
+        [0,   [136, 221, 238, 1]],
+        [10,  [74, 222, 128, 1]],
+        [20,  [255, 238, 0, 1]],
+        [28,  [255, 170, 0, 1]],
+        [35,  [193, 0, 0, 1]]
+    ];
+    // Trasforma uno stop di RADAR_DBZ_SCALE (stringa rgba CSS) in [r,g,b,a].
+    function dpcParseRgba(s) {
+        var m = /rgba?\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*(?:,\s*([0-9.]+)\s*)?\)/.exec(String(s || ''));
+        if (!m) return [255, 255, 255, 1];
+        var a = (m[4] === undefined) ? 1 : parseFloat(m[4]);
+        return [parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3]), isFinite(a) ? a : 1];
+    }
+    var DPC_DBZ_STOPS = null;
+    function dpcDbzStopsFromScale(scale) {
+        if (DPC_DBZ_STOPS) return DPC_DBZ_STOPS;
+        DPC_DBZ_STOPS = [];
+        for (var i = 0; i < scale.length; i++) {
+            DPC_DBZ_STOPS.push([scale[i].dbz, dpcParseRgba(scale[i].color)]);
+        }
+        return DPC_DBZ_STOPS;
+    }
+    // Decodifica il valore del prodotto da R (0-255) con srcMin/srcMax DICHIARATI
+    // in DPC_PRODUCTS. VMI: srcMin 0, srcMax 60 -> dBZ = R*60/255.
+    function dpcValueFromR(r, productKey) {
+        var p = DPC_PRODUCTS[productKey] || DPC_PRODUCTS['VMI'];
+        var lo = (typeof p.srcMin === 'number') ? p.srcMin : 0;
+        var hi = (typeof p.srcMax === 'number') ? p.srcMax : 255;
+        return lo + (r / 255) * (hi - lo);
+    }
+    // Interpolazione lineare fra gli stop (valore sotto il primo -> primo colore,
+    // sopra l'ultimo -> ultimo colore).
+    function dpcLerpStops(stops, v) {
+        if (!stops || !stops.length) return null;
+        if (v <= stops[0][0]) return stops[0][1];
+        var last = stops.length - 1;
+        if (v >= stops[last][0]) return stops[last][1];
+        for (var i = 1; i <= last; i++) {
+            if (v <= stops[i][0]) {
+                var lo = stops[i - 1], hi = stops[i];
+                var span = hi[0] - lo[0];
+                var t = span > 0 ? (v - lo[0]) / span : 0;
+                var out = [];
+                for (var c = 0; c < 4; c++) {
+                    var a0 = (lo[1][c] === undefined) ? 1 : lo[1][c];
+                    var a1 = (hi[1][c] === undefined) ? 1 : hi[1][c];
+                    out.push(a0 + (a1 - a0) * t);
+                }
+                return out;
+            }
+        }
+        return stops[last][1];
+    }
+    // Rimappa i pixel (RGBA) di un tile DPC sul prodotto attivo.
     function dpcRecolorPixels(rgba) {
-        // 4 colori-soglia con ramp lineare interno (debole->vivido) per banda,
-        // così la scala resta continua, senza salti "a scatti" tra i livelli.
-        var BANDS = [
-            { lo: 40,  hi: 95,  c0: [0, 0, 110],  c1: [35, 120, 255] },  // BLU
-            { lo: 95,  hi: 128, c0: [180, 130, 0], c1: [255, 240, 40] },  // GIALLO
-            { lo: 128, hi: 160, c0: [170, 0, 0],   c1: [255, 85, 25]  },  // ROSSO
-            { lo: 160, hi: 260, c0: [110, 0, 190], c1: [240, 70, 255] }   // VIOLA
-        ];
+        var prod = DPC_PRODUCTS[dpcProductType] || DPC_PRODUCTS['VMI'];
+        var stops = null;
+        if (prod.scale === 'dbz') stops = dpcDbzStopsFromScale(RADAR_DBZ_SCALE);
+        else if (prod.scale === 'mmh') stops = DPC_SRI_STOPS;
+        else if (prod.scale === 'mm') stops = DPC_CUM_STOPS;
+        else if (prod.scale === 'temp') stops = DPC_TEMP_STOPS;
         for (var i = 0; i < rgba.length; i += 4) {
             var r = rgba[i];
             var g = rgba[i + 1];
             var b = rgba[i + 2];
             var a = rgba[i + 3];
-            if (a < 8) continue;                              // gia' trasparente
-            if (r < 25 && g < 25 && b < 25) {
-                // 1.1.0.0 — pixel "no-data" neri -> TRASPARENTI (alpha 0), non nero
-                // opaco. Il radar DPC ora sta OPACO sopra la mappa senza
-                // mix-blend-mode:screen (rimosso): senza questa conversione i fondo-
-                // nero dei tile DPC resterebbero riquadri neri che coprono la mappa.
-                // L'output sui pixel di precipitazione resta invariato sotto.
+            if (a < 8) continue;                                  // gia' trasparente
+            if (r < DPC_TRANSPARENT_R && g < DPC_TRANSPARENT_R && b < DPC_TRANSPARENT_R) {
+                // fondo tile "no-data" -> trasparente (alpha 0), non nero opaco:
+                // il radar DPC sta OPACO sopra la mappa, senza blend.
                 rgba[i + 3] = 0;
                 continue;
             }
-            var acc = r + Math.max(g, b);                     // intensità dominante
-            for (var k = 0; k < BANDS.length; k++) {
-                var band = BANDS[k];
-                if (acc < band.hi) {
-                    var t = Math.max(0, Math.min(1, (acc - band.lo) / (band.hi - band.lo)));
-                    rgba[i]     = Math.round(band.c0[0] + (band.c1[0] - band.c0[0]) * t);
-                    rgba[i + 1] = Math.round(band.c0[1] + (band.c1[1] - band.c0[1]) * t);
-                    rgba[i + 2] = Math.round(band.c0[2] + (band.c1[2] - band.c0[2]) * t);
-                    break;
-                }
-            }
+            if (!stops) continue;                                 // 'none': tile originale
+            var rgb = dpcLerpStops(stops, dpcValueFromR(r, dpcProductType));
+            if (!rgb) continue;
+            rgba[i]     = Math.round(rgb[0]);
+            rgba[i + 1] = Math.round(rgb[1]);
+            rgba[i + 2] = Math.round(rgb[2]);
+            var sa = (rgb[3] === undefined) ? 1 : rgb[3];
+            rgba[i + 3] = Math.round(a * sa);
         }
     }
 
@@ -29727,7 +30020,7 @@ function renderContinuousOverlay() {
         'Hook': 'Forma a uncino del nucleo più forte (0-100): è morfologia vista dal radar.',
         'Strutt.V': 'Struttura verticale dai prodotti radar (liquido in colonna, quota della cima, probabilità di grandine, eco alta): 0-100.',
         'OT': 'Overshooting top (0-100): la cima del temporale buca l\'incudine nel satellite infrarosso. Indica una corrente ascensionale forte.',
-        'Fulmini': 'Area con scariche accumulate (AFA, MTG-I EUMETSAT) nel raggio di 30 km: «area attiva» o «nessuna scarica». Non è un conteggio di fulmini. Quando è disponibile il vecchio feed DPC il valore 0-100 è il rate dell\'ultimo slot da 5 minuti (100 = 100 scariche) più la tendenza.',
+        'Fulmini': 'Area con emissione ottica (AFA, MTG-I EUMETSAT) nel raggio di 30 km: «area attiva» o «nessuna emissione ottica». Non è un conteggio di fulmini. Quando è disponibile il vecchio feed DPC il valore 0-100 è il rate dell\'ultimo slot da 5 minuti (100 = 100 scariche) più la tendenza.',
         'Env': 'Ambiente previsto dal modello attorno alla cella (0-100): è potenziale previsto dal modello.'
     };
     function scSoiTip(soi) {
