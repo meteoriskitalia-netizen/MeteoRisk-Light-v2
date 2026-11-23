@@ -1,0 +1,139 @@
+{
+  "schema": "meteorisk.validation.labels_meta/1.0",
+  "dataset": {
+    "path": "data/validation/labels.jsonl",
+    "labels_schema_version": "1.0",
+    "rows": 42391,
+    "bytes": 24999406,
+    "sha256": "5F8023F65E7D53937BB1487848FBD416E2D1170FCF6379D80497F8FBB5DED2C2",
+    "truth_eligible_rows_qc_ab": 42212,
+    "excluded_by_qc": 179,
+    "truth_note": "La verita' usata dai collaudi e' qc in (A,B): 42.212 eventi. Non e' pubblicata come file separato: si rigenera con --truth-json (11.237.511 B, sha256 9CFE277B9E19C56CCB6782043B256103165CEC92A99CF418E508AEAF451ABFB1).",
+    "report": {
+      "path": "data/validation/labels_report.json",
+      "bytes": 6165,
+      "sha256": "283390E3FB29072BAF3DE60332DF1BD49D08FE8B8AE1BA7952962A5152805C46"
+    }
+  },
+  "coverage": {
+    "ts_min": "2015-01-01T08:50:00Z",
+    "ts_max": "2026-10-23T16:55:00Z",
+    "stations_distinct": 99,
+    "event_days": 3018,
+    "reports_read": 7272744,
+    "reports_with_weather": 59822,
+    "reports_unparsed": 3,
+    "cache_files": 23
+  },
+  "by_type": {
+    "thunderstorm": {
+      "n": 39494,
+      "in_truth": 39494,
+      "vicinity": 7111
+    },
+    "severe_wind": {
+      "n": 2329,
+      "in_truth": 2329,
+      "vicinity": 0
+    },
+    "hail": {
+      "n": 488,
+      "in_truth": 309,
+      "excluded_by_qc": 179,
+      "vicinity": 0,
+      "severity_breakdown": {
+        "large_hail_ge5mm": 311,
+        "small_hail_lt5mm": 177
+      }
+    },
+    "funnel_cloud": {
+      "n": 76,
+      "in_truth": 76,
+      "vicinity": 36
+    },
+    "tornado": {
+      "n": 4,
+      "in_truth": 4,
+      "vicinity": 0
+    }
+  },
+  "by_qc": {
+    "B": 42212,
+    "C": 179
+  },
+  "by_year": {
+    "2015": 3546,
+    "2016": 3840,
+    "2017": 3158,
+    "2018": 5046,
+    "2019": 4153,
+    "2020": 3493,
+    "2021": 3320,
+    "2022": 3432,
+    "2023": 3547,
+    "2024": 3376,
+    "2025": 3016,
+    "2026": 2464
+  },
+  "qc_rule": "qc=B per ogni osservazione strumentale METAR/SPECI. qc=C SOLO per grandine (GR/GS) senza temporale (TS) entro 60 min alla stessa stazione: in quel caso puo' essere neve tonda o graupel. Le righe C restano nel JSONL e non entrano nella verita' di default (--min-qc B).",
+  "matching": {
+    "cells_dir_used": false,
+    "match_status_counts": {
+      "no_snapshot_in_window": 42391
+    },
+    "note": "Dataset rigenerato SENZA snapshot radar: distance_km, matched_cell_id, matched_ts sono null su tutte le righe. L'accoppiamento con le celle si fa a valle (asof_bench.py / asof_bench_footprint.py con --labels)."
+  },
+  "source": {
+    "truth": "METAR/SPECI (WMO present weather + gruppo di vento), stazioni italiane",
+    "data_owner": "NOAA/NCEI Integrated Surface Database (Global Hourly)",
+    "transport": "IEM asos.py (mesonet.agron.iastate.edu), rete IT__ASOS, campo 'metar', report_type=3",
+    "transport_endpoint": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py",
+    "licence": "Opera del Governo degli Stati Uniti - pubblico dominio (17 U.S.C. 105). Nessuna restrizione d'uso, nessun obbligo di registrazione.",
+    "attribution": "METAR/SPECI, NOAA/NCEI Integrated Surface Database (trasporto: IEM, Iowa State University)",
+    "not_verified": [
+      "La pagina ISD/NODD non riporta un testo di licenza esplicito: la base giuridica usata e' il disclaimer NWS + 17 U.S.C. 105.",
+      "La policy WMO vigente sul riuso dei messaggi di scambio NON e' stata verificata. Il METAR italiano e' prodotto da stazioni italiane: e' il punto piu' debole della catena di licenza.",
+      "ESWD: non usato, nessun record scaricato (divieto di pubblicare dati grezzi, clausola 1.iv)."
+    ]
+  },
+  "regeneration": {
+    "regenerated_utc": "2026-11-23T10:53:21Z",
+    "tool": "scripts/validation/build_labels.py",
+    "tool_version": "1.0.0",
+    "tool_sha256": "CE09C5819663E0EAB3E8DD18622E61658FCBF0FB1B602D929FEAFCCC041C2391",
+    "command": "python scripts/validation/build_labels.py --start 2015-01-01 --end 2026-10-24 --cache-dir <cache> --out labels.jsonl --truth-json truth.json --report report.json",
+    "params": {
+      "start": "2015-01-01",
+      "end": "2026-10-24",
+      "merge_min": 90.0,
+      "severe_gust_ms": 25.0,
+      "min_qc": "B",
+      "max_distance_km": 10.0,
+      "window_min": 10.0,
+      "types": "hail,tornado,funnel_cloud,severe_wind,thunderstorm"
+    },
+    "selftest": "0 controlli falliti (2026-11-23)",
+    "dataset_build_seconds": 116.8,
+    "cache": {
+      "files": 23,
+      "bytes_gz": 123523965,
+      "composition": "11 annuali (2015-2021, 2023-2026 parziale a 2026-10-23) + 12 mensili per il 2022",
+      "note_2022": "La richiesta ANNUALE del 2022 non e' servibile: l'endpoint resetta la connessione (riprodotto il 2026-10-23 e il 2026-11-23). Il 2022 va preso a mesi, e i 12 file mensili NON vanno aggregati in un annuale: iter_cache_rows legge tutti i metar_it_*.csv.gz e l'anno verrebbe contato due volte.",
+      "download_seconds_effective": 596
+    }
+  },
+  "consumers": {
+    "asof_bench.py": "consuma direttamente --labels labels.jsonl (filtra type=hail, qc in A,B, finestra utile)",
+    "asof_bench_footprint.py": "consuma direttamente --labels labels.jsonl",
+    "supercell_validation.py": "richiede --truth nello schema 1.0: si ottiene con --truth-json (non pubblicato qui)",
+    "validate_fronts_independent.py": "NON consuma labels.jsonl: prende --metar-csv, cioe' i bollettini grezzi (la cache), e riusa il classificatore importando build_labels",
+    "power_analysis.py": "non consuma dati: calcola la numerosita' minima (Wilson) da --pod/--half-widths/--ratio"
+  },
+  "declared_limits": [
+    "La verita' e' un'osservazione PUNTUALE a una stazione (99 punti), non la verita' di area di una cella radar (representativeness ~10-20 km).",
+    "Campionamento: fra due bollettini di routine passano ~60 min (sampling_gap_min); un fenomeno breve fra due report non esiste nel dataset. Abbassa il POD, non sposta i timestamp.",
+    "La serie severe_wind NON e' omogenea: frazione di bollettini con raffica dal 2,92% (2017) all'1,18% (2025). Un calo di eventi puo' essere un calo di segnalazione.",
+    "Nessun caso nullo campionato: HSS non calcolabile.",
+    "I 42.391 byte coincidono con il dataset misurato il 2026-10-25 (24.999.406 B): qualunque modifica di build_labels.py cambia i byte e va ri-misurata."
+  ]
+}

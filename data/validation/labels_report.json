@@ -1,0 +1,257 @@
+{
+ "tool": "build_labels",
+ "tool_version": "1.0.0",
+ "labels_schema_version": "1.0",
+ "generated_utc": "2026-11-23T10:53:21Z",
+ "params": {
+  "start": "2015-01-01",
+  "end": "2026-10-24",
+  "max_distance_km": 10.0,
+  "window_min": 10.0,
+  "merge_min": 90.0,
+  "severe_gust_ms": 25.0,
+  "min_qc": "B",
+  "types": "hail,tornado,funnel_cloud,severe_wind,thunderstorm"
+ },
+ "source": {
+  "truth": "METAR/SPECI (WMO present weather + wind group), stazioni italiane",
+  "data_owner": "NOAA/NCEI Integrated Surface Database (Global Hourly)",
+  "transport": "IEM asos.py (mesonet.agron.iastate.edu)",
+  "licence": "US Government work, public domain (17 U.S.C. 105)",
+  "qc_scale": "A=verificato, B=osservazione strumentale ufficiale, C=derivato"
+ },
+ "coverage": {
+  "cache_files": 23,
+  "reports_read": 7272744,
+  "reports_with_weather": 59822,
+  "reports_unparsed": 3,
+  "stations_seen": 99,
+  "event_days": 3018,
+  "events_per_event_day": 14.05
+ },
+ "events": {
+  "total": 42391,
+  "raw_observations": 60208,
+  "merged": 42391,
+  "in_truth": 42212,
+  "by_type": {
+   "hail": {
+    "n": 488,
+    "in_truth": 309,
+    "excluded_by_qc": 179,
+    "vicinity": 0,
+    "raw_observations": 518,
+    "matched": 0,
+    "no_cell_within_gate": 0,
+    "no_snapshot_in_window": 488,
+    "by_year": {
+     "2015": 47,
+     "2016": 39,
+     "2017": 63,
+     "2018": 45,
+     "2019": 80,
+     "2020": 29,
+     "2021": 53,
+     "2022": 17,
+     "2023": 26,
+     "2024": 29,
+     "2025": 32,
+     "2026": 28
+    }
+   },
+   "tornado": {
+    "n": 4,
+    "in_truth": 4,
+    "excluded_by_qc": 0,
+    "vicinity": 0,
+    "raw_observations": 4,
+    "matched": 0,
+    "no_cell_within_gate": 0,
+    "no_snapshot_in_window": 4,
+    "by_year": {
+     "2018": 1,
+     "2022": 2,
+     "2025": 1
+    }
+   },
+   "funnel_cloud": {
+    "n": 76,
+    "in_truth": 76,
+    "excluded_by_qc": 0,
+    "vicinity": 36,
+    "raw_observations": 79,
+    "matched": 0,
+    "no_cell_within_gate": 0,
+    "no_snapshot_in_window": 76,
+    "by_year": {
+     "2015": 6,
+     "2016": 3,
+     "2017": 8,
+     "2018": 7,
+     "2019": 10,
+     "2020": 6,
+     "2021": 8,
+     "2022": 5,
+     "2023": 5,
+     "2024": 6,
+     "2025": 10,
+     "2026": 2
+    }
+   },
+   "severe_wind": {
+    "n": 2329,
+    "in_truth": 2329,
+    "excluded_by_qc": 0,
+    "vicinity": 0,
+    "raw_observations": 3383,
+    "matched": 0,
+    "no_cell_within_gate": 0,
+    "no_snapshot_in_window": 2329,
+    "by_year": {
+     "2015": 238,
+     "2016": 176,
+     "2017": 314,
+     "2018": 192,
+     "2019": 231,
+     "2020": 215,
+     "2021": 208,
+     "2022": 266,
+     "2023": 231,
+     "2024": 147,
+     "2025": 79,
+     "2026": 32
+    }
+   },
+   "thunderstorm": {
+    "n": 39494,
+    "in_truth": 39494,
+    "excluded_by_qc": 0,
+    "vicinity": 7111,
+    "raw_observations": 56224,
+    "matched": 0,
+    "no_cell_within_gate": 0,
+    "no_snapshot_in_window": 39494,
+    "by_year": {
+     "2015": 3255,
+     "2016": 3622,
+     "2017": 2773,
+     "2018": 4801,
+     "2019": 3832,
+     "2020": 3243,
+     "2021": 3051,
+     "2022": 3142,
+     "2023": 3285,
+     "2024": 3194,
+     "2025": 2894,
+     "2026": 2402
+    }
+   }
+  },
+  "by_year": {
+   "2015": 3546,
+   "2016": 3840,
+   "2017": 3158,
+   "2018": 5046,
+   "2019": 4153,
+   "2020": 3493,
+   "2021": 3320,
+   "2022": 3432,
+   "2023": 3547,
+   "2024": 3376,
+   "2025": 3016,
+   "2026": 2464
+  }
+ },
+ "qc": {
+  "scale": "A=verificato, B=osservazione strumentale ufficiale, C=derivato/non verificato",
+  "min_qc_applied_to_truth": "B",
+  "counts_on_all_labels": {
+   "C": 179,
+   "B": 42212
+  },
+  "excluded_from_truth": 179,
+  "excluded_by_type": {
+   "hail": 179
+  },
+  "rule": "qc=C solo per la grandine senza temporale (TS) entro 60 min allo stesso aeroporto: GR/GS in quel caso puo' essere neve tonda/graupel. Tutte le righe C restano nel JSONL."
+ },
+ "data_quality": {
+  "gust_group_coverage_by_year": {
+   "2015": {
+    "reports": 566690,
+    "with_gust_group": 12511,
+    "fraction": 0.02208
+   },
+   "2016": {
+    "reports": 574835,
+    "with_gust_group": 14045,
+    "fraction": 0.02443
+   },
+   "2017": {
+    "reports": 564344,
+    "with_gust_group": 16453,
+    "fraction": 0.02915
+   },
+   "2018": {
+    "reports": 580427,
+    "with_gust_group": 12587,
+    "fraction": 0.02169
+   },
+   "2019": {
+    "reports": 605795,
+    "with_gust_group": 15004,
+    "fraction": 0.02477
+   },
+   "2020": {
+    "reports": 603515,
+    "with_gust_group": 12823,
+    "fraction": 0.02125
+   },
+   "2021": {
+    "reports": 617842,
+    "with_gust_group": 13636,
+    "fraction": 0.02207
+   },
+   "2022": {
+    "reports": 652366,
+    "with_gust_group": 13371,
+    "fraction": 0.0205
+   },
+   "2023": {
+    "reports": 661031,
+    "with_gust_group": 15265,
+    "fraction": 0.02309
+   },
+   "2024": {
+    "reports": 695171,
+    "with_gust_group": 14676,
+    "fraction": 0.02111
+   },
+   "2025": {
+    "reports": 667974,
+    "with_gust_group": 7903,
+    "fraction": 0.01183
+   },
+   "2026": {
+    "reports": 482751,
+    "with_gust_group": 6962,
+    "fraction": 0.01442
+   }
+  },
+  "note": "La frazione di bollettini con un gruppo di raffica cambia fra gli anni: la serie severe_wind NON e' omogenea e un calo di eventi puo' essere un calo di segnalazione, non di fenomeni."
+ },
+ "matching": {
+  "counts": {
+   "no_snapshot_in_window": 42391
+  },
+  "cells_dir": null,
+  "note": "no_snapshot_in_window = nessuno snapshot radar per quell'istante (dato mancante, NON un miss); no_cell_within_gate = snapshot presenti senza cella entro il gate (miss)."
+ },
+ "declared_limits": [
+  "La verita' e' un'osservazione PUNTUALE a una stazione: non e' la verita' di area di una cella radar (representativeness ~10-20 km).",
+  "Il tempo presente e' osservato all'ora del bollettino (ts_uncertainty_min=5), ma fra due bollettini di routine passano ~60 min (sampling_gap_min): un fenomeno breve fra due report NON esiste nel dataset, e questo abbassa il POD senza spostare i timestamp.",
+  "Le grandinate lontane da un aeroporto non entrano nel dataset: la numerosita' e' un MINIMO osservato, non la frequenza reale degli eventi.",
+  "Null events assenti: nessun caso nullo campionato, HSS non calcolabile."
+ ],
+ "elapsed_s": 116.8
+}
