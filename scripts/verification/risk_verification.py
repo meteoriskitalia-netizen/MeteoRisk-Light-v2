@@ -19,7 +19,7 @@ OSSERVAZIONE (fascia ALL = 00:00-24:00 Europe/Rome)
   sovrapposti) - copertura 107/107; radar SRT1 per provincia quando e'
   disponibile l'archivio compatto delle statistiche orarie
   (``--radar-province-dir``, scritto da
-  ``scripts/radar_engine/srt1_province_archive.py``: ~9,5 KB/ora per 107
+  ``scripts/radar_engine/srt1_province_archive.py``: 11.032 B/ora per 107
   province, nessuna griglia archiviata) oppure, in alternativa, una serie
   oraria di GeoTIFF (``--radar-grids-dir``). Senza nessuno dei due resta
   dichiarato ``radar_grid_not_embedded`` (``accumulation.json`` pubblica
@@ -793,9 +793,10 @@ def radar_province_archive(province_dir, start, end):
     """Massimo SRT1 per provincia dall'ARCHIVIO ORARIO delle statistiche.
 
     L'archivio e' scritto da `scripts/radar_engine/srt1_province_archive.py`
-    (`<dir>/YYYY/MM/DD/HH.json`, una ora per file) e costa ~9,5 KB/ora invece
-    dei ~419-669 KB di un GeoTIFF: le stesse informazioni per provincia
-    (massimo, media, p90, copertura) senza archiviare la griglia.
+    (`<dir>/YYYY/MM/DD/HH.json`, una ora per file) e costa 11.032 B/ora invece
+    dei 418.712-669.077 B di un GeoTIFF deflate (45,5x sul valore tipico): le
+    stesse informazioni per provincia (massimo, media, p90, copertura) senza
+    archiviare la griglia.
 
     Ritorna ``(by_prov, coverage, reason)`` dove:
       * ``by_prov`` = {sigla: max_mm} sui SOLI giorni/ore archiviati e sulle
@@ -1161,7 +1162,7 @@ def verify_day(day, snapshots_path, stations_path, station_index, radar_path,
     radar_province_coverage = {}
     if radar_province_dir:
         # ARCHIVIO COMPATTO per provincia (preferito): statistiche orarie SRT1
-        # scritte dal motore, ~9,5 KB/ora, nessuna griglia archiviata.
+        # scritte dal motore, 11.032 B/ora, nessuna griglia archiviata.
         radar_by_prov, radar_province_coverage, radar_reason = \
             radar_province_archive(radar_province_dir, start, end)
         radar = dict(radar)
@@ -1386,7 +1387,7 @@ def build_parser():
     ap.add_argument("--radar-province-dir", default=None,
                     help="archivio compatto SRT1 per provincia "
                          "(data/radar/srt1_provinces, YYYY/MM/DD/HH.json): "
-                         "preferito a --radar-grids-dir, ~53x piu' piccolo")
+                         "preferito a --radar-grids-dir, 45,5x piu' piccolo")
     ap.add_argument("--structures", default=str(root / "data/radar/convective_structures.json"))
     ap.add_argument("--events", default=str(root / "data/phenomena/events.json"))
     ap.add_argument("--afa", default=str(root / "satellite/manifest.json"))

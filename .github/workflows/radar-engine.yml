@@ -215,7 +215,7 @@ jobs:
           # L'ARCHIVIO PER PROVINCIA (2026-11-23) va in $RUNNER_TEMP, NON in
           # data/radar: lo step "Build sito statico Pages" fa
           # `cp -R data/radar _site/data/radar`, quindi 400 giorni di archivio
-          # finirebbero nell'artefatto Pages (~94 MB/anno). Il branch dati lo
+          # finirebbero nell'artefatto Pages (~96,6 MB/anno). Il branch dati lo
           # pubblica lo step dedicato piu' sotto.
           python scripts/radar_engine/accumulation.py --out-dir data/radar \
             --stations data/stations/latest.json --max-stations 200 \
@@ -669,8 +669,9 @@ jobs:
       # `scripts/radar_engine/srt1_province_archive.py`. Serve al verificatore
       # (`scripts/verification/risk_verification.py --radar-province-dir`), che
       # con il solo accumulation.json dichiara `radar_grid_not_embedded`.
-      # MISURATO: ~11,0 KB/ora per 107 province contro ~419-669 KB di un
-      # GeoTIFF SRT1 deflate -> ~53x meno. La griglia NON viene archiviata.
+      # MISURATO: 11.032 B/ora per 107 province contro 418.712-669.077 B di un
+      # GeoTIFF SRT1 deflate -> 45,5x meno (38-61x a seconda dello slot).
+      # La griglia NON viene archiviata.
       # Branch ORPHAN pubblico: e' un'opera derivata Radar-DPC e resta CC BY-SA
       # 4.0 (share-alike); README.md e LICENCE.md sono scritti dal modulo.
       # Commit senza parent + push con --force-with-lease (mai --force nudo),

@@ -15,16 +15,22 @@ PERCHE' ESISTE
 
   Due strade possibili, misurate entrambe sul prodotto reale (2026-11-23):
 
-  | forma                        | 1 ora    | 24 file/g | 1/2 h (12/g) | anno (24/g) |
-  | :--------------------------- | -------: | --------: | -----------: | ----------: |
-  | GeoTIFF deflate (slot secco) | 418.712 B| 10,05 MB  |      5,02 MB |   3,58 GiB  |
-  | GeoTIFF deflate (convettivo) | 669.077 B| 16,06 MB  |      8,03 MB |   5,21 GiB  |
-  | GeoTIFF LZW                  | 519.105 B| 12,46 MB  |      6,23 MB |   4,44 GiB  |
-  | **questo archivio**          |   9.461 B|  0,22 MB  |      0,11 MB |   0,08 GiB  |
+  | forma                        | 1 ora     | 24 file/g | 1/2 h (12/g) | anno (24/g) |
+  | :--------------------------- | --------: | --------: | -----------: | ----------: |
+  | GeoTIFF deflate (secco)      |  418.712 B|  10,05 MB |      5,02 MB |   3,42 GiB  |
+  | GeoTIFF deflate (autunno)    |  419.611 B|  10,07 MB |      5,03 MB |   3,43 GiB  |
+  | GeoTIFF deflate (convettivo) |  669.077 B|  16,06 MB |      8,03 MB |   5,46 GiB  |
+  | GeoTIFF LZW                  |  519.105 B|  12,46 MB |      6,23 MB |   4,24 GiB  |
+  | GeoTIFF COG tiled deflate    |  491.737 B|  11,80 MB |      5,90 MB |   4,01 GiB  |
+  | **questo archivio**          |   11.032 B|   0,26 MB |      0,13 MB |  92,2 MiB   |
 
-  L'archivio per provincia costa ~53x meno del GeoTIFF deflate tipico e
-  produce ESATTAMENTE il dato che serve al verificatore. Non e' un compromesso:
-  e' la forma del dato richiesta. Le griglie intere non vengono archiviate.
+  L'archivio per provincia costa 45,5x meno del GeoTIFF deflate tipico (da
+  38x sullo slot secco a 61x su quello convettivo) e produce ESATTAMENTE il
+  dato che serve al verificatore. Non e' un compromesso: e' la forma del dato
+  richiesta. Le griglie intere non vengono archiviate.
+  (Il valore 9.461 B che circolava come stima iniziale era un JSONL di sole
+  righe-per-provincia: il file reale, busta compresa, e' 11.032 B. I conti
+  qui sopra sono quelli del file realmente scritto.)
 
 COSA NON E'
   Non e' un archivio della griglia: il GeoTIFF SRT1 raw non viene MAI

@@ -1486,11 +1486,13 @@ pioggia. Senza archivio il campo resta `radar_grid_not_embedded`, perche'
 `accumulation.json` pubblica statistiche per macro-area e non la griglia.
 
 Costo misurato sul prodotto reale (2026-11-23): la griglia SRT1 e'
-1400x1200 float32/float64 (13.440.000 B non compressi) e un GeoTIFF deflate
-pesa 418.712 B (slot secco), 669.077 B (slot convettivo) — 10,05-16,06 MB al
-giorno a 24 file, cioe' 3,58-5,21 GiB/anno. Le statistiche per provincia
-costano **11.032 B per ora** (0,26 MB/giorno, ~94 MB/anno), ~53x meno. Per
-questo si archiviano le statistiche, non la griglia.
+1400x1200 (13.440.000 B non compressi) e un GeoTIFF deflate pesa 418.712 B
+(slot secco), 419.611 B (autunno), 669.077 B (convettivo, max 94,98 mm) —
+10,05-16,06 MB al giorno a 24 file, cioe' **3,42-5,46 GiB/anno** (4,10 sul
+valore tipico). Le statistiche per provincia costano **11.032 B per ora**
+(0,26 MB/giorno, **96,6 MB/anno = 92,2 MiB**): **45,5x meno** del GeoTIFF
+deflate tipico (38x sullo slot secco, 61x sul convettivo). Per questo si
+archiviano le statistiche, non la griglia.
 
 `valid` non e' un dettaglio: la copertura radar **cambia da slot a slot**
 (misurato: 2026-11-23T09:30Z -> 98/107 province sopra 0,5, le 9 siciliane sotto;
