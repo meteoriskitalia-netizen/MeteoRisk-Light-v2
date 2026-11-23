@@ -1,3 +1,17 @@
+VERSION=1.3.0.49
+BUILD=179
+DATE=2026-11-23
+APP_FILE=mri-light-1.3.0.45.html
+MeteoRisk Light - 1.3.0.49 - Verifica previsioni-vs-osservazioni della mappa rischi (fase 0 cattura + fase 1 fascia ALL)
+VERSION=1.3.0.49
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=179
+RELEASE_TYPE=release
+DATE=2026-11-23
+NOTE=Release 1.3.0.49 (bump da 1.3.0.48): nuovo registro di verifica delle previsioni della mappa dei rischi, client invariato (APP_FILE resta mri-light-1.3.0.45.html). (1) scripts/verification/risk_forecast_capture.py - JOB A: replica R2 esatta (riskLevelR2) + componenti pioggia/vento/temporale/caldo/freddo/neve dalle provinces.days[] (STILE B), grandine/convezione/downburst null con null_reason; registra hour_local Europe/Rome, selected_point_id, elevation, generated_at, engine_version e level_source, appende solo i cambi di livello (delta) e ruota a 10 giorni; MISURATO su data/latest: 107 province x 3 giorni x 7 pericoli = 2.247 righe / 428.950 byte (~191 B/riga) al primo run, 0 righe nuove al secondo run con lo stesso input. (2) scripts/verification/risk_verification.py - JOB B: fascia ALL, accoppia snapshot e osservazioni (stazioni con clipping degli intervalli sovrapposti e x3.6 sul vento, eventi/strutture convettive, SRT1 opzionale) con point-in-polygon su province_italiane.geojson (chiave SIGLA); esiti hit/miss/false_alarm/correct_negative/no_observation con null_reason, pv=0 sempre registrato, lead_h obbligatorio; POD/FAR/CSI/HSS + Wilson 95% (wilson_interval di validate3d_metrics) con gate 60/60; MISURATO il 2026-11-23 su data/latest: 4.994/5.009 stazioni assegnate (15 fuori), 749 righe su 107 province x 7 pericoli (246,9 B/riga). (3) scripts/state/compact_risk_verification.py: rotazione 30 giorni, aggregato giornaliero (tp/fp/fn/tn/no) fino a 90 giorni, retention 365, risk_skill.json ricalcolato, idempotente (_atomic_write). (4) .github/workflows/risk-forecast-capture.yml: cattura su branch orphan risk-forecast con commit-tree senza parent e --force-with-lease, timeout 10, solo workflow_dispatch/repository_dispatch (nessun cron nativo). (5) .github/workflows/risk-verification.yml: cron 40 22 (archivia daily_series prima di mezzanotte) + 30 6 (verifica il giorno precedente), dettaglio e aggregato su branch orphan risk-verification, SOLO risk_skill.json su main. 56 test nuovi (test_risk_forecast_capture.py, test_risk_verification.py) verdi; mutazioni hit/miss, gate 60/60, clipping pioggia, delta-only e x3.6 del vento tutte intercettate. Coda VERSION byte-identica.
+APP_FILE=mri-light-1.3.0.45.html
 VERSION=1.3.0.48
 BUILD=178
 DATE=2026-11-23

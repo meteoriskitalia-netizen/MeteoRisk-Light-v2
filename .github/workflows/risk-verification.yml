@@ -1,0 +1,283 @@
+name: Risk Verification (previsione vs osservazione, fascia ALL)
+
+# JOB B della verifica previsioni-vs-osservazioni.
+#
+# DUE momenti, perche' i dati sono effimeri:
+#   1) 22:40 UTC (23:40 Europe/Rome, ora legale a parte): ARCHIVIA le
+#      osservazioni del giorno D prima che `stations-daily` si azzeri a
+#      mezzanotte locale (daily_series, eventi, strutture, accumulation,
+#      manifest satellite AFA);
+#   2) 06:30 UTC (07:30 Europe/Rome): VERIFICA il giorno D usando l'archivio,
+#      scrive il dettaglio, compatta e committa SOLO data/state/risk_skill.json
+#      su main. Dettaglio, aggregato e archivi restano sul branch ORPHAN
+#      `risk-verification` (commit senza parent, --force-with-lease).
+#
+# Gli orari sono UTC: in estate (ora legale) 22:40 UTC = 00:40 locali, quindi
+# l'archivio del giorno D va eseguito un'ora prima. Dichiarato, non nascosto:
+# il cron e' quello del progetto (40 22) e la fascia ALL resta verificabile
+# anche con l'archivio spostato di un'ora.
+on:
+  schedule:
+    - cron: "40 22 * * *"
+    - cron: "30 6 * * *"
+  workflow_dispatch:
+  repository_dispatch:
+    types: [risk-verification]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: risk-verification
+  cancel-in-progress: false
+
+env:
+  TZ: Europe/Rome
+
+jobs:
+  archive:
+    if: github.event_name != 'schedule' || github.event.schedule == '40 22 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # Ripristina l'albero del branch (dettaglio, aggregato e archivi dei
+      # giorni precedenti): ogni push e' un commit senza parent, ma il TREE
+      # contiene tutto cio' che va conservato.
+      - name: Ripristina archivio (branch risk-verification)
+        if: always()
+        run: |
+          mkdir -p data/state
+          if git fetch --depth 1 origin "+risk-verification:refs/heads/risk-verification-base" 2>/dev/null; then
+            git restore --source risk-verification-base --worktree -- data/state 2>/dev/null || true
+            echo "[INFO] Albero risk-verification ripristinato."
+          else
+            echo "[INFO] Branch risk-verification assente (primo run)."
+          fi
+
+      - name: Archivia serie giornaliera stazioni (prima di mezzanotte)
+        run: |
+          set -euo pipefail
+          DAY=$(date +%F)
+          mkdir -p data/state/stations_daily data/state/observation_snapshot
+          if git fetch --depth 1 origin "+stations-daily:refs/heads/stations-daily-base" 2>/dev/null; then
+            if git restore --source stations-daily-base --worktree -- data/stations/daily_series.json 2>/dev/null; then
+              cp data/stations/daily_series.json "data/state/stations_daily/$DAY.json"
+              echo "[INFO] daily_series archiviata per $DAY ($(wc -c < "data/state/stations_daily/$DAY.json") byte)."
+            else
+              echo "[ERRORE] stations-daily senza data/stations/daily_series.json."
+              exit 1
+            fi
+          else
+            echo "[ERRORE] Branch stations-daily assente: senza serie non c'e' verifica."
+            exit 1
+          fi
+          for pair in \
+            "data/radar/accumulation.json:accumulation" \
+            "data/radar/convective_structures.json:structures" \
+            "data/phenomena/events.json:events"; do
+            src="${pair%%:*}"; name="${pair##*:}"
+            if [ -f "$src" ]; then
+              cp "$src" "data/state/observation_snapshot/$DAY-$name.json"
+              echo "[INFO] archiviato $name ($(wc -c < "$src") byte)."
+            fi
+          done
+
+      - name: Archivia manifest satellite (AFA), se disponibile
+        run: |
+          set -euo pipefail
+          DAY=$(date +%F)
+          if git fetch --depth 1 origin "+satellite-cache:refs/heads/satellite-cache-base" 2>/dev/null; then
+            if git restore --source satellite-cache-base --worktree -- satellite/manifest.json 2>/dev/null; then
+              cp satellite/manifest.json "data/state/observation_snapshot/$DAY-satellite-manifest.json"
+              echo "[INFO] manifest satellite archiviato."
+            fi
+          else
+            echo "[INFO] satellite-cache assente: AFA non archiviata (dichiarato)."
+          fi
+
+      - name: Pulizia archivi > 7 giorni
+        run: |
+          find data/state/stations_daily -type f -name '*.json' -mtime +7 -delete 2>/dev/null || true
+          find data/state/observation_snapshot -type f -name '*.json' -mtime +7 -delete 2>/dev/null || true
+
+      - name: Pubblica archivio (branch risk-verification, orphan)
+        run: |
+          set -euo pipefail
+          DAY=$(date +%F)
+          export GIT_INDEX_FILE="$RUNNER_TEMP/risk-verification.index"
+          git read-tree --empty
+          for path in data/state/risk_verification.jsonl \
+                      data/state/risk_verification_daily.jsonl \
+                      data/state/stations_daily data/state/observation_snapshot; do
+            if [ -e "$path" ]; then git add -f "$path"; fi
+          done
+          TREE=$(git write-tree)
+          unset GIT_INDEX_FILE
+          OLD=""
+          if git rev-parse -q --verify risk-verification-base >/dev/null; then
+            OLD=$(git rev-parse risk-verification-base^{tree})
+          fi
+          if [ "$OLD" = "$TREE" ]; then
+            echo "[INFO] Archivio invariato: push saltato."
+            exit 0
+          fi
+          COMMIT=$(git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit-tree "$TREE" -m "[skip ci] risk-verification: archivio osservazioni $DAY")
+          for attempt in 1 2 3; do
+            PARENT="$(git ls-remote origin refs/heads/risk-verification 2>/dev/null | awk 'NR==1 {print $1}')"
+            if [ -z "$PARENT" ]; then
+              LEASE="--force-with-lease=refs/heads/risk-verification:"
+            else
+              LEASE="--force-with-lease=refs/heads/risk-verification:$PARENT"
+            fi
+            echo "[INFO] push risk-verification tentativo $attempt/3"
+            if git push "$LEASE" origin "$COMMIT:refs/heads/risk-verification"; then
+              echo "[INFO] risk-verification aggiornato (commit ${COMMIT:0:7})."
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          echo "[ERRORE] push risk-verification fallito dopo 3 tentativi."
+          exit 1
+
+  verify:
+    if: github.event_name != 'schedule' || github.event.schedule == '30 6 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Ripristina archivio (branch risk-verification)
+        run: |
+          mkdir -p data/state
+          if git fetch --depth 1 origin "+risk-verification:refs/heads/risk-verification-base" 2>/dev/null; then
+            git restore --source risk-verification-base --worktree -- data/state 2>/dev/null || true
+            echo "[INFO] Archivio osservazioni ripristinato."
+          else
+            echo "[ERRORE] Branch risk-verification assente: nessun archivio."
+            exit 1
+          fi
+
+      - name: Ripristina snapshot previsioni (branch risk-forecast)
+        run: |
+          if git fetch --depth 1 origin "+risk-forecast:refs/heads/risk-forecast-base" 2>/dev/null; then
+            git restore --source risk-forecast-base --worktree -- data/state/risk_forecast_snapshots.jsonl 2>/dev/null || {
+              echo "[ERRORE] risk-forecast senza data/state/risk_forecast_snapshots.jsonl."; exit 1; }
+            echo "[INFO] Snapshot previsioni ripristinato."
+          else
+            echo "[ERRORE] Branch risk-forecast assente: nessuna previsione da verificare."
+            exit 1
+          fi
+
+      - name: Verifica del giorno precedente (fascia ALL)
+        run: |
+          set -euo pipefail
+          DAY=$(date -d yesterday +%F)
+          STATIONS="data/state/stations_daily/$DAY.json"
+          EVENTS="data/state/observation_snapshot/$DAY-events.json"
+          STRUCTURES="data/state/observation_snapshot/$DAY-structures.json"
+          RADAR="data/state/observation_snapshot/$DAY-accumulation.json"
+          AFA="data/state/observation_snapshot/$DAY-satellite-manifest.json"
+          if [ ! -f "$STATIONS" ]; then
+            echo "[ERRORE] Archivio stazioni del $DAY assente: la verifica non puo' essere inventata."
+            exit 1
+          fi
+          python -u scripts/verification/risk_verification.py \
+            --day "$DAY" \
+            --snapshots data/state/risk_forecast_snapshots.jsonl \
+            --stations "$STATIONS" \
+            --station-index data/stations/index.json \
+            --radar "$RADAR" \
+            --structures "$STRUCTURES" \
+            --events "$EVENTS" \
+            --afa "$AFA" \
+            --out data/state/risk_verification.jsonl \
+            --skill-out data/state/risk_skill.json
+
+      - name: Compatta registro (30/90 giorni) e ricalcola skill
+        run: |
+          python -u scripts/state/compact_risk_verification.py \
+            --detail data/state/risk_verification.jsonl \
+            --daily data/state/risk_verification_daily.jsonl \
+            --skill data/state/risk_skill.json \
+            --keep-days 30 --aggregate-days 90
+
+      # SOLO il risultato va su main (20-40 KB/anno). Dettaglio e aggregato
+      # restano sul branch: su main gonfierebbero la storia a ogni riscrittura.
+      - name: Committa risk_skill.json su main
+        run: |
+          set -euo pipefail
+          git config user.name "meteorisk-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/state/risk_skill.json
+          if git diff --cached --quiet; then
+            echo "[INFO] risk_skill.json invariato: nessun commit."
+            exit 0
+          fi
+          git commit -m "chore(risk-verification): risk_skill.json (POD/FAR/CSI, gate 60/60)"
+          for attempt in 1 2 3 4 5; do
+            if git pull --rebase --autostash -X theirs origin main \
+               && git push origin main; then
+              echo "[INFO] risk_skill.json pubblicato su main."
+              exit 0
+            fi
+            git rebase --abort 2>/dev/null || true
+            echo "[retry] push main $attempt/5 fallito: pull --rebase e riprovo."
+            sleep $((attempt * 5))
+          done
+          echo "[ERRORE] push di risk_skill.json fallito dopo 5 tentativi."
+          exit 1
+
+      - name: Pubblica dettaglio e aggregato (branch risk-verification, orphan)
+        run: |
+          set -euo pipefail
+          export GIT_INDEX_FILE="$RUNNER_TEMP/risk-verification.index"
+          git read-tree --empty
+          for path in data/state/risk_verification.jsonl \
+                      data/state/risk_verification_daily.jsonl \
+                      data/state/stations_daily data/state/observation_snapshot; do
+            if [ -e "$path" ]; then git add -f "$path"; fi
+          done
+          TREE=$(git write-tree)
+          unset GIT_INDEX_FILE
+          OLD=""
+          if git rev-parse -q --verify risk-verification-base >/dev/null; then
+            OLD=$(git rev-parse risk-verification-base^{tree})
+          fi
+          if [ "$OLD" = "$TREE" ]; then
+            echo "[INFO] Dettaglio invariato: push saltato."
+            exit 0
+          fi
+          COMMIT=$(git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit-tree "$TREE" -m "[skip ci] risk-verification: dettaglio + aggregato")
+          for attempt in 1 2 3; do
+            PARENT="$(git ls-remote origin refs/heads/risk-verification 2>/dev/null | awk 'NR==1 {print $1}')"
+            if [ -z "$PARENT" ]; then
+              LEASE="--force-with-lease=refs/heads/risk-verification:"
+            else
+              LEASE="--force-with-lease=refs/heads/risk-verification:$PARENT"
+            fi
+            echo "[INFO] push risk-verification tentativo $attempt/3"
+            if git push "$LEASE" origin "$COMMIT:refs/heads/risk-verification"; then
+              echo "[INFO] dettaglio pubblicato (commit ${COMMIT:0:7})."
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          echo "[ERRORE] push risk-verification fallito dopo 3 tentativi."
+          exit 1

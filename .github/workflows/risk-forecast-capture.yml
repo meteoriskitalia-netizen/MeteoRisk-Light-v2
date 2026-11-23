@@ -1,0 +1,106 @@
+name: Risk Forecast Capture (mappa rischi - livelli previsti, delta)
+
+# JOB A della verifica previsioni-vs-osservazioni.
+#
+# Ogni run legge data/latest/{metadata,meteorisk-provinces,meteorisk-points}.json,
+# replica la logica del client (R2 esatta + componenti caldo/freddo/neve/vento/
+# pioggia/temporale, STILE B) e appende SOLO i cambi di livello rispetto allo
+# snapshot precedente. Grandine/convezione/downburst restano null con motivo.
+#
+# NON va su main: il registro cresce a ogni run e main riceve gia' commit
+# automatici di radar/meteo. Stesso schema di stations-daily: branch ORPHAN
+# `risk-forecast`, commit SENZA parent (storia a 1 commit), push con
+# --force-with-lease (mai --force nudo) e skip se OLD_TREE==NEW_TREE.
+#
+# TRIGGER: nessun cron nativo (coerente con gli altri workflow dati). Va
+# dispatchato ogni 30 minuti da cron-job.org (48 dispatch/giorno) o a mano.
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [risk-forecast-capture]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: risk-forecast-capture
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # Ripristina l'ultimo registro PRIMA di calcolare il delta: senza questo
+      # ogni run ripartirebbe da zero e scriverebbe 2.247 righe (107 province
+      # x 3 giorni x 7 pericoli) invece dei soli cambi.
+      - name: Ripristina snapshot (branch risk-forecast)
+        if: always()
+        run: |
+          mkdir -p data/state
+          if git fetch --depth 1 origin "+risk-forecast:refs/heads/risk-forecast-base" 2>/dev/null; then
+            if git restore --source risk-forecast-base --worktree -- data/state/risk_forecast_snapshots.jsonl 2>/dev/null; then
+              echo "[INFO] snapshot ripristinato ($(wc -c < data/state/risk_forecast_snapshots.jsonl) byte)."
+            else
+              echo "[WARN] risk-forecast esistente senza data/state/risk_forecast_snapshots.jsonl."
+            fi
+          else
+            echo "[INFO] Branch risk-forecast assente (primo run): registro vuoto."
+          fi
+
+      - name: Cattura livelli previsti (delta)
+        run: |
+          python -u scripts/verification/risk_forecast_capture.py \
+            --out data/state/risk_forecast_snapshots.jsonl
+
+      # Commit ORPHAN: read-tree vuoto + add del solo registro. Il commit non
+      # ha parent, quindi il branch resta a 1 commit e il repo non cresce.
+      - name: Pubblica snapshot (branch risk-forecast, orphan)
+        run: |
+          set -euo pipefail
+          if [ ! -f data/state/risk_forecast_snapshots.jsonl ]; then
+            echo "[ERRORE] Registro assente: pubblicazione saltata."
+            exit 1
+          fi
+          export GIT_INDEX_FILE="$RUNNER_TEMP/risk-forecast.index"
+          git read-tree --empty
+          git add -f data/state/risk_forecast_snapshots.jsonl
+          TREE=$(git write-tree)
+          unset GIT_INDEX_FILE
+          OLD=""
+          if git rev-parse -q --verify risk-forecast-base >/dev/null; then
+            OLD=$(git rev-parse risk-forecast-base^{tree})
+          fi
+          if [ "$OLD" = "$TREE" ]; then
+            echo "[INFO] Registro invariato: push saltato (OLD_TREE==NEW_TREE)."
+            exit 0
+          fi
+          COMMIT=$(git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit-tree "$TREE" -m "[skip ci] risk-forecast: snapshot livelli previsti (delta)")
+          for attempt in 1 2 3; do
+            PARENT="$(git ls-remote origin refs/heads/risk-forecast 2>/dev/null | awk 'NR==1 {print $1}')"
+            if [ -z "$PARENT" ]; then
+              LEASE="--force-with-lease=refs/heads/risk-forecast:"
+            else
+              LEASE="--force-with-lease=refs/heads/risk-forecast:$PARENT"
+            fi
+            echo "[INFO] push risk-forecast tentativo $attempt/3"
+            if git push "$LEASE" origin "$COMMIT:refs/heads/risk-forecast"; then
+              echo "[INFO] risk-forecast aggiornato (commit ${COMMIT:0:7})."
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          echo "[ERRORE] push risk-forecast fallito dopo 3 tentativi."
+          exit 1
