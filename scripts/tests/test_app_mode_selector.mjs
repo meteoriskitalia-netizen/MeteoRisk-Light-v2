@@ -78,12 +78,13 @@ function options(html) {
   };
   vm.runInNewContext(block, ctx);
   failFast('Pro: applyAppMode non estratta', typeof ctx.applyAppMode === 'function');
-  ok('Pro: appModeHref("simple") === "/simple/"', ctx.appModeHref('simple') === '/simple/');
+  ok('Pro: appModeHref("simple") === "simple/"', ctx.appModeHref('simple') === 'simple/', ctx.appModeHref('simple'));
   ok('Pro: appModeHref("pro") === null', ctx.appModeHref('pro') === null);
   ok('Pro: appModeHref("dev") === null (resta nella Pro)', ctx.appModeHref('dev') === null);
 
   ctx.applyAppMode('simple');
-  ok('Pro: applyAppMode("simple") naviga a /simple/', ctx.window.location.href === '/simple/');
+  ok('Pro: applyAppMode("simple") naviga a "simple/" (relativo)',
+    ctx.window.location.href === 'simple/', ctx.window.location.href);
 
   ctx.window.location.href = '';
   ctx.applyAppMode('dev');
@@ -122,17 +123,46 @@ function options(html) {
   failFast('Simple: blocco app-mode non trovato', !!m);
   const ctx = { window: { location: { href: '' } }, document: { getElementById: () => null } };
   vm.runInNewContext(m[1], ctx);
-  ok('Simple: appModeHref("pro") === "/"', ctx.appModeHref('pro') === '/');
-  ok('Simple: appModeHref("dev") === "/?dev=1"', ctx.appModeHref('dev') === '/?dev=1');
+  ok('Simple: appModeHref("pro") === "../"', ctx.appModeHref('pro') === '../', ctx.appModeHref('pro'));
+  ok('Simple: appModeHref("dev") === "../?dev=1"', ctx.appModeHref('dev') === '../?dev=1', ctx.appModeHref('dev'));
   ok('Simple: appModeHref("simple") === null', ctx.appModeHref('simple') === null);
   ctx.applyAppMode('pro');
-  ok('Simple: applyAppMode("pro") naviga a /', ctx.window.location.href === '/');
+  ok('Simple: applyAppMode("pro") naviga a "../"', ctx.window.location.href === '../', ctx.window.location.href);
   ctx.window.location.href = '';
   ctx.applyAppMode('dev');
-  ok('Simple: applyAppMode("dev") naviga a /?dev=1', ctx.window.location.href === '/?dev=1');
+  ok('Simple: applyAppMode("dev") naviga a "../?dev=1"', ctx.window.location.href === '../?dev=1', ctx.window.location.href);
   ctx.window.location.href = '';
   ctx.applyAppMode('simple');
   ok('Simple: applyAppMode("simple") resta (nessuna navigazione)', ctx.window.location.href === '');
+}
+
+// ---------- 5. percorsi RELATIVI in entrambe le app (bug 1.3.0.6x) ----------
+// Il sito vive in un sotto-percorso di GitHub Pages: un href che inizia con "/"
+// punta alla radice del dominio (404), non all'app. Deve fallire sul codice
+// pristino, dove la Simple restituiva "/" e "/?dev=1".
+{
+  const proBlock = pro.slice(pro.indexOf('//#appmode# BEGIN'), pro.indexOf('//#appmode# END'));
+  const proCtx = { window: { location: { href: '' } }, document: { getElementById: () => null } };
+  vm.runInNewContext(proBlock, proCtx);
+  const simpleBlock = /<script id="app-mode">([\s\S]*?)<\/script>/.exec(simple)[1];
+  const simpleCtx = { window: { location: { href: '' } }, document: { getElementById: () => null } };
+  vm.runInNewContext(simpleBlock, simpleCtx);
+
+  const proHrefs = ['simple', 'pro', 'dev'].map((m) => proCtx.appModeHref(m)).filter((h) => h !== null);
+  const simpleHrefs = ['pro', 'dev', 'simple'].map((m) => simpleCtx.appModeHref(m)).filter((h) => h !== null);
+  ok('Pro: i percorsi restituiti non iniziano con "/"', proHrefs.every((h) => !/^\//.test(h)), proHrefs.join(','));
+  ok('Simple: i percorsi restituiti non iniziano con "/"', simpleHrefs.every((h) => !/^\//.test(h)), simpleHrefs.join(','));
+  ok('Pro: verso la Simple il percorso e\u2019 "simple/"', proCtx.appModeHref('simple') === 'simple/');
+  ok('Simple: verso la Pro il percorso e\u2019 "../"', simpleCtx.appModeHref('pro') === '../');
+  ok('Simple: verso lo Sviluppo il percorso e\u2019 "../?dev=1"', simpleCtx.appModeHref('dev') === '../?dev=1');
+
+  // Ridondanza: il link nel footer duplicava lo switch ed e' stato rimosso.
+  ok('Simple: nessun link "a href=/" assoluto', !/href="\/"/.test(simple));
+  ok('Simple: nessun link "Versione completa" duplicato', !/Versione completa/.test(
+    (/<body[\s\S]*?<\/body>/.exec(simple) || [''])[0].replace(/<!--[\s\S]*?-->/g, '').replace(/<script[\s\S]*?<\/script>/g, '')));
+  ok('Pro: nessun link assoluto "/simple/"', !/href="\/simple\/"/.test(pro));
+  ok('Pro: link footer "Versione semplice" rimosso (duplicava lo switch)',
+    (pro.match(/>Versione semplice/g) || []).length === 0);
 }
 
 console.log(`\nRESULT: ${failures === 0 ? 'PASS' : 'FAIL'} (${failures} errori)`);

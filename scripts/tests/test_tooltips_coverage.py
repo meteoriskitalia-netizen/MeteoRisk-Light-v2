@@ -181,5 +181,54 @@ def test_tooltips_have_title():
     assert not bad, 'controlli senza tooltip:\n' + detail
 
 
+SIMPLE_HTML = os.path.join(ROOT, 'simple', 'index.html')
+
+
+def generated_role_buttons(html):
+    """Elementi interattivi generati in JS con role=button/option SENZA title.
+
+    La Simple costruisce cosi' i giorni della striscia a 7 giorni
+    (<div role="button">) e le righe della ricerca comune
+    (<button role="option">). `generated_buttons` da solo non li vede perche'
+    cerca solo `<button`, quindi il controllo equivalente per la Simple li
+    include esplicitamente.
+    """
+    out = []
+    for m in re.finditer(r'<script[^>]*>(.*?)</script>', html, re.S):
+        block = m.group(1)
+        base = html[:m.start(1)].count('\n') + 1
+        block = re.sub(r'/\*.*?\*/', '', block, flags=re.S)
+        block = re.sub(r'//[^\r\n]*', '', block)
+        pattern = r'<(?:div|span|li|button)\b[^>]*\brole="(?:button|option)"[^>]*>'
+        for b in re.finditer(pattern, block, re.I):
+            if 'title=' not in b.group(0):
+                out.append((base + block[:b.start()].count('\n'), b.group(0)[:80]))
+    return out
+
+
+def test_simple_tooltips_have_title():
+    """Controllo equivalente a `test_tooltips_have_title` per simple/index.html.
+
+    LIMITE DICHIARATO: statico come il gemello sulla Pro. Non esegue il JS, non
+    misura il rendering. Copre in piu' gli elementi generati con role=button o
+    role=option (giorni della striscia e risultati della ricerca).
+    """
+    assert os.path.exists(SIMPLE_HTML), 'simple/index.html mancante'
+    html = io.open(SIMPLE_HTML, encoding='utf-8', newline='').read()
+    scan = Scan()
+    scan.feed(html)
+    scan.close()
+    js = generated_buttons(html)
+    roles = generated_role_buttons(html)
+    bad = scan.bad + js + roles
+    detail = ''.join('simple/index.html:%d %s -- %s\n' % (line, sel, why)
+                     for line, sel, why in scan.bad)
+    detail += ''.join('simple/index.html:%d <button generato in JS> -- manca title=\n'
+                      % line for line, _frag in js)
+    detail += ''.join('simple/index.html:%d <elemento role=button/option generato> -- manca title=\n'
+                      % line for line, _frag in roles)
+    assert not bad, 'controlli senza tooltip nella Simple:\n' + detail
+
+
 if __name__ == '__main__':
     sys.exit(main())

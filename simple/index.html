@@ -30,8 +30,25 @@ select{padding:3px 6px}
 .updated{font-size:11px;color:var(--muted);white-space:nowrap}
 .app-mode-select{font-size:11px;height:24px;padding:0 4px;flex-shrink:0;
   background:var(--panel);border:1px solid var(--line)}
-.link-pro{font-size:11px;white-space:nowrap;text-decoration:none;
-  border:1px solid var(--line);border-radius:6px;padding:3px 8px}
+/* ricerca comune (on-demand: nessun dato extra al boot) */
+.geo-wrap{position:relative;display:flex;align-items:center;flex:1 1 240px;
+  min-width:160px;max-width:360px}
+#geo-input{width:100%;height:25px;padding:0 8px;font-size:12px;color:var(--txt);
+  background:var(--panel2);border:1px solid var(--line);border-radius:6px}
+#geo-input:focus{outline:2px solid #1d4ed8;outline-offset:0}
+#geo-list{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:1100;
+  background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  box-shadow:0 12px 30px rgba(0,0,0,.5);max-height:min(52dvh,320px);overflow:auto;
+  display:none}
+#geo-list.open{display:block}
+.geo-row{display:block;width:100%;text-align:left;background:transparent;border:0;
+  border-bottom:1px solid var(--line2);border-radius:0;padding:6px 9px;
+  font-size:12px;line-height:1.35;color:var(--txt)}
+.geo-row:last-child{border-bottom:0}
+.geo-row:hover,.geo-row:focus{background:#1e293b;outline:none}
+.geo-row b{font-weight:600}
+.geo-row small{display:block;color:var(--muted);font-size:10px;font-weight:400}
+.geo-msg{padding:7px 9px;font-size:11px;color:var(--muted);line-height:1.4}
 .controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px;
   padding:8px 12px;background:var(--panel2);border-bottom:1px solid var(--line2)}
 .controls label{font-size:11px;color:var(--muted)}
@@ -43,13 +60,24 @@ select{padding:3px 6px}
   max-width:46vw;pointer-events:none}
 #map-wrap{position:relative}
 /* card */
-#card{position:absolute;top:10px;right:10px;z-index:600;width:min(380px,calc(100vw - 20px));
+#card{position:absolute;top:10px;right:10px;z-index:1000;width:min(380px,calc(100vw - 20px));
   max-height:calc(100% - 20px);overflow:auto;background:rgba(15,23,42,.97);
   border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.45);
   display:none}
 #card.open{display:block}
-.card-head{position:sticky;top:0;z-index:2;background:var(--panel);border-bottom:1px solid var(--line2);
-  padding:9px 11px;display:flex;align-items:flex-start;gap:8px}
+.card-head{position:sticky;top:0;z-index:3;background:var(--panel);
+  border-bottom:1px solid var(--line2);padding:0;display:block}
+.card-head-row{display:flex;align-items:flex-start;gap:8px;padding:9px 11px 6px}
+.card-tabs{display:flex;gap:4px;padding:0 8px 8px;overflow-x:auto;overflow-y:hidden;
+  white-space:nowrap;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+.card-tab{flex:0 0 auto;font-size:11px;line-height:1.1;padding:4px 10px;border-radius:999px;
+  background:var(--panel2);border:1px solid var(--line);color:var(--muted)}
+.card-tab.on{background:#1d4ed8;border-color:#3b82f6;color:#fff;font-weight:600}
+.card-banner{display:none;padding:6px 11px;font-size:11px;line-height:1.4;
+  background:#152238;border-bottom:1px solid var(--line2);color:var(--muted)}
+.card-banner.on{display:block}
+.card-pane{display:none}
+.card-pane.on{display:block}
 .card-head h2{margin:0;font-size:14px;line-height:1.2}
 .card-head .region{font-size:11px;color:var(--muted)}
 .card-close{margin-left:auto;border:none;background:transparent;font-size:18px;line-height:1;
@@ -66,13 +94,29 @@ select{padding:3px 6px}
 .day .t small{color:var(--muted);font-weight:400}
 .day ul{list-style:none;margin:3px 0 0;padding:0;color:var(--muted)}
 .week{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center;font-size:10px}
-.week .w{background:var(--panel2);border:1px solid var(--line2);border-radius:5px;padding:4px 2px}
+.week .w{background:var(--panel2);border:1px solid var(--line2);border-radius:5px;padding:4px 2px;
+  cursor:pointer}
+.week .w:hover{background:#1e293b}
+.week .w:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.week .w.on{background:#1e3a5f;border-color:#3b82f6;box-shadow:0 0 0 1px #3b82f6 inset}
 .week .w .dow{color:var(--muted);font-size:9px;text-transform:uppercase}
 .week .w .ic{font-size:14px;line-height:1.3}
 .week .w .hi{font-weight:600}
 .week .w .lo{color:var(--muted)}
 .week .w .mm{color:var(--c2)}
+.day-hours{margin-top:8px}
+.day-hours h4{margin:0 0 5px;font-size:11px;font-weight:600;color:var(--txt)}
+.day-hours .unavail{border:1px dashed var(--line);border-radius:6px;padding:8px 9px;
+  font-size:11px;line-height:1.45;color:var(--warn);background:rgba(251,191,36,.06)}
 .hourly-wrap{max-height:240px;overflow:auto;border:1px solid var(--line2);border-radius:6px}
+/* legenda radar: stessa rampa Universal Blue della Pro */
+.radar-legend{display:flex;flex-direction:column;gap:2px;flex:1 1 280px;min-width:0;max-width:360px}
+.radar-ramp{display:flex;width:100%}
+.radar-sw{display:block;flex:1 1 0;height:9px;border:1px solid rgba(15,23,42,.6)}
+.radar-ticks{display:flex;width:100%}
+.radar-tick{flex:1 1 0;text-align:center;font-size:8px;color:var(--muted);
+  font-variant-numeric:tabular-nums}
+.radar-note{font-size:9px;color:var(--dim);line-height:1.4}
 table.hourly{width:100%;border-collapse:collapse;font-size:11px}
 table.hourly th{position:sticky;top:0;background:var(--panel);color:var(--muted);font-weight:600;
   text-align:right;padding:4px 6px;border-bottom:1px solid var(--line)}
@@ -105,14 +149,19 @@ table.hourly td.ic{text-align:center}
   .app-header{gap:6px;padding:7px 9px}
   .app-title{font-size:13px}
   .app-title span{display:none}
+  .geo-wrap{order:4;flex:1 1 100%;max-width:none;min-width:0}
+  #geo-list{max-height:44dvh}
   .updated{order:5;width:100%}
-  #map{height:calc(100dvh - 236px)}
-  #card{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;max-height:72dvh;
+  #map{height:calc(100dvh - 272px)}
+  #card{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;max-height:74dvh;
     border-radius:14px 14px 0 0;border-left:none;border-right:none;border-bottom:none}
   .card-body{padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+  .card-tabs{gap:3px;padding:0 7px 7px}
   .days{grid-template-columns:1fr 1fr 1fr}
   .week{grid-template-columns:repeat(7,minmax(0,1fr))}
   .week .w{padding:3px 1px}
+  .hourly-wrap{max-height:min(240px,38dvh)}
+  .radar-legend{max-width:none;flex:1 1 100%}
 }
 @media (max-width:420px){
   .app-mode-select{font-size:10px;max-width:92px}
@@ -128,13 +177,20 @@ table.hourly td.ic{text-align:center}
   <h1 class="app-title">MeteoRisk · Simple <span>versione leggera</span></h1>
   <span class="updated" id="updated" title="Ora di generazione del dataset meteo usato dalla pagina">dati aggiornati alle —</span>
   <span class="header-spacer"></span>
+  <div class="geo-wrap">
+    <input id="geo-input" type="search" autocomplete="off" spellcheck="false"
+           placeholder="Cerca comune…" aria-label="Cerca comune"
+           aria-autocomplete="list" aria-controls="geo-list"
+           title="Cerca un comune italiano (minimo 2 caratteri): la mappa si centra sul comune e si apre la previsione della provincia che lo contiene"
+           oninput="geoInputChanged(this.value)" onkeydown="geoKeyDown(event)" />
+    <div id="geo-list" role="listbox" aria-label="Risultati della ricerca comune"></div>
+  </div>
   <select id="app-mode-select" class="app-mode-select" onchange="applyAppMode(this.value)"
           title="Modalità dell'app: Pro (completa), Semplice (versione leggera) o Sviluppo (Pro con le funzioni sperimentali attive)">
     <option value="pro">Pro</option>
     <option value="simple" selected>Semplice</option>
     <option value="dev">Sviluppo</option>
   </select>
-  <a class="link-pro" href="/" title="Apri la versione completa della app (tutte le mappe, i modelli e i pannelli)">Versione completa →</a>
 </header>
 
 <div class="controls">
@@ -164,12 +220,26 @@ table.hourly td.ic{text-align:center}
   <div class="map-note" id="map-note">Clicca una provincia per il dettaglio</div>
   <aside id="card" role="dialog" aria-label="Dettaglio provincia">
     <div class="card-head">
-      <div>
-        <h2 id="card-title">—</h2>
-        <div class="region" id="card-region">—</div>
+      <div class="card-head-row">
+        <div>
+          <h2 id="card-title">—</h2>
+          <div class="region" id="card-region">—</div>
+        </div>
+        <button class="card-close" id="card-close" onclick="closeCard()" title="Chiudi il pannello di dettaglio">×</button>
       </div>
-      <button class="card-close" id="card-close" onclick="closeCard()" title="Chiudi il pannello di dettaglio">×</button>
+      <div class="card-tabs" role="tablist" aria-label="Sezioni della previsione">
+        <button type="button" class="card-tab on" id="tab-d3" data-tab="d3" role="tab"
+                aria-selected="true" aria-controls="pane-d3" onclick="selectTab('d3')"
+                title="Mostra il riepilogo dei prossimi 3 giorni (oggi, domani, dopodomani)">3 giorni</button>
+        <button type="button" class="card-tab" id="tab-d7" data-tab="d7" role="tab"
+                aria-selected="false" aria-controls="pane-d7" onclick="selectTab('d7')"
+                title="Mostra la tendenza a 7 giorni: clicca un giorno per le sue ore">7 giorni</button>
+        <button type="button" class="card-tab" id="tab-hour" data-tab="hour" role="tab"
+                aria-selected="false" aria-controls="pane-hour" onclick="selectTab('hour')"
+                title="Mostra la tabella ora per ora scorrevole (24 o 48 ore)">Ora per ora</button>
+      </div>
     </div>
+    <div class="card-banner" id="card-banner"></div>
     <div class="card-body" id="card-body"></div>
   </aside>
 </div>
@@ -183,8 +253,10 @@ table.hourly td.ic{text-align:center}
 
 <footer class="site-footer">
   <p class="row disclaimer" id="dpc-disclaimer">Criticità DPC: il disclaimer ufficiale del bollettino (Dipartimento della Protezione Civile) compare quando si apre il layer «Criticità DPC».</p>
-  <p class="row"><b>Fonti e licenze</b> — Previsioni: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0), modello <span id="ft-model">best_match</span>. Radar e bollettini di criticità: <a href="https://www.protezionecivile.gov.it/" target="_blank" rel="noopener">Dipartimento della Protezione Civile</a> (Radar-DPC CC BY-SA 4.0). Centraline: <a href="https://meteohub.agenziaitaliameteo.it/" target="_blank" rel="noopener">MeteoHub / Agenzia ItaliaMeteo</a> (CC BY 4.0, attribuzione per rete). Cartografia: OpenStreetMap (ODbL). Libreria mappe: Leaflet 1.9.4 (BSD-2-Clause).</p>
-  <p class="row"><b>Questa pagina non registra un Service Worker</b>: la modalità offline è gestita dalla versione completa (<a href="/">Pro</a>). I valori nulli sono mostrati come “—” e non vengono sostituiti da zero.</p>
+  <p class="row"><b>Fonti e licenze</b> — Previsioni: <a href="https://open-meteo.com/" target="_blank" rel="noopener" title="Open-Meteo: previsioni del modello best_match usate in questa pagina (licenza CC BY 4.0)">Open-Meteo</a> (CC BY 4.0), modello <span id="ft-model">best_match</span>. Radar e bollettini di criticità: <a href="https://www.protezionecivile.gov.it/" target="_blank" rel="noopener" title="Dipartimento della Protezione Civile: bollettini di criticità e Radar-DPC (CC BY-SA 4.0)">Dipartimento della Protezione Civile</a> (Radar-DPC CC BY-SA 4.0). Centraline: <a href="https://meteohub.agenziaitaliameteo.it/" target="_blank" rel="noopener" title="MeteoHub / Agenzia ItaliaMeteo: osservazioni delle centraline (CC BY 4.0)">MeteoHub / Agenzia ItaliaMeteo</a> (CC BY 4.0, attribuzione per rete). Cartografia: OpenStreetMap (ODbL). Libreria mappe: Leaflet 1.9.4 (BSD-2-Clause).</p>
+  <p class="row"><b>Questa pagina non registra un Service Worker</b>: la modalità offline è gestita dalla versione completa (<a href="../" title="Apri la versione completa (Pro)">Pro</a>). I valori nulli sono mostrati come “—” e non vengono sostituiti da zero.</p>
+  <p class="row"><b>Ricerca comune</b> — Geocoding su richiesta: <a href="https://open-meteo.com/en/docs/geocoding-api" target="_blank" rel="noopener" title="Documentazione dell'API di geocoding Open-Meteo (licenza CC BY 4.0)">Open-Meteo Geocoding API</a> (CC BY 4.0), dati di località da <a href="https://www.geonames.org/" target="_blank" rel="noopener" title="GeoNames: base di dati delle località usata dal geocoding (CC BY 4.0)">GeoNames</a> (CC BY 4.0). La chiamata parte solo quando scrivi nel campo (nessun dato aggiuntivo al boot) ed è filtrata all'Italia. La scheda che si apre è la <b>previsione della provincia</b> che contiene il comune: questa versione non interroga un modello puntuale e non inventa valori per il punto.</p>
+  <p class="row"><b>Radar</b> — il tile DPC porta il valore nel solo canale R (VMI dBZ = R × 60 / 255) e viene ricolorato nel browser con la stessa palette Universal Blue della versione completa; il tile è lossy (±1-2 dBZ) e la VMI è il massimo sulla verticale.</p>
   <p class="row">MeteoRisk · Simple — uso educativo e sperimentale. Non sostituisce i bollettini ufficiali.</p>
 </footer>
 
@@ -281,6 +353,12 @@ var SimpleFmt = (function () {
     var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
     return m ? (m[2] + "/" + m[3]) : "—";
   }
+  // Formato italiano giorno/mese (24/11), usato nelle intestazioni delle ore.
+  function fmtDayMonthIt(iso) {
+    if (!iso) return "—";
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+    return m ? (m[3] + "/" + m[2]) : "—";
+  }
   function dowShort(iso) {
     if (!iso) return "—";
     var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
@@ -288,6 +366,118 @@ var SimpleFmt = (function () {
     var d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
     return ["DOM", "LUN", "MAR", "MER", "GIO", "VEN", "SAB"][d.getUTCDay()];
   }
+  function dowLong(iso) {
+    if (!iso) return "—";
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+    if (!m) return "—";
+    var d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    return ["domenica", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato"][d.getUTCDay()];
+  }
+  /* --- Ricerca comune: accoppiamento con le 107 province -------------------
+     `admin2` dell'API Open-Meteo arriva in forme diverse (MISURATO il
+     2026-11-23): "Provincia di Roma", "Provincia dell'Aquila" (apostrofo
+     tipografico), "Provincia Autonoma di Bolzano", "Provincia di Reggio
+     Emilia". Si confrontano i TOKEN dopo aver tolto accenti, punteggiatura e
+     parole di servizio; si accetta anche il sottoinsieme (Reggio Emilia ⊂
+     Reggio nell'Emilia). In caso di parità si restituisce null: meglio nessuna
+     provincia che una provincia sbagliata. */
+  var GEO_STOPWORDS = {
+    provincia: 1, province: 1, citta: 1, city: 1, metropolitana: 1, metropolitano: 1,
+    di: 1, del: 1, dello: 1, della: 1, dei: 1, degli: 1, delle: 1, dell: 1, d: 1, l: 1,
+    nell: 1, nella: 1, nello: 1, negli: 1, nelle: 1,
+    comune: 1, comuna: 1, autonoma: 1, autonomo: 1, libero: 1, consorzio: 1,
+    capitale: 1, e: 1, in: 1, unione: 1
+  };
+  function normText(s) {
+    var t = String(s == null ? "" : s).toLowerCase();
+    try { t = t.normalize("NFD").replace(/[\u0300-\u036f]/g, ""); } catch (e) {}
+    return t.replace(/[\u2019'`\u00b4]/g, " ").replace(/[^a-z0-9]+/g, " ").replace(/^\s+|\s+$/g, "");
+  }
+  function geoTokens(s) {
+    var parts = normText(s).split(" ");
+    var out = [];
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i] && !GEO_STOPWORDS[parts[i]]) out.push(parts[i]);
+    }
+    return out;
+  }
+  function provBaseName(prov) {
+    return String((prov && prov.prov) || "").replace(/\s*\([A-Z]{2}\)\s*$/, "");
+  }
+  function tokensSubset(a, b) {
+    if (!a.length) return false;
+    for (var i = 0; i < a.length; i++) if (b.indexOf(a[i]) < 0) return false;
+    return true;
+  }
+  function matchProvince(geo, provinces) {
+    if (!geo || !provinces || !provinces.length) return null;
+    var at = geoTokens(geo.admin2 || "");
+    var region = normText(geo.admin1 || "");
+    var best = null, bestScore = 0, tie = false;
+    for (var i = 0; i < provinces.length; i++) {
+      var p = provinces[i];
+      var pt = geoTokens(provBaseName(p));
+      var score = 0;
+      if (at.length && at.join(" ") === pt.join(" ")) score = 3;
+      else if (tokensSubset(at, pt) || tokensSubset(pt, at)) score = 2;
+      if (!score) continue;
+      if (region && region === normText(p.region || "")) score += 1;
+      if (score > bestScore) { best = p; bestScore = score; tie = false; }
+      else if (score === bestScore) { tie = true; }
+    }
+    return (best && !tie) ? best : null;
+  }
+  function geoResultRow(r, provinces) {
+    if (!r || !r.name) return null;
+    var p = matchProvince(r, provinces);
+    var bits = [];
+    if (p) bits.push("Provincia di " + provBaseName(p) + " (" + p.sigla + ")");
+    else if (r.admin2) bits.push(String(r.admin2));
+    if (r.admin1) bits.push(String(r.admin1));
+    if (!p) bits.push("provincia non risolta");
+    var name = String(r.name);
+    return {
+      name: name,
+      sigla: p ? p.sigla : null,
+      lat: (typeof r.latitude === "number") ? r.latitude : null,
+      lon: (typeof r.longitude === "number") ? r.longitude : null,
+      sub: bits.join(" · "),
+      title: p
+        ? ("Vai a " + name + " e apri la previsione della provincia di " + provBaseName(p) + " (" + p.sigla + ")")
+        : ("Vai a " + name + ": la provincia italiana non è risolta, nessuna previsione viene inventata"),
+      forecast: p ? "provincia" : null
+    };
+  }
+  function geoNoResults(query) {
+    var qq = String(query == null ? "" : query).trim();
+    return qq ? ("Nessun comune trovato per «" + qq + "» (ricerca limitata all'Italia).")
+              : "Nessun comune trovato.";
+  }
+  // Fallback DICHIARATO quando il geocoding non risponde: ricerca locale sulle
+  // 107 province gia' in memoria, cosi' la funzione non muore.
+  function localProvinceRows(query, provinces) {
+    var nq = normText(query);
+    var out = [];
+    if (nq.length < 2 || !provinces || !provinces.length) return out;
+    for (var i = 0; i < provinces.length; i++) {
+      var p = provinces[i];
+      var name = provBaseName(p);
+      var hay = normText(name + " " + (p.region || "") + " " + (p.sigla || ""));
+      if (hay.indexOf(nq) < 0) continue;
+      out.push({
+        name: name,
+        sigla: p.sigla,
+        lat: null, lon: null,
+        sub: (p.region || "—") + " · sigla " + p.sigla,
+        title: "Apri la previsione della provincia di " + name + " (" + p.sigla + ")",
+        forecast: "provincia", local: true
+      });
+    }
+    return out.slice(0, 8);
+  }
+  var TABS = ["d3", "d7", "hour"];
+  function normalizeTab(tab) { return TABS.indexOf(tab) >= 0 ? tab : "d3"; }
+  function paneVisible(active, pane) { return normalizeTab(active) === pane; }
   function fmtClockRome(iso) {
     if (!iso) return "—";
     try {
@@ -307,8 +497,13 @@ var SimpleFmt = (function () {
     WIND_CLASSES: WIND_CLASSES, isNum: isNum, fmtNum: fmtNum, fmtInt: fmtInt,
     wmoIcon: wmoIcon, wmoLabel: wmoLabel, precipClass: precipClass, precipColor: precipColor,
     windClass: windClass, rampColor: rampColor, thermalColor: thermalColor, rainColor: rainColor,
-    fmtHour: fmtHour, fmtDayMonth: fmtDayMonth, dowShort: dowShort, fmtClockRome: fmtClockRome,
-    haversineKm: haversineKm
+    fmtHour: fmtHour, fmtDayMonth: fmtDayMonth, fmtDayMonthIt: fmtDayMonthIt, dowShort: dowShort, dowLong: dowLong,
+    fmtClockRome: fmtClockRome,
+    haversineKm: haversineKm,
+    TABS: TABS, normalizeTab: normalizeTab, paneVisible: paneVisible,
+    normText: normText, geoTokens: geoTokens, provBaseName: provBaseName,
+    matchProvince: matchProvince, geoResultRow: geoResultRow, geoNoResults: geoNoResults,
+    localProvinceRows: localProvinceRows
   };
 })();
 if (typeof window !== "undefined") { window.SimpleFmt = SimpleFmt; }
@@ -318,10 +513,15 @@ if (typeof window !== "undefined") { window.SimpleFmt = SimpleFmt; }
 /* === Modalita' dell'app (Pro / Semplice / Sviluppo) =========================
    La Simple e' un file separato: la funzione di mapping e' copiata qui perche'
    non esiste un bundle condiviso (limite dichiarato). La logica e' identica
-   alla Pro: pro -> "/", dev -> "/?dev=1", simple -> resta. */
+   alla Pro.
+   PERCORSI RELATIVI (fix 1.3.0.6x): il sito vive in un SOTTOPERCORSO di GitHub
+   Pages (/MeteoRisk-Light-v2/), quindi "/" puntava alla radice del dominio
+   (https://<org>.github.io/ -> 404) invece che alla Pro. Da /simple/ la Pro e'
+   "../" e lo Sviluppo "../?dev=1"; gli stessi valori funzionano anche se la
+   pagina fosse servita in root (dove "../" resta la root). */
 function appModeHref(mode) {
-  if (mode === "pro") return "/";
-  if (mode === "dev") return "/?dev=1";
+  if (mode === "pro") return "../";
+  if (mode === "dev") return "../?dev=1";
   return null;
 }
 function applyAppMode(mode) {
@@ -355,7 +555,10 @@ var state = {
   provLayer: null, hydroLayer: null, radarLayer: null, stationOverlay: null,
   provinces: null, provBySigla: {}, geo: null, weekly: null, weeklyBySigla: {},
   hourly: null, hydro: null, radar: null, stations: null, stationsMeta: null,
-  selected: null, hourlyLimit: 48, statusEl: null, noteEl: null
+  selected: null, hourlyLimit: 24, statusEl: null, noteEl: null,
+  tab: "d3", dayIndex: 0, cardSigla: null,
+  geoRows: [], geoQuery: "", geoTimer: null, geoSeq: 0, geoLatencyMs: null,
+  geoFallback: false, geoMarker: null, geoNote: ""
 };
 
 function q(id) { return document.getElementById(id); }
@@ -455,11 +658,13 @@ function scenarioLegend() {
     var vd = state.hydro && state.hydro.valid_date ? state.hydro.valid_date : "—";
     src.textContent = "bollettino ufficiale DPC (criticità prevista), validità " + vd;
   } else if (state.layer === "radar") {
-    // Nessuna scala inventata: il tile DPC e' gia' colorato dal prodotto.
+    // Stessa legenda dBZ della Pro: rampa Universal Blue, tacche e mm/h
+    // equivalenti (stima Z=200·R^1,6). Il tile e' ricolorato nel browser.
     var r = state.radar;
-    src.textContent = r ? ("Radar-DPC VMI · colori del prodotto ufficiale DPC (dBZ), scala non riprodotta in pagina · frame " +
+    items.innerHTML = radarLegendHtml();
+    src.textContent = r ? ("Radar-DPC VMI · ricolorazione client Universal Blue (identica alla Pro) · frame " +
       (r.radar_timestamp || "—") + " · latenza " + num(r.data_latency_minutes, 1) + " min · " +
-      (r.cells_count || 0) + " celle") :
+      num(r.cells_count, 0) + " celle") :
       "Radar-DPC: stato non disponibile";
   } else if (state.layer === "stations") {
     var v = state.stationsVar;
@@ -479,7 +684,7 @@ function setLayer(name) {
   var notes = {
     precip: "Clicca una provincia per il dettaglio",
     hydro: "Clicca una zona per il dettaglio",
-    radar: "Ultimo frame disponibile · clicca per il dettaglio provincia",
+    radar: "Ultimo frame VMI · ricolorazione Universal Blue (identica alla Pro) · clicca per il dettaglio provincia",
     stations: "Interpolazione IDW k=6, raggio 30 km · trasparente dove mancano stazioni"
   };
   q("map-note").textContent = notes[name] || "";
@@ -515,7 +720,7 @@ function renderThreeDays(prov) {
   var out = '<div class="days">';
   days3(prov).forEach(function (d, i) {
     out += '<div class="day" title="' + esc(d.day + " · riepilogo giornaliero del modello") + '">' +
-      '<b>' + labels[i] + ' · ' + F.fmtDayMonth(d.day) + '</b>' +
+      '<b>' + labels[i] + ' · ' + F.fmtDayMonthIt(d.day) + '</b>' +
       '<div class="ic" title="' + esc(F.wmoLabel(d.weathercode)) + '">' + F.wmoIcon(d.weathercode) + '</div>' +
       '<div class="t">' + (F.isNum(d.temp_max) ? num(d.temp_max, 1) + "°" :
         '<span class="null" title="Dato assente nel dataset (null)">—</span>') +
@@ -538,11 +743,15 @@ function renderWeekly(sigla) {
   if (!recs || !days.length) {
     return '<p style="color:var(--muted);margin:0">Tendenza 7 giorni non disponibile per questa provincia.</p>';
   }
-  var out = '<div class="week">';
+  var out = '<div class="week-block"><div class="week">';
   recs.forEach(function (r, i) {
-    out += '<div class="w" title="' + esc(days[i] + " · " + F.wmoLabel(r.code)) + '">' +
+    var on = (i === state.dayIndex);
+    out += '<div class="w' + (on ? " on" : "") + '" role="button" tabindex="0" data-day="' + i + '"' +
+      ' aria-pressed="' + (on ? "true" : "false") + '"' +
+      ' onclick="selectDay(' + i + ')" onkeydown="dayKey(event,' + i + ')"' +
+      ' title="' + esc(days[i] + " · " + F.wmoLabel(r.code) + " · clicca per le ore di questo giorno") + '">' +
       '<div class="dow">' + F.dowShort(days[i]) + '</div>' +
-      '<div class="dow">' + F.fmtDayMonth(days[i]) + '</div>' +
+      '<div class="dow">' + F.fmtDayMonthIt(days[i]) + '</div>' +
       '<div class="ic">' + F.wmoIcon(r.code) + '</div>' +
       '<div class="hi">' + num(r.tmax, 1) + '°</div>' +
       '<div class="lo">' + num(r.tmin, 1) + '°</div>' +
@@ -550,8 +759,26 @@ function renderWeekly(sigla) {
       '<div style="color:var(--dim)">' + num(r.pprob, 0) + '%</div>' +
       '</div>';
   });
-  out += "</div>";
+  out += '</div><p class="radar-note" style="margin:5px 0 0">Clicca un giorno per le sue ore. I giorni dal 4° al 7° hanno solo i valori giornalieri: il dataset orario copre le prime 72 ore.</p></div>';
   return out;
+}
+/* Tabella oraria su un elenco di indici: usata dalla vista scorrevole e dal
+   giorno selezionato nella striscia a 7 giorni. Nessuna riga inventata: gli
+   indici vengono dal payload reale (hours[] allineato a h.h[]). */
+function hourlyRowsHtml(idxs, hours, h, caption) {
+  var out = caption ? '<h4>' + caption + '</h4>' : "";
+  out += '<div class="hourly-wrap"><table class="hourly">' +
+    '<thead><tr><th>Ora</th><th>Icona</th><th>T</th><th>mm</th><th>prob.</th><th>vento</th></tr></thead><tbody>';
+  idxs.forEach(function (i) {
+    var row = h.h[i] || [];
+    out += '<tr><td>' + F.fmtHour(hours[i] || "") + '</td>' +
+      '<td class="ic" title="' + esc(F.wmoLabel(row[4])) + '">' + F.wmoIcon(row[4]) + '</td>' +
+      '<td>' + valCell(row[0], 1) + '°</td>' +
+      '<td>' + valCell(row[1], 1) + '</td>' +
+      '<td>' + valCell(row[2], 0) + '%</td>' +
+      '<td>' + valCell(row[3], 0) + '</td></tr>';
+  });
+  return out + '</tbody></table></div>';
 }
 function renderHourly(sigla) {
   var h = state.hourly && state.hourly.provinces ? state.hourly.provinces[sigla] : null;
@@ -560,38 +787,118 @@ function renderHourly(sigla) {
   }
   var hours = state.hourly.hours || [];
   var limit = Math.min(state.hourlyLimit, h.h.length);
+  var idxs = [];
+  for (var i = 0; i < limit; i++) idxs.push(i);
   var out = '<div class="seg" role="group">' +
     '<button type="button" class="' + (state.hourlyLimit === 24 ? "on" : "") + '" onclick="setHourlyLimit(24)" title="Mostra le prime 24 ore">24h</button>' +
     '<button type="button" class="' + (state.hourlyLimit === 48 ? "on" : "") + '" onclick="setHourlyLimit(48)" title="Mostra le prime 48 ore">48h</button>' +
-    '</div><div class="hourly-wrap" style="margin-top:5px"><table class="hourly">' +
-    '<thead><tr><th>Ora</th><th>Icona</th><th>T</th><th>mm</th><th>prob.</th><th>vento</th></tr></thead><tbody>';
-  for (var i = 0; i < limit; i++) {
-    var row = h.h[i] || [];
-    out += '<tr><td>' + F.fmtHour(hours[i] || "") + '</td>' +
-      '<td class="ic" title="' + esc(F.wmoLabel(row[4])) + '">' + F.wmoIcon(row[4]) + '</td>' +
-      '<td>' + valCell(row[0], 1) + '°</td>' +
-      '<td>' + valCell(row[1], 1) + '</td>' +
-      '<td>' + valCell(row[2], 0) + '%</td>' +
-      '<td>' + valCell(row[3], 0) + '</td></tr>';
-  }
-  out += "</tbody></table></div>";
+    '</div><div style="margin-top:5px">' + hourlyRowsHtml(idxs, hours, h, "") + '</div>';
   return out;
 }
+/* Data del giorno i: prima weekly.days (7 giorni), poi day0 del payload orario.
+   Il payload copre 72 ore (day0-dia2): per i giorni 3-6 non esistono righe. */
+function hourlyDateFor(dayIndex) {
+  var days = state.weekly && state.weekly.days ? state.weekly.days : [];
+  if (days[dayIndex]) return days[dayIndex];
+  var hours = state.hourly && state.hourly.hours ? state.hourly.hours : [];
+  var base = (state.hourly && state.hourly.day0) || (hours[0] ? String(hours[0]).slice(0, 10) : null);
+  if (!base) return null;
+  var d = new Date(base + "T00:00:00Z");
+  if (isNaN(d.getTime())) return null;
+  d.setUTCDate(d.getUTCDate() + dayIndex);
+  return d.toISOString().slice(0, 10);
+}
+function renderDayHours(sigla, dayIndex) {
+  var h = state.hourly && state.hourly.provinces ? state.hourly.provinces[sigla] : null;
+  if (!h || !h.h || !h.h.length) {
+    return '<div class="unavail" title="simple_hourly.json assente o provincia non risolta">Tabella oraria non disponibile (simple_hourly.json assente o provincia non risolta).</div>';
+  }
+  var date = hourlyDateFor(dayIndex);
+  if (!date) {
+    return '<div class="unavail">Data di questo giorno non disponibile nel dataset.</div>';
+  }
+  var hours = state.hourly.hours || [];
+  var idxs = [];
+  for (var i = 0; i < hours.length && i < h.h.length; i++) {
+    if (String(hours[i]).slice(0, 10) === date) idxs.push(i);
+  }
+  if (!idxs.length) {
+    return '<div class="unavail" title="Il payload orario copre 72 ore (giorni 0-2): per i giorni 3-6 esistono solo i valori giornalieri">' +
+      'Orari non disponibili per questo giorno: il dataset copre le prime 72 ore. Sono disponibili solo i valori giornalieri.</div>';
+  }
+  return hourlyRowsHtml(idxs, hours, h,
+    "Ore di " + F.dowLong(date) + " " + F.fmtDayMonthIt(date) + " · " + idxs.length + " righe");
+}
+function setCardBanner(text) {
+  var b = q("card-banner");
+  if (!b) return;
+  b.textContent = text || "";
+  if (text) b.classList.add("on"); else b.classList.remove("on");
+}
 function renderCard(prov) {
+  state.cardSigla = prov.sigla;
   q("card-title").textContent = prov.prov || prov.sigla;
   q("card-region").textContent = (prov.region || "—") + " · sigla " + prov.sigla;
+  var tab = F.normalizeTab(state.tab);
   var body = q("card-body");
   body.innerHTML =
-    '<div class="card-sec"><h3>3 giorni</h3>' + renderThreeDays(prov) + '</div>' +
-    '<div class="card-sec"><h3>Tendenza 7 giorni</h3>' + renderWeekly(prov.sigla) + '</div>' +
-    '<div class="card-sec"><h3>Ora per ora</h3><div id="hourly-box">' + renderHourly(prov.sigla) + '</div></div>';
+    '<div class="card-pane' + (tab === "d3" ? " on" : "") + '" id="pane-d3" role="tabpanel" aria-labelledby="tab-d3">' +
+      renderThreeDays(prov) + '</div>' +
+    '<div class="card-pane' + (tab === "d7" ? " on" : "") + '" id="pane-d7" role="tabpanel" aria-labelledby="tab-d7">' +
+      renderWeekly(prov.sigla) +
+      '<div class="day-hours" id="day-hours">' + renderDayHours(prov.sigla, state.dayIndex) + '</div></div>' +
+    '<div class="card-pane' + (tab === "hour" ? " on" : "") + '" id="pane-hour" role="tabpanel" aria-labelledby="tab-hour">' +
+      '<div id="hourly-box">' + renderHourly(prov.sigla) + '</div></div>';
+  syncTabs();
   q("card").classList.add("open");
   q("map-note").style.display = "none";
 }
-function selectProvince(sigla) {
+function syncTabs() {
+  var tab = F.normalizeTab(state.tab);
+  ["d3", "d7", "hour"].forEach(function (name) {
+    var btn = q("tab-" + name), pane = q("pane-" + name);
+    var on = (name === tab);
+    if (btn) {
+      btn.classList.toggle("on", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+    }
+    if (pane) pane.classList.toggle("on", on);
+  });
+}
+function selectTab(name) {
+  state.tab = F.normalizeTab(name);
+  syncTabs();
+}
+function selectDay(i) {
+  var n = parseInt(i, 10);
+  if (!(n >= 0 && n <= 6)) return;
+  state.dayIndex = n;
+  var prov = findProv(state.selected);
+  if (!prov) return;
+  var pane = q("pane-d7");
+  if (pane) {
+    var oldBlock = pane.querySelector(".week-block");
+    if (oldBlock) {
+      var tmp = document.createElement("div");
+      tmp.innerHTML = renderWeekly(prov.sigla);
+      var fresh = tmp.querySelector(".week-block");
+      if (fresh) oldBlock.parentNode.replaceChild(fresh, oldBlock);
+    }
+  }
+  var box = q("day-hours");
+  if (box) box.innerHTML = renderDayHours(prov.sigla, n);
+}
+function dayKey(ev, i) {
+  if (ev.key === "Enter" || ev.key === " " || ev.key === "Spacebar") {
+    ev.preventDefault();
+    selectDay(i);
+  }
+}
+function selectProvince(sigla, bannerText) {
   var prov = findProv(sigla);
   if (!prov) return;
   state.selected = sigla;
+  setCardBanner(bannerText || "");
   var need = [];
   if (!state.weekly) need.push(getJSON(DATA.weekly).then(function (w) {
     state.weekly = w;
@@ -612,6 +919,7 @@ function selectProvince(sigla) {
 function closeCard() {
   q("card").classList.remove("open");
   q("map-note").style.display = "";
+  setCardBanner("");
   if (state.provLayer && state.provLayer.eachLayer) {
     state.provLayer.eachLayer(function (layer) { layer.setStyle({ color: "#0f172a", weight: 0.6 }); });
   }
@@ -622,6 +930,132 @@ function setHourlyLimit(n) {
   if (prov) {
     var box = q("hourly-box");
     if (box) box.innerHTML = renderHourly(prov.sigla);
+  }
+}
+
+/* ---------------- Ricerca comune (geocoding ON-DEMAND) ----------------
+   Endpoint verificato il 2026-11-23 (HTTP 200, 72-482 ms su 4 query):
+   https://geocoding-api.open-meteo.com/v1/search?name=..&count=8&language=it&format=json
+   Dati di localita' da GeoNames, licenza CC BY 4.0 (attribuzione nel footer).
+   `countryCode=IT` limita la ricerca all'Italia: la scheda che si apre e' la
+   PREVISIONE DELLA PROVINCIA del comune (scelta dichiarata), non un modello
+   puntuale, quindi nessun valore viene inventato per il punto. */
+var GEO_URL = "https://geocoding-api.open-meteo.com/v1/search";
+var GEO_DEBOUNCE_MS = 320;
+function provinceList() {
+  return (state.provinces && state.provinces.provinces) ? state.provinces.provinces : [];
+}
+function geoNow() {
+  return (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+}
+function openGeoList() { var l = q("geo-list"); if (l) l.classList.add("open"); }
+function closeGeoList() { var l = q("geo-list"); if (l) l.classList.remove("open"); }
+function geoMessage(text) {
+  var l = q("geo-list");
+  if (!l) return;
+  l.innerHTML = '<div class="geo-msg">' + esc(text) + '</div>';
+  openGeoList();
+}
+function geoInputChanged(value) {
+  state.geoQuery = String(value == null ? "" : value);
+  if (state.geoTimer) { clearTimeout(state.geoTimer); state.geoTimer = null; }
+  var qq = state.geoQuery.trim();
+  if (qq.length < 2) {
+    state.geoRows = [];
+    if (!qq) { closeGeoList(); return; }
+    geoMessage("Scrivi almeno 2 caratteri per cercare un comune.");
+    return;
+  }
+  geoMessage("Ricerca in corso…");
+  state.geoTimer = setTimeout(function () { geocodeComune(qq); }, GEO_DEBOUNCE_MS);
+}
+function geocodeComune(qq) {
+  var seq = ++state.geoSeq;
+  var started = geoNow();
+  var url = GEO_URL + "?name=" + encodeURIComponent(qq) +
+    "&count=8&language=it&format=json&countryCode=IT";
+  fetch(url, { cache: "no-store" }).then(function (r) {
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  }).then(function (j) {
+    if (seq !== state.geoSeq) return;
+    var list = (j && j.results) ? j.results : [];
+    state.geoRows = list.map(function (r) { return F.geoResultRow(r, provinceList()); }).filter(Boolean);
+    state.geoFallback = false;
+    state.geoLatencyMs = Math.round(geoNow() - started);
+    renderGeoRows(state.geoRows, "");
+  }).catch(function (e) {
+    if (seq !== state.geoSeq) return;
+    var rows = F.localProvinceRows(qq, provinceList());
+    state.geoRows = rows;
+    state.geoFallback = true;
+    state.geoLatencyMs = Math.round(geoNow() - started);
+    renderGeoRows(rows, "Geocoding Open-Meteo non raggiungibile (" + e.message +
+      "): ricerca locale sulle " + provinceList().length + " province.");
+  });
+}
+function renderGeoRows(rows, note) {
+  var list = q("geo-list");
+  if (!list) return;
+  var html = note ? '<div class="geo-msg">' + esc(note) + '</div>' : "";
+  if (!rows.length) {
+    html += '<div class="geo-msg">' + esc(F.geoNoResults(state.geoQuery)) + '</div>';
+  } else {
+    rows.forEach(function (row, i) {
+      html += '<button type="button" class="geo-row" role="option" data-i="' + i + '"' +
+        ' onclick="geoPick(' + i + ')" onkeydown="geoRowKey(event)"' +
+        ' title="' + esc(row.title) + '"><b>' + esc(row.name) + '</b><small>' +
+        esc(row.sub) + '</small></button>';
+    });
+  }
+  list.innerHTML = html;
+  openGeoList();
+}
+function geoPick(i) {
+  var row = state.geoRows[i];
+  if (!row) return;
+  closeGeoList();
+  var input = q("geo-input");
+  if (input) input.value = row.name;
+  if (row.lat != null && row.lon != null && state.map) {
+    state.map.flyTo([row.lat, row.lon], Math.max(state.map.getZoom(), 9), { duration: 0.8 });
+    if (state.geoMarker) { state.map.removeLayer(state.geoMarker); state.geoMarker = null; }
+    state.geoMarker = L.circleMarker([row.lat, row.lon], {
+      radius: 6, color: "#38bdf8", weight: 2, fillColor: "#0b1220", fillOpacity: 1
+    }).bindTooltip(row.name, { direction: "top" }).addTo(state.map);
+  }
+  if (row.sigla) {
+    var prov = findProv(row.sigla);
+    selectProvince(row.sigla, "Comune di " + row.name + " · previsione della provincia di " +
+      (prov ? F.provBaseName(prov) : row.sigla) + " (" + row.sigla + "): dati provinciali, non del punto.");
+    setStatus("Comune di " + row.name + " · " + row.sub +
+      (state.geoLatencyMs != null ? " · geocoding " + state.geoLatencyMs + " ms" : ""));
+  } else {
+    setStatus("Comune di " + row.name + ": " + row.sub +
+      " — mostrata solo la posizione, nessuna previsione inventata.");
+  }
+}
+function geoKeyDown(ev) {
+  if (ev.key === "Escape") { closeGeoList(); return; }
+  var list = q("geo-list");
+  var rows = list ? list.querySelectorAll(".geo-row") : [];
+  if (!rows.length) return;
+  if (ev.key === "ArrowDown" || ev.key === "Down") { ev.preventDefault(); rows[0].focus(); }
+  else if (ev.key === "Enter") { ev.preventDefault(); geoPick(0); }
+}
+function geoRowKey(ev) {
+  var all = Array.prototype.slice.call(document.querySelectorAll("#geo-list .geo-row"));
+  var i = all.indexOf(ev.currentTarget);
+  if (ev.key === "ArrowDown" || ev.key === "Down") {
+    ev.preventDefault();
+    if (i >= 0 && all[i + 1]) all[i + 1].focus();
+  } else if (ev.key === "ArrowUp" || ev.key === "Up") {
+    ev.preventDefault();
+    if (i > 0) all[i - 1].focus();
+    else { var inp = q("geo-input"); if (inp) inp.focus(); }
+  } else if (ev.key === "Escape") {
+    closeGeoList();
+    var inp2 = q("geo-input"); if (inp2) inp2.focus();
   }
 }
 
@@ -700,6 +1134,145 @@ function dpcTileUrl(iso) {
   return "https://s3-prod-dpc-radar-webp-cache.s3.eu-south-1.amazonaws.com/VMI/" + path +
     "/{z}/{x}/{y}/vmi.webp";
 }
+/* ---------------- Radar: palette + ricolorazione (affine alla Pro) ----------------
+   Il tile DPC NON e' un'immagine colorata: porta il valore fisico nel SOLO canale
+   R (G=B=0) e il renderer ufficiale usa una scala lineare R/255:
+     VMI dBZ = R * 60 / 255.
+   Qui il pixel viene ricolorato nel browser con la tabella Universal Blue, la
+   STESSA della Pro (RADAR_DBZ_SCALE, 13 stop). L'unicita' delle due copie e'
+   verificata da scripts/tests/test_radar_palette_shared.mjs: se divergono, il
+   test fallisce con «le palette Pro/Simple sono divergenti».
+   Soglia di trasparenza R<25 = fondo tile senza dato (5,9 dBZ), la stessa della
+   Pro; il tile e' lossy (+-1-2 dBZ) e la VMI e' il massimo sulla verticale. */
+var RADAR_DBZ_SCALE = [
+  { dbz: 0,  color: "rgba(130,123,105,0.29)" },
+  { dbz: 5,  color: "rgba(146,136,113,0.39)" },
+  { dbz: 10, color: "rgba(206,192,135,0.59)" },
+  { dbz: 15, color: "rgba(136,221,238,1)" },
+  { dbz: 20, color: "rgba(0,163,224,1)" },
+  { dbz: 25, color: "rgba(0,119,170,1)" },
+  { dbz: 30, color: "rgba(0,85,136,1)" },
+  { dbz: 35, color: "rgba(255,238,0,1)" },
+  { dbz: 40, color: "rgba(255,170,0,1)" },
+  { dbz: 45, color: "rgba(255,68,0,1)" },
+  { dbz: 50, color: "rgba(193,0,0,1)" },
+  { dbz: 55, color: "rgba(255,170,255,1)" },
+  { dbz: 60, color: "rgba(255,119,255,1)" }
+];
+var DPC_TRANSPARENT_R = 25;
+var RADAR_DBZ_STOPS = null;
+function radarParseRgba(s) {
+  var m = /rgba?\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*(?:,\s*([0-9.]+)\s*)?\)/.exec(String(s || ""));
+  if (!m) return [255, 255, 255, 1];
+  var a = (m[4] === undefined) ? 1 : parseFloat(m[4]);
+  return [parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3]), isFinite(a) ? a : 1];
+}
+function radarDbzStops() {
+  if (RADAR_DBZ_STOPS) return RADAR_DBZ_STOPS;
+  RADAR_DBZ_STOPS = [];
+  for (var i = 0; i < RADAR_DBZ_SCALE.length; i++) {
+    RADAR_DBZ_STOPS.push([RADAR_DBZ_SCALE[i].dbz, radarParseRgba(RADAR_DBZ_SCALE[i].color)]);
+  }
+  return RADAR_DBZ_STOPS;
+}
+function radarLerpStops(stops, v) {
+  if (!stops || !stops.length) return null;
+  if (v <= stops[0][0]) return stops[0][1];
+  var last = stops.length - 1;
+  if (v >= stops[last][0]) return stops[last][1];
+  for (var i = 1; i <= last; i++) {
+    if (v <= stops[i][0]) {
+      var lo = stops[i - 1], hi = stops[i];
+      var span = hi[0] - lo[0];
+      var t = span > 0 ? (v - lo[0]) / span : 0;
+      var out = [];
+      for (var c = 0; c < 4; c++) {
+        var a0 = (lo[1][c] === undefined) ? 1 : lo[1][c];
+        var a1 = (hi[1][c] === undefined) ? 1 : hi[1][c];
+        out.push(a0 + (a1 - a0) * t);
+      }
+      return out;
+    }
+  }
+  return stops[last][1];
+}
+function radarDbzToMmh(dbz) {
+  var z = Math.pow(10, dbz / 10);        // dBZ -> Z
+  return Math.pow(z / 200, 1 / 1.6);     // inversa di Z = 200 * R^1,6
+}
+function radarFmtMmh(v) {
+  var s = (v < 1) ? v.toFixed(2) : (v < 100 ? v.toFixed(1) : v.toFixed(0));
+  return s.replace(".", ",");
+}
+// Rimappa i pixel RGBA di un tile DPC VMI sulla palette Universal Blue.
+function radarRecolorPixels(rgba) {
+  var stops = radarDbzStops();
+  for (var i = 0; i < rgba.length; i += 4) {
+    var r = rgba[i], g = rgba[i + 1], b = rgba[i + 2], a = rgba[i + 3];
+    if (a < 8) continue;                                   // gia' trasparente
+    if (r < DPC_TRANSPARENT_R && g < DPC_TRANSPARENT_R && b < DPC_TRANSPARENT_R) {
+      rgba[i + 3] = 0;                                     // fondo "no-data"
+      continue;
+    }
+    var dbz = r * 60 / 255;
+    var rgb = radarLerpStops(stops, dbz);
+    if (!rgb) continue;
+    rgba[i] = Math.round(rgb[0]);
+    rgba[i + 1] = Math.round(rgb[1]);
+    rgba[i + 2] = Math.round(rgb[2]);
+    rgba[i + 3] = Math.round(a * ((rgb[3] === undefined) ? 1 : rgb[3]));
+  }
+}
+var DPCCanvasLayer = null;
+function getDPCCanvasLayer() {
+  if (DPCCanvasLayer) return DPCCanvasLayer;
+  DPCCanvasLayer = L.TileLayer.extend({
+    createTile: function (coords, done) {
+      var cv = L.DomUtil.create("canvas", "leaflet-tile");
+      var size = this.getTileSize();
+      cv.width = size.x;
+      cv.height = size.y;
+      var ctx = null;
+      try { ctx = cv.getContext("2d"); } catch (e) { ctx = null; }
+      if (!ctx) { done("canvas context unavailable"); return cv; }
+      var img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = function () {
+        try { ctx.drawImage(img, 0, 0, size.x, size.y); } catch (e) {}
+        try {
+          var id = ctx.getImageData(0, 0, size.x, size.y);
+          if (id && id.data) { radarRecolorPixels(id.data); ctx.putImageData(id, 0, 0); }
+        } catch (e) {
+          // Canvas tainted (CORS assente): resta il tile originale gia' disegnato.
+        }
+        done(null, cv);
+      };
+      img.onerror = function () { done("tile error"); };
+      img.src = this.getTileUrl(coords);
+      return cv;
+    }
+  });
+  return DPCCanvasLayer;
+}
+function radarLegendHtml() {
+  var ramp = "", ticks = "", last = RADAR_DBZ_SCALE.length - 1;
+  for (var i = 0; i <= last; i++) {
+    ramp += '<span class="radar-sw" title="' + RADAR_DBZ_SCALE[i].dbz +
+      ' dBZ" style="background:' + RADAR_DBZ_SCALE[i].color + '"></span>';
+    ticks += '<span class="radar-tick">' +
+      (i % 2 === 0 ? RADAR_DBZ_SCALE[i].dbz + (i === last ? "+" : "") : "") + '</span>';
+  }
+  var eq = [];
+  for (var d = 10; d <= 60; d += 10) eq.push(d + " dBZ ≈ " + radarFmtMmh(radarDbzToMmh(d)) + " mm/h");
+  return '<div class="radar-legend" title="Riflettività VMI ricolorata con la palette Universal Blue, la stessa della versione completa">' +
+    '<div class="radar-note"><b>Riflettività dBZ</b> · Universal Blue (VMI DPC)</div>' +
+    '<div class="radar-ramp">' + ramp + '</div>' +
+    '<div class="radar-ticks">' + ticks + '</div>' +
+    '<div class="radar-note">mm/h (stima Z=200·R<sup>1,6</sup>): ' + eq.join(" · ") + '</div>' +
+    '<div class="radar-note">Tile lossy (±1-2 dBZ); la VMI è il massimo sulla verticale. Gli altri prodotti DPC (SRI, cumulate) sono nella <a href="../" title="Apri la versione completa (Pro) per gli altri prodotti radar DPC">versione completa</a>.</div>' +
+    '</div>';
+}
+
 function loadRadar() {
   setStatus("Caricamento stato radar…");
   getJSON(DATA.radar).then(function (r) {
@@ -714,8 +1287,8 @@ function loadRadar() {
     var url = r.radar_timestamp ? dpcTileUrl(r.radar_timestamp) : null;
     var failed = false;
     if (url) {
-      state.radarLayer = L.tileLayer(url, { maxNativeZoom: 7, maxZoom: 12, opacity: 0.8,
-        attribution: 'Radar-DPC (CC BY-SA 4.0)', errorTileUrl: "" });
+      state.radarLayer = new (getDPCCanvasLayer())(url, { maxNativeZoom: 7, maxZoom: 12,
+        opacity: 0.9, attribution: "Radar-DPC (CC BY-SA 4.0)" });
       state.radarLayer.on("tileerror", function () { failed = true; });
       state.radarLayer.addTo(state.map);
     }
@@ -916,7 +1489,23 @@ window.setLayer = setLayer;
 window.closeCard = closeCard;
 window.setHourlyLimit = setHourlyLimit;
 window.stationsVarChanged = stationsVarChanged;
-window.SimpleApp = { selectProvince: selectProvince, setLayer: setLayer };
+window.selectTab = selectTab;
+window.selectDay = selectDay;
+window.dayKey = dayKey;
+window.geoInputChanged = geoInputChanged;
+window.geoKeyDown = geoKeyDown;
+window.geoPick = geoPick;
+window.geoRowKey = geoRowKey;
+window.SimpleApp = {
+  selectProvince: selectProvince, setLayer: setLayer, selectTab: selectTab,
+  selectDay: selectDay, geoInputChanged: geoInputChanged, geocodeComune: geocodeComune,
+  state: state
+};
+// Chiude la lista dei risultati cliccando fuori dal campo di ricerca.
+document.addEventListener("click", function (ev) {
+  var wrap = document.querySelector(".geo-wrap");
+  if (wrap && !wrap.contains(ev.target)) closeGeoList();
+});
 })();
 </script>
 </body>
