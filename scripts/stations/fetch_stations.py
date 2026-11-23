@@ -26,7 +26,52 @@ COSA PUBBLICA
                  wind_speed_10m, wind_direction_10m,
                  precipitation, precipitation_period_s, dew_point_2m?,
                  station_pressure_hPa?, wind_gust_10m?, snow_depth_m?,
-                 fresh_snow_depth_m?, river_level_m?}]}
+                 fresh_snow_depth_m?, river_level_m?,
+
+                 # 1.3.0.56: DERIVATI DALLE SERIE (additivi, retrocompatibili)
+                 rain_1h_mm?, rain_3h_mm?,
+                 rain_1h_coverage_frac?, rain_3h_coverage_frac?,
+                 rain_1h_null_reason?, rain_3h_null_reason?,
+                 rain_period_s_used?, rain_source_product?,
+                 rain_3h_period_s?, rain_3h_product?, rain_window_end?,
+                 rain_hourly?, rain_qc_rejected?,
+                 gust_max_1h_ms?, gust_max_3h_ms?,
+                 gust_max_1h_coverage_frac?, gust_max_3h_coverage_frac?,
+                 gust_max_1h_null_reason?, gust_max_3h_null_reason?,
+                 gust_period_s?, gust_source_product?, gust_window_end?,
+                 gust_hourly?,
+                 wind_mean_1h_ms?, wind_mean_3h_ms?,
+                 wind_mean_1h_coverage_frac?, wind_mean_3h_coverage_frac?,
+                 wind_mean_1h_null_reason?, wind_mean_3h_null_reason?,
+                 wind_max_3h_ms?, wind_source?, wind_period_s?,
+                 wind_source_product?, wind_window_end?, wind_hourly?,
+                 wind_qc_rejected?}]}
+
+DERIVATI DALLE SERIE (1.3.0.56)
+-------------------------------
+`_latest_value` prende UNA osservazione: per una cumulata di pioggia o una
+media del vento serve la SERIE, che l'API gia' restituisce (166-181 valori a
+60 s su 3 h per le reti DPC, 35 a 5 min, 12 a 15 min, 1 a 60 min). I campi
+`rain_*`, `gust_*` e `wind_*` sono calcolati dalla serie e sono ADDITIVI: un
+client che non li conosce continua a leggere gli stessi campi di prima.
+
+Unita': pioggia in mm, vento e raffica in m/s (NESSUN km/h: le centraline
+danno m/s e una conversione qui sarebbe un errore di unita' nascosto nel
+payload; converte il client). Coperture in frazione 0..1 del tempo.
+
+Regole (dichiarate anche in `derived_fields` del documento):
+  * `rain_1h_mm`/`rain_3h_mm` = integrale su [ultimo dato - 1h/3h, ultimo
+    dato]: la finestra segue il DATO, non `now`, perche' con ~32 min di
+    latenza mediana una finestra ancorata a `now` starebbe sotto il 50% di
+    copertura quasi sempre;
+  * prodotto scelto per COPERTURA migliore (a pari copertura il periodo piu'
+    fine), NON per `ref` piu' recente;
+  * `*_null_reason = coverage_below_50pct` sotto il 50% di copertura;
+  * gate fisico: pioggia oltre 300 mm/h (o negativa) scartata e contata in
+    `rain_qc_rejected` / `counts.rain_points_qc_rejected`; vento oltre 60 m/s
+    e raffica oltre 75 m/s idem;
+  * campo ASSENTE = grandezza non disponibile (come `visibility`); `null` =
+    c'e' ma non passa il gate, e porta SEMPRE il motivo (contratto #207).
 
 Campi aggiuntivi (verificati su /api/observations anonimo, HTTP 200, 4.455
 stazioni, licenza CCBY_COMPLIANT): B10004 = pressione di STAZIONE al livello
@@ -149,7 +194,14 @@ LIMITS = {
     "river_level_m": (-50.0, 100.0),         # m, quota idrologica locale
 }
 
-DEFAULT_MAX_BYTES = 1_500_000  # target dichiarato dal committente
+# Budget del file completo in byte. NON e' un limite della piattaforma: e' il
+# tetto oltre il quale il run si ferma e l'ultimo dataset valido resta in piedi.
+# MISURATO il 2026-11-23 con i campi derivati dalle serie (1.3.0.56): 2.780.971
+# byte / 4.944 stazioni contro 1.219.893 della 1.3.0.55 (+1.561.078). Il costo in
+# GIT e' molto minore del grezzo perche' i blob sono compressi: gzip 215.900 B
+# contro 161.665 (+54.235 B per commit, ~8 MB/giorno a 144 run).
+# 3.600.000 = misurato + ~29% di margine per la crescita delle reti.
+DEFAULT_MAX_BYTES = 3_600_000
 
 # Indice compatto per il client (index.json): stesse stazioni di latest.json,
 # senza le serie orarie. Misurato il 2026-10-27 sul file reale (4.137 stazioni):
@@ -178,6 +230,10 @@ INDEX_STATION_FIELDS = (
     "fresh_snow_depth_m",     # B13012
     "river_level_m",          # B13215, idrologico (separato dal meteo)
 )
+# Campi calcolati dalle SERIE che si aggiungono all'indice SOLO se il budget
+# gzip lo consente (misurato a ogni run, non stimato). Ordine = priorita' per il
+# layer LIVE: prima la pioggia, poi la raffica, poi il vento medio.
+INDEX_EXTRA_FIELDS = ("rain_1h_mm", "gust_max_1h_ms", "wind_mean_1h_ms")
 # Budget dell'indice compattato in byte GZIP. NON e' un limite della piattaforma:
 # e' un tetto scelto per tenere il payload leggero. Storico: 120 KiB (122.880 B)
 # con 4.137 stazioni, misurato 101.258 B (margine 17%). MISURATO il 2026-11-23 su
@@ -329,6 +385,659 @@ def trange_period_seconds(trange: str) -> int | None:
     return period if period > 0 else None
 
 
+def trange_offset_seconds(trange: str) -> int | None:
+    """P2 del trange (`1,1800,3600` -> 1800): lo scostamento rispetto al `ref`.
+
+    Tutti i prodotti B13011/B11002/B11041 osservati (28 reti, 2026-11-23) hanno
+    P2 = 0, ma assumere P2 = 0 in generale sarebbe un'ipotesi non dichiarata: se
+    comparisse un `1,1800,3600` l'integrale userebbe il tempo sbagliato.
+    """
+    parts = (trange or "").split(",")
+    if len(parts) != 3:
+        return None
+    try:
+        offset = int(parts[1])
+    except ValueError:
+        return None
+    return offset if offset >= 0 else None
+
+
+def trange_stat_type(trange: str) -> int | None:
+    """Primo campo del trange: 0 min, 1 somma, 2 massimo, 3 media, 254 istantaneo.
+
+    Mappatura MISURATA, non presa da un manuale: B13011 (TOTAL PRECIPITATION) e'
+    un accumulo e usa `1,0,P`; B11041 (MAXIMUM WIND GUST) e' un massimo e usa
+    `2,0,P`; B11002 (WIND SPEED) compare sia come istantaneo `254,0,0` sia come
+    media `3,0,3600` sia come minimo `0,0,900` (2026-11-23, 5.097 record). La
+    coerenza interna lo conferma: la raffica `2,0,900` di `locali` (3,5 m/s) e'
+    maggiore del vento istantaneo della stessa stazione (2,8 m/s), mentre la
+    lettura "2 = somma" richiederebbe raffiche elementari da 0,23 m/s.
+    """
+    parts = (trange or "").split(",")
+    if len(parts) != 3:
+        return None
+    try:
+        return int(parts[0])
+    except ValueError:
+        return None
+
+
+# --------------------------------------------------------------------------
+# Serie temporali: cumulate di pioggia (mm) e sintesi del vento (m/s)
+#
+# PERCHE' SERVE (misurato il 2026-11-23, non ipotizzato)
+# --------------------------------------------------------------------------
+# `_latest_value` prende UNA sola osservazione. Per un accumulo da 60 s quella
+# osservazione copre 60 s su 3600 (1,7% della finestra): una cumulata oraria
+# costruita cosi' sarebbe geograficamente falsa. L'API restituisce invece la
+# SERIE: 166-181 valori a 60 s su 3 h (dpcn-sicilia/piemonte/lazio/puglia), 35
+# a 5 min (dpcn-liguria), 12 a 15 min (dpcn-marche), 1 a 60 min (mnw).
+#
+# SEMANTICA DEL `ref` (misurata, non assunta)
+# -------------------------------------------
+# `ref` e' la FINE dell'intervallo dell'accumulo: `[ref + P2 - P3, ref + P2]`.
+# Prova: su 20 finestre da 3 h (5 giornate, 2026-11-17..21) le stazioni con due
+# prodotti dello stesso B13011 (900 s e 3600 s) danno la somma dei quattro
+# quarti d'ora uguale al valore orario in **1.634 casi NON ambigui con la
+# lettura "ref = fine" e in 0 casi con "ref = inizio"**. Fisicamente e' anche
+# l'unica lettura possibile: un accumulo e' riferito all'istante di osservazione
+# e copre il periodo PRECEDENTE (la 1.3600 a ref 12:00 copre 11:00-12:00).
+REF_IS_INTERVAL_END = True
+
+# Gate fisici (SCELTE INGEGNERISTICHE, dichiarate nei campi `derived_fields`).
+# Non sono soglie meteorologiche: servono a non pubblicare record rotti. Il caso
+# reale che li motiva e' `dpcn-sicilia:37.90806,15.14528` (Francavilla di
+# Sicilia): 126,6 mm in 60 s = 7.596 mm/h, cioe' 126 mm in un minuto.
+QC_RAIN_MAX_RATE_MM_H = 300.0   # oltre questo il punto di pioggia e' scartato
+QC_WIND_MAX_MS = 60.0           # vento medio oltre questo: record rotto
+QC_GUST_MAX_MS = 75.0           # raffica oltre questo: record rotto
+RAIN_MIN_COVERAGE_FRAC = 0.5    # sotto questa copertura la cumulata e' null
+WIND_MIN_COVERAGE_FRAC = 0.5    # idem per media/massimo del vento
+GUST_MIN_INSIDE_FRAC = 0.5      # un massimo orario entra solo se e' per meta' dentro
+
+RAIN_WINDOWS = (("1h", 3600), ("3h", 10800))
+# Tipi di statistica del trange (misurati, vedi `trange_stat_type`).
+STAT_MIN = 0
+STAT_SUM = 1
+STAT_MAX = 2
+STAT_AVG = 3
+STAT_INSTANT = 254
+WIND_WINDOWS = (("1h", 3600), ("3h", 10800))
+HOURLY_BUCKETS = 4              # ore pubblicate per i bucket (serie da 3 h)
+
+COVERAGE_BELOW_REASON = "coverage_below_50pct"
+
+
+def _accum_interval(ref: datetime, period: int, offset: int) -> tuple[datetime, datetime]:
+    """Intervallo di un accumulo/estremo con `ref` = FINE (vedi REF_IS_INTERVAL_END)."""
+    end = ref + timedelta(seconds=offset)
+    if REF_IS_INTERVAL_END:
+        return end - timedelta(seconds=period), end
+    return end, end + timedelta(seconds=period)
+
+
+def _series_intervals(
+    values: list[tuple[datetime, float]],
+    period: int,
+    offset: int,
+) -> list[tuple[datetime, datetime, int, float]]:
+    """[(inizio, fine, periodo, valore)] di un prodotto con periodo noto."""
+    out = []
+    for ref, value in values:
+        start, end = _accum_interval(ref, period, offset)
+        out.append((start, end, period, value))
+    return out
+
+
+def _instant_intervals(
+    values: list[tuple[datetime, float]],
+    now: datetime,
+) -> list[tuple[datetime, datetime, int, float]]:
+    """[(inizio, fine, 0, valore)] di una serie ISTANTANEA (trange 254,0,0).
+
+    Un'osservazione istantanea vale dal suo `ref` fino al `ref` successivo
+    (sample-and-hold): e' l'unico modo di pesare una media su una serie
+    irregolare senza inventare un passo. L'ultimo campione vale fino a
+    `ref + passo mediano`, mai oltre `now`; con `now` coincidente col `ref` la
+    sua durata e' zero e non entra (non si inventa futuro).
+    """
+    points = sorted(values, key=lambda x: x[0])
+    if not points:
+        return []
+    gaps = sorted(
+        int((b[0] - a[0]).total_seconds()) for a, b in zip(points, points[1:])
+    )
+    step = gaps[len(gaps) // 2] if gaps else 0
+    if step <= 0 or step > 7200:
+        step = 0
+    out = []
+    for index, (ref, value) in enumerate(points):
+        if index + 1 < len(points):
+            end = points[index + 1][0]
+        else:
+            end = min(ref + timedelta(seconds=step), now) if step else ref
+        # Un campione con `ref == now` vale zero secondi: l'intervallo resta in
+        # lista (a zero) perche' il MASSIMO deve vederlo (`_clip` lo scarta per
+        # la media, la lista dei campioni no).
+        out.append((ref, max(end, ref), 0, value))
+    return out
+
+
+def _clip(
+    intervals: list[tuple[datetime, datetime, int, float]],
+    window_start: datetime,
+    window_end: datetime,
+) -> list[tuple[datetime, datetime, int, float]]:
+    out = []
+    for start, end, period, value in intervals:
+        left = max(start, window_start)
+        right = min(end, window_end)
+        if right > left:
+            out.append((left, right, period, value))
+    out.sort(key=lambda item: item[0])
+    return out
+
+
+def _segments(
+    clipped: list[tuple[datetime, datetime, int, float]],
+) -> list[tuple[datetime, datetime, float, int]]:
+    """Segmenti elementari con il valore di UN solo campione (il piu' fine).
+
+    Perche' non `somma(valore * sovrapposizione)` per campione: due campioni che
+    si sovrappongono (la stessa stazione pubblicata due volte, oppure un prodotto
+    con `ref` duplicati) verrebbero contati DUE volte. Lo sweep assegna ogni
+    istante a un solo campione; a parita' di copertura vince il periodo piu'
+    fine, poi il campione piu' recente.
+    """
+    if not clipped:
+        return []
+    positions = sorted({item[0] for item in clipped} | {item[1] for item in clipped})
+    active: list[tuple[datetime, datetime, int, float]] = []
+    cursor = 0
+    segments: list[tuple[datetime, datetime, float, int]] = []
+    for left, right in zip(positions, positions[1:]):
+        while cursor < len(clipped) and clipped[cursor][0] <= left:
+            active.append(clipped[cursor])
+            cursor += 1
+        active = [item for item in active if item[1] > left]
+        if not active:
+            continue
+        chosen = min(active, key=lambda item: (item[2], -item[0].timestamp()))
+        segments.append((left, right, chosen[3], chosen[2]))
+    return segments
+
+
+def _window_stats(
+    intervals: list[tuple[datetime, datetime, int, float]],
+    window_start: datetime,
+    window_end: datetime,
+    metric: str,
+) -> tuple[float | None, float, float]:
+    """(valore, secondi coperti, frazione coperta) su [window_start, window_end].
+
+    metric: "sum" (cumulata), "mean" (media pesata sul tempo), "max".
+    """
+    window_s = (window_end - window_start).total_seconds()
+    if window_s <= 0:
+        return None, 0.0, 0.0
+    segments = _segments(_clip(intervals, window_start, window_end))
+    covered = sum((right - left).total_seconds() for left, right, _, _ in segments)
+    frac = covered / window_s
+    if not segments:
+        return None, 0.0, 0.0
+    if metric == "sum":
+        # il valore e' l'accumulo del periodo del campione: mm * durata/periodo
+        total = 0.0
+        for left, right, value, period in segments:
+            if period <= 0:
+                continue
+            total += value * (right - left).total_seconds() / period
+        return total, covered, frac
+    if metric == "mean":
+        weighted = sum(
+            value * (right - left).total_seconds()
+            for left, right, value, _ in segments
+        )
+        return (weighted / covered if covered else None), covered, frac
+    return max(value for _, _, value, _ in segments), covered, frac
+
+
+def _window_max(
+    intervals: list[tuple[datetime, datetime, int, float]],
+    window_start: datetime,
+    window_end: datetime,
+    min_inside: float = GUST_MIN_INSIDE_FRAC,
+) -> tuple[float | None, float, float]:
+    """Massimo dei campioni il cui intervallo e' ALMENO `min_inside` nella finestra.
+
+    Perche' non "ogni campione che tocca la finestra": una raffica oraria
+    `2,0,3600` che sborda di 20 minuti porta dentro un massimo che potrebbe
+    essere stato raggiunto FUORI dalla finestra; con la regola del 50% il numero
+    resta una stima inferiore onesta e la copertura lo dichiara.
+    """
+    window_s = (window_end - window_start).total_seconds()
+    if window_s <= 0:
+        return None, 0.0, 0.0
+    kept = []
+    for start, end, period, value in intervals:
+        left = max(start, window_start)
+        right = min(end, window_end)
+        if right <= left:
+            continue
+        if (right - left).total_seconds() / (end - start).total_seconds() < min_inside:
+            continue
+        kept.append((left, right, value))
+    if not kept:
+        return None, 0.0, 0.0
+    kept.sort(key=lambda item: item[0])
+    covered = 0.0
+    current_start, current_end = kept[0][0], kept[0][1]
+    for left, right, _ in kept[1:]:
+        if left <= current_end:
+            current_end = max(current_end, right)
+        else:
+            covered += (current_end - current_start).total_seconds()
+            current_start, current_end = left, right
+    covered += (current_end - current_start).total_seconds()
+    return max(item[2] for item in kept), covered, covered / window_s
+
+
+def _data_end(
+    products: dict[str, list[tuple[datetime, datetime, int, float]]],
+    now: datetime,
+) -> datetime | None:
+    """Fine dell'ultimo dato disponibile, mai oltre `now` (niente futuro)."""
+    ends = [item[1] for intervals in products.values() for item in intervals]
+    if not ends:
+        return None
+    return min(max(ends), now)
+
+
+def _period_seconds(trange: str) -> int | None:
+    """P3 del trange, per QUALSIASI tipo di statistica (non solo le somme)."""
+    parts = (trange or "").split(",")
+    if len(parts) != 3:
+        return None
+    try:
+        period = int(parts[2])
+    except ValueError:
+        return None
+    return period if period > 0 else None
+
+
+def _evaluate(
+    intervals: list[tuple[datetime, datetime, int, float]],
+    window_start: datetime,
+    window_end: datetime,
+    metric: str,
+) -> tuple[float | None, float, float]:
+    if metric == "max":
+        return _window_max(intervals, window_start, window_end)
+    return _window_stats(intervals, window_start, window_end, metric)
+
+
+def _best_product(
+    products: dict[str, list[tuple[datetime, datetime, int, float]]],
+    window_start: datetime,
+    window_end: datetime,
+    metric: str,
+) -> dict | None:
+    """Prodotto con la copertura MIGLIORE sulla finestra (poi il periodo piu' fine).
+
+    E' la regola richiesta ed e' quella giusta: con "vince il `ref` piu' recente"
+    un prodotto da 60 s batte sempre uno da 900 s anche se la sua serie ha buchi
+    e quella da 900 s e' completa. La copertura e' la grandezza che conta.
+    """
+    best = None
+    for label in sorted(products):
+        intervals = products[label]
+        value, covered, frac = _evaluate(intervals, window_start, window_end, metric)
+        period = intervals[0][2] if intervals else 0
+        key = (round(frac, 6), -period)
+        if best is None or key > best["key"]:
+            best = {
+                "key": key,
+                "label": label,
+                "period": period,
+                "value": value,
+                "covered": covered,
+                "frac": frac,
+                "intervals": intervals,
+            }
+    return best
+
+
+def _hourly_pairs(
+    intervals: list[tuple[datetime, datetime, int, float]],
+    data_end: datetime,
+    metric: str,
+    hours: int = HOURLY_BUCKETS,
+    min_coverage: float = RAIN_MIN_COVERAGE_FRAC,
+) -> list[list]:
+    """[[epoch_s dell'ora, valore], ...] per le ultime `hours` ore.
+
+    Un'ora entra solo se e' coperta almeno al 50%: l'ora CORRENTE e' parziale per
+    definizione, quindi per lei il denominatore e' il tempo TRASCORSO (altrimenti
+    alle 12:10 nessuna ora corrente potrebbe mai entrare). Per le ore passate il
+    denominatore e' l'ora intera, cosi' la prima ora della serie (tagliata a
+    sinistra) viene scartata invece di essere spacciata per completa.
+    """
+    last_hour = data_end.replace(minute=0, second=0, microsecond=0)
+    rows: list[list] = []
+    for offset in range(hours - 1, -1, -1):
+        start = last_hour - timedelta(hours=offset)
+        full_end = start + timedelta(hours=1)
+        end = min(full_end, data_end)
+        if end <= start:
+            continue
+        value, covered, _ = _evaluate(intervals, start, end, metric)
+        denominator = (
+            (full_end - start).total_seconds()
+            if offset > 0
+            else (end - start).total_seconds()
+        )
+        if value is None or denominator <= 0:
+            continue
+        if covered / denominator < min_coverage:
+            continue
+        rows.append([int(start.timestamp()), _round(value, 1)])
+    return rows
+
+
+def build_rain_block(
+    series: dict[str, list[tuple[datetime, float]]],
+    now: datetime,
+) -> tuple[dict, dict]:
+    """Campi `rain_*` di una stazione dalle serie di accumulo B13011.
+
+    Ritorna ({}, stats) quando la stazione non ha NESSUN prodotto di accumulo:
+    in quel caso non si scrivono campi (campo assente = grandezza non
+    disponibile, come per `visibility`), non si scrivono null finti.
+
+    Regole, tutte dichiarate in `derived_fields` del documento:
+      * `rain_<W>_mm` = integrale su [fine - W, fine], dove `fine` e' l'ultimo
+        dato disponibile della stazione (mai oltre `now`): con la latenza
+        mediana della sorgente (~32 min) ancorare a `now` darebbe < 50% di
+        copertura a quasi tutte le stazioni e la cumulata sarebbe sempre null.
+      * prodotto scelto per COPERTURA, a parita' il periodo piu' fine;
+      * gate fisico: rate istantaneo > 300 mm/h o valore negativo -> punto
+        scartato e contato in `rain_qc_rejected`.
+    """
+    rejected = [0]
+    products: dict[str, list[tuple[datetime, datetime, int, float]]] = {}
+    for trange, values in series.items():
+        if trange_stat_type(trange) != STAT_SUM:
+            continue
+        period = _period_seconds(trange)
+        if period is None:
+            continue
+        offset = trange_offset_seconds(trange) or 0
+        intervals = []
+        for ref, value in values:
+            rate = value * 3600.0 / period
+            if value < 0 or rate > QC_RAIN_MAX_RATE_MM_H:
+                rejected[0] += 1
+                continue
+            start, end = _accum_interval(ref, period, offset)
+            intervals.append((start, end, period, value))
+        if intervals:
+            products[trange] = intervals
+    stats = {"points_qc_rejected": rejected[0]}
+    if not products:
+        return {}, stats
+    data_end = _data_end(products, now)
+    if data_end is None:
+        return {}, stats
+
+    fields: dict = {}
+    chosen: dict[str, dict] = {}
+    for name, seconds in RAIN_WINDOWS:
+        start = data_end - timedelta(seconds=seconds)
+        best = _best_product(products, start, data_end, "sum")
+        if best is None:
+            continue
+        chosen[name] = best
+        fields[f"rain_{name}_coverage_frac"] = _round(best["frac"], 3)
+        if best["value"] is not None and best["frac"] >= RAIN_MIN_COVERAGE_FRAC:
+            fields[f"rain_{name}_mm"] = _round(best["value"], 1)
+        else:
+            fields[f"rain_{name}_mm"] = None
+            fields[f"rain_{name}_null_reason"] = COVERAGE_BELOW_REASON
+    if not chosen:
+        return {}, stats
+
+    primary = chosen.get("1h") or chosen.get("3h")
+    fields["rain_period_s_used"] = int(primary["period"])
+    fields["rain_source_product"] = primary["label"]
+    wide = chosen.get("3h")
+    if wide is not None and wide["label"] != primary["label"]:
+        # il prodotto migliore delle due finestre puo' non essere lo stesso:
+        # si dichiara invece di far credere che il periodo sia unico.
+        fields["rain_3h_period_s"] = int(wide["period"])
+        fields["rain_3h_product"] = wide["label"]
+    fields["rain_window_end"] = data_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+    hourly_source = (wide or primary)["intervals"]
+    hourly = _hourly_pairs(hourly_source, data_end, "sum")
+    if hourly:
+        fields["rain_hourly"] = hourly
+    return fields, stats
+
+
+def build_wind_block(
+    speed_series: dict[str, list[tuple[datetime, float]]],
+    gust_series: dict[str, list[tuple[datetime, float]]],
+    now: datetime,
+    last_speed: float | None = None,
+    last_gust: float | None = None,
+    last_gust_period_s: int | None = None,
+) -> tuple[dict, dict]:
+    """Campi del VENTO: raffica massima, vento medio, massimo del vento medio.
+
+    Il vento NON si accumula: sommare velocita' non ha senso fisico. Le
+    grandezze pubblicate sono quindi un MASSIMO e una MEDIA pesata sul tempo.
+
+    Sorgenti possibili nella serie (misurate il 2026-11-23 su 5.097 record):
+      * B11002 `254,0,0` istantaneo -> la serie esiste (1.716 prodotti);
+      * B11002 `3,0,N` media, `0,0,N` minimo, `200,0,N` tipo non documentato;
+      * B11041 `2,0,N` raffica = massimo.
+    Si usano SOLO i tipi che hanno un senso fisico per la grandezza: media e
+    massimo non si mescolano (la media di un massimo non e' una media e il
+    massimo di una media non e' un massimo). Il tipo `200` non e' documentato
+    qui e viene IGNORATO: meglio perdere risoluzione che indovinare.
+
+    Senza serie (o con serie che non copre) si ripiega sull'ultimo valore
+    (`last_speed`/`last_gust`) marcato `wind_source = "latest_only"`: e' quello
+    che il file faceva gia' con `wind_speed_10m`/`wind_gust_10m`, reso esplicito.
+    """
+    stats = {"points_qc_rejected": 0, "ignored_stats": []}
+
+    def _products(raw_series, allowed_stats, max_value):
+        products = {}
+        for trange, values in raw_series.items():
+            stat = trange_stat_type(trange)
+            if stat not in allowed_stats:
+                if trange not in stats["ignored_stats"]:
+                    stats["ignored_stats"].append(trange)
+                continue
+            if stat == STAT_INSTANT:
+                intervals = _instant_intervals(values, now)
+            else:
+                period = _period_seconds(trange)
+                if period is None:
+                    continue
+                offset = trange_offset_seconds(trange) or 0
+                intervals = [
+                    (*_accum_interval(ref, period, offset), period, value)
+                    for ref, value in values
+                ]
+            kept = []
+            for start, end, period, value in intervals:
+                if value < 0 or value > max_value:
+                    stats["points_qc_rejected"] += 1
+                    continue
+                kept.append((start, end, period, value))
+            if kept:
+                products[trange] = kept
+        return products
+
+    speed_products = _products(speed_series, (STAT_INSTANT, STAT_AVG), QC_WIND_MAX_MS)
+    gust_products = _products(gust_series, (STAT_MAX,), QC_GUST_MAX_MS)
+
+    def _pick(products, window_start, window_end, metric):
+        """Istantaneo se copre >= 50%, altrimenti il migliore per copertura.
+
+        Perche' non sempre "copertura migliore": il massimo su una finestra deve
+        essere >= di ogni valore osservato nella finestra. Mescolando medie
+        orarie (`3,0,3600`) e istantanei (`254,0,0`) quell'invariante CADE:
+        misurato il 2026-11-23, 753 confronti su 1.494 davano il massimo delle
+        medie MINORE dell'ultimo istantaneo (arpafvg 2,9 m/s contro 0,9). Quindi
+        si preferisce la serie istantanea quando e' utilizzabile, e si ripiega
+        sulle medie solo quando l'istantanea non copre.
+        """
+        instant = {
+            label: intervals
+            for label, intervals in products.items()
+            if trange_stat_type(label) == STAT_INSTANT
+        }
+        if instant:
+            best = _best_product(instant, window_start, window_end, metric)
+            if best is not None and best["frac"] >= WIND_MIN_COVERAGE_FRAC:
+                return best
+        return _best_product(products, window_start, window_end, metric)
+
+    fields: dict = {}
+    speed_end = _data_end(speed_products, now)
+    if speed_products and speed_end is not None:
+        wide_start = speed_end - timedelta(seconds=dict(WIND_WINDOWS)["3h"])
+        for name, seconds in WIND_WINDOWS:
+            start = speed_end - timedelta(seconds=seconds)
+            best = _pick(speed_products, start, speed_end, "mean")
+            if best is None:
+                continue
+            fields[f"wind_mean_{name}_coverage_frac"] = _round(best["frac"], 3)
+            if best["value"] is not None and best["frac"] >= WIND_MIN_COVERAGE_FRAC:
+                fields[f"wind_mean_{name}_ms"] = _round(best["value"], 1)
+            else:
+                fields[f"wind_mean_{name}_ms"] = None
+                fields[f"wind_mean_{name}_null_reason"] = COVERAGE_BELOW_REASON
+        wide = _pick(speed_products, wide_start, speed_end, "mean")
+        if (
+            wide is not None
+            and wide["frac"] >= WIND_MIN_COVERAGE_FRAC
+            and trange_stat_type(wide["label"]) == STAT_INSTANT
+        ):
+            # Il massimo si pubblica SOLO da una serie ISTANTANEA: il massimo di
+            # una serie di MEDIE orarie non e' "il massimo del vento" e romperebbe
+            # l'invariante `wind_max_3h_ms >= wind_speed_10m` (misurato il
+            # 2026-11-23: 753 casi su 1.494). Il criterio e' costruttivo, non un
+            # ritocco a posteriori del numero.
+            # Massimo dei CAMPIONI con `ref` nella finestra: cosi' entra anche
+            # l'ultimo istantaneo, che nei segmenti ha durata zero e sparirebbe.
+            samples = [
+                value
+                for start, _end, _period, value in speed_products[wide["label"]]
+                if wide_start <= start <= speed_end
+            ]
+            peak = max(samples) if samples else None
+            if peak is not None:
+                fields["wind_max_3h_ms"] = _round(peak, 1)
+        first = _pick(
+            speed_products,
+            speed_end - timedelta(seconds=dict(WIND_WINDOWS)["1h"]),
+            speed_end,
+            "mean",
+        )
+        if first is not None:
+            fields["wind_period_s"] = int(first["period"])
+            fields["wind_source_product"] = first["label"]
+        fields["wind_source"] = "series"
+        fields["wind_window_end"] = speed_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+        hourly_source = (wide or first)["intervals"]
+        hourly = _hourly_pairs(hourly_source, speed_end, "mean")
+        if hourly:
+            fields["wind_hourly"] = hourly
+        best_frac = max(
+            fields.get("wind_mean_1h_coverage_frac") or 0.0,
+            fields.get("wind_mean_3h_coverage_frac") or 0.0,
+        )
+        if best_frac <= 0.0:
+            # La serie esiste ma non copre NULLA (tipico di `mnw`: un solo
+            # campione istantaneo, durata zero). Non si pubblica una serie
+            # inutilizzabile: si ripiega sull'ultimo valore, marcato.
+            # MISURATO il 2026-11-23: 217 stazioni finivano con serie + null
+            # invece del ripiego `latest_only` che il client puo' usare.
+            # Una copertura PARZIALE (>0 ma <50%) resta invece null con motivo:
+            # li' l'informazione "c'e' ma non basta" e' utile.
+            for key in (
+                "wind_source_product",
+                "wind_period_s",
+                "wind_hourly",
+                "wind_window_end",
+                "wind_mean_1h_coverage_frac",
+                "wind_mean_3h_coverage_frac",
+                "wind_mean_1h_null_reason",
+                "wind_mean_3h_null_reason",
+                "wind_mean_1h_ms",
+                "wind_mean_3h_ms",
+                "wind_max_3h_ms",
+            ):
+                fields.pop(key, None)
+            if last_speed is not None:
+                fields["wind_mean_1h_ms"] = _round(last_speed, 1)
+                fields["wind_source"] = "latest_only"
+            else:
+                fields.pop("wind_source", None)
+    elif last_speed is not None:
+        # Ripiego DICHIARATO: un'osservazione non e' una media su un'ora.
+        fields["wind_mean_1h_ms"] = _round(last_speed, 1)
+        fields["wind_source"] = "latest_only"
+
+    gust_end = _data_end(gust_products, now)
+    if gust_products and gust_end is not None:
+        for name, seconds in WIND_WINDOWS:
+            start = gust_end - timedelta(seconds=seconds)
+            best = _best_product(gust_products, start, gust_end, "max")
+            if best is None:
+                continue
+            fields[f"gust_max_{name}_coverage_frac"] = _round(best["frac"], 3)
+            if best["value"] is not None and best["frac"] >= WIND_MIN_COVERAGE_FRAC:
+                fields[f"gust_max_{name}_ms"] = _round(best["value"], 1)
+            else:
+                fields[f"gust_max_{name}_ms"] = None
+                fields[f"gust_max_{name}_null_reason"] = COVERAGE_BELOW_REASON
+        first = _best_product(
+            gust_products,
+            gust_end - timedelta(seconds=dict(WIND_WINDOWS)["1h"]),
+            gust_end,
+            "max",
+        )
+        if first is not None:
+            fields["gust_period_s"] = int(first["period"])
+            fields["gust_source_product"] = first["label"]
+        wide_g = _best_product(
+            gust_products,
+            gust_end - timedelta(seconds=dict(WIND_WINDOWS)["3h"]),
+            gust_end,
+            "max",
+        )
+        hourly = _hourly_pairs((wide_g or first)["intervals"], gust_end, "max")
+        if hourly:
+            fields["gust_hourly"] = hourly
+        fields["gust_window_end"] = gust_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+    elif last_gust is not None and last_gust_period_s == 3600:
+        # `2,0,3600` e' davvero un massimo ORARIO della sorgente: pubblicarlo
+        # come `gust_max_1h_ms` e' corretto. Con `2,0,900` sarebbe un massimo di
+        # 15 minuti e NON si pubblica (resta `wind_gust_10m`, dichiarato "non
+        # normalizzato" nel suo `derived_fields`).
+        fields["gust_max_1h_ms"] = _round(last_gust, 1)
+        fields["gust_source"] = "latest_only"
+        fields["gust_period_s"] = 3600
+
+    if not fields:
+        stats.pop("points_qc_rejected", None)
+    return fields, stats
+
+
 def dew_point_c(temp_c: float, rh_pct: float) -> float | None:
     """Punto di rugiada con Magnus (Alduchov & Eskridge 1996).
 
@@ -457,6 +1166,26 @@ def normalize_payload(
     cells: dict[tuple, dict] = {}
     meta: dict[tuple, dict] = {}
 
+    # Serie COMPLETE: {chiave stazione: {trange: [(ref, valore)]}}. Si conservano
+    # tutti i punti, non solo l'ultimo: e' il difetto che rendeva impossibile una
+    # cumulata (un accumulo da 60 s copre l'1,7% di un'ora).
+    rain_series: dict[tuple, dict[str, list[tuple[datetime, float]]]] = {}
+    speed_series: dict[tuple, dict[str, list[tuple[datetime, float]]]] = {}
+    gust_series: dict[tuple, dict[str, list[tuple[datetime, float]]]] = {}
+    # Periodo dell'ultima raffica (trange `2,0,N`): la sorgente NON la normalizza.
+    gust_last_period: dict[tuple, int] = {}
+    # contatori dei campi derivati dalle serie (pubblicati in `counts`)
+    stations_with_rain_series = 0
+    stations_with_rain_1h = 0
+    stations_with_rain_3h = 0
+    stations_with_wind_series = 0
+    stations_with_gust_1h = 0
+    stations_with_wind_mean_1h = 0
+    rain_points_qc_rejected = 0
+    wind_points_qc_rejected = 0
+    stations_rain_qc_rejected = 0
+    stations_wind_qc_rejected = 0
+
     for entry in payload.get("data") or []:
         stat = entry.get("stat") or {}
         net = stat.get("net")
@@ -584,10 +1313,12 @@ def normalize_payload(
             if not candidates:
                 continue
             best = None
+            best_prod = None
             for prod in candidates:
                 latest = _latest_value(prod.get("val") or [], cutoff, counters)
                 if latest and (best is None or latest["ref"] > best["ref"]):
                     best = latest
+                    best_prod = prod
             if not best or not isinstance(best["value"], (int, float)):
                 continue
             value = float(best["value"]) / scale
@@ -597,6 +1328,46 @@ def normalize_payload(
             current = fields.get(field)
             if current is None or best["ref"] > current["ref"]:
                 fields[field] = {"value": _round(value, digits), "ref": best["ref"]}
+                if code == VAR_GUST and best_prod is not None:
+                    # il periodo della sorgente viaggia con la raffica: `2,0,3600`
+                    # e' un massimo orario, `2,0,900` no. Serve per non spacciare
+                    # un massimo di 15 minuti per un massimo di un'ora.
+                    gust_last_period[key] = _period_seconds(
+                        str(best_prod.get("trange") or "")
+                    ) or 0
+
+        # SERIE (pioggia e vento): si raccolgono TUTTI i punti di ogni prodotto,
+        # non solo l'ultimo. Nessun filtro di eta' qui: la finestra della query e'
+        # gia' 180 minuti e `build_*_block` ancora la finestra all'ultimo dato.
+        for prod in prods:
+            code = prod.get("var")
+            if code not in (VAR_PRECIP, VAR_WSPD, VAR_GUST):
+                continue
+            values = prod.get("val") or []
+            if not values:
+                continue
+            trange = str(prod.get("trange") or "")
+            if trange_stat_type(trange) is None:
+                continue
+            target = (
+                rain_series
+                if code == VAR_PRECIP
+                else speed_series
+                if code == VAR_WSPD
+                else gust_series
+            )
+            points = target.setdefault(key, {}).setdefault(trange, [])
+            for item in values:
+                try:
+                    ref = parse_ref(item["ref"])
+                except (KeyError, ValueError):
+                    continue
+                value = item.get("val")
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    continue
+                value = float(value)
+                if math.isfinite(value):
+                    points.append((ref, value))
 
     stations = []
     excluded_no_data = 0
@@ -636,6 +1407,42 @@ def normalize_payload(
                 dp = _round(dp, 1)
                 if _in_limits("dew_point_2m", dp):
                     record["dew_point_2m"] = dp
+
+        # --- cumulate di pioggia e sintesi del vento (dalle serie) ---
+        if key in rain_series:
+            stations_with_rain_series += 1
+            rain_fields, rain_stats = build_rain_block(rain_series[key], generated_at)
+            record.update(rain_fields)
+            rejected = rain_stats.get("points_qc_rejected", 0)
+            rain_points_qc_rejected += rejected
+            if rejected:
+                stations_rain_qc_rejected += 1
+            if record.get("rain_1h_mm") is not None:
+                stations_with_rain_1h += 1
+            if record.get("rain_3h_mm") is not None:
+                stations_with_rain_3h += 1
+            if rejected:
+                record["rain_qc_rejected"] = rejected
+        if key in speed_series or key in gust_series:
+            stations_with_wind_series += 1
+            wind_fields, wind_stats = build_wind_block(
+                speed_series.get(key, {}),
+                gust_series.get(key, {}),
+                generated_at,
+                last_speed=record.get("wind_speed_10m"),
+                last_gust=record.get("wind_gust_10m"),
+                last_gust_period_s=gust_last_period.get(key),
+            )
+            record.update(wind_fields)
+            rejected = wind_stats.get("points_qc_rejected", 0)
+            wind_points_qc_rejected += rejected
+            if rejected:
+                stations_wind_qc_rejected += 1
+                record["wind_qc_rejected"] = rejected
+            if record.get("gust_max_1h_ms") is not None:
+                stations_with_gust_1h += 1
+            if record.get("wind_mean_1h_ms") is not None:
+                stations_with_wind_mean_1h += 1
         stations.append(record)
 
     # ordine deterministico: i diff git restano leggibili
@@ -676,6 +1483,26 @@ def normalize_payload(
             "snow_depth_m": "m",
             "fresh_snow_depth_m": "m",
             "river_level_m": "m",
+            # Campi derivati dalle SERIE (non dall'ultimo valore).
+            "rain_1h_mm": "mm",
+            "rain_3h_mm": "mm",
+            "rain_1h_coverage_frac": "1",
+            "rain_3h_coverage_frac": "1",
+            "rain_period_s_used": "s",
+            "rain_hourly": "mm",
+            "gust_max_1h_ms": "m/s",
+            "gust_max_3h_ms": "m/s",
+            "gust_max_1h_coverage_frac": "1",
+            "gust_max_3h_coverage_frac": "1",
+            "wind_mean_1h_ms": "m/s",
+            "wind_mean_3h_ms": "m/s",
+            "wind_mean_1h_coverage_frac": "1",
+            "wind_mean_3h_coverage_frac": "1",
+            "wind_max_3h_ms": "m/s",
+            "gust_hourly": "m/s",
+            "wind_hourly": "m/s",
+            "gust_period_s": "s",
+            "wind_period_s": "s",
         },
         "max_age_minutes": max_age_minutes,
         "omitted_fields": {
@@ -712,6 +1539,52 @@ def normalize_payload(
                 "sintetico `<rete>:<lat>,<lon>` a "
                 f"{id_decimals} decimali (la sorgente non ha un id di stazione)"
             ),
+            "rain_1h_mm/rain_3h_mm": (
+                "integrale delle serie B13011 (TOTAL PRECIPITATION) su "
+                "[fine finestra - 1h/3h, fine finestra]. `ref` di un accumulo = "
+                "FINE dell'intervallo [ref-P3, ref] (misurato: 1.634 casi non "
+                "ambigui con questa lettura, 0 con quella opposta, 5 giornate "
+                "2026-11-17..21). Prodotto scelto per COPERTURA migliore, a pari "
+                "copertura il periodo piu' fine: NON il `ref` piu' recente. "
+                "Una cumulata vale solo se copre >= 50% della finestra, altrimenti "
+                "e' null con motivo. `fine finestra` = ultimo dato della stazione "
+                "(vedi rain_window_end), non `now`: con la latenza mediana della "
+                "sorgente (~32 min) ancorare a now darebbe <50% quasi sempre"
+            ),
+            "rain_hourly": (
+                "bucket orari [[epoch_s dell'ora, mm], ...] delle ultime "
+                f"{HOURLY_BUCKETS} ore, dallo STESSO prodotto scelto per la 3h. "
+                "Un'ora entra solo se coperta >=50% (l'ora corrente vale per il "
+                "tempo TRASCORSO). In UTC: il fuso Europe/Rome ha offset interi, "
+                "quindi i confini di ora locali coincidono con quelli UTC"
+            ),
+            "gust_max_1h_ms/gust_max_3h_ms": (
+                "MASSIMO (non somma) delle serie B11041 (MAXIMUM WIND GUST SPEED, "
+                "trange 2,0,N) il cui intervallo sta almeno al 50% nella finestra. "
+                "`wind_gust_10m` NON e' normalizzato a 10 minuti: il periodo della "
+                "sorgente viaggia in `gust_period_s` e non viene corretto"
+            ),
+            "wind_mean_1h_ms/wind_mean_3h_ms": (
+                "MEDIA pesata sul tempo delle serie B11002 (WIND SPEED) istantanee "
+                "(254,0,0, sample-and-hold) o medie (3,0,N). Un istantaneo vale dal "
+                "suo ref al ref successivo: e' l'unico modo di pesare una serie "
+                "irregolare senza inventare un passo. Il tipo `200` non e' "
+                "documentato e viene ignorato"
+            ),
+            "wind_max_3h_ms": (
+                "massimo del vento medio istantaneo nella finestra di 3 h "
+                "(non e' una raffica: per quella vale gust_max_3h_ms)"
+            ),
+            "wind_source": (
+                "`series` = media/integrale dalle serie; `latest_only` = serie "
+                "assente o insufficiente, si pubblica l'ULTIMO valore marcato: "
+                "non e' una media su un'ora"
+            ),
+            "campo assente = grandezza non disponibile": (
+                "come per `visibility`: se la stazione non ha la serie non si "
+                "scrive un null finto. `null` invece significa 'c'e' ma non "
+                "supera il gate', e porta SEMPRE `*_null_reason`"
+            ),
         },
         "counts": {
             "stations": len(stations),
@@ -723,6 +1596,19 @@ def normalize_payload(
             "stations_with_duplicate_record": merged_duplicates,
             "stations_fallback_trange": fallback_trange,
             "id_collisions_at_4_decimals": id_collisions_4dec,
+            "stations_with_rain_series": stations_with_rain_series,
+            "stations_with_rain_1h": stations_with_rain_1h,
+            "stations_with_rain_3h": stations_with_rain_3h,
+            "stations_with_wind_series": stations_with_wind_series,
+            "stations_with_gust_1h": stations_with_gust_1h,
+            "stations_with_wind_mean_1h": stations_with_wind_mean_1h,
+            "rain_points_qc_rejected": rain_points_qc_rejected,
+            "rain_stations_qc_rejected": stations_rain_qc_rejected,
+            "wind_points_qc_rejected": wind_points_qc_rejected,
+            "wind_stations_qc_rejected": stations_wind_qc_rejected,
+            "rain_qc_max_rate_mm_h": QC_RAIN_MAX_RATE_MM_H,
+            "wind_qc_max_ms": QC_WIND_MAX_MS,
+            "gust_qc_max_ms": QC_GUST_MAX_MS,
         },
         "stations": stations,
     }
@@ -797,6 +1683,35 @@ def validate_document(doc: dict, min_stations: int, max_bytes: int) -> list[str]
         if "visibility" in st or "pressure_msl" in st:
             fake = "visibility" if "visibility" in st else "pressure_msl"
             problems.append(f"campo non disponibile `{fake}` pubblicato per {sid}")
+        # Contratto #207: un null senza motivo non e' un'informazione, e' un buco.
+        for prefix, suffix in (
+            ("rain_1h", "mm"),
+            ("rain_3h", "mm"),
+            ("gust_max_1h", "ms"),
+            ("gust_max_3h", "ms"),
+            ("wind_mean_1h", "ms"),
+            ("wind_mean_3h", "ms"),
+        ):
+            field = f"{prefix}_{suffix}"
+            if field in st and st[field] is None and not st.get(f"{prefix}_null_reason"):
+                problems.append(f"null senza motivo: {field} per {sid}")
+        if "rain_source_product" in st and not st.get("rain_period_s_used"):
+            problems.append(f"prodotto di pioggia senza periodo per {sid}")
+        for prefix in ("rain", "gust"):
+            hourly = st.get(f"{prefix}_hourly")
+            if hourly is None:
+                continue
+            if not isinstance(hourly, list) or len(hourly) > 24:
+                problems.append(f"{prefix}_hourly malformato per {sid}")
+                continue
+            for row in hourly:
+                if (
+                    not isinstance(row, list)
+                    or len(row) not in (2, 3)
+                    or not isinstance(row[0], int)
+                ):
+                    problems.append(f"{prefix}_hourly riga non valida per {sid}")
+                    break
     if not doc.get("attribution"):
         problems.append("attribuzione assente")
     size = len(dumps_document(doc).encode("utf-8"))
@@ -820,6 +1735,7 @@ def build_index(
     latest: dict,
     networks: dict | None = None,
     include_names: bool = True,
+    extra_fields: tuple[str, ...] = (),
 ) -> dict:
     """Sottoinsieme di `latest.json` senza le serie: solo i valori correnti.
 
@@ -836,6 +1752,9 @@ def build_index(
     """
     stations = latest.get("stations") or []
     table = networks or {}
+    fields = list(INDEX_STATION_FIELDS) + [
+        name for name in extra_fields if name not in INDEX_STATION_FIELDS
+    ]
     per_network: dict[str, dict] = {}
     for st in stations:
         net = st.get("network")
@@ -852,7 +1771,7 @@ def build_index(
     rows: list[list] = []
     for st in stations:
         row = []
-        for field in INDEX_STATION_FIELDS:
+        for field in fields:
             if field == "name" and not include_names:
                 row.append(None)
             elif field in ("id", "name", "network", "obs_time", "lat", "lon"):
@@ -887,24 +1806,8 @@ def build_index(
         "attribution": latest.get("attribution") or [],
         "bbox": bbox,
         "networks": [per_network[k] for k in sorted(per_network, key=lambda n: (n is None, n))],
-        "units": {
-            key: units[key]
-            for key in (
-                "temperature_2m",
-                "relative_humidity_2m",
-                "wind_speed_10m",
-                "wind_direction_10m",
-                "precipitation",
-                "precipitation_period_s",
-                "station_pressure_hPa",
-                "wind_gust_10m",
-                "snow_depth_m",
-                "fresh_snow_depth_m",
-                "river_level_m",
-            )
-            if key in units
-        },
-        "station_fields": list(INDEX_STATION_FIELDS),
+        "units": {key: units[key] for key in fields if key in units},
+        "station_fields": fields,
         "note": (
             "Stesse stazioni di latest.json, SENZA le serie orarie. Valori "
             "correnti dell'indice arrotondati a 1 decimale per TUTTI i campi "
@@ -979,8 +1882,12 @@ def validate_index(
     if index.get("schema") != INDEX_SCHEMA:
         add(f"schema {index.get('schema')!r} != {INDEX_SCHEMA!r}")
     fields = list(index.get("station_fields") or [])
-    if fields != list(INDEX_STATION_FIELDS):
-        add("station_fields diverso da INDEX_STATION_FIELDS")
+    expected = list(INDEX_STATION_FIELDS)
+    if fields[: len(expected)] != expected:
+        add("station_fields non inizia con INDEX_STATION_FIELDS")
+    for name in fields[len(expected) :]:
+        if name not in INDEX_EXTRA_FIELDS:
+            add(f"campo extra non ammesso nell'indice: {name}")
     if not index.get("attribution"):
         add("attribuzione assente")
     rows = index.get("stations") or []
@@ -1157,38 +2064,58 @@ def main(argv: list[str] | None = None) -> int:
 
     # Indice compatto: si valida PRIMA di scrivere, cosi' non esiste un run in
     # cui latest.json e index.json descrivono stazioni diverse.
-    index = build_index(doc, networks=networks)
-    index_problems = validate_index(index, doc)
-    if index_problems:
-        for problem in index_problems:
-            print(f"[FATAL] indice: {problem}", file=sys.stderr)
-        return 2
-    index_text = dumps_index(index)
-    index_size = len(index_text.encode("utf-8"))
-    index_gz = index_gzip_bytes(index)
-    if index_gz > args.index_max_gzip_bytes:
-        # Degradazione dichiarata: il nome e' il campo opzionale piu' grosso.
-        index = build_index(doc, networks=networks, include_names=False)
-        index["name_omitted"] = True
-        index_problems = validate_index(index, doc)
+    #
+    # I campi derivati dalle serie entrano nell'indice SOLO se il budget gzip lo
+    # consente: si misura il candidato migliore e si degrada in ordine dichiarato
+    # (campi extra -> nomi). Il costo non si stima, si comprime.
+    attempts = (
+        {"extra_fields": INDEX_EXTRA_FIELDS, "include_names": True},
+        {"extra_fields": (), "include_names": True},
+        {"extra_fields": (), "include_names": False},
+    )
+    index = None
+    index_text = ""
+    index_size = 0
+    index_gz = 0
+    for attempt, options in enumerate(attempts):
+        candidate = build_index(doc, networks=networks, **options)
+        if attempt > 0:
+            candidate["index_extra_fields_omitted"] = list(INDEX_EXTRA_FIELDS)
+        if not options["include_names"]:
+            candidate["name_omitted"] = True
+        index_problems = validate_index(candidate, doc)
         if index_problems:
             for problem in index_problems:
                 print(f"[FATAL] indice: {problem}", file=sys.stderr)
             return 2
-        index_text = dumps_index(index)
-        index_size = len(index_text.encode("utf-8"))
-        index_gz = index_gzip_bytes(index)
+        candidate_text = dumps_index(candidate)
+        candidate_size = len(candidate_text.encode("utf-8"))
+        candidate_gz = index_gzip_bytes(candidate)
+        index, index_text, index_size, index_gz = (
+            candidate,
+            candidate_text,
+            candidate_size,
+            candidate_gz,
+        )
+        if candidate_gz <= args.index_max_gzip_bytes:
+            if attempt > 0:
+                print(
+                    f"[WARN] indice {candidate_gz} B gzip: campi extra omessi "
+                    f"({'nomi rimossi' if not options['include_names'] else 'nomi tenuti'})",
+                    file=sys.stderr,
+                )
+            break
         print(
-            f"[WARN] indice {index_gz} B gzip > budget "
-            f"{args.index_max_gzip_bytes} B: nomi rimossi (name_omitted)",
+            f"[WARN] indice {candidate_gz} B gzip > budget "
+            f"{args.index_max_gzip_bytes} B (tentativo {attempt + 1}/{len(attempts)})",
             file=sys.stderr,
         )
-        if index_gz > args.index_max_gzip_bytes:
-            print(
-                f"[WARN] indice ancora sopra budget anche senza nomi "
-                f"({index_gz} B gzip): scritto comunque e dichiarato",
-                file=sys.stderr,
-            )
+    if index_gz > args.index_max_gzip_bytes:
+        print(
+            f"[WARN] indice ancora sopra budget anche nella forma minima "
+            f"({index_gz} B gzip): scritto comunque e dichiarato",
+            file=sys.stderr,
+        )
 
     text = dumps_document(doc)
     out_path = Path(args.out)
