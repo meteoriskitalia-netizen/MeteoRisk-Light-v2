@@ -243,9 +243,9 @@ def test_temp_rh_dew_buckets_and_derivatives():
             [utc_hour(day, 15), 12.0, 11.0, 13.0],
         ],
         rh_hourly=[
-            [utc_hour(day, 13), 80],
-            [utc_hour(day, 14), 82],
-            [utc_hour(day, 15), 84],
+            [utc_hour(day, 13), 80, 70, 88],
+            [utc_hour(day, 14), 82, 72, 90],
+            [utc_hour(day, 15), 84, 74, 92],
         ],
         dew_hourly=[
             [utc_hour(day, 13), 6.0],
@@ -261,7 +261,11 @@ def test_temp_rh_dew_buckets_and_derivatives():
         "15": [11.0, 10.0, 12.0],
         "16": [12.0, 11.0, 13.0],
     }
-    assert rec["rhh"] == {"14": [80.0], "15": [82.0], "16": [84.0]}
+    assert rec["rhh"] == {
+        "14": [80.0, 70.0, 88.0],
+        "15": [82.0, 72.0, 90.0],
+        "16": [84.0, 74.0, 92.0],
+    }
     assert rec["dwh"] == {"14": [6.0], "15": [7.0], "16": [8.0]}
     assert rec["temp_6h_c"] == pytest.approx(11.0)
     assert rec["temp_24h_c"] == pytest.approx(11.0)
@@ -302,3 +306,179 @@ def test_temp_24h_is_partial_at_the_start_of_the_day():
     assert rec["temp_24h_partial"] is True
     assert rec["rh_24h_partial"] is True
     assert rec["dew_24h_partial"] is True
+
+
+# --------------------------------------------------------------------------- #
+# 1.3.0.61: massimo/minimo della GIORNATA dagli stessi bucket orari
+# --------------------------------------------------------------------------- #
+def test_temp_day_extremes_and_local_hours():
+    """Il picco e il minimo della giornata con l'ora locale che li ha prodotti.
+
+    A 03:30 locali (02:30 UTC) con tre bucket (locali 1,2,3) la copertura e'
+    3/4: il valore si pubblica, `temp_day_partial` e' true (giornata non finita).
+    """
+    day = "2026-11-23"
+    obs = station(
+        f"{day}T02:30:00Z",
+        temp_hourly=[
+            [utc_hour(day, 0), 10.0, 9.0, 18.2],
+            [utc_hour(day, 1), 11.0, 10.0, 12.0],
+            [utc_hour(day, 2), 12.0, 2.0, 13.0],
+        ],
+    )
+    rec = bds.build(latest(obs), None, ms(day, 2, 30))["stations"]["IT001"]
+    assert rec["temp_max_day_c"] == pytest.approx(18.2)
+    assert rec["temp_max_day_hour"] == "1"
+    assert rec["temp_min_day_c"] == pytest.approx(2.0)
+    assert rec["temp_min_day_hour"] == "3"
+    assert rec["temp_day_coverage_frac"] == pytest.approx(0.75)
+    assert rec["temp_day_partial"] is True
+    assert "temp_day_null_reason" not in rec
+
+
+def test_temp_day_coverage_40pct_is_null_with_reason():
+    """3 bucket + il punto del run = 4 ore su 10 trascorse: null con motivo."""
+    day = "2026-11-23"
+    rows = [
+        [utc_hour(day, hour), 10.0, 9.0, 11.0]
+        for hour in range(3)
+    ]
+    obs = station(f"{day}T08:30:00Z", temp_hourly=rows)
+    rec = bds.build(latest(obs), None, ms(day, 8, 30))["stations"]["IT001"]
+    assert rec["temp_day_coverage_frac"] == pytest.approx(0.4)
+    assert rec["temp_max_day_c"] is None
+    assert rec["temp_min_day_c"] is None
+    assert rec["temp_max_day_hour"] is None
+    assert rec["temp_day_null_reason"] == "coverage_below_50pct"
+    assert rec["temp_day_partial"] is True
+
+
+def test_temp_day_absent_series_has_no_fields():
+    """Stazione senza temperatura: nessun campo, non un null finto."""
+    day = "2026-11-23"
+    obs = station(f"{day}T08:30:00Z")
+    obs.pop("temperature_2m", None)
+    rec = bds.build(latest(obs), None, ms(day, 8, 30))["stations"]["IT001"]
+    assert "temp_max_day_c" not in rec
+    assert "temp_min_day_c" not in rec
+    assert "temp_day_null_reason" not in rec
+
+
+def test_temp_day_malformed_bucket_is_no_points_today():
+    """Bucket presente ma senza minima/massima: null + `no_points_today`."""
+    day = "2026-11-23"
+    previous = {
+        "schema": bds.SCHEMA,
+        "day": day,
+        "stations": {
+            "IT001": {
+                "name": "",
+                "pts": [[ms(day, 1, 10), None, 80.0, 2.0, 180, 0.0, 900,
+                         5.0, 1010.0, 4.0, 0.0]],
+                "th": {"1": [None, None, None]},
+            }
+        },
+    }
+    doc = bds.build({"schema": "stations/objects", "stations": []}, previous, ms(day, 1, 30))
+    rec = doc["stations"]["IT001"]
+    assert rec["temp_max_day_c"] is None
+    assert rec["temp_day_null_reason"] == "no_points_today"
+
+
+def test_temp_day_full_day_is_not_partial():
+    """24 bucket su 24 alle 23:30 locali: la finestra e' completa."""
+    day = "2026-11-23"
+    rows = [[utc_hour("2026-11-22", 23), 5.0, 4.0, 6.0]]  # ora locale 0
+    for local_hour in range(1, 24):
+        high = 20.0 if local_hour == 14 else 11.0
+        low = 1.0 if local_hour == 6 else 9.0
+        rows.append([utc_hour(day, local_hour - 1), 10.0, low, high])
+    obs = station(f"{day}T22:30:00Z", temp_hourly=rows)
+    rec = bds.build(latest(obs), None, ms(day, 22, 30))["stations"]["IT001"]
+    assert rec["temp_day_coverage_frac"] == pytest.approx(1.0)
+    assert rec["temp_day_partial"] is False
+    assert rec["temp_max_day_c"] == pytest.approx(20.0)
+    assert rec["temp_max_day_hour"] == "14"
+    assert rec["temp_min_day_c"] == pytest.approx(1.0)
+    assert rec["temp_min_day_hour"] == "6"
+
+
+def test_rh_day_extremes():
+    """Umidita': massimo e minimo di oggi dagli stessi bucket `rhh`."""
+    day = "2026-11-23"
+    obs = station(
+        f"{day}T02:30:00Z",
+        rh_hourly=[
+            [utc_hour(day, 0), 80, 70, 95],
+            [utc_hour(day, 1), 82, 72, 90],
+            [utc_hour(day, 2), 84, 61, 88],
+        ],
+    )
+    rec = bds.build(latest(obs), None, ms(day, 2, 30))["stations"]["IT001"]
+    assert rec["rh_max_day_pct"] == 95
+    assert rec["rh_max_day_hour"] == "1"
+    assert rec["rh_min_day_pct"] == 61
+    assert rec["rh_min_day_hour"] == "3"
+    assert rec["rh_day_partial"] is True
+
+
+def test_local_hour_uses_zoneinfo_across_dst():
+    """Ora locale da `zoneinfo`: nessun offset fisso +1/+2.
+
+    2026-03-29: alle 01:00 UTC si passa da 02:00 a 03:00 (CEST).
+    2026-10-25: alle 01:00 UTC si passa da 03:00 CEST a 02:00 CET: l'ora 02
+    compare DUE volte e il dizionario dei bucket puo' tenere una sola chiave.
+    """
+    from datetime import datetime as dt, timezone as tz
+
+    def hour_at(y, mo, d, h, mi=0):
+        return bds.local_hour(int(dt(y, mo, d, h, mi, tzinfo=tz.utc).timestamp()))[1]
+
+    assert hour_at(2026, 3, 29, 0, 30) == 1
+    assert hour_at(2026, 3, 29, 1, 30) == 3
+    assert hour_at(2026, 10, 25, 0, 30) == 2
+    assert hour_at(2026, 10, 25, 1, 30) == 2
+
+
+def _point(day: str, utc_hour: int, temp=10.0, rh=80.0) -> list:
+    return [ms(day, utc_hour, 10), temp, rh, 2.0, 180, 0.0, 900, 5.0, 1010.0, 4.0, 0.0]
+
+
+def test_cold_start_backfills_buckets_from_points():
+    """Blob vecchio senza `th`: le ore si ricavano dai punti gia' in `pts`.
+
+    Il run corrente non pubblica la stazione (latest vuoto), quindi restano i
+    punti del blob precedente: senza backfill `temp_max_day_c` sarebbe null con
+    `coverage_below_50pct` per mezza giornata.
+    """
+    day = "2026-11-23"
+    pts = [_point(day, hour, temp=10.0 + hour) for hour in range(10)]  # 1..10 locali
+    previous = {
+        "schema": bds.SCHEMA,
+        "day": day,
+        "stations": {"IT001": {"name": "Roma Test", "pts": pts}},
+    }
+    doc = bds.build({"schema": "stations/objects", "stations": []}, previous, ms(day, 9, 30))
+    rec = doc["stations"]["IT001"]
+    assert len(rec["th"]) == 10
+    assert rec["temp_max_day_c"] == pytest.approx(19.0)
+    assert rec["temp_max_day_hour"] == "10"
+    assert rec["temp_min_day_c"] == pytest.approx(10.0)
+    assert rec["temp_min_day_hour"] == "1"
+    assert rec["temp_day_coverage_frac"] == pytest.approx(10 / 11, rel=0.01)
+
+
+def test_backfill_does_not_overwrite_the_run_bucket():
+    """L'ora prodotta dalla serie resta quella del run, non quella dei punti."""
+    day = "2026-11-23"
+    pts = [_point(day, 0, temp=10.0), _point(day, 1, temp=12.0)]
+    previous = {
+        "schema": bds.SCHEMA,
+        "day": day,
+        "stations": {
+            "IT001": {"name": "", "pts": pts, "th": {"2": [50.0, 49.0, 51.0]}}
+        },
+    }
+    doc = bds.build({"schema": "stations/objects", "stations": []}, previous, ms(day, 1, 30))
+    assert doc["stations"]["IT001"]["th"]["2"] == [50.0, 49.0, 51.0]
+    assert doc["stations"]["IT001"]["th"]["1"] == [10.0, 10.0, 10.0]

@@ -200,13 +200,12 @@ LIMITS = {
 # byte / 4.944 stazioni contro 1.219.893 della 1.3.0.55 (+1.561.078). Il costo in
 # GIT e' molto minore del grezzo perche' i blob sono compressi: gzip 215.900 B
 # contro 161.665 (+54.235 B per commit, ~8 MB/giorno a 144 run).
-# MISURATO il 2026-11-23 20:24Z con le finestre termiche 5m/30m/1h/3h (1.3.0.61):
-# 6.511.322 byte / 468.321 B gzip su 4.938 stazioni, cioe' +3,73 MB grezzi e
-# +252 kB gzip per commit (~36 MB/giorno a 144 run). Il costo e' il contratto:
-# ogni stazione pubblica 3 grandezze x 4 finestre con copertura, motivo, estremi
-# e i bucket orari che alimentano il blob giornaliero. 7.500.000 = misurato + 15%
-# di margine per la crescita delle reti. Se lo sfonda il run si ferma e il
-# dataset precedente resta in piedi (comportamento invariato).
+# MISURATO il 2026-11-23 21:09Z con le finestre termiche 5m/30m/1h/3h (1.3.0.61):
+# 6.414.584 byte su 4.897 stazioni, +3,6 MB grezzi e ~+250 kB gzip per commit
+# (~36 MB/giorno a 144 run). Il costo e' il contratto: ogni stazione pubblica 3
+# grandezze x 4 finestre con copertura, motivo, estremi e i bucket orari che
+# alimentano il blob giornaliero. 7.500.000 = misurato + 15% di margine. Se lo
+# sfonda il run si ferma e il dataset precedente resta in piedi.
 DEFAULT_MAX_BYTES = 7_500_000
 
 # Indice compatto per il client (index.json): stesse stazioni di latest.json,
@@ -239,8 +238,8 @@ INDEX_STATION_FIELDS = (
 # Campi calcolati dalle SERIE che si aggiungono all'indice SOLO se il budget
 # gzip lo consente (misurato a ogni run, non stimato). Ordine = priorita' per il
 # layer LIVE: prima la pioggia, poi la raffica, poi il vento medio, poi le MEDIE
-# termiche 5m/30m/1h/3h (1.3.0.61). Min/max e coperture restano in latest.json:
-# l'indice e' la sorgente del CAMPO, che disegna la media, non gli estremi.
+# termiche 5m/30m/1h/3h (1.3.0.61). Min/max restano in latest.json: l'indice e'
+# la sorgente del CAMPO, che disegna la media, non gli estremi.
 INDEX_EXTRA_FIELDS = (
     "rain_1h_mm",
     "gust_max_1h_ms",
@@ -257,6 +256,29 @@ INDEX_EXTRA_FIELDS = (
     "dew_mean_30m_c",
     "dew_mean_1h_c",
     "dew_mean_3h_c",
+    # I MOTIVI viaggiano nell'indice: il client carica PRIMA index.json e senza
+    # questi campi non potrebbe distinguere "finestra non calcolabile" da
+    # "grandezza assente" (userebbe l'istantanea invece di escludere). Sono
+    # stringhe, non numeri: vedi INDEX_STRING_FIELDS.
+    "temp_5m_null_reason",
+    "temp_30m_null_reason",
+    "temp_1h_null_reason",
+    "temp_3h_null_reason",
+    "rh_5m_null_reason",
+    "rh_30m_null_reason",
+    "rh_1h_null_reason",
+    "rh_3h_null_reason",
+    "dew_5m_null_reason",
+    "dew_30m_null_reason",
+    "dew_1h_null_reason",
+    "dew_3h_null_reason",
+    "wind_mean_30m_null_reason",
+    "gust_max_30m_null_reason",
+)
+# Campi dell'indice che sono STRINGHE (motivi): non si arrotondano ne' si
+# confrontano numericamente.
+INDEX_STRING_FIELDS = frozenset(
+    field for field in INDEX_EXTRA_FIELDS if field.endswith("_null_reason")
 )
 # Budget dell'indice compattato in byte GZIP. NON e' un limite della piattaforma:
 # e' un tetto scelto per tenere il payload leggero. Storico: 120 KiB (122.880 B)
@@ -268,12 +290,14 @@ INDEX_EXTRA_FIELDS = (
 # `st.name || 'Stazione'`); 160 KiB coprono il dato reale con margine ~25%
 # (163.840 - 130.743). Il tetto NON e' una garanzia: se le reti crescono ancora
 # la degradazione dichiarata resta il comportamento.
-# MISURATO il 2026-11-23 20:24Z con le MEDIE TERMICHE (1.3.0.61): 4.938 stazioni,
-# indice con nomi e 15 campi extra = 1.104.214 B raw / 166.734 B gzip, cioe' SOPRA
-# i 160 KiB. 200 KiB (204.800 B) lasciano ~38 kB di margine (23%) e restano sotto
-# il doppio del limite precedente. Se la crescita lo sfonda, la degradazione
-# dichiarata (prima i campi extra, poi i nomi) resta attiva.
-INDEX_MAX_GZIP_BYTES = 204_800  # 200 KiB (misurato 166.734 B con i campi termici)
+# MISURATO il 2026-11-23 21:09Z con le MEDIE TERMICHE (1.3.0.61): 4.897 stazioni,
+# indice con nomi e 29 campi extra (15 valori + 14 motivi) = 1.840.880 B raw /
+# 175.779 B gzip, cioe' SOPRA i 160 KiB. 200 KiB (204.800 B) lasciano ~29 kB di
+# margine (14%). I motivi costano solo ~9 kB gzip (stringhe ripetute), ma senza
+# di loro il client che carica index.json non distingue "finestra non calcolabile"
+# da "grandezza assente". Se la crescita lo sfonda, la degradazione dichiarata
+# (prima i campi extra, poi i nomi) resta attiva.
+INDEX_MAX_GZIP_BYTES = 204_800  # 200 KiB (misurato 178.003 B con valori e motivi)
 
 
 # --------------------------------------------------------------------------
@@ -1541,7 +1565,7 @@ def build_instant_block(
     fields[f"{name}_series_step_s"] = int(min(steps.values()))
     fields[f"{name}_window_end"] = data_end.strftime("%Y-%m-%dT%H:%M:%SZ")
     hourly_source = (chosen.get("3h") or primary)["intervals"]
-    if name == "temp":
+    if name in ("temp", "rh"):
         hourly = _hourly_triplet(hourly_source, data_end, single=True)
     else:
         hourly = _hourly_pairs(
@@ -2433,7 +2457,7 @@ def validate_document(doc: dict, min_stations: int, max_bytes: int) -> list[str]
             hourly = st.get(f"{prefix}_hourly")
             if hourly is None:
                 continue
-            width = 4 if prefix == "temp" else 2
+            width = 4 if prefix in ("temp", "rh") else 2
             if not isinstance(hourly, list) or len(hourly) > 24:
                 problems.append(f"{prefix}_hourly malformato per {sid}")
                 continue
@@ -2509,6 +2533,9 @@ def build_index(
                 row.append(None)
             elif field in ("id", "name", "network", "obs_time", "lat", "lon"):
                 row.append(st.get(field))
+            elif field in INDEX_STRING_FIELDS:
+                value = st.get(field)
+                row.append(None if value is None else str(value))
             else:
                 value = st.get(field)
                 row.append(None if value is None else _round1(value))
@@ -2632,7 +2659,13 @@ def validate_index(
     if len(rows) != len(latest_sts):
         return problems  # il confronto riga per riga non avrebbe senso
 
-    value_fields = [f for f in fields if f not in ("id", "lat", "lon", "name", "network", "obs_time")]
+    value_fields = [
+        f
+        for f in fields
+        if f not in ("id", "lat", "lon", "name", "network", "obs_time")
+        and f not in INDEX_STRING_FIELDS
+    ]
+    string_fields = [f for f in fields if f in INDEX_STRING_FIELDS]
     for position, (row, st) in enumerate(zip(rows, latest_sts)):
         if len(row) != len(fields):
             add(f"riga {position}: {len(row)} campi invece di {len(fields)}")
@@ -2652,6 +2685,12 @@ def validate_index(
             elif got is None or _round1(expected) != _round1(got):
                 add(
                     f"riga {position} ({st.get('id')}): {key} {got!r} != {expected!r}"
+                )
+        for key in string_fields:
+            if record.get(key) != st.get(key):
+                add(
+                    f"riga {position} ({st.get('id')}): {key} "
+                    f"{record.get(key)!r} != {st.get(key)!r}"
                 )
     networks = {st.get("network") for st in latest_sts}
     if {item.get("network") for item in index.get("attribution") or []} != networks:

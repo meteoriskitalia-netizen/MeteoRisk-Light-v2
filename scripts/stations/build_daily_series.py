@@ -19,9 +19,12 @@ browser. Il workflow stations.yml gira ogni 10 minuti e riscrive UN SOLO BLOB VI
 SCHEMA 2 (1.3.0.56) — bucket orari per cumulate oltre le 3 ore di serie
 ------------------------------------------------------------------------
 1.3.0.61 aggiunge i bucket TERMICI: `th` {ora: [media, minima, massima]},
-`rhh` {ora: [media]}, `dwh` {ora: [media]} e i derivati `temp_6h_c`,
-`temp_24h_c`, `rh_6h_pct`, `rh_24h_pct`, `dew_6h_c`, `dew_24h_c` con i
-rispettivi `*_partial`. Stessa regola di dedup: l'ora si SOSTITUISCE.
+`rhh` {ora: [media, minima, massima]}, `dwh` {ora: [media]} e i derivati
+`temp_6h_c`, `temp_24h_c`, `rh_6h_pct`, `rh_24h_pct`, `dew_6h_c`,
+`dew_24h_c` con i rispettivi `*_partial`. Stessa regola di dedup: l'ora si
+SOSTITUISCE. Dagli stessi bucket si leggono `temp_max_day_c` /
+`temp_min_day_c` (con l'ora locale del picco) e `rh_max_day_pct` /
+`rh_min_day_pct`.
 `latest.json` porta solo le ultime 3 ore di serie: per una cumulata a 6 h e 24 h
 serve uno stato che sopravviva ai run. Ogni run ricalcola le ultime 4 ore dalla
 serie e SOSTITUISCE il bucket di quell'ora (mai somma: ricalcolo -> nessun doppio
@@ -43,7 +46,7 @@ che il run non rivede piu', restano.
           "rh": {"3": 0.0, "4": 1.2, "5": 0.4},
           "wh": {"4": [2.3, 7.1], "5": [1.8, null]},
           "th": {"4": [temp_mean, temp_min, temp_max]},
-          "rhh": {"4": [rh_mean]},
+          "rhh": {"4": [rh_mean, rh_min, rh_max]},
           "dwh": {"4": [dew_mean]},
           "rain_6h_mm": 1.6, "rain_6h_partial": false,
           "rain_24h_mm": 1.6, "rain_24h_partial": true,
@@ -54,7 +57,13 @@ che il run non rivede piu', restano.
           "temp_6h_c": 9.4, "temp_6h_partial": false,
           "temp_24h_c": 8.9, "temp_24h_partial": true,
           "rh_6h_pct": 71, "rh_24h_pct": 68,
-          "dew_6h_c": 5.2, "dew_24h_c": 4.8
+          "dew_6h_c": 5.2, "dew_24h_c": 4.8,
+          "temp_max_day_c": 18.2, "temp_max_day_hour": "14",
+          "temp_min_day_c": 2.1, "temp_min_day_hour": "6",
+          "temp_day_coverage_frac": 0.958, "temp_day_partial": true,
+          "rh_max_day_pct": 98, "rh_max_day_hour": "5",
+          "rh_min_day_pct": 61, "rh_min_day_hour": "14",
+          "rh_day_coverage_frac": 0.958, "rh_day_partial": true
         }
       }
     }
@@ -103,7 +112,11 @@ NOTE = (
     "mezzanotte locale; dedup per obs_time sui punti e per ora sui bucket "
     "(ricalcolo, mai somma). Le cumulate rain_6h/rain_24h, le sintesi del vento e "
     "le medie termiche temp_6h/temp_24h, rh_6h/rh_24h, dew_6h/dew_24h si calcolano "
-    "dal bucket, non dai punti. Nessun punto passato viene inventato."
+    "dal bucket, non dai punti. Nessun punto passato viene inventato. Massimo e "
+    "minimo della giornata (temp_max_day_c / temp_min_day_c e rh_max_day_pct / "
+    "rh_min_day_pct) con l'ora locale del picco e la copertura fino all'ora "
+    "corrente; la giornata e' dichiarata parziale finche' non sono passate tutte "
+    "le ore o la copertura e' sotto il 90%."
 )
 
 # Indici tupla — allineati a stationsSeriesTuple()/stationsSeriesValue() nel client.
@@ -362,6 +375,68 @@ def _window_mean(
     return round(sum(window) / len(window), 1), len(window) < min(hours, current_hour + 1)
 
 
+def _day_extremes(bucket: object, current_hour: int) -> tuple[dict[int, tuple], float]:
+    """{ora locale: (minima, massima)} del giorno e copertura fino all'ora corrente.
+
+    Il denominatore e' `current_hour + 1`: le ore TRASCORSE della giornata locale
+    (a mezzanotte e' 1). Un'ora senza massimo/minimo validi non conta. La
+    copertura e' limitata a 1 (nei giorni di cambio ora legale il numero di ore
+    locali non e' 24; il contatore resta nominale e la limitazione e' dichiarata).
+    """
+    hours: dict[int, tuple] = {}
+    if isinstance(bucket, dict):
+        for key, value in bucket.items():
+            try:
+                hour = int(key)
+            except (TypeError, ValueError):
+                continue
+            if not 0 <= hour <= 23:
+                continue
+            if not isinstance(value, list) or len(value) < 3:
+                continue
+            low, high = value[1], value[2]
+            if isinstance(low, (int, float)) and isinstance(high, (int, float)):
+                hours[hour] = (float(low), float(high))
+    elapsed = max(1, min(24, current_hour + 1))
+    return hours, round(min(1.0, len(hours) / elapsed), 3)
+
+
+
+def _buckets_from_points(points: object, index: int) -> dict:
+    """Bucket orari [media, minima, massima] ricavati dai PUNTI della giornata.
+
+    Serve SOLO all'avvio a freddo: il blob precedente alla 1.3.0.61 non ha `th`/
+    `rhh`, e senza questo passaggio il massimo/minimo della giornata resterebbe
+    null per 12 ore (copertura < 50%). Non e' un secondo calcolo della serie nel
+    run normale: si chiama una volta per stazione e si aggiungono SOLO le ore che
+    il run corrente non ha prodotto; le ore prodotte dalla serie (media pesata
+    sul tempo) vincono. La media delle ore recuperate e' la media dei punti, non
+    la media pesata: la differenza e' dichiarata e riguarda solo l'avvio.
+    """
+    groups: dict[int, list[float]] = {}
+    if not isinstance(points, list):
+        return {}
+    for point in points:
+        if not isinstance(point, list) or len(point) <= index:
+            continue
+        value = point[index]
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            continue
+        try:
+            _day, hour = local_hour(int(point[I_TIME]) // 1000)
+        except (TypeError, ValueError, IndexError):
+            continue
+        groups.setdefault(hour, []).append(float(value))
+    return {
+        str(hour): [
+            round(sum(values) / len(values), 1),
+            round(min(values), 1),
+            round(max(values), 1),
+        ]
+        for hour, values in groups.items()
+    }
+
+
 def _derived(record: dict, current_hour: int, day: str) -> None:
     """Aggiunge a `record` le cumulate a 6 h e 24 h e le sintesi del vento."""
     rh = record.get("rh") if isinstance(record.get("rh"), dict) else {}
@@ -420,6 +495,62 @@ def _derived(record: dict, current_hour: int, day: str) -> None:
                 continue
             record[f"{label}_{hours}h_{unit}"] = mean
             record[f"{label}_{hours}h_partial"] = partial
+
+    # Massimo e minimo DELLA GIORNATA (dalla mezzanotte locale): si leggono dai
+    # bucket orari gia' calcolati (`th`/`rhh` = [media, minima, massima]), non si
+    # ripercorre la serie. L'ora del picco e' quella del PRIMO bucket che lo
+    # raggiunge (a parita' di valore vince l'ora piu' bassa).
+    for bucket_name, label, unit, decimals in (
+        ("th", "temp", "c", 1),
+        ("rhh", "rh", "pct", 0),
+    ):
+        bucket = record.get(bucket_name)
+        if not isinstance(bucket, dict) or not bucket:
+            # Nessun bucket orario: se pero' la stazione ha osservazioni di
+            # quella grandezza oggi (punti di `pts`), il motivo va dichiarato;
+            # se la grandezza non esiste affatto, non si scrivono campi finti.
+            index = I_TEMP if label == "temp" else I_RH
+            has_observation = any(
+                isinstance(point, list)
+                and len(point) > index
+                and isinstance(point[index], (int, float))
+                for point in record.get("pts") or []
+            )
+            if not has_observation:
+                continue
+            record[f"{label}_day_coverage_frac"] = 0.0
+            record[f"{label}_day_partial"] = True
+            record[f"{label}_max_day_{unit}"] = None
+            record[f"{label}_min_day_{unit}"] = None
+            record[f"{label}_max_day_hour"] = None
+            record[f"{label}_min_day_hour"] = None
+            record[f"{label}_day_null_reason"] = "no_points_today"
+            continue
+        hours, coverage = _day_extremes(bucket, current_hour)
+        record[f"{label}_day_coverage_frac"] = coverage
+        # La giornata e' parziale se non sono passate tutte le ore (prima delle
+        # 23) o se la copertura e' sotto il 90%. A inizio giornata e' la norma.
+        record[f"{label}_day_partial"] = bool(coverage < 0.9 or current_hour < 23)
+        reason = None
+        if not hours:
+            reason = "no_points_today"
+        elif coverage < 0.5:
+            reason = "coverage_below_50pct"
+        if reason:
+            record[f"{label}_max_day_{unit}"] = None
+            record[f"{label}_min_day_{unit}"] = None
+            record[f"{label}_max_day_hour"] = None
+            record[f"{label}_min_day_hour"] = None
+            record[f"{label}_day_null_reason"] = reason
+            continue
+        high = max(value[1] for value in hours.values())
+        low = min(value[0] for value in hours.values())
+        high_hour = min(hour for hour, value in hours.items() if value[1] == high)
+        low_hour = min(hour for hour, value in hours.items() if value[0] == low)
+        record[f"{label}_max_day_{unit}"] = round(high, decimals)
+        record[f"{label}_min_day_{unit}"] = round(low, decimals)
+        record[f"{label}_max_day_hour"] = str(high_hour)
+        record[f"{label}_min_day_hour"] = str(low_hour)
 
 
 def _wind_pair(current: object) -> list:
@@ -489,13 +620,14 @@ def build(latest: dict, previous: dict | None, now_ms: int, max_points: int = MA
                     kept["wh"] = {str(k): _wind_pair(v) for k, v in rec["wh"].items()}
                 if isinstance(rec.get("th"), dict) and rec["th"]:
                     kept["th"] = {str(k): _temp_triplet(v) for k, v in rec["th"].items()}
-                for bucket in ("rhh", "dwh"):
-                    if isinstance(rec.get(bucket), dict) and rec[bucket]:
-                        kept[bucket] = {
-                            str(k): [round(float(v[0]), 1)]
-                            for k, v in rec[bucket].items()
-                            if isinstance(v, list) and v and isinstance(v[0], (int, float))
-                        }
+                if isinstance(rec.get("rhh"), dict) and rec["rhh"]:
+                    kept["rhh"] = {str(k): _temp_triplet(v) for k, v in rec["rhh"].items()}
+                if isinstance(rec.get("dwh"), dict) and rec["dwh"]:
+                    kept["dwh"] = {
+                        str(k): [round(float(v[0]), 1)]
+                        for k, v in rec["dwh"].items()
+                        if isinstance(v, list) and v and isinstance(v[0], (int, float))
+                    }
                 stations[sid] = kept
 
     latest_stations = latest.get("stations", [])
@@ -550,7 +682,7 @@ def build(latest: dict, previous: dict | None, now_ms: int, max_points: int = MA
         th = _merge_temp(rec.get("th") or {}, st.get("temp_hourly"), day)
         if th:
             rec["th"] = th
-        rhh = _merge_hourly(rec.get("rhh") or {}, st.get("rh_hourly"), day, wrap=True)
+        rhh = _merge_temp(rec.get("rhh") or {}, st.get("rh_hourly"), day)
         if rhh:
             rec["rhh"] = rhh
         dwh = _merge_hourly(rec.get("dwh") or {}, st.get("dew_hourly"), day, wrap=True)
@@ -558,8 +690,25 @@ def build(latest: dict, previous: dict | None, now_ms: int, max_points: int = MA
             rec["dwh"] = dwh
 
     for sid, rec in stations.items():
-        if isinstance(rec, dict):
-            _derived(rec, current_hour, day)
+        if not isinstance(rec, dict):
+            continue
+        # Avvio a freddo: completa i bucket termici con le ore gia' presenti nei
+        # punti (vedi `_buckets_from_points`). Le ore del run corrente vincono.
+        for bucket, index in (("th", I_TEMP), ("rhh", I_RH)):
+            current = rec.get(bucket) if isinstance(rec.get(bucket), dict) else {}
+            backfill = _buckets_from_points(rec.get("pts"), index)
+            if not current:
+                if backfill:
+                    rec[bucket] = backfill
+                continue
+            added = False
+            for hour, triple in backfill.items():
+                if hour not in current:
+                    current[hour] = triple
+                    added = True
+            if added:
+                rec[bucket] = current
+        _derived(rec, current_hour, day)
 
     return {
         "schema": SCHEMA,
