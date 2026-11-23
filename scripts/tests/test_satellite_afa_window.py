@@ -22,7 +22,7 @@ import satellite_engine as SE  # noqa: E402
 REPO = Path(__file__).resolve().parents[2]
 # 1.3.0.48: la 1.3.0.43 non e' piu' nel repo (pulizia release vecchie): resta
 # il solo client attivo, APP_FILE di VERSION.
-HTML_CANDIDATES = ("mri-light-1.3.0.53.html",)
+HTML_CANDIDATES = ("mri-light-1.3.0.54.html",)
 
 
 def _webp_bytes(size=(8, 8), alpha=0):

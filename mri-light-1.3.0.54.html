@@ -3135,9 +3135,13 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.53';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.54';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-23';
     const APP_CHANGELOG = [
+    { version: '1.3.0.54', date: '2026-11-23', changes: [
+      "MAPPA DEI RISCHI LEGATA AL PRODOTTO: il riempimento delle province, i badge e la legenda appartengono al solo prodotto Mappa dei rischi. Con Radar Player, Pannello LIVE, Fonti, Teleconnessioni, Previsioni o nessun prodotto i poligoni restano neutri ma cliccabili (fillOpacity 0, opacity 1, nessun removeLayer: hover e clic provincia invariati) e non restano i colori del prodotto precedente. Il gate e in updateMapColors, updateMarkerSelection, updateRiskBadges e renderLegend; la firma di hydroPaintSignature include activeProductId.",
+      "LEGENDA DEI RISCHI NASCOSTA FUORI DAL PRODOTTO: renderLegend nasconde #legend-container quando il prodotto non e Mappa dei rischi, ma NON quando lo usa un altro consumatore dello stesso contenitore (layer Criticita DPC, allerte DPC, embed radar). Lo switch Rischi segue il prodotto (syncContextualToggles) e chiudendo le mappe previsionali i colori vengono ridipinti."
+    ]},
     { version: '1.3.0.53', date: '2026-11-23', changes: [
       "AFA ATTIVO E CON LEGENDA: i due pulsanti (pannello LIVE e Radar Player) partono dallo slot che il player sta mostrando (frame della timeline, poi ultimo frame radar, poi slot del pannello SC) invece del solo scRadarData: con il pannello SC vuoto il toggle non accendeva nulla. Stato coerente quando lo slot manca, retry del manifest satellite se il fetch di avvio e fallito, opacita 0.85 e riquadro di legenda con slot servito, has_signal e pixel attivi dal manifest. L emissione ottica resta un AREA, non un conteggio di fulmini.",
       "PALETTE E LEGENDE UNIFICATE: la ricolorazione DPC decodifica ora il valore per prodotto (R*60/255 dBZ, R*100/255 mm/h, R*200/255 mm, -70+R*105/255 gradi C) e usa la tabella Universal Blue RADAR_DBZ_SCALE per la VMI, con rampe dichiarate per SRI, cumulate e temperatura al posto della vecchia LUT a 4 bande sul valore R grezzo. La legenda precipitazioni e visibile anche per DPC e dichiara asse e unita del prodotto, gli mm/h equivalenti (stima Z=200*R^1,6), il tile lossy (piu o meno 1-2 dBZ) e la VMI come massimo sulla verticale."
@@ -23099,6 +23103,11 @@ var productSelectTemplate = null;
 function isRadarToolsProduct() {
     return activeProductId === 'radar-player' || activeProductId === 'live';
 }
+
+// 1.3.0.54 - UNICA fonte di verita' per la "mappa dei rischi" (fill province, badge, legenda):
+// appartiene al prodotto «rischi». Funzione PURA (testabile).
+function riskLayerAllowedFor(productId) { return productId === 'rischi'; }
+function isRiskProductActive() { return riskLayerAllowedFor(activeProductId); }
 function productDefs() {
     function txt(id) { var el = document.getElementById(id); return el ? (el.textContent || '') : ''; }
     function onText(id) { return txt(id).indexOf('(ON)') >= 0; }
@@ -23161,6 +23170,10 @@ function syncContextualToggles() {
     // comanda il suo wrapper, non piu' la riga standalone (che resta radar/satellite).
     if (bRisk) bRisk.style.display = '';
     if (riskWrap) riskWrap.style.display = riskProductOn ? '' : 'none';
+    // 1.3.0.54 - anche lo switch «Rischi» (badge di rischio) appartiene al
+    // prodotto: il wrapper e' la <label class="mp-switch"> che contiene l'input.
+    var rbSw = document.getElementById('switch-riskbadges');
+    if (rbSw && rbSw.parentNode && rbSw.parentNode.style) rbSw.parentNode.style.display = riskProductOn ? '' : 'none';
     if (row) row.style.display = (showRadar || showSat) ? 'flex' : 'none';
     syncDevRiskControls();   // 1.3.0.17: i controlli dev seguono il prodotto attivo
 }
@@ -23221,6 +23234,9 @@ function syncProductUI() {
     if (typeof syncSynWebpMapCard === 'function') syncSynWebpMapCard();
     if (typeof syncRadarProductVisuals === 'function') syncRadarProductVisuals();
     if (typeof syncMetricSelectEnabled === 'function') syncMetricSelectEnabled();
+    // 1.3.0.54 - il cambio prodotto deve ridipingere (o neutralizzare) la mappa:
+    // senza questa chiamata i fill restavano quelli del prodotto precedente.
+    if (typeof updateMapColors === 'function') updateMapColors();
 }
 function productOff(id) {
     var def = productDefs()[id];
@@ -23338,6 +23354,9 @@ function toggleForecastMaps() {
         fmStopPreload();
         fmStopWarm();
         fmRestoreRiskOverlays();   // 1.2.4.16: torna lo stato per-layer precedente
+        // 1.3.0.54 - chiudendo le mappe previsionali i fill tornano al prodotto
+        // attivo (o neutri se il prodotto e' «forecast-maps»): niente colori stale.
+        if (typeof updateMapColors === 'function') updateMapColors();
         fmInvalidateSize();
         if (btn) btn.textContent = '🗺️ Mappe previsionali (OFF)';
         return;
@@ -23864,6 +23883,9 @@ function toggleForecastMaps() {
         // in modo progressivo anche a caricamento parziale (rimossi dal guard il
         // "return" su zonePreview che li mostrava solo a dati definitivi).
         clearRiskBadges();
+        // 1.3.0.54 - badge di rischio = prodotto «rischi»: fuori da li' nessun
+        // badge (i vecchi sono comunque gia' stati rimossi dalla riga sopra).
+        if (!isRiskProductActive()) return;
         // Con la metrica vento le freccette sono ancorate alle stesse coordinate dei
         // badge: niente badge, così le frecce restano leggibili senza sovrapposizioni.
         if (currentMetric === 'wind') return;
@@ -23970,6 +23992,12 @@ function toggleForecastMaps() {
         // borderOverlayLayer tramite restyleBorderOverlay(). Qui si aggiornano i fill,
         // ma rispettando lo stato: in DPC / previsioni / vista continua / colori spenti
         // NON si toccano i fill, cosi' un click non cancella le palette attive.
+        // 1.3.0.54 - SECONDO pittore della mappa dei rischi: un clic provincia
+        // ridipinge i fill, quindi il gate va PRIMA di ogni ramo.
+        if (!isRiskProductActive()) {
+            restyleBorderOverlay();
+            return;
+        }
         if (dpcAlertMode === 'on') {
             // Colori DPC attivi: aggiorna solo il bordo di selezione.
             restyleBorderOverlay();
@@ -29849,6 +29877,18 @@ function renderContinuousOverlay() {
         // I bordi NON sono piu' disegnati dal fill (color transparent, weight 0):
         // l'unico disegnatore e' borderOverlayLayer, sincronizzato da restyleBorderOverlay().
         if (provinceGeoJsonLayer) {
+            // 1.3.0.54 - il riempimento delle province e' la "mappa dei rischi":
+            // appartiene al SOLO prodotto «rischi». Fuori da quel prodotto i
+            // poligoni restano NEUTRI ma interattivi: NESSUN map.removeLayer,
+            // quindi hover e clic provincia continuano a funzionare.
+            if (!isRiskProductActive()) {
+                hideContinuousOverlay();
+                provinceGeoJsonLayer.setStyle({ fillColor: '#334155', fillOpacity: 0, opacity: 1, color: 'transparent', weight: 0 });
+                clearRiskBadges();
+                restyleBorderOverlay();
+                renderLegend();
+                return;
+            }
             // "Colori" OFF: mappa NEUTRA senza colori (riempimento province e gradiente
             // spenti). Poligoni grigi, comunque cliccabili e hoverabili.
             if (!mapColorsVisible) {
@@ -29905,6 +29945,20 @@ function renderContinuousOverlay() {
     }
 
     function renderLegend() {
+        // 1.3.0.54 - la legenda dei rischi appartiene al prodotto «rischi».
+        // ⚠️ #legend-container e' CONDIVISO con renderDpcLegend (allerte DPC),
+        // con il layer Criticita' DPC (window.hydroRiskSuspended) e con l'embed
+        // radar: quando lo sta usando un altro consumatore NON viene nascosto
+        // (con l'embed attivo il display lo gestisce toggleRadarEmbed).
+        var _legendEl = document.getElementById('legend-container');
+        if (_legendEl) {
+            var _legendForeign = (typeof window !== 'undefined' && window.hydroRiskSuspended) ||
+                (typeof dpcAlertMode !== 'undefined' && dpcAlertMode === 'on') ||
+                (typeof radarEmbedActive !== 'undefined' && radarEmbedActive);
+            if (isRiskProductActive()) _legendEl.style.display = '';
+            else if (!_legendForeign) _legendEl.style.display = 'none';
+        }
+        if (!isRiskProductActive()) return;
         const legends = {
             risk: (isSviluppoActive
                 ? [['#22c55e','Basso'],['#a3e635','Lieve'],['#eab308','Moderato'],['#f97316','Mod-Alto'],['#ef4444','Alto/Estremo'],['#a855f7','Mesociclone']]
@@ -38020,7 +38074,11 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
                 typeof dpcAlertMode !== 'undefined' ? dpcAlertMode : '',
                 (typeof forecastActive !== 'undefined' && forecastActive) ? 1 : 0,
                 typeof selectedIndex !== 'undefined' ? selectedIndex : '',
-                (typeof isCustomCity !== 'undefined' && isCustomCity) ? 1 : 0
+                (typeof isCustomCity !== 'undefined' && isCustomCity) ? 1 : 0,
+                // 1.3.0.54 - il prodotto attivo entra nella firma: senza questa voce
+                // resumeRiskPaint() ripristinava i colori di un prodotto che non e'
+                // piu' quello attivo (colori stale).
+                typeof activeProductId !== 'undefined' ? activeProductId : ''
             ].join('|');
         } catch (e) { return 'unknown'; }
     }

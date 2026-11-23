@@ -12,7 +12,7 @@ giorno dopo non c'e' nessuna previsione da verificare.
 COSA REPLICA (e cosa no) — STILE B del documento di progetto
 ------------------------------------------------------------
 * ``risk_level_r2`` e' il port ESATTO di ``riskLevelR2`` del client
-  ``mri-light-1.3.0.53.html`` (funzione ``riskLevelR2``):
+  ``mri-light-1.3.0.54.html`` (funzione ``riskLevelR2``):
       rain > 45 | gusts > 100 | (code>=95 & rain>=10 & cape>=300)     -> 4
       rain > 15 | gusts > 75  | (code>=95 & rain>=3  & cape>=150)
               | (80<=code<=90 & rain>=8)                              -> 3
@@ -138,7 +138,7 @@ def as_optional_float(value):
 
 
 def engine_version_from_version_file(path) -> str:
-    """Versione del client/logica: ``APP_FILE=mri-light-1.3.0.53.html``.
+    """Versione del client/logica: ``APP_FILE=mri-light-1.3.0.54.html``.
 
     Fallback: la prima riga ``VERSION=`` del file. Se nessuna delle due forme
     esiste si solleva: un registro senza versione non e' tracciabile.
@@ -158,7 +158,7 @@ def engine_version_from_version_file(path) -> str:
 # Logica del client (port fedele per la parte STILE B)
 # --------------------------------------------------------------------------- #
 def risk_level_r2(day) -> int:
-    """Port esatto di ``riskLevelR2`` (mri-light-1.3.0.53.html, riga 27162)."""
+    """Port esatto di ``riskLevelR2`` (mri-light-1.3.0.54.html, riga 27190)."""
     old = day or {}
     rain = as_float(old.get("precip_sum"), 0.0)
     gusts = as_float(old.get("gusts"), 0.0)

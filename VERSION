@@ -1,8 +1,17 @@
-VERSION=1.3.0.53
-BUILD=183
+VERSION=1.3.0.54
+BUILD=184
 DATE=2026-11-23
-APP_FILE=mri-light-1.3.0.53.html
-MeteoRisk Light - 1.3.0.53 - AFA attivo (slot dal player, retry manifest, legenda) e palette DPC unificata su Universal Blue con legenda per prodotto; legenda precipitazioni visibile anche per DPC
+APP_FILE=mri-light-1.3.0.54.html
+MeteoRisk Light - 1.3.0.54 - Mappa dei rischi legata al prodotto: fill province, badge e legenda solo con «Mappa dei rischi», legenda nascosta fuori dal prodotto (BUILD=184)
+VERSION=1.3.0.54
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=184
+RELEASE_TYPE=release
+DATE=2026-11-23
+NOTE=Release 1.3.0.54 (bump da 1.3.0.53). Solo client: la mappa dei rischi resta attiva con altri prodotti. (1) UNICA fonte di verita': riskLayerAllowedFor(productId) PURA (true solo per rischi) e isRiskProductActive(). (2) updateMapColors: il gate e' il PRIMO controllo dentro if (provinceGeoJsonLayer) - fuori dal prodotto hideContinuousOverlay, province neutre (fillColor #334155, fillOpacity 0, opacity 1, color transparent, weight 0), NESSUN map.removeLayer (hover e clic provincia invariati), clearRiskBadges, restyleBorderOverlay, renderLegend, return. (3) updateMarkerSelection (secondo pittore: un clic provincia ridipinge i fill) ha lo stesso gate PRIMA del ramo dpcAlertMode. (4) updateRiskBadges esce subito dopo clearRiskBadges. (5) renderLegend nasconde #legend-container fuori dal prodotto, ma NON quando il contenitore e' usato da un altro consumatore (window.hydroRiskSuspended, dpcAlertMode on, embed radar: con l'embed il display resta gestito da toggleRadarEmbed). (6) syncProductUI chiude con updateMapColors() (cambio prodotto ridipinge o neutralizza). (7) hydroPaintSignature include activeProductId: resumeRiskPaint non ripristina piu' colori stale. (8) syncContextualToggles nasconde il wrapper (label.mp-switch) di #switch-riskbadges fuori dal prodotto. (9) toggleForecastMaps chiama updateMapColors() dopo fmRestoreRiskOverlays(). CAMBI DI COMPORTAMENTO DICHIARATI: con nessun prodotto o con un prodotto diverso da Mappa dei rischi la mappa e' NEUTRA (prima mostrava i colori dei rischi), lo switch Rischi e' nascosto e la legenda rischi non compare; chiudendo le mappe previsionali con prodotto forecast-maps i poligoni restano neutri finche' non si attiva un prodotto. dpcAlertMode non viene MAI posto a 'on' in questo client (una sola dichiarazione, zero assegnazioni): il ramo DPC resta codice morto e il gate non cambia nulla in produzione. TEST: nuovo scripts/tests/test_risk_layer_product.mjs; MISURATO exit 1 sul file 1.3.0.53 pristino (sha256 4659C497AFE57F2BD3B1FE67E77DCEF6D85149F04DBC51C73F8AE6EE6511C85C, 3.138.711 B LF: 'funzione riskLayerAllowedFor non trovata') ed exit 0 sul nuovo; matrice pura sui 9 id, harness vm con DOM/L/map/layer finti (0.55 su rischi, 0 su radar-player, legenda none, hydro/DPC/embed che non la nascondono), 10 controlli statici sui punti di gate. Verifiche: node --check 9/9 blocchi script, test_html_js_syntax 1 passed, test_sw_cache_policy PASS, pytest radar_engine 857 passed, py_compile, 0 residui mri-light-1.3.0.53.html fuori da VERSION e storico. Coda VERSION byte-identica.
+APP_FILE=mri-light-1.3.0.54.html
 VERSION=1.3.0.53
 MAJOR=1
 MINOR=3
