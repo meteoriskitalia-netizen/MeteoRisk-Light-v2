@@ -69,7 +69,11 @@ Regole (dichiarate anche in `derived_fields` del documento):
   * `*_null_reason = coverage_below_50pct` sotto il 50% di copertura;
   * gate fisico: pioggia oltre 300 mm/h (o negativa) scartata e contata in
     `rain_qc_rejected` / `counts.rain_points_qc_rejected`; vento oltre 60 m/s
-    e raffica oltre 75 m/s idem;
+    e raffica oltre 75 m/s idem; temperatura: al range assoluto |T| <= 60 degC
+    si aggiunge il gate di PLAUSIBILITA' `scripts/stations/temp_qc.py`
+    (|dT| > 3 degC E |dT|/dt > 6 degC/h rispetto all'ultimo campione
+    accettato, ancora dal blob giornaliero con `--baseline`), contato in
+    `temp_qc_rejected` / `counts.temp_points_qc_rejected`;
   * campo ASSENTE = grandezza non disponibile (come `visibility`); `null` =
     c'e' ma non passa il gate, e porta SEMPRE il motivo (contratto #207).
 
@@ -142,6 +146,19 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+try:  # eseguito come script: la cartella dello script e' su sys.path
+    from temp_qc import (
+        TEMP_MAX_RATE_C_PER_H,
+        TEMP_MIN_ABS_DELTA_C,
+        qc_temperature_points,
+    )
+except ImportError:  # importato come pacchetto (test/strumenti)
+    from scripts.stations.temp_qc import (
+        TEMP_MAX_RATE_C_PER_H,
+        TEMP_MIN_ABS_DELTA_C,
+        qc_temperature_points,
+    )
 
 API_BASE = "https://meteohub.agenziaitaliameteo.it"
 OBS_PATH = "/api/observations"
@@ -526,6 +543,13 @@ COVERAGE_BELOW_REASON = "coverage_below_50pct"
 # meteorologiche: servono a non pubblicare record rotti (la serie reale contiene
 # 99 degC e RH 150% da sensori guasti) e ogni punto scartato viene contato.
 QC_TEMP_MAX_ABS_C = 60.0        # |T| > 60 degC -> punto scartato
+# Gate di PLAUSIBILITA' FISICA, separato dal range assoluto: un valore di 52 degC
+# e' dentro |T| <= 60 ma e' impossibile se un'ora prima la stazione era a 25.
+# SCELTA INGEGNERISTICA dichiarata (vedi `temp_qc.py`): si scarta un campione se
+# |dT|/dt > 6 degC/h rispetto all'ULTIMO CAMPIONE ACCETTATO. In Italia un fohn
+# fa +4-5 degC/h; 6 lascia margine agli eventi reali e taglia i salti da 15-37
+# degC in 30-60 minuti misurati su Palma di Montechiaro il 2026-11-23.
+QC_TEMP_MAX_RATE_C_PER_H = TEMP_MAX_RATE_C_PER_H
 QC_DEW_MAX_ABS_C = 60.0
 QC_RH_MIN_PCT = 0.0
 QC_RH_MAX_PCT = 100.0
@@ -1665,11 +1689,87 @@ def _assign_ids(stations: list[dict]) -> tuple[int, int]:
     return decimals, collisions4
 
 
+def baseline_key(net: object, lat: object, lon: object) -> str:
+    """Chiave del blob giornaliero: `<rete>:<lat 5 decimali>,<lon 5 decimali>`.
+
+    E' la stessa forma di `station_id` (`_assign_ids`), senza il suffisso `#N`
+    delle collisioni: una collisione a 5 decimali (due stazioni a ~1 m) e' un
+    caso raro e per quelle due l'ancora puo' essere quella della vicina, che
+    dista meno di un metro. Le stazioni con id a 6 decimali non trovano
+    l'ancora: nessun valore inventato, semplicemente restano senza.
+    """
+    try:
+        return f"{net}:{float(lat):.5f},{float(lon):.5f}"
+    except (TypeError, ValueError):
+        return ""
+
+
+def load_temperature_baseline(path: Path) -> dict[str, list[tuple[datetime, float]]]:
+    """Ultimo tratto di serie ACCETTATO di oggi, dal blob giornaliero.
+
+    PERCHE' SERVE (misurato il 2026-11-23T21:50Z): la finestra della query e'
+    180 minuti. Se il sensore si rompe PRIMA dell'inizio della finestra, il
+    primo campione della serie e' gia' rotto e un gate relativo non ha un
+    valore sano con cui confrontarlo: Palma di Montechiaro alle 19:00Z aveva
+    43,1 degC come PRIMO campione della finestra e il gate lo accettava (il
+    massimo istantaneo restava 40,5 degC). Il blob giornaliero, che il workflow
+    ripristina PRIMA del fetch, contiene la serie della giornata e quindi
+    l'ultimo campione sano precedente alla finestra (18:24Z, 14,8 degC).
+
+    Il baseline viene ripulito con lo STESSO gate (`qc_temperature_points`):
+    un blob scritto dal codice vecchio contiene ancora i picchi, e usarli come
+    ancora propagherebbe l'errore.
+
+    Ritorna `{chiave: [(ref, degC), ...]}` con i soli campioni accettati.
+    File assente/illeggibile -> `{}`: il fetcher resta stateless come prima.
+    """
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    stations = doc.get("stations") if isinstance(doc, dict) else None
+    if not isinstance(stations, dict):
+        return {}
+    out: dict[str, list[tuple[datetime, float]]] = {}
+    for sid, record in stations.items():
+        if not isinstance(sid, str) or not isinstance(record, dict):
+            continue
+        points = record.get("pts")
+        if not isinstance(points, list):
+            continue
+        samples: list[tuple[datetime, float]] = []
+        for point in points:
+            if not isinstance(point, list) or len(point) < 2:
+                continue
+            timestamp, value = point[0], point[1]
+            if not isinstance(timestamp, int) or isinstance(value, bool):
+                continue
+            if not isinstance(value, (int, float)):
+                continue
+            try:
+                ref = datetime.fromtimestamp(timestamp / 1000.0, tz=timezone.utc)
+            except (ValueError, OSError, OverflowError):
+                continue
+            samples.append((ref, float(value)))
+        if not samples:
+            continue
+        kept, _rejected, _indexes = qc_temperature_points(samples)
+        if kept:
+            net, _sep, coords = sid.partition(":")
+            coords = coords.split("#", 1)[0]
+            lat_text, _comma, lon_text = coords.partition(",")
+            key = baseline_key(net, lat_text, lon_text)
+            if key:
+                out[key] = kept
+    return out
+
+
 def normalize_payload(
     payload: dict,
     networks: dict,
     generated_at: datetime,
     max_age_minutes: int = 180,
+    temp_baseline: dict[str, list[tuple[datetime, float]]] | None = None,
 ) -> dict:
     """Trasforma il payload MeteoHub nel documento compatto.
 
@@ -1929,6 +2029,53 @@ def normalize_payload(
                 if math.isfinite(value):
                     points.append((ref, value))
 
+    # --- GATE DI PLAUSIBILITA' DELLA TEMPERATURA (rate di variazione) --------
+    # Si applica UNA volta alla serie grezza, PRIMA di ogni uso: media/min/max
+    # delle finestre, `temp_hourly` (bucket della serie giornaliera) e la
+    # temperatura ISTANTANEA pubblicata. Il gate assoluto |T| <= 60 resta in
+    # `build_instant_block`; questo e' complementare e lavora sulle differenze.
+    # Un campione scartato non viene sostituito: sparisce e finisce in
+    # `temp_qc_rejected` (per stazione) e in `counts.temp_points_qc_rejected`.
+    temp_rate_rejected: dict[tuple, int] = {}
+    baseline = temp_baseline or {}
+    baseline_anchored = 0
+    for station_key in list(temp_series):
+        net, lat, lon = station_key
+        baseline_points = baseline.get(baseline_key(net, lat, lon)) or []
+        total_rejected = 0
+        anchored_here = False
+        cleaned: dict[str, list[tuple[datetime, float]]] = {}
+        for trange, values in temp_series[station_key].items():
+            ordered = sorted(values, key=lambda item: item[0])
+            if not ordered:
+                continue
+            # Ancora: ultimo campione ACCETTATO della giornata PRIMA dell'inizio
+            # della finestra. Non il piu' recente del blob (che e' dentro la
+            # finestra e puo' essere gia' corrotto).
+            anchor: tuple[datetime, float] | None = None
+            first_ref = ordered[0][0]
+            for base_ref, base_value in reversed(baseline_points):
+                if base_ref < first_ref:
+                    # Il blob giornaliero e' in degC, la serie grezza in K: il
+                    # gate lavora sulle differenze ma l'ancora deve stare nella
+                    # STESSA unita' della serie (senza +273.15 il primo campione
+                    # sarebbe a ~286 "gradi" contro un'ancora a 15).
+                    anchor = (base_ref, base_value + 273.15)
+                    break
+            series = ([anchor] if anchor is not None else []) + ordered
+            kept, rejected, _indexes = qc_temperature_points(series)
+            if anchor is not None:
+                anchored_here = True
+                kept = [point for point in kept if point[0] > anchor[0]]
+            total_rejected += rejected
+            if kept:
+                cleaned[trange] = kept
+        temp_series[station_key] = cleaned
+        if anchored_here:
+            baseline_anchored += 1
+        if total_rejected:
+            temp_rate_rejected[station_key] = total_rejected
+
     stations = []
     excluded_no_data = 0
     for key, fields in cells.items():
@@ -1961,6 +2108,37 @@ def normalize_payload(
         ):
             if field in fields:
                 record[field] = fields[field]["value"]
+        # La temperatura ISTANTANEA e' l'ultimo campione ACCETTATO dalla serie,
+        # non l'ultimo arrivato: senza questo, un picco falso respinto dalle
+        # finestre restava pubblicato in `temperature_2m` e finiva nei `pts` del
+        # blob giornaliero (e' esattamente il percorso di Palma di Montechiaro).
+        if key in temp_series:
+            station_temp_series = temp_series[key]
+            instant_tranges = [
+                label
+                for label in station_temp_series
+                if trange_stat_type(label) == STAT_INSTANT
+            ]
+            pool = instant_tranges or list(station_temp_series)
+            latest_temp: tuple[datetime, float] | None = None
+            for label in pool:
+                for sample_ref, sample_k in station_temp_series[label]:
+                    if latest_temp is None or sample_ref > latest_temp[0]:
+                        latest_temp = (sample_ref, sample_k)
+            if latest_temp is not None:
+                temp_c = latest_temp[1] - 273.15
+                if _in_limits("temperature_2m", temp_c):
+                    fields["temperature_2m"] = {
+                        "value": _round(temp_c, 1),
+                        "ref": latest_temp[0],
+                    }
+                    record["temperature_2m"] = fields["temperature_2m"]["value"]
+                else:
+                    fields.pop("temperature_2m", None)
+                    record.pop("temperature_2m", None)
+            else:
+                fields.pop("temperature_2m", None)
+                record.pop("temperature_2m", None)
         if "temperature_2m" in record and "relative_humidity_2m" in record:
             dp = dew_point_c(record["temperature_2m"], record["relative_humidity_2m"])
             if dp is not None:
@@ -2022,7 +2200,8 @@ def normalize_payload(
                 qc_max=QC_TEMP_MAX_ABS_C,
             )
             record.update(temp_fields)
-            rejected = temp_stats.get("points_qc_rejected", 0)
+            rate_rejected = temp_rate_rejected.get(key, 0)
+            rejected = temp_stats.get("points_qc_rejected", 0) + rate_rejected
             temp_points_qc_rejected += rejected
             if rejected:
                 stations_temp_qc_rejected += 1
@@ -2255,8 +2434,16 @@ def normalize_payload(
                 "degC) pesata sul tempo (sample-and-hold: un istantaneo vale dal "
                 "suo ref al ref successivo), MINIMO e MASSIMO dei campioni con "
                 "`ref` nella finestra. Unita' degC, dichiarata in `units`. "
-                "Gate fisico: |T| > 60 degC scartato e contato in "
-                "`temp_qc_rejected`. Le finestre sono 5m, 30m, 1h, 3h"
+                "Due gate: (1) range assoluto |T| > 60 degC scartato; (2) "
+                "PLAUSIBILITA' FISICA, |dT|/dt > 6 degC/h rispetto all'ultimo "
+                "campione ACCETTATO (SCELTA INGEGNERISTICA, non una soglia "
+                "meteorologica validata: il fohn fa +4-5 degC/h, un sensore "
+                "rotto fa +15-37 degC in 30-60 min). Oltre 3 h di buco il rate "
+                "non e' valutabile e il campione si accetta. Entrambi i gate "
+                "scartano senza inventare un sostituto e contano in "
+                "`temp_qc_rejected`. Il campo ISTANTANEO `temperature_2m` e' "
+                "l'ultimo campione accettato, non l'ultimo arrivato. "
+                "Le finestre sono 5m, 30m, 1h, 3h"
             ),
             "rh_mean_*": (
                 "MEDIA pesata sul tempo delle serie B13003 (RELATIVE HUMIDITY, %). "
@@ -2341,6 +2528,9 @@ def normalize_payload(
             "wind_qc_max_ms": QC_WIND_MAX_MS,
             "gust_qc_max_ms": QC_GUST_MAX_MS,
             "temp_qc_max_abs_c": QC_TEMP_MAX_ABS_C,
+            "temp_qc_max_rate_c_per_h": QC_TEMP_MAX_RATE_C_PER_H,
+            "temp_qc_min_abs_delta_c": TEMP_MIN_ABS_DELTA_C,
+            "temp_baseline_anchored_stations": baseline_anchored,
             "dew_qc_max_abs_c": QC_DEW_MAX_ABS_C,
             "rh_qc_range_pct": [QC_RH_MIN_PCT, QC_RH_MAX_PCT],
             "temp_series_step_by_network": step_histogram,
@@ -2758,6 +2948,15 @@ def main(argv: list[str] | None = None) -> int:
         "--now", default=None,
         help="istante di riferimento ISO8601 (default: adesso UTC)",
     )
+    ap.add_argument(
+        "--baseline",
+        default=None,
+        help=(
+            "blob giornaliero (data/stations/daily_series.json) da usare come "
+            "ancora del gate di temperatura: l'ultimo campione sano PRIMA "
+            "dell'inizio della finestra. Assente -> nessuna ancora (stateless)"
+        ),
+    )
     args = ap.parse_args(argv)
 
     networks_path = Path(args.networks_file)
@@ -2818,8 +3017,26 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(f"[FATAL] risposta non JSON: {exc}", file=sys.stderr)
         return 3
+    baseline: dict[str, list[tuple[datetime, float]]] = {}
+    if args.baseline:
+        baseline_path = Path(args.baseline)
+        if baseline_path.exists():
+            baseline = load_temperature_baseline(baseline_path)
+            print(
+                f"[INFO] ancora di temperatura: {len(baseline)} stazioni dal "
+                f"blob giornaliero {baseline_path}"
+            )
+        else:
+            print(
+                f"[INFO] ancora di temperatura: {baseline_path} assente "
+                "(primo run della giornata o blob non ripristinato)"
+            )
     doc = normalize_payload(
-        payload, networks, generated_at=now, max_age_minutes=args.max_age_minutes
+        payload,
+        networks,
+        generated_at=now,
+        max_age_minutes=args.max_age_minutes,
+        temp_baseline=baseline,
     )
 
     problems = validate_document(doc, args.min_stations, args.max_bytes)

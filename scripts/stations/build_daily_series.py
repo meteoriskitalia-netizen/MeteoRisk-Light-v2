@@ -92,6 +92,14 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+try:  # eseguito come script: la cartella dello script e' su sys.path
+    from temp_qc import TEMP_DAILY_BUCKET_TOLERANCE_C, qc_temperature_points
+except ImportError:  # importato come pacchetto (test/strumenti)
+    from scripts.stations.temp_qc import (
+        TEMP_DAILY_BUCKET_TOLERANCE_C,
+        qc_temperature_points,
+    )
+
 try:
     from zoneinfo import ZoneInfo
 
@@ -116,7 +124,14 @@ NOTE = (
     "minimo della giornata (temp_max_day_c / temp_min_day_c e rh_max_day_pct / "
     "rh_min_day_pct) con l'ora locale del picco e la copertura fino all'ora "
     "corrente; la giornata e' dichiarata parziale finche' non sono passate tutte "
-    "le ore o la copertura e' sotto il 90%."
+    "le ore o la copertura e' sotto il 90%. "
+    "GATE DI PLAUSIBILITA' (condiviso con fetch_stations.py, temp_qc.py): i punti "
+    "di temperatura con |dT|/dt > 6 degC/h rispetto all'ultimo campione accettato "
+    "vengono azzerati (le altre grandezze della stessa osservazione restano) e "
+    "contati in `temp_qc_rejected`; un bucket orario che si discosta di oltre 15 "
+    "degC dai punti della stessa ora viene ricostruito da quei punti, e viene "
+    "eliminato se tutti i punti dell'ora sono stati scartati. Nessun valore "
+    "sostitutivo inventato."
 )
 
 # Indici tupla — allineati a stationsSeriesTuple()/stationsSeriesValue() nel client.
@@ -437,6 +452,118 @@ def _buckets_from_points(points: object, index: int) -> dict:
     }
 
 
+def _sanitize_temp_points(record: dict) -> tuple[int, set[int]]:
+    """Azzera SOLO la temperatura dei punti che non passano il gate del rate.
+
+    Perche' serve anche qui: il fetcher pulisce le osservazioni NUOVE, ma i
+    `pts` e i bucket `th` gia' salvati nel blob vengono da run precedenti. Il
+    caso misurato il 2026-11-23 (Palma di Montechiaro) e' esattamente questo:
+    la serie del sensore e' rotta da ore e i valori 40-52 degC erano gia' nel
+    blob. senza questa pulizia il massimo falso resterebbe pubblicato fino a
+    mezzanotte locale.
+
+    Il gate tocca `p[I_TEMP]` e nient'altro: la stessa osservazione puo' avere
+    pioggia, vento e umidita' validi, e azzerarli per una temperatura rotta
+    sarebbe una perdita non giustificata. Un punto con temperatura nulla resta
+    nel grafico per le altre grandezze.
+
+    Ritorna `(campioni_scartati, ore_con_tutti_i_punti_scartati)`.
+    """
+    pts = record.get("pts")
+    if not isinstance(pts, list) or len(pts) < 2:
+        return 0, set()
+    samples: list[tuple[datetime, float]] = []
+    input_index: dict[int, int] = {}
+    for position, point in enumerate(pts):
+        if not _valid_point(point):
+            continue
+        value = point[I_TEMP]
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            continue
+        try:
+            ref = datetime.fromtimestamp(int(point[I_TIME]) / 1000.0, tz=timezone.utc)
+        except (ValueError, OSError, OverflowError):
+            continue
+        input_index[len(samples)] = position
+        samples.append((ref, float(value)))
+    if len(samples) < 2:
+        return 0, set()
+    _kept, rejected, rejected_indexes = qc_temperature_points(samples)
+    rejected_hours: set[int] = set()
+    for sample_index in rejected_indexes:
+        position = input_index[sample_index]
+        pts[position][I_TEMP] = None
+        try:
+            _day, hour = local_hour(int(pts[position][I_TIME]) // 1000)
+        except (TypeError, ValueError, IndexError):
+            continue
+        rejected_hours.add(hour)
+    return rejected, rejected_hours
+
+
+def _repair_temp_buckets(
+    record: dict,
+    rejected_hours: set[int],
+    tolerance: float = TEMP_DAILY_BUCKET_TOLERANCE_C,
+) -> int:
+    """Riconcilia i bucket `th` salvati con i punti (puliti) della stessa ora.
+
+    Regola dichiarata: `max_day <= max(serie oraria) + tolleranza`. Se il
+    massimo (o il minimo) salvato si discosta di oltre `tolerance` degC dagli
+    estremi dei punti della stessa ora, il bucket e' incoerente con la serie da
+    cui doveva derivare e viene RICOSTRUITO dai punti (media semplice, minima,
+    massima). Se l'ora non ha punti accettati perche' sono stati tutti scartati
+    dal gate, il bucket viene ELIMINATO: non e' corroborabile e lasciarlo
+    significherebbe pubblicare un massimo che nessun campione sostiene.
+
+    Perche' non ricostruire sempre: i punti sono un campione ogni run (~10 min),
+    la serie originale puo' essere piu' fitta e il bucket e' una media pesata
+    sul tempo. Si tocca solo cio' che e' palesemente incoerente.
+
+    Ritorna il numero di bucket ricostruiti o eliminati.
+    """
+    bucket = record.get("th")
+    if not isinstance(bucket, dict) or not bucket:
+        return 0
+    by_hour: dict[int, list[float]] = {}
+    for point in record.get("pts") or []:
+        if not _valid_point(point):
+            continue
+        value = point[I_TEMP]
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            continue
+        try:
+            _day, hour = local_hour(int(point[I_TIME]) // 1000)
+        except (TypeError, ValueError, IndexError):
+            continue
+        by_hour.setdefault(hour, []).append(float(value))
+    repaired = 0
+    for key in list(bucket):
+        try:
+            hour = int(key)
+        except (TypeError, ValueError):
+            continue
+        triple = _temp_triplet(bucket[key])
+        values = by_hour.get(hour)
+        if values:
+            low, high = min(values), max(values)
+            inconsistent = (
+                (triple[2] is not None and triple[2] > high + tolerance)
+                or (triple[1] is not None and triple[1] < low - tolerance)
+            )
+            if inconsistent:
+                bucket[key] = [
+                    round(sum(values) / len(values), 1),
+                    round(low, 1),
+                    round(high, 1),
+                ]
+                repaired += 1
+        elif hour in rejected_hours:
+            del bucket[key]
+            repaired += 1
+    return repaired
+
+
 def _derived(record: dict, current_hour: int, day: str) -> None:
     """Aggiunge a `record` le cumulate a 6 h e 24 h e le sintesi del vento."""
     rh = record.get("rh") if isinstance(record.get("rh"), dict) else {}
@@ -628,6 +755,11 @@ def build(latest: dict, previous: dict | None, now_ms: int, max_points: int = MA
                         for k, v in rec["dwh"].items()
                         if isinstance(v, list) and v and isinstance(v[0], (int, float))
                     }
+                # Il conteggio dei campioni termici scartati e' cumulativo della
+                # giornata: i punti gia' azzerati non vengono ricontati, ma il
+                # numero resta visibile nel blob.
+                if isinstance(rec.get("temp_qc_rejected"), int) and rec["temp_qc_rejected"] > 0:
+                    kept["temp_qc_rejected"] = rec["temp_qc_rejected"]
                 stations[sid] = kept
 
     latest_stations = latest.get("stations", [])
@@ -692,6 +824,14 @@ def build(latest: dict, previous: dict | None, now_ms: int, max_points: int = MA
     for sid, rec in stations.items():
         if not isinstance(rec, dict):
             continue
+        # GATE DI PLAUSIBILITA' SU TUTTA LA GIORNATA (non solo sul run corrente):
+        # azzera la temperatura dei punti incoerenti, poi riconcilia i bucket
+        # `th` salvati con i punti ripuliti. Va PRIMA del backfill, cosi' le ore
+        # ricostruite usano solo campioni accettati.
+        rejected_points, rejected_hours = _sanitize_temp_points(rec)
+        if rejected_points:
+            rec["temp_qc_rejected"] = int(rec.get("temp_qc_rejected") or 0) + rejected_points
+        _repair_temp_buckets(rec, rejected_hours)
         # Avvio a freddo: completa i bucket termici con le ore gia' presenti nei
         # punti (vedi `_buckets_from_points`). Le ore del run corrente vincono.
         for bucket, index in (("th", I_TEMP), ("rhh", I_RH)):

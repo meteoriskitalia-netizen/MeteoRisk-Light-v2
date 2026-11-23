@@ -1,3 +1,17 @@
+VERSION=1.3.0.68
+BUILD=198
+DATE=2026-11-23
+APP_FILE=mri-light-1.3.0.68.html
+MeteoRisk Light - 1.3.0.68 - Temperatura centraline: gate di plausibilita fisica (rate 6 C/h + salto 3 C), ancora dal blob giornaliero, massimo falso 52,0 -> 27,5 C; Pro "oggi" di massima/minima dal blob (BUILD=198)
+VERSION=1.3.0.68
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=198
+RELEASE_TYPE=release
+DATE=2026-11-23
+NOTE=Release 1.3.0.68 (bump da 1.3.0.67; APP_FILE mri-light-1.3.0.68.html). (1) GATE DI PLAUSIBILITA DELLA TEMPERATURA (scripts/stations/temp_qc.py, condiviso): si scarta un campione se |dT| > 3,0 C E |dT|/dt > 6,0 C/h rispetto all ultimo campione ACCETTATO (SCELTA INGEGNERISTICA dichiarata; il fohn a +4 C/h passa, il salto da sensore rotto no; oltre 3 h di buco il rate non e valutabile e il campione si accetta). Il campione scartato non viene sostituito: sparisce e finisce in temp_qc_rejected. CASO REALE: Palma di Montechiaro (dpcn-sicilia:37.20139,13.76111), blob 2026-11-23T21:31Z con temp_max_day_c 52,0 C, istantanea 14,8 C e serie 24-27 C; serie vera 43,3/40,0/52,0/15,2/46,0/47,6/40,5/14,8. (2) ANCORA DAL BLOB: la finestra e di 180 minuti; se il guasto comincia prima, il primo campione e gia falso (misurato 43,1 C e istantanea 40,5 C). Il fetcher legge il blob giornaliero ripristinato (--baseline data/stations/daily_series.json), lo ripulisce con lo stesso gate e usa l ultimo campione sano PRIMA della finestra (18:24Z 14,8 C). Senza file resta stateless. (3) BLOB GIORNALE RIPARATO: build_daily_series azzera la temperatura dei punti incoerenti (le altre grandezze restano), ricostruisce i bucket orari che si discostano di oltre 15 C dai punti della stessa ora ed ELIMINA quelli con tutti i punti scartati. MISURATO sul blob reale: massimo 52,0 -> 27,5 C, zero stazioni sopra 30 C, 171/5.158 stazioni con almeno un campione scartato (3,3%). MISURATO sul payload live delle 22:06Z con ancora: 10 campioni scartati su 5 stazioni, massimo istantaneo 25,7 C e temp_max_3h 19,5 C (senza ancora: 40,5 e 42,9). (4) PRO "OGGI" DI MASSIMA/MINIMA: legge da stationsDailyLoad() (il campo non e in latest.json/index.json), con stato "carico la giornata..." e ridisegno all arrivo; ora del picco, temp_day_partial e temp_day_coverage_frac dal record del blob. (5) TEST: nuovo scripts/tests/test_station_temp_qc.py (9 casi); test_station_field.mjs 128 controlli 0 falliti; test_stations.py e test_station_daily_buckets.py aggiornati nei due fixture che usavano salti/bucket impossibili per provare il dedup/backfill. INVARIATI: motore radar, mappe, dataset, Simple oltre al bump; sw.js rinnova le tre cache a mri-1.3.0.68.
+APP_FILE=mri-light-1.3.0.67.html
 VERSION=1.3.0.67
 BUILD=197
 DATE=2026-11-23

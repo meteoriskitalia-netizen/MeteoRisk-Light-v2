@@ -3214,9 +3214,16 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.67';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.68';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-23';
     const APP_CHANGELOG = [
+    { version: '1.3.0.68', date: '2026-11-23', changes: [
+      "SERVER, TEMPERATURA: gate di PLAUSIBILITA FISICA sulla serie delle centraline. Il caso reale e Palma di Montechiaro (dpcn-sicilia:37.20139,13.76111): il blob del 2026-11-23T21:31Z pubblicava temp_max_day_c = 52,0 °C con temperatura istantanea 14,8 °C e serie 24-27 °C; la serie vera alterna 43,3 / 40,0 / 52,0 / 15,2 / 46,0 / 47,6 / 40,5 / 14,8, cioe salti di 15-37 °C in 30-60 minuti che il vecchio gate |T| <= 60 non vede. Regola dichiarata (SCELTA INGEGNERISTICA, non soglia meteorologica validata): si scarta un campione se |dT| > 3,0 °C E |dT|/dt > 6,0 °C/h rispetto all ULTIMO CAMPIONE ACCETTATO. Il fohn a +4 °C/h passa; il salto da sensore rotto no; oltre 3 h di buco il rate non e valutabile e il campione si accetta. Il campione scartato non viene sostituito: sparisce e finisce in temp_qc_rejected. La temperatura ISTANTANEA e temp_hourly usano solo i campioni accettati, quindi il picco falso non entra piu ne in latest.json ne nei bucket del blob giornaliero.",
+      "ANCORA CONTRO LA FINESTRA CHE COMINCIA DENTRO IL GUASTO: la query copre 180 minuti; se il sensore si rompe prima, il primo campione della serie e gia falso e un gate relativo non ha un valore sano con cui confrontarlo (misurato: 43,1 °C come PRIMO campione e massimo istantaneo 40,5 °C). Il fetcher legge ora il blob giornaliero ripristinato dal workflow (--baseline, data/stations/daily_series.json), lo ripulisce con lo stesso gate e usa l ultimo campione sano PRIMA dell inizio della finestra come ancora (18:24Z, 14,8 °C nel caso reale). File assente o non ripristinato: nessuna ancora, il fetcher resta stateless.",
+      "BLOB GIORNALE RIPARATO DAL SERVER: build_daily_series azzera la temperatura dei punti incoerenti (le altre grandezze della stessa osservazione restano) e riconcilia i bucket orari gia salvati con i punti della stessa ora. Un bucket che si discosta di oltre 15 °C dai punti viene ricostruito da quei punti; se tutti i punti dell ora sono stati scartati il bucket viene ELIMINATO. MISURATO sul blob reale del 2026-11-23: temp_max_day_c massimo 52,0 -> 27,5 °C (Palma di Montechiaro), zero stazioni sopra 30 °C, 171 stazioni su 5.158 con almeno un campione scartato (3,3%).",
+      "PRO, «OGGI» DI MASSIMA E MINIMA: la finestra day di tmax/tmin leggeva temp_max_day_c / temp_min_day_c da latest.json e index.json, dove quei campi NON sono pubblicati (misurato il 2026-11-23T21:30Z): la mappa restava vuota mentre la Simple la mostrava. Ora legge da stationsDailyLoad(), lo stesso blob gia scaricato per il grafico; se il blob non e ancora arrivato lo stato dice «carico la giornata...» e il campo si ridisegna al suo arrivo (con un motivo esplicito se non arriva). Dal record del blob arrivano anche l ora del picco (temp_max_day_hour / temp_min_day_hour), il flag temp_day_partial e la copertura temp_day_coverage_frac. Nessun valore preso da latest.json e nessun valore inventato.",
+      "TEST: nuovo scripts/tests/test_station_temp_qc.py (9 casi: Palma riprodotta e massimo coerente, fohn +4 °C/h NON scartato, rumore sotto 3 °C non scartato, buco oltre 3 h, riparazione del blob, ancora dal blob, normalize_payload con e senza ancora). test_station_field.mjs aggiornato: tmax+day con solo il blob -> campo popolato; senza blob -> «carico la giornata...» (128 controlli, 0 falliti). test_stations.py usa 282 K invece di 250 K nel duplicato storico perche il salto da -23 a 9 °C in 90 min ora viene (correttamente) filtrato; test_station_daily_buckets usa un bucket plausibile invece di 49-51 °C."
+    ]},
     { version: '1.3.0.67', date: '2026-11-23', changes: [
       "SIMPLE, CENTRALINE COME LA PRO: il selettore passa da 4 a 8 variabili (temperatura, TEMPERATURA MASSIMA, TEMPERATURA MINIMA, umidità relativa, pioggia 1 h, pioggia 3 h, vento medio, raffica) e c'è un secondo selettore per la FINESTRA: «oggi (dalle 00:00)», 1 ora, 3 ore. La finestra si disabilita con il motivo per le variabili istantanee (temperatura e umidità) e si sincronizza da sola: massima/minima passano a «oggi», vento/raffica a 1 ora.",
       "SORGENTI MISURATE, NIENTE VALORI INVENTATI: 1 h e 3 h leggono temp_max_1h_c / temp_max_3h_c / temp_min_1h_c / temp_min_3h_c (+ temp_1h_coverage_frac / temp_3h_coverage_frac) da data/stations/latest.json; la massima/minima della giornata legge temp_max_day_c / temp_min_day_c / temp_max_day_hour / temp_min_day_hour / temp_day_coverage_frac / temp_day_partial da data/stations/daily_series.json (branch stations-daily, schema /2), caricato SOLO quando si sceglie «oggi» con fallback raw. I campi della giornata NON sono in latest.json (misurato il 2026-11-23T21:30Z): leggerli da lì sarebbe un valore inventato. Se un campo manca, l'opzione resta, l'overlay viene rimosso e la nota nomina il campo.",
@@ -17841,6 +17848,7 @@ stopSyncPlay();
     var stationsDaily = null;            // blob(server) della serie giornaliera: {schema,day,stations}
     var stationsDailyLoadedAt = 0;
     var stationsDailyLoading = null;
+    var stationsDailyFailedAt = 0;       // ultimo tentativo fallito (nessun blob): 0 = nessun errore noto
     var stationsError = null;
     var stationsLoading = null;
     var stationsLoadedAt = 0;
@@ -18232,7 +18240,18 @@ stopSyncPlay();
 
     function stationsLoad(force) {
         var dailyP = stationsDailyLoad();   // best-effort: non lancia, non blocca
-        dailyP.then(function (d) { if (d) stationsRedraw(); });
+        // 1.3.0.68 - ridisegna anche quando il blob NON arriva: la finestra
+        // «oggi» delle massime/minime deve passare da «carico la giornata...»
+        // al motivo reale, non restare in caricamento per sempre.
+        dailyP.then(function (d) {
+            if (d) { stationsRedraw(); return; }
+            try {
+                if (typeof stationFieldActive !== 'undefined' && stationFieldActive) {
+                    stationFieldSyncControls();
+                    renderStationFieldOverlay(false);
+                }
+            } catch (e) { }
+        });
         if (!force && stationsData) return Promise.resolve(stationsData);
         if (stationsLoading) return stationsLoading;
         var t0 = (window.performance && performance.now) ? performance.now() : Date.now();
@@ -18776,10 +18795,12 @@ stopSyncPlay();
                     if (!o.stations || typeof o.stations !== 'object' || Array.isArray(o.stations)) throw new Error('stations non valido');
                     stationsDaily = o;
                     stationsDailyLoadedAt = Date.now();
+                    stationsDailyFailedAt = 0;
                     return o;
                 } catch (e) { /* sorgente successiva */ }
             }
             stationsDaily = null;
+            stationsDailyFailedAt = Date.now();
             return null;
         })();
         stationsDailyLoading = p;
@@ -19775,6 +19796,47 @@ stopSyncPlay();
             spec.dayWindow = !!f.day;
             spec.hourKey = f.hourKey || null;
             spec.partialKey = f.partialKey || null;
+            // 1.3.0.68 - MASSIMA/MINIMA DI OGGI: il campo NON e' in
+            // latest.json/index.json (misurato il 2026-11-23T21:30Z: la Pro
+            // leggeva li' e la mappa «oggi» restava vuota mentre la Simple la
+            // mostrava). Vive SOLO nel blob stations-daily, gia' scaricato per
+            // il grafico: si legge da li', come le finestre 6h/24h.
+            if (f.day && (f.raw === 'temp_max_day_c' || f.raw === 'temp_min_day_c')) {
+                spec.dailyField = f.raw;
+                spec.dayWindow = true;
+                // I nomi nel BLOB sono in snake_case (temp_max_day_hour,
+                // temp_day_partial), quelli normalizzati da latest.json in
+                // camelCase: la Pro legge il blob, quindi servono i primi.
+                spec.hourKey = (f.raw === 'temp_max_day_c') ? 'temp_max_day_hour' : 'temp_min_day_hour';
+                spec.partialKey = 'temp_day_partial';
+                spec.dailyCovField = 'temp_day_coverage_frac';
+                if (!stationsDaily) {
+                    if (stationsDailyFailedAt && (Date.now() - stationsDailyFailedAt) < 60000) {
+                        spec.reason = 'la giornata non è disponibile: il blob data/stations/daily_series.json non è stato caricato ' +
+                            '(raw.githubusercontent e Pages non hanno risposto). Nessun valore inventato: riprova tra poco.';
+                        spec.note = spec.reason;
+                        return spec;
+                    }
+                    // Blob non ancora arrivato: la finestra e' SELEZIONABILE e
+                    // lo stato dice «carico la giornata...»; stationsLoad()
+                    // ridisegna quando il blob arriva.
+                    spec.available = true;
+                    spec.dailyPending = true;
+                    spec.note = 'carico la giornata...';
+                    try {
+                        stationsDailyLoad().then(function () {
+                            if (stationFieldActive) renderStationFieldOverlay(false);
+                        }, function () { });
+                    } catch (e) { }
+                    return spec;
+                }
+                var dstate = stationFieldDailyState(f.raw);
+                spec.dailyState = dstate;
+                if (dstate.available) { spec.available = true; return spec; }
+                spec.reason = 'la finestra ' + stationFieldWindowLabel(win) + ' non è disponibile: ' + dstate.reason;
+                spec.note = spec.reason;
+                return spec;
+            }
             if (!f.mean) {
                 spec.field = f.key;
                 spec.available = true;
@@ -19875,6 +19937,11 @@ stopSyncPlay();
             var st = stations[i];
             if (!st || !isFinite(st.lat) || !isFinite(st.lon)) continue;
             if (((now - st.time) / 60000) > STATIONS_MAX_OBS_AGE_MIN) { out.tooOld++; continue; }
+            // 1.3.0.68 - La finestra «oggi» di massima/minima ha il valore, l'ora
+            // del picco, il flag di parzialita' e la copertura NEL RECORD del blob
+            // giornaliero, non nella stazione normalizzata da latest.json.
+            var dailyRec = (spec.dailyField && stationsDaily && stationsDaily.stations)
+                ? stationsDaily.stations[st.id] : null;
             var v = spec.field ? st[spec.field]
                 : (spec.dailyField ? stationFieldDailyValue(st.id, spec.dailyField) : null);
             if (v === null || v === undefined || v === '' || !isFinite(Number(v))) continue;
@@ -19883,7 +19950,7 @@ stopSyncPlay();
             // di giornata in corso. Il picco e' quello della STAZIONE con il valore
             // piu' estremo: e' la stessa informazione dell'esempio "max 18,2 alle 14".
             if (spec.dayWindow && spec.hourKey) {
-                var ph = st[spec.hourKey];
+                var ph = dailyRec ? dailyRec[spec.hourKey] : st[spec.hourKey];
                 if (ph !== null && ph !== undefined && ph !== '' && isFinite(Number(ph))) {
                     var pv = Number(v);
                     var better = (out.peakValue === null) ||
@@ -19891,12 +19958,17 @@ stopSyncPlay();
                     if (better) { out.peakValue = pv; out.peakHour = Number(ph); }
                 }
             }
-            if (spec.partialKey && st[spec.partialKey] === true) out.partialDay++;
+            if (spec.partialKey) {
+                var partialFlag = dailyRec ? dailyRec[spec.partialKey] : st[spec.partialKey];
+                if (partialFlag === true) out.partialDay++;
+            }
             if (spec.dailyPartialField) {
                 var pe = stationsDaily && stationsDaily.stations ? stationsDaily.stations[st.id] : null;
                 if (pe && pe[spec.dailyPartialField] === true) out.partialWindow++;
             }
-            var cov = spec.covField ? st[spec.covField] : null;
+            var cov = null;
+            if (spec.dailyCovField && dailyRec) cov = dailyRec[spec.dailyCovField];
+            else if (spec.covField) cov = st[spec.covField];
             if (cov !== null && cov !== undefined && cov !== '' && isFinite(Number(cov))) {
                 if (Number(cov) < STATION_FIELD_MIN_COVERAGE) { out.excludedCoverage++; continue; }
                 out.coverageSum += Number(cov);
@@ -20251,6 +20323,10 @@ stopSyncPlay();
                 el.textContent = msg;
             } else if (!stationsData) {
                 el.textContent = 'Caricamento centraline...';
+            } else if (spec.dailyPending && !stationsDaily) {
+                // 1.3.0.68 - la finestra «oggi» di massima/minima aspetta il blob
+                // giornaliero: stato esplicito, non una mappa vuota senza motivo.
+                el.textContent = 'carico la giornata...';
             } else if (!spec.available) {
                 el.innerHTML = '⛔ ' + escapeHtml(spec.reason || 'variabile non disponibile');
             } else if (st) {
@@ -20316,6 +20392,23 @@ stopSyncPlay();
             for (var i = 0; i < opts.length; i++) {
                 var w = opts[i].value;
                 var f = STATION_FIELD_FIELDS[stationFieldVar] && STATION_FIELD_FIELDS[stationFieldVar][w];
+                // 1.3.0.68 - «oggi» di tmax/tmin: disponibilita' dal blob
+                // giornaliero, non da latest.json (dove il campo non esiste).
+                if (f && f.day && (f.raw === 'temp_max_day_c' || f.raw === 'temp_min_day_c')) {
+                    if (!stationsDaily) {
+                        opts[i].disabled = false;
+                        opts[i].title = (stationsDailyFailedAt && (Date.now() - stationsDailyFailedAt) < 60000)
+                            ? 'giornata non disponibile: il blob daily_series.json non è stato caricato (riprova tra poco)'
+                            : 'carico la giornata...';
+                    } else {
+                        var dstDay = stationFieldDailyState(f.raw);
+                        opts[i].disabled = !dstDay.available;
+                        opts[i].title = dstDay.available
+                            ? ('disponibile: ' + f.raw + ' (' + stationFieldAggLabel(f) + ', dal blob giornaliero)')
+                            : ('non disponibile: ' + ((dstDay && dstDay.reason) || 'campo non pubblicato'));
+                    }
+                    continue;
+                }
                 if (f) {
                     var ms2 = f.mean ? stationFieldMeanStats(f.key) : null;
                     var absent = !!(f.mean && stationsData && ms2.withValue === 0 && ms2.withReason === 0);
@@ -20384,6 +20477,15 @@ stopSyncPlay();
             stationFieldLastStats = null;
             stationFieldRemoveOverlay();
             stationFieldStatus();
+            return false;
+        }
+        if (spec.dailyPending && !stationsDaily) {
+            // Il valore esiste solo nel blob giornaliero e non e' ancora
+            // arrivato: si dichiara il caricamento e il redraw parte al suo
+            // arrivo (stationsLoad / stationFieldSpec). Nessun valore inventato.
+            stationFieldLastStats = null;
+            stationFieldRemoveOverlay();
+            stationFieldStatus('carico la giornata...');
             return false;
         }
         if (!stationsData || !stationsData.stations || !stationsData.stations.length) {

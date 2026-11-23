@@ -131,6 +131,8 @@ const ctxObj = {
   // e' pubblicata (tre stati: presente / bloccata con motivo / assente). Nel vm
   // deve esistere, altrimenti la prima lettura lancia ReferenceError.
   stationsData: null,
+  stationsDailyFailedAt: 0,
+  stationFieldActive: false,
   stationFieldVar: 'temp',
   stationFieldWindow: '1h',
   stationFieldLastStats: null,
@@ -382,34 +384,57 @@ ok('livello idrico escluso con motivo (zero idrometrico eterogeneo)',
 ok('riga dedicata con le tre esclusioni nel blocco del campo',
   /id="live-stationfield-excluded"/.test(src));
 
-console.log('\nD4. MASSIMA, MINIMA E GIORNATA (tmax/tmin/day)');
+console.log('\nD4. MASSIMA, MINIMA E GIORNATA (tmax/tmin/day) DAL BLOB GIORNALIERO');
 const nowD4 = Date.parse('2026-11-23T18:00:00Z');
-// tmax + day: campo, aggregazione, ora del picco.
+// 1.3.0.68 - la Pro legge «oggi» da stationsDailyLoad(), NON da latest.json
+// (dove temp_max_day_c non e' pubblicato). Senza blob lo stato e' di
+// CARICAMENTO, non «campo assente»: la mappa non deve restare vuota in silenzio.
+ctxObj.stationsDaily = null;
+ctxObj.stationsDailyFailedAt = 0;
 ctxObj.stationsData = { stations: [
-  { id: 'A', lat: 45.0, lon: 9.0, time: nowD4, tempMaxDay: 18.2, tempMaxDayHour: 14, tempDayPartial: true },
-  { id: 'B', lat: 45.1, lon: 9.1, time: nowD4, tempMaxDay: 16.9, tempMaxDayHour: 12, tempDayPartial: true }
+  { id: 'A', lat: 45.0, lon: 9.0, time: nowD4 },
+  { id: 'B', lat: 45.1, lon: 9.1, time: nowD4 }
 ] };
+const specTMaxPending = ctxObj.stationFieldSpec('tmax', 'day');
+ok('tmax + day SENZA blob: finestra selezionabile in stato di CARICAMENTO',
+  specTMaxPending.available === true && specTMaxPending.dailyPending === true &&
+  specTMaxPending.dailyField === 'temp_max_day_c' && specTMaxPending.field === null &&
+  specTMaxPending.note === 'carico la giornata...', specTMaxPending.note);
+ok('tmax + day NON legge tempMaxDay da latest.json (campo non pubblicato li)',
+  specTMaxPending.field !== 'tempMaxDay');
+// Con il blob (schema stations-daily-series/2) il campo e' popolato.
+ctxObj.stationsDaily = { schema: 'stations-daily-series/2', day: '2026-11-23',
+  stations: {
+    A: { temp_max_day_c: 18.2, temp_max_day_hour: '14', temp_day_partial: true, temp_day_coverage_frac: 1.0 },
+    B: { temp_max_day_c: 16.9, temp_max_day_hour: '12', temp_day_partial: true, temp_day_coverage_frac: 0.9 }
+  } };
 const specTMaxDay = ctxObj.stationFieldSpec('tmax', 'day');
-ok('tmax + day -> temp_max_day_c, aggregazione max, finestra giornata',
-  specTMaxDay.field === 'tempMaxDay' && specTMaxDay.agg === 'max' && specTMaxDay.dayWindow === true &&
-  specTMaxDay.available === true && specTMaxDay.scale === 'temperature_2m');
+ok('tmax + day CON il blob -> dailyField temp_max_day_c, aggregazione max, giornata',
+  specTMaxDay.dailyField === 'temp_max_day_c' && specTMaxDay.agg === 'max' &&
+  specTMaxDay.dayWindow === true && specTMaxDay.available === true &&
+  specTMaxDay.dailyPending !== true && specTMaxDay.scale === 'temperature_2m');
 const colTMax = ctxObj.stationFieldCollect(ctxObj.stationsData.stations, specTMaxDay, nowD4);
-ok('collect tmax day: 2 punti, picco 18,2 con ora 14', colTMax.used === 2 &&
-  colTMax.peakValue === 18.2 && colTMax.peakHour === 14, 'picco=' + colTMax.peakValue + ' ora=' + colTMax.peakHour);
-ok('flag temp_day_partial contato (2 stazioni su 2)', colTMax.partialDay === 2);
-// tmin + day.
-ctxObj.stationsData = { stations: [
-  { id: 'A', lat: 45.0, lon: 9.0, time: nowD4, tempMinDay: 3.4, tempMinDayHour: 5 },
-  { id: 'B', lat: 45.1, lon: 9.1, time: nowD4, tempMinDay: 4.8, tempMinDayHour: 6 }
-] };
+ok('collect tmax day: 2 punti DAL BLOB, picco 18,2 con ora 14',
+  colTMax.used === 2 && colTMax.peakValue === 18.2 && colTMax.peakHour === 14,
+  'usate=' + colTMax.used + ' picco=' + colTMax.peakValue + ' ora=' + colTMax.peakHour);
+ok('flag temp_day_partial del BLOB contato (2 stazioni su 2)', colTMax.partialDay === 2);
+ok('copertura temp_day_coverage_frac letta dal blob (media 0,95)',
+  colTMax.coverageN === 2 && Math.abs(colTMax.coverageSum / colTMax.coverageN - 0.95) < 1e-9,
+  'n=' + colTMax.coverageN);
+// tmin + day dallo stesso blob.
+ctxObj.stationsDaily = { schema: 'stations-daily-series/2', day: '2026-11-23',
+  stations: {
+    A: { temp_min_day_c: 3.4, temp_min_day_hour: '5', temp_day_partial: true, temp_day_coverage_frac: 1.0 },
+    B: { temp_min_day_c: 4.8, temp_min_day_hour: '6', temp_day_partial: true, temp_day_coverage_frac: 1.0 }
+  } };
 const specTMinDay = ctxObj.stationFieldSpec('tmin', 'day');
-ok('tmin + day -> temp_min_day_c, aggregazione min', specTMinDay.field === 'tempMinDay' &&
-  specTMinDay.agg === 'min' && specTMinDay.dayWindow === true);
+ok('tmin + day -> temp_min_day_c, aggregazione min', specTMinDay.dailyField === 'temp_min_day_c' &&
+  specTMinDay.agg === 'min' && specTMinDay.dayWindow === true && specTMinDay.available === true);
 const colTMin = ctxObj.stationFieldCollect(ctxObj.stationsData.stations, specTMinDay, nowD4);
-ok('collect tmin day: picco (minimo) 3,4 alle 05:00', colTMin.peakValue === 3.4 && colTMin.peakHour === 5);
+ok('collect tmin day: minimo 3,4 alle 05:00', colTMin.peakValue === 3.4 && colTMin.peakHour === 5);
 ok('ora del picco formattata 05:00 (stationFieldHourText)', ctxObj.stationFieldHourText(5) === '05:00' &&
   ctxObj.stationFieldHourText(14) === '14:00');
-// media della giornata NON pubblicata -> finestra DISABILITATA con motivo.
+// La MEDIA della giornata (temp_mean_day_c) NON e' pubblicata: resta disabilitata.
 ctxObj.stationsData = { stations: [{ id: 'A', temperature_2m: 9.8 }] };
 const specTempDay = ctxObj.stationFieldSpec('temp', 'day');
 ok('temp + day senza temp_mean_day_c -> NON disponibile, strictUnavailable',
@@ -417,18 +442,34 @@ ok('temp + day senza temp_mean_day_c -> NON disponibile, strictUnavailable',
 ok('il motivo dice che il server pubblica massima e minima',
   /temp_mean_day_c/.test(specTempDay.reason || '') && /massima e la minima/.test(specTempDay.reason || ''),
   specTempDay.reason);
+// Selettore finestra: «oggi» di tmax e' abilitato in caricamento e usa il blob.
+ctxObj.stationFieldVar = 'tmax'; ctxObj.stationFieldWindow = 'day';
+ctxObj.stationsDaily = null; ctxObj.stationsDailyFailedAt = 0;
 const selWinDay = el('stationfield-window');
 selWinDay.options = [{ value: '5m' }, { value: '30m' }, { value: '1h' }, { value: '3h' },
   { value: '6h' }, { value: '24h' }, { value: 'day' }];
+ctxObj.stationFieldSyncControls();
+ok('tmax day senza blob: opzione abilitata con title «carico la giornata...»',
+  selWinDay.options[6].disabled === false && /carico la giornata/.test(selWinDay.options[6].title || ''),
+  selWinDay.options[6].title);
+ctxObj.stationsDaily = { schema: 'stations-daily-series/2', day: '2026-11-23',
+  stations: { A: { temp_max_day_c: 18.2 } } };
+ctxObj.stationFieldSyncControls();
+ok('tmax day con il blob: opzione abilitata e title dal campo reale',
+  selWinDay.options[6].disabled === false && /temp_max_day_c/.test(selWinDay.options[6].title || ''),
+  selWinDay.options[6].title);
+// La MEDIA giornaliera della temperatura resta disabilitata con il motivo.
 ctxObj.stationFieldVar = 'temp'; ctxObj.stationFieldWindow = 'day';
+ctxObj.stationsData = { stations: [{ id: 'A', temperature_2m: 9.8 }] };
 ctxObj.stationsDaily = null;
 ctxObj.stationFieldSyncControls();
-ok('opzione "oggi" della temperatura DISABILITATA con il motivo nel title',
+ok('opzione "oggi" della MEDIA temperatura DISABILITATA con il motivo nel title',
   selWinDay.options[6].disabled === true && /temp_mean_day_c/.test(selWinDay.options[6].title || ''),
   selWinDay.options[6].title);
 ctxObj.stationsData = { stations: [{ id: 'A', tempMeanDay: 9.1 }] };
 ctxObj.stationFieldSyncControls();
-ok('con temp_mean_day_c l opzione "oggi" torna selezionabile', selWinDay.options[6].disabled === false);
+ok('con temp_mean_day_c nel file l opzione "oggi" della media torna selezionabile',
+  selWinDay.options[6].disabled === false);
 // tmax/tmin con finestre corte: i campi reali.
 ctxObj.stationsData = { stations: [{ id: 'A', tempMax1h: 15.5, tempMin1h: 8.1 }] };
 ok('tmax/tmin 1 h -> temp_max_1h_c / temp_min_1h_c',
@@ -438,9 +479,14 @@ ok('tmax/tmin 1 h -> temp_max_1h_c / temp_min_1h_c',
   ctxObj.STATION_FIELD_FIELDS.tmin['1h'].raw === 'temp_min_1h_c');
 // Riga di stato: "max 18,2 °C alle 14:00 · ... · 2 stazioni" e giornata in corso.
 ctxObj.stationsData = { stations: [
-  { id: 'A', lat: 45.0, lon: 9.0, time: nowD4, tempMaxDay: 18.2, tempMaxDayHour: 14, tempDayPartial: true },
-  { id: 'B', lat: 45.1, lon: 9.1, time: nowD4, tempMaxDay: 16.9, tempMaxDayHour: 12, tempDayPartial: true }
+  { id: 'A', lat: 45.0, lon: 9.0, time: nowD4 },
+  { id: 'B', lat: 45.1, lon: 9.1, time: nowD4 }
 ] };
+ctxObj.stationsDaily = { schema: 'stations-daily-series/2', day: '2026-11-23',
+  stations: {
+    A: { temp_max_day_c: 18.2, temp_max_day_hour: '14', temp_day_partial: true, temp_day_coverage_frac: 1.0 },
+    B: { temp_max_day_c: 16.9, temp_max_day_hour: '12', temp_day_partial: true, temp_day_coverage_frac: 1.0 }
+  } };
 ctxObj.stationFieldVar = 'tmax';
 ctxObj.stationFieldWindow = 'day';
 ctxObj.stationFieldLastStats = ctxObj.stationFieldCollect(ctxObj.stationsData.stations, ctxObj.stationFieldSpec('tmax', 'day'), nowD4);
@@ -451,8 +497,17 @@ ok('riga di stato: "2 stazioni usate" e finestra oggi', /2 stazioni usate/.test(
   /oggi \(dalla mezzanotte\)/.test(statusTxt));
 ok('giornata in corso: "il massimo puo ancora salire"', /giornata in corso/.test(statusTxt) &&
   /il massimo può ancora salire/.test(statusTxt));
+// La riga di stato SENZA blob dichiara il caricamento (non una mappa vuota muta).
+ctxObj.stationsDaily = null;
+ctxObj.stationFieldLastStats = null;
+ctxObj.stationFieldStatus();
+ok('riga di stato senza blob: «carico la giornata...»',
+  /carico la giornata/.test(el('live-stationfield-status').textContent),
+  el('live-stationfield-status').textContent);
 
 console.log('\nE. Finestre 6 h/24 h dal blob daily_series: campo, schema e PARZIALITA\'');
+ctxObj.stationsDaily = null;
+ctxObj.stationsDailyFailedAt = 0;
 const spec6 = ctxObj.stationFieldSpec('rain', '6h');
 ok('pioggia 6 h senza blob -> non disponibile', spec6.available === false && spec6.dailyField === 'rain_6h_mm');
 ok('il motivo nomina il blob e latest.json (senza inventare il campo)',

@@ -79,7 +79,12 @@ jobs:
       # L'ultimo dataset valido resta in piedi perche' non viene scritto nulla.
       - name: Scarica e normalizza le osservazioni
         id: fetch
-        run: python -u scripts/stations/fetch_stations.py --out data/stations/latest.json --index-out data/stations/index.json
+        # `--baseline`: il blob appena ripristinato e' l'ANCORA del gate di
+        # plausibilita' della temperatura (l'ultimo campione sano PRIMA della
+        # finestra di 3 h). Senza, un sensore rotto prima dell'inizio della
+        # finestra avrebbe il primo campione gia' falso e nessun confronto.
+        # File assente (primo run) -> il fetcher resta stateless.
+        run: python -u scripts/stations/fetch_stations.py --out data/stations/latest.json --index-out data/stations/index.json --baseline data/stations/daily_series.json
 
       # 1.3.0.8: accumula la serie del giorno lato server (UN blob vivo),
       # partendo dal blob appena ripristinato. Solo se il fetch e' andato a buon

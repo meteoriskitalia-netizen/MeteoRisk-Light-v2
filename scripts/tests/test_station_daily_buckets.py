@@ -476,9 +476,13 @@ def test_backfill_does_not_overwrite_the_run_bucket():
         "schema": bds.SCHEMA,
         "day": day,
         "stations": {
-            "IT001": {"name": "", "pts": pts, "th": {"2": [50.0, 49.0, 51.0]}}
+            # Bucket PLAUSIBILE rispetto ai punti (10,0/12,0): il test prova che
+            # il backfill non sovrascrive l'ora del run. Un bucket a 49-51 degC
+            # verrebbe (correttamente) ricostruito dal gate di plausibilita' in
+            # build_daily_series.
+            "IT001": {"name": "", "pts": pts, "th": {"2": [11.0, 10.5, 12.0]}}
         },
     }
     doc = bds.build({"schema": "stations/objects", "stations": []}, previous, ms(day, 1, 30))
-    assert doc["stations"]["IT001"]["th"]["2"] == [50.0, 49.0, 51.0]
+    assert doc["stations"]["IT001"]["th"]["2"] == [11.0, 10.5, 12.0]
     assert doc["stations"]["IT001"]["th"]["1"] == [10.0, 10.0, 10.0]
