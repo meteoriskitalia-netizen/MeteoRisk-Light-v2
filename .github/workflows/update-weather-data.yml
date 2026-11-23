@@ -351,6 +351,50 @@ jobs:
             fi
           fi
 
+      # 1.3.0.59 - PAYLOAD ORARIO COMPATTO per la vista Simple: legge
+      # meteorisk-points.json + meteorisk-provinces.json e scrive SOLO
+      # data/latest/simple_hourly.json (107 x 72 x 5, ~150 KB raw).
+      # continue-on-error: se il dataset non c'e' lo script esce 0 con avviso;
+      # un campo mancante esce 2 e NON scrive nulla (nessun valore inventato).
+      - name: Build payload orario Simple (simple_hourly.json, 72h x 107)
+        id: simple_hourly
+        continue-on-error: true
+        run: |
+          rc=0
+          python scripts/simple/build_simple_hourly.py || rc=$?
+          exit $rc
+
+      # Commit SEPARATO: solo il nuovo file (stesso retry anti-race su main).
+      - name: Commit payload orario Simple (solo data/latest/simple_hourly.json)
+        if: steps.simple_hourly.outcome == 'success'
+        run: |
+          git config user.name "meteorisk-bot"
+          git config user.email "actions@users.noreply.github.com"
+          if [ ! -f data/latest/simple_hourly.json ]; then
+            echo "[INFO] simple_hourly.json non scritto: nessuna commit."
+            exit 0
+          fi
+          git add data/latest/simple_hourly.json
+          if git diff --cached --quiet; then
+            echo "[INFO] simple_hourly.json invariato."
+          else
+            git commit -m "chore(data): payload orario compatto per la vista Simple (simple_hourly.json)"
+            push_ok=0
+            for i in 1 2 3 4 5; do
+              git rebase --abort 2>/dev/null || true
+              if git pull --rebase --autostash -X theirs origin main && git push origin main; then
+                push_ok=1
+                break
+              fi
+              echo "[WARN] Push simple_hourly rifiutato (race su main) - tentativo $i/5"
+              if [ "$i" -lt 5 ]; then sleep 5; fi
+            done
+            if [ "$push_ok" -ne 1 ]; then
+              echo "[ERROR] Push simple_hourly non riuscito dopo 5 tentativi (race con altri workflow su main)"
+              exit 1
+            fi
+          fi
+
       # L'ARTEFATTO di deploy contiene SOLO: app, dataset derivati, geografie
       # richieste, derivati radar, gli eventi phenomena (data/phenomena: prodotti
       # da phenomena-verify, qui SOLO copiati in _site) e la
@@ -375,6 +419,9 @@ jobs:
           cp sw.js _site/sw.js                                      # 1.2.4.15: Service Worker (cache applicativa)
           cp manifest.webmanifest _site/manifest.webmanifest        # 1.2.4.77: PWA installabile
           cp offline.html _site/offline.html                        # 1.2.4.77: fallback offline
+          # 1.3.0.59 - VISTA SIMPLE servita su /simple/ (unico file).
+          mkdir -p _site/simple
+          if [ -f simple/index.html ]; then cp simple/index.html _site/simple/index.html; fi
           mkdir -p _site/icons
           cp icons/icon-192.png _site/icons/icon-192.png            # 1.2.4.77: icone PWA
           cp icons/icon-512.png _site/icons/icon-512.png
@@ -382,6 +429,8 @@ jobs:
           cp -R data/geography _site/data/geography              # boundaries richieste
           if [ -d data/climate ]; then cp -R data/climate _site/data/climate; fi
           if [ -d data/stations ]; then cp -R data/stations _site/data/stations; fi
+          # 1.3.0.59 - criticita' DPC per il layer della Simple.
+          if [ -d data/hydro ]; then cp -R data/hydro _site/data/hydro; fi
           # Archivio rolling radar (branch radar-history, clone dello step radar-engine):
           # senza questo ripristino i deploy di questo workflow cancellerebbero da
           # Pages data/radar/history pubblicata dal radar-engine (le tracce 2h del client).

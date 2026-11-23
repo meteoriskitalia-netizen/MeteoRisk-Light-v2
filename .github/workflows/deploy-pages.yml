@@ -115,7 +115,9 @@ jobs:
           set -e
           python -m pip install --quiet pytest
           python -m pytest scripts/tests/test_html_js_syntax.py -q --capture=sys
-          echo "[INFO] Sintassi JS degli script inline di APP_FILE valida."
+          # 1.3.0.59 - gate esteso alla vista Simple (secondo HTML pubblicato).
+          python -m pytest scripts/tests/test_simple_html_js_syntax.py -q --capture=sys
+          echo "[INFO] Sintassi JS degli script inline di APP_FILE e di simple/index.html valida."
 
       # Build dell'artefatto replicando radar-engine.yml / update-weather-data.yml:
       # app + tutti i dati gia' pubblicati su main + restore dei branch dedicati.
@@ -131,6 +133,9 @@ jobs:
           cp sw.js _site/sw.js                                      # 1.2.4.15: Service Worker (cache applicativa)
           cp manifest.webmanifest _site/manifest.webmanifest        # 1.2.4.77: PWA installabile
           cp offline.html _site/offline.html                        # 1.2.4.77: fallback offline
+          # 1.3.0.59 - VISTA SIMPLE: unico file servito su /simple/ (oggi 404).
+          mkdir -p _site/simple
+          if [ -f simple/index.html ]; then cp simple/index.html _site/simple/index.html; fi
           mkdir -p _site/icons
           cp icons/icon-192.png _site/icons/icon-192.png            # 1.2.4.77: icone PWA
           cp icons/icon-512.png _site/icons/icon-512.png
@@ -138,6 +143,8 @@ jobs:
           if [ -d data/geography ]; then cp -R data/geography _site/data/geography; fi
           if [ -d data/climate ]; then cp -R data/climate _site/data/climate; fi
           if [ -d data/stations ]; then cp -R data/stations _site/data/stations; fi
+          # 1.3.0.59 - bollettino di criticita' DPC letto dal layer omonimo della Simple.
+          if [ -d data/hydro ]; then cp -R data/hydro _site/data/hydro; fi
           if git fetch --depth 1 origin "+radar-history:refs/heads/radar-history-base" 2>/dev/null && git restore --source radar-history-base --worktree -- data/radar/history 2>/dev/null; then
             echo "[INFO] Archivio rolling radar-history ripristinato per l'artifact."
           fi

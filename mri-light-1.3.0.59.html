@@ -106,6 +106,16 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
         .day-btn { background: transparent; border: none; color: #94a3b8; padding: 7px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px; }
         .day-btn.active { background: #0284c7; color: #ffffff; }
 
+        /* 1.3.0.59 - Selettore modalita' (Pro / Semplice / Sviluppo) nell'HEADER. */
+        .app-mode { display: flex; align-items: center; flex-shrink: 0; }
+        .app-mode select { font-size: 11px; height: 24px; padding: 0 4px; background: #0f172a;
+                           color: #e2e8f0; border: 1px solid #334155; border-radius: 6px;
+                           font-weight: 600; outline: none; }
+        @media (max-width: 480px) {
+            .app-mode { width: 100%; }
+            .app-mode select { width: auto; min-width: 108px; font-size: 10px; }
+        }
+
         .hour-select { background: #1e293b; border: 1px solid #334155; color: #38bdf8; padding: 4px 8px; border-radius: 6px; font-weight: bold; outline: none; }
 
         .toolbar { max-width: 1200px; margin: 0 auto 10px auto; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
@@ -1979,6 +1989,13 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
         <h1>MeteoRisk Italia – Light <span class="live-tag">EDUCATIONAL / NON-COMMERCIAL</span> <span id="app-version-badge" style="font-size:11px;color:#64748b;font-weight:normal;">v1.2</span></h1>
         <p>Mappa geografica reale — Previsioni &amp; Modelli Comparati · Uso educativo e sperimentale · Non sostituisce bollettini o allerte ufficiali</p>
     </div>
+    <div class="app-mode" title="Modalità dell'app: Pro (completa), Semplice (versione leggera) o Sviluppo (Pro con le funzioni sperimentali attive)">
+        <select id="app-mode-select" onchange="applyAppMode(this.value)" title="Modalità dell'app: Pro (completa), Semplice (versione leggera) o Sviluppo (Pro con le funzioni sperimentali attive)">
+            <option value="pro" selected>Pro</option>
+            <option value="simple">Semplice</option>
+            <option value="dev">Sviluppo</option>
+        </select>
+    </div>
     <div class="time-controls">
         <div class="day-selector">
             <button class="day-btn active" id="btn-d0" title="Giorno della mappa dei rischi: Oggi" onclick="selectDay(0)">Oggi</button>
@@ -3141,9 +3158,15 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.57';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.59';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-23';
     const APP_CHANGELOG = [
+    { version: '1.3.0.59', date: '2026-11-23', changes: [
+      "VISTA SIMPLE (pagina separata /simple/): un solo file simple/index.html con CSS+JS inline, Leaflet 1.9.4 da CDN con SRI, 107 province dal GeoJSON reale, coropleto sulla precipitazione prevista del giorno 0 (classi 0 / 0,1-1 / 1-5 / 5-15 / 15-30 / oltre 30 mm), scheda provincia con 3 giorni, tendenza 7 giorni e tabella oraria 24/48 h, layer Criticita DPC (187 zone, 4 livelli, disclaimer ufficiale), radar DPC VMI all ultimo frame di data/radar/latest.json e centraline con IDW k=6 entro 30 km, canvas 256x227 e maschera terra. La Simple non registra un Service Worker (dichiarato).",
+      "SELETTORE UNICO PRO / SEMPLICE / SVILUPPO: in ENTRAMBE le app, nell header (non nella toolbar), con title. Nella Pro Sviluppo accende lo switch reale toggleSviluppo(true), Pro lo spegne, Semplice porta a /simple/. La Pro apre anche ?dev=1 (funzioni sperimentali davvero attive) e sincronizza il selettore con lo stato reale; la Simple manda Pro a / e Sviluppo a /?dev=1.",
+      "PAYLOAD ORARIO COMPATTO: scripts/simple/build_simple_hourly.py scrive data/latest/simple_hourly.json (107 province x 72 ore x 5 campi t,p,pp,w,c) dal punto selected_point di ogni provincia, senza aggregazioni e senza valori inventati; misurato 153.291 byte raw / 37.480 gzip. Invocato in update-weather-data con continue-on-error e commit separato.",
+      "DEPLOY E TEST: deploy-pages, update-weather-data e radar-engine copiano simple/index.html in _site/simple/ e data/hydro in _site/data/hydro; il gate di sintassi copre anche simple/index.html. Nuovi test: test_simple_html_js_syntax.py, test_simple_data_contract.py, test_simple_formatters.mjs, test_app_mode_selector.mjs, test_simple_hourly.py."
+    ]},
     { version: '1.3.0.57', date: '2026-11-23', changes: [
       "OVERRIDE PROVINCE: lo switch Province (accanto a Colori) accende riempimento e confini delle province anche fuori dal prodotto Mappa dei rischi, con la scala della metrica attiva; i badge di rischio restano spenti, la legenda resta legata al prodotto e il cambio di prodotto nasconde lo switch dove non serve. Con l override attivo la tendina della metrica torna selezionabile, e la firma hydroPaintSignature include lo stato dell override.",
       "TOOLTIP SU TUTTA L APP: 60 controlli statici (select, slider, summary, campi di ricerca, 18 link esterni con Apri <dominio> in una nuova scheda) e 12 tooltip generati dal codice (righe struttura convettiva, dettagli, fenomeni, giorni a 3 giorni, retry ensemble, intestazioni legenda, suggerimenti di ricerca) hanno ora il title; tre intestazioni cliccabili diventano raggiungibili da tastiera (role button, tabindex, Enter/Spazio). Nuovo test di copertura scripts/tests/test_tooltips_coverage.py: misurato 60 controlli senza title sull html 1.3.0.55, 0 sul 1.3.0.57."
@@ -23442,6 +23465,38 @@ function toggleForecastMaps() {
 }
 
 
+    //#appmode# BEGIN
+    // 1.3.0.59 - MODALITA' DELL'APP (Pro / Semplice / Sviluppo), selettore nell'header.
+    // Il mapping e' PURO (appModeHref) e viene verificato da
+    // scripts/tests/test_app_mode_selector.mjs senza navigare.
+    function appModeHref(mode) {
+        if (mode === 'simple') return '/simple/';
+        return null; // pro e dev restano nella Pro
+    }
+    function syncAppModeSelect() {
+        var sel = document.getElementById('app-mode-select');
+        if (!sel) return;
+        var want = (typeof isSviluppoActive !== 'undefined' && isSviluppoActive) ? 'dev' : 'pro';
+        if (sel.value !== want) sel.value = want;
+    }
+    function applyAppMode(mode) {
+        var href = appModeHref(mode);
+        if (href) { window.location.href = href; return; }
+        if (mode === 'dev') {
+            if (typeof toggleSviluppo === 'function') toggleSviluppo(true);
+            try { window.history.replaceState(null, '', window.location.pathname + '?dev=1'); } catch (e) {}
+            syncAppModeSelect();
+            return;
+        }
+        if (mode === 'pro') {
+            if (typeof isSviluppoActive !== 'undefined' && isSviluppoActive &&
+                typeof toggleSviluppo === 'function') toggleSviluppo(false);
+            try { window.history.replaceState(null, '', window.location.pathname); } catch (e) {}
+            syncAppModeSelect();
+        }
+    }
+    //#appmode# END
+
     // --- Toggle Sviluppo: mostra/nasconde funzionalità sperimentali ---
     // Il toggle ora è uno switch compatto nel footer, accanto al badge versione.
     var isSviluppoActive = false;
@@ -23618,6 +23673,8 @@ function toggleForecastMaps() {
             }
         }
         syncDevRiskControls();   // 1.3.0.17: gate contestuale (Sviluppo ON + prodotto rischi)
+        // 1.3.0.59 - il selettore dell'header riflette SEMPRE lo stato reale.
+        if (typeof syncAppModeSelect === 'function') syncAppModeSelect();
     }
 
 
@@ -37174,12 +37231,27 @@ initMap();
         footer.id = 'app-footer';
         footer.style.cssText = 'max-width:1200px;margin:16px auto 0 auto;text-align:center;font-size:10px;color:#475569;padding:8px;';
         footer.innerHTML = 'MeteoRisk Italia – Light <strong id="footer-version" style="color:#64748b;">v' + APP_VERSION + '</strong> · Educational / Non-Commercial Public Edition · ' + APP_RELEASE_DATE + ' <span id="easter-egg" onclick="crackEgg()" title="·">🥚</span>' +
+            '<a href="/simple/" title="Apri la versione semplice: precipitazione, criticità DPC, radar e centraline in una pagina leggera" style="color:#38bdf8;text-decoration:none;margin-left:8px;">Versione semplice →</a>' +
             '<label class="dev-switch" title="Mostra/nascondi funzionalità sperimentali (Sviluppo)">' +
                 '<input type="checkbox" id="sviluppo-switch" onchange="toggleSviluppo(this.checked)">' +
                 '<span class="dev-track"></span>' +
                 '<span class="dev-label" id="sviluppo-label">Sviluppo OFF</span>' +
             '</label>';
         document.body.appendChild(footer);
+    })();
+
+    // 1.3.0.59 - ?dev=1 attiva DAVVERO le funzioni sperimentali: chiama la
+    // funzione reale toggleSviluppo(true) (stessa dello switch del footer) e
+    // sincronizza il selettore. addEventListener 'popstate' copre back/forward.
+    (function () {
+        function bootAppMode() {
+            var wantDev = /(?:^|[?&])dev=1(?:&|$)/.test(window.location.search || '');
+            if (wantDev && typeof toggleSviluppo === 'function') toggleSviluppo(true);
+            syncAppModeSelect();
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootAppMode);
+        else bootAppMode();
+        window.addEventListener('popstate', function () { syncAppModeSelect(); });
     })();
 
 

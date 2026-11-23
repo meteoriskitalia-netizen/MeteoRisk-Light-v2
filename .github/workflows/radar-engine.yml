@@ -792,6 +792,9 @@ jobs:
           cp sw.js _site/sw.js                                      # 1.2.4.15: Service Worker (cache applicativa)
           cp manifest.webmanifest _site/manifest.webmanifest        # 1.2.4.77: PWA installabile
           cp offline.html _site/offline.html                        # 1.2.4.77: fallback offline
+          # 1.3.0.59 - VISTA SIMPLE servita su /simple/ (unico file).
+          mkdir -p _site/simple
+          if [ -f simple/index.html ]; then cp simple/index.html _site/simple/index.html; fi
           mkdir -p _site/icons
           cp icons/icon-192.png _site/icons/icon-192.png            # 1.2.4.77: icone PWA
           cp icons/icon-512.png _site/icons/icon-512.png
@@ -799,6 +802,8 @@ jobs:
           if [ -d data/geography ]; then cp -R data/geography _site/data/geography; fi
           if [ -d data/climate ]; then cp -R data/climate _site/data/climate; fi
           if [ -d data/stations ]; then cp -R data/stations _site/data/stations; fi
+          # 1.3.0.59 - criticita' DPC per il layer della Simple.
+          if [ -d data/hydro ]; then cp -R data/hydro _site/data/hydro; fi
           if [ -d data/radar ]; then cp -R data/radar _site/data/radar; fi
           if [ -d data/phenomena ]; then cp -R data/phenomena _site/data/phenomena; fi
           if git fetch --depth 1 origin "+satellite-cache:refs/heads/satellite-cache-base" 2>/dev/null && git restore --source satellite-cache-base --worktree -- satellite 2>/dev/null; then

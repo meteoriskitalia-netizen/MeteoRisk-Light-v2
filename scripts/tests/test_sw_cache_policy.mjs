@@ -188,8 +188,8 @@ ok('A12: TTL dichiarati (tile 7 giorni, frame 30 minuti, 6 frame per famiglia)',
   /var FRAME_TTL_MS = 30 \* 60 \* 1000;/.test(swSrc) &&
   /var MAX_FRAMES_PER_FAMILY = 6;/.test(swSrc));
 ok('A13: cache separate per tile e frame (la potatura non tocca i WebP previsionali)',
-  /var TILE_CACHE = 'mri-tiles-1.3.0.57';/.test(swSrc) &&
-  /var FRAME_CACHE = 'mri-frames-1.3.0.57';/.test(swSrc) &&
+  /var TILE_CACHE = 'mri-tiles-1.3.0.59';/.test(swSrc) &&
+  /var FRAME_CACHE = 'mri-frames-1.3.0.59';/.test(swSrc) &&
   /var APP_CACHES = \[CACHE_NAME, TILE_CACHE, FRAME_CACHE\];/.test(swSrc));
 ok('A14: satellite/manifest.json usa il network-first degli indici',
   /RE_SAT_MANIFEST\.test\(path\)\) \{ event\.respondWith\(networkFirstIndex\(request\)\); return; \}/.test(swSrc));
@@ -201,16 +201,16 @@ ok('A14: satellite/manifest.json usa il network-first degli indici',
   h.fire('install', installEvent);
   ok('B1: install chiama skipWaiting', installEvent.pending !== undefined);
   await installEvent.pending;
-  const appStore = h.caches._map('mri-1.3.0.57');
+  const appStore = h.caches._map('mri-1.3.0.59');
   const installKeys = Array.from(appStore.keys());
   ok('B2: install precache SOLO i 3 asset dichiarati (html, manifest, offline.html)',
     h.flags.skipWaiting === true && appStore.size === 3 && h.caches._stores.size === 1 &&
     installKeys.every((k) => /(index\.html|manifest\.webmanifest|offline\.html)$/.test(k)) &&
     h.fetchCalls.length === 3, JSON.stringify(installKeys));
 
-  h.caches._map('mri-1.3.0.57').set('https://x/y', new Response('cur', { status: 200 }));
-  h.caches._map('mri-tiles-1.3.0.57').set('https://x/t', new Response('tile', { status: 200 }));
-  h.caches._map('mri-frames-1.3.0.57').set('https://x/f', new Response('frame', { status: 200 }));
+  h.caches._map('mri-1.3.0.59').set('https://x/y', new Response('cur', { status: 200 }));
+  h.caches._map('mri-tiles-1.3.0.59').set('https://x/t', new Response('tile', { status: 200 }));
+  h.caches._map('mri-frames-1.3.0.59').set('https://x/f', new Response('frame', { status: 200 }));
   h.caches._map('mri-1.2.4.14').set('https://x/y', new Response('old', { status: 200 }));
   h.caches._map('altro-prefisso').set('https://x/z', new Response('old', { status: 200 }));
   const activateEvent = { waitUntil: (p) => { activateEvent.pending = p; } };
@@ -218,7 +218,7 @@ ok('A14: satellite/manifest.json usa il network-first degli indici',
   await activateEvent.pending;
   const names = Array.from(h.caches._stores.keys());
   ok('B3: activate tiene le 3 cache dell\'app e cancella quelle di altre release',
-    names.length === 3 && ['mri-1.3.0.57', 'mri-tiles-1.3.0.57', 'mri-frames-1.3.0.57'].every((n) => names.indexOf(n) !== -1),
+    names.length === 3 && ['mri-1.3.0.59', 'mri-tiles-1.3.0.59', 'mri-frames-1.3.0.59'].every((n) => names.indexOf(n) !== -1),
     JSON.stringify(names));
   ok('B4: activate chiama clients.claim', h.flags.claim === true);
 }
@@ -239,7 +239,7 @@ ok('A14: satellite/manifest.json usa il network-first degli indici',
 }
 
 // ---------- D. NETWORK-FIRST CON TIMEOUT (indici aggregati) ----------
-const CACHE = 'mri-1.3.0.57';
+const CACHE = 'mri-1.3.0.59';
 const IDX = 'https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/refs/heads/fm2-rendered/data/fm2-rendered/north/index.json';
 const IDX_JSON = { 'content-type': 'application/json' };
 const bodyOfCache = async (h, url) => {
@@ -402,12 +402,12 @@ const rejects = async (p) => { try { await p; return false; } catch (e) { return
   h.ctx._respond = async () => new Response('nope', { status: 404 });
   await (await h.dispatchFetch(new Request(url))).responded;
   await new Promise((r) => setTimeout(r, 10));
-  ok('G1: una 404 non viene messa in cache', h.caches._map('mri-1.3.0.57').size === 0);
+  ok('G1: una 404 non viene messa in cache', h.caches._map('mri-1.3.0.59').size === 0);
   const webp = 'https://x.test/data/fm2-rendered/north/ncep_gfs025/temperature_2m/2026102300.webp';
   h.ctx._respond = async () => new Response('partial', { status: 206 });
   await (await h.dispatchFetch(new Request(webp))).responded;
   await new Promise((r) => setTimeout(r, 10));
-  ok('G2: una 206 non viene messa in cache', h.caches._map('mri-1.3.0.57').size === 0);
+  ok('G2: una 206 non viene messa in cache', h.caches._map('mri-1.3.0.59').size === 0);
 }
 
 // ---------- H. LIMITE DI VOCI (potatura delle piu' vecchie) ----------
@@ -420,14 +420,14 @@ const rejects = async (p) => { try { await p; return false; } catch (e) { return
     await e.responded;
     await new Promise((r) => setTimeout(r, 5));
   }
-  const keys = Array.from(h.caches._map('mri-1.3.0.57').keys());
+  const keys = Array.from(h.caches._map('mri-1.3.0.59').keys());
   ok('H1: oltre MAX_ENTRIES le voci piu\' vecchie vengono eliminate', keys.length === 3, `keys=${keys.length}`);
   ok('H2: restano le 3 piu\' recenti (ordine di inserimento)', keys.every((k) => /2026102[234]\.webp$/.test(k)), JSON.stringify(keys));
 }
 
 // ---------- M. TILE DELLA MAPPA BASE (cache-first 7 giorni, 700 voci) ----------
-const TILE_CACHE_NAME = 'mri-tiles-1.3.0.57';
-const FRAME_CACHE_NAME = 'mri-frames-1.3.0.57';
+const TILE_CACHE_NAME = 'mri-tiles-1.3.0.59';
+const FRAME_CACHE_NAME = 'mri-frames-1.3.0.59';
 const OSM_TILE = 'https://tile.openstreetmap.org/6/33/23.png';
 {
   const h = buildContext();
