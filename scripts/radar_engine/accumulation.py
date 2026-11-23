@@ -42,9 +42,19 @@ Licenza dei dati: CC BY-SA 4.0, attribuzione "Radar-DPC — Dipartimento della
 Protezione Civile". Il modulo pubblica SOLO derivati (statistiche), mai il
 GeoTIFF raw.
 
+ARCHIVIO PER PROVINCIA (2026-11-23): con `--province-dir`/`province_dir` le
+STESSE statistiche vengono calcolate anche per provincia (107) dal raster GIA'
+in memoria, senza un secondo download, e scritte in
+`<province_dir>/YYYY/MM/DD/HH.json` da `srt1_province_archive`. Serve al
+verificatore (`scripts/verification/risk_verification.py`), che con il solo
+`accumulation.json` dichiara `radar_grid_not_embedded`. Il GeoTIFF raw NON
+viene pubblicato ne' qui ne' li'.
+
 Uso:
   python scripts/radar_engine/accumulation.py --out-dir data/radar
   python scripts/radar_engine/accumulation.py --as-of 2026-11-13T19:10:00Z
+  python scripts/radar_engine/accumulation.py --out-dir data/radar \\
+      --province-dir data/radar/srt1_provinces
 """
 
 from __future__ import annotations
@@ -527,11 +537,16 @@ def _default_limits(raster):
 def run(out_dir, as_of_ms=None, stations_path=DEFAULT_STATIONS,
         geo_path=DEFAULT_GEOJSON, regions_path=DEFAULT_REGIONS,
         max_stations=200, tolerance_s=2700, slots=1, config=None,
-        generated_at=None):
+        generated_at=None, province_dir=None, province_retention_days=None):
     """Fetch + statistiche + validazione + scrittura. Ritorna il payload.
 
     Un prodotto non disponibile NON e' un crash: si scrive `status:
     unavailable` con il motivo e si esce 0 (il run radar prosegue).
+
+    Con `province_dir` valorizzato archivia ANCHE le statistiche per provincia
+    dallo stesso raster gia' letto (nessun secondo download). Un guasto
+    dell'archivio NON invalida `accumulation.json`: viene dichiarato nel
+    payload e il run prosegue.
     """
     config = config or {}
     os.makedirs(out_dir, exist_ok=True)
@@ -619,7 +634,46 @@ def run(out_dir, as_of_ms=None, stations_path=DEFAULT_STATIONS,
         limits=limits)
     size = _atomic_write_json(out_path, payload)
     payload["_output_bytes"] = size
+
+    # ARCHIVIO PER PROVINCIA (additivo): stesso raster, nessun nuovo download.
+    if province_dir:
+        payload["province_archive"] = _archive_provinces(
+            last_raster, slot_payloads[-1]["valid_time_ms"], province_dir,
+            geo_path=geo_path, retention_days=province_retention_days)
     return payload, last_raster
+
+
+def _archive_provinces(raster, valid_time_ms, province_dir, geo_path,
+                       retention_days=None):
+    """Scrive l'ora nell'archivio per provincia. Mai fatale per il run."""
+    try:
+        # Import pigro: `srt1_province_archive` importa questo modulo.
+        from radar_engine import srt1_province_archive as _prov
+    except ImportError:  # pragma: no cover - path da script
+        from . import srt1_province_archive as _prov
+    try:
+        payload = _prov.archive_raster(raster, valid_time_ms, province_dir,
+                                       geo_path=geo_path)
+        removed, kept = _prov.prune_archive(
+            province_dir, int(retention_days or _prov.DEFAULT_RETENTION_DAYS))
+        try:
+            _prov.ensure_branch_docs(province_dir)
+        except OSError:
+            pass
+        return {
+            "status": "ok",
+            "dir": str(province_dir),
+            "file": payload.get("_path"),
+            "bytes": payload.get("_output_bytes"),
+            "provinces": (payload.get("totals") or {}).get("provinces_total"),
+            "provinces_with_coverage": (payload.get("totals") or {}).get(
+                "provinces_with_coverage"),
+            "retention": {"removed": removed, "kept": kept},
+        }
+    except Exception as exc:  # archivio additivo: non ferma il run
+        return {"status": "unavailable",
+                "reason": f"{exc.__class__.__name__}:{exc}"}
+
 
 
 def main(argv=None):
@@ -635,6 +689,12 @@ def main(argv=None):
     ap.add_argument("--tolerance-min", type=float, default=45.0)
     ap.add_argument("--slots", type=int, default=1,
                     help="slot consecutivi (passo 5 min) da pubblicare")
+    ap.add_argument("--province-dir", default=None,
+                    help="archivia le statistiche orarie per provincia in "
+                         "questa directory (YYYY/MM/DD/HH.json); additivo")
+    ap.add_argument("--province-retention-days", type=int, default=None,
+                    help="giorni di retention dell'archivio per provincia "
+                         "(default del modulo: 400)")
     args = ap.parse_args(argv)
 
     as_of_ms = parse_iso_utc(args.as_of) if args.as_of else None
@@ -642,13 +702,16 @@ def main(argv=None):
         args.out_dir, as_of_ms=as_of_ms, stations_path=args.stations,
         geo_path=args.geo, regions_path=args.regions,
         max_stations=args.max_stations,
-        tolerance_s=int(args.tolerance_min * 60), slots=args.slots)
+        tolerance_s=int(args.tolerance_min * 60), slots=args.slots,
+        province_dir=args.province_dir,
+        province_retention_days=args.province_retention_days)
     summary = {
         "status": payload.get("status"),
         "slots": len(payload.get("slots") or []),
         "output_bytes": payload.get("_output_bytes"),
         "validation": payload.get("validation"),
         "fetch": payload.get("fetch"),
+        "province_archive": payload.get("province_archive"),
     }
     print(json.dumps(summary, ensure_ascii=False, indent=1))
     return 0

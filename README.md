@@ -1470,6 +1470,40 @@ Sito statico piu' sei workflow GitHub Actions che aggiornano i dati e pubblicano
   orologio e stessi formati dati della codifica precedente, solo meno byte.
 - GeoTIFF radar raw e payload Open-Meteo non vengono mai committati: solo derivati.
 
+### Archivio SRT1 per provincia (`srt1-province-archive`)
+
+`scripts/radar_engine/srt1_province_archive.py` pubblica, una volta per run,
+le statistiche orarie di cumulata SRT1 **per provincia** (107) in
+`YYYY/MM/DD/HH.json` sul branch orfano `srt1-province-archive`: per ogni
+provincia `mean`/`max`/`p90` in mm, `wet` (frazione di pixel bagnati),
+`valid` (frazione di pixel della provincia dentro la copertura radar), `px` e
+`vpx`. Nessuna griglia viene archiviata.
+
+Serve al verificatore: `scripts/verification/risk_verification.py
+--radar-province-dir` legge quelle ore e porta `coverage.radar.reason` a `ok`,
+registrando `rd` (max mm della provincia) e `rdc` (copertura) per ogni riga di
+pioggia. Senza archivio il campo resta `radar_grid_not_embedded`, perche'
+`accumulation.json` pubblica statistiche per macro-area e non la griglia.
+
+Costo misurato sul prodotto reale (2026-11-23): la griglia SRT1 e'
+1400x1200 float32/float64 (13.440.000 B non compressi) e un GeoTIFF deflate
+pesa 418.712 B (slot secco), 669.077 B (slot convettivo) — 10,05-16,06 MB al
+giorno a 24 file, cioe' 3,58-5,21 GiB/anno. Le statistiche per provincia
+costano **11.032 B per ora** (0,26 MB/giorno, ~94 MB/anno), ~53x meno. Per
+questo si archiviano le statistiche, non la griglia.
+
+`valid` non e' un dettaglio: la copertura radar **cambia da slot a slot**
+(misurato: 2026-11-23T09:30Z -> 98/107 province sopra 0,5, le 9 siciliane sotto;
+2026-11-13T19:10Z -> 106/107). Una provincia sotto la soglia resta **senza**
+`rd`: "radar cieco" non e' "0 mm misurati".
+
+**Licenza.** Radar-DPC e' **CC BY-SA 4.0**. L'archivio e' un'**opera derivata**:
+ogni file dichiara `licence`, `licence_url`, `attribution` e `derivative`, e il
+branch pubblico porta `README.md` + `LICENCE.md`. Il **share-alike** impone che
+i derivati ridistribuiti restino CC BY-SA 4.0 con la stessa attribuzione
+("Dati: Radar-DPC — Dipartimento della Protezione Civile").
+
+
 ## Trigger
 
 Ogni workflow parte da `workflow_dispatch` e `repository_dispatch`:

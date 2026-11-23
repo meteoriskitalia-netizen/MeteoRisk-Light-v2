@@ -212,8 +212,14 @@ jobs:
         run: |
           tmark() { printf '%s\t%s\n' "$1" "$(date +%s%3N)" >> "$RUNNER_TEMP/timings/marks.tsv"; }
           tmark begin:accumulation
+          # L'ARCHIVIO PER PROVINCIA (2026-11-23) va in $RUNNER_TEMP, NON in
+          # data/radar: lo step "Build sito statico Pages" fa
+          # `cp -R data/radar _site/data/radar`, quindi 400 giorni di archivio
+          # finirebbero nell'artefatto Pages (~94 MB/anno). Il branch dati lo
+          # pubblica lo step dedicato piu' sotto.
           python scripts/radar_engine/accumulation.py --out-dir data/radar \
             --stations data/stations/latest.json --max-stations 200 \
+            --province-dir "$RUNNER_TEMP/srt1_provinces_new" \
             || echo "[WARN] accumulo SRT1 non disponibile: run radar invariato"
           tmark end:accumulation
 
@@ -656,6 +662,97 @@ jobs:
             sleep $((attempt * 5))
           done
           echo "[ERRORE] push predictions-archive fallito dopo 3 tentativi (nessuna sovrascrittura)."
+          exit 1
+
+      # ARCHIVIO SRT1 PER PROVINCIA (2026-11-23, ADDITIVO): statistiche orarie
+      # per provincia (max/mean/p90 mm, copertura, frazione bagnata) scritte da
+      # `scripts/radar_engine/srt1_province_archive.py`. Serve al verificatore
+      # (`scripts/verification/risk_verification.py --radar-province-dir`), che
+      # con il solo accumulation.json dichiara `radar_grid_not_embedded`.
+      # MISURATO: ~11,0 KB/ora per 107 province contro ~419-669 KB di un
+      # GeoTIFF SRT1 deflate -> ~53x meno. La griglia NON viene archiviata.
+      # Branch ORPHAN pubblico: e' un'opera derivata Radar-DPC e resta CC BY-SA
+      # 4.0 (share-alike); README.md e LICENCE.md sono scritti dal modulo.
+      # Commit senza parent + push con --force-with-lease (mai --force nudo),
+      # 3 tentativi, come radar-history e predictions-archive.
+      - name: Pubblica archivio SRT1 per provincia (branch srt1-province-archive)
+        if: success()
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          tmark() { printf '%s\t%s\n' "$1" "$(date +%s%3N)" >> "$RUNNER_TEMP/timings/marks.tsv"; }
+          tmark begin:push_srt1_provinces
+          NEW="$RUNNER_TEMP/srt1_provinces_new"
+          if [ -z "$(find "$NEW" -type f -name '*.json' -print -quit 2>/dev/null)" ]; then
+            echo "[INFO] Nessuna ora SRT1 per provincia prodotta: archivio non aggiornato."
+            tmark end:push_srt1_provinces
+            exit 0
+          fi
+          WORK="$RUNNER_TEMP/srt1_provinces"
+          rm -rf "$WORK"; mkdir -p "$WORK"
+          # 1) ripristina le ore gia' pubblicate dal branch (se esiste)
+          if git fetch --depth 1 origin "+srt1-province-archive:refs/heads/srt1-province-archive-base" 2>/dev/null; then
+            git archive srt1-province-archive-base | tar -x -C "$WORK"
+          else
+            echo "[INFO] Branch srt1-province-archive assente (primo run): archivio vuoto."
+          fi
+          # 2) aggiunge le ore di questo run (idempotente: stesso nome = stessa ora)
+          cp -R "$NEW"/. "$WORK"/
+          # 3) retention 400 giorni + README/LICENSE con attribuzione
+          python - "$WORK" <<'PY'
+          import sys
+          sys.path.insert(0, "scripts")
+          from radar_engine import srt1_province_archive as prov
+          root = sys.argv[1]
+          removed, kept = prov.prune_archive(root, keep_days=400)
+          prov.ensure_branch_docs(root)
+          print(f"[INFO] archivio SRT1 province: rimossi {removed}, tenuti {kept}")
+          PY
+          # 4) commit ORPHAN (senza parent) + push protetto
+          # GIT_DIR esplicito: dopo `cd "$WORK"` la cwd e' fuori dal repo e git
+          # non troverebbe il repository da solo.
+          export GIT_DIR="$GITHUB_WORKSPACE/.git"
+          export GIT_INDEX_FILE="$RUNNER_TEMP/srt1-province-archive.index"
+          export GIT_WORK_TREE="$WORK"
+          cd "$WORK"
+          git read-tree --empty
+          git add -f -A .
+          NEW_TREE=$(git write-tree)
+          cd "$GITHUB_WORKSPACE"
+          unset GIT_INDEX_FILE GIT_WORK_TREE GIT_DIR
+          OLD_TREE=""
+          if git rev-parse -q --verify srt1-province-archive-base >/dev/null; then
+            OLD_TREE=$(git rev-parse srt1-province-archive-base^{tree})
+          fi
+          if [ "$OLD_TREE" = "$NEW_TREE" ]; then
+            echo "[INFO] Archivio SRT1 per provincia invariato: push saltato."
+            tmark end:push_srt1_provinces
+            exit 0
+          fi
+          COMMIT=$(git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit-tree "$NEW_TREE" -m "[skip ci] radar: archivio SRT1 per provincia (statistiche orarie, branch orphan)")
+          read_remote_sha() {
+            git ls-remote origin refs/heads/srt1-province-archive 2>/dev/null | awk 'NR==1 {print $1}'
+          }
+          for attempt in 1 2 3; do
+            PARENT="$(read_remote_sha || true)"
+            if [ -z "$PARENT" ]; then
+              LEASE="--force-with-lease=refs/heads/srt1-province-archive:"
+              EXPECT="<ref assente>"
+            else
+              LEASE="--force-with-lease=refs/heads/srt1-province-archive:$PARENT"
+              EXPECT="$PARENT"
+            fi
+            echo "[INFO] push srt1-province-archive tentativo $attempt/3 (lease su $EXPECT)"
+            if git push "$LEASE" origin "$COMMIT:refs/heads/srt1-province-archive"; then
+              echo "[INFO] srt1-province-archive aggiornata (commit ${COMMIT:0:7})."
+              tmark end:push_srt1_provinces
+              exit 0
+            fi
+            echo "[WARN] push rifiutato (tentativo $attempt/3): rileggo lo SHA e riprovo."
+            sleep $((attempt * 5))
+          done
+          echo "[ERRORE] push srt1-province-archive fallito dopo 3 tentativi (nessuna sovrascrittura)."
           exit 1
 
       # L'ARTEFATTO di deploy contiene: app, dataset derivati, geografie richieste,

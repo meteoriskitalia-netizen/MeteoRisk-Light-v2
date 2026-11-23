@@ -183,6 +183,7 @@ def _namespace(tmp_path, **over):
         station_index=str(root / "index.json"),
         radar=str(root / "accumulation.json"),
         radar_grids_dir=None,
+        radar_province_dir=None,
         structures=str(root / "structures.json"),
         events=str(root / "events.json"),
         afa=str(root / "manifest.json"),
@@ -486,3 +487,127 @@ def test_compact_rotates_and_aggregates(tmp_path):
     sk2 = json.loads(skill.read_text(encoding="utf-8"))
     assert sk2["hazards"]["rain"]["hits"] == 2
     assert sk2["hazards"]["rain"]["correct_negatives"] == sk["hazards"]["rain"]["correct_negatives"]
+
+
+# --------------------------------------------------------------------------- #
+# RADAR PER PROVINCIA (archivio compatto delle statistiche orarie SRT1)
+# --------------------------------------------------------------------------- #
+def _write_radar_hour(root, valid_time, provinces):
+    """Scrive una ora dell'archivio SRT1 per provincia (YYYY/MM/DD/HH.json)."""
+    from datetime import datetime, timezone
+    stamp = datetime.strptime(valid_time, "%Y-%m-%dT%H:%M:%SZ").replace(
+        tzinfo=timezone.utc)
+    day_dir = root / f"{stamp.year:04d}" / f"{stamp.month:02d}" / f"{stamp.day:02d}"
+    day_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": 1,
+        "kind": "srt1_province_archive",
+        "valid_time": valid_time,
+        "valid_time_ms": int(stamp.timestamp() * 1000),
+        "window_h": 1.0,
+        "licence": "CC BY-SA 4.0",
+        "attribution": "Dati: Radar-DPC - Dipartimento della Protezione Civile",
+        "provinces": provinces,
+    }
+    (day_dir / f"{stamp.hour:02d}.json").write_text(
+        json.dumps(payload), encoding="utf-8")
+
+
+def _prov_entry(valid, max_mm, wet=0.0, px=100, vpx=None):
+    vpx = int(round(px * valid)) if vpx is None else vpx
+    return {"px": px, "vpx": vpx, "valid": valid, "wet": wet,
+            "mean": max_mm / 2.0 if max_mm is not None else None,
+            "max": max_mm,
+            "p90": max_mm if max_mm is not None else None}
+
+
+def test_radar_province_archive_reads_hours_and_max(tmp_path):
+    root = tmp_path / "srt1_provinces"
+    _write_radar_hour(root, "2026-11-20T09:00:00Z", {
+        "AA": _prov_entry(1.0, 4.0), "BB": _prov_entry(0.9, 1.0),
+        "CC": _prov_entry(0.1, 99.0)})
+    _write_radar_hour(root, "2026-11-20T10:00:00Z", {
+        "AA": _prov_entry(1.0, 12.5), "BB": _prov_entry(0.9, 2.0),
+        "CC": _prov_entry(0.1, 99.0)})
+    start, end = day_bounds_utc(DAY)
+    by_prov, coverage, reason = rv.radar_province_archive(str(root), start, end)
+    assert reason is None
+    # massimo del giorno per provincia
+    assert by_prov["AA"] == pytest.approx(12.5)
+    assert by_prov["BB"] == pytest.approx(2.0)
+    # CC ha copertura 0.1 < 0.5: NON entra, anche se il massimo e' alto
+    assert "CC" not in by_prov
+    assert coverage["CC"]["valid"] == pytest.approx(0.1)
+    assert coverage["AA"]["hours"] == 2
+
+
+def test_radar_province_archive_missing_and_empty(tmp_path):
+    start, end = day_bounds_utc(DAY)
+    by_prov, cov, reason = rv.radar_province_archive(
+        str(tmp_path / "nope"), start, end)
+    assert by_prov is None
+    assert reason == "radar_province_archive_missing"
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    by_prov, cov, reason = rv.radar_province_archive(str(empty), start, end)
+    assert by_prov is None
+    assert reason == "radar_province_archive_empty_for_day"
+
+
+def test_radar_province_archive_all_blind_is_no_radar_coverage(tmp_path):
+    root = tmp_path / "srt1_provinces"
+    _write_radar_hour(root, "2026-11-20T09:00:00Z", {
+        "AA": _prov_entry(0.0, None), "BB": _prov_entry(0.2, 3.0),
+        "CC": _prov_entry(0.3, 5.0)})
+    start, end = day_bounds_utc(DAY)
+    by_prov, coverage, reason = rv.radar_province_archive(str(root), start, end)
+    assert by_prov is None
+    assert reason == "no_radar_coverage"
+    assert coverage["AA"]["valid"] == 0.0
+
+
+def test_verify_day_with_province_archive_reports_ok_and_rd(tmp_path):
+    geo, daily, index, snap, events, structures = _prepare(tmp_path)
+    root = tmp_path / "srt1_provinces"
+    _write_radar_hour(root, "2026-11-20T09:00:00Z", {
+        "AA": _prov_entry(1.0, 12.5), "BB": _prov_entry(0.9, 3.0),
+        "CC": _prov_entry(0.1, 40.0)})
+    ns = _namespace(tmp_path, radar_province_dir=str(root))
+    out = rv.run(ns)
+    rows = [json.loads(x) for x in
+            Path(ns.out).read_text(encoding="utf-8").splitlines() if x]
+    by = {(r["p"], r["h"]): r for r in rows}
+
+    # la copertura radar e' dichiarata OK, non piu' "griglia non incorporata"
+    skill = json.loads(Path(ns.skill_out).read_text(encoding="utf-8"))
+    radar = skill["coverage"]["radar"]
+    assert radar["available"] is True
+    assert radar["reason"] == "ok"
+    assert radar["source"] == "srt1_province_archive"
+    assert radar["used_for_provinces"] == 2
+    assert radar["provinces_without_coverage"] == ["CC"]
+
+    # rd = massimo radar della provincia; rdc = copertura
+    assert by[("AA", "rain")]["rd"] == pytest.approx(12.5)
+    assert by[("AA", "rain")]["rdc"] == pytest.approx(1.0)
+    assert by[("BB", "rain")]["rd"] == pytest.approx(3.0)
+    # provincia cieca: nessun rd, mai "0 mm misurati"
+    assert "rd" not in by[("CC", "rain")]
+    # il radar non sostituisce la fonte stazioni
+    assert by[("AA", "rain")]["src"].startswith("stations")
+    assert out["summary"]["radar"]["reason"] == "ok"
+
+
+def test_verify_day_without_archive_keeps_declared_reason(tmp_path):
+    geo, daily, index, snap, events, structures = _prepare(tmp_path)
+    radar_path = tmp_path / "accumulation.json"
+    radar_path.write_text(json.dumps({
+        "slots": [{"valid_time": "2026-11-20T21:30:00Z",
+                   "totals": {"valid_px": 800, "total_px": 1000},
+                   "areas": {"Sud": {"max_mm": 4.0}}}]}), encoding="utf-8")
+    ns = _namespace(tmp_path, radar=str(radar_path))
+    rv.run(ns)
+    skill = json.loads(Path(ns.skill_out).read_text(encoding="utf-8"))
+    radar = skill["coverage"]["radar"]
+    assert radar["available"] is False
+    assert radar["reason"] == "radar_grid_not_embedded"

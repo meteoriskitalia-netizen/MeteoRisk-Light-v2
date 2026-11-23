@@ -16,10 +16,18 @@ giorno e ``ld`` diventa negativo (nowcast), dichiarato nel campo stesso.
 OSSERVAZIONE (fascia ALL = 00:00-24:00 Europe/Rome)
 ---------------------------------------------------
 * pioggia: stazioni (somma giornaliera con clipping degli intervalli
-  sovrapposti) — copertura 107/107; radar SRT1 solo se e' disponibile una
-  serie oraria di GeoTIFF (``--radar-grids-dir``), altrimenti dichiarato
-  ``radar_grid_not_embedded`` (``accumulation.json`` pubblica statistiche per
-  macro-area, non la griglia).
+  sovrapposti) - copertura 107/107; radar SRT1 per provincia quando e'
+  disponibile l'archivio compatto delle statistiche orarie
+  (``--radar-province-dir``, scritto da
+  ``scripts/radar_engine/srt1_province_archive.py``: ~9,5 KB/ora per 107
+  province, nessuna griglia archiviata) oppure, in alternativa, una serie
+  oraria di GeoTIFF (``--radar-grids-dir``). Senza nessuno dei due resta
+  dichiarato ``radar_grid_not_embedded`` (``accumulation.json`` pubblica
+  statistiche per macro-area, non la griglia). Con l'archivio il campo
+  ``coverage.radar.reason`` vale ``ok`` e ogni riga di pioggia porta ``rd``
+  (max mm della provincia) e ``rdc`` (copertura: pixel validi / pixel della
+  provincia). Una provincia sotto la copertura minima NON riceve ``rd``:
+  "radar cieco" non e' "0 mm misurati".
 * vento: massimo raffica stazioni in m/s -> km/h (x3.6); fallback dichiarato
   sul vento medio (``src: stations_wind_mean_proxy``). Copertura reale 53/107.
 * caldo/freddo: massimo/minimo ``temperature_2m`` della provincia.
@@ -78,6 +86,14 @@ MATCH_RADIUS_KM = 10.0
 # puo' decretare hit/miss su una previsione giornaliera: diventa
 # ``no_observation`` con motivo (mai un miss da 3 ore di dati).
 MIN_WINDOW_FRACTION = 0.75
+
+# Copertura radar minima perche' una provincia abbia una misura SRT1
+# utilizzabile. E' la stessa soglia dichiarata dall'archivio
+# (`srt1_province_archive.MIN_VALID_FRACTION`): qui e' RIPETUTA come costante
+# locale per non creare una dipendenza del verificatore dal motore radar; se
+# una delle due cambia, l'altra va allineata (test: test_radar_province_archive
+# _threshold_matches_archive).
+MIN_RADAR_VALID_FRACTION = 0.5
 
 # Soglia per livello: quella che ha deciso il livello previsto. Per pv=0 si usa
 # la soglia minima di rischio (sotto = correct_negative, sopra = false_alarm).
@@ -773,6 +789,90 @@ def radar_province_max(grids_dir, provs, start, end):
     return out, None
 
 
+def radar_province_archive(province_dir, start, end):
+    """Massimo SRT1 per provincia dall'ARCHIVIO ORARIO delle statistiche.
+
+    L'archivio e' scritto da `scripts/radar_engine/srt1_province_archive.py`
+    (`<dir>/YYYY/MM/DD/HH.json`, una ora per file) e costa ~9,5 KB/ora invece
+    dei ~419-669 KB di un GeoTIFF: le stesse informazioni per provincia
+    (massimo, media, p90, copertura) senza archiviare la griglia.
+
+    Ritorna ``(by_prov, coverage, reason)`` dove:
+      * ``by_prov`` = {sigla: max_mm} sui SOLI giorni/ore archiviati e sulle
+        sole province con copertura sufficiente (None se nessuna);
+      * ``coverage`` = {sigla: {"valid": frazione, "hours": n, "max": mm}};
+      * ``reason`` = None se il dato c'e', altrimenti un motivo dichiarato.
+
+    Una provincia con copertura sotto ``MIN_RADAR_VALID_FRACTION`` NON entra in
+    ``by_prov``: il verificatore la tratta come "nessuna osservazione radar",
+    mai come 0 mm misurati. La copertura cambia da slot a slot (misurato
+    2026-11-23: 9 province siciliane sotto 0,5 alle 09:30Z; quasi tutte coperte
+    alle 2026-11-13T19:10Z), quindi si legge ora per ora e non si assume.
+    """
+    root = Path(province_dir)
+    if not root.is_dir():
+        return None, {}, "radar_province_archive_missing"
+    start_d = start.date()
+    end_d = end.date()
+    days = []
+    cursor = start_d
+    while cursor <= end_d:
+        days.append(cursor)
+        cursor += timedelta(days=1)
+
+    hours_read = 0
+    corrupt = 0
+    per_prov = {}
+    for day in days:
+        day_dir = root / f"{day.year:04d}" / f"{day.month:02d}" / f"{day.day:02d}"
+        if not day_dir.is_dir():
+            continue
+        for path in sorted(day_dir.glob("*.json")):
+            payload = read_json_optional(path)
+            if not isinstance(payload, dict):
+                corrupt += 1
+                continue
+            provinces = payload.get("provinces")
+            if not isinstance(provinces, dict) or not provinces:
+                corrupt += 1
+                continue
+            hours_read += 1
+            for sigla, st in provinces.items():
+                if not isinstance(st, dict):
+                    continue
+                acc = per_prov.setdefault(
+                    str(sigla), {"valid": 0.0, "hours": 0, "max": None,
+                                 "wet": None})
+                acc["hours"] += 1
+                valid = _opt(st.get("valid"))
+                if valid is not None:
+                    acc["valid"] = max(acc["valid"], float(valid))
+                mm = _opt(st.get("max"))
+                if mm is not None and valid is not None \
+                        and float(valid) >= MIN_RADAR_VALID_FRACTION:
+                    acc["max"] = mm if acc["max"] is None else max(acc["max"], mm)
+                wet = _opt(st.get("wet"))
+                if wet is not None and (acc["wet"] is None or wet > acc["wet"]):
+                    acc["wet"] = wet
+
+    if not hours_read:
+        reason = ("radar_province_archive_corrupt" if corrupt
+                  else "radar_province_archive_empty_for_day")
+        return None, {}, reason
+
+    coverage = {sigla: {"valid": round(rec["valid"], 4),
+                        "hours": rec["hours"],
+                        "max": None if rec["max"] is None else round(rec["max"], 3),
+                        "wet": None if rec["wet"] is None else round(rec["wet"], 4)}
+                for sigla, rec in per_prov.items()}
+    by_prov = {sigla: rec["max"] for sigla, rec in coverage.items()
+               if rec["max"] is not None}
+    if not by_prov:
+        # Tutte le province archiviate sono fuori copertura radar.
+        return None, coverage, "no_radar_coverage"
+    return by_prov, coverage, None
+
+
 # --------------------------------------------------------------------------- #
 # Snapshot
 # --------------------------------------------------------------------------- #
@@ -1041,7 +1141,7 @@ def afa_context(manifest_path):
 # --------------------------------------------------------------------------- #
 def verify_day(day, snapshots_path, stations_path, station_index, radar_path,
                structures_path, events_path, afa_path, province_geojson,
-               now=None, radar_grids_dir=None):
+               now=None, radar_grids_dir=None, radar_province_dir=None):
     start, end = day_bounds_utc(day)
     start_ms, end_ms = epoch_ms(start), epoch_ms(end)
 
@@ -1058,7 +1158,37 @@ def verify_day(day, snapshots_path, stations_path, station_index, radar_path,
     radar = radar_context(radar_path)
 
     radar_by_prov = None
-    if radar_grids_dir:
+    radar_province_coverage = {}
+    if radar_province_dir:
+        # ARCHIVIO COMPATTO per provincia (preferito): statistiche orarie SRT1
+        # scritte dal motore, ~9,5 KB/ora, nessuna griglia archiviata.
+        radar_by_prov, radar_province_coverage, radar_reason = \
+            radar_province_archive(radar_province_dir, start, end)
+        radar = dict(radar)
+        if radar_by_prov is None:
+            radar["reason"] = radar_reason
+            radar["archive"] = str(radar_province_dir)
+        else:
+            blind = sorted(s for s, c in radar_province_coverage.items()
+                           if (c.get("valid") or 0.0) < MIN_RADAR_VALID_FRACTION)
+            radar.update({
+                "available": True,
+                "reason": "ok",
+                "status": "ok",
+                "source": "srt1_province_archive",
+                "used_for_provinces": len(radar_by_prov),
+                "provinces_archived": len(radar_province_coverage),
+                "provinces_without_coverage": blind,
+                "min_valid_fraction": MIN_RADAR_VALID_FRACTION,
+                "archive": str(radar_province_dir),
+                "note": ("SRT1 letto dall'archivio compatto per provincia "
+                         "(statistiche orarie): il massimo per provincia e' "
+                         "registrato in `rd`, la copertura in `rdc`. Le "
+                         "province sotto la copertura minima restano SENZA "
+                         "osservazione radar (mai 0 mm). La fonte primaria "
+                         "delle stazioni resta invariata."),
+            })
+    elif radar_grids_dir:
         radar_by_prov, radar_reason = radar_province_max(radar_grids_dir, provs, start, end)
         if radar_by_prov is None:
             radar = dict(radar)
@@ -1067,7 +1197,9 @@ def verify_day(day, snapshots_path, stations_path, station_index, radar_path,
             radar = dict(radar)
             radar.update({
                 "available": True,
-                "reason": None,
+                "reason": "ok",
+                "status": "ok",
+                "source": "srt1_geotiff_series",
                 "used_for_provinces": len(radar_by_prov),
                 "grids_dir": str(radar_grids_dir),
                 "note": ("SRT1 integrato dalla serie oraria di GeoTIFF: il "
@@ -1155,6 +1287,9 @@ def verify_day(day, snapshots_path, stations_path, station_index, radar_path,
         }
         if radar_mm is not None:
             row["rd"] = round(radar_mm, 2)
+            _cov = radar_province_coverage.get(sigla) or {}
+            if _cov.get("valid") is not None:
+                row["rdc"] = _cov["valid"]
         if obs.get("truncated"):
             row["tr"] = True
         rows.append(row)
@@ -1204,6 +1339,7 @@ def run(args) -> dict:
         args.province_geojson,
         now=now,
         radar_grids_dir=args.radar_grids_dir,
+        radar_province_dir=args.radar_province_dir,
     )
 
     existing, corrupt_existing = read_jsonl(args.out)
@@ -1247,6 +1383,10 @@ def build_parser():
     ap.add_argument("--radar", default=str(root / "data/radar/accumulation.json"))
     ap.add_argument("--radar-grids-dir", default=None,
                     help="serie oraria di GeoTIFF SRT1 per integrare la pioggia (opzionale)")
+    ap.add_argument("--radar-province-dir", default=None,
+                    help="archivio compatto SRT1 per provincia "
+                         "(data/radar/srt1_provinces, YYYY/MM/DD/HH.json): "
+                         "preferito a --radar-grids-dir, ~53x piu' piccolo")
     ap.add_argument("--structures", default=str(root / "data/radar/convective_structures.json"))
     ap.add_argument("--events", default=str(root / "data/phenomena/events.json"))
     ap.add_argument("--afa", default=str(root / "satellite/manifest.json"))
