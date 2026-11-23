@@ -1,15 +1,31 @@
 # Validazione del layer severo: esiti misurati (release 1.2.4.20 e 1.2.4.21)
 
-> **STATO DEL DATASET GREZZO (aggiunto nella 1.3.0.48).** Questo documento e' la
+> **STATO DEL DATASET GREZZO (aggiornato il 2026-11-23).** Questo documento e' la
 > prova dei numeri citati altrove ("6 grandini QC A/B su 5 giornate", "13 stazioni
-> severe", "42.391 eventi"). Il dataset grezzo che li produce **NON e' nel repo**:
-> `labels.jsonl` / `labels_metar_it_2015_2026.jsonl` (42.391 righe, 24.999.406 B)
-> **non esistono** su `main` ne' in nessuna copia locale verificata al 2026-11-23
-> (ricerca su `Desktop\meteorisk\**`, `%TEMP%\opencode\**`, `Downloads`). Non viene
-> ricostruito a mano: si rigenera **solo** rieseguendo
-> `scripts/validation/build_labels.py` con la cache METAR (vedi sezione 7 di questo
-> documento). Senza quel dataset il collaudo a 6 eventi **non e' riproducibile**:
-> i numeri restano quelli misurati il 2026-10-25 e sono dichiarati come tali.
+> severe", "42.391 eventi"). Il dataset grezzo che li produce **non sta su `main`**:
+> sta sul **branch dati orfano `validation-labels`** (commit senza parent, cosi'
+> non pesa su `main`), in `data/validation/labels.jsonl`:
+> **42.391 righe, 24.999.406 B, sha256 `5F8023F65E7D5393...B5DED2C2`**.
+> Come si legge: `https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/validation-labels/data/validation/labels.jsonl`
+> (il `README.md` del branch porta attribuzione, licenza e limiti; `labels_meta.json`
+> righe/byte/sha/periodo/comando di rigenerazione).
+>
+> Storia, misurata e non dedotta: al **2026-11-23** il dataset **non esisteva** ne'
+> su `main` ne' in nessuna copia locale (ricerca su `Desktop\meteorisk\**`,
+> `%TEMP%\opencode\**`, `Downloads`: zero `labels*.jsonl` da 25 MB, la cache METAR
+> dei documenti — `cache/metar_it_*.csv.gz`, ~735 MB — **non c'era piu'**). E' stato
+> quindi **ricostruito da zero** riscaricando i bollettini dall'endpoint IEM
+> (rete `IT__ASOS`, `report_type=3`): **23 file** (11 annuali + 12 mensili del 2022,
+> che come richiesta annuale viene resettata), **123.523.965 B** compressi,
+> **7.272.744 bollettini** letti. `scripts/validation/build_labels.py` (sha256
+> `CE09C581...041C2391`, lo stesso di `main`) ha riprodotto **42.391 eventi**,
+> **42.212 in verita'** (`--min-qc B`) e **179** `hail` qc `C` esclusi: gli stessi
+> numeri della misura del 2026-10-25, e **24.999.406 B**, cioe' la stessa
+> dimensione byte per byte. `--selftest`: 0 controlli falliti. Unica differenza
+> dichiarata: il dataset e' stato rigenerato **senza** `--cells-dir`, quindi
+> `match_status` e' `no_snapshot_in_window` su tutte le righe e
+> `distance_km`/`matched_cell_id`/`matched_ts` sono `null` (l'accoppiamento con le
+> celle e' un passo separato, `asof_bench*.py --labels`).
 > I **75 eventi Hail CREA WDA** sono un dataset **diverso** (danno agricolo
 > provinciale, nessuna ora ne' coordinate) e stanno in `data/validation/crea_wda/`:
 > non sostituiscono questa verita' METAR.
@@ -27,7 +43,7 @@ Legenda delle fonti citate riga per riga:
 | :--- | :--- |
 | **[V]** | `docs/VALIDAZIONE_SEVERO.md` (licenze, dataset, potere statistico) |
 | **[R]** | `docs/REPLAY_AS_OF.md` (replay `--as-of`, determinismo, tasso base, footprint) |
-| **[L]** | `scripts/validation/build_labels.py` -> `labels.jsonl` (42.391 righe, 24.999.406 B) |
+| **[L]** | `scripts/validation/build_labels.py` -> `labels.jsonl` (42.391 righe, 24.999.406 B; dal 2026-11-23 sul branch dati `validation-labels`) |
 | **[B]** | `scripts/validation/asof_bench.py` (collaudo centroide) e `asof_bench_footprint.py` (collaudo footprint) |
 | **[P]** | `scripts/validation/power_analysis.py` (numerosita' per il POD) |
 | **[VERSION]** | blocco `VERSION` della 1.2.4.21, campo `NOTE` (misure della release) |
@@ -378,15 +394,23 @@ $env:PYTHONIOENCODING = 'utf-8'
 $py = "C:\Users\aless\AppData\Local\Python\bin\python.exe"
 ```
 
-**1) Dataset etichettato** (la cache METAR, ~735 MB, si scarica una volta da
+**1) Dataset etichettato.** Gia' pronto: **`validation-labels`** ->
+`data/validation/labels.jsonl` (42.391 righe, 24.999.406 B, sha256
+`5F8023F65E7D5393...B5DED2C2`), verificato in andata e ritorno il 2026-11-23 (scaricato dal branch;
+byte, sha256, blob git e conteggio righe identici). Per ricostruirlo da zero serve la cache METAR,
+**123.523.965 B** compressi in **23 file** (11 annuali + 12 mensili del 2022), scaricati da
 `https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py`, rete `IT__ASOS`, campo `metar`,
-`report_type=3` = METAR+SPECI) **[V]**:
+`report_type=3` = METAR+SPECI **[V]** (i ~735 MB dei documenti sono la dimensione decompressa
+stimata: la cache compressa misurata e' 123,5 MB):
 
 ```powershell
 & $py scripts\validation\build_labels.py --start 2015-01-01 --end 2026-10-24 `
-    --cache-dir <cache> --cells-dir <snapshot radar-history> `
+    --cache-dir <cache> `
     --out labels.jsonl --truth-json truth.json --report report.json
 ```
+
+(`--cells-dir` e `--detections-geojson` restano opzionali: aggiungono l'accoppiamento con gli
+snapshot radar. Il dataset pubblicato e' senza celle, `match_status=no_snapshot_in_window`.)
 
 **2) Autotest del parser** (fixture METAR come formato, nessun risultato pubblicato; 20 controlli,
 0 falliti il 2026-10-24) **[V]**:
@@ -436,10 +460,13 @@ Wilson) **[R]**:
     --markdown <dir>\report_footprint.md
 ```
 
-**Nota sui dati.** `labels.jsonl` (**42.391 righe, 24.999.406 B**) **non e' nel repo**: va rigenerato
-con il passo 1, e senza la cache METAR il collaudo non e' riproducibile. Il collaudo completo (6
-eventi) e' stato eseguito **una volta sola**: rieseguirlo su altri eventi e' un esperimento nuovo, non
-una ripetizione.
+**Nota sui dati.** `labels.jsonl` (**42.391 righe, 24.999.406 B**) **non sta su `main`**: dal
+2026-11-23 e' pubblicato sul branch dati orfano **`validation-labels`**
+(`data/validation/labels.jsonl`, `labels_meta.json`, `labels_report.json`, `README.md`), quindi si
+puo' usare direttamente senza rigenerarlo. Il passo 1 resta il modo per ricostruirlo (e per
+riottenere `truth.json`, che **non** e' pubblicato sul branch: si ottiene con `--truth-json`,
+11.237.511 B). Il collaudo completo (6 eventi) e' stato eseguito **una volta sola**: rieseguirlo su
+altri eventi e' un esperimento nuovo, non una ripetizione.
 
 ---
 
