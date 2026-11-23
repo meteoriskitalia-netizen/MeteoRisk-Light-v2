@@ -107,8 +107,9 @@ failFast('SimpleFmt non esposto', F && typeof F.fmtNum === 'function');
 {
   ok('selettore "Cosa mostrare" con 4 modalità',
     /id="layer-select"[\s\S]*?value="precip"[\s\S]*?value="hydro"[\s\S]*?value="radar"[\s\S]*?value="stations"/.test(html));
-  ok('selettore variabili centraline con 4 voci',
-    /id="var-select"[\s\S]*?value="temp"[\s\S]*?value="rain3h"[\s\S]*?value="wind"[\s\S]*?value="gust"/.test(html));
+  ok('selettore variabili centraline con 8 voci',
+    (html.match(/<option value="(temp|tmax|tmin|rh|rain1h|rain3h|wind|gust)"/g) || []).length === 8,
+    String((html.match(/<option value="(temp|tmax|tmin|rh|rain1h|rain3h|wind|gust)"/g) || []).length));
   ok('legge i JSON reali (provinces/weekly/simple_hourly/hydro/radar/stations)',
     ['meteorisk-provinces.json', 'province_italiane.geojson', 'weekly.json',
      'simple_hourly.json', 'criticality.json', 'radar/latest.json', 'stations/latest.json']
@@ -227,6 +228,129 @@ failFast('SimpleFmt non esposto', F && typeof F.fmtNum === 'function');
   ok('ricerca filtrata all\u2019Italia (countryCode=IT)', /countryCode=IT/.test(html));
   ok('attribuzione GeoNames CC BY 4.0 nel footer', /geonames\.org/.test(html) && /CC BY 4\.0/.test(html));
   ok('lista risultati con role=listbox', /id="geo-list" role="listbox"/.test(html));
+}
+
+// ---------- centraline: variabile + finestra ----------
+{
+  ok('8 variabili delle centraline', Object.keys(F.STATION_VARS).join(',') === 'temp,tmax,tmin,rh,rain1h,rain3h,wind,gust',
+    Object.keys(F.STATION_VARS).join(','));
+
+  const sd = F.stationSpec('tmax', 'day');
+  ok('tmax+day: campo temp_max_day_c', sd.field === 'temp_max_day_c', sd.field);
+  ok('tmax+day: flag parzialita temp_day_partial', sd.partialField === 'temp_day_partial', sd.partialField);
+  ok('tmax+day: ora del picco temp_max_day_hour', sd.peakField === 'temp_max_day_hour', sd.peakField);
+  ok('tmax+day: unita e scala dichiarate', sd.unit === '°C' && sd.decimals === 1 && sd.scale === 'thermal',
+    `${sd.unit} ${sd.decimals} ${sd.scale}`);
+  ok('tmax+day: etichetta finestra "oggi (dalle 00:00)"', sd.windowLabel === 'oggi (dalle 00:00)', sd.windowLabel);
+  ok('tmax+day: sorgente daily, nessun gate di copertura, parziale non bloccante',
+    sd.source === 'daily' && sd.coverageGate === false && sd.partialBlocks === false,
+    `${sd.source} gate=${sd.coverageGate} blocks=${sd.partialBlocks}`);
+  const sn = F.stationSpec('tmin', 'day');
+  ok('tmin+day: campo temp_min_day_c', sn.field === 'temp_min_day_c', sn.field);
+  ok('tmin+day: ora del picco temp_min_day_hour', sn.peakField === 'temp_min_day_hour', sn.peakField);
+  ok('tmax 1h/3h: temp_max_1h_c / temp_max_3h_c',
+    F.stationSpec('tmax', '1h').field === 'temp_max_1h_c' && F.stationSpec('tmax', '3h').field === 'temp_max_3h_c');
+  ok('tmin 1h/3h: temp_min_1h_c / temp_min_3h_c',
+    F.stationSpec('tmin', '1h').field === 'temp_min_1h_c' && F.stationSpec('tmin', '3h').field === 'temp_min_3h_c');
+  ok('rh: relative_humidity_2m e scala umidita',
+    F.stationSpec('rh').field === 'relative_humidity_2m' && F.stationSpec('rh').scale === 'humidity');
+  ok('rain1h/rain3h: campi e coperture',
+    F.stationSpec('rain1h').field === 'rain_1h_mm' && F.stationSpec('rain1h').coverageField === 'rain_1h_coverage_frac' &&
+    F.stationSpec('rain3h').field === 'rain_3h_mm' && F.stationSpec('rain3h').coverageField === 'rain_3h_coverage_frac');
+  ok('wind 1h/3h: wind_mean_1h_ms / wind_mean_3h_ms',
+    F.stationSpec('wind', '1h').field === 'wind_mean_1h_ms' && F.stationSpec('wind', '3h').field === 'wind_mean_3h_ms');
+  ok('gust 1h/3h: gust_max_1h_ms / gust_max_3h_ms',
+    F.stationSpec('gust', '1h').field === 'gust_max_1h_ms' && F.stationSpec('gust', '3h').field === 'gust_max_3h_ms');
+  ok('vento senza finestra "day": ricade su 1h', F.stationSpec('wind', 'day').window === '1h', F.stationSpec('wind', 'day').window);
+  ok('temperatura istantanea: finestra non applicata',
+    F.stationSpec('temp', '3h').window === '' && F.stationSpec('temp').windowApplies === false);
+
+  // ---- dati REALI del dataset (campi presenti e assenti, nessun valore inventato)
+  const ST = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'stations', 'latest.json'), 'utf8'));
+  const gen = ST.generated_at;
+  const absent = F.stationFieldStats(F.stationSpec('tmax', 'day'), ST.stations, gen);
+  ok('tmax+day sul dataset reale: campo assente, zero valori', absent.total === 0 && absent.available === false,
+    JSON.stringify({ total: absent.total, used: absent.used }));
+  ok('tmax+day: il motivo nomina temp_max_day_c', /temp_max_day_c/.test(absent.reason || ''), absent.reason);
+  const stTemp = F.stationFieldStats(F.stationSpec('temp'), ST.stations, gen);
+  ok('temperatura reale: disponibile con N>100', stTemp.available === true && stTemp.used > 100,
+    `${stTemp.used}/${stTemp.total}`);
+  const tmax1h = F.stationFieldStats(F.stationSpec('tmax', '1h'), ST.stations, gen);
+  ok('tmax+1h reale: campo temp_max_1h_c disponibile con N>0', tmax1h.available === true && tmax1h.used > 0,
+    `${tmax1h.used}/${tmax1h.total} · ${tmax1h.reason || ''}`);
+  const tmin3h = F.stationFieldStats(F.stationSpec('tmin', '3h'), ST.stations, gen);
+  ok('tmin+3h reale: campo temp_min_3h_c disponibile con N>0', tmin3h.available === true && tmin3h.used > 0,
+    `${tmin3h.used}/${tmin3h.total} · ${tmin3h.reason || ''}`);
+  ok('temperatura reale: usate <= con il campo', stTemp.used <= stTemp.total);
+  const stRh = F.stationFieldStats(F.stationSpec('rh'), ST.stations, gen);
+  ok('umidita relativa reale: disponibile con N>100', stRh.available === true && stRh.used > 100,
+    `${stRh.used}/${stRh.total}`);
+  const stRain = F.stationFieldStats(F.stationSpec('rain1h'), ST.stations, gen);
+  ok('pioggia 1h reale: disponibile, copertura applicata', stRain.available === true && stRain.used <= stRain.total,
+    `${stRain.used}/${stRain.total}`);
+  ok('ogni stats porta il campo usato', stRain.field === 'rain_1h_mm' && stRh.field === 'relative_humidity_2m');
+
+  // ---- valori e ora del picco
+  ok('stationValueOf legge il campo esatto', F.stationValueOf({ temperature_2m: 7.5 }, F.stationSpec('temp')) === 7.5);
+  ok('stationValueOf: campo assente -> null', F.stationValueOf({}, F.stationSpec('tmax', 'day')) === null);
+  ok('stationValueOf: copertura 0,4 -> null',
+    F.stationValueOf({ rain_1h_mm: 2, rain_1h_coverage_frac: 0.4 }, F.stationSpec('rain1h')) === null);
+  ok('stationValueOf: copertura 0,5 -> valore',
+    F.stationValueOf({ rain_1h_mm: 2, rain_1h_coverage_frac: 0.5 }, F.stationSpec('rain1h')) === 2);
+  ok('peak hour ISO -> HH:MM (Europe/Rome)', F.stationPeakHourLabel('2026-11-24T14:00:00Z') === '15:00',
+    F.stationPeakHourLabel('2026-11-24T14:00:00Z'));
+  ok('peak hour "14:05" -> "14:05"', F.stationPeakHourLabel('14:05') === '14:05');
+  ok('peak hour numero 14 -> "14:00"', F.stationPeakHourLabel(14) === '14:00');
+  ok('peak hour numero 9 -> "09:00"', F.stationPeakHourLabel(9) === '09:00');
+  ok('peak hour ignoto -> null (nessuna ora inventata)',
+    F.stationPeakHourLabel('boh') === null && F.stationPeakHourLabel(999) === null);
+
+  // ---- tmax+day e tmin+day su un caso sintetico (forma del blob giornaliero)
+  const fake = [
+    { name: 'A', obs_time: '2026-11-23T20:00:00Z', temp_max_day_c: 12.5, temp_day_partial: true,
+      temp_max_day_hour: '13', temp_day_coverage_frac: 0.9 },
+    { name: 'B', obs_time: '2026-11-23T20:00:00Z', temp_max_day_c: 9.0, temp_day_partial: true,
+      temp_max_day_hour: '11', temp_day_coverage_frac: 0.7 },
+    { name: 'C', obs_time: '2026-11-23T20:00:00Z' }
+  ];
+  const fs1 = F.stationFieldStats(F.stationSpec('tmax', 'day'), fake, '2026-11-23T20:10:00Z');
+  ok('tmax+day sintetico: 2 con il campo, 2 usabili, 2 parziali',
+    fs1.total === 2 && fs1.used === 2 && fs1.partial === 2,
+    JSON.stringify({ total: fs1.total, used: fs1.used, partial: fs1.partial }));
+  ok('tmax+day sintetico: top = A 12,5 con picco 13:00',
+    !!fs1.top && fs1.top.name === 'A' && fs1.top.value === 12.5 && fs1.top.peak === '13:00', JSON.stringify(fs1.top));
+  ok('tmax+day sintetico: la parzialita\u2019 non blocca il disegno (finestra dichiarata)',
+    fs1.available === true, fs1.reason || '');
+  ok('tmax+day sintetico: copertura media 80%', fs1.coverageAvg !== null && Math.abs(fs1.coverageAvg - 0.8) < 1e-9,
+    String(fs1.coverageAvg));
+  const fs3 = F.stationFieldStats(F.stationSpec('tmin', 'day'),
+    fake.map((x) => Object.assign({}, x, { temp_min_day_c: 3, temp_min_day_hour: 5 })), '2026-11-23T20:10:00Z');
+  ok('tmin+day sintetico: campo e picco numerico', fs3.available === true && fs3.top && fs3.top.peak === '05:00',
+    JSON.stringify(fs3.top));
+  const stale = F.stationFieldStats(F.stationSpec('tmax', 'day'),
+    [{ name: 'S', obs_time: '2026-11-23T10:00:00Z', temp_max_day_c: 20 }], '2026-11-23T20:10:00Z');
+  ok('osservazione piu vecchia di 90 min: scartata', stale.used === 0 && stale.total === 1, JSON.stringify({ used: stale.used, total: stale.total }));
+  ok('stationIsFresh: 60 min vero, 120 min falso',
+    F.stationIsFresh('2026-11-23T19:10:00Z', '2026-11-23T20:10:00Z') === true &&
+    F.stationIsFresh('2026-11-23T18:10:00Z', '2026-11-23T20:10:00Z') === false);
+
+  // ---- umidita: classi dichiarate
+  ok('umidita: 6 classi 0-100 %', F.HUMIDITY_CLASSES.length === 6);
+  ok('umidita: 0 % e 100 % su colori diversi', F.humidityColor(0) !== F.humidityColor(100));
+  ok('umidita: 50 % nella classe 40-60', F.humidityClass(50) === 2);
+  ok('umidita: valore nullo -> nessun colore di classe', F.humidityColor(null) === '#475569');
+
+  // ---- UI: i due selettori
+  const varSel = /<select id="var-select"[\s\S]*?<\/select>/.exec(html)[0];
+  ok('8 opzioni nel selettore variabile', (varSel.match(/<option /g) || []).length === 8,
+    String((varSel.match(/<option /g) || []).length));
+  ok('opzioni tmax/tmin/rh/rain1h presenti',
+    ['tmax', 'tmin', 'rh', 'rain1h'].every((v) => new RegExp('value="' + v + '"').test(varSel)));
+  ok('selettore variabile con title', /title="[^"]{20,}"/.test(varSel.split('>')[0]));
+  const winSel = /<select id="station-window-select"[\s\S]*?<\/select>/.exec(html)[0];
+  ok('finestra: day/1h/3h', ['day', '1h', '3h'].every((v) => new RegExp('value="' + v + '"').test(winSel)));
+  ok('finestra: etichetta "Oggi (dalle 00:00)"', /Oggi \(dalle 00:00\)/.test(winSel));
+  ok('finestra: title e onchange', /title="[^"]{20,}"/.test(winSel) && /onchange="stationsWindowChanged/.test(winSel));
 }
 
 console.log(`\nRESULT: ${failures === 0 ? 'PASS' : 'FAIL'} (${failures} errori)`);

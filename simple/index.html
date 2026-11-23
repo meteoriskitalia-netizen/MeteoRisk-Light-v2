@@ -205,11 +205,22 @@ table.hourly td.ic{text-align:center}
   <span id="var-wrap" style="display:none">
     <label for="var-select">Variabile</label>
     <select id="var-select" onchange="stationsVarChanged(this.value)"
-            title="Scegli la variabile osservata delle centraline: temperatura, pioggia 3 ore, vento medio o raffica">
+            title="Scegli la variabile osservata delle centraline: temperatura, massima o minima di oggi, umidità relativa, pioggia 1 o 3 ore, vento medio o raffica">
       <option value="temp" selected>Temperatura</option>
+      <option value="tmax">Temperatura massima</option>
+      <option value="tmin">Temperatura minima</option>
+      <option value="rh">Umidità relativa</option>
+      <option value="rain1h">Pioggia 1h</option>
       <option value="rain3h">Pioggia 3h</option>
       <option value="wind">Vento medio</option>
       <option value="gust">Raffica</option>
+    </select>
+    <label for="station-window-select">Finestra</label>
+    <select id="station-window-select" onchange="stationsWindowChanged(this.value)"
+            title="Finestra della variabile delle centraline: oggi dalla mezzanotte (per massima e minima), 1 ora o 3 ore. Non si applica a temperatura e umidità istantanee">
+      <option value="day">Oggi (dalle 00:00)</option>
+      <option value="1h" selected>1 ora</option>
+      <option value="3h">3 ore</option>
     </select>
   </span>
   <span class="hint" id="layer-hint">mm cumulati previsti nella giornata di oggi, per provincia.</span>
@@ -478,6 +489,214 @@ var SimpleFmt = (function () {
   var TABS = ["d3", "d7", "hour"];
   function normalizeTab(tab) { return TABS.indexOf(tab) >= 0 ? tab : "d3"; }
   function paneVisible(active, pane) { return normalizeTab(active) === pane; }
+
+  /* --- Centraline: variabile + finestra ------------------------------------
+     La Simple legge i campi GREZZI di data/stations/latest.json con i nomi
+     ESATTI pubblicati dal server. Una combinazione senza campo non diventa mai
+     un valore: resta selezionabile e la nota dice il motivo (nessun valore
+     inventato). Le finestre 6h/24h della Pro vengono dal blob stations-daily,
+     che la Simple non carica: qui ci sono 1h, 3h e, per le temperature,
+     la finestra `day` (dalla mezzanotte). */
+  var STATION_WINDOWS = ["day", "1h", "3h"];
+  var STATION_VARS = {
+    temp:   { label: "Temperatura",         unit: "°C",  decimals: 1, scale: "thermal",  instantaneous: true },
+    tmax:   { label: "Temperatura massima", unit: "°C",  decimals: 1, scale: "thermal",  windows: ["day", "1h", "3h"] },
+    tmin:   { label: "Temperatura minima",  unit: "°C",  decimals: 1, scale: "thermal",  windows: ["day", "1h", "3h"] },
+    rh:     { label: "Umidità relativa",    unit: "%",   decimals: 0, scale: "humidity", instantaneous: true },
+    rain1h: { label: "Pioggia 1 ora",       unit: "mm",  decimals: 1, scale: "rain",     fixedWindow: "1h" },
+    rain3h: { label: "Pioggia 3 ore",       unit: "mm",  decimals: 1, scale: "rain",     fixedWindow: "3h" },
+    wind:   { label: "Vento medio",         unit: "m/s", decimals: 1, scale: "wind",     windows: ["1h", "3h"] },
+    gust:   { label: "Raffica",             unit: "m/s", decimals: 1, scale: "wind",     windows: ["1h", "3h"] }
+  };
+  function stationWindowLabel(win) {
+    if (win === "day") return "oggi (dalle 00:00)";
+    if (win === "1h") return "1 ora";
+    if (win === "3h") return "3 ore";
+    return String(win == null ? "" : win);
+  }
+  // NOMI ESATTI dei campi pubblicati dal server, con la SORGENTE misurata:
+  //  - finestre 1h/3h e valori istantanei -> data/stations/latest.json
+  //    (temp_max_1h_c / temp_max_3h_c / temp_min_1h_c / temp_min_3h_c, MISURATI
+  //     il 2026-11-23T21:20Z su 4.915 stazioni);
+  //  - finestra `day` -> data/stations/daily_series.json (branch stations-daily,
+  //    schema stations-daily-series/2: temp_max_day_c, temp_max_day_hour,
+  //    temp_min_day_c, temp_min_day_hour, temp_day_coverage_frac,
+  //    temp_day_partial). In latest.json questi campi NON ci sono: leggerli da
+  //    li' sarebbe un valore inventato.
+  // `cov` = copertura dichiarata, `partial` = flag di parzialità, `peak` = ora del picco.
+  // `gate` = applica la soglia di copertura 0,5 (per la finestra `day` NON si
+  // applica: la massima "dalle 00:00 alle HH:MM" è parziale per costruzione e la
+  // percentuale di giornata coperta viene dichiarata in legenda).
+  var STATION_SPECS = {
+    temp: { "": { field: "temperature_2m" } },
+    rh: { "": { field: "relative_humidity_2m" } },
+    tmax: {
+      day: { field: "temp_max_day_c", partial: "temp_day_partial", peak: "temp_max_day_hour",
+             cov: "temp_day_coverage_frac", source: "daily", gate: false, partialBlocks: false },
+      "1h": { field: "temp_max_1h_c", cov: "temp_1h_coverage_frac" },
+      "3h": { field: "temp_max_3h_c", cov: "temp_3h_coverage_frac" }
+    },
+    tmin: {
+      day: { field: "temp_min_day_c", partial: "temp_day_partial", peak: "temp_min_day_hour",
+             cov: "temp_day_coverage_frac", source: "daily", gate: false, partialBlocks: false },
+      "1h": { field: "temp_min_1h_c", cov: "temp_1h_coverage_frac" },
+      "3h": { field: "temp_min_3h_c", cov: "temp_3h_coverage_frac" }
+    },
+    rain1h: { "": { field: "rain_1h_mm", cov: "rain_1h_coverage_frac" } },
+    rain3h: { "": { field: "rain_3h_mm", cov: "rain_3h_coverage_frac" } },
+    wind: {
+      "1h": { field: "wind_mean_1h_ms", cov: "wind_mean_1h_coverage_frac" },
+      "3h": { field: "wind_mean_3h_ms", cov: "wind_mean_3h_coverage_frac" }
+    },
+    gust: {
+      "1h": { field: "gust_max_1h_ms", cov: "gust_max_1h_coverage_frac" },
+      "3h": { field: "gust_max_3h_ms", cov: "gust_max_3h_coverage_frac" }
+    }
+  };
+  var STATION_MIN_COVERAGE = 0.5;   // < 0,5 = meno di metà finestra: non è una misura
+  var STATION_MAX_OBS_AGE_MIN = 90; // stessa soglia della Pro (STATIONS_MAX_OBS_AGE_MIN)
+  function stationSpec(varKey, winWanted) {
+    var key = STATION_VARS[varKey] ? varKey : "temp";
+    var cfg = STATION_VARS[key];
+    var win = String(winWanted == null ? "" : winWanted);
+    if (cfg.instantaneous) win = "";
+    else if (cfg.fixedWindow) win = cfg.fixedWindow;
+    else {
+      var allowed = cfg.windows || [];
+      if (allowed.indexOf(win) < 0) win = allowed.indexOf("day") >= 0 ? "day" : (allowed[0] || "");
+    }
+    var map = STATION_SPECS[key] || {};
+    var entry = map[win] || map[""] || null;
+    return {
+      varKey: key, window: win, label: cfg.label, unit: cfg.unit, decimals: cfg.decimals,
+      scale: cfg.scale,
+      field: entry ? entry.field : null,
+      coverageField: (entry && entry.cov) ? entry.cov : null,
+      partialField: (entry && entry.partial) ? entry.partial : null,
+      peakField: (entry && entry.peak) ? entry.peak : null,
+      source: (entry && entry.source) ? entry.source : "latest",
+      coverageGate: !(entry && entry.gate === false),
+      partialBlocks: !(entry && entry.partialBlocks === false),
+      windowLabel: stationWindowLabel(win),
+      windowApplies: !!(cfg.windows && cfg.windows.length),
+      allowedWindows: (cfg.windows || []).slice(),
+      available: null, reason: null
+    };
+  }
+  function stationValueOf(s, spec) {
+    if (!s || !spec || !spec.field) return null;
+    var v = s[spec.field];
+    if (!(typeof v === "number" && isFinite(v))) return null;
+    if (spec.coverageField && spec.coverageGate !== false) {
+      var c = s[spec.coverageField];
+      if (!(typeof c === "number" && c >= STATION_MIN_COVERAGE)) return null;
+    }
+    return v;
+  }
+  // Ora del picco: accetta ISO, "HH:MM", ora 0-23 o epoch. Formato ignoto -> null
+  // (nessuna ora inventata).
+  function stationPeakHourLabel(v) {
+    if (v === null || v === undefined || v === "") return null;
+    if (typeof v === "number") {
+      if (!isFinite(v)) return null;
+      if (v > 1e12 && v < 1e14) return fmtClockRome(new Date(v).toISOString());       // epoch ms
+      if (v > 1e9 && v < 1e11) return fmtClockRome(new Date(v * 1000).toISOString()); // epoch s
+      if (v >= 0 && v < 24) return (v < 10 ? "0" : "") + Math.floor(v) + ":00";
+      return null;
+    }
+    var str = String(v).trim();
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(str)) return fmtClockRome(str);
+    if (/^\d{1,2}$/.test(str)) {
+      var h = parseInt(str, 10);
+      return (h >= 0 && h < 24) ? ((h < 10 ? "0" : "") + h + ":00") : null;
+    }
+    if (/^\d{1,2}:\d{2}$/.test(str)) return str.length === 4 ? "0" + str : str;
+    return null;
+  }
+  /* Età dell'osservazione rispetto al timestamp del dataset. Se uno dei due
+     tempi non è leggibile restituisce null: in quel caso la stazione NON viene
+     scartata (nessuna età inventata). */
+  function stationAgeMinutes(obsTime, generatedAt) {
+    var t = Date.parse(obsTime || "");
+    var g = generatedAt ? Date.parse(generatedAt) : NaN;
+    if (!isFinite(t) || !isFinite(g)) return null;
+    return (g - t) / 60000;
+  }
+  function stationIsFresh(obsTime, generatedAt) {
+    var a = stationAgeMinutes(obsTime, generatedAt);
+    return a === null ? true : a <= STATION_MAX_OBS_AGE_MIN;
+  }
+  /* Stato di una combinazione sui dati REALI: quante stazioni hanno il campo,
+     quante passano copertura >= 0,5 e obs <= 90 min, quante sono parziali.
+     `top` = stazione col valore più alto (per dichiarare il picco nella legenda). */
+  function stationFieldStats(spec, stations, generatedAt) {
+    var out = { field: spec ? spec.field : null, total: 0, used: 0, partial: 0,
+                partialFlagged: 0, coverageAvg: null, covSum: 0, covN: 0,
+                missingField: false, available: false, reason: null, top: null };
+    if (!spec || !spec.field) {
+      out.reason = "nessun campo definito per questa combinazione";
+      return out;
+    }
+    if (!stations || !stations.length) {
+      out.reason = "nessuna stazione nel dataset";
+      return out;
+    }
+    for (var i = 0; i < stations.length; i++) {
+      var s = stations[i];
+      var v = s ? s[spec.field] : null;
+      if (!(typeof v === "number" && isFinite(v))) continue;
+      out.total++;
+      if (spec.coverageField && spec.coverageGate !== false) {
+        var c = s[spec.coverageField];
+        if (!(typeof c === "number" && c >= STATION_MIN_COVERAGE)) continue;
+      }
+      if (!stationIsFresh(s.obs_time, generatedAt)) continue;
+      out.used++;
+      if (spec.coverageField) {
+        var c2 = s[spec.coverageField];
+        if (typeof c2 === "number" && isFinite(c2)) { out.covSum += c2; out.covN++; }
+      }
+      if (spec.partialField && s[spec.partialField] === true) { out.partial++; out.partialFlagged++; }
+      if (!out.top || v > out.top.value) {
+        out.top = { name: s.name || s.id || "stazione", value: v,
+                    peak: spec.peakField ? stationPeakHourLabel(s[spec.peakField]) : null };
+      }
+    }
+    out.coverageAvg = out.covN ? out.covSum / out.covN : null;
+    if (!out.total) {
+      out.missingField = true;
+      out.reason = "il campo " + spec.field + " non è presente nel dataset delle centraline: " +
+        "nessun valore inventato (l'opzione resta, il campo non è pubblicato).";
+    } else if (!out.used) {
+      out.reason = "nessuna stazione con copertura >= 0,5 e osservazione entro 90 minuti per " +
+        spec.field + ": nessun valore inventato.";
+    } else if (spec.partialField && out.partial === out.used && spec.partialBlocks !== false) {
+      out.reason = "il campo " + spec.field + " è pubblicato solo su una finestra parziale (" +
+        spec.partialField + " = true su " + out.partial + "/" + out.used + " stazioni usabili): " +
+        "non è una misura della finestra " + spec.windowLabel + ".";
+    } else {
+      out.available = true;
+    }
+    return out;
+  }
+  // Umidità relativa: scala dichiarata 0-100 % (SCELTA INGEGNERISTICA, secco -> umido).
+  var HUMIDITY_CLASSES = [
+    { max: 20, label: "0–20 %", color: "#bf8130" },
+    { max: 40, label: "20–40 %", color: "#e6c966" },
+    { max: 60, label: "40–60 %", color: "#add18e" },
+    { max: 80, label: "60–80 %", color: "#56a8a0" },
+    { max: 95, label: "80–95 %", color: "#2e86ab" },
+    { max: Infinity, label: "95–100 %", color: "#1e5699" }
+  ];
+  function humidityClass(v) {
+    if (!isNum(v)) return -1;
+    for (var i = 0; i < HUMIDITY_CLASSES.length; i++) if (v <= HUMIDITY_CLASSES[i].max) return i;
+    return HUMIDITY_CLASSES.length - 1;
+  }
+  function humidityColor(v) {
+    var i = humidityClass(v);
+    return i < 0 ? "#475569" : HUMIDITY_CLASSES[i].color;
+  }
   function fmtClockRome(iso) {
     if (!iso) return "—";
     try {
@@ -503,7 +722,13 @@ var SimpleFmt = (function () {
     TABS: TABS, normalizeTab: normalizeTab, paneVisible: paneVisible,
     normText: normText, geoTokens: geoTokens, provBaseName: provBaseName,
     matchProvince: matchProvince, geoResultRow: geoResultRow, geoNoResults: geoNoResults,
-    localProvinceRows: localProvinceRows
+    localProvinceRows: localProvinceRows,
+    STATION_VARS: STATION_VARS, STATION_WINDOWS: STATION_WINDOWS, STATION_SPECS: STATION_SPECS,
+    stationWindowLabel: stationWindowLabel, stationSpec: stationSpec,
+    stationValueOf: stationValueOf, stationPeakHourLabel: stationPeakHourLabel,
+    stationFieldStats: stationFieldStats, stationAgeMinutes: stationAgeMinutes,
+    stationIsFresh: stationIsFresh,
+    HUMIDITY_CLASSES: HUMIDITY_CLASSES, humidityClass: humidityClass, humidityColor: humidityColor
   };
 })();
 if (typeof window !== "undefined") { window.SimpleFmt = SimpleFmt; }
@@ -543,7 +768,8 @@ var DATA = {
   hourly: "../data/latest/simple_hourly.json",
   hydro: "../data/hydro/criticality.json",
   radar: "../data/radar/latest.json",
-  stations: "../data/stations/latest.json"
+  stations: "../data/stations/latest.json",
+  stationsDaily: "../data/stations/daily_series.json"
 };
 // Bounding box della mappa (Italia + isole). Dichiarata: non e' un fit calcolato.
 var ITALY_BOUNDS = [[35.2, 5.8], [47.8, 19.2]];
@@ -551,10 +777,12 @@ var DPC_COLORS = { none: "#475569", yellow: "#facc15", orange: "#f97316", red: "
 var DPC_LABELS = { none: "Nessuna", yellow: "Gialla", orange: "Arancione", red: "Rossa", unknown: "Non prevista" };
 
 var state = {
-  layer: "precip", stationsVar: "temp", map: null, base: null,
+  layer: "precip", stationsVar: "temp", stationsWindow: "1h", map: null, base: null,
   provLayer: null, hydroLayer: null, radarLayer: null, stationOverlay: null,
   provinces: null, provBySigla: {}, geo: null, weekly: null, weeklyBySigla: {},
   hourly: null, hydro: null, radar: null, stations: null, stationsMeta: null,
+  stationsUsed: null, stationStats: null, stationSpecUsed: null,
+  stationsDaily: null, stationsDailyError: null, stationsDailyPromise: null,
   selected: null, hourlyLimit: 24, statusEl: null, noteEl: null,
   tab: "d3", dayIndex: 0, cardSigla: null,
   geoRows: [], geoQuery: "", geoTimer: null, geoSeq: 0, geoLatencyMs: null,
@@ -667,19 +895,58 @@ function scenarioLegend() {
       num(r.cells_count, 0) + " celle") :
       "Radar-DPC: stato non disponibile";
   } else if (state.layer === "stations") {
-    var v = state.stationsVar;
-    if (v === "temp") { sw("#456db4", "freddo"); sw("#aad9e9", "fresco"); sw("#fee090", "mite"); sw("#d73027", "caldo"); }
-    else if (v === "rain3h") { sw("#bae6fd", "0,1–1 mm"); sw("#38bdf8", "1–5 mm"); sw("#2563eb", "5–15 mm"); sw("#7c3aed", "15–30 mm"); sw("#db2777", "> 30 mm"); }
-    else { F.WIND_CLASSES.forEach(function (c) { sw(c.color, c.label); }); }
+    var spec = currentStationSpec();
+    if (spec.scale === "thermal") {
+      [-10, 0, 10, 20, 30, 35].forEach(function (t) {
+        var c = F.thermalColor(t);
+        sw("rgb(" + c.join(",") + ")", t + " °C");
+      });
+    } else if (spec.scale === "rain") {
+      F.PRECIP_CLASSES.forEach(function (c) { sw(c.color, c.label); });
+    } else if (spec.scale === "humidity") {
+      F.HUMIDITY_CLASSES.forEach(function (c) { sw(c.color, c.label); });
+    } else {
+      F.WIND_CLASSES.forEach(function (c) { sw(c.color, c.label); });
+    }
+    var st = state.stationStats || currentStationStats(spec);
     var n = state.stations && state.stations.stations ? state.stations.stations.length : 0;
-    var used = state.stationsUsed != null ? state.stationsUsed : n;
-    src.textContent = "osservato dalle centraline: " + used + " stazioni con dato valido (su " + n +
-      " totali) · MeteoHub CC BY 4.0";
+    var bits = [spec.label + " (" + spec.unit + ")"];
+    if (spec.varKey === "tmax" || spec.varKey === "tmin") {
+      var kind = spec.varKey === "tmax" ? "massima" : "minima";
+      var end = state.stations && state.stations.generated_at ? F.fmtClockRome(state.stations.generated_at) : null;
+      if (spec.window === "day") {
+        bits.push(kind + " di oggi dalle 00:00" + (end ? " alle " + end : " all'ora del dataset"));
+      } else {
+        bits.push(kind + " sulla finestra " + spec.windowLabel);
+      }
+      if (st && st.top && st.top.peak) {
+        bits.push("picco " + F.fmtNum(st.top.value, 1) + " " + spec.unit + " alle " + st.top.peak +
+          " (" + st.top.name + ")");
+      }
+    } else if (spec.windowApplies) {
+      bits.push("finestra " + spec.windowLabel);
+    } else {
+      bits.push("valore istantaneo");
+    }
+    bits.push((st ? st.used : 0) + " stazioni usate su " + n + " (" +
+      (st ? st.total : 0) + " con il campo " + (spec.field || "—") + ")");
+    if (st && st.coverageAvg != null && spec.coverageField) {
+      bits.push("copertura media " + Math.round(st.coverageAvg * 100) + "%");
+    }
+    if (st && st.partial) bits.push(st.partial + " stazioni parziali (" + spec.partialField + ")");
+    if (st && !st.available) {
+      bits.push("NON DISEGNATO: " + st.reason);
+    } else if (!st && spec.source === "daily") {
+      bits.push("NON DISEGNATO: serie giornaliera non disponibile (data/stations/daily_series.json)");
+    }
+    src.textContent = bits.join(" · ") + " · MeteoHub CC BY 4.0";
   }
 }
 
 function setLayer(name) {
   state.layer = name;
+  var layerSel = q("layer-select");
+  if (layerSel && layerSel.value !== name) layerSel.value = name;
   q("var-wrap").style.display = name === "stations" ? "" : "none";
   var notes = {
     precip: "Clicca una provincia per il dettaglio",
@@ -692,7 +959,7 @@ function setLayer(name) {
     precip: "mm cumulati previsti nella giornata di oggi, per provincia.",
     hydro: "criticità idrogeologica/idraulica/temporali prevista dal bollettino DPC (non è un avviso emesso da MeteoRisk).",
     radar: "ultimo frame radar DPC disponibile, sovrapposto alla mappa.",
-    stations: "osservazioni orarie delle centraline, interpolate; dove non ci sono stazioni la mappa resta trasparente."
+    stations: "osservazioni delle centraline con variabile e finestra selezionabili, interpolate; dove non ci sono stazioni la mappa resta trasparente."
   };
   q("layer-hint").textContent = hints[name] || "";
   if (state.map) {
@@ -1308,17 +1575,104 @@ function loadRadar() {
   });
 }
 
-/* ---------------- Centraline (IDW) ---------------- */
-var STATION_FIELDS = {
-  temp: { field: "temperature_2m", label: "Temperatura", unit: "°C", dec: 1 },
-  rain3h: { field: "rain_3h_mm", label: "Pioggia 3 ore", unit: "mm", dec: 1, fallback: "rain_1h_mm" },
-  wind: { field: "wind_mean_1h_ms", label: "Vento medio", unit: "m/s", dec: 1, fallback: "wind_speed_10m" },
-  gust: { field: "gust_max_1h_ms", label: "Raffica", unit: "m/s", dec: 1, fallback: "wind_gust_10m" }
-};
-function stationValue(s, cfg) {
-  var v = s[cfg.field];
-  if (!F.isNum(v) && cfg.fallback) v = s[cfg.fallback];
-  return F.isNum(v) ? v : null;
+/* ---------------- Centraline (IDW) ----------------
+   Variabile + finestra vengono da F.stationSpec (funzioni pure nel blocco
+   `simple-formatters`): i campi sono quelli GREZZI di latest.json con i nomi
+   esatti pubblicati dal server. Copertura >= 0,5 e obs entro 90 minuti come la
+   Pro; se il campo non esiste la combinazione resta selezionabile ma non viene
+   disegnato NULLA e la nota dice il motivo. */
+function currentStationSpec() {
+  return F.stationSpec(state.stationsVar, state.stationsWindow);
+}
+/* La finestra `day` vive in data/stations/daily_series.json (branch
+   stations-daily, schema /2), NON in latest.json: si carica solo quando serve.
+   Pages prima, raw.githubusercontent come fallback (stessi URL della Pro). */
+var STATIONS_DAILY_URLS = [
+  "../data/stations/daily_series.json",
+  "https://raw.githubusercontent.com/meteoriskitalia-netizen/MeteoRisk-Light-v2/refs/heads/stations-daily/data/stations/daily_series.json"
+];
+function loadStationsDaily() {
+  if (state.stationsDaily) return Promise.resolve(state.stationsDaily);
+  if (state.stationsDailyPromise) return state.stationsDailyPromise;
+  var i = 0;
+  function tryNext() {
+    if (i >= STATIONS_DAILY_URLS.length) {
+      return Promise.reject(state.stationsDailyError || new Error("daily_series.json non disponibile"));
+    }
+    var url = STATIONS_DAILY_URLS[i++];
+    return getJSON(url).then(function (d) {
+      if (!d || (d.schema !== "stations-daily-series/1" && d.schema !== "stations-daily-series/2")) {
+        throw new Error("schema non riconosciuto: " + (d && d.schema));
+      }
+      state.stationsDaily = d;
+      state.stationsDailyError = null;
+      return d;
+    }).catch(function (e) {
+      state.stationsDailyError = e;
+      return tryNext();
+    });
+  }
+  state.stationsDailyPromise = tryNext().then(function (d) {
+    state.stationsDailyPromise = null;
+    return d;
+  }, function (e) {
+    state.stationsDailyPromise = null;
+    throw e;
+  });
+  return state.stationsDailyPromise;
+}
+/* Righe per la finestra `day`: identità e coordinate da latest.json (stesso
+   id), campi giornalieri dal blob. Nessun campo ricostruito. */
+function dailyStationRows() {
+  var daily = state.stationsDaily;
+  if (!daily || !daily.stations) return [];
+  var base = {};
+  (state.stations && state.stations.stations ? state.stations.stations : []).forEach(function (s) {
+    if (s && s.id) base[s.id] = s;
+  });
+  var out = [];
+  Object.keys(daily.stations).forEach(function (id) {
+    var d = daily.stations[id];
+    if (!d || typeof d !== "object") return;
+    var b = base[id] || {};
+    out.push(Object.assign({}, b, d, {
+      id: id, lat: b.lat, lon: b.lon, obs_time: b.obs_time, name: d.name || b.name
+    }));
+  });
+  return out;
+}
+function stationDatasetFor(spec) {
+  if (spec && spec.source === "daily") {
+    return { rows: dailyStationRows(),
+             generatedAt: state.stationsDaily ? state.stationsDaily.generated_at : null };
+  }
+  return { rows: state.stations ? state.stations.stations : [],
+           generatedAt: state.stations ? state.stations.generated_at : null };
+}
+function currentStationStats(spec) {
+  if (!state.stations) return null;
+  var d = stationDatasetFor(spec);
+  return F.stationFieldStats(spec, d.rows, d.generatedAt);
+}
+function redrawStations() {
+  var spec = currentStationSpec();
+  if (spec.source === "daily" && !state.stationsDaily) {
+    setStatus("Caricamento serie giornaliera delle centraline…");
+    loadStationsDaily().then(function () { drawIdw(); }).catch(function () { drawIdw(); });
+    return;
+  }
+  drawIdw();
+}
+function syncStationWindow() {
+  var spec = currentStationSpec();
+  var sel = q("station-window-select");
+  if (!sel) return;
+  sel.value = spec.window || "1h";
+  sel.disabled = !spec.windowApplies;
+  sel.title = spec.windowApplies
+    ? "Finestra della variabile delle centraline: oggi dalla mezzanotte (per massima e minima), 1 ora o 3 ore. Per " +
+      spec.label + " vale " + spec.windowLabel
+    : "La variabile " + spec.label + " è un valore istantaneo: la finestra non si applica";
 }
 function loadStations() {
   if (state.stationOverlay) { state.stationOverlay.addTo(state.map); drawIdw(); return; }
@@ -1330,7 +1684,7 @@ function loadStations() {
     setStatus("Centraline: " + (s.stations ? s.stations.length : 0) + " stazioni · osservazioni del " +
       (isNaN(d.getTime()) ? "—" : d.toLocaleString("it-IT", { timeZone: "Europe/Rome" })) +
       " · " + (s.source || "MeteoHub"));
-    drawIdw();
+    redrawStations();
   }).catch(function (e) {
     console.warn("[simple] stations:", e);
     setStatus("Centraline non disponibili: " + e.message);
@@ -1338,24 +1692,66 @@ function loadStations() {
 }
 function stationsVarChanged(v) {
   state.stationsVar = v;
-  if (state.stations) drawIdw();
+  var cfg = F.STATION_VARS[v];
+  if (cfg && cfg.windows && cfg.windows.length) {
+    // Massima/minima: la finestra headline e' "oggi"; per vento e raffica 1 ora.
+    if (v === "tmax" || v === "tmin") state.stationsWindow = "day";
+    else if (cfg.windows.indexOf(state.stationsWindow) < 0) state.stationsWindow = "1h";
+  }
+  state.stationsVar = F.stationSpec(v, state.stationsWindow).varKey;
+  state.stationsWindow = currentStationSpec().window;
+  syncStationWindow();
+  if (state.stations) redrawStations();
+  scenarioLegend();
+}
+function stationsWindowChanged(w) {
+  state.stationsWindow = w;
+  state.stationsWindow = currentStationSpec().window;
+  syncStationWindow();
+  if (state.stations) redrawStations();
   scenarioLegend();
 }
 // IDW k=6, cutoff 30 km, canvas 256x227, maschera terra dai poligoni provinciali.
 function drawIdw() {
   if (!state.stations || !state.geo || !state.map) return;
-  var cfg = STATION_FIELDS[state.stationsVar] || STATION_FIELDS.temp;
+  var spec = currentStationSpec();
+  if (spec.source === "daily" && !state.stationsDaily) {
+    if (state.stationOverlay) { state.map.removeLayer(state.stationOverlay); state.stationOverlay = null; }
+    state.stationsUsed = 0;
+    state.stationStats = null;
+    setStatus("Centraline · " + spec.label + ": serie giornaliera non disponibile" +
+      (state.stationsDailyError ? " (" + state.stationsDailyError.message + ")" : "") +
+      " — nessun valore disegnato.");
+    scenarioLegend();
+    return;
+  }
+  var stats = currentStationStats(spec);
+  state.stationSpecUsed = spec;
+  state.stationStats = stats;
+  if (!stats || !stats.available) {
+    if (state.stationOverlay) { state.map.removeLayer(state.stationOverlay); state.stationOverlay = null; }
+    state.stationsUsed = 0;
+    setStatus("Centraline · " + spec.label + " (" + spec.unit + "): " +
+      (stats ? stats.reason : "dati non caricati") + " Nessun valore disegnato.");
+    scenarioLegend();
+    return;
+  }
   var W = 256, H = 227;
   var B = { south: 35.3, west: 6.0, north: 47.7, east: 19.0 };
   var pts = [];
-  (state.stations.stations || []).forEach(function (s) {
-    var v = stationValue(s, cfg);
+  var dataset = stationDatasetFor(spec);
+  dataset.rows.forEach(function (s) {
+    var v = F.stationValueOf(s, spec);
     if (v === null || !F.isNum(s.lat) || !F.isNum(s.lon)) return;
+    if (!F.stationIsFresh(s.obs_time, dataset.generatedAt)) return;
     pts.push({ lat: s.lat, lon: s.lon, v: v, name: s.name, net: s.network });
   });
   state.stationsUsed = pts.length;
   if (!pts.length) {
-    setStatus("Centraline: nessun valore valido per " + cfg.label + " (nessun punto inventato).");
+    if (state.stationOverlay) { state.map.removeLayer(state.stationOverlay); state.stationOverlay = null; }
+    setStatus("Centraline · " + spec.label + ": nessuna stazione utilizzabile per il campo " +
+      spec.field + " (nessun punto inventato).");
+    scenarioLegend();
     return;
   }
   // Griglia spaziale 0.5° per non confrontare ogni pixel con 4.983 stazioni.
@@ -1399,8 +1795,9 @@ function drawIdw() {
       }
       var val = sv / sw;
       var rgb;
-      if (state.stationsVar === "temp") rgb = F.thermalColor(val);
-      else if (state.stationsVar === "rain3h") rgb = F.rainColor(val) || [51, 65, 85];
+      if (spec.scale === "thermal") rgb = F.thermalColor(val);
+      else if (spec.scale === "rain") rgb = F.rainColor(val) || [51, 65, 85];
+      else if (spec.scale === "humidity") rgb = hexToRgb(F.humidityColor(val));
       else rgb = hexToRgb(F.WIND_CLASSES[F.windClass(val)].color);
       data.data[idx] = rgb[0]; data.data[idx + 1] = rgb[1]; data.data[idx + 2] = rgb[2];
       data.data[idx + 3] = 200;
@@ -1443,8 +1840,10 @@ function drawIdw() {
   if (state.radarLayer) state.map.removeLayer(state.radarLayer);
   scenarioLegend();
   var meta = state.stationsMeta || {};
-  setStatus("Centraline · " + cfg.label + " (" + cfg.unit + "): " + pts.length +
-    " stazioni con dato valido, IDW k=6 entro 30 km · " + (meta.source || "MeteoHub") +
+  setStatus("Centraline · " + spec.label + " (" + spec.unit + ")" +
+    (spec.windowApplies ? " · " + spec.windowLabel : " · istantanea") + ": " + pts.length +
+    " stazioni con dato valido su " + (stats.total || 0) + " con il campo " + spec.field +
+    ", IDW k=6 entro 30 km · " + (meta.source || "MeteoHub") +
     " · " + (meta.licence || "CC BY 4.0"));
 }
 function hexToRgb(h) {
@@ -1478,6 +1877,7 @@ function boot() {
     setStatus("Dati iniziali non disponibili: " + e.message);
   });
   setLayer("precip");
+  syncStationWindow();
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
 else boot();
@@ -1489,6 +1889,7 @@ window.setLayer = setLayer;
 window.closeCard = closeCard;
 window.setHourlyLimit = setHourlyLimit;
 window.stationsVarChanged = stationsVarChanged;
+window.stationsWindowChanged = stationsWindowChanged;
 window.selectTab = selectTab;
 window.selectDay = selectDay;
 window.dayKey = dayKey;

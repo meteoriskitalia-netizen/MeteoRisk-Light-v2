@@ -1,3 +1,17 @@
+VERSION=1.3.0.67
+BUILD=197
+DATE=2026-11-23
+APP_FILE=mri-light-1.3.0.67.html
+MeteoRisk Light - 1.3.0.67 - Simple: centraline con massima/minima della giornata, umidita relativa, pioggia 1h e selettore di finestra (oggi/1h/3h), campi dalla sorgente reale e nessun valore inventato (BUILD=197)
+VERSION=1.3.0.67
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=197
+RELEASE_TYPE=release
+DATE=2026-11-23
+NOTE=Release 1.3.0.67 (bump da 1.3.0.66; client: APP_FILE mri-light-1.3.0.67.html). (1) SIMPLE, CENTRALINE: selettore da 4 a 8 variabili (temperatura, temperatura massima, temperatura minima, umidita relativa, pioggia 1h, pioggia 3h, vento medio, raffica) e nuovo selettore FINESTRA: oggi (dalle 00:00), 1 ora, 3 ore. Si disabilita con il motivo per le variabili istantanee e si sincronizza: tmax/tmin passano a oggi, vento/raffica a 1 ora. (2) SORGENTI MISURATE il 2026-11-23T21:30Z: 1h/3h da data/stations/latest.json (temp_max_1h_c, temp_max_3h_c, temp_min_1h_c, temp_min_3h_c con temp_1h_coverage_frac / temp_3h_coverage_frac; MISURATO tmax 1h 3302/3309 e tmin 3h 3285/3290); la giornata da data/stations/daily_series.json (branch stations-daily, schema /2: temp_max_day_c, temp_min_day_c, temp_max_day_hour, temp_min_day_hour, temp_day_coverage_frac, temp_day_partial), caricato SOLO quando si sceglie oggi e con fallback raw.githubusercontent. I campi della giornata NON sono in latest.json ne in index.json (misurato): leggerli da li sarebbe un valore inventato. (3) NESSUN VALORE INVENTATO: se un campo manca, la combinazione resta selezionabile, l overlay viene rimosso e la nota nomina il campo con il motivo. La finestra giorno e parziale per costruzione (dalle 00:00 alle HH:MM), quindi la parzialita e dichiarata e non blocca; la copertura media e in legenda. Copertura >= 0,5 e obs entro 90 minuti come la Pro. (4) LEGENDA: unita e scala per variabile (termica per T/tmax/tmin, mm per pioggia, m/s per vento e raffica, % con 6 classi per umidita, SCELTA INGEGNERISTICA dichiarata), N stazioni usate su N con il campo, copertura media, stazioni parziali, ora del picco della stazione col valore piu alto. La palette Universal Blue resta solo del radar. (5) CONFRONTO CON LA PRO, stesse stazioni e stesso campo via stationsNormalize: temperatura 8,2 = 8,2; pioggia 1h 1,6 = 1,6; vento 1h 3,7 = 3,7; raffica 1h 5,8 = 5,8; umidita 91 = 91; tmax 1h e tmin 3h identiche; pioggia 1h stessa regola di copertura (3.928 stazioni in entrambe). La Pro legge temp_max_day_c da latest.json/index.json dove NON e pubblicato: la Simple lo legge da daily_series.json (unica sorgente) e il massimo dichiarato coincide col massimo reale del blob. (6) DATO DA SEGNALARE: il blob del 2026-11-23T21:31Z pubblica un massimo di 52,0 C a Palma di Montechiaro (dpcn-sicilia) con temperatura istantanea 14,8 C e serie oraria 24-27 C: la UI mostra il campo pubblicato senza inventare filtri, ma il QC server (|T| <= 60) non intercetta il salto. (7) TEST: test_simple_formatters esteso (tmax+day e tmin+day, 8 variabili, 3 finestre, campi reali, ora del picco in 4 formati, umidita 6 classi); test_simple_html_js_syntax e test_tooltips_coverage PASS; pytest completo invariato rispetto alla baseline. Peso Simple: 93.304 byte raw / 28.890 gzip. INVARIATI: motore radar, workflow, dataset, Pro oltre al bump; sw.js rinnova le tre cache a mri-1.3.0.67.
+APP_FILE=mri-light-1.3.0.67.html
 VERSION=1.3.0.66
 BUILD=196
 DATE=2026-11-23
