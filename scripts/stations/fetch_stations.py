@@ -546,9 +546,11 @@ QC_TEMP_MAX_ABS_C = 60.0        # |T| > 60 degC -> punto scartato
 # Gate di PLAUSIBILITA' FISICA, separato dal range assoluto: un valore di 52 degC
 # e' dentro |T| <= 60 ma e' impossibile se un'ora prima la stazione era a 25.
 # SCELTA INGEGNERISTICA dichiarata (vedi `temp_qc.py`): si scarta un campione se
-# |dT|/dt > 6 degC/h rispetto all'ULTIMO CAMPIONE ACCETTATO. In Italia un fohn
-# fa +4-5 degC/h; 6 lascia margine agli eventi reali e taglia i salti da 15-37
-# degC in 30-60 minuti misurati su Palma di Montechiaro il 2026-11-23.
+# |dT| > 3 degC E |dT|/dt > 6 degC/h rispetto all'ULTIMO CAMPIONE ACCETTATO
+# (il minimo assoluto evita di scartare 1,5-2,5 degC di rumore su passi corti).
+# In Italia un fohn fa +4-5 degC/h; 6 lascia margine agli eventi reali e taglia
+# i salti da 15-37 degC in 30-60 minuti misurati su Palma di Montechiaro il
+# 2026-11-23.
 QC_TEMP_MAX_RATE_C_PER_H = TEMP_MAX_RATE_C_PER_H
 QC_DEW_MAX_ABS_C = 60.0
 QC_RH_MIN_PCT = 0.0

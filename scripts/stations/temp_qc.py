@@ -32,10 +32,11 @@ Motivazione, con i numeri:
     10-20 minuti un rumore di 1,5-2 degC (risoluzione 0,1 degC, aria diversa
     fra due sensori della stessa rete) diventa 5-12 degC/h. Per questo il
     campione si scarta solo se il salto ASSOLUTO supera
-    `TEMP_MIN_ABS_DELTA_C = 3,0 degC` E il rate supera 6,0 degC/h. Misurato sul
-    blob reale del 2026-11-23: senza il minimo assoluto venivano scartati 411
-    campioni da 1,5-2,5 degC (fronti reali o rumore) in piu' rispetto ai salti
-    veri; con il minimo restano i salti da 9-37 degC;
+    `TEMP_MIN_ABS_DELTA_C = 3,0 degC` E il rate supera 6,0 degC/h. MISURATO sul
+    blob reale del 2026-11-23: con il solo rate 728 stazioni su 5.158 avevano
+    almeno un campione scartato (la maggior parte con UNA oscillazione da
+    1,5-2,5 degC, cioe' rumore o fronte reale); con il minimo assoluto sono
+    171 stazioni e 365 campioni, e i salti da 9-37 degC restano;
   * la soglia e' un RATE, non un salto assoluto: un +4 degC in un'ora (fohn)
     passa, un +30 degC in un'ora no. Anche un riscaldamento lento di 10 degC in
     3 ore (3,3 degC/h) passa;
