@@ -1806,6 +1806,14 @@ def normalize_payload(
     # 5m/30m/1h/3h e hourly per la serie giornaliera. Il dew point si deriva
     # dalle coppie con lo stesso `ref` (vedi `build_dew_series`).
     temp_series: dict[tuple, dict[str, list[tuple[datetime, float]]]] = {}
+    # La stessa stazione puo' comparire PIU' VOLTE nel payload (record
+    # duplicato). Per la temperatura le serie dei vari record NON si mescolano:
+    # si tiene il GRUPPO con il `ref` piu' recente (vedi il commento dopo il
+    # loop). Mescolarle farebbe vedere al gate un salto da un record vecchio a
+    # uno nuovo e il gate scarterebbe il tratto NUOVO, che e' quello buono.
+    temp_series_groups: dict[
+        tuple, list[tuple[datetime, dict[str, list[tuple[datetime, float]]]]]
+    ] = {}
     rh_series: dict[tuple, dict[str, list[tuple[datetime, float]]]] = {}
     # Periodo dell'ultima raffica (trange `2,0,N`): la sorgente NON la normalizza.
     gust_last_period: dict[tuple, int] = {}
@@ -1998,6 +2006,7 @@ def normalize_payload(
         # punti di ogni prodotto, non solo l'ultimo. Nessun filtro di eta' qui:
         # la finestra della query e' gia' 180 minuti e `build_*_block` ancora la
         # finestra all'ultimo dato.
+        entry_temp: dict[str, list[tuple[datetime, float]]] = {}
         for prod in prods:
             code = prod.get("var")
             if code not in (VAR_PRECIP, VAR_WSPD, VAR_GUST, VAR_TEMP, VAR_RH):
@@ -2015,10 +2024,13 @@ def normalize_payload(
             elif code == VAR_GUST:
                 target = gust_series
             elif code == VAR_TEMP:
-                target = temp_series
+                target = None  # la temperatura va nel gruppo dell'entry
             else:
                 target = rh_series
-            points = target.setdefault(key, {}).setdefault(trange, [])
+            if code == VAR_TEMP:
+                points = entry_temp.setdefault(trange, [])
+            else:
+                points = target.setdefault(key, {}).setdefault(trange, [])
             for item in values:
                 try:
                     ref = parse_ref(item["ref"])
@@ -2030,6 +2042,25 @@ def normalize_payload(
                 value = float(value)
                 if math.isfinite(value):
                     points.append((ref, value))
+
+        if entry_temp:
+            entry_max = max(
+                ref for points in entry_temp.values() for ref, _value in points
+            )
+            temp_series_groups.setdefault(key, []).append((entry_max, entry_temp))
+
+    # Record DUPLICATI della stessa stazione: per la temperatura vince il gruppo
+    # con il `ref` piu' recente. I prodotti che il gruppo nuovo non ha vengono
+    # completati dai gruppi piu' vecchi, ma lo STESSO prodotto non si mescola:
+    # era il percorso per cui un record stale a 250 K faceva scartare al gate il
+    # tratto nuovo (misurato dal test sul dedup).
+    for station_key, groups in temp_series_groups.items():
+        groups.sort(key=lambda item: item[0], reverse=True)
+        merged = dict(groups[0][1])
+        for _entry_max, older in groups[1:]:
+            for trange, points in older.items():
+                merged.setdefault(trange, points)
+        temp_series[station_key] = merged
 
     # --- GATE DI PLAUSIBILITA' DELLA TEMPERATURA (rate di variazione) --------
     # Si applica UNA volta alla serie grezza, PRIMA di ogni uso: media/min/max

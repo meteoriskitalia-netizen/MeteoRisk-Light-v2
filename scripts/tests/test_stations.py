@@ -206,12 +206,13 @@ def test_duplicate_record_keeps_newest_value(doc, payload):
             value["ref"] = ref.strftime("%Y-%m-%dT%H:%M:%S")
         if prod["var"] == "B12101":
             for value in prod["val"]:
-                # 282 K = 8,8 degC: un valore PLAUSIBILE ma diverso dal 9,2 del
-                # record nuovo. Con 250 K (-23,2) il gate di plausibilita'
-                # vedrebbe un salto di 32 degC in 90 min e scarterebbe il tratto
-                # NUOVO: il test deve provare il dedup, non il gate (che ha i
-                # suoi casi in test_station_temp_qc.py).
-                value["val"] = 282.0
+                # 250 K = -23,2 degC: il record stale e' incompatibile col nuovo.
+                # Il fetcher tiene il GRUPPO di temperatura con il ref piu'
+                # recente (il nuovo), quindi il gate non vede il salto e il
+                # valore pubblicato e' 9,2. Se i gruppi venissero mescolati, il
+                # gate scarterebbe il tratto nuovo: e' il caso che questo test
+                # protegge.
+                value["val"] = 250.0
     duplicated = {"descr": payload["descr"], "data": [original, stale]}
     out = fs.normalize_payload(
         duplicated, NETWORKS, generated_at=NOW, max_age_minutes=180
@@ -219,7 +220,7 @@ def test_duplicate_record_keeps_newest_value(doc, payload):
     assert out["counts"]["stations_with_duplicate_record"] == 1
     assert len(out["stations"]) == 1
     station = out["stations"][0]
-    assert station["temperature_2m"] == pytest.approx(9.2)  # non 282 K -> 8,8
+    assert station["temperature_2m"] == pytest.approx(9.2)  # non 250 K -> -23,2
     assert station["obs_time"] == "2026-10-27T06:30:00Z"
 
 
