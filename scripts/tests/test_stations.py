@@ -437,11 +437,19 @@ def test_index_can_drop_names_without_losing_stations(doc):
     reason="data/stations/latest.json assente in questa copia (i dati vivono su main)",
 )
 def test_index_budget_on_real_data_and_ten_station_spot_check():
-    """Sul file REALE: budget < 120 KB gzip e 10 stazioni a caso coerenti.
+    """Sul file REALE: indice CON i nomi entro il budget gzip + 10 stazioni coerenti.
 
     Il seed e' fisso: il campione e' riproducibile. `latest.json` sul repo ha
-    4.137 stazioni; nelle copie di release senza `data/` il test si salta e lo
+    5.042-5.044 stazioni (2026-11-23; erano 4.137 quando il budget fu fissato a
+    120 KiB); nelle copie di release senza `data/` il test si salta e lo
     dichiara, invece di passare su una fixture che non misura niente.
+
+    MISURATO il 2026-11-23: con i nomi 130.662-130.743 B gzip (raw ~784 KiB),
+    senza nomi 92.289-92.362 B gzip. Il tetto e' 160 KiB (163.840 B): copre il
+    dato reale con margine ~25%. La misura e' CON i nomi perche' e' la forma che il
+    client consuma per prima (`STATIONS_INDEX_URL`, reso con `st.name ||
+    'Stazione'`): un indice che sfora il budget viene degradato a
+    `name_omitted` dal run e ogni stazione perde l'etichetta.
     """
     latest = json.loads(REAL_LATEST.read_text(encoding="utf-8"))
     index = fs.build_index(latest, NETWORKS)
@@ -454,7 +462,9 @@ def test_index_budget_on_real_data_and_ten_station_spot_check():
         f"({raw_size / 1024:.0f} KiB) gzip={gzip_size} B ({gzip_size / 1024:.0f} KiB)"
     )
     assert gzip_size <= fs.INDEX_MAX_GZIP_BYTES
-    assert gzip_size < 120_000
+    # nessun nome vuoto: il tetto deve coprire la forma COMPLETA dell'indice
+    name_position = fs.INDEX_STATION_FIELDS.index("name")
+    assert all(row[name_position] for row in index["stations"])
     assert raw_size < latest_size  # piu' piccolo anche NON compresso
 
     rng = random.Random(20261027)
@@ -465,8 +475,14 @@ def test_index_budget_on_real_data_and_ten_station_spot_check():
         st = latest["stations"][position]
         assert record["id"] == st["id"]
         for key in INDEX_VALUE_FIELDS:
-            if key in st:
-                assert abs(float(record[key]) - float(st[key])) <= 0.05, (
+            if key in st and st[key] is not None:
+                # L'indice pubblica UN decimale (`_round1`), quindi il confronto
+                # e' sul valore arrotondato: con la tolleranza assoluta 0,05 il
+                # bordo reale river_level_m 1,55 -> 1,6 da' |1,6-1,55| =
+                # 0,05000000000000004 e fallisce pur essendo corretto (stessa
+                # classe della REGRESSIONE 1.3.0.6 testata qui sotto). Non e'
+                # un allentamento: si confronta con la funzione che scrive.
+                assert record[key] == fs._round1(float(st[key])), (
                     st["id"],
                     key,
                     record[key],

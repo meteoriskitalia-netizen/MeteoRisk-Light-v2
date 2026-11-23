@@ -178,7 +178,17 @@ INDEX_STATION_FIELDS = (
     "fresh_snow_depth_m",     # B13012
     "river_level_m",          # B13215, idrologico (separato dal meteo)
 )
-INDEX_MAX_GZIP_BYTES = 122_880  # 120 KiB (misurato: 101.258 B, margine 17%)
+# Budget dell'indice compattato in byte GZIP. NON e' un limite della piattaforma:
+# e' un tetto scelto per tenere il payload leggero. Storico: 120 KiB (122.880 B)
+# con 4.137 stazioni, misurato 101.258 B (margine 17%). MISURATO il 2026-11-23 su
+# data/stations/latest.json (5.042-5.044 stazioni, 1.250.659-1.251.117 B):
+# indice CON i nomi 130.662-130.743 B gzip (raw ~784 KiB), SENZA nomi
+# 92.289-92.362 B gzip. Con il vecchio tetto ogni run degradava l'indice a
+# `name_omitted` e il client mostrava "Stazione" per tutte (mri-light:
+# `st.name || 'Stazione'`); 160 KiB coprono il dato reale con margine ~25%
+# (163.840 - 130.743). Il tetto NON e' una garanzia: se le reti crescono ancora
+# la degradazione dichiarata resta il comportamento.
+INDEX_MAX_GZIP_BYTES = 163_840  # 160 KiB (misurato 130.662-130.743 B, ~25%)
 
 
 # --------------------------------------------------------------------------
@@ -1062,7 +1072,7 @@ def main(argv: list[str] | None = None) -> int:
         "--index-max-gzip-bytes",
         type=int,
         default=INDEX_MAX_GZIP_BYTES,
-        help="budget dell'indice in byte gzip (default 122880 = 120 KiB)",
+        help="budget dell'indice in byte gzip (default 163840 = 160 KiB)",
     )
     ap.add_argument("--refresh-networks", action="store_true")
     ap.add_argument(

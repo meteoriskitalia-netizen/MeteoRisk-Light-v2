@@ -125,10 +125,16 @@ def test_ecmwf_cooldown_does_not_block_best_match(monkeypatch):
     assert calls == [1]
 
 
-def test_network_failure_still_rc1_no_state_no_false_changed(monkeypatch):
-    """Errore TLS/timeout -> rc 1 (best_state=api_unavailable): MAI rc 0,
-    nessuna scrittura dello stato da parte del canary (il cooldown lo scrive
-    solo lo step if: failure() del workflow)."""
+def test_network_failure_still_rc13_no_state_no_false_changed(monkeypatch):
+    """Errore TLS/timeout -> rc 13 (degrado esplicito), MAI rc 0.
+
+    Contratto reale dal 2026-11-18 (commit cc029763 "degrado esplicito su API
+    esterna non disponibile (rc 13)", speculare al check ECMWF): `main()`
+    ritorna 13, `workflow_gate.classify_best(13)` produce
+    best_state=unavailable + best_reason=api_unavailable_after_retries con
+    exit 0, e lo step di cooldown del workflow gira su
+    best_state in (unavailable, api_unavailable). Nessuna scrittura dello stato
+    da parte del canary (la fingerprint non viene toccata, H4)."""
     monkeypatch.setattr(common, "load_run_state", lambda: {})
     monkeypatch.setattr(common, "is_bootstrap_pending", lambda: False)
     monkeypatch.setattr(common, "best_match_sentinels", _sentinel)
@@ -143,7 +149,7 @@ def test_network_failure_still_rc1_no_state_no_false_changed(monkeypatch):
     monkeypatch.setattr(common, "save_run_state", lambda s: saved.append(s))
     monkeypatch.setattr(sys, "argv", ["check_best_match"])
 
-    assert cbm.main() == 1
+    assert cbm.main() == 13
     assert saved == []
 
 

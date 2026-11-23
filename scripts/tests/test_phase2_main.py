@@ -221,22 +221,36 @@ def test_structure_at_window_crops_and_converts_units():
 def test_hook_for_candidate_footprint_window():
     frames = [_frame(), _frame(), _frame()]
     hcfg = {"history_frames": 3, "dbz_threshold": 45.0}
+    # 2026-11-12: il contratto e' (score, features) — `_phase2_evaluate` fa
+    # `hook_score, hook_features = _hook_for_candidate(...)`. `features`
+    # descrive l'ULTIMA finestra e rende attribuibile uno score 0.0 a un gate
+    # preciso (senza, core<25 px e bay_wrap<150 deg erano indistinguibili).
     # griglia uniforme 5 dBZ -> nessun uncino -> score reale 0.0 (non None)
-    assert eng._hook_for_candidate(frames, IN_GRID[0], IN_GRID[1], 45.0,
-                                   hcfg, hook_mod) == 0.0
-    # candidato fuori griglia -> nessuna finestra -> None
+    score, features = eng._hook_for_candidate(
+        frames, IN_GRID[0], IN_GRID[1], 45.0, hcfg, hook_mod)
+    assert score == 0.0
+    assert features["core_pixels"] == 0           # nessun pixel >= 45 dBZ
+    # `intensity` e' dbz_max calcolato SOLO sui pixel del core (>= soglia):
+    # senza core vale il default 0.0 (hook.py: `"dbz_max": 0.0` quando found e'
+    # False), non il 5 dBZ del campo uniforme.
+    assert features["intensity"] == 0.0
+    assert features["found"] is False
+    assert "core_pixels" in features["failing_gates"]
+    # candidato fuori griglia -> nessuna finestra -> (None, None)
     assert eng._hook_for_candidate(frames, OUT_GRID[0], OUT_GRID[1], 45.0,
-                                   hcfg, hook_mod) is None
-    # nessun frame -> None
+                                   hcfg, hook_mod) == (None, None)
+    # nessun frame -> (None, None)
     assert eng._hook_for_candidate([], IN_GRID[0], IN_GRID[1], 45.0,
-                                   hcfg, hook_mod) is None
-    # disco interamente fuori griglia (lon 19 - 0.54 gradi > 18) -> None
+                                   hcfg, hook_mod) == (None, None)
+    # disco interamente fuori griglia (lon 19 - 0.54 gradi > 18) -> (None, None)
     assert eng._hook_for_candidate(frames, 19.0, 41.0, 45.0,
-                                   hcfg, hook_mod) is None
+                                   hcfg, hook_mod) == (None, None)
     # disco PARZIALMENTE dentro il bordo (lon 18.4) -> finestra clampata,
     # componente calcolata sulla parte dentro la griglia (0.0, non None)
-    assert eng._hook_for_candidate(frames, 18.4, 41.0, 45.0,
-                                   hcfg, hook_mod) == 0.0
+    score_edge, features_edge = eng._hook_for_candidate(
+        frames, 18.4, 41.0, 45.0, hcfg, hook_mod)
+    assert score_edge == 0.0
+    assert features_edge["core_pixels"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -245,17 +259,33 @@ def test_hook_for_candidate_footprint_window():
 
 def test_phase2_evaluate_per_candidate_no_network(monkeypatch):
     fetch_calls = []
+    bundle_calls = []
     ltg_calls = []
 
     def fake_fetch_frames(config, product=None, max_frames=None):
         fetch_calls.append(product)
         return [], [], None                     # nessun prodotto DPC
 
+    def fake_fetch_product_bundle(config, slots_ms, products, **kw):
+        """2026-11-12: VIL/ETM/POH (e SRI) arrivano dal bundle allineato allo
+        slot, non piu' da `fetch_frames`: senza questa sostituzione il test
+        usciva in rete reale sul DPC (il nome dice "no_network")."""
+        bundle_calls.append((list(slots_ms), dict(products)))
+        return {"status": "unavailable", "slots": [], "slots_ms": [],
+                "period_s": 300, "stale_after_s": 300,
+                "products": dict(products), "reference": {},
+                "reference_reason": {n: "not_stubbed" for n in products},
+                "entries": {}, "alignments": {},
+                "qc": {"missing": {}, "stale": [], "products": {}},
+                "bytes": 0, "seconds": 0.0, "warnings": []}
+
     def fake_fetch_ltg(epoch_ms=None, **kw):
         ltg_calls.append(epoch_ms)
         return {"strikes": [(13.0, 41.0)] * 100, "count": 100}
 
     monkeypatch.setattr("radar_engine.fetch.fetch_frames", fake_fetch_frames)
+    monkeypatch.setattr("radar_engine.fetch.fetch_product_bundle",
+                        fake_fetch_product_bundle)
     monkeypatch.setattr("radar_engine.phase2.lightning.fetch_ltg", fake_fetch_ltg)
 
     bundle, cfg = _bundle()
@@ -265,7 +295,13 @@ def test_phase2_evaluate_per_candidate_no_network(monkeypatch):
     # I/O una volta per prodotto / per slot, MAI per candidato.
     # 1.2.4.18: i CAPPI NON passano piu' da `fetch_frames` (timestamp diverso
     # dalla VMI): li scarica `fetch_cappi_set`, sostituito dal fixture autouse.
-    assert fetch_calls == ["VIL", "ETM", "POH", "IR_108"]
+    # 2026-11-12: VIL/ETM/POH/SRI sono chiesti UNA volta nello stesso bundle
+    # allineato (griglia slot x prodotto), quindi `fetch_frames` resta solo
+    # per IR_108.
+    assert len(bundle_calls) == 1
+    assert bundle_calls[0][1] == {"vil": "VIL", "etm": "ETM",
+                                  "poh": "POH", "sri": "SRI"}
+    assert fetch_calls == ["IR_108"]
     # 2026-11-11: AFA giu' (fixture autouse) -> UNA sonda sul vecchio feed,
     # non piu' la finestra di 4 slot con backoff.
     assert len(ltg_calls) == 1
