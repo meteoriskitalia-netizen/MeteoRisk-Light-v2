@@ -2,13 +2,15 @@
 """Test del payload orario compatto della vista Simple (schema simple-hourly/1).
 
 Il test ha due livelli, dichiarati:
-  (A) UNIT: costruzione su fixture sintetiche -> schema, 72 ore, 5 campi,
+  (A) UNIT: costruzione su fixture sintetiche -> schema, 72 ore senza e 168 ore
+      con l'estensione (nessun buco inventato: null + motivo), 5 campi,
       null propagati (nessuno zero inventato), punto scelto rispettato,
       day0 assente = errore, campo orario assente = errore (nessun file).
   (B) CONTRATTO SUL DATASET REALE (skip dichiarato se `data/latest/` non ha
-      i file): 107 province, 72 ore x 5 campi, valori finiti/null coerenti
+      i file): 107 province, 72 o 168 ore x 5 campi, valori finiti/null coerenti
       con `meteorisk-points.json` per il `selected_point` di ogni provincia,
-      byte raw <= 300 KB e gzip <= 60 KB.
+      ore 72..167 coerenti con `hourly_extended.json`, byte raw <= 400 KB e
+      gzip <= 100 KB.
 
 Nessuna rete: si legge solo il working tree.
 """
@@ -29,6 +31,7 @@ DATA_LATEST = os.path.join(ROOT, "data", "latest")
 POINTS = os.path.join(DATA_LATEST, "meteorisk-points.json")
 PROVINCES = os.path.join(DATA_LATEST, "meteorisk-provinces.json")
 SIMPLE = os.path.join(DATA_LATEST, "simple_hourly.json")
+EXTENDED = os.path.join(DATA_LATEST, "hourly_extended.json")
 
 
 def _hourly(values=None, n=72, missing=()):
@@ -152,6 +155,65 @@ def test_unknown_selected_point_is_reported():
     assert "RM" in stats["missing_points"]
 
 
+def _ext_fixture(points_doc, hours=None, point_ids=None, models=("best_match",)):
+    """Estensione sintetica allineata al day0 della fixture (ora 0 = day0+72h)."""
+    hours = hours or bsh.build_hours(points_doc["day0"], bsh.HOURS)[bsh.BASE_HOURS:]
+    out = {}
+    for sigla, pid in (point_ids or {}).items():
+        recs = []
+        for m in models:
+            recs.append({"model": m, "point_id": pid,
+                         "h": [[1.0 + i * 0.01, 0.0, 10, 5.0, 1]
+                               for i in range(len(hours))]})
+        out[sigla] = {"points": recs}
+    return {"schema": "meteorisk.hourly-ext/1", "start_hour": bsh.BASE_HOURS,
+            "hours": hours, "provinces": out}
+
+
+def test_extension_merges_168_hours():
+    pts, prov = _fixture()
+    ext = _ext_fixture(pts, point_ids={"RM": 2, "MI": 1})
+    payload, stats = bsh.build_payload(pts, prov, ext)
+    assert stats["extended"] is True
+    assert len(payload["hours"]) == 168
+    assert payload["hours"][71] == "2026-11-25T23:00"
+    assert payload["hours"][72] == "2026-11-26T00:00"
+    assert len(payload["provinces"]["MI"]["h"]) == 168
+    # ora 0 dell'estensione = prima riga estesa (continuita' con l'ora 71)
+    assert payload["provinces"]["MI"]["h"][72][0] == 1.0
+    assert payload["provinces"]["MI"]["h"][0][0] == 10.0  # dal dataset base
+
+
+def test_extension_on_another_point_is_not_used():
+    pts, prov = _fixture()
+    ext = _ext_fixture(pts, point_ids={"RM": 999, "MI": 1})
+    payload, stats = bsh.build_payload(pts, prov, ext)
+    assert len(payload["provinces"]["RM"]["h"]) == 168
+    # nessun valore inventato: la provincia non coperta ha righe null + motivo
+    assert payload["provinces"]["RM"]["extended_reason"] == "extended_point_mismatch"
+    assert all(v is None for v in payload["provinces"]["RM"]["h"][72])
+    assert stats["extended_reasons"] == {"extended_point_mismatch": 1}
+
+
+def test_extension_misaligned_in_time_is_ignored():
+    pts, prov = _fixture()
+    ext = _ext_fixture(pts, point_ids={"RM": 2, "MI": 1})
+    ext["hours"] = ["2026-12-01T00:00"] * 96        # altro giorno
+    payload, stats = bsh.build_payload(pts, prov, ext)
+    assert stats["extended"] is False
+    assert stats["extended_reason"] == "extended_time_misaligned"
+    assert len(payload["hours"]) == 72
+    assert len(payload["provinces"]["MI"]["h"]) == 72
+
+
+def test_no_extension_stays_at_72_hours():
+    pts, prov = _fixture()
+    payload, stats = bsh.build_payload(pts, prov, None)
+    assert stats["extended"] is False
+    assert len(payload["hours"]) == 72
+    assert all(len(e["h"]) == 72 for e in payload["provinces"].values())
+
+
 def test_main_without_inputs_exits_zero(tmp_path):
     code = bsh.main(["--points", str(tmp_path / "nope.json"),
                      "--provinces", str(tmp_path / "nope2.json"),
@@ -168,6 +230,7 @@ def test_main_writes_file_and_report(tmp_path, capsys):
     p2.write_text(json.dumps(prov), encoding="utf-8")
     out = tmp_path / "simple_hourly.json"
     code = bsh.main(["--points", str(p1), "--provinces", str(p2),
+                     "--extended", str(tmp_path / "nessuna_estensione.json"),
                      "--out", str(out), "--json-report"])
     assert code == 0
     assert out.exists()
@@ -191,13 +254,17 @@ requires_data = pytest.mark.skipif(
 def test_real_dataset_contract():
     points = json.loads(io.open(POINTS, encoding="utf-8").read())
     provinces = json.loads(io.open(PROVINCES, encoding="utf-8").read())
-    payload, stats = bsh.build_payload(points, provinces)
+    ext = None
+    if os.path.exists(EXTENDED):
+        ext = json.loads(io.open(EXTENDED, encoding="utf-8").read())
+    payload, stats = bsh.build_payload(points, provinces, ext)
     assert len(payload["provinces"]) == 107
     assert payload["generated_at"]
-    assert len(payload["hours"]) == 72
+    expected_hours = 168 if stats["extended"] else 72
+    assert len(payload["hours"]) == expected_hours
     for sigla, entry in payload["provinces"].items():
         assert isinstance(entry["id"], int)
-        assert len(entry["h"]) == 72
+        assert len(entry["h"]) == expected_hours
         for row in entry["h"]:
             assert len(row) == 5
             assert row[2] is None or isinstance(row[2], int)
@@ -218,19 +285,30 @@ def test_real_dataset_contract():
             assert row[2] == bsh._round(src["precipitation_probability"][i], 0)
             assert row[3] == bsh._round(src["windspeed_10m"][i], 1)
             assert row[4] == bsh._round(src["weathercode"][i], 0)
+        if stats["extended"]:
+            # ore 72..167: stesso point_id, valori dall'estensione (non dal base)
+            ext_rec = [r for r in ext["provinces"][sigla]["points"]
+                       if r["model"] == "best_match"][0]
+            assert ext_rec["point_id"] == pid
+            for k in (0, 47, 95):
+                assert payload["provinces"][sigla]["h"][72 + k] == [
+                    bsh._round(v, 0) if idx in (2, 4) else bsh._round(v, 1)
+                    for idx, v in enumerate(ext_rec["h"][k])]
 
 
 @requires_data
 def test_real_payload_is_compact():
-    text = json.dumps(
-        bsh.build_payload(
-            json.loads(io.open(POINTS, encoding="utf-8").read()),
-            json.loads(io.open(PROVINCES, encoding="utf-8").read()))[0],
-        separators=(",", ":"), ensure_ascii=False)
+    points = json.loads(io.open(POINTS, encoding="utf-8").read())
+    provinces = json.loads(io.open(PROVINCES, encoding="utf-8").read())
+    ext = None
+    if os.path.exists(EXTENDED):
+        ext = json.loads(io.open(EXTENDED, encoding="utf-8").read())
+    text = json.dumps(bsh.build_payload(points, provinces, ext)[0],
+                      separators=(",", ":"), ensure_ascii=False)
     raw = len(text.encode("utf-8"))
     gz = len(gzip.compress(text.encode("utf-8"), 9))
-    assert raw <= 300 * 1024, "payload raw %d byte > 300 KB" % raw
-    assert gz <= 60 * 1024, "payload gzip %d byte > 60 KB" % gz
+    assert raw <= 400 * 1024, "payload raw %d byte > 400 KB" % raw
+    assert gz <= 100 * 1024, "payload gzip %d byte > 100 KB" % gz
 
 
 @pytest.mark.skipif(not os.path.exists(SIMPLE), reason="simple_hourly.json non pubblicato")
@@ -238,7 +316,10 @@ def test_published_file_matches_builder():
     published = json.loads(io.open(SIMPLE, encoding="utf-8").read())
     points = json.loads(io.open(POINTS, encoding="utf-8").read())
     provinces = json.loads(io.open(PROVINCES, encoding="utf-8").read())
-    expected, _ = bsh.build_payload(points, provinces)
+    ext = None
+    if os.path.exists(EXTENDED):
+        ext = json.loads(io.open(EXTENDED, encoding="utf-8").read())
+    expected, _ = bsh.build_payload(points, provinces, ext)
     assert published["schema"] == expected["schema"]
     assert "days" not in published  # il payload orario non contiene aggregati giornalieri
     assert published["hours"] == expected["hours"]

@@ -12,6 +12,7 @@ Exit: 0 = valido, 1 = invalido.
 """
 
 import argparse
+import datetime as _dt
 import hashlib
 import json
 import os
@@ -78,7 +79,9 @@ def main():
     att = meta.get("attribution") or ""
     check("nessun endorsement/affiliazione",
           not any(w in att.lower() for w in ("affiliated", "endorsed", "by open-meteo", "supported by")))
-    check("forecast_days=3", meta.get("forecast_days") == common.FORECAST_DAYS)
+    check("forecast_days=%d (giorni PUBBLICATI, il fetch ne chiede %d)"
+          % (common.PUBLISH_DAYS, common.FORECAST_DAYS),
+          meta.get("forecast_days") == common.PUBLISH_DAYS)
     check("timezone Europe/Rome", meta.get("timezone") == common.TIMEZONE)
     check("models_covered = best_match,ecmwf_ifs",
           sorted(meta.get("models_covered") or []) == ["best_match", "ecmwf_ifs"])
@@ -230,6 +233,129 @@ def main():
         p = base / rel
         sha = hashlib.sha256(p.read_bytes()).hexdigest()
         info("sha256 %s = %s (%d byte)" % (rel, sha, p.stat().st_size))
+
+    # E. ESTENSIONE ORARIA 72..167 (schema meteorisk.hourly-ext/1)
+    # File AGGIUNTIVO: il dataset base resta a 72 ore. Il build della 7 giorni
+    # lo scrive SEMPRE e lo dichiara in metadata.files; un latest piu' vecchio
+    # (pubblicato prima dell'estensione) non lo ha e non lo dichiara -> i
+    # controlli sono saltati con motivo, non inventati.
+    ext_path = base / "hourly_extended.json"
+    declared = bool((meta.get("files") or {}).get("hourly_extended"))
+    if ext_path.exists() or declared:
+        check("hourly_extended.json existe", ext_path.exists(),
+              "dichiarato in metadata.files" if declared else "")
+    if ext_path.exists():
+        ext = read_json(ext_path)
+        check("estensione: schema == %s" % common.EXTENDED_SCHEMA,
+              ext.get("schema") == common.EXTENDED_SCHEMA, "got %r" % ext.get("schema"))
+        check("estensione: start_hour == %d" % common.EXTENDED_START_HOUR,
+              ext.get("start_hour") == common.EXTENDED_START_HOUR,
+              "got %r" % ext.get("start_hour"))
+        ext_hours = ext.get("hours") or []
+        check("estensione: %d ore (72 -> 167)" % common.EXTENDED_HOURS,
+              isinstance(ext_hours, list) and len(ext_hours) == common.EXTENDED_HOURS,
+              "got %d" % len(ext_hours))
+        check("estensione: fields == %s" % list(common.EXTENDED_FIELD_KEYS),
+              ext.get("fields") == list(common.EXTENDED_FIELD_KEYS),
+              "got %r" % (ext.get("fields"),))
+        check("estensione: source_fields == EXTENDED_FIELDS",
+              ext.get("source_fields") == list(common.EXTENDED_FIELDS),
+              "got %r" % (ext.get("source_fields"),))
+        check("estensione: unita' dichiarate", ext.get("units") == common.EXTENDED_UNITS,
+              "got %r" % (ext.get("units"),))
+        # CONTINUITA': l'ora 0 dell'estensione e' time_base + 72 h, cioe' l'istante
+        # immediatamente successivo all'ora 71 del dataset base.
+        expected_first = None
+        try:
+            base_dt = _dt.datetime.fromisoformat(str(meta.get("time_base") or ""))
+            expected_first = (base_dt + _dt.timedelta(hours=common.EXTENDED_START_HOUR)
+                              ).strftime("%Y-%m-%dT%H:%M")
+        except ValueError:
+            expected_first = None
+        check("estensione: ora 0 == time_base + 72h (continuita' col base)",
+              expected_first is not None and bool(ext_hours)
+              and ext_hours[0] == expected_first,
+              "atteso=%s got=%s" % (expected_first, ext_hours[0] if ext_hours else None))
+        consecutive = False
+        try:
+            stamps = [_dt.datetime.fromisoformat(str(h)) for h in ext_hours]
+            consecutive = all((stamps[i + 1] - stamps[i]) == _dt.timedelta(hours=1)
+                              for i in range(len(stamps) - 1))
+        except ValueError:
+            consecutive = False
+        check("estensione: ore consecutive (passo 1 h)", consecutive)
+
+        ext_provs = ext.get("provinces") or {}
+        base_sigle = {p.get("sigla") for p in prov_list}
+        check("estensione: province == dataset base (%d)" % len(base_sigle),
+              set(ext_provs) == base_sigle,
+              "mancanti=%s extra=%s" % (sorted(base_sigle - set(ext_provs))[:5],
+                                        sorted(set(ext_provs) - base_sigle)[:5]))
+        sel_by_sigla = {p.get("sigla"): (p.get("selected_point") or {}).get("id")
+                        for p in prov_list}
+        ranges = {"t": (-90.0, 60.0), "p": (0.0, 500.0), "pp": (0.0, 100.0),
+                  "w": (0.0, 500.0), "c": (0.0, 99.0)}
+        bad_pid, bad_models, bad_len, missing_reason, non_numeric = [], [], [], [], 0
+        range_hits = {k: 0 for k in common.EXTENDED_FIELD_KEYS}
+        series = 0
+        for sigla, entry in ext_provs.items():
+            recs = (entry or {}).get("points") or []
+            if sorted(r.get("model") for r in recs) != ["best_match", "ecmwf_ifs"]:
+                bad_models.append(sigla)
+            for rec in recs:
+                series += 1
+                if sel_by_sigla.get(sigla) is None or rec.get("point_id") != sel_by_sigla.get(sigla):
+                    bad_pid.append(sigla)
+                rows = rec.get("h")
+                if rows is None:
+                    if not rec.get("null_reason"):
+                        missing_reason.append(sigla)
+                    continue
+                if not isinstance(rows, list) or len(rows) != common.EXTENDED_HOURS:
+                    bad_len.append(sigla)
+                    continue
+                for row in rows:
+                    if not isinstance(row, list) or len(row) != len(common.EXTENDED_FIELD_KEYS):
+                        bad_len.append(sigla)
+                        break
+                    for idx, key in enumerate(common.EXTENDED_FIELD_KEYS):
+                        v = row[idx]
+                        if v is None:
+                            continue
+                        if isinstance(v, bool) or not isinstance(v, (int, float)):
+                            non_numeric += 1
+                            continue
+                        # p. es. weathercode e probabilita' sono INTERI nel
+                        # payload (il client li usa come categorie).
+                        if key in ("pp", "c") and not isinstance(v, int):
+                            non_numeric += 1
+                        lo, hi = ranges[key]
+                        if not (lo <= float(v) <= hi):
+                            range_hits[key] += 1
+                # coda fuori orizzonte (ultima riga tutta null) -> motivo dovuto
+                if all(all(v is None for v in r) for r in rows) and not rec.get("null_reason"):
+                    missing_reason.append(sigla)
+                elif all(v is None for v in rows[-1]) and not rec.get("null_reason"):
+                    missing_reason.append(sigla)
+        check("estensione: point_id == provinces[].selected_point.id",
+              not bad_pid, "esempi=%s" % sorted(set(bad_pid))[:5])
+        check("estensione: 2 modelli (best_match + ecmwf_ifs) per provincia",
+              not bad_models, "esempi=%s" % sorted(set(bad_models))[:5])
+        check("estensione: 96 righe x 5 campi per ogni serie",
+              not bad_len, "esempi=%s" % sorted(set(bad_len))[:5])
+        check("estensione: valori numerici (weathercode/probabilita' interi)",
+              non_numeric == 0, "violazioni=%d" % non_numeric)
+        check("estensione: nessun valore fuori range",
+              not any(range_hits.values()),
+              "fuori=%s" % {k: v for k, v in range_hits.items() if v})
+        check("estensione: null solo con null_reason",
+              not missing_reason, "esempi=%s" % sorted(set(missing_reason))[:5])
+        ext_sha = hashlib.sha256(ext_path.read_bytes()).hexdigest()
+        info("estensione: %d serie · sha256 hourly_extended.json = %s (%d byte)"
+             % (series, ext_sha, ext_path.stat().st_size))
+    else:
+        info("hourly_extended.json assente e non dichiarato: controlli estensione saltati "
+             "(dataset pubblicato prima dell'orizzonte a 7 giorni)")
 
     return finish(checks, infos, errors, "OK" if not errors else "FAIL")
 

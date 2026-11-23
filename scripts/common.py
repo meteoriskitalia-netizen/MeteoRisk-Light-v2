@@ -9,7 +9,8 @@ to be copied and republished. The pipeline produces DERIVED MeteoRisk data.
 
 The constants below mirror the application mri-light (APP_VERSION 1.0.0.3):
   - HOURLY_PARAMS / DAILY_PARAMS (the variables MeteoRisk actually consumes)
-  - forecast_days=3, timezone=Europe/Rome
+  - forecast_days=7 richiesti all'API, 3 giorni / 72 ore PUBBLICATI (PUBLISH_*),
+    estensione oraria 72..167 in meteorisk.hourly-ext/1
   - dual model: best_match,ecmwf_ifs
   - buildProvinceSamplesV1/V2 + orography tables (faithful port)
   - getHourOrDailyData day-collapse + scorePointForProvince (faithful port)
@@ -24,6 +25,7 @@ import os
 import random
 import ssl
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -154,7 +156,36 @@ DAILY_PARAMS = (
     "weathercode,temperature_2m_max,temperature_2m_min,"
     "precipitation_sum,windspeed_10m_max,precipitation_probability_max"
 )
-FORECAST_DAYS = 3
+# ---------------------------------------------------------------------------
+# ORIZZONTE TEMPORALE — fase 1 "previsioni orarie a 7 giorni" (opzione D + E)
+# ---------------------------------------------------------------------------
+# FORECAST_DAYS e' l'orizzonte RICHIESTO all'API (`fetch_source_batch` default,
+# `fetch_source_data.py`, raw `forecast_days`). Dal 2026-11-23 vale 7 giorni:
+# best_match ed ecmwf_ifs coprono ENTRAMBI >= 168 ore (MISURATO il 2026-11-23
+# sull'API Forecast: 384 e 373 ore restituite). Non e' un orizzonte inventato:
+# e' quello che i due leg gia' restituiscono.
+#
+# Il dataset BASE pubblicato resta a 3 giorni / 72 ore (PUBLISH_*): il contratto
+# dei client attuali (`meteorisk-points.json`, 72 ore) NON cambia. Il canary
+# Best Match continua a chiedere PUBLISH_DAYS (non FORECAST_DAYS), cosi' la sua
+# fingerprint resta confrontabile con quella calcolata da publish_dataset.py
+# sulle 72 ore PUBBLICATE (altrimenti cambierebbe a ogni ciclo).
+FORECAST_DAYS = 7
+PUBLISH_DAYS = 3
+PUBLISH_HOURS = PUBLISH_DAYS * 24          # 72
+EXTENDED_START_HOUR = PUBLISH_HOURS        # 72: prima ora dell'estensione
+EXTENDED_HOURS = 96                        # 72 -> 167 (168 ore = 7 giorni)
+# I 5 campi usati da grafico + tabella della vista Simple: le SOLE serie che
+# l'estensione pubblica. Oltre l'orizzonte reale del modello: null + motivo,
+# mai interpolazione.
+EXTENDED_FIELDS = ("temperature_2m", "precipitation",
+                   "precipitation_probability", "windspeed_10m", "weathercode")
+EXTENDED_FIELD_KEYS = ("t", "p", "pp", "w", "c")
+EXTENDED_UNITS = {"t": "C", "p": "mm", "pp": "%", "w": "km/h", "c": "wmo"}
+EXTENDED_DECIMALS = {"temperature_2m": 1, "precipitation": 1,
+                     "precipitation_probability": 0, "windspeed_10m": 1,
+                     "weathercode": 0}
+EXTENDED_SCHEMA = "meteorisk.hourly-ext/1"
 TIMEZONE = "Europe/Rome"
 # Leg modello scaricati in OGNI ciclo (coordinati col run driver ECMWF IFS).
 # None di essi "comanda" il run: best_match è COORDINATO, non driver.
@@ -1122,13 +1153,19 @@ def fetch_source_batch(lats, lons, models=DUAL_MODELS, forecast_days=FORECAST_DA
 def fetch_best_match_check(lats, lons):
     """Canary LEGGERO Best Match: UNA richiesta multi-location (sentinelle) con
     SOLO weathercode+precipitation orarie. Piccolo volume, stesso client con
-    pacing e backoff limitato. Conteggiata 1 richiesta forecast nel ceiling."""
+    pacing e backoff limitato. Conteggiata 1 richiesta forecast nel ceiling.
+
+    ORIZZONTE: PUBLISH_DAYS (72 ore), NON FORECAST_DAYS. La fingerprint del
+    canary deve restare confrontabile con quella calcolata da publish_dataset.py
+    sulle 72 ore PUBBLICATE (`best_match_sentinel_payload`): chiedere 168 ore
+    la renderebbe diversa a ogni ciclo e il refresh Best Match partirebbe
+    sempre (falso "cambiato"). 72 ore bastano come rilevatore di contenuto."""
     params = {
         "latitude": ",".join(str(x) for x in lats),
         "longitude": ",".join(str(x) for x in lons),
         "hourly": BEST_MATCH_CHECK_HOURLY,
         "timezone": TIMEZONE,
-        "forecast_days": str(FORECAST_DAYS),
+        "forecast_days": str(PUBLISH_DAYS),
         "models": "best_match",
     }
     url = OPENMETEO_BASE + "?" + urllib.parse.urlencode(params)
@@ -1238,6 +1275,34 @@ def unix_to_iso_utc(ts):
 def mkdirs(*paths):
     for p in paths:
         Path(p).mkdir(parents=True, exist_ok=True)
+
+
+def write_json_atomic(path, payload, indent=None, separators=None):
+    """Scrittura JSON ATOMICA: file temporaneo nella stessa directory + os.replace.
+
+    Usata per i payload aggiuntivi (estensione oraria) dove un file a meta'
+    scrittura non deve mai essere pubblicato: os.replace e' atomico sul
+    filesystem, quindi un lettore vede il file vecchio O quello nuovo.
+    Ritorna (byte, sha256) del contenuto scritto, per il report del build.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(payload, indent=indent, separators=separators,
+                      ensure_ascii=False)
+    blob = text.encode("utf-8")
+    fd, tmp = tempfile.mkstemp(prefix="." + path.name + "-", suffix=".tmp",
+                               dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(blob)
+        os.replace(tmp, str(path))
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    return len(blob), hashlib.sha256(blob).hexdigest()
 
 
 def r2(x, nd=2):

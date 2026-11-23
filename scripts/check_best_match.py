@@ -77,7 +77,9 @@ def best_match_liveness_probe(sentinels):
         "longitude": ",".join(str(s["lon"]) for s in sentinels),
         "hourly": common.BEST_MATCH_CHECK_HOURLY,
         "timezone": common.TIMEZONE,
-        "forecast_days": str(common.FORECAST_DAYS),
+        # PUBLISH_DAYS (72 h), non FORECAST_DAYS: la probe deve parlare lo
+        # STESSO endpoint/contratto del canary e della fingerprint pubblicata.
+        "forecast_days": str(common.PUBLISH_DAYS),
         "models": "best_match",
     }
     url = common.OPENMETEO_BASE + "?" + urllib.parse.urlencode(params)

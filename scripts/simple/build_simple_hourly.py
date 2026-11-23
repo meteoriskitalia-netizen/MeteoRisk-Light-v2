@@ -4,12 +4,23 @@
 
 PERCHE' UN FILE SEPARATO (stesso vincolo di build_weekly.py)
 -----------------------------------------------------------
-`data/latest/meteorisk-points.json` (schema 4, 257 punti, 49 campi orari per
-punto) alimenta la Pro e NON va assottigliato. La Simple ha bisogno di 72 ore
-x 107 province x 5 campi: leggerlo dal client costerebbe ~9,7 MB. Questo
-modulo produce `data/latest/simple_hourly.json` (~150 KB raw, ~25-35 KB gzip)
-con i SOLI cinque campi richiesti, prendendoli dal punto GIA' SCELTO per la
-provincia (`selected_point.id` in `meteorisk-provinces.json`).
+`data/latest/meteorisk-points.json` (schema 4, 257 punti, 51 campi orari per
+punto) alimenta la Pro e NON va assottigliato. La Simple ha bisogno di 168 ore
+(7 giorni) x 107 province x 5 campi: leggerlo dal client costerebbe ~9,7 MB.
+Questo modulo produce `data/latest/simple_hourly.json` con i SOLI cinque campi
+richiesti, prendendoli dal punto GIA' SCELTO per la provincia
+(`selected_point.id` in `meteorisk-provinces.json`).
+
+FONTI DELLE 168 ORE (due file, nessuna cucitura inventata)
+----------------------------------------------------------
+  - ore 0..71  -> `meteorisk-points.json` (dataset BASE, 72 ore);
+  - ore 72..167 -> `hourly_extended.json` (schema `meteorisk.hourly-ext/1`,
+    96 ore), SOLO per lo STESSO `point_id` del `selected_point` e SOLO per il
+    modello `best_match` (il modello dichiarato in `model`).
+Se `hourly_extended.json` manca, il payload resta a 72 ore con `hours` REALE
+(72 etichette, 72 righe): nessun buco riempito a mano. Se l'estensione c'e' ma
+una provincia non vi compare, le sue ore 72..167 sono righe `[null x5]` con
+`extended_reason` dichiarato nell'entry (valori null, non inventati).
 
 COSA PRODUCE (schema `simple-hourly/1`)
 ---------------------------------------
@@ -19,11 +30,11 @@ COSA PRODUCE (schema `simple-hourly/1`)
     "day0": "2026-11-23",
     "timezone": "Europe/Rome",
     "model": "best_match",
-    "hours": ["2026-11-23T00:00", ... 72 ...],
+    "hours": ["2026-11-23T00:00", ... 168 ...],
     "fields": ["t", "p", "pp", "w", "c"],
     "units": {"t": "C", "p": "mm", "pp": "%", "w": "km/h", "c": "wmo"},
     "provinces": {
-      "RM": {"id": 91, "h": [[16.9, 0.0, 0, 5.0, 2], ... 72 righe ...]},
+      "RM": {"id": 91, "h": [[16.9, 0.0, 0, 5.0, 2], ... 168 righe ...]},
       ...
     }
   }
@@ -69,11 +80,17 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
 _DEFAULT_POINTS = os.path.join(_ROOT, "data", "latest", "meteorisk-points.json")
 _DEFAULT_PROVINCES = os.path.join(_ROOT, "data", "latest", "meteorisk-provinces.json")
+_DEFAULT_EXTENDED = os.path.join(_ROOT, "data", "latest", "hourly_extended.json")
 _DEFAULT_OUT = os.path.join(_ROOT, "data", "latest", "simple_hourly.json")
 
 SCHEMA = "simple-hourly/1"
+EXT_SCHEMA = "meteorisk.hourly-ext/1"
 MODEL = "best_match"
-HOURS = 72
+BASE_HOURS = 72
+EXTENDED_HOURS = 96
+# Orizzonte TARGET del payload: 168 ore (7 giorni). Effettivo = 72 se
+# l'estensione non e' disponibile (allora `hours` ha 72 etichette reali).
+HOURS = BASE_HOURS + EXTENDED_HOURS
 # (chiave compatta, campo orario del dataset, decimali)
 FIELDS = (
     ("t", "temperature_2m", 1),
@@ -86,7 +103,10 @@ FIELD_KEYS = [f[0] for f in FIELDS]
 UNITS = {"t": "C", "p": "mm", "pp": "%", "w": "km/h", "c": "wmo"}
 # Budget dichiarato: oltre questo limite il payload NON e' "compatto" e la
 # build si ferma invece di pubblicare un blob che il client non puo' caricare.
-RAW_BUDGET_BYTES = 300 * 1024
+# 168 ore x 107 province x 5 campi stanno in ~340 KB raw; il gzip compresso
+# (misurato sul dataset reale) resta intorno ai 30 KB perche' le serie orarie
+# sono altamente ridondanti: il tetto e' raw, il gzip e' solo dichiarato.
+RAW_BUDGET_BYTES = 400 * 1024
 
 
 class SimpleHourlyError(RuntimeError):
@@ -110,17 +130,39 @@ def _round(value, decimals):
     return round(num, decimals)
 
 
-def build_hours(day0):
-    """Etichette ISO locali delle 72 ore a partire da day0 (00:00 -> 71h)."""
+def build_hours(day0, hours=HOURS):
+    """Etichette ISO locali delle `hours` ore a partire da day0 (00:00 -> h-1)."""
     try:
         start = _dt.datetime.strptime(day0, "%Y-%m-%d")
     except (TypeError, ValueError):
         raise SimpleHourlyError("day0 non valido: %r" % (day0,))
     return [(start + _dt.timedelta(hours=i)).strftime("%Y-%m-%dT%H:%M")
-            for i in range(HOURS)]
+            for i in range(hours)]
 
 
-def build_payload(points_doc, provinces_doc):
+def extended_rows_for(extended_doc, sigla, point_id, model=MODEL):
+    """Righe 72..167 dell'estensione per (provincia, point_id, modello).
+
+    Ritorna (rows, motivo): `rows` e' la lista di 96 righe oppure None con il
+    motivo dichiarato. Il `point_id` DEVE coincidere con il `selected_point`
+    della provincia: un'estensione costruita su un altro punto non si usa."""
+    if not isinstance(extended_doc, dict):
+        return None, "extended_absent"
+    ext_provs = extended_doc.get("provinces") or {}
+    records = (ext_provs.get(sigla) or {}).get("points") or []
+    for rec in records:
+        if rec.get("model") != model:
+            continue
+        if rec.get("point_id") != point_id:
+            return None, "extended_point_mismatch"
+        rows = rec.get("h")
+        if not isinstance(rows, list) or len(rows) != EXTENDED_HOURS:
+            return None, rec.get("null_reason") or "extended_rows_missing"
+        return rows, None
+    return None, "extended_model_missing"
+
+
+def build_payload(points_doc, provinces_doc, extended_doc=None):
     points = points_doc.get("points")
     provinces = provinces_doc.get("provinces")
     if not isinstance(points, list) or not points:
@@ -137,11 +179,31 @@ def build_payload(points_doc, provinces_doc):
     if not day0:
         # day0 e' indispensabile per le etichette orarie: non lo si inventa.
         raise SimpleHourlyError("day0 assente sia in points sia in provinces")
-    hours = build_hours(day0)
+
+    # L'estensione si usa SOLO se e' dello stesso asse temporale: la sua ora 0
+    # deve essere l'ora 72 del payload (day0 + 72 h). Un file di un altro
+    # giorno (o un `hours` non allineato) NON si cuce: si resta a 72 ore.
+    extended_used = False
+    extended_reason = None
+    full_hours = build_hours(day0, HOURS)
+    if isinstance(extended_doc, dict) and (extended_doc.get("provinces") or {}):
+        ext_hours = extended_doc.get("hours") or []
+        if len(ext_hours) != EXTENDED_HOURS:
+            extended_reason = "extended_hours_length"
+        elif ext_hours[0] != full_hours[BASE_HOURS]:
+            extended_reason = "extended_time_misaligned"
+        else:
+            extended_used = True
+    else:
+        extended_reason = "extended_absent"
+    total_hours = HOURS if extended_used else BASE_HOURS
+    hours = full_hours[:total_hours]
 
     out = {}
     missing_points = []
     missing_fields = set()
+    ext_reasons = {}
+    ext_provinces = 0
     for prov in provinces:
         if not isinstance(prov, dict):
             continue
@@ -161,7 +223,7 @@ def build_payload(points_doc, provinces_doc):
         series = {}
         for _key, src, _dec in FIELDS:
             values = hourly.get(src)
-            if not isinstance(values, list) or len(values) < HOURS:
+            if not isinstance(values, list) or len(values) < BASE_HOURS:
                 missing_fields.add(src)
                 continue
             series[src] = values
@@ -171,9 +233,26 @@ def build_payload(points_doc, provinces_doc):
             continue
 
         rows = []
-        for i in range(HOURS):
+        for i in range(BASE_HOURS):
             rows.append([_round(series[src][i], dec) for _k, src, dec in FIELDS])
-        out[sigla] = {"id": int(pid), "h": rows}
+        reason = None
+        if extended_used:
+            ext_rows, reason = extended_rows_for(extended_doc, sigla, pid)
+            if isinstance(ext_rows, list):
+                for row in ext_rows:
+                    rows.append([_round(row[k], FIELDS[k][2]) if k < len(row) else None
+                                 for k in range(len(FIELDS))])
+                ext_provinces += 1
+                reason = None
+            else:
+                # Nessun dato esteso per QUESTA provincia: righe null (mai
+                # valori inventati) e motivo dichiarato nell'entry.
+                rows.extend([[None] * len(FIELDS) for _ in range(EXTENDED_HOURS)])
+                ext_reasons[reason] = ext_reasons.get(reason, 0) + 1
+        entry = {"id": int(pid), "h": rows}
+        if reason:
+            entry["extended_reason"] = reason
+        out[sigla] = entry
 
     if missing_fields:
         raise SimpleHourlyError(
@@ -192,7 +271,11 @@ def build_payload(points_doc, provinces_doc):
         "units": UNITS,
         "provinces": out,
     }
-    return payload, {"provinces": len(out), "missing_points": missing_points}
+    return payload, {"provinces": len(out), "missing_points": missing_points,
+                     "hours": total_hours, "extended": extended_used,
+                     "extended_provinces": ext_provinces,
+                     "extended_reason": extended_reason,
+                     "extended_reasons": ext_reasons}
 
 
 def write_atomic(path, text):
@@ -216,6 +299,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Payload orario compatto per la vista Simple")
     parser.add_argument("--points", default=_DEFAULT_POINTS)
     parser.add_argument("--provinces", default=_DEFAULT_PROVINCES)
+    parser.add_argument("--extended", default=_DEFAULT_EXTENDED,
+                        help="hourly_extended.json (ore 72..167); se assente si resta a 72 ore")
     parser.add_argument("--out", default=_DEFAULT_OUT)
     parser.add_argument("--json-report", action="store_true",
                         help="stampa un report JSON su stdout (per il workflow)")
@@ -229,10 +314,22 @@ def main(argv=None):
             print(json.dumps({"ok": False, "skipped": True, "reason": msg}))
         return 0
 
+    extended_doc = None
+    if os.path.exists(args.extended):
+        try:
+            extended_doc = _load_json(args.extended)
+        except (ValueError, OSError) as exc:
+            print("[simple_hourly] ATTENZIONE: estensione illeggibile (%s): resto a 72 ore."
+                  % exc, file=sys.stderr)
+            extended_doc = None
+    else:
+        print("[simple_hourly] ATTENZIONE: %s assente: payload a 72 ore (nessuna cucitura)."
+              % args.extended, file=sys.stderr)
+
     try:
         points_doc = _load_json(args.points)
         provinces_doc = _load_json(args.provinces)
-        payload, stats = build_payload(points_doc, provinces_doc)
+        payload, stats = build_payload(points_doc, provinces_doc, extended_doc)
     except (SimpleHourlyError, ValueError, OSError) as exc:
         print("[simple_hourly] ERRORE: %s" % exc, file=sys.stderr)
         return 2
@@ -253,16 +350,23 @@ def main(argv=None):
         "schema": SCHEMA,
         "out": args.out,
         "provinces": stats["provinces"],
-        "hours": HOURS,
+        "hours": stats["hours"],
+        "hours_target": HOURS,
+        "extended": stats["extended"],
+        "extended_provinces": stats["extended_provinces"],
+        "extended_reason": stats["extended_reason"],
+        "extended_reasons": stats["extended_reasons"],
         "fields": len(FIELD_KEYS),
         "raw_bytes": raw_bytes,
         "gzip_bytes": gz_bytes,
         "missing_points": stats["missing_points"],
     }
     print("[simple_hourly] scritto %s: %d province x %d ore x %d campi, "
-          "%d byte raw / %d byte gzip"
-          % (args.out, report["provinces"], HOURS, len(FIELD_KEYS),
-             raw_bytes, gz_bytes))
+          "%d byte raw / %d byte gzip (estensione: %s)"
+          % (args.out, report["provinces"], report["hours"], len(FIELD_KEYS),
+             raw_bytes, gz_bytes,
+             ("si', %d province" % report["extended_provinces"])
+             if report["extended"] else "no (%s)" % report["extended_reason"]))
     if stats["missing_points"]:
         print("[simple_hourly] ATTENZIONE: province senza punto risolto: %s"
               % ", ".join(stats["missing_points"]), file=sys.stderr)

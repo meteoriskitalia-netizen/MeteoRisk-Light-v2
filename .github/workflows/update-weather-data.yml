@@ -222,6 +222,10 @@ jobs:
           python scripts/build_meteorisk_dataset.py || rc=$?
           python scripts/workflow_gate.py build "$rc"
           exit $?
+        # ORIZZONTE 7 GIORNI (fase 1): il fetch chiede 7 giorni, il build scrive
+        # in staging il dataset BASE a 72 h / 3 giorni (slice esplicito, client
+        # invariati) + l'ESTENSIONE `hourly_extended.json` (ore 72..167, 5
+        # campi, 107 province, 2 modelli, schema meteorisk.hourly-ext/1).
 
       # Validazione (staging): la mancata validazione FALLA il workflow
       # (nessun commit, nessun deploy; data/latest resta intatto).
@@ -276,6 +280,8 @@ jobs:
         run: |
           git config user.name "meteorisk-bot"
           git config user.email "actions@users.noreply.github.com"
+          # data/latest include anche hourly_extended.json (ore 72..167) e
+          # simple_hourly.json: il commit del dataset e' un `git add data/latest`.
           git add data/latest data/state/last_model_run.json data/state/api_usage.json
           if git diff --cached --quiet; then
             echo "[INFO] Nessuna modifica al dataset."
@@ -352,11 +358,12 @@ jobs:
           fi
 
       # 1.3.0.59 - PAYLOAD ORARIO COMPATTO per la vista Simple: legge
-      # meteorisk-points.json + meteorisk-provinces.json e scrive SOLO
-      # data/latest/simple_hourly.json (107 x 72 x 5, ~150 KB raw).
+      # meteorisk-points.json + meteorisk-provinces.json (+ hourly_extended.json
+      # se pubblicato) e scrive SOLO data/latest/simple_hourly.json
+      # (107 x 72 x 5 senza estensione, 107 x 168 x 5 con l'estensione).
       # continue-on-error: se il dataset non c'e' lo script esce 0 con avviso;
       # un campo mancante esce 2 e NON scrive nulla (nessun valore inventato).
-      - name: Build payload orario Simple (simple_hourly.json, 72h x 107)
+      - name: Build payload orario Simple (simple_hourly.json, 72h base + 96h estensione)
         id: simple_hourly
         continue-on-error: true
         run: |

@@ -40,6 +40,15 @@ def main():
         return 1
 
     files = ["metadata.json", "meteorisk-points.json", "meteorisk-provinces.json", "validation.json"]
+    # ESTENSIONE ORARIA 72..167 (schema meteorisk.hourly-ext/1): file
+    # AGGIUNTIVO del dataset (il base resta a 72 ore). Se il build non l'ha
+    # scritta (es. dataset placeholder --empty) non si dichiara e non si copia:
+    # la lista dei file segue il contenuto reale dello staging.
+    if (common.DATA_STAGING / "hourly_extended.json").exists():
+        files.append("hourly_extended.json")
+    else:
+        print("[publish] hourly_extended.json assente in staging: non pubblicato "
+              "(nessun file inventato).")
     staging = common.DATA_STAGING
     latest = common.DATA_LATEST
     latest.mkdir(parents=True, exist_ok=True)

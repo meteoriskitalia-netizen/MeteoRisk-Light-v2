@@ -21,6 +21,20 @@ Per provincia:
 
 Output (in data/_staging, poi validate_dataset.py e publish_dataset.py):
   data/latest/metadata.json, meteorisk-points.json, meteorisk-provinces.json
+  data/latest/hourly_extended.json  (schema meteorisk.hourly-ext/1, 96 ore
+  = 72..167, 107 province, 5 campi, 2 modelli: SOLO i 5 campi usati da grafico
+  e tabella della vista Simple; il dataset base resta a 72 ore / 3 giorni)
+
+ORIZZONTE (fase 1 "previsioni orarie a 7 giorni", opzione D + E)
+----------------------------------------------------------------
+Il fetch chiede `common.FORECAST_DAYS` = 7 giorni (best_match ed ecmwf_ifs
+coprono entrambi >= 168 ore). Qui si SEPARANO due cose:
+  - dataset BASE (points/provinces): SLICE esplicito a PUBLISH_HOURS (72) e
+    PUBLISH_DAYS (3). I client attuali non cambiano.
+  - ESTENSIONE (hourly_extended.json): le ore 72..167 dei 5 campi, per il
+    punto `selected_point` di ogni provincia, per ENTRAMBI i modelli.
+Oltre l'orizzonte reale di un modello le ore restano null con `null_reason`
+(es. `model_horizon_67h`): MAI interpolazione, MAI zeri.
 """
 
 import argparse
@@ -36,8 +50,29 @@ ATTR = ("Meteorological source data: Open-Meteo.com / Data license: CC BY 4.0 / 
         "Processed and aggregated by MeteoRisk Light.")
 
 
-def dedupe_models(record):
-    """record: {best_match: {daily,hourly}, ecmwf_ifs: {...}, elevation}."""
+def dedupe_models(record, hours=None, days=None):
+    """record: {best_match: {daily,hourly}, ecmwf_ifs: {...}, elevation}.
+
+    `hours`/`days` (default PUBLISH_HOURS/PUBLISH_DAYS, ossia 72/3) troncano
+    le serie: il fetch puo' chiedere 7 giorni, il dataset BASE ne pubblica 3.
+    Lo slice e' ESPLICITO (non dipende da quante ore ha restituito l'API)."""
+    hours = common.PUBLISH_HOURS if hours is None else int(hours)
+    days = common.PUBLISH_DAYS if days is None else int(days)
+    out = {}
+    for m in ("best_match", "ecmwf_ifs"):
+        sub = record.get(m)
+        if sub and sub.get("daily") and sub.get("hourly"):
+            out[m] = {
+                "daily": {k: (v[:days] if isinstance(v, list) else v)
+                          for k, v in sub["daily"].items()},
+                "hourly": {k: (v[:hours] if isinstance(v, list) else v)
+                           for k, v in sub["hourly"].items()},
+            }
+    return out
+
+
+def dedupe_models_full(record):
+    """Come dedupe_models ma SENZA slice: serve all'estensione 72..167."""
     out = {}
     for m in ("best_match", "ecmwf_ifs"):
         sub = record.get(m)
@@ -96,6 +131,130 @@ def _at(arr, i):
     return arr[i] if i < len(arr) else None
 
 
+# ---------------------------------------------------------------------------
+# ESTENSIONE ORARIA 72..167 (schema meteorisk.hourly-ext/1)
+# ---------------------------------------------------------------------------
+def _round_ext(value, decimals):
+    """Arrotondamento dichiarato per l'estensione (None resta None)."""
+    if value is None:
+        return None
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return None
+    if decimals == 0:
+        return int(round(num))
+    return round(num, decimals)
+
+
+def extended_hours(time_base, day0):
+    """96 etichette ISO locali: l'ora 0 dell'estensione e' time_base + 72 h.
+
+    Continuita' con il dataset base: l'ora 71 del base e l'ora 0 qui sono
+    istanti CONSECUTIVI (stesso asse temporale Europe/Rome dell'API)."""
+    start = None
+    if time_base:
+        try:
+            start = _dt.datetime.fromisoformat(str(time_base))
+        except ValueError:
+            start = None
+    if start is None:
+        start = _dt.datetime.combine(day0, _dt.time())
+    base = start + _dt.timedelta(hours=common.EXTENDED_START_HOUR)
+    return [(base + _dt.timedelta(hours=i)).strftime("%Y-%m-%dT%H:%M")
+            for i in range(common.EXTENDED_HOURS)]
+
+
+def _extended_row(hourly, hour):
+    row = []
+    for name in common.EXTENDED_FIELDS:
+        arr = hourly.get(name)
+        val = arr[hour] if isinstance(arr, list) and hour < len(arr) else None
+        row.append(_round_ext(val, common.EXTENDED_DECIMALS[name]))
+    return row
+
+
+def extended_rows(hourly):
+    """96 righe [t,p,pp,w,c] + null_reason se la coda e' fuori orizzonte.
+
+    Un null di CELLA e' il null della fonte (propagato, non inventato). Un
+    blocco di coda tutto null e' invece un ORIZZONTE esaurito e viene
+    dichiarato: `model_horizon_<ora assoluta>h` (es. ICON-D2 -> 67h)."""
+    rows = [_extended_row(hourly, common.EXTENDED_START_HOUR + k)
+            for k in range(common.EXTENDED_HOURS)]
+    tail = None
+    for i in range(len(rows) - 1, -1, -1):
+        if any(v is not None for v in rows[i]):
+            break
+        tail = i
+    reason = None
+    if tail is not None:
+        reason = "model_horizon_%dh" % (common.EXTENDED_START_HOUR + tail)
+    return rows, reason
+
+
+def build_hourly_extended(points_out, provinces, day0, time_base, generated_at,
+                          models_by_id=None):
+    """Costruisce il payload dell'estensione (schema meteorisk.hourly-ext/1).
+
+    `models_by_id` permette di passare le serie COMPLETE del raw (168 ore):
+    `points_out` e' gia' troncato a PUBLISH_HOURS e non basta all'estensione.
+    Se assente si usano i modelli dell'entry (utile nei test).
+
+    point_id: ESATTAMENTE `provinces[].selected_point.id`, cioe' il punto che
+    il client usa per la provincia (worst-point best_match, port di
+    scorePointForProvince). Lo stesso punto per ENTRAMBI i modelli: e' una
+    localita', non un modello. Nessuna seconda regola di scelta."""
+    hours = extended_hours(time_base, day0)
+    by_id = {e["id"]: e for e in points_out}
+    out = {}
+    stats = {"provinces": 0, "points": 0, "with_data": 0, "null_points": 0,
+             "horizon_reasons": {}}
+    for prov in provinces:
+        sel = prov.get("selected_point") or {}
+        pid = sel.get("id")
+        entry = by_id.get(pid) if pid is not None else None
+        if pid is None or entry is None:
+            continue
+        mods = (models_by_id or {}).get(pid) or (entry.get("models") or {})
+        recs = []
+        for model in ("best_match", "ecmwf_ifs"):
+            mod = mods.get(model)
+            hourly = (mod or {}).get("hourly") or {}
+            if not hourly:
+                recs.append({"model": model, "point_id": int(pid), "h": None,
+                             "null_reason": "model_missing"})
+                stats["null_points"] += 1
+                continue
+            rows, reason = extended_rows(hourly)
+            rec = {"model": model, "point_id": int(pid), "h": rows}
+            if reason:
+                rec["null_reason"] = reason
+                stats["horizon_reasons"][reason] = \
+                    stats["horizon_reasons"].get(reason, 0) + 1
+            else:
+                stats["with_data"] += 1
+            recs.append(rec)
+        out[prov["sigla"]] = {"points": recs}
+        stats["provinces"] += 1
+        stats["points"] += len(recs)
+    payload = {
+        "schema": common.EXTENDED_SCHEMA,
+        "generated_at": generated_at,
+        "day0": day0.isoformat() if hasattr(day0, "isoformat") else str(day0),
+        "timezone": common.TIMEZONE,
+        "start_hour": common.EXTENDED_START_HOUR,
+        "hours": hours,
+        "fields": list(common.EXTENDED_FIELD_KEYS),
+        "source_fields": list(common.EXTENDED_FIELDS),
+        "units": dict(common.EXTENDED_UNITS),
+        "point_rule": ("point_id = provinces[].selected_point.id del dataset base "
+                       "(worst-point best_match); stesso punto per i due modelli"),
+        "provinces": out,
+    }
+    return payload, stats
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build derived MeteoRisk dataset.")
     parser.add_argument("--points-json", default=str(common.REPO_ROOT / "data" / "_workdir" / "real_points.json"))
@@ -151,7 +310,7 @@ def main():
             "attribution": ATTR,
             "generated_at": common.now_iso(),
             "models_covered": ["best_match", "ecmwf_ifs"],
-            "forecast_days": common.FORECAST_DAYS,
+            "forecast_days": common.PUBLISH_DAYS,
             "timezone": common.TIMEZONE,
             "point_count": 0,
             "province_count": 0,
@@ -238,12 +397,16 @@ def main():
                           "region": r["region"], "selected_point": None, "days": []})
 
     points_out = []
+    full_models_by_id = {}
     pidx_map = {p["sigla"]: p["idx"] for p in regions}
     for meta in sorted(points_meta_map.values(), key=lambda p: p["index"]):
         idx = meta["index"]
         payload = raw_map.get(idx)
         if not payload:
             continue
+        # Serie COMPLETE (168 h) per l'estensione; `models` e' lo SLICE
+        # pubblicato (72 h) per il dataset base.
+        full_models_by_id[idx] = dedupe_models_full(payload)
         models = dedupe_models(payload)
         if not models:
             continue
@@ -251,7 +414,7 @@ def main():
         hourly = record["hourly"]
         daily = record["daily"]
         elev = payload.get("elevation")
-        summary = [day_summary(hourly, daily, d, day_label(d)) for d in range(common.FORECAST_DAYS)]
+        summary = [day_summary(hourly, daily, d, day_label(d)) for d in range(common.PUBLISH_DAYS)]
         entry = {
             "id": idx,
             "provinceIdx": meta["provinceIdx"],
@@ -293,7 +456,8 @@ def main():
     points_write = {"schema_version": 4, "status": "live",
 
                     "generated_at": raw["fetched_at"],
-                    "forecast_days": common.FORECAST_DAYS,
+                    # 3 giorni PUBBLICATI (il fetch ne chiede 7: slice esplicito)
+                    "forecast_days": common.PUBLISH_DAYS,
                     "timezone": common.TIMEZONE,
                     "models": ["best_match", "ecmwf_ifs"],
                     # Copertura dei parametri OPZIONALI (visibility in metri):
@@ -313,6 +477,22 @@ def main():
     common.DATA_STAGING.joinpath("meteorisk-provinces.json").write_text(
         json.dumps(provinces_write, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
 
+    # ESTENSIONE 72..167 (file AGGIUNTIVO e SEPARATO): scritta in modo atomico,
+    # poi pubblicata da publish_dataset.py insieme agli altri file del dataset.
+    ext_payload, ext_stats = build_hourly_extended(
+        points_out, provinces, day0, time_base, raw["fetched_at"],
+        models_by_id=full_models_by_id)
+    ext_bytes, ext_sha = common.write_json_atomic(
+        common.DATA_STAGING / "hourly_extended.json", ext_payload,
+        separators=(",", ":"))
+    print("[build] Estensione oraria: %d province x %d ore x %d campi x 2 modelli "
+          "(%d serie con dati, %d senza; motivi orizzonte: %s) · %.0f KB · sha256 %s"
+          % (ext_stats["provinces"], common.EXTENDED_HOURS,
+             len(common.EXTENDED_FIELDS), ext_stats["with_data"],
+             ext_stats["null_points"] + sum(ext_stats["horizon_reasons"].values()),
+             ext_stats["horizon_reasons"] or "nessuno",
+             ext_bytes / 1024.0, ext_sha[:16]))
+
     metadata = {
         "schema_version": 4,
         "dataset_type": common.APP_DATA_TYPE,
@@ -323,7 +503,13 @@ def main():
         "attribution": ATTR,
         "generated_at": raw["fetched_at"],
         "models_covered": ["best_match", "ecmwf_ifs"],
-        "forecast_days": common.FORECAST_DAYS,
+        # Contratto del dataset BASE: 3 giorni / 72 ore pubblicate.
+        "forecast_days": common.PUBLISH_DAYS,
+        "forecast_days_requested": common.FORECAST_DAYS,
+        "extended_hours": {"start_hour": common.EXTENDED_START_HOUR,
+                           "hours": common.EXTENDED_HOURS,
+                           "schema": common.EXTENDED_SCHEMA,
+                           "fields": list(common.EXTENDED_FIELDS)},
         "timezone": common.TIMEZONE,
         "point_count": len(points_out),
         "province_count": len(provinces),
@@ -333,7 +519,8 @@ def main():
         "fetch_timestamps": fetch_timestamps,
         "update_strategy": cycle_mode,
         "files": {"points": "meteorisk-points.json", "provinces": "meteorisk-provinces.json",
-                  "validation": "validation.json"},
+                  "validation": "validation.json",
+                  "hourly_extended": "hourly_extended.json"},
     }
     with open(common.DATA_STAGING / "metadata.json", "w", encoding="utf-8") as fh:
         json.dump(metadata, fh, indent=2, ensure_ascii=False)

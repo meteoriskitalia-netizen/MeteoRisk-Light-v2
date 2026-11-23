@@ -11,7 +11,9 @@ Copre:
   - 107 province, 3 giorni, 20 campi per giorno, `selected_point` presente;
   - weekly.json: 107 province x 7 giorni x 8 campi (tmax,tmin,prcp,pprob,
     wind,gust,code,et0);
-  - simple_hourly.json: 107 x 72 x 5 (t,p,pp,w,c) — skip se non pubblicato;
+  - simple_hourly.json: 107 x 168 x 5 (t,p,pp,w,c) quando l'estensione
+    `hourly_extended.json` e' pubblicata; 107 x 72 x 5 se il dataset e' ancora
+    a 72 ore (skip dichiarato se il file non c'e');
   - criticality.json: 187 zone, 4 codici di livello, disclaimer e licenza;
   - radar/latest.json: stato, timestamp, celle (per il layer Radar);
   - stations/latest.json: elenco stazioni e campi per le 4 variabili;
@@ -30,6 +32,7 @@ SIMPLE_HTML = os.path.join(ROOT, "simple", "index.html")
 PROVINCES = os.path.join(LATEST, "meteorisk-provinces.json")
 WEEKLY = os.path.join(LATEST, "weekly.json")
 HOURLY = os.path.join(LATEST, "simple_hourly.json")
+EXTENDED = os.path.join(LATEST, "hourly_extended.json")
 HYDRO = os.path.join(ROOT, "data", "hydro", "criticality.json")
 RADAR = os.path.join(ROOT, "data", "radar", "latest.json")
 STATIONS = os.path.join(ROOT, "data", "stations", "latest.json")
@@ -110,11 +113,18 @@ def test_simple_hourly_contract():
     h = _load(HOURLY)
     assert h["schema"] == "simple-hourly/1"
     assert h["fields"] == ["t", "p", "pp", "w", "c"]
-    assert len(h["hours"]) == 72
+    # 168 ore (7 giorni) SOLO con l'estensione pubblicata; altrimenti 72 ore
+    # reali (nessuna cucitura inventata dal builder).
+    extended = os.path.exists(EXTENDED)
+    assert len(h["hours"]) == (168 if extended else 72)
+    assert h["hours"][0].endswith("T00:00")
     assert len(h["provinces"]) == 107
     for sigla, entry in h["provinces"].items():
         assert isinstance(entry["id"], int)
-        assert len(entry["h"]) == 72
+        assert len(entry["h"]) == len(h["hours"])
+        if extended and len(h["hours"]) == 168:
+            assert h["hours"][71].endswith("T23:00")
+            assert h["hours"][72].endswith("T00:00")
         for row in entry["h"]:
             assert len(row) == 5
             assert row[2] is None or isinstance(row[2], int)
