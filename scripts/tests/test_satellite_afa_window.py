@@ -22,7 +22,7 @@ import satellite_engine as SE  # noqa: E402
 REPO = Path(__file__).resolve().parents[2]
 # 1.3.0.48: la 1.3.0.43 non e' piu' nel repo (pulizia release vecchie): resta
 # il solo client attivo, APP_FILE di VERSION.
-HTML_CANDIDATES = ("mri-light-1.3.0.54.html",)
+HTML_CANDIDATES = ("mri-light-1.3.0.55.html",)
 
 
 def _webp_bytes(size=(8, 8), alpha=0):
@@ -105,7 +105,14 @@ def test_empty_afa_frame_has_signal_false_but_is_published(tmp_path, monkeypatch
     assert meta["active_pixels"] == 0
     assert meta["layer"] == "mtg_fd:li_afa"
     target = tmp_path / "afa" / (SE.slot_name(slot) + SE.EXT)
-    assert target.is_file() and target.read_bytes() == empty
+    assert target.is_file()
+    # 1.3.0.55 - il frame viene SEMPRE ri-codificato (texture a crocette applicata
+    # prima dell'encode WebP): il contratto non e' piu' il pass-through dei byte
+    # della WMS, ma il contenuto: file WebP valido con alpha tutto 0 e has_signal
+    # false. Un frame vuoto non guadagna pixel attivi dalla texture.
+    written = target.read_bytes()
+    assert SE.is_webp(written)
+    assert SE.afa_frame_stats(written) == (0, False)
 
 
 def test_afa_http_error_does_not_write_file(tmp_path, monkeypatch):

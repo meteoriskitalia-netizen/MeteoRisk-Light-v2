@@ -1,8 +1,17 @@
-VERSION=1.3.0.54
-BUILD=184
+VERSION=1.3.0.55
+BUILD=185
 DATE=2026-11-23
-APP_FILE=mri-light-1.3.0.54.html
-MeteoRisk Light - 1.3.0.54 - Mappa dei rischi legata al prodotto: fill province, badge e legenda solo con «Mappa dei rischi», legenda nascosta fuori dal prodotto (BUILD=184)
+APP_FILE=mri-light-1.3.0.55.html
+MeteoRisk Light - 1.3.0.55 - Caption senza Blitzortung, bordi provinciali solo nel prodotto rischi, 23 tooltip, master delle strutture convettive, AFA con crocette (BUILD=185)
+VERSION=1.3.0.55
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=185
+RELEASE_TYPE=release
+DATE=2026-11-23
+NOTE=Release 1.3.0.55 (bump da 1.3.0.54). (1) CAPTION: toggleRadarPlayer imposta isLightningActive solo se enabledLightningSourceIds().length > 0 (e ne usa la prima), updateSyncCaption ha lo stesso gate e i due fallback 'blitzortung' diventano stringa vuota: la didascalia dice Radar DPC + EUMETSAT IR Italia e non nomina piu Blitzortung. (2) BORDI: restyleBorderOverlay nasconde la rete bianca fuori dal prodotto Mappa dei rischi (ramo dopo isSelected e prima di continuousMode, nessun removeLayer): la provincia selezionata resta azzurra e updateMapColors lo invoca dal ramo fuori prodotto. (3) TOOLTIP: 23 elementi su 18 righe (btn-d0/d1/d2, btn-forecast-maps, btn-radar-player, btn-forecast, btn-caletta, btn-live, btn-sources, btn-radar, btn-satellite, sync-play-btn, fm-play-btn, 3 metric-tab, 2 caletta-btn, 3 fc-tab, mc-retry, help-close) hanno l'attributo title, senza le parole allerta/probabilita/supercella. (4) MASTER: enableLinkedScProducts accende scShowTrails/scShowForecast/scShowPhenomena (con scSetToggleBtn su sc-toggle-* e live-toggle-*) PRIMA di refreshLiveSupercells in toggleLiveSupercells; nessuno spegnimento in cascata. (5) AFA CON CROCETTE server-side: apply_afa_texture e afa_to_webp in scripts/satellite_engine.py disegnano crocette (20,25,45) alpha 200, passo 14 px, braccio 3 px, spessore 2 px, SOLO sui pixel con alpha>0; l'alpha resta identico pixel per pixel (i buchi non si riempiono), afa_frame_stats conta gli stessi pixel attivi e afa_meta porta texture_version=1, che rielabora dal disco gli slot pubblicati prima (nessuna richiesta di rete). Legenda #afa-legend-box con swatch a crocette (SVG inline) e testo esplicito. TEST: nuovo scripts/tests/radar_engine/test_afa_texture.py (6 casi, MISURATO 6 failed sull'engine 1.3.0.54 pristino, 6 passed sul nuovo) e scripts/tests/test_caption_borders_tooltips.mjs (MISURATO exit 1 sull'html 1.3.0.54 pristino, exit 0 sul nuovo).
+APP_FILE=mri-light-1.3.0.55.html
 VERSION=1.3.0.54
 MAJOR=1
 MINOR=3

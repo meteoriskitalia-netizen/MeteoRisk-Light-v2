@@ -1981,9 +1981,9 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     </div>
     <div class="time-controls">
         <div class="day-selector">
-            <button class="day-btn active" id="btn-d0" onclick="selectDay(0)">Oggi</button>
-            <button class="day-btn" id="btn-d1" onclick="selectDay(1)">Domani</button>
-            <button class="day-btn" id="btn-d2" onclick="selectDay(2)">Dopodomani</button>
+            <button class="day-btn active" id="btn-d0" title="Giorno della mappa dei rischi: Oggi" onclick="selectDay(0)">Oggi</button>
+            <button class="day-btn" id="btn-d1" title="Giorno della mappa dei rischi: Domani" onclick="selectDay(1)">Domani</button>
+            <button class="day-btn" id="btn-d2" title="Giorno della mappa dei rischi: Dopodomani" onclick="selectDay(2)">Dopodomani</button>
         </div>
     </div>
 </div>
@@ -1992,13 +1992,13 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     <!-- UI CONTROLS: i pulsanti on/off storici restano nel DOM, con gli STESSI
          handler; la selezione del prodotto passa dalla tendina qui sotto. -->
     <div class="toolbar-row" id="legacy-toolbar-row" style="display: none !important; gap: 8px; flex-wrap: wrap;">
-        <button class="tool-btn" id="btn-forecast-maps" onclick="toggleForecastMaps()" style="border-color:#38bdf8;">🗺️ Mappe previsionali (OFF)</button>
-        <button class="tool-btn" id="btn-radar-player" onclick="toggleRadarPlayer()" style="border-color:#0284c7;">▶️ Radar Player</button>
-        <button class="tool-btn" id="btn-forecast" onclick="toggleForecast()">🌤️ Previsioni (OFF)</button>
-        <button class="tool-btn" id="btn-caletta" onclick="showCaletta()" style="display:none;">🍽️ La Caletta</button>
-        <button class="tool-btn" id="btn-live" onclick="selectLiveFromProductButton()" style="border-color:#fbbf24;">🔴 LIVE Panel (OFF)</button>
+        <button class="tool-btn" id="btn-forecast-maps" title="Mappe previsionali multi-modello (7 domini, 31 variabili): apre il pannello con timeline e selettore run" onclick="toggleForecastMaps()" style="border-color:#38bdf8;">🗺️ Mappe previsionali (OFF)</button>
+        <button class="tool-btn" id="btn-radar-player" title="Radar Player: timeline sincronizzata radar DPC + satellite EUMETSAT sugli ultimi 2 h (slot 5 min)" onclick="toggleRadarPlayer()" style="border-color:#0284c7;">▶️ Radar Player</button>
+        <button class="tool-btn" id="btn-forecast" title="Previsioni della località selezionata: apre fascia oraria e marker e nasconde i poligoni delle province" onclick="toggleForecast()">🌤️ Previsioni (OFF)</button>
+        <button class="tool-btn" id="btn-caletta" title="Previsioni per La Caletta (Anguillara Sabazia) a pranzo o cena" onclick="showCaletta()" style="display:none;">🍽️ La Caletta</button>
+        <button class="tool-btn" id="btn-live" title="Pannello LIVE: satellite e radar in tempo reale con struttura convettiva, centraline e area Doppler" onclick="selectLiveFromProductButton()" style="border-color:#fbbf24;">🔴 LIVE Panel (OFF)</button>
         <button class="tool-btn" id="btn-newindices" onclick="toggleNewIndices()" style="border-color:#06b6d4; display:none;" title="Nuovi Indici: aggiunge escalation continua (WMAXSHEAR, SCP, SHIP, HSLC) alla logica base. Disponibile solo in Sviluppo. Default OFF.">🔬 Nuovi Indici (OFF)</button>
-        <button class="tool-btn" id="btn-sources" onclick="toggleSourcesPanel()" style="border-color:#a855f7;">📚 Fonti &amp; Metodologie</button>
+        <button class="tool-btn" id="btn-sources" title="Fonti e metodologie: elenco delle fonti dati, licenze e delle soglie usate, con riferimenti bibliografici" onclick="toggleSourcesPanel()" style="border-color:#a855f7;">📚 Fonti &amp; Metodologie</button>
         <!-- 1.2.3.1: attivazione Celle organizzate spostata nel pannello LIVE (#live-toggle-supercells) -->
         <!-- Toggle Sviluppo spostato nel footer: switch vicino al badge versione -->
     </div>
@@ -2007,8 +2007,8 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
          Radar/Satellite, rischi per Evidenzia Zone a Rischio). Handler storici
          invariati e richiamabili; la visibilita' e' decisa da syncContextualToggles(). -->
     <div id="standalone-toggles-row" style="max-width:1200px; margin:0 auto 10px auto; display:none; gap:8px; align-items:center; flex-wrap:wrap;">
-        <button class="tool-btn" id="btn-radar" onclick="toggleRadar()" style="border-color:#0284c7;">📡 Radar Timeline (OFF)</button>
-        <button class="tool-btn" id="btn-satellite" onclick="toggleSatellite()" style="border-color:#0284c7;">🛰️ SATELLITE (OFF)</button>
+        <button class="tool-btn" id="btn-radar" title="Radar Timeline: mostra i frame radar DPC sulla mappa, indipendente da Radar Player" onclick="toggleRadar()" style="border-color:#0284c7;">📡 Radar Timeline (OFF)</button>
+        <button class="tool-btn" id="btn-satellite" title="Satellite EUMETSAT: mostra i frame satellitari sulla mappa, indipendente da Radar Player" onclick="toggleSatellite()" style="border-color:#0284c7;">🛰️ SATELLITE (OFF)</button>
     </div>
     <div class="toolbar-row" id="product-select-row" style="max-width:1200px; margin:0 auto 10px auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <label for="product-select" style="font-size:11px;color:#94a3b8;">Prodotto</label>
@@ -2093,7 +2093,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
 <div class="panel-timeline" id="sync-timeline-panel">
     <div class="controls">
         <button class="btn-timeline" onclick="prevSyncFrame()" title="Frame precedente">⏮</button>
-        <button class="btn-timeline" id="sync-play-btn" onclick="toggleSyncPlay()">▶ Play</button>
+        <button class="btn-timeline" id="sync-play-btn" title="Avvia/ferma l'animazione della timeline sincronizzata" onclick="toggleSyncPlay()">▶ Play</button>
         <button class="btn-timeline" onclick="nextSyncFrame()" title="Frame successivo">⏭</button>
         <button class="btn-timeline" onclick="goLiveSync()" title="Vai all'ultimo frame">LIVE</button>
         <button class="btn-timeline" id="sync-preload-btn" onclick="syncStartPreload()" title="Precarica tutti i frame" style="padding:3px 8px; border-color:#f59e0b; color:#f59e0b; font-size:10px;">⏬ Preload</button>
@@ -2373,10 +2373,10 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     <button class="metric-tab" data-metric="humidity" onclick="selectMetric('humidity')">💧 Umidità</button>
     <button class="metric-tab" data-metric="pressure" onclick="selectMetric('pressure')">📊 Pressione</button>
     <button class="metric-tab" data-metric="wind" onclick="selectMetric('wind')">💨 Vento</button>
-    <button class="metric-tab" data-metric="thermalrisk" id="metric-tab-thermalrisk" onclick="selectMetric('thermalrisk')">🌡️ Rischio Termico</button>
+    <button class="metric-tab" data-metric="thermalrisk" id="metric-tab-thermalrisk" title="Metrica della mappa dei rischi: rischio termico (caldo/gelo per fascia altimetrica)" onclick="selectMetric('thermalrisk')">🌡️ Rischio Termico</button>
     <button class="metric-tab" id="metric-tab-fog" data-metric="fog" onclick="selectMetric('fog')" title="Indice ambientale euristico 0-100, non probabilità e non misura di visibilità" style="display:none;">🌫️ Nebbia</button>
-    <button class="metric-tab" data-metric="conv" id="metric-tab-conv" onclick="selectMetric('conv')" style="display:none;">🌩️ Conv.</button>
-    <button class="metric-tab" data-metric="hail" id="metric-tab-hail" onclick="selectMetric('hail')" style="display:none;">🧊 Grandine</button>
+    <button class="metric-tab" data-metric="conv" id="metric-tab-conv" title="Metrica della mappa dei rischi: convezione organizzata (potenziale del modello NWP)" onclick="selectMetric('conv')" style="display:none;">🌩️ Conv.</button>
+    <button class="metric-tab" data-metric="hail" id="metric-tab-hail" title="Metrica della mappa dei rischi: grandine (potenziale del modello NWP)" onclick="selectMetric('hail')" style="display:none;">🧊 Grandine</button>
 </div>
 <div class="metric-tabs" id="metric-select-row" style="display:none; align-items:center;">
     <label for="metric-select" style="font-size:11px;color:#94a3b8;white-space:nowrap;">Metrica</label>
@@ -2463,7 +2463,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                     <select id="fm-region-select" class="fm-select" onchange="fmRegionChanged()"></select>
                 </label>
                 <div class="fm-player">
-                    <button id="fm-play-btn" class="fm-btn" onclick="fmTogglePlay()">▶</button>
+                    <button id="fm-play-btn" title="Avvia/ferma l'animazione delle mappe previsionali" class="fm-btn" onclick="fmTogglePlay()">▶</button>
                     <button class="fm-btn" onclick="fmPrevFrame()">⏮</button>
                     <button class="fm-btn" onclick="fmNextFrame()">⏭</button>
                     <select id="fm-run-select" class="fm-select fm-run-select" onchange="fmRunChanged()" title="Seleziona run del modello"></select>
@@ -2542,8 +2542,8 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
             <h3 id="caletta-title">🍽️ La Caletta</h3>
             <div class="address" id="caletta-address">Via Provinciale Vigna di Valle, 42, Anguillara Sabazia</div>
             <div class="caletta-toggle">
-                <button id="caletta-btn-pranzo" class="active" onclick="setCalettaSlot('pranzo')">☀️ Pranzo</button>
-                <button id="caletta-btn-cena" onclick="setCalettaSlot('cena')">🌙 Cena</button>
+                <button id="caletta-btn-pranzo" title="Mostra la previsione per l'ora di pranzo" class="active" onclick="setCalettaSlot('pranzo')">☀️ Pranzo</button>
+                <button id="caletta-btn-cena" title="Mostra la previsione per l'ora di cena" onclick="setCalettaSlot('cena')">🌙 Cena</button>
             </div>
             <p id="caletta-message">Caricamento...</p>
             <div id="caletta-details" style="margin-top:8px;display:none;"></div>
@@ -2584,8 +2584,8 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
         <div class="live-legend" id="afa-legend-box" style="display:none; margin-top:6px;">
             <div class="legend-title" id="afa-legend-title">AFA · area con emissione ottica (MTG-I LI) — osservato, non un conteggio</div>
             <div class="legend-row">
-                <span class="legend-swatch" style="background:#fff8bd; border-color:#a16207; opacity:.85;"></span>
-                <span><b>Macchia giallo pallido</b>: area in cui lo strumento LI ha rilevato emissione ottica nello slot di 5 minuti. È l'<b>area coperta</b>, non la posizione dei fulmini e non un numero di eventi. Non distingue emissioni intra-nube da quelle al suolo.</span>
+                <span class="legend-swatch" style="background-color:#fff8bd; background-image:url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2214%22%20height%3D%2214%22%3E%3Cg%20stroke%3D%22%2314192D%22%20stroke-width%3D%222%22%3E%3Cline%20x1%3D%224%22%20y1%3D%227%22%20x2%3D%2210%22%20y2%3D%227%22%2F%3E%3Cline%20x1%3D%227%22%20y1%3D%224%22%20x2%3D%227%22%20y2%3D%2210%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E'); border-color:#a16207; opacity:.85;"></span>
+                <span><b>Macchia giallo pallido con crocette</b>: area in cui lo strumento LI ha rilevato emissione ottica nello slot di 5 minuti. Le crocette indicano la texture di lettura, non la posizione dei fulmini: servono a non confondere il giallo dell'area con il giallo delle precipitazioni. È l'<b>area coperta</b>, non la posizione dei fulmini e non un numero di eventi. Non distingue emissioni intra-nube da quelle al suolo.</span>
             </div>
             <div class="legend-row" id="afa-legend-status" style="font-size:10px;color:#94a3b8;">
                 Nessun pixel attivo = in quello slot non è stata rilevata emissione ottica nell'area inquadrata: <b>non</b> significa «zero fulmini» né «nessun temporale».
@@ -2944,9 +2944,9 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
             </summary>
             <div class="fc-body">
                 <div class="fc-tabs" role="tablist" aria-label="Vista della previsione">
-                    <button type="button" class="fc-tab" id="fc-tab-provincia" role="tab" aria-selected="true" aria-controls="fc-pane-provincia" tabindex="0">Provincia</button>
-                    <button type="button" class="fc-tab" id="fc-tab-aree" role="tab" aria-selected="false" aria-controls="fc-pane-aree" tabindex="-1">Aree</button>
-                    <button type="button" class="fc-tab" id="fc-tab-settimana" role="tab" aria-selected="false" aria-controls="fc-pane-settimana" tabindex="-1">7 giorni</button>
+                    <button type="button" class="fc-tab" id="fc-tab-provincia" title="Previsione della provincia selezionata" role="tab" aria-selected="true" aria-controls="fc-pane-provincia" tabindex="0">Provincia</button>
+                    <button type="button" class="fc-tab" id="fc-tab-aree" title="Sintesi per aree" role="tab" aria-selected="false" aria-controls="fc-pane-aree" tabindex="-1">Aree</button>
+                    <button type="button" class="fc-tab" id="fc-tab-settimana" title="Previsione a 7 giorni" role="tab" aria-selected="false" aria-controls="fc-pane-settimana" tabindex="-1">7 giorni</button>
                 </div>
                 <div class="fc-pane" id="fc-pane-provincia" role="tabpanel" aria-labelledby="fc-tab-provincia">
                     <div class="tds-card" id="three-day-summary" aria-label="Sintesi previsionale a tre giorni">
@@ -3135,9 +3135,13 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.54';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.55';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-23';
     const APP_CHANGELOG = [
+    { version: '1.3.0.55', date: '2026-11-23', changes: [
+      "CAPTION, BORDI E TOOLTIP: la didascalia della timeline sincronizzata non nomina piu Blitzortung, perche in questa edizione le sorgenti fulmini sono disattivate: isLightningActive diventa vero solo se enabledLightningSourceIds() restituisce almeno una sorgente, e non c e piu il fallback a una sorgente spenta. I confini provinciali spariscono fuori dal prodotto Mappa dei rischi (la provincia selezionata resta azzurra) e 23 pulsanti e linguette hanno il tooltip title.",
+      "AFA CON CROCETTE E MASTER DELLE STRUTTURE CONVETTIVE: il motore satellite disegna una texture di crocette scure sui soli pixel attivi dell area AFA (alpha identico pixel per pixel, nessun buco riempito, nessuna nuova libreria) e la legenda la dichiara come texture di lettura, non come posizione dei fulmini; attivando le strutture convettive nel pannello LIVE si accendono traccia, forecast e fenomeni prima del fetch, senza spegnimenti in cascata."
+    ]},
     { version: '1.3.0.54', date: '2026-11-23', changes: [
       "MAPPA DEI RISCHI LEGATA AL PRODOTTO: il riempimento delle province, i badge e la legenda appartengono al solo prodotto Mappa dei rischi. Con Radar Player, Pannello LIVE, Fonti, Teleconnessioni, Previsioni o nessun prodotto i poligoni restano neutri ma cliccabili (fillOpacity 0, opacity 1, nessun removeLayer: hover e clic provincia invariati) e non restano i colori del prodotto precedente. Il gate e in updateMapColors, updateMarkerSelection, updateRiskBadges e renderLegend; la firma di hydroPaintSignature include activeProductId.",
       "LEGENDA DEI RISCHI NASCOSTA FUORI DAL PRODOTTO: renderLegend nasconde #legend-container quando il prodotto non e Mappa dei rischi, ma NON quando lo usa un altro consumatore dello stesso contenitore (layer Criticita DPC, allerte DPC, embed radar). Lo switch Rischi segue il prodotto (syncContextualToggles) e chiudendo le mappe previsionali i colori vengono ridipinti."
@@ -7845,10 +7849,13 @@ cleanupAllSatLayers();
 var info = eumetsatLayerMap[satSource] || eumetsatLayerMap['eumetsat'];
             parts.push(info.label || 'Satellite');
         }
-        if (isLightningActive) {
+        if (isLightningActive && enabledLightningSourceIds().length > 0) {
 var liLabel;
-            if (lightningSource === 'blitzortung_new') liLabel = 'Blitzortung (New) · Limaps';
-            else if (lightningSource === 'blitzortung') liLabel = 'Blitzortung (Old)';
+            // 1.3.0.55 - nessun marchio di sorgente nella didascalia: con le
+            // sorgenti fulmini disattivate il ramo non si accende; se in futuro
+            // se ne abilita una, la caption resta descrittiva.
+            if (lightningSource === 'blitzortung_new') liLabel = 'Fulmini (archivio a 5 min)';
+            else if (lightningSource === 'blitzortung') liLabel = 'Fulmini (rete in tempo reale)';
             else liLabel = 'Fulmini';
             parts.push(liLabel);
         }
@@ -9172,7 +9179,7 @@ satSource = (_sOk.indexOf('eumetsat_italy') !== -1) ? 'eumetsat_italy'
 
 // 3. Fulmini: primo source abilitato in questa edizione
             var _lOk = enabledLightningSourceIds();
-            lightningSource = _lOk.length > 0 ? _lOk[0] : 'blitzortung';
+            lightningSource = _lOk.length > 0 ? _lOk[0] : '';
             var lsSel = document.getElementById('lightning-source-select');
             if (lsSel) { lsSel.value = lightningSource; lsSel.style.display = ''; }
 
@@ -9221,11 +9228,16 @@ satSource = (_sOk.indexOf('eumetsat_italy') !== -1) ? 'eumetsat_italy'
             updateRadarDopplerUI();
 
             // Attiva fulmini del primo source (in questa edizione disabilitato)
-            isLightningActive = true;
+            // 1.3.0.55 - il vecchio `= true` incondizionato accendeva il ramo
+            // della caption con lightningSource ancora 'blitzortung', cioe' una
+            // sorgente DISATTIVATA: nessun layer, ma la didascalia la nominava.
+            var _lSrc = enabledLightningSourceIds();
+            isLightningActive = _lSrc.length > 0;
+            if (isLightningActive) lightningSource = _lSrc[0];
             // FIX 1.0.0.2: il bottone #btn-lightning è stato rimosso dal cleanup UI di
             // questa edizione → guardia null-safe (prima il player radar si bloccava
             // su "⏳ Caricamento..." con TypeError su innerText di null).
-            if (btnLight) {
+            if (btnLight && isLightningActive) {
                 btnLight.innerText = '⚡ Fulmini (ON)';
                 btnLight.style.borderColor = '#22c55e';
                 btnLight.classList.add('active');
@@ -9309,7 +9321,7 @@ removeLightningTile();
             // Reset ai defaults globali (primo provider/source abilitato in questa edizione)
             radarProvider = enabledRadarProviderIds()[0] || 'rainviewer';
             satSource = enabledSatSourceIds()[0] || 'eumetsat';
-            lightningSource = enabledLightningSourceIds()[0] || 'blitzortung';
+            lightningSource = enabledLightningSourceIds()[0] || '';
 
             showSyncPanelIfNeeded();
             updateSyncCaption();
@@ -11907,6 +11919,9 @@ removeLightningTile();
             if (subEl) subEl.style.display = liveShowSupercells ? '' : 'none';
         }
         if (liveShowSupercells) {
+            // 1.3.0.55 - master: prima del fetch, cosi' traccia/forecast/fenomeni
+            // esistono gia' quando la pipeline disegna. Nessuno spegnimento in cascata.
+            enableLinkedScProducts();
             refreshLiveSupercells();
         } else {
             liveClearSupercells();
@@ -12074,6 +12089,16 @@ removeLightningTile();
     var scLastCands = [];           // ultimi candidati renderizzati (refresh pennant con badge)
     var scLatestMeta = null;        // ultimo latest.json (warnings: tentativi fulmini 403)
     var scTrailUidMap = {};         // track_type#track_id -> 'u#uid' (dai slot history)
+
+    // 1.3.0.55 - master: le strutture convettive non hanno senso senza traccia,
+    // forecast e fenomeni. I flag vanno accesi PRIMA del fetch: refreshScHistory
+    // / scRedrawForecasts / scActivePhenomenaBadges escono subito se il flag e'
+    // false. NON si spegne nulla in cascata: i flag sono condivisi col pannello SC.
+    function enableLinkedScProducts() {
+        if (!scShowTrails)    { scShowTrails = true;    scSetToggleBtn('sc-toggle-trails', true); }
+        if (!scShowForecast)  { scShowForecast = true;  scSetToggleBtn('sc-toggle-forecast', true); }
+        if (!scShowPhenomena) { scShowPhenomena = true; scSetToggleBtn('sc-toggle-phenomena', true); }
+    }
 
     // Sottosistema celle organizzate ATTIVO: pannello SC aperto OPPURE toggle
     // "Struttura convettiva" del LIVE panel acceso. Unica fonte di verita' per
@@ -23979,6 +24004,11 @@ function toggleForecastMaps() {
             if (isSelected) {
                 layer.setStyle({ color: '#38bdf8', weight: 3, opacity: 1 });
                 if (layer.bringToFront) { try { layer.bringToFront(); } catch (e) {} }
+            } else if (!isRiskProductActive()) {
+                // 1.3.0.55 - i confini appartengono alla mappa dei rischi: fuori dal
+                // prodotto niente rete bianca. La provincia selezionata resta azzurra
+                // (ramo sopra), quindi il clic continua a dare un riscontro visivo.
+                layer.setStyle({ fill: false, weight: 0, opacity: 0 });
             } else if (continuousMode) {
                 layer.setStyle({ fill: false, weight: 0, opacity: 0 });
             } else {
@@ -26691,7 +26721,7 @@ function toggleForecastMaps() {
             if (tbody) {
                 tbody.innerHTML = '<tr><td colspan="5" style="color:#ef4444;">' +
                     (quotaReason ? 'Open-Meteo: ' + escapeHtml(quotaReason) : 'Nessun modello ha risposto') +
-                    ' <button type="button" id="mc-retry" style="margin-left:6px;cursor:pointer;background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:4px;padding:2px 8px;">Riprova</button></td></tr>';
+                    ' <button type="button" id="mc-retry" title="Riprova a caricare il confronto fra modelli" style="margin-left:6px;cursor:pointer;background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:4px;padding:2px 8px;">Riprova</button></td></tr>';
             }
             var mcRetry0 = document.getElementById('mc-retry');
             if (mcRetry0) {
@@ -37295,7 +37325,7 @@ window.MRIStale = { track: track, render: render, ageText: ageText, thresholds: 
     <div class="help-card">
         <div class="help-head">
             <h2 id="help-title">Come leggere questa mappa in 30 secondi</h2>
-            <button type="button" id="help-close" class="help-close" aria-label="Chiudi la guida">✕</button>
+            <button type="button" id="help-close" title="Chiudi la guida" class="help-close" aria-label="Chiudi la guida">✕</button>
         </div>
         <div class="help-body" id="help-body">
             <div class="help-sec">

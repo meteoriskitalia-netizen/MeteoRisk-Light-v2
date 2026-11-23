@@ -65,7 +65,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageChops, ImageDraw
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common
@@ -234,8 +234,69 @@ def png_to_webp(body):
 
 
 # ---------------------------------------------------------------------------
-# 1.3.0.45 — AFA MULTI-FRAME (sorgente ausiliaria)
+# 1.3.0.55 — AFA CON CROCETTE (texture di lettura, server-side)
 # ---------------------------------------------------------------------------
+# Il giallo pallido dell'area a emissione ottica si confonde con il giallo delle
+# precipitazioni. Prima della conversione in WebP si sovrappone una texture di
+# CROCETTE scure (non fulmini: le crocette sono una texture di lettura, non la
+# posizione delle scariche) sui SOLI pixel attivi:
+#   - l'alpha del frame non cambia MAI (fuori dalla macchia resta 0, dentro resta
+#     quello originale), quindi afa_frame_stats continua a contare gli stessi
+#     pixel attivi e i buchi non vengono riempiti;
+#   - cambia solo l'RGB dei pixel dove la crocetta cade DENTRO la macchia
+#     (~78% verso (20,25,45), cioe' resta leggibile a opacita' 0,85);
+#   - PIL puro (ImageDraw + Image.composite): nessuna nuova dipendenza.
+AFA_TEXTURE_VERSION = 1
+AFA_TEXTURE_STEP_PX = 14        # passo della griglia di crocette
+AFA_TEXTURE_ARM_PX = 3          # braccio: croce di 7 px (x-3..x+3)
+AFA_TEXTURE_WIDTH_PX = 2        # spessore del tratto
+AFA_TEXTURE_COLOR = (20, 25, 45)
+AFA_TEXTURE_ALPHA = 200         # opacita' del tratto (0-255) prima del blend
+
+
+def apply_afa_texture(image):
+    """Sovrappone le crocette ai soli pixel attivi (alpha>0) e ritorna RGBA.
+
+    `image` puo' essere in qualunque modalita' Pillow: viene convertita in RGBA.
+    L'alpha del risultato e' ESATTAMENTE quello in ingresso (putalpha finale):
+    la texture non aggiunge pixel attivi e non toglie quelli esistenti.
+    """
+    img = image.convert("RGBA")
+    w, h = img.size
+    if w == 0 or h == 0:
+        return img
+    alpha = img.getchannel("A")
+    active = alpha.point(lambda a: 255 if a > 0 else 0)
+    overlay = Image.new("L", (w, h), 0)
+    draw = ImageDraw.Draw(overlay)
+    half = AFA_TEXTURE_ARM_PX
+    start = AFA_TEXTURE_STEP_PX // 2
+    for x in range(start, w, AFA_TEXTURE_STEP_PX):
+        for y in range(start, h, AFA_TEXTURE_STEP_PX):
+            draw.line([(x - half, y), (x + half, y)],
+                      fill=AFA_TEXTURE_ALPHA, width=AFA_TEXTURE_WIDTH_PX)
+            draw.line([(x, y - half), (x, y + half)],
+                      fill=AFA_TEXTURE_ALPHA, width=AFA_TEXTURE_WIDTH_PX)
+    # Fuori dalla macchia l'overlay vale 0: nessun pixel trasparente viene toccato.
+    overlay = ImageChops.multiply(overlay, active)
+    if overlay.getbbox() is None:
+        return img
+    dark = Image.new("RGB", (w, h), AFA_TEXTURE_COLOR)
+    blended = Image.composite(dark, img.convert("RGB"), overlay)
+    out = blended.convert("RGBA")
+    out.putalpha(alpha)  # alpha invariato, pixel per pixel
+    return out
+
+
+def afa_to_webp(body):
+    """Ri-codifica un frame AFA (PNG o WebP) in WebP applicando la texture."""
+    with Image.open(io.BytesIO(body)) as src:
+        textured = apply_afa_texture(src)
+    out = io.BytesIO()
+    textured.save(out, "WEBP", quality=WEBP_QUALITY, method=WEBP_METHOD)
+    return out.getvalue()
+
+
 def afa_frame_stats(body):
     """(pixel con alpha>0, has_signal) da un frame WebP/PNG in bytes.
 
@@ -299,7 +360,15 @@ def process_afa_source(slot, out_root, prev_meta=None):
     served = None
     if is_webp_file(target):
         body = target.read_bytes()
-        served = (prev_meta or {}).get(name, {}).get("served_iso")
+        prev = (prev_meta or {}).get(name) or {}
+        served = prev.get("served_iso")
+        # 1.3.0.55 - slot pubblicato PRIMA della texture: si rielabora il file
+        # GIA' su disco (nessuna richiesta di rete) e si riscrive, cosi' la
+        # finestra di 25 slot si converte senza aspettare il backfill.
+        if prev.get("texture_version") != AFA_TEXTURE_VERSION:
+            body = afa_to_webp(body)
+            with open(target, "wb") as fh:
+                fh.write(body)
     else:
         url = build_getmap_url(AFA_LAYER, slot_time(slot), ITALY_FRAME_WIDTH,
                                (IT_WEST, IT_EAST, IT_SOUTH, IT_NORTH))
@@ -308,7 +377,8 @@ def process_afa_source(slot, out_root, prev_meta=None):
             return None
         raw, warning = fetched
         served = _warning_iso(warning)
-        body = raw if is_webp(raw) else png_to_webp(raw)
+        # Texture PRIMA dell'encode WebP (vale anche se la WMS ha risposto WebP).
+        body = afa_to_webp(raw)
         with open(target, "wb") as fh:
             fh.write(body)
     active, has_signal = afa_frame_stats(body)
@@ -319,6 +389,7 @@ def process_afa_source(slot, out_root, prev_meta=None):
         "served_iso": served,
         "active_pixels": active,
         "has_signal": has_signal,
+        "texture_version": AFA_TEXTURE_VERSION,
         "sha256": hashlib.sha256(body).hexdigest(),
         "bytes": len(body),
         "layer": AFA_LAYER,
