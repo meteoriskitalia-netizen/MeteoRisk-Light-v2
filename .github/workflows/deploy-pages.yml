@@ -87,6 +87,36 @@ jobs:
             echo "[WARN] daily_series.json non disponibile su stations-daily: fallback locale etichettato."
           fi
 
+      # ======================================================================
+      # 1.3.0.48 - GATE DI SINTASSI JS PRIMA DEL DEPLOY (igiene CI).
+      # MISURATO prima di questo gate: test_html_js_syntax.py NON era eseguito
+      # da nessun workflow con deploy, quindi un apostrofo non escapato nel
+      # changelog inline poteva rendere l'INTERO <script> un SyntaxError e
+      # arrivare in produzione (difetto reale della 1.2.4.17, trovato a mano).
+      # Il test compila OGNI blocco <script> inline di APP_FILE con `node
+      # --check`. Va eseguito PRIMA del `cp "$APP_FILE" _site/index.html`.
+      # NOTA: senza `node` nel PATH il test fa SKIP (dichiarato) e il gate
+      # sarebbe vuoto -> setup-node sotto e' obbligatorio, non cosmetico.
+      # ======================================================================
+      - name: Setup Python (gate sintassi JS)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup Node (gate sintassi JS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Valida sintassi JS dell'HTML da pubblicare (fail = niente deploy)
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          set -e
+          python -m pip install --quiet pytest
+          python -m pytest scripts/tests/test_html_js_syntax.py -q --capture=sys
+          echo "[INFO] Sintassi JS degli script inline di APP_FILE valida."
+
       # Build dell'artefatto replicando radar-engine.yml / update-weather-data.yml:
       # app + tutti i dati gia' pubblicati su main + restore dei branch dedicati.
       - name: Build sito statico Pages (app + data/latest + data/geography + data/radar + data/phenomena + satellite)

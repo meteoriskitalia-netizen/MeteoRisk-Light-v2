@@ -1,0 +1,218 @@
+name: Radar Availability (tabella disponibilita' OPERA/VRADH)
+
+# ==========================================================================
+# 1.3.0.48 - LA TABELLA DI DISPONIBILITA' RADAR DIVENTA UN ARTEFATTO PRODOTTO
+# --------------------------------------------------------------------------
+# PERCHE' ESISTE: `scripts/radar_engine/site_availability.py` produce la
+# tabella a 13 campi / 5 stati dai DATI REALI (catalogo ORD + backup S3 ORD
+# 24 h, ODIM_H5), con 4/4 test verdi, ma NESSUN workflow la invocava: il file
+# `data/radar/radar_availability.json` non esisteva su main e la tabella
+# `docs/OPERA_VRADH_AVAILABILITY.md` restava compilata a mano.
+#
+# COSTO MISURATO (2026-11-23, questo host, 30 siti, listing S3 paginato,
+# pause-s 0.3 di default): 52,1 s end-to-end, 30 siti misurati
+# (5 unavailable + 25 partial). E' un carico LIMITATO DALLA RETE verso servizi
+# esterni (ORD/S3), non dalla CPU: su un runner GitHub freddo il tempo puo'
+# superare i 60 s.
+#
+# SCELTA DICHIARATA: workflow DEDICATO ogni 30 minuti, NON uno step di
+# radar-engine.yml. Motivi: (a) 52,1 s sono l'87% della soglia di 60 s e il
+# margine si erode su un runner freddo; (b) la tabella e' a variazione lenta e
+# non ha senso ricalcolarla ogni ~5 minuti (cadenza radar); (c) un guasto di
+# ORD/S3 non deve mai entrare nel percorso critico che pubblica i derivati
+# radar. Costo accettato: l'artefatto puo' essere vecchio fino a 30 minuti,
+# dichiarato in `generated_at` dentro il JSON.
+#
+# UNICO SCRITTORE: solo questo workflow scrive data/radar/radar_availability.json
+# (radar-engine.yml non lo tocca: nessun lost-update). radar-engine e
+# update-weather-data copiano gia' `data/radar` in _site, quindi il file
+# arriva su Pages senza altre modifiche.
+# ==========================================================================
+
+on:
+  schedule:
+    # Ogni 30 minuti (UTC). GitHub puo' ritardare le run schedulate: il dato
+    # non e' real-time e `generated_at` dichiara l'istante reale di misura.
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  radar-availability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Serializza le run di QUESTO workflow: due run concorrenti scriverebbero
+    # lo stesso file (lost-update). Nessun legame con i deploy Pages.
+    concurrency:
+      group: radar-availability
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # Solo h5py: site_availability.py legge gli ODIM_H5 con h5py (lazy
+      # import). NON serve l'intero requirements.txt del motore radar
+      # (rasterio/scipy/pyproj/matplotlib): installarli qui sarebbe ~10x il
+      # tempo di setup per nulla.
+      - name: Installa dipendenze (h5py)
+        run: python -m pip install --quiet "h5py>=3.10"
+
+      - name: Misura disponibilita' siti (dati reali, 30 siti)
+        id: measure
+        timeout-minutes: 12
+        run: |
+          set -o pipefail
+          time python scripts/radar_engine/site_availability.py \
+            --out data/radar/radar_availability.json.new
+          echo "--- dimensione artefatto ---"
+          wc -c data/radar/radar_availability.json.new
+          # CAMBIO MATERIALE: `generated_at` cambia a ogni misura e `age_min`
+          # (eta' dello scan) cambia ogni pochi minuti. Committare a ogni run
+          # significherebbe ~74 KB x 48 run/giorno = ~3,5 MB/giorno di storia
+          # git, cioe' esattamente il tipo di crescita che la 1.3.0.48 sta
+          # ripulendo. Quindi il file si aggiorna SOLO se cambia qualcosa di
+          # sostanziale (stato, campi, scan piu' recente, sha ODIM...).
+          changed=$(python - <<'PY'
+          import json
+          import os
+
+          new_path = "data/radar/radar_availability.json.new"
+          old_path = "data/radar/radar_availability.json"
+
+
+          def signature(doc):
+              d = json.loads(json.dumps(doc))
+              d.pop("generated_at", None)
+              for site in d.get("sites") or []:
+                  site.pop("age_min", None)
+              return json.dumps(d, sort_keys=True, ensure_ascii=False)
+
+          if not os.path.exists(old_path):
+              print("1")
+              raise SystemExit
+          new = json.load(open(new_path, encoding="utf-8"))
+          old = json.load(open(old_path, encoding="utf-8"))
+          print("0" if signature(new) == signature(old) else "1")
+          PY
+          )
+          if [ -z "$changed" ]; then
+            echo "::error::confronto 'cambio materiale' non eseguito (python/heredoc)"
+            exit 1
+          fi
+          echo "material_change=$changed"
+          if [ "$changed" = "1" ]; then
+            mv data/radar/radar_availability.json.new data/radar/radar_availability.json
+            echo "[INFO] cambio materiale: artefatto aggiornato."
+          else
+            rm -f data/radar/radar_availability.json.new
+            echo "[INFO] nessun cambio materiale (esclusi generated_at/age_min): file invariato, nessun commit."
+          fi
+
+      # Gate sull'artefatto: 13 campi per sito, 5 stati dichiarati, counts
+      # coerenti con n_sites. Se lo script cambia contratto, il run FALLISCE
+      # (meglio nessun aggiornamento che un JSON fuori schema su main).
+      - name: Valida l'artefatto (13 campi, 5 stati, counts coerenti)
+        run: |
+          python - <<'PY'
+          import json
+          import sys
+
+          path = "data/radar/radar_availability.json"
+          with open(path, encoding="utf-8") as fh:
+              doc = json.load(fh)
+
+          expected_fields = {
+              "radar_id", "radar_name", "latitude", "longitude", "altitude",
+              "ni", "variables", "elevation_angles", "range", "resolution",
+              "update_interval", "last_available_scan", "quality_score",
+          }
+          expected_states = {"ok", "partial", "invalid", "stale", "unavailable"}
+          errors = []
+
+          fields = list(doc.get("fields") or [])
+          states = list(doc.get("states") or [])
+          sites = list(doc.get("sites") or [])
+          if set(fields) != expected_fields or len(fields) != 13:
+              errors.append("fields != 13 attesi: %r" % (fields,))
+          if set(states) != expected_states or len(states) != 5:
+              errors.append("states != 5 attesi: %r" % (states,))
+          if not sites:
+              errors.append("sites vuoto")
+          counts = doc.get("counts") or {}
+          if sum(int(v) for v in counts.values()) != len(sites):
+              errors.append("counts (%r) non somma a n_sites=%d"
+                            % (counts, len(sites)))
+          for site in sites:
+              rid = site.get("radar_id")
+              if set(site.get("fields") or {}) != expected_fields:
+                  errors.append("%s: fields != 13" % rid)
+              if site.get("status") not in expected_states:
+                  errors.append("%s: status %r fuori dai 5 stati"
+                                % (rid, site.get("status")))
+              for name, block in (site.get("fields") or {}).items():
+                  if not isinstance(block, dict):
+                      errors.append("%s.%s: non e' un dict" % (rid, name))
+                      continue
+                  if block.get("value") is None and not block.get("null_reason"):
+                      errors.append("%s.%s: null senza null_reason" % (rid, name))
+
+          if errors:
+              for err in errors:
+                  print("::error::radar_availability invalido: %s" % err)
+              sys.exit(1)
+          print("[INFO] artefatto valido: %d siti, 13 campi, 5 stati, counts=%r"
+                % (len(sites), counts))
+          PY
+
+      - name: Commit tabella disponibilita' (only if changed)
+        run: |
+          git config user.name "meteorisk-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/radar/radar_availability.json
+          if git diff --cached --quiet; then
+            echo "[INFO] radar_availability.json invariato: nessun commit."
+            exit 0
+          fi
+          git commit -m "chore(radar): tabella disponibilita' siti OPERA/VRADH (13 campi, 5 stati)"
+          # Stessa protezione dalla race su main degli altri workflow:
+          # pull --rebase prima di ogni push, retry con backoff.
+          ok=0
+          for i in 1 2 3 4 5; do
+            git rebase --abort 2>/dev/null || true
+            if git pull --rebase --autostash -X theirs origin main && git push origin main; then
+              ok=1
+              break
+            fi
+            echo "[WARN] push radar_availability rifiutato (race su main) - tentativo $i/5"
+            sleep $((i * 5))
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::push radar_availability non riuscito dopo 5 tentativi"
+            exit 1
+          fi
+
+      - name: Summary (sempre eseguito)
+        if: always()
+        run: |
+          {
+            echo "## Tabella disponibilita' radar (OPERA/VRADH)"
+            echo ""
+            if [ -f data/radar/radar_availability.json ]; then
+              # `python -c` (non heredoc): un heredoc qui arriverebbe INDENTATO
+              # dentro l'if e Python fallirebbe con IndentationError.
+              python -c 'import json;d=json.load(open("data/radar/radar_availability.json",encoding="utf-8"));print("**Generata:** `%s` - **siti:** %d" % (d.get("generated_at"), d.get("n_sites",0)));print("");print("| stato | siti |");print("| :--- | ---: |");[print("| %s | %s |" % (k,(d.get("counts") or {}).get(k,0))) for k in ("ok","partial","invalid","stale","unavailable")]'
+            else
+              echo "Artefatto assente: nessuna misura prodotta in questa run."
+            fi
+            echo ""
+            echo "Dato reale da ORD + backup S3 ORD 24 h (ODIM_H5). Nessun valore stimato: \`quality_score\` resta null motivato."
+          } >> "$GITHUB_STEP_SUMMARY"

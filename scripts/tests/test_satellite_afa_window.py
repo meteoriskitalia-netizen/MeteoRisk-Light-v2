@@ -20,7 +20,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import satellite_engine as SE  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
-HTML_CANDIDATES = ("mri-light-1.3.0.45.html", "mri-light-1.3.0.43.html")
+# 1.3.0.48: la 1.3.0.43 non e' piu' nel repo (pulizia release vecchie): resta
+# il solo client attivo, APP_FILE di VERSION.
+HTML_CANDIDATES = ("mri-light-1.3.0.45.html",)
 
 
 def _webp_bytes(size=(8, 8), alpha=0):

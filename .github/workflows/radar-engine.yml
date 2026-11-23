@@ -389,6 +389,34 @@ jobs:
                   fh.write("- " + msg + "\n")
           PY
 
+      # ======================================================================
+      # 1.3.0.48 - GATE SUI PAYLOAD RADAR (igiene CI).
+      # MISURATO prima di questo step: `scripts/radar_engine/output.py::
+      # validate_outputs(out_dir)` esisteva ed era coperto da 8 test, ma NESSUN
+      # workflow lo invocava: un payload derivato malformato poteva essere
+      # committato e servito. Qui valida i file che stanno per essere committati
+      # (dopo timings_ms, che riscrive latest.json) e FALLISCE il run.
+      # Firma reale: validate_outputs(out_dir) -> list[str] di errori (vuota = ok).
+      # ======================================================================
+      - name: Valida payload radar (validate_outputs, pre-commit)
+        if: success()
+        timeout-minutes: 2
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+
+          sys.path.insert(0, os.path.join(os.getcwd(), "scripts"))
+          from radar_engine.output import validate_outputs
+
+          errors = validate_outputs("data/radar")
+          if errors:
+              for err in errors:
+                  print("::error::payload radar invalido: %s" % err)
+              sys.exit(1)
+          print("[INFO] payload radar valido (latest/storms/tracks/structures)")
+          PY
+
       - name: Commit output derivato (only if changed)
         if: success()
         timeout-minutes: 5

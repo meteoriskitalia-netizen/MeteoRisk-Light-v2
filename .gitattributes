@@ -1,2 +1,9 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Auto detect text files and perform LF normalization.
+# 1.3.0.48 (CI hygiene): `eol=lf` fissa la forma del WORKING TREE a LF su ogni
+# piattaforma. Motivo MISURATO: con il solo `text=auto` il checkout usava
+# `core.eol=native`, quindi su Windows i file arrivavano CRLF e 5 test
+# (3 fixture XML meso, normals_1991_2020.json, data/latest/weekly.json)
+# fallivano per i CR, cosa che in CI (Linux) non succedeva. I blob nel repo
+# erano GIA' LF: questa riga non tocca il contenuto versionato, solo la forma
+# scritta su disco.
+* text=auto eol=lf

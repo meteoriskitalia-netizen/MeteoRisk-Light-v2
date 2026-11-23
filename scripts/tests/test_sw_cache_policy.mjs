@@ -39,8 +39,17 @@ const SW_PATH = path.join(ROOT, 'sw.js');
 if (!fs.existsSync(SW_PATH)) { console.error('FATAL: sw.js non trovato in ' + ROOT); process.exit(1); }
 const swSrc = fs.readFileSync(SW_PATH, 'utf8');
 const VERSION_SRC = fs.readFileSync(path.join(ROOT, 'VERSION'), 'utf8');
-const htmlName = (fs.readdirSync(ROOT).filter((f) => /^mri-light-\d+(\.\d+)+\.html$/.test(f))[0]) || '';
-const htmlSrc = htmlName ? fs.readFileSync(path.join(ROOT, htmlName), 'utf8') : '';
+// 1.3.0.48: il client attivo e' APP_FILE di VERSION, NON il "primo html" che
+// capita in `readdirSync` (ordine del filesystem, cambia quando si rimuovono
+// le release vecchie). Se APP_FILE manca o il file non c'e', il test FALLISCE:
+// non deve mai misurare un html diverso da quello pubblicato.
+const APP_FILE_DECL = ((VERSION_SRC.match(/^APP_FILE=(.+)$/m) || [])[1] || '').trim();
+if (!APP_FILE_DECL || !fs.existsSync(path.join(ROOT, APP_FILE_DECL))) {
+  console.error('FATAL: APP_FILE di VERSION non trovato: ' + JSON.stringify(APP_FILE_DECL));
+  process.exit(1);
+}
+const htmlName = APP_FILE_DECL;
+const htmlSrc = fs.readFileSync(path.join(ROOT, htmlName), 'utf8');
 
 let failures = 0;
 function ok(label, cond, detail = '') {
