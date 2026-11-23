@@ -5,9 +5,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { appPath } from './_app_path.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const src = fs.readFileSync(path.join(root, 'mri-light-1.2.4.97.html'), 'utf8');
+const src = fs.readFileSync(appPath(), 'utf8');
 const m = src.match(/function orgImpactNote\(r\) \{[\s\S]*?\n    \}/);
 if (!m) throw new Error('orgImpactNote non trovata');
 const ctx = { orgClassOf: (r) => r.orgClass, isSviluppoActive: false };

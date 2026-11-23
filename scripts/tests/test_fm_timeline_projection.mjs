@@ -30,10 +30,10 @@ import fs from 'fs';
 import path from 'path';
 import vm from 'vm';
 import { fileURLToPath } from 'url';
+import { appPath } from './_app_path.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.101.html');
-if (!fs.existsSync(HTML)) { console.error('FATAL: mri-light-1.2.4.101.html non trovato'); process.exit(1); }
+const HTML = appPath();
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;

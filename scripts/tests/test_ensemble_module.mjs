@@ -16,9 +16,10 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { appPath, appVersion } from './_app_path.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.101.html');
+const HTML = appPath();
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -172,7 +173,7 @@ ok('F7: inizializzazione del modulo in startApp (oltre alla definizione)',
   (src.match(/initEnsembleModule\(\)/g) || []).length >= 2);
 
 // ---------- G. VERSIONE ----------
-  ok('G1: APP_VERSION = 1.2.4.12', has(/APP_VERSION\s*=\s*['"]1.2.4.95['"]/));
+  ok('G1: APP_VERSION coerente con APP_FILE (' + appVersion() + ')', has(new RegExp("APP_VERSION\\s*=\\s*['\"]" + appVersion().replace(/\./g, '\\.') + "['\"]")));
 ok('G2: changelog 1.0.0.15 MODULO ENSEMBLE OPEN-METEO presente',
   has(/MODULO ENSEMBLE OPEN-METEO \(1\.0\.0\.15\)/));
 ok('G3: bump 1.0.1.2 presente — changelog con asse RR adattivo minimo 60 mm (pioggia oraria)',

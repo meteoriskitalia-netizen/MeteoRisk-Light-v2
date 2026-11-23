@@ -22,9 +22,10 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { appPath, appVersion } from './_app_path.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.101.html');
+const HTML = appPath();
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -131,7 +132,7 @@ ok('6d: fetch("satellite/manifest.json") presente (letterale, template o via sat
   has(/fetch\(\s*['"`][^'"`]*manifest\.json['"`]/));
 
 // ---------- 7. VERSIONE ----------
-ok('7: APP_VERSION = 1.2.4.12', has(/APP_VERSION\s*=\s*['"]1.2.4.95['"]/));
+  ok('7: APP_VERSION coerente con APP_FILE (' + appVersion() + ')', has(new RegExp("APP_VERSION\\s*=\\s*['\"]" + appVersion().replace(/\./g, '\\.') + "['\"]")));
 
 console.log(`\nRESULT: ${failures === 0 ? 'PASS' : 'FAIL'} (${failures} errori)`);
 process.exit(failures === 0 ? 0 : 1);

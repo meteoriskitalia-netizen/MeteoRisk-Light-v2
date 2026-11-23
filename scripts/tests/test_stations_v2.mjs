@@ -9,9 +9,10 @@ import fs from 'fs';
 import path from 'path';
 import vm from 'vm';
 import { fileURLToPath } from 'url';
+import { appPath } from './_app_path.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.3.0.5.html');
+const HTML = appPath();
 const src = fs.readFileSync(HTML, 'utf8');
 
 let checks = 0, failures = 0;
@@ -48,6 +49,7 @@ const names = [
   'stationsWindDirQuadrant', 'stationsDewPoint', 'stationsNum', 'stationsLocalDayKey',
   'stationsSeriesTuple', 'stationsSeriesPush', 'stationsSeriesRead', 'stationsSeriesWrite',
   'stationsSeriesValue', 'stationsRomeParts', 'stationsLocalMidnightUtc',
+  'stationsSeriesSource', 'stationsSeriesPoints', 'stationsWindRoseHtml',
   'stationsNwpSeries', 'stationsChartHtml', 'stationsBuildLegend', 'stationsParamChanged',
   'stationsFieldValue', 'stationsLabelText'
 ];
@@ -88,7 +90,7 @@ const ctxObj = {
   stationsClock: (t) => { const x = new Date(t); return String(x.getUTCHours()).padStart(2, '0') + ':' + String(x.getUTCMinutes()).padStart(2, '0'); },
   stationsDrawCanvas: () => {},
   stationsBandScale: () => ctxObj.FM_COLOR_SCALE_OVERRIDES[ctxObj.STATIONS_LABEL_FIELD.scale] || null,
-  stationsLayerObj: null, stationsCanvas: null, stationsData: null,
+  stationsLayerObj: null, stationsCanvas: null, stationsData: null, stationsDaily: null,
   stationsUpdateStatus: () => {},
   datasetState: { loaded: true, day0: '2026-11-17', generatedAt: '2026-11-17T18:23:52.698733+00:00' },
   cellsNwpStore: () => ctxObj.nwpCtx,

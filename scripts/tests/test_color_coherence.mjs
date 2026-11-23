@@ -11,9 +11,10 @@ import fs from 'fs';
 import path from 'path';
 import vm from 'vm';
 import { fileURLToPath } from 'url';
+import { appPath } from './_app_path.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.101.html');
+const HTML = appPath();
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -48,6 +49,10 @@ const TPROFILE = { level: 0, color: '#334155' };
 const CPROFILE = { level: 0, color: '#334155' };
 const ctx = {
   isNewIndicesActive: false,
+  // L'html dichiara `var isSviluppoActive = false;` (riga ~24328) e il contratto
+  // metricValueContract la legge: senza, la vm lanciava ReferenceError prima del
+  // primo assert (il test non era mai arrivato a misurare niente).
+  isSviluppoActive: false,
   thermalRiskIndex: 'heatindex',
   isHighRiskFilterActive: false,
   convCategory: 'no',

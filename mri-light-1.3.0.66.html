@@ -2214,23 +2214,37 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
          .live-legend/.legend-title/.legend-row delle altre legende del pannello. -->
     <div class="live-legend" id="live-stationfield-box" style="display:none;">
         <div class="legend-title" id="live-stationfield-title">Campo osservato dalle centraline — superficie interpolata (osservato, non modello)</div>
-        <div class="legend-row" style="gap:8px;">
+        <div class="legend-row" style="gap:8px;flex-wrap:wrap;">
             <label for="stationfield-var" style="font-size:10px;color:#94a3b8;">Variabile</label>
-            <select id="stationfield-var" class="fm-select" onchange="stationFieldVarChanged(this.value)" title="Variabile osservata da interpolare sulla mappa: temperatura a 2 m, pioggia cumulata sulla finestra, vento medio o raffica massima" style="font-size:11px;">
-                <option value="temp">Temperatura 2 m (°C)</option>
+            <select id="stationfield-var" class="fm-select" onchange="stationFieldVarChanged(this.value)" title="Variabile osservata da interpolare sulla mappa: temperatura a 2 m (media sulla finestra), temperatura massima e minima (finestra e giornata), umidità relativa, punto di rugiada, pioggia cumulata, vento medio, raffica massima e neve al suolo. NON interpolabili, con il motivo: direzione del vento (angolo 0-360°), pressione di stazione (dipende dalla quota) e livello idrico (zero idrometrico e unità eterogenei)." style="font-size:11px;">
+                <option value="temp">Temperatura 2 m (°C, media sulla finestra)</option>
+                <option value="tmax">Temperatura massima (°C)</option>
+                <option value="tmin">Temperatura minima (°C)</option>
                 <option value="rain">Pioggia cumulata (mm)</option>
                 <option value="wind">Vento medio (m/s)</option>
                 <option value="gust">Raffica massima (m/s)</option>
+                <option value="rh">Umidità relativa 2 m (%)</option>
+                <option value="dew">Punto di rugiada 2 m (°C)</option>
+                <option value="snow">Neve al suolo (cm)</option>
+                <option value="windDir" disabled title="NON interpolata: la direzione è un angolo 0-360° e l IDW sugli angoli è matematicamente sbagliato (350° e 10° sono vicini). La rosa del vento per stazione resta nel popup.">Direzione vento — non interpolata (angolo)</option>
+                <option value="pStation" disabled title="NON interpolata: è la pressione di STAZIONE (B10004), non ridotta al livello del mare; dipende dalla quota e un campo interpolato sarebbe fuorviante.">Pressione di stazione — non interpolata (dipende dalla quota)</option>
+                <option value="riverLevel" disabled title="NON interpolata: il livello idrico ha zero idrometrico e unità eterogenei tra le reti (max 91,8 m, min −18,5 m): nessuna soglia assoluta valida.">Livello idrico — non interpolato (zero idrometrico eterogeneo)</option>
             </select>
-            <label for="stationfield-window" style="font-size:10px;color:#94a3b8;">Finestra</label>
-            <select id="stationfield-window" class="fm-select" onchange="stationFieldWindowChanged(this.value)" title="Finestra di accumulo o di media della variabile scelta: 1 ora, 3 ore, 6 ore o 24 ore. Le finestre non pubblicate dal server restano disabilitate con il motivo." style="font-size:11px;">
-                <option value="1h">1 ora</option>
-                <option value="3h">3 ore</option>
-                <option value="6h">6 ore</option>
-                <option value="24h">24 ore</option>
-            </select>
-            <span id="live-stationfield-window-note" style="font-size:9px;color:#64748b;"></span>
+            <span id="stationfield-window-wrap" style="display:inline-flex;align-items:center;gap:8px;">
+                <label for="stationfield-window" style="font-size:10px;color:#94a3b8;">Finestra</label>
+                <select id="stationfield-window" class="fm-select" onchange="stationFieldWindowChanged(this.value)" title="Finestra della variabile scelta: accumulo per la pioggia, massimo per la raffica, MEDIA per temperatura, umidità relativa, punto di rugiada e vento medio (5 min, 30 min, 1 ora, 3 ore, 6 ore, 24 ore, oggi (dalla mezzanotte) dalle 00:00). Le finestre non pubblicate dal server restano selezionabili con il motivo scritto e la stazione senza il campo viene esclusa: nessun valore inventato." style="font-size:11px;">
+                    <option value="5m">5 min</option>
+                    <option value="30m">30 min</option>
+                    <option value="1h">1 ora</option>
+                    <option value="3h">3 ore</option>
+                    <option value="6h">6 ore</option>
+                    <option value="24h">24 ore</option>
+                    <option value="day">oggi (dalla mezzanotte)</option>
+                </select>
+                <span id="live-stationfield-window-note" style="font-size:9px;color:#64748b;"></span>
+            </span>
         </div>
+        <div class="legend-row" id="live-stationfield-excluded" style="font-size:9px;color:#64748b;">Non interpolabili, dichiarato: direzione del vento (angolo 0-360°, IDW sugli angoli errato), pressione di stazione (dipende dalla quota, non è MSL), livello idrico (zero idrometrico e unità eterogenei tra le reti).</div>
         <div class="legend-row" id="live-stationfield-status" style="font-size:11px;">Layer spento.</div>
         <div class="legend-row" style="margin-top:4px;gap:8px;">
             <span id="live-stationfield-unit" style="font-size:10px;color:#94a3b8;">°C</span>
@@ -3200,9 +3214,13 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.62';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.66';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-23';
     const APP_CHANGELOG = [
+    { version: '1.3.0.66', date: '2026-11-23', changes: [
+      "CAMPO CENTRALINE: FINESTRE SULLA TEMPERATURA, MASSIMA E MINIMA DELLA GIORNATA, TUTTE LE METRICHE INTERPOLABILI. Il selettore Finestra offre 5 min, 30 min, 1 ora, 3 ore, 6 ore, 24 ore e «oggi (dalla mezzanotte)» e non si disabilita piu per la temperatura: la finestra e una MEDIA (temp_mean_5m_c, temp_mean_30m_c, temp_mean_1h_c, temp_mean_3h_c) e solo se la media non e pubblicata si mostra l ultimo valore istantaneo con la nota esatta «media non ancora pubblicata dal server: mostro l ultimo valore istantaneo»; se invece il server pubblica il motivo (series_too_coarse_for_5min, series_too_coarse_for_30min, coverage_below_50pct, letti da temp_5m_null_reason, wind_mean_30m_null_reason e dalle altre forme in uso) la stazione si ESCLUDE senza ripiego e la nota riporta il motivo in italiano (con 5 min e tutte le serie grossolane: «nessuna stazione con serie a 1 minuto: finestra 5 min non calcolabile»). Nuove variabili: Temperatura MASSIMA e MINIMA (temp_max_* e temp_min_* su 5 min/30 min/1 ora/3 ore, piu la GIORNATA con temp_max_day_c e temp_min_day_c) con l ORA DEL PICCIO quando il server la pubblica (temp_max_day_hour / temp_min_day_hour): la riga di stato scrive «max 18,2 °C alle 14:00» e, se temp_day_partial e true, «giornata in corso: il massimo puo ancora salire». La media della giornata (temp_mean_day_c) NON e dichiarata dal server: l opzione si DISABILITA con il motivo invece di spacciare un istantaneo per media. Aggiunte anche umidita relativa (rh_mean_*_pct, scala station_relative_humidity), punto di rugiada (dew_mean_*_c, scala temperature_2m), neve al suolo (cm, scala station_snow_cm) e vento/raffica a 30 min (wind_mean_30m_ms, gust_max_30m_ms con le loro *_coverage_frac). ESCLUSE CON MOTIVO nel selettore e in una riga dedicata: direzione del vento (angolo 0-360), pressione di stazione (dipende dalla quota, non MSL) e livello idrico (zero idrometrico e unita eterogenee). Campi reali misurati il 2026-11-23 su data/stations/latest.json (4.938 stazioni): temperature_2m 3.375 (68,3%), relative_humidity_2m 2.269 (45,9%), dew_point_2m 2.249 (45,5%), rain_1h_mm 3.946 (79,9%), wind_speed_10m 1.572 (31,8%), wind_gust_10m 344 (7,0%), station_pressure_hPa 228 (4,6%), snow_depth_m 168 (3,4%), river_level_m 1.082 (21,9%).",
+      "CAMPO PIU MORBIDO, GRAFICO SENZA ATTESA, 28 TEST .mjs CHE ORA TESTANO DAVVERO, DEPLOY. Morbidezza (dati veri, frame Italia 256x227): STATION_FIELD_K 8->12, STATION_FIELD_FADE_KM 8->14, supersampling x2 (512x454 sullo stesso frame Mercator) con riduzione a media di box in premoltiplicato, tent 3x3 SOLO su RGB e maschera terra riapplicata sull alpha (niente sbavatura), image-rendering auto dichiarato. Misurato: temperatura 44,3 -> 156,1 ms e granulosita (differenza media fra pixel adiacenti) 0,478 -> 0,418 °C (-12,5%); pioggia 3 h 42,5 -> 175,3 ms e 0,033 -> 0,029 mm (-12,7%); tutto sotto il tetto di 400 ms. GRAFICO: stationsLoad non attende piu il blob giornaliero (l await dailyP teneva le etichette ferme 1,5-15 s), il popup si aggiorna allo stesso st quando il blob arriva («carico la giornata...» nel frattempo), la serie del server con meno di 3 punti dichiara «serie iniziata da N osservazioni (dalle HH:MM)» e stationsDailyLoad interroga PRIMA raw.githubusercontent del branch stations-daily e solo dopo Pages. DEPLOY: deploy-pages.yml scarica daily_series.json con curl --compressed e, se non lo recupera, emette ::warning:: senza bloccare il deploy (scelta dichiarata). TEST: i 27 test .mjs che aprivano mri-light-1.2.4.101.html (file inesistente: morivano con ENOENT prima del primo assert) leggono ora il percorso da scripts/tests/_app_path.mjs (APP_FILE di VERSION) e girano davvero: la suite passa da 9 PASS / 28 exit 1 a 27 PASS / 11 exit 1, con gli 11 fallimenti residui elencati nel README causa per causa. test_station_field.mjs: 118 controlli (finestre, medie reali, massima/minima e giornata, motivi del server, umidita/rugiada/neve, esclusioni, supersampling e granulosita che cala); nuovo test_stations_chart.mjs (12 controlli, 5 rossi sull html 1.3.0.60 pristino)."
+    ]},
     { version: '1.3.0.62', date: '2026-11-23', changes: [
       "SIMPLE, SCOPERTA DEI DATI: la card provincia mostrava 3 giorni, 7 giorni e ora per ora in pila dentro 613 px con overflow:auto e contenuto 674 px, quindi le ultime due sezioni finivano sotto il fold. In cima alla card ci sono ora TRE LINGUETTE (3 giorni, default; 7 giorni; Ora per ora) con role=tab, aria-selected, title su ognuna e una sola sezione visibile per volta; su mobile stanno su una riga con scroll orizzontale. Misurato in Edge headless a 390x844: card 3 giorni 282 px, 7 giorni + 24 ore 495 px, nessuno scroll interno nascosto e nessun overflow orizzontale (scrollWidth 390 = innerWidth).",
       "GIORNO CLICCABILE CON LE SUE ORE: ogni cella della striscia a 7 giorni è un role=button con tabindex=0, click, Enter/Spazio, title e aria-pressed; il giorno attivo è evidenziato e sotto compare la tabella oraria di QUEL giorno con la data esplicita (Ore di martedì 24/11). LIMITE DICHIARATO: simple_hourly.json copre 72 ore (24+24+24 su 107/107 province), perché meteorisk-points.json ha 72 passi orari; i giorni 3-6 mostrano il messaggio «Orari non disponibili per questo giorno: il dataset copre le prime 72 ore. Sono disponibili solo i valori giornalieri.» e ZERO righe, ma restano cliccabili per vedere i valori giornalieri. 24h/48h resta per la vista scorrevole, con 24h come default.",
@@ -17839,6 +17857,47 @@ stopSyncPlay();
         return isFinite(n) ? n : null;
     }
 
+    // 1.3.0.61 - MEDIE SULLA FINESTRA: il server pubblica, accanto a ogni campo
+    // `<x>_mean_<finestra>_<unita>`, il motivo per cui quella stazione NON ha il
+    // valore (`*_null_reason`: series_too_coarse_for_5min / _30min /
+    // coverage_below_50pct). MISURATO sul fetcher della 1.3.0.61
+    // (scripts/stations/fetch_stations.py): il nome del motivo NON e' uniforme, e
+    // quindi si provano TUTTE le convenzioni in uso invece di indovinarne una:
+    //   - termiche:  temp_mean_5m_c   -> temp_5m_null_reason        (<nome>_<finestra>)
+    //   - vento:     wind_mean_30m_ms -> wind_mean_30m_null_reason  (campo senza unita')
+    //   - raffica:   gust_max_30m_ms  -> gust_max_30m_null_reason   (campo senza unita')
+    // Si prova anche `<campo>_null_reason` (forma usata dai campi storici).
+    var STATIONS_MEAN_FIELDS = [
+        'temp_mean_5m_c', 'temp_mean_30m_c', 'temp_mean_1h_c', 'temp_mean_3h_c', 'temp_mean_day_c',
+        'temp_max_5m_c', 'temp_max_30m_c', 'temp_max_1h_c', 'temp_max_3h_c', 'temp_max_day_c',
+        'temp_min_5m_c', 'temp_min_30m_c', 'temp_min_1h_c', 'temp_min_3h_c', 'temp_min_day_c',
+        'rh_mean_5m_pct', 'rh_mean_30m_pct', 'rh_mean_1h_pct', 'rh_mean_3h_pct',
+        'dew_mean_5m_c', 'dew_mean_30m_c', 'dew_mean_1h_c', 'dew_mean_3h_c',
+        'wind_mean_30m_ms', 'gust_max_30m_ms'
+    ];
+    function stationsNullReason(s, field) {
+        if (!s || !field) return null;
+        var alt = field.replace(/_(c|pct|ms|mm|m)$/, '');           // temp_mean_5m
+        var short = alt.replace(/^([a-z]+)_mean_(\d+m|\d+h)$/, '$1_$2');  // temp_5m
+        var names = [field + '_null_reason', alt + '_null_reason'];
+        if (short !== alt) names.push(short + '_null_reason');
+        for (var i = 0; i < names.length; i++) {
+            var r = s[names[i]];
+            if (r !== undefined && r !== null && r !== '') return String(r);
+        }
+        return null;
+    }
+    function stationsMeanReasons(s) {
+        var out = null, r;
+        for (var i = 0; i < STATIONS_MEAN_FIELDS.length; i++) {
+            r = stationsNullReason(s, STATIONS_MEAN_FIELDS[i]);
+            if (!r) continue;
+            if (!out) out = {};
+            out[STATIONS_MEAN_FIELDS[i]] = r;
+        }
+        return out;
+    }
+
     // 16 quadranti TESTUALI (N/NE/.../NW): nessuna freccia, nessuna emoji.
     // 0 gradi = N, 90 = E, 180 = S, 270 = W; arrotondamento al punto piu' vicino.
     // Verificato ai confini: 11 -> N, 22 -> NNE, 67 -> ENE, 350 -> N, 337.5 -> NNW.
@@ -18078,7 +18137,49 @@ stopSyncPlay();
                 gustMax1h: stationsNum(s.gust_max_1h_ms),
                 gustMax3h: stationsNum(s.gust_max_3h_ms),
                 gustMax1hCov: stationsNum(s.gust_max_1h_coverage_frac),
-                gustMax3hCov: stationsNum(s.gust_max_3h_coverage_frac)
+                gustMax3hCov: stationsNum(s.gust_max_3h_coverage_frac),
+                // 1.3.0.61 - MEDIE SULLA FINESTRA (i nomi sono quelli che il server
+                // pubblica: temp_mean_5m_c / rh_mean_30m_pct / dew_mean_3h_c ...).
+                // Un campo assente resta null: non si ricostruisce da un'istantanea.
+                tempMean5m: stationsNum(s.temp_mean_5m_c),
+                tempMean30m: stationsNum(s.temp_mean_30m_c),
+                tempMean1h: stationsNum(s.temp_mean_1h_c),
+                tempMean3h: stationsNum(s.temp_mean_3h_c),
+                tempMeanDay: stationsNum(s.temp_mean_day_c),
+                // 1.3.0.66 - MASSIMA e MINIMA: sulle finestre corte e sulla giornata.
+                tempMax5m: stationsNum(s.temp_max_5m_c),
+                tempMax30m: stationsNum(s.temp_max_30m_c),
+                tempMax1h: stationsNum(s.temp_max_1h_c),
+                tempMax3h: stationsNum(s.temp_max_3h_c),
+                tempMaxDay: stationsNum(s.temp_max_day_c),
+                tempMin5m: stationsNum(s.temp_min_5m_c),
+                tempMin30m: stationsNum(s.temp_min_30m_c),
+                tempMin1h: stationsNum(s.temp_min_1h_c),
+                tempMin3h: stationsNum(s.temp_min_3h_c),
+                tempMinDay: stationsNum(s.temp_min_day_c),
+                // Ora del picco (minuti o ora locale? il server pubblica l'ora: si
+                // mostra cosi' com'e', formattata hh:mm se numerica) e flag di
+                // giornata in corso (il massimo puo' ancora salire).
+                tempMaxDayHour: stationsNum(s.temp_max_day_hour),
+                tempMinDayHour: stationsNum(s.temp_min_day_hour),
+                tempDayPartial: (s.temp_day_partial === true) ? true : ((s.temp_day_partial === false) ? false : null),
+                rhMean5m: stationsNum(s.rh_mean_5m_pct),
+                rhMean30m: stationsNum(s.rh_mean_30m_pct),
+                rhMean1h: stationsNum(s.rh_mean_1h_pct),
+                rhMean3h: stationsNum(s.rh_mean_3h_pct),
+                dewMean5m: stationsNum(s.dew_mean_5m_c),
+                dewMean30m: stationsNum(s.dew_mean_30m_c),
+                dewMean1h: stationsNum(s.dew_mean_1h_c),
+                dewMean3h: stationsNum(s.dew_mean_3h_c),
+                windMean30m: stationsNum(s.wind_mean_30m_ms),
+                windMean30mCov: stationsNum(s.wind_mean_30m_coverage_frac),
+                gustMax30m: stationsNum(s.gust_max_30m_ms),
+                gustMax30mCov: stationsNum(s.gust_max_30m_coverage_frac),
+                // NEVE: il file la pubblica in METRI, il campo la mostra in CM
+                // (x100 con un decimale). Nessuna soglia inventata.
+                snowDepthCm: (function (mm) { return mm === null ? null : Math.round(mm * 1000) / 10; })(stationsNum(s.snow_depth_m)),
+                // Motivi `*_null_reason` del server, per campo media.
+                meanReason: stationsMeanReasons(s)
             });
         }
         if (!out.length) return null;
@@ -18106,13 +18207,29 @@ stopSyncPlay();
 
     // Carica index.json e, se fallisce, latest.json. Non lancia MAI: in caso di doppio
     // errore valorizza stationsError (il chiamante mostra il messaggio).
+    // 1.3.0.61 - IL BLOB GIORNALIERO NON BLOCCA PIU' LE ETICHETTE. stationsDailyLoad()
+    // e' fire-and-forget (1,8 MB: 1,5-15 s misurati). Prima `await dailyP` dentro
+    // l'IIFE teneva il pannello su "Caricamento centraline..." finche' il blob non
+    // arrivava, anche se index.json/latest.json erano gia' pronti: le etichette non
+    // hanno bisogno del blob (solo le finestre 6/24 h e il grafico si'). Quando il
+    // blob arriva si ridisegna UNA volta (etichette + campo); il popup si aggiorna
+    // da solo (vedi stationsOpenPopup).
+    function stationsRedraw() {
+        try {
+            if (typeof stationsCanvas !== 'undefined' && stationsCanvas) stationsDrawCanvas(stationsCanvas);
+        } catch (e) { }
+        try {
+            if (typeof stationFieldActive !== 'undefined' && stationFieldActive) renderStationFieldOverlay(false);
+        } catch (e) { }
+    }
+
     function stationsLoad(force) {
         var dailyP = stationsDailyLoad();   // best-effort: non lancia, non blocca
-        if (!force && stationsData) return dailyP.then(function () { return stationsData; });
+        dailyP.then(function (d) { if (d) stationsRedraw(); });
+        if (!force && stationsData) return Promise.resolve(stationsData);
         if (stationsLoading) return stationsLoading;
         var t0 = (window.performance && performance.now) ? performance.now() : Date.now();
         var p = (async function () {
-            await dailyP;
             var urls = [STATIONS_INDEX_URL, STATIONS_FULL_URL];
             var errs = [];
             for (var i = 0; i < urls.length; i++) {
@@ -18572,6 +18689,9 @@ stopSyncPlay();
         if (st.riverLevel !== null) h += '<div style="font-size:10px;color:#94a3b8;">livello idrometrico (dato idrologico, non meteo): <b>' +
             fmtNum(st.riverLevel, 2) + ' m</b></div>';
         h += '<div style="font-size:9px;color:#64748b;margin-top:2px;">' + escapeHtml(meta.source || 'MeteoHub') + ' · CC BY 4.0</div>';
+        if (!stationsDaily) {
+            h += '<div class="stations-daily-pending" style="font-size:10px;color:#94a3b8;margin-top:3px;">carico la giornata…</div>';
+        }
         h += stationsChartHtml(st);
         h += '</div>';
         return h;
@@ -18625,15 +18745,18 @@ stopSyncPlay();
     }
 
     // ---- SERIE GIORNALIERA LATO SERVER (fonte primaria) ----------------------
-    // Legge data/stations/daily_series.json (Pages prima, raw.githubusercontent
-    // come fallback), esattamente come index.json/latest.json. NON lancia MAI:
-    // se nessuna sorgente risponde, stationsDaily resta null e il grafico cade
-    // sul fallback localStorage, dichiarandolo.
+    // Legge data/stations/daily_series.json dal branch stations-daily con l'ordine
+    // RAW PRIMA (1.3.0.61): raw.githubusercontent.com/.../refs/heads/stations-daily
+    // e' byte-identico e piu' piccolo del file servito da Pages, e Pages risponde
+    // 404 ogni volta che il restore verso _site fallisce (il file vive sul branch,
+    // non su main). Pages resta come FALLBACK dichiarato, non come prima scelta.
+    // NON lancia MAI: se nessuna sorgente risponde, stationsDaily resta null e il
+    // grafico cade sul fallback localStorage, dichiarandolo.
     function stationsDailyLoad() {
         if (stationsDaily && (Date.now() - stationsDailyLoadedAt) < 60000) return Promise.resolve(stationsDaily);
         if (stationsDailyLoading) return stationsDailyLoading;
         var p = (async function () {
-            var urls = [STATIONS_DAILY_URL, STATIONS_DAILY_RAW_URL];
+            var urls = [STATIONS_DAILY_RAW_URL, STATIONS_DAILY_URL];
             for (var i = 0; i < urls.length; i++) {
                 try {
                     var res = await fetchWithTimeout(urls[i], 12000);
@@ -19002,6 +19125,15 @@ stopSyncPlay();
         if (src.source === 'server' && pts.length === 0) {
             h += '<div class="stations-series-notice" style="' + noticeStyle + '">' +
                  '0 osservazioni registrate oggi — la serie parte da mezzanotte locale. Nessun punto passato viene inventato.</div>';
+        } else if (src.source === 'server' && pts.length < 3) {
+            // 1.3.0.61 - SERIE APPENA INIZIATA: il blob del server e' vivo e puo'
+            // contenere 1 o 2 punti (primo giro della giornata, o riavvio del blob).
+            // Il grafico con 1 punto non ha una linea: la nota dice da quando
+            // esistono le osservazioni, invece di lasciare un grafico muto.
+            h += '<div class="stations-series-notice" style="' + noticeStyle + '">' +
+                 'serie iniziata da ' + pts.length +
+                 (pts.length === 1 ? ' osservazione' : ' osservazioni') +
+                 ' (dalle ' + pts[0].hhmm + '); la giornata riparte da mezzanotte locale.</div>';
         } else if (src.source === 'stale') {
             h += '<div class="stations-series-notice" style="' + noticeStyle + '">' +
                  'Serie del server non aggiornata a ' + dayKey + ': nessun punto del giorno corrente disponibile.</div>';
@@ -19098,10 +19230,23 @@ stopSyncPlay();
         if (!map || !st) return;
         stationsHideHover();
         stationsTrack(st);
-        L.popup({ maxWidth: 320, autoPan: true, closeButton: true, className: 'stations-popup' })
+        var popup = L.popup({ maxWidth: 320, autoPan: true, closeButton: true, className: 'stations-popup' })
             .setLatLng([st.lat, st.lon])
             .setContent(stationsPopupHtml(st))
             .openOn(map);
+        // 1.3.0.61 - Il popup si apre SUBITO, senza aspettare il blob della giornata
+        // (prima si faceva un solo setContent e le finestre 6/24 h potevano mancare
+        // fino alla riapertura). Se il blob non c'e' ancora, stationsPopupHtml mostra
+        // "carico la giornata..." e qui si aggiorna lo STESSO popup quando arriva.
+        if (!stationsDaily) {
+            stationsDailyLoad().then(function (d) {
+                if (!d || !map) return;
+                try {
+                    if (!popup.isOpen()) return;
+                    popup.setContent(stationsPopupHtml(st));
+                } catch (e) { }
+            });
+        }
     }
 
     function stationsBindPointer() {
@@ -19233,38 +19378,121 @@ stopSyncPlay();
     var stationFieldMask = null;
     var stationFieldMaskKey = '';
     var stationFieldLastStats = null;
-    var STATION_FIELD_K = 8;
+    var STATION_FIELD_K = 12;
     var STATION_FIELD_CUTOFF_KM = 25;
-    var STATION_FIELD_FADE_KM = 8;
+    // 1.3.0.61 - MORBIDEZZA: il campo appariva a bolle per la bassa risoluzione
+    // (256x227) e per l'IDW con pochi vicini. Tre leve, tutte MISURATE (vedi
+    // README): raggio di dissolvenza piu' ampio (14 km invece di 8: bordo meno
+    // netto), 12 vicini invece di 8 (superficie piu' continua) e supersampling x2
+    // del raster (512x454 -> 256x227 con media a box, che e' l'antialiasing piu'
+    // pulito) seguito da una sfumatura 3x3 SOLO su RGB (l'alpha non si tocca:
+    // la maschera terra resta dura e il campo non sbava sul mare).
+    // Il cutoff (25 km) NON cambia: i buchi dove non ci sono stazioni restano,
+    // sono onesta' del dato, non un difetto di resa.
+    var STATION_FIELD_FADE_KM = 14;
     var STATION_FIELD_BUCKET_DEG = 0.1;
     var STATION_FIELD_MAX_RING = 3;        // anello 4 = almeno 0,3 gradi = 26,8 km a 36,7°N
     var STATION_FIELD_MIN_COVERAGE = 0.5;
     var STATION_FIELD_RING_KM = 7.3;       // 0,1° di longitudine a 49°N: distanza minima di un anello
+    var STATION_FIELD_SUPERSAMPLE = 2;     // fattore di supersampling del raster (2 = 4x pixel)
     var STATION_FIELD_VARS = {
         temp: { label: 'Temperatura 2 m', unit: '°C', decimals: 1 },
+        tmax: { label: 'Temperatura massima', unit: '°C', decimals: 1 },
+        tmin: { label: 'Temperatura minima', unit: '°C', decimals: 1 },
+        rh: { label: 'Umidità relativa 2 m', unit: '%', decimals: 0 },
+        dew: { label: 'Punto di rugiada 2 m', unit: '°C', decimals: 1 },
         rain: { label: 'Pioggia cumulata', unit: 'mm', decimals: 1 },
         wind: { label: 'Vento medio', unit: 'm/s', decimals: 1 },
-        gust: { label: 'Raffica massima', unit: 'm/s', decimals: 1 }
+        gust: { label: 'Raffica massima', unit: 'm/s', decimals: 1 },
+        snow: { label: 'Neve al suolo', unit: 'cm', decimals: 1 }
     };
-    var STATION_FIELD_WINDOWS = ['1h', '3h', '6h', '24h'];
-    // Finestre disponibili in latest.json: campo normalizzato, campo copertura, campo
+    var STATION_FIELD_WINDOWS = ['5m', '30m', '1h', '3h', '6h', '24h', 'day'];
+    // Finestre corte in latest.json: campo normalizzato, campo copertura, campo
     // grezzo del file (il terzo serve solo a documentare la provenienza).
+    // `mean: true` = il server pubblica una MEDIA sulla finestra; se il campo non
+    // c'e' si usa `fallback` (valore istantaneo) con la nota dichiarata, e quando
+    // il server pubblica `*_null_reason` (finestra NON calcolabile per quella
+    // stazione) NON si ripiega sull'istantanea: la stazione si esclude.
+    // `fallback: null` = nessun ripiego ammesso (wind_mean_30m_ms e
+    // gust_max_30m_ms non hanno un equivalente istantaneo della stessa finestra).
     var STATION_FIELD_FIELDS = {
+        temp: {
+            '5m': { key: 'tempMean5m', raw: 'temp_mean_5m_c', mean: true, fallback: 'temperature_2m', agg: 'mean' },
+            '30m': { key: 'tempMean30m', raw: 'temp_mean_30m_c', mean: true, fallback: 'temperature_2m', agg: 'mean' },
+            '1h': { key: 'tempMean1h', raw: 'temp_mean_1h_c', mean: true, fallback: 'temperature_2m', agg: 'mean' },
+            '3h': { key: 'tempMean3h', raw: 'temp_mean_3h_c', mean: true, fallback: 'temperature_2m', agg: 'mean' },
+            // "oggi (dalla mezzanotte)": il server pubblica MAX e MIN della giornata;
+            // la MEDIA della giornata (temp_mean_day_c) non e' dichiarata, quindi se
+            // manca l'opzione si DISABILITA con il motivo (strictAbsence) invece di
+            // mostrare un istantaneo spacciato per media giornaliera.
+            'day': { key: 'tempMeanDay', raw: 'temp_mean_day_c', mean: true, fallback: null, agg: 'mean', day: true, strictAbsence: true }
+        },
+        tmax: {
+            '5m': { key: 'tempMax5m', raw: 'temp_max_5m_c', mean: true, fallback: null, agg: 'max' },
+            '30m': { key: 'tempMax30m', raw: 'temp_max_30m_c', mean: true, fallback: null, agg: 'max' },
+            '1h': { key: 'tempMax1h', raw: 'temp_max_1h_c', mean: true, fallback: null, agg: 'max' },
+            '3h': { key: 'tempMax3h', raw: 'temp_max_3h_c', mean: true, fallback: null, agg: 'max' },
+            'day': { key: 'tempMaxDay', raw: 'temp_max_day_c', mean: true, fallback: null, agg: 'max', day: true, hourKey: 'tempMaxDayHour', partialKey: 'tempDayPartial' }
+        },
+        tmin: {
+            '5m': { key: 'tempMin5m', raw: 'temp_min_5m_c', mean: true, fallback: null, agg: 'min' },
+            '30m': { key: 'tempMin30m', raw: 'temp_min_30m_c', mean: true, fallback: null, agg: 'min' },
+            '1h': { key: 'tempMin1h', raw: 'temp_min_1h_c', mean: true, fallback: null, agg: 'min' },
+            '3h': { key: 'tempMin3h', raw: 'temp_min_3h_c', mean: true, fallback: null, agg: 'min' },
+            'day': { key: 'tempMinDay', raw: 'temp_min_day_c', mean: true, fallback: null, agg: 'min', day: true, hourKey: 'tempMinDayHour', partialKey: 'tempDayPartial' }
+        },
+        rh: {
+            '5m': { key: 'rhMean5m', raw: 'rh_mean_5m_pct', mean: true, fallback: 'rh' },
+            '30m': { key: 'rhMean30m', raw: 'rh_mean_30m_pct', mean: true, fallback: 'rh' },
+            '1h': { key: 'rhMean1h', raw: 'rh_mean_1h_pct', mean: true, fallback: 'rh' },
+            '3h': { key: 'rhMean3h', raw: 'rh_mean_3h_pct', mean: true, fallback: 'rh' }
+        },
+        dew: {
+            '5m': { key: 'dewMean5m', raw: 'dew_mean_5m_c', mean: true, fallback: 'dew' },
+            '30m': { key: 'dewMean30m', raw: 'dew_mean_30m_c', mean: true, fallback: 'dew' },
+            '1h': { key: 'dewMean1h', raw: 'dew_mean_1h_c', mean: true, fallback: 'dew' },
+            '3h': { key: 'dewMean3h', raw: 'dew_mean_3h_c', mean: true, fallback: 'dew' }
+        },
         rain: {
             '1h': { key: 'rain1h', cov: 'rain1hCov', raw: 'rain_1h_mm' },
             '3h': { key: 'rain3h', cov: 'rain3hCov', raw: 'rain_3h_mm' }
         },
         wind: {
+            '30m': { key: 'windMean30m', cov: 'windMean30mCov', raw: 'wind_mean_30m_ms', mean: true, fallback: null },
             '1h': { key: 'windMean1h', cov: 'windMean1hCov', raw: 'wind_mean_1h_ms' },
             '3h': { key: 'windMean3h', cov: 'windMean3hCov', raw: 'wind_mean_3h_ms' }
         },
         gust: {
+            '30m': { key: 'gustMax30m', cov: 'gustMax30mCov', raw: 'gust_max_30m_ms', mean: true, fallback: null },
             '1h': { key: 'gustMax1h', cov: 'gustMax1hCov', raw: 'gust_max_1h_ms' },
             '3h': { key: 'gustMax3h', cov: 'gustMax3hCov', raw: 'gust_max_3h_ms' }
         }
     };
+    // Mappa chiave normalizzata -> nome REALE nel file: serve a leggere il motivo
+    // `*_null_reason` che il server pubblica accanto al campo della finestra.
+    var STATION_FIELD_MEAN_KEY_RAW = (function () {
+        var m = {}, v, w, f;
+        for (v in STATION_FIELD_FIELDS) {
+            if (!Object.prototype.hasOwnProperty.call(STATION_FIELD_FIELDS, v)) continue;
+            for (w in STATION_FIELD_FIELDS[v]) {
+                if (!Object.prototype.hasOwnProperty.call(STATION_FIELD_FIELDS[v], w)) continue;
+                f = STATION_FIELD_FIELDS[v][w];
+                if (f && f.mean && f.raw) m[f.key] = f.raw;
+            }
+        }
+        return m;
+    })();
     // Finestre lunghe: campi del blob stations-daily (schema 2), NON di latest.json.
+    // I nomi delle finestre 6 h/24 h di temperatura, umidità e punto di rugiada sono
+    // la CONVENZIONE dichiarata dal server (stessa forma di rain_6h_mm): se il campo
+    // non c'e', l'opzione resta disabilitata con il motivo letto dal blob.
+    // Parzialita': per i campi nuovi il blob non pubblica (o non e' verificato che
+    // pubblichi) un flag `<campo>_partial`; senza flag la finestra si considera
+    // completa, e il codice lo dichiara invece di inventare un flag.
     var STATION_FIELD_DAILY = {
+        temp: { '6h': 'temp_6h_c', '24h': 'temp_24h_c' },
+        rh: { '6h': 'rh_6h_pct', '24h': 'rh_24h_pct' },
+        dew: { '6h': 'dew_6h_c', '24h': 'dew_24h_c' },
         rain: { '6h': 'rain_6h_mm', '24h': 'rain_24h_mm' },
         wind: { '6h': 'wind_6h_ms', '24h': 'wind_24h_ms' },
         gust: { '6h': 'gust_max_6h_ms', '24h': 'gust_max_24h_ms' }
@@ -19281,6 +19509,39 @@ stopSyncPlay();
         breakpoints: STATION_FIELD_WIND_BREAKPOINTS,
         colors: { light: STATION_FIELD_WIND_COLORS, dark: STATION_FIELD_WIND_COLORS }
     };
+    // UMIDITA' RELATIVA: breakpoints e colori sono quelli della scala
+    // `relative_humidity_2m` di scripts/forecast_v2/color_scales.json (15 bande
+    // 0..95 %), con UNA sola differenza dichiarata: l'opacita' della banda e'
+    // forzata a 1. La rampa del registro sfuma a trasparente sotto il 50% (alpha
+    // 0 -> 1 su 0-50%): in un CAMPO interpolato la trasparenza dipenderebbe dal
+    // valore (l'aria secca diventa invisibile) e non dalla distanza dalle
+    // stazioni, che e' l'unico significato dell'opacita' qui (235 * fade).
+    // Conseguenza dichiarata: sotto il 50% il colore e' la stessa tinta verde.
+    var STATION_FIELD_RH_BREAKPOINTS = [0, 10, 20, 30, 40, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95];
+    var STATION_FIELD_RH_COLORS = [
+        [0, 128, 0, 1], [0, 128, 0, 1], [0, 128, 0, 1], [0, 128, 0, 1], [0, 128, 0, 1],
+        [0, 128, 0, 1], [0, 141, 28, 1], [0, 153, 61, 1], [0, 166, 100, 1], [0, 179, 143, 1],
+        [0, 192, 192, 1], [0, 163, 204, 1], [0, 130, 217, 1], [0, 92, 230, 1], [0, 48, 242, 1]
+    ];
+    var STATION_FIELD_RH_SCALE = {
+        type: 'breakpoint', unit: '%', min: null, max: null,
+        breakpoints: STATION_FIELD_RH_BREAKPOINTS,
+        colors: { light: STATION_FIELD_RH_COLORS, dark: STATION_FIELD_RH_COLORS }
+    };
+    // NEVE AL SUOLO: la scala `snow_depth` del registro e' in METRI; il campo la
+    // mostra in CENTIMETRI (la stessa rampa, breakpoints x100, 12 bande 0..500 cm,
+    // prima banda trasparente = 0 cm come nel registro). Nessun colore nuovo.
+    var STATION_FIELD_SNOW_BREAKPOINTS = [0, 1, 5, 10, 20, 50, 100, 150, 200, 300, 400, 500];
+    var STATION_FIELD_SNOW_COLORS = [
+        [0, 128, 0, 0], [1, 129, 0, 1], [4, 132, 0, 1], [9, 136, 0, 1], [19, 145, 0, 1],
+        [57, 170, 0, 1], [142, 213, 0, 1], [255, 255, 0, 1], [255, 191, 0, 1], [255, 64, 0, 1],
+        [213, 0, 71, 1], [128, 0, 128, 1]
+    ];
+    var STATION_FIELD_SNOW_SCALE = {
+        type: 'breakpoint', unit: 'cm', min: null, max: null,
+        breakpoints: STATION_FIELD_SNOW_BREAKPOINTS,
+        colors: { light: STATION_FIELD_SNOW_COLORS, dark: STATION_FIELD_SNOW_COLORS }
+    };
     // Intervallo e tacche della legenda: l'intervallo puo' essere un sottointervallo
     // della scala (la temperatura usa -25..+40 °C: -80..+50 sprecherebbe la barra),
     // ma i COLORI sono sempre quelli della scala, mai una rampa nuova.
@@ -19289,7 +19550,9 @@ stopSyncPlay();
         precipitation: { lo: 0, hi: 50, ticks: [0, 0.5, 2, 5, 10, 20, 50] },
         precipitation_6h: { lo: 0, hi: 30, ticks: [0, 1, 2, 5, 10, 20, 30] },
         precipitation_cum: { lo: 0, hi: 100, ticks: [0, 1, 5, 20, 50, 100] },
-        station_wind_classes: { lo: 0, hi: 25, ticks: [0, 5, 10, 15, 20, 25] }
+        station_wind_classes: { lo: 0, hi: 25, ticks: [0, 5, 10, 15, 20, 25] },
+        station_relative_humidity: { lo: 0, hi: 100, ticks: [0, 20, 40, 60, 80, 100] },
+        station_snow_cm: { lo: 0, hi: 300, ticks: [0, 1, 5, 10, 20, 50, 100, 200, 300] }
     };
 
     // STATO DI UN CAMPO NEL BLOB DELLE SERIE GIORNALIERE
@@ -19378,68 +19641,200 @@ stopSyncPlay();
     }
 
     function stationFieldWindowLabel(win) {
+        if (win === '5m') return '5 min';
+        if (win === '30m') return '30 min';
         if (win === '1h') return '1 ora';
         if (win === '3h') return '3 ore';
         if (win === '6h') return '6 ore';
         if (win === '24h') return '24 ore';
+        if (win === 'day') return 'oggi (dalla mezzanotte)';
         return String(win);
     }
 
+    // Etichetta dell'aggregazione (per i title e la legenda): una finestra non e'
+    // sempre una media. MAI "non si applica": la finestra c'e' sempre, cambia cosa
+    // misura (media, massimo, minimo, accumulo).
+    function stationFieldAggLabel(f) {
+        var agg = (f && f.agg) ? f.agg : 'mean';
+        if (agg === 'max') return 'massimo sulla finestra';
+        if (agg === 'min') return 'minimo sulla finestra';
+        return 'media sulla finestra';
+    }
+    function stationFieldAggShort(agg) {
+        if (agg === 'max') return 'max';
+        if (agg === 'min') return 'min';
+        return 'media';
+    }
+
+    // MOTIVI `*_null_reason` PUBBLICATI DAL SERVER, in italiano leggibile.
+    // I codici attesi sono series_too_coarse_for_5min / series_too_coarse_for_30min /
+    // coverage_below_50pct; un codice NUOVO compare cosi' com'e' (meglio un codice
+    // grezzo che un motivo inventato).
+    function stationFieldReasonIt(code) {
+        if (code === 'series_too_coarse_for_5min') return 'serie troppo grossolana per la finestra 5 min (la stazione non ha una serie a 1 minuto)';
+        if (code === 'series_too_coarse_for_30min') return 'serie troppo grossolana per la finestra 30 min (la stazione non ha una serie a 5 minuti)';
+        if (code === 'coverage_below_50pct') return 'copertura della finestra sotto il 50%';
+        return String(code);
+    }
+
+    // Presenza dei campi MEDIA sul file caricato. Tre stati:
+    //  - almeno una stazione con un valore finito  -> 'present'
+    //  - nessun valore ma almeno un `*_null_reason` -> 'blocked' (il server
+    //    pubblica la finestra ma non e' calcolabile: NIENTE ripiego)
+    //  - datos non ancora caricati / campo assente  -> 'absent'
+    // Cache per identita' di stationsData e per chiave: 4.938 stazioni x poche
+    // chiamate sono trascurabili, ma la spec viene richiesta a ogni ridisegno.
+    var stationFieldMeanCache = { forData: null, byKey: {} };
+    function stationFieldMeanStats(key) {
+        var empty = { withValue: 0, withReason: 0, reasons: {}, total: 0, raw: '' };
+        if (!key) return empty;
+        if (stationFieldMeanCache.forData !== stationsData) {
+            stationFieldMeanCache = { forData: stationsData, byKey: {} };
+        }
+        if (stationFieldMeanCache.byKey[key]) return stationFieldMeanCache.byKey[key];
+        var raw = STATION_FIELD_MEAN_KEY_RAW[key] || '';
+        var list = (stationsData && stationsData.stations) ? stationsData.stations : [];
+        var st = { withValue: 0, withReason: 0, reasons: {}, total: list.length, raw: raw };
+        for (var i = 0; i < list.length; i++) {
+            var s = list[i];
+            if (!s) continue;
+            var v = s[key];
+            if (v !== null && v !== undefined && v !== '' && isFinite(Number(v))) { st.withValue++; continue; }
+            var r = (s.meanReason && raw) ? s.meanReason[raw] : null;
+            if (r) { st.withReason++; st.reasons[r] = (st.reasons[r] || 0) + 1; }
+        }
+        stationFieldMeanCache.byKey[key] = st;
+        return st;
+    }
+
+    // Testo del motivo per una finestra media non calcolabile. Il caso "tutte le
+    // stazioni hanno series_too_coarse_for_5min" ha la frase dedicata richiesta:
+    // senza, la mappa resterebbe vuota senza spiegazione.
+    function stationFieldMeanReasonText(win, st) {
+        var codes = [], k;
+        for (k in st.reasons) if (Object.prototype.hasOwnProperty.call(st.reasons, k)) codes.push(k);
+        codes.sort();
+        if (win === '5m' && codes.length === 1 && codes[0] === 'series_too_coarse_for_5min') {
+            return 'nessuna stazione con serie a 1 minuto: finestra 5 min non calcolabile';
+        }
+        var parts = [];
+        for (var i = 0; i < codes.length; i++) {
+            parts.push(stationFieldReasonIt(codes[i]) + ' (' + st.reasons[codes[i]] + ' stazioni)');
+        }
+        return 'la finestra ' + stationFieldWindowLabel(win) + ' non è calcolabile: ' + parts.join(' · ');
+    }
+
     // Specifica della combinazione variabile + finestra: campo da leggere, copertura,
-    // unita', scala colore e disponibilita'. Una finestra non pubblicata non diventa
-    // mai un valore: resta `available: false` con il motivo da mostrare.
+    // unita', scala colore, disponibilita' e NOTA da mostrare accanto al selettore.
+    // Tre strade per le finestre corte:
+    //   1. il campo MEAN esiste per almeno una stazione -> si legge quello;
+    //   2. il server pubblica `*_null_reason` -> la finestra non e' calcolabile:
+    //      la stazione si esclude e la nota dice il motivo reale (NON si ripiega);
+    //   3. il campo non e' pubblicato affatto -> si mostra il valore ISTANTANEO con
+    //      la nota "media non ancora pubblicata dal server".
     function stationFieldSpec(varKey, winKey) {
         var v = STATION_FIELD_VARS[varKey] ? varKey : 'temp';
         var cfg = STATION_FIELD_VARS[v];
         var win = String(winKey || '1h');
+        if (STATION_FIELD_WINDOWS.indexOf(win) < 0) win = '1h';
         var spec = {
             varKey: v, window: win, label: cfg.label, unit: cfg.unit, decimals: cfg.decimals,
             field: null, covField: null, dailyField: null, scale: null,
-            available: false, reason: null, windowApplies: true
+            available: false, reason: null, note: '', windowApplies: true,
+            meanField: null, meanFallback: false, meanPending: false, rawField: null
         };
-        if (v === 'temp') {
-            // La temperatura e' un valore ISTANTANEO: non si accumula ne' si media.
-            spec.field = 'temperature_2m';
-            spec.window = '1h';
-            spec.scale = 'temperature_2m';
+        // La scala dipende dalla VARIABILE, non dalla finestra (stessa unita').
+        if (v === 'temp' || v === 'tmax' || v === 'tmin' || v === 'dew') spec.scale = 'temperature_2m';
+        else if (v === 'rh') spec.scale = 'station_relative_humidity';
+        else if (v === 'snow') spec.scale = 'station_snow_cm';
+        else if (v === 'rain') spec.scale = (win === '6h') ? 'precipitation_6h' : ((win === '24h') ? 'precipitation_cum' : 'precipitation');
+        else spec.scale = 'station_wind_classes';   // vento e raffica
+
+        // NEVE: spessore ISTANTANEO. Nessuna media e nessun accumulo: la finestra
+        // non cambia il valore, e la nota lo dice invece di far finta di applicarla.
+        if (v === 'snow') {
+            spec.field = 'snowDepthCm';
             spec.available = true;
             spec.windowApplies = false;
-            spec.reason = 'la temperatura è un valore istantaneo: la finestra non si applica';
+            spec.note = 'la neve al suolo è uno spessore istantaneo: la finestra non cambia il valore';
             return spec;
         }
-        if (STATION_FIELD_WINDOWS.indexOf(win) < 0) win = '1h';
-        spec.window = win;
-        spec.scale = (v === 'rain')
-            ? (win === '6h' ? 'precipitation_6h' : (win === '24h' ? 'precipitation_cum' : 'precipitation'))
-            : 'station_wind_classes';
+
         var f = STATION_FIELD_FIELDS[v] && STATION_FIELD_FIELDS[v][win];
         if (f) {
-            spec.field = f.key;
-            spec.covField = f.cov;
-            spec.available = true;
-            return spec;
-        }
-        var daily = STATION_FIELD_DAILY[v] && STATION_FIELD_DAILY[v][win];
-        spec.dailyField = daily || null;
-        if (daily) {
-            var dst = stationFieldDailyState(daily);
-            spec.dailyState = dst;
-            spec.dailyPartialField = dst.hasPartialFlag ? (STATION_FIELD_DAILY_PARTIAL[daily] || null) : null;
-            if (dst.available) {
+            spec.rawField = f.raw;
+            spec.covField = f.cov || null;
+            spec.agg = f.agg || 'mean';
+            spec.dayWindow = !!f.day;
+            spec.hourKey = f.hourKey || null;
+            spec.partialKey = f.partialKey || null;
+            if (!f.mean) {
+                spec.field = f.key;
                 spec.available = true;
                 return spec;
             }
-            spec.reason = 'la finestra ' + stationFieldWindowLabel(win) + ' non è disponibile: ' + dst.reason;
+            spec.meanField = f.key;
+            var st = stationFieldMeanStats(f.key);
+            if (st.withValue > 0) { spec.field = f.key; spec.available = true; return spec; }
+            if (st.withReason > 0) {
+                spec.reason = stationFieldMeanReasonText(win, st);
+                spec.note = spec.reason;
+                return spec;
+            }
+            if (!stationsData) {
+                // Dati non ancora caricati: si chiede la media e NESSUNA nota (un
+                // "media non pubblicata" su un file che sta arrivando sarebbe falso).
+                // Al primo sync successivo la nota si decide sui dati veri.
+                spec.field = f.key;
+                spec.available = true;
+                spec.meanPending = true;
+                return spec;
+            }
+            if (f.fallback) {
+                spec.field = f.fallback;
+                spec.meanFallback = true;
+                spec.available = true;
+                spec.note = 'media non ancora pubblicata dal server: mostro l\'ultimo valore istantaneo';
+                return spec;
+            }
+            if (f.strictAbsence) {
+                // La finestra NON ha un ripiego legittimo: il server pubblica
+                // massima e minima della giornata, la media giornaliera no. Si
+                // disabilita con il motivo invece di mostrare un istantaneo.
+                spec.reason = 'la media della giornata non è pubblicata dal server (campo ' + f.raw +
+                    ' assente): il server pubblica la massima e la minima. La finestra resta disabilitata: nessun valore inventato.';
+                spec.note = spec.reason;
+                spec.strictUnavailable = true;
+                return spec;
+            }
+            spec.reason = 'la finestra ' + stationFieldWindowLabel(win) + ' non è pubblicata dal server (campo ' + f.raw + ' assente): nessun valore inventato.';
+            spec.note = spec.reason;
             return spec;
         }
-        spec.reason = 'la finestra ' + stationFieldWindowLabel(win) +
-            ' non è pubblicata: latest.json porta solo 1 h e 3 h. Nessun valore inventato.';
+        var daily = STATION_FIELD_DAILY[v] && STATION_FIELD_DAILY[v][win];
+        if (daily) {
+            spec.dailyField = daily;
+            var dst = stationFieldDailyState(daily);
+            spec.dailyState = dst;
+            spec.dailyPartialField = dst.hasPartialFlag ? (STATION_FIELD_DAILY_PARTIAL[daily] || null) : null;
+            if (dst.available) { spec.available = true; return spec; }
+            spec.reason = 'la finestra ' + stationFieldWindowLabel(win) + ' non è disponibile: ' + dst.reason;
+            spec.note = 'finestra non disponibile: ' + dst.reason;
+            return spec;
+        }
+        spec.reason = 'la finestra ' + stationFieldWindowLabel(win) + ' non è pubblicata per questa variabile: nessun valore inventato.';
+        spec.note = spec.reason;
         return spec;
     }
 
     function stationFieldScale(key) {
         if (!key) return null;
         if (key === 'station_wind_classes') return STATION_FIELD_WIND_SCALE;
+        // 1.3.0.61 - le due scale nuove vivono QUI e non in FM_COLOR_SCALE_OVERRIDES:
+        // quel blocco (MAPPE PREVISIONALI) e' valutato in ISOLAMENTO dai test di
+        // self-containment e non puo' riferirsi a variabili del layer centraline.
+        if (key === 'station_relative_humidity') return STATION_FIELD_RH_SCALE;
+        if (key === 'station_snow_cm') return STATION_FIELD_SNOW_SCALE;
         if (typeof FM_COLOR_SCALE_OVERRIDES !== 'undefined' && FM_COLOR_SCALE_OVERRIDES && FM_COLOR_SCALE_OVERRIDES[key]) {
             return FM_COLOR_SCALE_OVERRIDES[key];
         }
@@ -19463,7 +19858,8 @@ stopSyncPlay();
     function stationFieldCollect(stations, spec, nowMs) {
         var out = {
             points: [], total: 0, withValue: 0, used: 0, tooOld: 0,
-            excludedCoverage: 0, coverageSum: 0, coverageN: 0, partialWindow: 0
+            excludedCoverage: 0, coverageSum: 0, coverageN: 0, partialWindow: 0,
+            peakHour: null, peakValue: null, partialDay: 0
         };
         if (!stations || !stations.length || !spec) return out;
         var now = (typeof nowMs === 'number' && isFinite(nowMs)) ? nowMs : Date.now();
@@ -19476,6 +19872,19 @@ stopSyncPlay();
                 : (spec.dailyField ? stationFieldDailyValue(st.id, spec.dailyField) : null);
             if (v === null || v === undefined || v === '' || !isFinite(Number(v))) continue;
             out.withValue++;
+            // 1.3.0.66 - ORA DEL PICCO (solo massima/minima della giornata) e flag
+            // di giornata in corso. Il picco e' quello della STAZIONE con il valore
+            // piu' estremo: e' la stessa informazione dell'esempio "max 18,2 alle 14".
+            if (spec.dayWindow && spec.hourKey) {
+                var ph = st[spec.hourKey];
+                if (ph !== null && ph !== undefined && ph !== '' && isFinite(Number(ph))) {
+                    var pv = Number(v);
+                    var better = (out.peakValue === null) ||
+                        (spec.agg === 'min' ? pv < out.peakValue : pv > out.peakValue);
+                    if (better) { out.peakValue = pv; out.peakHour = Number(ph); }
+                }
+            }
+            if (spec.partialKey && st[spec.partialKey] === true) out.partialDay++;
             if (spec.dailyPartialField) {
                 var pe = stationsDaily && stationsDaily.stations ? stationsDaily.stations[st.id] : null;
                 if (pe && pe[spec.dailyPartialField] === true) out.partialWindow++;
@@ -19535,12 +19944,19 @@ stopSyncPlay();
     // indice a bucket da 0,1° con espansione ad anelli (k=8, raggio 25 km).
     // Ritorna i byte RGBA, i valori interpolati e le opacita': cosi' il test puo'
     // verificare un pixel con i numeri, non solo il colore.
-    function stationFieldRaster(points, scale, frame, mask) {
-        var W = frame.W | 0, H = frame.H | 0;
+    function stationFieldRaster(points, scale, frame, mask, ssOpt) {
+        var baseW = frame.W | 0, baseH = frame.H | 0;
+        // 1.3.0.61 - SUPERSAMPLING: con ss=2 il raster e' 512x454 sullo STESSO
+        // frame Mercator (la proiezione usa W/H correnti, quindi le proporzioni
+        // non cambiano) e viene ridotto a 256x227 da stationFieldDownscale.
+        // ss=1 (default) riproduce esattamente il raster precedente.
+        var ss = (ssOpt | 0) >= 1 ? (ssOpt | 0) : 1;
+        var W = baseW * ss, H = baseH * ss;
         var data = new Uint8ClampedArray(W * H * 4);
         var values = new Float32Array(W * H);
         var alphas = new Uint8Array(W * H);
-        var res = { W: W, H: H, data: data, values: values, alphas: alphas, painted: 0, points: 0 };
+        var res = { W: W, H: H, baseW: baseW, baseH: baseH, ss: ss,
+                    data: data, values: values, alphas: alphas, painted: 0, points: 0 };
         if (!points || !points.length || !scale) return res;
         res.points = points.length;
         // Alias LOCALI delle costanti e delle funzioni usate nel ciclo per pixel:
@@ -19589,7 +20005,14 @@ stopSyncPlay();
             var pgy = Math.floor(lat / B) - bLat0;
             for (var ii = 0; ii < W; ii++) {
                 var p = j * W + ii;
-                if (mask && mask[p] < 128) continue;
+                // La maschera terra e' a risoluzione BASE: al supersampling si
+                // campiona il pixel base che contiene questo subpixel (bordo duro
+                // alla risoluzione finale, poi ammorbidito dal downscale).
+                if (mask) {
+                    var mIdx = (ss === 1) ? p
+                        : (((j / ss) | 0) * baseW + ((ii / ss) | 0));
+                    if (mask[mIdx] < 128) continue;
+                }
                 var lon = frame.minLon + (ii + 0.5) / W * lonSpan;
                 var pgx = Math.floor(lon / B) - bLon0;
                 cand.length = 0;
@@ -19635,6 +20058,85 @@ stopSyncPlay();
         return res;
     }
 
+    // 1.3.0.61 - RIDUZIONE DEL SUPERSAMPLING (2x -> 1x) con tre passi dichiarati:
+    //  1. MEDIA A BOX in PREMOLTIPLICATO: ogni pixel finale e' la media di ss*ss
+    //     subpixel pesata sull'alpha. E' l'antialiasing piu' pulito e non scurisce
+    //     i bordi (la media semplice di RGB+alpha li scurirebbe).
+    //  2. SFUMATURA 3x3 SOLO su RGB (tent 1-2-1: centro 4, lati 2, angoli 1, /16),
+    //     media sui soli vicini dipinti: e' il "blur 0,6 px" chiesto, senza toccare
+    //     l'alpha (quindi senza far sbavare la copertura oltre la maschera).
+    //  3. MASCHERA TERRA RIAPPLICATA sull'alpha finale: resta dura, come prima.
+    // Ritorna anche `values` (media dei valori interpolati) per la diagnostica.
+    function stationFieldDownscale(r, W, H, ss, mask) {
+        var out = new Uint8ClampedArray(W * H * 4);
+        var vals = new Float32Array(W * H);
+        var alph = new Uint8Array(W * H);
+        if (!r || !r.data) return { W: W, H: H, data: out, values: vals, alphas: alph, painted: 0 };
+        var src = r.data, srcV = r.values, sw = r.W;
+        var n = ss * ss, x, y, dx, dy, o, sx, sy, p, q, sumA, sumR, sumG, sumB, sumV, vN;
+        for (y = 0; y < H; y++) {
+            for (x = 0; x < W; x++) {
+                sumA = 0; sumR = 0; sumG = 0; sumB = 0; sumV = 0; vN = 0;
+                for (dy = 0; dy < ss; dy++) {
+                    sy = y * ss + dy;
+                    for (dx = 0; dx < ss; dx++) {
+                        sx = x * ss + dx;
+                        p = sy * sw + sx; q = p * 4;
+                        var a = src[q + 3];
+                        sumA += a;
+                        sumR += src[q] * a;
+                        sumG += src[q + 1] * a;
+                        sumB += src[q + 2] * a;
+                        // Il valore interpolato si media sui soli subpixel DIPINTI:
+                        // includere gli zeri dei subpixel trasparenti (bordo del
+                        // cutoff) tirava giu' il valore di bordo e creava un
+                        // gradiente finto.
+                        if (a > 0) { sumV += srcV[p]; vN++; }
+                    }
+                }
+                o = (y * W + x) * 4;
+                if (sumA > 0) {
+                    out[o] = sumR / sumA;
+                    out[o + 1] = sumG / sumA;
+                    out[o + 2] = sumB / sumA;
+                    out[o + 3] = sumA / n;
+                    if (vN > 0) vals[y * W + x] = sumV / vN;
+                }
+            }
+        }
+        // 2) tent 3x3 su RGB, SOLO dove c'e' alpha (i vicini trasparenti non contano).
+        var rgb = new Uint8ClampedArray(out);
+        for (y = 1; y < H - 1; y++) {
+            for (x = 1; x < W - 1; x++) {
+                var c = (y * W + x) * 4;
+                if (rgb[c + 3] === 0) continue;
+                var wsum = 0, cr = 0, cg = 0, cb = 0;
+                for (dy = -1; dy <= 1; dy++) {
+                    for (dx = -1; dx <= 1; dx++) {
+                        var nc = ((y + dy) * W + (x + dx)) * 4;
+                        if (rgb[nc + 3] === 0) continue;
+                        var wgt = (dx === 0 && dy === 0) ? 4 : ((dx === 0 || dy === 0) ? 2 : 1);
+                        wsum += wgt; cr += rgb[nc] * wgt; cg += rgb[nc + 1] * wgt; cb += rgb[nc + 2] * wgt;
+                    }
+                }
+                if (wsum > 0) {
+                    out[c] = cr / wsum; out[c + 1] = cg / wsum; out[c + 2] = cb / wsum;
+                }
+            }
+        }
+        // 3) maschera terra e conteggio dei pixel dipinti.
+        var painted = 0;
+        for (y = 0; y < H; y++) {
+            for (x = 0; x < W; x++) {
+                var idx = y * W + x, qq = idx * 4;
+                if (mask && mask[idx] < 128) { out[qq + 3] = 0; out[qq] = 0; out[qq + 1] = 0; out[qq + 2] = 0; }
+                alph[idx] = out[qq + 3];
+                if (alph[idx] > 0) painted++;
+            }
+        }
+        return { W: W, H: H, data: out, values: vals, alphas: alph, painted: painted };
+    }
+
     function stationFieldPaneEnsure() {
         if (!map) return null;
         var pane = map.getPane('stationFieldPane');
@@ -19649,6 +20151,24 @@ stopSyncPlay();
     function stationFieldRemoveOverlay() {
         if (stationFieldOverlay && map) { try { map.removeLayer(stationFieldOverlay); } catch (e) { } }
         stationFieldOverlay = null;
+    }
+
+    // Ora del picco (temp_max_day_hour / temp_min_day_hour). Il server pubblica un
+    // NUMERO e l'unita' (ora locale decimale o minuti dalla mezzanotte) NON e'
+    // verificata su un file reale: si formatta la forma piu' probabile senza
+    // inventare ":00" quando il valore e' gia' un'ora intera.
+    function stationFieldHourText(v) {
+        var n = Number(v);
+        if (!isFinite(n)) return '';
+        var h, m;
+        if (n >= 0 && n <= 23.999) {
+            h = Math.floor(n); m = Math.round((n - h) * 60);
+        } else if (n > 23 && n <= 1439) {
+            h = Math.floor(n / 60); m = Math.round(n % 60);
+        } else {
+            return String(n);
+        }
+        return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
     }
 
     function stationFieldTickText(v) {
@@ -19729,10 +20249,23 @@ stopSyncPlay();
             } else if (st) {
                 var covTxt = st.coverageN
                     ? ('copertura media ' + fmtNum(100 * st.coverageSum / st.coverageN, 0) + '%')
-                    : 'copertura non applicabile (valore istantaneo)';
+                    : 'copertura non dichiarata dal server per questa variabile';
+                // 1.3.0.66 - GIORNATA: ora del picco e stato della giornata in corso.
+                var dayTxt = '';
+                if (spec.dayWindow) {
+                    if (st.peakHour !== null && st.peakValue !== null) {
+                        dayTxt = ' · ' + stationFieldAggShort(spec.agg) + ' ' +
+                            fmtNum(st.peakValue, spec.decimals) + ' ' + spec.unit +
+                            ' alle ' + stationFieldHourText(st.peakHour);
+                    }
+                    if (st.partialDay > 0) {
+                        dayTxt += ' · giornata in corso (temp_day_partial su ' + st.partialDay + '/' + st.withValue + '): ' +
+                            (spec.agg === 'min' ? 'il minimo può ancora scendere' : 'il massimo può ancora salire');
+                    }
+                }
                 el.textContent = st.used + ' stazioni usate su ' + st.withValue +
                     ' con il valore, su ' + st.total + ' disponibili · finestra ' +
-                    stationFieldWindowLabel(spec.window) + ' · ' + covTxt +
+                    stationFieldWindowLabel(spec.window) + dayTxt + ' · ' + covTxt +
                     ' · osservazioni ≤ ' + STATIONS_MAX_OBS_AGE_MIN + ' min' +
                     (st.excludedCoverage ? ' · ' + st.excludedCoverage + ' escluse per copertura < 50%' : '') +
                     (st.partialWindow ? ' · finestra parziale su ' + st.partialWindow + '/' + st.used + ' stazioni (flag *_partial del blob)' : '');
@@ -19742,14 +20275,29 @@ stopSyncPlay();
         }
         if (method) {
             var n = st ? st.used : 0;
-            method.textContent = "Interpolazione IDW da " + n + " stazioni (k=8, raggio 25 km). " +
+            var methodTxt = "Interpolazione IDW da " + n + " stazioni (k=8, raggio 25 km). " +
                 "Non è un campo radar e non è una misura d'area: dice dove le centraline che possono misurare hanno osservato.";
+            // LEGENDA DICHIARATA: unita' e scala della variabile scelta, sempre.
+            methodTxt += ' Unità ' + spec.unit + ', scala colori ' + (spec.scale || 'nessuna') + ' del registro mappe.';
+            if (spec.scale === 'station_relative_humidity') {
+                methodTxt += ' Opacità della banda forzata a 1: la rampa del registro sfuma a trasparente sotto il 50%, qui il colore resta leggibile.';
+            }
+            if (spec.meanFallback) {
+                methodTxt += ' Valore istantaneo: la media sulla finestra non è ancora pubblicata dal server.';
+            }
+            method.textContent = methodTxt;
         }
     }
 
-    // Abilita/disabilita le opzioni della finestra in base ai campi VERI del blob
-    // delle serie giornaliere. Nessuna opzione viene lasciata selezionabile se il
-    // server non pubblica quel campo.
+    // Abilita/disabilita le opzioni della finestra in base ai campi VERI del file e
+    // del blob delle serie giornaliere, e scrive la NOTA con il motivo reale.
+    // Regole:
+    //  - finestre corte (5 min, 30 min, 1 ora, 3 ore): SEMPRE selezionabili (anche
+    //    quando il campo manca: la nota dice che si mostra l'istantanea o che la
+    //    finestra non è calcolabile);
+    //  - 6 ore / 24 ore: selezionabili solo se il blob le pubblica complete;
+    //  - il selettore finestra NON si disabilita mai: la temperatura ha le finestre
+    //    (media), non è più un campo istantaneo.
     function stationFieldSyncControls() {
         var selVar = document.getElementById('stationfield-var');
         if (selVar) selVar.value = stationFieldVar;
@@ -19760,28 +20308,46 @@ stopSyncPlay();
             var opts = selWin.options || [];
             for (var i = 0; i < opts.length; i++) {
                 var w = opts[i].value;
-                if (w === '1h' || w === '3h') { opts[i].disabled = false; opts[i].title = ''; continue; }
+                var f = STATION_FIELD_FIELDS[stationFieldVar] && STATION_FIELD_FIELDS[stationFieldVar][w];
+                if (f) {
+                    var ms2 = f.mean ? stationFieldMeanStats(f.key) : null;
+                    var absent = !!(f.mean && stationsData && ms2.withValue === 0 && ms2.withReason === 0);
+                    // Solo la finestra "giornata" della MEDIA si disabilita quando il
+                    // campo non c'e' (non ha un ripiego legittimo). Le finestre corte
+                    // restano selezionabili anche senza il campo: la nota dice cosa
+                    // si sta vedendo.
+                    opts[i].disabled = !!(f.strictAbsence && absent);
+                    if (f.mean) {
+                        opts[i].title = (ms2.withValue > 0)
+                            ? ('disponibile: ' + f.raw + ' (' + stationFieldAggLabel(f) + ')')
+                            : (ms2.withReason > 0
+                                ? ('non calcolabile: ' + stationFieldMeanReasonText(w, ms2))
+                                : ('non ancora pubblicata dal server (' + f.raw + ')' +
+                                   (f.fallback ? ': si mostra il valore istantaneo'
+                                               : (f.strictAbsence ? ': finestra disabilitata' : ': nessun valore'))));
+                    } else {
+                        opts[i].title = 'disponibile: ' + f.raw + (f.cov ? ' con copertura ' + f.cov : '');
+                    }
+                    continue;
+                }
                 var daily = STATION_FIELD_DAILY[stationFieldVar] && STATION_FIELD_DAILY[stationFieldVar][w];
-                var dst = daily ? stationFieldDailyState(daily) : null;
-                opts[i].disabled = !(dst && dst.available);
-                opts[i].title = (dst && dst.available)
-                    ? ('disponibile: ' + daily + (dst.partial ? ' (parziale su ' + dst.partial + '/' + dst.total + ' stazioni)' : ''))
-                    : ('non disponibile: ' + ((dst && dst.reason) || 'campo non pubblicato'));
+                if (daily) {
+                    var dst = stationFieldDailyState(daily);
+                    opts[i].disabled = !dst.available;
+                    opts[i].title = dst.available
+                        ? ('disponibile: ' + daily)
+                        : ('non disponibile: ' + ((dst && dst.reason) || 'campo non pubblicato'));
+                    continue;
+                }
+                opts[i].disabled = true;
+                opts[i].title = (stationFieldVar === 'snow')
+                    ? 'la neve al suolo è uno spessore istantaneo: la finestra non cambia il valore'
+                    : ('la finestra ' + stationFieldWindowLabel(w) + ' non è prevista per questa variabile');
             }
             selWin.value = spec.window;
-            selWin.disabled = (stationFieldVar === 'temp');
+            selWin.disabled = false;
         }
-        if (note) {
-            if (stationFieldVar === 'temp') {
-                note.textContent = 'temperatura istantanea: la finestra non si applica';
-            } else if (!spec.available) {
-                note.textContent = 'finestra non disponibile: ' + (spec.reason || '');
-            } else if (spec.dailyState && spec.dailyState.partial) {
-                note.textContent = 'finestra parziale su ' + spec.dailyState.partial + '/' + spec.dailyState.total + ' stazioni';
-            } else {
-                note.textContent = '';
-            }
-        }
+        if (note) note.textContent = spec.note || '';
     }
 
     // Maschera terra (province): calcolata UNA volta per frame e riusata. Se il
@@ -19836,14 +20402,20 @@ stopSyncPlay();
         if (!frame) { stationFieldRemoveOverlay(); stationFieldStatus('Frame non calcolabile: nessun punto.'); return false; }
         var mask = stationFieldMaskFor(frame);
         var t0 = (window.performance && performance.now) ? performance.now() : Date.now();
-        var r = stationFieldRaster(col.points, stationFieldScale(spec.scale), frame, mask);
+        // 1.3.0.61 - SUPERSAMPLING x2 + riduzione con media a box (antialiasing),
+        // poi sfumatura 3x3 su RGB e maschera terra riapplicata sull'alpha.
+        var ss = STATION_FIELD_SUPERSAMPLE;
+        var r = stationFieldRaster(col.points, stationFieldScale(spec.scale), frame, mask, ss);
+        var d = (ss > 1) ? stationFieldDownscale(r, frame.W, frame.H, ss, mask) : r;
         var t1 = (window.performance && performance.now) ? performance.now() : Date.now();
         var cv = document.createElement('canvas');
         cv.width = frame.W;
         cv.height = frame.H;
         var ctx = cv.getContext('2d');
+        // Interpolazione del browser DICHIARATA (default): il layer non e' pixel-art.
+        if (ctx && ctx.imageSmoothingEnabled !== undefined) ctx.imageSmoothingEnabled = true;
         var img = ctx.createImageData(frame.W, frame.H);
-        img.data.set(r.data);
+        img.data.set(d.data);
         ctx.putImageData(img, 0, 0);
         var url = cv.toDataURL('image/png');
         var bounds = L.latLngBounds(L.latLng(frame.minLat, frame.minLon), L.latLng(frame.maxLat, frame.maxLon));
@@ -19857,9 +20429,16 @@ stopSyncPlay();
             });
             stationFieldOverlay.addTo(map);
         }
+        // 1.3.0.61 - `image-rendering: auto` DICHIARATO sul layer: il PNG viene
+        // ridimensionato dal browser con interpolazione (nessun pixel-art), che e'
+        // il default ma scritto esplicitamente perche' un CSS globale non lo forzi.
+        try {
+            var oel = stationFieldOverlay.getElement ? stationFieldOverlay.getElement() : null;
+            if (oel && oel.style) oel.style.imageRendering = 'auto';
+        } catch (e) { }
         stationFieldCache = {
             key: key, varKey: stationFieldVar, window: spec.window,
-            generated_at: gen, used: col.used, painted: r.painted,
+            generated_at: gen, used: col.used, painted: d.painted, supersample: ss,
             raster_ms: Math.round((t1 - t0) * 10) / 10
         };
         stationFieldStatus();
@@ -19868,7 +20447,8 @@ stopSyncPlay();
 
     function stationFieldVarChanged(v) {
         stationFieldVar = STATION_FIELD_VARS[v] ? v : 'temp';
-        if (stationFieldVar === 'temp') stationFieldWindow = '1h';
+        // La finestra scelta si MANTIENE al cambio di variabile (anche per la
+        // temperatura, che ha le finestre come media): nessun reset nascosto.
         stationFieldSyncControls();
         stationFieldBuildLegend(stationFieldSpec(stationFieldVar, stationFieldWindow));
         if (stationFieldActive) renderStationFieldOverlay(false);

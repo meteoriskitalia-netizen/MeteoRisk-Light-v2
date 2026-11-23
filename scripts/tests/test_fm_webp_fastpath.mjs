@@ -9,9 +9,10 @@ import fs from 'fs';
 import path from 'path';
 import vm from 'vm';
 import { fileURLToPath } from 'url';
+import { appPath } from './_app_path.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.101.html');
+const HTML = appPath();
 const src = fs.readFileSync(HTML, 'utf8');
 const INDEX_WORKFLOW = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'forecast-maps-index.yml'), 'utf8');
 

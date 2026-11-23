@@ -19,9 +19,10 @@ import fs from 'fs';
 import path from 'path';
 import vm from 'vm';
 import { fileURLToPath } from 'url';
+import { appPath } from './_app_path.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.101.html');
+const HTML = appPath();
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -139,6 +140,11 @@ const ctx = {
   blitzWsConnected: false,
   blitzWsPruneTimer: null,
   connectBlitzWs() {},
+  // Stub del harness: toggleLiveSupercells chiama enableLinkedScProducts()
+  // (funzione dell'html, riga ~12184) che accende i prodotti collegati. Questo
+  // test misura il gating del pannello LIVE, non quell'accensione: senza lo stub
+  // la vm lanciava ReferenceError e il test moriva a meta'.
+  enableLinkedScProducts() {},
   setInterval() { return 1; },
   stationsSetActive(on) { stationCalls.push(on); },
 };

@@ -13,9 +13,10 @@ import fs from 'fs';
 import path from 'path';
 import vm from 'vm';
 import { fileURLToPath } from 'url';
+import { appPath } from './_app_path.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.101.html');
+const HTML = appPath();
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -61,6 +62,12 @@ for (const name of domWrappers) {
 // devono risolvere i global della vm, non l'host).
 pure += `
     function densifyVirtualPoints(m) { return 0; }
+    // Stub del harness: applyStaticDataset chiama attachProvinceTempRef (esiste
+    // nell'html, riga ~26625) per registrare il riferimento di temperatura per
+    // provincia. Qui si vuole misurare SOLO il calcolo degli slot, non
+    // l'aggancio: senza lo stub la vm lanciava ReferenceError e le asserzioni
+    // successive misuravano un dataset vuoto per il motivo sbagliato.
+    function attachProvinceTempRef(store, rawPts, provIdx) { return null; }
     function worstPointForProvince(rawPts, provIdx) {
         for (var i = 0; i < provinceSamplePoints.length; i++) {
             var slot = provinceSamplePoints[i];

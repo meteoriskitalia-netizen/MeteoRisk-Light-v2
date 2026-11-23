@@ -30,9 +30,10 @@ import fs from 'fs';
 import path from 'path';
 import vm from 'vm';
 import { fileURLToPath } from 'url';
+import { appPath } from './_app_path.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.101.html');
+const HTML = appPath();
 const JSON_PATH = path.join(ROOT, 'scripts', 'forecast_v2', 'color_scales.json');
 const src = fs.readFileSync(HTML, 'utf8');
 const scales = JSON.parse(fs.readFileSync(JSON_PATH, 'utf8')).scales;

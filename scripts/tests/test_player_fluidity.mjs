@@ -14,9 +14,10 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { appPath, appVersion } from './_app_path.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.101.html');
+const HTML = appPath();
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -126,7 +127,7 @@ ok('E5: touch target 44px preservato (min-height var(--touch-min))',
   has(/--touch-min:\s*44px/));
 
 // ---------- F. Versione / nessuna regressione ----------
-  ok('F1: APP_VERSION = 1.2.4.12', has(/APP_VERSION\s*=\s*['"]1.2.4.95['"]/));
+  ok('F1: APP_VERSION coerente con APP_FILE (' + appVersion() + ')', has(new RegExp("APP_VERSION\\s*=\\s*['\"]" + appVersion().replace(/\./g, '\\.') + "['\"]")));
 ok('F2: changelog 1.0.0.14 PLAYER SAT24-STYLE presente',
   has(/PLAYER SAT24-STYLE \/ FLUIDITA.{0,30} ANIMAZIONE \(1\.0\.0\.14\)/));
 ok('F3: full timeline mantenuta (25 slot = 24x5min, ultime 2h, scelta utente)',

@@ -67,25 +67,50 @@ function extractFn(name) {
   }
   throw new Error('funzione non chiusa: ' + name);
 }
+// Estrazione di `var NAME = ...;` con bilanciamento di parentesi, graffe e
+// stringhe: le tabelle nuove (STATION_FIELD_MEAN_KEY_RAW) sono costruite da una
+// IIFE e contengono dei `;` interni, che la vecchia regex `[^;]+` troncava
+// lasciando un frammento non compilabile ("Unexpected end of input").
 function extractVar(name) {
-  const m = src.match(new RegExp('var\\s+' + name + '\\s*=\\s*([^;]+);'));
+  const m = src.match(new RegExp('var\\s+' + name + '\\s*='));
   if (!m) throw new Error('var non trovata: ' + name);
-  return 'var ' + name + ' = ' + m[1] + ';';
+  let i = m.index + m[0].length;
+  const start = i;
+  let depth = 0, str = null, esc = false, cm = null;
+  for (; i < src.length; i++) {
+    const c = src[i], d = src[i + 1];
+    if (cm === 'line') { if (c === '\n') cm = null; continue; }
+    if (cm === 'block') { if (c === '*' && d === '/') { cm = null; i++; } continue; }
+    if (str) { if (esc) { esc = false; continue; } if (c === '\\') { esc = true; continue; } if (c === str) str = null; continue; }
+    if (c === '/' && d === '/') { cm = 'line'; i++; continue; }
+    if (c === '/' && d === '*') { cm = 'block'; i++; continue; }
+    if (c === '"' || c === "'" || c === '`') { str = c; continue; }
+    if (c === '(' || c === '[' || c === '{') { depth++; continue; }
+    if (c === ')' || c === ']' || c === '}') { depth--; continue; }
+    if (c === ';' && depth === 0) break;
+  }
+  return 'var ' + name + ' = ' + src.slice(start, i) + ';';
 }
 
 const FNS = [
   'stationFieldSpec', 'stationFieldCollect', 'stationFieldDistKm', 'stationFieldIdwAt',
   'stationFieldRaster', 'stationFieldBandIndex', 'stationFieldDailyHas',
   'stationFieldDailyValue', 'stationFieldDailyState', 'stationFieldSyncControls', 'stationFieldWindowLabel',
-  'stationFieldTickText', 'stationFieldGradient'
+  'stationFieldTickText', 'stationFieldGradient', 'stationFieldMeanStats',
+  'stationFieldMeanReasonText', 'stationFieldReasonIt', 'stationsMeanReasons', 'stationsNullReason',
+  'stationFieldScale', 'stationFieldDownscale', 'stationFieldHourText',
+  'stationFieldAggLabel', 'stationFieldAggShort', 'stationFieldStatus'
 ];
 const VARS = [
-  'STATION_FIELD_K', 'STATION_FIELD_CUTOFF_KM', 'STATION_FIELD_FADE_KM',
+  'STATION_FIELD_K', 'STATION_FIELD_CUTOFF_KM', 'STATION_FIELD_FADE_KM', 'STATION_FIELD_SUPERSAMPLE',
   'STATION_FIELD_BUCKET_DEG', 'STATION_FIELD_MAX_RING', 'STATION_FIELD_MIN_COVERAGE',
   'STATION_FIELD_VARS', 'STATION_FIELD_WINDOWS', 'STATION_FIELD_FIELDS',
   'STATION_FIELD_DAILY', 'STATION_FIELD_WIND_BREAKPOINTS', 'STATION_FIELD_WIND_COLORS',
   'STATION_FIELD_WIND_SCALE', 'STATION_FIELD_LEGEND', 'stationFieldDailyCache', 'stationFieldDailyCacheFor',
-  'STATION_FIELD_DAILY_PARTIAL',
+  'STATION_FIELD_DAILY_PARTIAL', 'STATION_FIELD_MEAN_KEY_RAW', 'stationFieldMeanCache',
+  'STATION_FIELD_RH_BREAKPOINTS', 'STATION_FIELD_RH_COLORS', 'STATION_FIELD_RH_SCALE',
+  'STATION_FIELD_SNOW_BREAKPOINTS', 'STATION_FIELD_SNOW_COLORS', 'STATION_FIELD_SNOW_SCALE',
+  'STATIONS_MEAN_FIELDS',
   'FM_TEMP2M_BREAKPOINTS', 'FM_TEMP2M_COLORS', 'FM_PRECIP_BREAKPOINTS', 'FM_PRECIP_COLORS'
 ];
 
@@ -102,8 +127,14 @@ const ctxObj = {
   escapeHtml: (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
   STATIONS_MAX_OBS_AGE_MIN: 90,
   stationsDaily: null,
+  // 1.3.0.61 - la spec legge stationsData per decidere se la MEDIA sulla finestra
+  // e' pubblicata (tre stati: presente / bloccata con motivo / assente). Nel vm
+  // deve esistere, altrimenti la prima lettura lancia ReferenceError.
+  stationsData: null,
   stationFieldVar: 'temp',
   stationFieldWindow: '1h',
+  stationFieldLastStats: null,
+  stationsAttributionLine: () => 'Dati centraline: CC BY 4.0',
   fmtNum: (v, d) => Number(v).toFixed(d)
 };
 
@@ -173,7 +204,9 @@ console.log('\nB. Cutoff 25 km: nessun vicino -> valore nullo e pixel trasparent
 const far = ctxObj.stationFieldIdwAt(40.0, 9.0, CAND3, Math.cos(40 * Math.PI / 180));
 ok('a 111 km dai punti il valore e NULL (fuori da 25 km)', far.v === null && far.n === 0);
 ok('il cutoff dichiarato e 25 km', ctxObj.STATION_FIELD_CUTOFF_KM === 25);
-ok('k dichiarato e 8', ctxObj.STATION_FIELD_K === 8);
+ok('k dichiarato e 12 (1.3.0.61: da 8 a 12 per una superficie piu continua)', ctxObj.STATION_FIELD_K === 12);
+ok('fade dichiarato e 14 km (1.3.0.61: da 8 a 14, bordo meno netto)', ctxObj.STATION_FIELD_FADE_KM === 14);
+ok('supersampling dichiarato x2', ctxObj.STATION_FIELD_SUPERSAMPLE === 2);
 const frame9 = makeFrame(40, 42, 8, 10, 9, 9);
 const farRaster = ctxObj.stationFieldRaster(
   [{ lat: 41.0, lon: 9.0, v: 10 }], T_SCALE, frame9, null);
@@ -196,13 +229,13 @@ ok('il colore e quello della banda della scala temperature_2m',
     const p = (4 * 9 + 4) * 4;
     return r3.data[p] === c[0] && r3.data[p + 1] === c[1] && r3.data[p + 2] === c[2];
   })(), 'valore=' + r3.values[4 * 9 + 4].toFixed(2) + ' °C');
-// fade non saturo: punto a ~20 km -> (25-20)/8 = 0,625 -> alpha 147
+// fade non saturo: punto a ~20 km -> (25-20)/14 = 0,357 -> alpha 84
 const d20 = 20 / (111.32 * cos41);           // gradi di longitudine per 20 km
 const rFade = ctxObj.stationFieldRaster(
   [{ lat: 41.0, lon: 9.0 - d20, v: 10 }], T_SCALE, frame9, null);
 const aFade = rFade.alphas[4 * 9 + 4];
-const want = Math.round(235 * ((25 - 20) / 8));
-ok('a 20 km l alpha e 235*(25-20)/8 = ' + want, Math.abs(aFade - want) <= 1, 'alpha=' + aFade);
+const want = Math.round(235 * ((25 - 20) / 14));
+ok('a 20 km l alpha e 235*(25-20)/14 = ' + want, Math.abs(aFade - want) <= 1, 'alpha=' + aFade);
 const maskZero = new Uint8Array(9 * 9);      // tutto mare
 const rMask = ctxObj.stationFieldRaster(CAND3, T_SCALE, frame9, maskZero);
 ok('maschera a 0 su tutta la griglia -> nessun pixel dipinto', rMask.painted === 0 && rMask.alphas[4 * 9 + 4] === 0);
@@ -212,9 +245,11 @@ const rMask2 = ctxObj.stationFieldRaster(CAND3, T_SCALE, frame9, maskCenter);
 ok('maschera a 255 solo al centro -> dipinto il solo centro', rMask2.painted === 1 && rMask2.alphas[4 * 9 + 4] === 235);
 
 console.log('\nD. Selezione del campo per variabile e finestra (nomi reali del file)');
+ctxObj.stationsData = null;
 const specTemp = ctxObj.stationFieldSpec('temp', '3h');
-ok('temp -> temperature_2m (finestra non applicabile)', specTemp.field === 'temperature_2m' &&
-  specTemp.windowApplies === false && specTemp.window === '1h' && specTemp.available === true);
+ok('temp 3 h senza dati: si chiede la media (tempMean3h), finestra APPLICATA', specTemp.field === 'tempMean3h' &&
+  specTemp.windowApplies === true && specTemp.window === '3h' && specTemp.available === true &&
+  specTemp.note === '' && specTemp.meanPending === true);
 const specRain3 = ctxObj.stationFieldSpec('rain', '3h');
 ok('pioggia 3 h -> rain3h (rain_3h_mm) con copertura rain3hCov', specRain3.field === 'rain3h' &&
   specRain3.covField === 'rain3hCov' && ctxObj.STATION_FIELD_FIELDS.rain['3h'].raw === 'rain_3h_mm' &&
@@ -233,6 +268,189 @@ ok('vento 1 h -> windMean1h, raffica 1 h -> gustMax1h',
   ctxObj.stationFieldSpec('gust', '1h').field === 'gustMax1h');
 ok('nessuna variabile usa temperature_2m fuori da temp',
   ['rain', 'wind', 'gust'].every((v) => ctxObj.stationFieldSpec(v, '1h').field !== 'temperature_2m'));
+
+console.log('\nD2. TEMPERATURA CON LE FINESTRE: media, istantanea dichiarata, motivo del server');
+// 1) media PRESENTE nel file -> si legge la media, nota vuota, wrap visibile.
+ctxObj.stationsData = { stations: [{ id: 'A', tempMean1h: 9.4, temperature_2m: 9.8 }] };
+const specTMean = ctxObj.stationFieldSpec('temp', '1h');
+ok('temp 1 h con temp_mean_1h_c -> campo tempMean1h, nota vuota',
+  specTMean.field === 'tempMean1h' && specTMean.available === true && specTMean.note === '' &&
+  specTMean.meanFallback === false && specTMean.meanPending === false, JSON.stringify(specTMean.note));
+ok('la finestra e una MEDIA (windowApplies true) e la scala resta temperature_2m',
+  specTMean.windowApplies === true && specTMean.window === '1h' && specTMean.scale === 'temperature_2m');
+ok('STATION_FIELD_FIELDS.temp nomina i campi REALI del server',
+  ctxObj.STATION_FIELD_FIELDS.temp['1h'].raw === 'temp_mean_1h_c' &&
+  ctxObj.STATION_FIELD_FIELDS.temp['5m'].raw === 'temp_mean_5m_c' &&
+  ctxObj.STATION_FIELD_FIELDS.temp['30m'].raw === 'temp_mean_30m_c' &&
+  ctxObj.STATION_FIELD_FIELDS.temp['3h'].raw === 'temp_mean_3h_c');
+// 2) media ASSENTE -> istantanea con la nota ESATTA.
+ctxObj.stationsData = { stations: [{ id: 'A', temperature_2m: 9.8 }] };
+const specTFall = ctxObj.stationFieldSpec('temp', '1h');
+ok('temp 1 h senza media -> temperature_2m (istantanea)', specTFall.field === 'temperature_2m' &&
+  specTFall.available === true && specTFall.meanFallback === true);
+ok('la nota dice esattamente che la media non e pubblicata',
+  specTFall.note === 'media non ancora pubblicata dal server: mostro l\'ultimo valore istantaneo',
+  JSON.stringify(specTFall.note));
+// 3) il server PUBBLICA la finestra ma la dichiara non calcolabile -> NESSUN ripiego.
+// Il nome REALE del motivo per le termiche e' `<nome>_<finestra>_null_reason`
+// (temp_5m_null_reason), non `temp_mean_5m_c_null_reason`: misurato sul fetcher.
+const meanReason5m = ctxObj.stationsMeanReasons({ temp_5m_null_reason: 'series_too_coarse_for_5min' });
+ok('il motivo reale temp_5m_null_reason viene associato a temp_mean_5m_c',
+  meanReason5m && meanReason5m['temp_mean_5m_c'] === 'series_too_coarse_for_5min',
+  JSON.stringify(meanReason5m));
+ok('anche la convenzione di vento/raffica (campo senza unita) e letta',
+  (() => {
+    const m = ctxObj.stationsMeanReasons({ wind_mean_30m_null_reason: 'coverage_below_50pct' });
+    return m && m['wind_mean_30m_ms'] === 'coverage_below_50pct';
+  })());
+ctxObj.stationsData = { stations: [
+  { id: 'A', meanReason: meanReason5m },
+  { id: 'B', meanReason: ctxObj.stationsMeanReasons({ temp_5m_null_reason: 'series_too_coarse_for_5min' }) }
+] };
+const specT5 = ctxObj.stationFieldSpec('temp', '5m');
+ok('temp 5 min con solo series_too_coarse_for_5min: messaggio dedicato',
+  specT5.available === false && specT5.field === null &&
+  specT5.reason === 'nessuna stazione con serie a 1 minuto: finestra 5 min non calcolabile', specT5.reason);
+ok('con il motivo del server NON si ripiega sull istantanea', specT5.meanFallback === false);
+// 4) media 5 min PRESENTE.
+ctxObj.stationsData = { stations: [{ id: 'A', tempMean5m: 8.1, temperature_2m: 8.4 }] };
+const specT5b = ctxObj.stationFieldSpec('temp', '5m');
+ok('temp 5 min con temp_mean_5m_c -> campo tempMean5m', specT5b.field === 'tempMean5m' &&
+  specT5b.available === true);
+// 5) un motivo NUOVO compare com'e' (nessun motivo inventato).
+ctxObj.stationsData = { stations: [{ id: 'A', meanReason: ctxObj.stationsMeanReasons({ temp_30m_null_reason: 'new_server_code_42' }) }] };
+const specT30 = ctxObj.stationFieldSpec('temp', '30m');
+ok('codice motivo sconosciuto: compare in chiaro con il conteggio',
+  /new_server_code_42 \(1 stazioni\)/.test(specT30.reason || ''), specT30.reason);
+// 6) vento 30 min: campo media + COPERTURA pubblicata dal server (nessun ripiego).
+ctxObj.stationsData = { stations: [{ id: 'A', windMean30m: 3.4, windMean30mCov: 0.9 }] };
+const specW30 = ctxObj.stationFieldSpec('wind', '30m');
+ok('vento 30 min -> windMean30m con copertura windMean30mCov',
+  specW30.field === 'windMean30m' && specW30.covField === 'windMean30mCov' &&
+  specW30.available === true && specW30.scale === 'station_wind_classes');
+
+console.log('\nD3. NUOVE VARIABILI: umidità, punto di rugiada, neve + famiglie di esclusione');
+ctxObj.stationsData = { stations: [
+  { id: 'A', rhMean1h: 64, rh: 70, dewMean1h: 5.2, dew: 6.1, snowDepthCm: 12 }
+] };
+const specRh = ctxObj.stationFieldSpec('rh', '1h');
+ok('umidità 1 h -> rhMean1h, unità %, scala station_relative_humidity',
+  specRh.field === 'rhMean1h' && specRh.unit === '%' && specRh.scale === 'station_relative_humidity' &&
+  specRh.available === true);
+const specDew = ctxObj.stationFieldSpec('dew', '1h');
+ok('punto di rugiada 1 h -> dewMean1h, unità °C, scala temperature_2m',
+  specDew.field === 'dewMean1h' && specDew.unit === '°C' && specDew.scale === 'temperature_2m');
+const specDew3 = ctxObj.stationFieldSpec('dew', '3h');
+ok('punto di rugiada 3 h senza dew_mean_3h_c -> istantanea con la stessa nota',
+  specDew3.field === 'dew' && specDew3.meanFallback === true &&
+  specDew3.note === 'media non ancora pubblicata dal server: mostro l\'ultimo valore istantaneo');
+const specSnow = ctxObj.stationFieldSpec('snow', '1h');
+ok('neve -> snowDepthCm in cm, scala station_snow_cm, finestra non applicata',
+  specSnow.field === 'snowDepthCm' && specSnow.unit === 'cm' && specSnow.scale === 'station_snow_cm' &&
+  specSnow.windowApplies === false && specSnow.available === true);
+const nowT = Date.parse('2026-11-23T18:00:00Z');
+const colSnow = ctxObj.stationFieldCollect(
+  [{ id: 'A', lat: 45, lon: 9, time: nowT, snowDepthCm: 12 }], specSnow, nowT);
+ok('collect neve: 1 punto usato con 12 cm', colSnow.used === 1 && colSnow.points[0].v === 12);
+const colRh = ctxObj.stationFieldCollect(
+  [{ id: 'A', lat: 45, lon: 9, time: nowT, rhMean1h: 64 }, { id: 'B', lat: 45.1, lon: 9.1, time: nowT, rh: 70 }],
+  specRh, nowT);
+ok('collect umidità: la stazione senza la MEDIA resta esclusa (nessun valore inventato)',
+  colRh.used === 1 && colRh.points[0].id === 'A');
+// Le scale nuove sono REALI e con la stessa lunghezza (breakpoints/colori).
+ok('scala umidità: 15 bande 0..95 % e colori coerenti',
+  ctxObj.STATION_FIELD_RH_SCALE.breakpoints.length === 15 &&
+  ctxObj.STATION_FIELD_RH_COLORS.length === 15 &&
+  ctxObj.STATION_FIELD_RH_BREAKPOINTS[0] === 0 && ctxObj.STATION_FIELD_RH_BREAKPOINTS[14] === 95);
+ok('scala neve: 12 bande 0..500 cm, stessa rampa del registro (prima banda trasparente)',
+  ctxObj.STATION_FIELD_SNOW_SCALE.breakpoints.length === 12 &&
+  ctxObj.STATION_FIELD_SNOW_COLORS.length === 12 &&
+  ctxObj.STATION_FIELD_SNOW_COLORS[0][3] === 0 && ctxObj.STATION_FIELD_SNOW_BREAKPOINTS[11] === 500);
+ok('stationFieldScale risolve le due scale nuove (fuori dal blocco MAPPE, che resta self-contained)',
+  ctxObj.stationFieldScale('station_relative_humidity') === ctxObj.STATION_FIELD_RH_SCALE &&
+  ctxObj.stationFieldScale('station_snow_cm') === ctxObj.STATION_FIELD_SNOW_SCALE);
+ok('legenda dedicata per umidità e neve (intervalli e tacche)',
+  ctxObj.STATION_FIELD_LEGEND.station_relative_humidity.hi === 100 &&
+  ctxObj.STATION_FIELD_LEGEND.station_snow_cm.hi === 300);
+// ESCLUSIONI DICHIARATE NEL SELETTORE (non silenziose).
+ok('direzione del vento esclusa con motivo (angolo, IDW errato)',
+  /value="windDir" disabled title="[^"]*angolo[^"]*IDW[^"]*"/.test(src));
+ok('pressione di stazione esclusa con motivo (dipende dalla quota, non MSL)',
+  /value="pStation" disabled title="[^"]*(quota)[^"]*"/.test(src));
+ok('livello idrico escluso con motivo (zero idrometrico eterogeneo)',
+  /value="riverLevel" disabled title="[^"]*idrometrico[^"]*eterogenei[^"]*"/.test(src));
+ok('riga dedicata con le tre esclusioni nel blocco del campo',
+  /id="live-stationfield-excluded"/.test(src));
+
+console.log('\nD4. MASSIMA, MINIMA E GIORNATA (tmax/tmin/day)');
+const nowD4 = Date.parse('2026-11-23T18:00:00Z');
+// tmax + day: campo, aggregazione, ora del picco.
+ctxObj.stationsData = { stations: [
+  { id: 'A', lat: 45.0, lon: 9.0, time: nowD4, tempMaxDay: 18.2, tempMaxDayHour: 14, tempDayPartial: true },
+  { id: 'B', lat: 45.1, lon: 9.1, time: nowD4, tempMaxDay: 16.9, tempMaxDayHour: 12, tempDayPartial: true }
+] };
+const specTMaxDay = ctxObj.stationFieldSpec('tmax', 'day');
+ok('tmax + day -> temp_max_day_c, aggregazione max, finestra giornata',
+  specTMaxDay.field === 'tempMaxDay' && specTMaxDay.agg === 'max' && specTMaxDay.dayWindow === true &&
+  specTMaxDay.available === true && specTMaxDay.scale === 'temperature_2m');
+const colTMax = ctxObj.stationFieldCollect(ctxObj.stationsData.stations, specTMaxDay, nowD4);
+ok('collect tmax day: 2 punti, picco 18,2 con ora 14', colTMax.used === 2 &&
+  colTMax.peakValue === 18.2 && colTMax.peakHour === 14, 'picco=' + colTMax.peakValue + ' ora=' + colTMax.peakHour);
+ok('flag temp_day_partial contato (2 stazioni su 2)', colTMax.partialDay === 2);
+// tmin + day.
+ctxObj.stationsData = { stations: [
+  { id: 'A', lat: 45.0, lon: 9.0, time: nowD4, tempMinDay: 3.4, tempMinDayHour: 5 },
+  { id: 'B', lat: 45.1, lon: 9.1, time: nowD4, tempMinDay: 4.8, tempMinDayHour: 6 }
+] };
+const specTMinDay = ctxObj.stationFieldSpec('tmin', 'day');
+ok('tmin + day -> temp_min_day_c, aggregazione min', specTMinDay.field === 'tempMinDay' &&
+  specTMinDay.agg === 'min' && specTMinDay.dayWindow === true);
+const colTMin = ctxObj.stationFieldCollect(ctxObj.stationsData.stations, specTMinDay, nowD4);
+ok('collect tmin day: picco (minimo) 3,4 alle 05:00', colTMin.peakValue === 3.4 && colTMin.peakHour === 5);
+ok('ora del picco formattata 05:00 (stationFieldHourText)', ctxObj.stationFieldHourText(5) === '05:00' &&
+  ctxObj.stationFieldHourText(14) === '14:00');
+// media della giornata NON pubblicata -> finestra DISABILITATA con motivo.
+ctxObj.stationsData = { stations: [{ id: 'A', temperature_2m: 9.8 }] };
+const specTempDay = ctxObj.stationFieldSpec('temp', 'day');
+ok('temp + day senza temp_mean_day_c -> NON disponibile, strictUnavailable',
+  specTempDay.available === false && specTempDay.strictUnavailable === true && specTempDay.field === null);
+ok('il motivo dice che il server pubblica massima e minima',
+  /temp_mean_day_c/.test(specTempDay.reason || '') && /massima e la minima/.test(specTempDay.reason || ''),
+  specTempDay.reason);
+const selWinDay = el('stationfield-window');
+selWinDay.options = [{ value: '5m' }, { value: '30m' }, { value: '1h' }, { value: '3h' },
+  { value: '6h' }, { value: '24h' }, { value: 'day' }];
+ctxObj.stationFieldVar = 'temp'; ctxObj.stationFieldWindow = 'day';
+ctxObj.stationsDaily = null;
+ctxObj.stationFieldSyncControls();
+ok('opzione "oggi" della temperatura DISABILITATA con il motivo nel title',
+  selWinDay.options[6].disabled === true && /temp_mean_day_c/.test(selWinDay.options[6].title || ''),
+  selWinDay.options[6].title);
+ctxObj.stationsData = { stations: [{ id: 'A', tempMeanDay: 9.1 }] };
+ctxObj.stationFieldSyncControls();
+ok('con temp_mean_day_c l opzione "oggi" torna selezionabile', selWinDay.options[6].disabled === false);
+// tmax/tmin con finestre corte: i campi reali.
+ctxObj.stationsData = { stations: [{ id: 'A', tempMax1h: 15.5, tempMin1h: 8.1 }] };
+ok('tmax/tmin 1 h -> temp_max_1h_c / temp_min_1h_c',
+  ctxObj.stationFieldSpec('tmax', '1h').field === 'tempMax1h' &&
+  ctxObj.stationFieldSpec('tmin', '1h').field === 'tempMin1h' &&
+  ctxObj.STATION_FIELD_FIELDS.tmax['1h'].raw === 'temp_max_1h_c' &&
+  ctxObj.STATION_FIELD_FIELDS.tmin['1h'].raw === 'temp_min_1h_c');
+// Riga di stato: "max 18,2 °C alle 14:00 · ... · 2 stazioni" e giornata in corso.
+ctxObj.stationsData = { stations: [
+  { id: 'A', lat: 45.0, lon: 9.0, time: nowD4, tempMaxDay: 18.2, tempMaxDayHour: 14, tempDayPartial: true },
+  { id: 'B', lat: 45.1, lon: 9.1, time: nowD4, tempMaxDay: 16.9, tempMaxDayHour: 12, tempDayPartial: true }
+] };
+ctxObj.stationFieldVar = 'tmax';
+ctxObj.stationFieldWindow = 'day';
+ctxObj.stationFieldLastStats = ctxObj.stationFieldCollect(ctxObj.stationsData.stations, ctxObj.stationFieldSpec('tmax', 'day'), nowD4);
+ctxObj.stationFieldStatus();
+const statusTxt = el('live-stationfield-status').textContent;
+ok('riga di stato: "max 18,2 °C alle 14:00"', /max 18[.,]2 °C alle 14:00/.test(statusTxt), statusTxt);
+ok('riga di stato: "2 stazioni usate" e finestra oggi', /2 stazioni usate/.test(statusTxt) &&
+  /oggi \(dalla mezzanotte\)/.test(statusTxt));
+ok('giornata in corso: "il massimo puo ancora salire"', /giornata in corso/.test(statusTxt) &&
+  /il massimo può ancora salire/.test(statusTxt));
 
 console.log('\nE. Finestre 6 h/24 h dal blob daily_series: campo, schema e PARZIALITA\'');
 const spec6 = ctxObj.stationFieldSpec('rain', '6h');
@@ -288,25 +506,46 @@ ok('collect della finestra 6 h: 2 punti usati e 1 finestra parziale contata',
   colP.used === 2 && colP.partialWindow === 1, 'used=' + colP.used + ' partial=' + colP.partialWindow);
 // syncControls: le opzioni 6 h/24 h sono disabilitate senza il blob e abilitate con il campo
 const selWin = el('stationfield-window');
-selWin.options = [{ value: '1h' }, { value: '3h' }, { value: '6h' }, { value: '24h' }];
+selWin.options = [{ value: '5m' }, { value: '30m' }, { value: '1h' }, { value: '3h' }, { value: '6h' }, { value: '24h' }];
 ctxObj.stationFieldVar = 'rain'; ctxObj.stationFieldWindow = '1h';
 ctxObj.stationsDaily = null;
 ctxObj.stationFieldSyncControls();
 ok('select finestra: 1 h/3 h abilitate, 6 h/24 h DISABILITATE senza blob',
-  selWin.options[0].disabled === false && selWin.options[1].disabled === false &&
-  selWin.options[2].disabled === true && selWin.options[3].disabled === true &&
-  /daily_series\.json/.test(selWin.options[2].title || ''), selWin.options[2].title);
+  selWin.options[2].disabled === false && selWin.options[3].disabled === false &&
+  selWin.options[4].disabled === true && selWin.options[5].disabled === true &&
+  /daily_series\.json/.test(selWin.options[4].title || ''), selWin.options[4].title);
+ok('pioggia 30 min: opzione presente e disabilitata con il motivo (nessun campo di accumulo a 30 min)',
+  selWin.options[1].disabled === true && /30 min/.test(selWin.options[1].title || ''),
+  selWin.options[1].title);
 ctxObj.stationsDaily = { schema: 'stations-daily-series/2', day: '2026-11-23',
   stations: { A: { rain_6h_mm: 12.4, rain_6h_partial: false, rain_24h_mm: 30.1, rain_24h_partial: false } } };
 ctxObj.stationFieldSyncControls();
 ok('con i campi completi nel blob le due finestre tornano selezionabili',
-  selWin.options[2].disabled === false && selWin.options[3].disabled === false);
+  selWin.options[4].disabled === false && selWin.options[5].disabled === false);
+// 1.3.0.61 - LA TEMPERATURA HA LE FINESTRE: il selettore resta VISIBILE e ABILITATO
+// e le finestre corte sono sempre selezionabili (nota, non blocco).
+ctxObj.stationsData = { stations: [{ id: 'A', temperature_2m: 9.8 }] };
 ctxObj.stationFieldVar = 'temp';
+ctxObj.stationFieldWindow = '1h';
 ctxObj.stationFieldSyncControls();
-ok('con la temperatura il select finestra e disabilitato (valore istantaneo)', selWin.disabled === true);
+ok('con la temperatura il select finestra RESTA abilitato (media sulla finestra)', selWin.disabled === false);
+ok('con la temperatura le finestre 5 min/30 min/1 h/3 h sono selezionabili',
+  selWin.options[0].disabled === false && selWin.options[1].disabled === false &&
+  selWin.options[2].disabled === false && selWin.options[3].disabled === false);
+ok('nota esatta: media non pubblicata -> valore istantaneo',
+  el('live-stationfield-window-note').textContent ===
+  'media non ancora pubblicata dal server: mostro l\'ultimo valore istantaneo',
+  JSON.stringify(el('live-stationfield-window-note').textContent));
+ok('nessuna nota "la finestra non si applica" per la temperatura',
+  !/non si applica/i.test(el('live-stationfield-window-note').textContent));
+ctxObj.stationsData = { stations: [{ id: 'A', tempMean1h: 9.4 }] };
+ctxObj.stationFieldSyncControls();
+ok('con temp_mean_1h_c la nota della temperatura sparisce',
+  el('live-stationfield-window-note').textContent === '');
 ctxObj.stationFieldVar = 'rain';
+ctxObj.stationsData = null;
 ctxObj.stationFieldSyncControls();
-ok('tornando alla pioggia il select finestra torna attivo', selWin.disabled === false);
+ok('tornando alla pioggia il select finestra resta attivo', selWin.disabled === false);
 
 console.log('\nF. Copertura < 0,5 esclusa, osservazioni vecchie fuori, contatori');
 ctxObj.stationsDaily = null;
@@ -326,10 +565,68 @@ ok('i punti esclusi hanno il motivo contato',
   'coverage=' + col.excludedCoverage + ' old=' + col.tooOld + ' withValue=' + col.withValue);
 ok('copertura media calcolata sui soli usati (0,95)',
   Math.abs(col.coverageSum / col.coverageN - 0.95) < 1e-9);
+ctxObj.stationsData = { stations: [{ id: 'x' }] };   // nessuna media pubblicata -> istantanea
 const colTemp = ctxObj.stationFieldCollect(
   [{ id: 't', lat: 45, lon: 9, time: now, temperature_2m: 12.5 }], ctxObj.stationFieldSpec('temp', '1h'), now);
-ok('temperatura senza copertura: nessun filtro e nessun conteggio di copertura',
-  colTemp.used === 1 && colTemp.coverageN === 0);
+ok('temperatura (istantanea, media assente): nessun filtro di copertura e nessun conteggio',
+  colTemp.used === 1 && colTemp.coverageN === 0, 'used=' + colTemp.used);
+
+console.log('\nG0. SUPERSAMPLING 2x: raster intermedio, downscale, granulosita');
+// Il raster a ss=2 deve avere ESATTAMENTE il doppio dei pixel per lato (stesso
+// frame Mercator) e il downscale deve tornare alla griglia base.
+const frameSS = makeFrame(40, 42, 8, 10, 9, 9);
+const ptsSS = [{ lat: 41.0, lon: 9.0, v: 10 }, { lat: 41.05, lon: 9.05, v: 22 }];
+const rSS = ctxObj.stationFieldRaster(ptsSS, T_SCALE, frameSS, null, ctxObj.STATION_FIELD_SUPERSAMPLE);
+ok('raster ss=2: W e H raddoppiati (18x18 da 9x9)',
+  rSS.W === frameSS.W * 2 && rSS.H === frameSS.H * 2 && rSS.ss === 2,
+  rSS.W + 'x' + rSS.H);
+ok('raster ss=2: alpha e valori hanno 4x pixel', rSS.alphas.length === 18 * 18 &&
+  rSS.values.length === 18 * 18 && rSS.data.length === 18 * 18 * 4);
+// Il sub-pixel non cade sullo stesso centro del pixel base (griglia 2x): i due
+// sub-righe della riga base 4 devono CADERE DENTRO la cella base 4, cioe' a meno
+// di mezza altezza cella (2°/9/2 = 0,111°) dal suo centro.
+const baseCenter = pixelLat(frameSS, 4);
+const subA = pixelLat({ ...frameSS, H: 18 }, 8);
+const subB = pixelLat({ ...frameSS, H: 18 }, 9);
+ok('raster ss=2: i due sub-pixel della riga base 4 stanno dentro la cella base (±0,111°)',
+  Math.abs(subA - baseCenter) < 0.1115 && Math.abs(subB - baseCenter) < 0.1115 &&
+  subA > baseCenter && subB < baseCenter,
+  subA.toFixed(3) + ' / ' + subB.toFixed(3) + ' vs ' + baseCenter.toFixed(3));
+const dSS = ctxObj.stationFieldDownscale(rSS, frameSS.W, frameSS.H, 2, null);
+ok('downscale: torna a 9x9 con 4 byte per pixel',
+  dSS.W === 9 && dSS.H === 9 && dSS.data.length === 9 * 9 * 4);
+ok('downscale: i pixel dipinti restano dipinti e coerenti (alpha > 0 dove c e il punto)',
+  dSS.alphas[4 * 9 + 4] > 0 && dSS.painted > 0, 'painted=' + dSS.painted);
+const maskDown = new Uint8Array(9 * 9);
+const dMask = ctxObj.stationFieldDownscale(rSS, frameSS.W, frameSS.H, 2, maskDown);
+ok('downscale: con maschera a 0 su tutta la griglia l alpha finale e 0 (nessuna sbavatura)',
+  dMask.painted === 0 && dMask.alphas[4 * 9 + 4] === 0);
+// GRANULOSITA': differenza media fra pixel adiacenti del valore interpolato.
+function granularity(values, alphas, W, H) {
+  let sum = 0, n = 0;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W - 1; x++) {
+      const i = y * W + x, j = i + 1;
+      if (!alphas[i] || !alphas[j]) continue;
+      sum += Math.abs(values[j] - values[i]); n++;
+    }
+  }
+  return n ? sum / n : 0;
+}
+const bigFrameG = makeFrame(36.0, 48.0, 6.0, 19.0, 128, 113);
+const ptsG = [];
+for (let la = 37; la < 47.5; la += 0.35) {
+  for (let lo = 7; lo < 18.6; lo += 0.35) ptsG.push({ lat: la, lon: lo, v: 10 + 8 * Math.sin(la) + 3 * Math.cos(lo) });
+}
+const g1 = ctxObj.stationFieldRaster(ptsG, T_SCALE, bigFrameG, null, 1);
+const g2 = ctxObj.stationFieldRaster(ptsG, T_SCALE, bigFrameG, null, 2);
+const g2d = ctxObj.stationFieldDownscale(g2, bigFrameG.W, bigFrameG.H, 2, null);
+const gran1 = granularity(g1.values, g1.alphas, g1.W, g1.H);
+const gran2 = granularity(g2d.values, g2d.alphas, g2d.W, g2d.H);
+ok('granulosita (|Δ| medio fra adiacenti) CALA con supersampling+downscale',
+  gran2 < gran1, gran1.toFixed(3) + ' -> ' + gran2.toFixed(3) + ' °C');
+ok('il calo e almeno del 10%', gran2 < gran1 * 0.9,
+  'rapporto ' + (gran2 / gran1).toFixed(3));
 
 console.log('\nG. Costo del raster su 256 x 227 (punti sintetici, misurato in due contesti)');
 const bigFrame = makeFrame(36.0, 48.0, 6.0, 19.0, 256, 227);
@@ -388,6 +685,16 @@ ok('box legenda #live-stationfield-box con i due select e title',
 ok('pane stationFieldPane z 405 con pointer-events none',
   /map\.createPane\('stationFieldPane'\)/.test(src) && /zIndex = '405'/.test(src) &&
   /pane\.style\.pointerEvents = 'none'/.test(src));
+// 1.3.0.61 - WRAP DELLA FINESTRA: esiste, e' visibile (mai display:none) e il suo
+// title dice che per la temperatura la finestra e' una MEDIA.
+ok('wrap #stationfield-window-wrap presente e visibile (inline-flex)',
+  /id="stationfield-window-wrap"[^>]*display:inline-flex/.test(src));
+ok('il wrap non viene nascosto da nessuna parte (display none assente sul wrap)',
+  !/stationfield-window-wrap'\)[^\n]*style\.display = 'none'/.test(src));
+ok('title del selettore finestra: dichiara la MEDIA per temperatura/umidita/rugiada/vento',
+  /id="stationfield-window"[^>]*title="[^"]*MEDIA[^"]*"/.test(src));
+ok('nel blocco del campo non compare piu "non si applica"',
+  !/non si applica/i.test(src.slice(src.indexOf('id="live-stationfield-box"'), src.indexOf('id="live-stationfield-excluded"') + 400)));
 ok('imageOverlay nel pane dedicato con opacity 0,85 e interactive false',
   /L\.imageOverlay\(url, bounds, \{\s*\n?\s*pane: 'stationFieldPane', opacity: 0\.85, interactive: false/.test(src));
 ok('nessun click handler sul campo (pointerEvents none + interactive false)',

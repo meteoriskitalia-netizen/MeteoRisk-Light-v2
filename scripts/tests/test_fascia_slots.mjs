@@ -10,9 +10,10 @@ import path from 'path';
 import vm from 'vm';
 
 import { fileURLToPath } from 'url';
+import { appPath, appVersion } from './_app_path.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HTML = path.join(ROOT, 'mri-light-1.2.4.101.html');
+const HTML = appPath();
 const src = fs.readFileSync(HTML, 'utf8');
 
 let failures = 0;
@@ -151,7 +152,7 @@ function baseCtx(sel, stores) {
   const body = src.slice(g, nextFn > 0 ? nextFn : g + 6000);
   ok('getForecastSlotData (corpo intero) senza guard h.time', !/\bh\.time\b/.test(body));
   ok('rebuildForecastSlotOptions() chiamata >= 3 volte', (src.match(/rebuildForecastSlotOptions\(\)/g) || []).length >= 3);
-  ok('APP_VERSION = 1.2.4.12', /APP_VERSION\s*=\s*['"]1.2.4.95['"]/.test(src));
+  ok('APP_VERSION coerente con APP_FILE (' + appVersion() + ')', new RegExp("APP_VERSION\\s*=\\s*['\"]" + appVersion().replace(/\./g, '\\.') + "['\"]").test(src));
 }
 
 console.log(`\nRESULT: ${failures === 0 ? 'PASS' : 'FAIL'} (${failures} errori)`);
