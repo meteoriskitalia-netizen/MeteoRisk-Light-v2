@@ -18,6 +18,10 @@ browser. Il workflow stations.yml gira ogni 10 minuti e riscrive UN SOLO BLOB VI
 
 SCHEMA 2 (1.3.0.56) — bucket orari per cumulate oltre le 3 ore di serie
 ------------------------------------------------------------------------
+1.3.0.61 aggiunge i bucket TERMICI: `th` {ora: [media, minima, massima]},
+`rhh` {ora: [media]}, `dwh` {ora: [media]} e i derivati `temp_6h_c`,
+`temp_24h_c`, `rh_6h_pct`, `rh_24h_pct`, `dew_6h_c`, `dew_24h_c` con i
+rispettivi `*_partial`. Stessa regola di dedup: l'ora si SOSTITUISCE.
 `latest.json` porta solo le ultime 3 ore di serie: per una cumulata a 6 h e 24 h
 serve uno stato che sopravviva ai run. Ogni run ricalcola le ultime 4 ore dalla
 serie e SOSTITUISCE il bucket di quell'ora (mai somma: ricalcolo -> nessun doppio
@@ -38,12 +42,19 @@ che il run non rivede piu', restano.
                    dew, stationPressure_hPa, gust, snowDepth_m], ...],
           "rh": {"3": 0.0, "4": 1.2, "5": 0.4},
           "wh": {"4": [2.3, 7.1], "5": [1.8, null]},
+          "th": {"4": [temp_mean, temp_min, temp_max]},
+          "rhh": {"4": [rh_mean]},
+          "dwh": {"4": [dew_mean]},
           "rain_6h_mm": 1.6, "rain_6h_partial": false,
           "rain_24h_mm": 1.6, "rain_24h_partial": true,
           "rain_24h_since": "2026-11-18T00:00:00+01:00",
           "wind_6h_ms": 2.1, "wind_6h_partial": false,
           "wind_24h_ms": 2.1, "wind_24h_partial": true,
-          "gust_max_6h_ms": 7.1, "gust_max_24h_ms": 7.1
+          "gust_max_6h_ms": 7.1, "gust_max_24h_ms": 7.1,
+          "temp_6h_c": 9.4, "temp_6h_partial": false,
+          "temp_24h_c": 8.9, "temp_24h_partial": true,
+          "rh_6h_pct": 71, "rh_24h_pct": 68,
+          "dew_6h_c": 5.2, "dew_24h_c": 4.8
         }
       }
     }
@@ -86,12 +97,13 @@ MAX_POINTS_PER_STATION = 288
 HOURS_IN_DAY = 24
 WINDOW_6H = 6
 NOTE = (
-    "Serie giornaliera osservata (Europe/Rome) + bucket orari di pioggia (mm) e "
-    "vento (m/s). Un solo blob vivo riscritto a ogni run del workflow stations.yml; "
-    "azzerato a mezzanotte locale; dedup per obs_time sui punti e per ora sui "
-    "bucket (ricalcolo, mai somma). Le cumulate rain_6h/rain_24h e le sintesi del "
-    "vento si calcolano dal bucket, non dai punti. Nessun punto passato viene "
-    "inventato."
+    "Serie giornaliera osservata (Europe/Rome) + bucket orari di pioggia (mm), "
+    "vento (m/s), temperatura (degC), umidita' relativa (%) e dew point (degC). "
+    "Un solo blob vivo riscritto a ogni run del workflow stations.yml; azzerato a "
+    "mezzanotte locale; dedup per obs_time sui punti e per ora sui bucket "
+    "(ricalcolo, mai somma). Le cumulate rain_6h/rain_24h, le sintesi del vento e "
+    "le medie termiche temp_6h/temp_24h, rh_6h/rh_24h, dew_6h/dew_24h si calcolano "
+    "dal bucket, non dai punti. Nessun punto passato viene inventato."
 )
 
 # Indici tupla — allineati a stationsSeriesTuple()/stationsSeriesValue() nel client.
@@ -240,8 +252,13 @@ def _valid_point(p: object) -> bool:
 # --------------------------------------------------------------------------- #
 # Bucket orari
 # --------------------------------------------------------------------------- #
-def _merge_hourly(previous: dict, payload: object, day: str) -> dict:
+def _merge_hourly(
+    previous: dict, payload: object, day: str, wrap: bool = False
+) -> dict:
     """{ora locale: valore} aggiornato con le ore del run corrente.
+
+    `wrap=True` scrive `[valore]` invece del valore nudo: i bucket `rhh`/`dwh`
+    hanno la forma a lista di un elemento, come `th` ne ha tre.
 
     REGOLA DI DEDUP: il bucket di un'ora viene SOSTITUITO, non sommato. Ogni run
     ricalcola quell'ora dalla serie completa di `latest.json` (una cumulata su
@@ -262,8 +279,87 @@ def _merge_hourly(previous: dict, payload: object, day: str) -> dict:
         value = _num(row[1], 1)
         if value is None:
             continue
-        out[str(hour)] = value
+        out[str(hour)] = [value] if wrap else value
     return out
+
+
+def _merge_temp(previous: dict, payload: object, day: str) -> dict:
+    """{ora locale: [media, minima, massima]} dalle triple orarie del run.
+
+    Il bucket `th` porta TRE numeri (la temperatura non e' solo una media): la
+    media pesata sul tempo e i due estremi osservati nell'ora. Stessa regola di
+    dedup degli altri bucket: l'ora viene SOSTITUITA, mai sommata.
+    """
+    out = dict(previous) if isinstance(previous, dict) else {}
+    if not isinstance(payload, list):
+        return out
+    hours: dict[int, list] = {}
+    for row in payload:
+        if not isinstance(row, list) or len(row) < 2 or not isinstance(row[0], int):
+            continue
+        hour_day, hour = local_hour(row[0])
+        if hour_day != day:
+            continue
+        mean = _num(row[1], 1)
+        if mean is None:
+            continue
+        hours[hour] = [
+            mean,
+            _num(row[2], 1) if len(row) > 2 else None,
+            _num(row[3], 1) if len(row) > 3 else None,
+        ]
+    for hour, triple in hours.items():
+        merged = _temp_triplet(out.get(str(hour)))
+        for index in range(3):
+            if triple[index] is not None:
+                merged[index] = triple[index]
+        out[str(hour)] = merged
+    return out
+
+
+def _temp_triplet(current: object) -> list:
+    """Tripla [media, minima, massima] di un bucket, con i null espliciti."""
+    triple = [None, None, None]
+    if isinstance(current, list):
+        for index in range(min(3, len(current))):
+            if isinstance(current[index], (int, float)):
+                triple[index] = round(float(current[index]), 1)
+    return triple
+
+
+def _bucket_means(bucket: object) -> dict[int, float]:
+    """Valori medi per ora di un bucket `th`/`rhh`/`dwh`.
+
+    `th` e' una lista [media, min, max]: si usa SOLO l'indice 0 (la media).
+    `rhh`/`dwh` portano una lista [media] per uniformita' di forma.
+    """
+    out: dict[int, float] = {}
+    if not isinstance(bucket, dict):
+        return out
+    for key, value in bucket.items():
+        try:
+            hour = int(key)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(value, list) and value and isinstance(value[0], (int, float)):
+            out[hour] = float(value[0])
+        elif isinstance(value, (int, float)):
+            out[hour] = float(value)
+    return out
+
+
+def _window_mean(
+    values: dict[int, float], current_hour: int, hours: int
+) -> tuple[float | None, bool]:
+    """(media delle medie orarie, parzialita') sulle ultime `hours` ore."""
+    window = [
+        values[h]
+        for h in range(max(0, current_hour - hours + 1), current_hour + 1)
+        if h in values
+    ]
+    if not window:
+        return None, True
+    return round(sum(window) / len(window), 1), len(window) < min(hours, current_hour + 1)
 
 
 def _derived(record: dict, current_hour: int, day: str) -> None:
@@ -305,6 +401,25 @@ def _derived(record: dict, current_hour: int, day: str) -> None:
             record["gust_max_6h_ms"] = round(max(gust_window), 1)
         if gusts:
             record["gust_max_24h_ms"] = round(max(gusts.values()), 1)
+
+    # Medie termiche 6 h / 24 h dai bucket orari (media delle medie orarie: ogni
+    # bucket e' gia' una media pesata sulla sua ora). A inizio giornata la
+    # finestra non e' completa: il flag `*_partial` lo dichiara, il valore resta
+    # quello disponibile (come per pioggia e vento, nessun valore inventato).
+    for bucket_name, label, unit in (
+        ("th", "temp", "c"),
+        ("rhh", "rh", "pct"),
+        ("dwh", "dew", "c"),
+    ):
+        values = _bucket_means(record.get(bucket_name))
+        if not values:
+            continue
+        for hours in (WINDOW_6H, HOURS_IN_DAY):
+            mean, partial = _window_mean(values, current_hour, hours)
+            if mean is None:
+                continue
+            record[f"{label}_{hours}h_{unit}"] = mean
+            record[f"{label}_{hours}h_partial"] = partial
 
 
 def _wind_pair(current: object) -> list:
@@ -372,6 +487,15 @@ def build(latest: dict, previous: dict | None, now_ms: int, max_points: int = MA
                     kept["rh"] = {str(k): float(v) for k, v in rec["rh"].items() if isinstance(v, (int, float))}
                 if isinstance(rec.get("wh"), dict) and rec["wh"]:
                     kept["wh"] = {str(k): _wind_pair(v) for k, v in rec["wh"].items()}
+                if isinstance(rec.get("th"), dict) and rec["th"]:
+                    kept["th"] = {str(k): _temp_triplet(v) for k, v in rec["th"].items()}
+                for bucket in ("rhh", "dwh"):
+                    if isinstance(rec.get(bucket), dict) and rec[bucket]:
+                        kept[bucket] = {
+                            str(k): [round(float(v[0]), 1)]
+                            for k, v in rec[bucket].items()
+                            if isinstance(v, list) and v and isinstance(v[0], (int, float))
+                        }
                 stations[sid] = kept
 
     latest_stations = latest.get("stations", [])
@@ -423,6 +547,15 @@ def build(latest: dict, previous: dict | None, now_ms: int, max_points: int = MA
         wh = _merge_wind(rec.get("wh") or {}, st.get("wind_hourly"), st.get("gust_hourly"), day)
         if wh:
             rec["wh"] = wh
+        th = _merge_temp(rec.get("th") or {}, st.get("temp_hourly"), day)
+        if th:
+            rec["th"] = th
+        rhh = _merge_hourly(rec.get("rhh") or {}, st.get("rh_hourly"), day, wrap=True)
+        if rhh:
+            rec["rhh"] = rhh
+        dwh = _merge_hourly(rec.get("dwh") or {}, st.get("dew_hourly"), day, wrap=True)
+        if dwh:
+            rec["dwh"] = dwh
 
     for sid, rec in stations.items():
         if isinstance(rec, dict):
@@ -490,9 +623,14 @@ def main(argv: list[str] | None = None) -> int:
         pts = sum(len(r.get("pts", [])) for r in doc["stations"].values())
         rh = sum(len(r.get("rh", {})) for r in doc["stations"].values())
         wh = sum(len(r.get("wh", {})) for r in doc["stations"].values())
+        th = sum(len(r.get("th", {})) for r in doc["stations"].values())
+        rhh = sum(len(r.get("rhh", {})) for r in doc["stations"].values())
+        dwh = sum(len(r.get("dwh", {})) for r in doc["stations"].values())
         wet = sum(1 for r in doc["stations"].values() if r.get("rain_24h_mm"))
         print(f"[OK] day={doc['day']} stations={len(doc['stations'])} points={pts} "
-              f"rain_buckets={rh} wind_buckets={wh} stazioni_con_pioggia_oggi={wet} "
+              f"rain_buckets={rh} wind_buckets={wh} temp_buckets={th} "
+              f"rh_buckets={rhh} dew_buckets={dwh} "
+              f"stazioni_con_pioggia_oggi={wet} "
               f"bytes={len(payload.encode('utf-8'))} -> {out_path}")
     return 0
 

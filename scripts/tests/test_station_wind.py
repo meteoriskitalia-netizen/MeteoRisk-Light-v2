@@ -254,3 +254,33 @@ def test_wind_hourly_buckets_are_means_of_the_hour():
     gust = [(END - timedelta(hours=1), 6.0), (END, 14.0)]
     gust_fields, _ = fs.build_wind_block({}, {"2,0,3600": gust}, END)
     assert [row[1] for row in gust_fields["gust_hourly"]] == pytest.approx([6.0, 14.0])
+
+
+# ---------------------------------------------------------------------------
+# 1.3.0.61: finestra da 30 minuti
+# ---------------------------------------------------------------------------
+def test_wind_mean_30m_needs_a_300s_step():
+    """Passo 300 s: media a 30 min calcolabile; passo 600 s: null con motivo."""
+    fine = _instant(END, [2.0] * 24 + [6.0] * 12, step_minutes=5)
+    fields, _ = fs.build_wind_block({"254,0,0": fine}, {}, END)
+    assert fields["wind_mean_30m_ms"] is not None
+    assert fields["wind_mean_30m_ms"] is not None
+
+    coarse = _instant(END, [2.0] * 12 + [6.0] * 6, step_minutes=10)
+    fields, _ = fs.build_wind_block({"254,0,0": coarse}, {}, END)
+    assert "wind_mean_30m_coverage_frac" not in fields
+    assert fields["wind_mean_30m_ms"] is None
+    assert fields["wind_mean_30m_null_reason"] == "series_too_coarse_for_30min"
+
+
+def test_gust_max_30m_requires_an_hourly_or_finer_maximum():
+    """Un massimo da 15 min sta nella finestra, uno orario no."""
+    sub_hourly = [(END - timedelta(minutes=30), 5.0), (END, 7.0)]
+    fields, _ = fs.build_wind_block({}, {"2,0,900": sub_hourly}, END)
+    assert fields["gust_max_30m_ms"] == pytest.approx(7.0)
+
+    hourly = [(END - timedelta(hours=1), 5.0), (END, 7.0)]
+    fields, _ = fs.build_wind_block({}, {"2,0,3600": hourly}, END)
+    assert fields["gust_max_30m_ms"] is None
+    assert fields["gust_max_30m_null_reason"] == "series_too_coarse_for_30min"
+

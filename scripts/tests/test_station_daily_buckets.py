@@ -15,6 +15,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 _HERE = Path(__file__).resolve().parent
 _SCRIPT = _HERE.parent / "stations" / "build_daily_series.py"
 _spec = importlib.util.spec_from_file_location("build_daily_series_buckets", _SCRIPT)
@@ -221,3 +223,82 @@ def test_serialization_is_compact_and_has_no_bom(tmp_path):
     assert not raw.startswith(b"\xef\xbb\xbf")
     assert b"\r" not in raw
     assert json.loads(payload)["schema"] == "stations-daily-series/2"
+
+
+# --------------------------------------------------------------------------- #
+# 1.3.0.61: bucket termici th / rhh / dwh
+# --------------------------------------------------------------------------- #
+def test_temp_rh_dew_buckets_and_derivatives():
+    """Tre ore di bucket: `th` porta media/min/max, i derivati sono medie orarie.
+
+    A 16:30 locali con soli 3 bucket la finestra 6 h e 24 h NON e' completa:
+    il valore c'e' e `*_partial` e' true. Non si inventano le ore mancanti.
+    """
+    day = "2026-11-23"
+    obs = station(
+        f"{day}T15:30:00Z",
+        temp_hourly=[
+            [utc_hour(day, 13), 10.0, 9.0, 11.0],
+            [utc_hour(day, 14), 11.0, 10.0, 12.0],
+            [utc_hour(day, 15), 12.0, 11.0, 13.0],
+        ],
+        rh_hourly=[
+            [utc_hour(day, 13), 80],
+            [utc_hour(day, 14), 82],
+            [utc_hour(day, 15), 84],
+        ],
+        dew_hourly=[
+            [utc_hour(day, 13), 6.0],
+            [utc_hour(day, 14), 7.0],
+            [utc_hour(day, 15), 8.0],
+        ],
+    )
+    doc = bds.build(latest(obs), None, ms(day, 15, 30))
+    rec = doc["stations"]["IT001"]
+    # 13/14/15 UTC = 14/15/16 locali (CET)
+    assert rec["th"] == {
+        "14": [10.0, 9.0, 11.0],
+        "15": [11.0, 10.0, 12.0],
+        "16": [12.0, 11.0, 13.0],
+    }
+    assert rec["rhh"] == {"14": [80.0], "15": [82.0], "16": [84.0]}
+    assert rec["dwh"] == {"14": [6.0], "15": [7.0], "16": [8.0]}
+    assert rec["temp_6h_c"] == pytest.approx(11.0)
+    assert rec["temp_24h_c"] == pytest.approx(11.0)
+    assert rec["temp_6h_partial"] is True
+    assert rec["temp_24h_partial"] is True
+    assert rec["rh_6h_pct"] == pytest.approx(82.0)
+    assert rec["dew_24h_c"] == pytest.approx(7.0)
+    assert rec["rh_6h_partial"] is True and rec["dew_6h_partial"] is True
+
+
+def test_temp_bucket_is_replaced_not_summed():
+    """Due run nella STESSA ora: il bucket termico si sostituisce."""
+    day = "2026-11-23"
+    first = latest(station(
+        f"{day}T13:30:00Z", temp_hourly=[[utc_hour(day, 13), 10.0, 9.0, 11.0]]))
+    doc = bds.build(first, None, ms(day, 13, 30))
+    assert doc["stations"]["IT001"]["th"] == {"14": [10.0, 9.0, 11.0]}
+    second = latest(station(
+        f"{day}T13:40:00Z", temp_hourly=[[utc_hour(day, 13), 12.0, 8.0, 14.0]]))
+    doc = bds.build(second, doc, ms(day, 13, 40))
+    assert doc["stations"]["IT001"]["th"] == {"14": [12.0, 8.0, 14.0]}
+
+
+def test_temp_24h_is_partial_at_the_start_of_the_day():
+    """Un'ora sola a inizio giornata: valore presente, finestra dichiarata parziale."""
+    day = "2026-11-23"
+    obs = station(
+        f"{day}T00:10:00Z",
+        temp_hourly=[[utc_hour(day, 0), 5.0, 4.0, 6.0]],
+        rh_hourly=[[utc_hour(day, 0), 90]],
+        dew_hourly=[[utc_hour(day, 0), 3.0]],
+    )
+    doc = bds.build(latest(obs), None, ms(day, 0, 10))
+    rec = doc["stations"]["IT001"]
+    assert rec["temp_6h_c"] == pytest.approx(5.0)
+    assert rec["temp_6h_partial"] is True
+    assert rec["temp_24h_c"] == pytest.approx(5.0)
+    assert rec["temp_24h_partial"] is True
+    assert rec["rh_24h_partial"] is True
+    assert rec["dew_24h_partial"] is True
