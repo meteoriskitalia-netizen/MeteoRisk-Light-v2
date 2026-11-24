@@ -3230,9 +3230,16 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.72';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.73';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-24';
     const APP_CHANGELOG = [
+    { version: '1.3.0.73', date: '2026-11-24', changes: [
+      "CAMPO CENTRALINE, RIPRISTINO DEL RASTER DELLA 1.3.0.68 (lo stato accettato): peso 1/(d²+1) sui k=12 vicini PIU' VICINI entro 25 km, indice a bucket 0,1° con 3 anelli, CALCOLO PER PIXEL. Via il reticolo 0,5° con interpolazione BILINEARE sui nodi e via il peso GAUSSIANO largo exp(-(d/σ)²) con LUT, che sommava TUTTI i vicini e spalmava la pioggia dove non era caduta: erano la causa della mappa che colorava l'asciutto e dei «seam» misurati a 1,96 °C. Il peso temporale exp(-età/τ) resta (contratto della 1.3.0.69), non è il kernel spaziale.",
+      "PIOGGIA CON CUT-OFF DI 12 km NEL METODO LOCAL (grandezza discontinua: 25 km la allargavano oltre le stazioni che segnavano 0). Gli altri campi restano a 25 km. `full`/`contour` restano senza cut-off (metodo dichiarato «inferenza»), ma ora calcolano PER PIXEL con k=16 sullo stesso indice a 0,1°: se in 0,8° non ci sono k stazioni si usa la lista intera, quindi il k-NN è esatto e la terra resta senza buchi.",
+      "MASCHERA TERRA MORBIDA (l'unica cosa che si teneva della 1.3.0.71): dilatazione 2 px + box blur 5x5, alpha del campo che scende a 0 sul bordo, mare trasparente oltre il feather.",
+      "MISURE PRIMA DEL PUSH (latest.json 2026-11-24T13:10Z, 4.064 stazioni pioggia, frame Italia 256x227, maschera province): pixel dipinti in local per la pioggia 1.3.0.68 543 = 1.3.0.73 543 (Δ 0,0%); pioggia visibile dove la stazione più vicina segna 0 mm 42,5% contro 53,7% della 1.3.0.72, e ZERO pixel visibili oltre 15 km da ogni stazione con pioggia > 0 (erano 22); discontinuità massima per colonna in full su campo sintetico liscio 0,852 °C contro 0,401 del reticolo e contro l'artefatto 1,963 °C che NON si riproduce (sui dati reali il massimo 7,49 °C è il contrasto vero Monte Rasu 6,2 / Tirso 16,8 a 9,1 km); tempi local 106 ms, full 158 ms, contour 217 ms (tetti 400/400/800). La 1.3.0.72 in local sulla pioggia costava 563 ms.",
+      "TEST: test_station_field.mjs 228 controlli / 0 falliti con i contratti della 1.3.0.68 (1/(d²+1) esatto, k troncato al 12° vicino, granulosità che cala almeno del 10% col supersampling) più un contratto che impone l'ASSENZA dal sorgente di reticolo, gaussiano, LUT e lista per cella; due assert resi deterministici fissando stationFieldVar, nessuna soglia allentata. test_html_js_syntax, test_sw_cache_policy e test_tooltips_coverage verdi."
+    ]},
     { version: '1.3.0.72', date: '2026-11-24', changes: [
       "AFA, IL TOGGLE CHE RESTAVA OFF (riprodotto con un harness che esegue il blocco AFA reale estratto dall'HTML): lo stato dell'interfaccia e quello del layer erano lo STESSO flag (liveAfaEnabled), quindi un click arrivato prima che satellite/manifest.json fosse in memoria usciva da showAfaFrameAt con false e spegneva il pulsante senza dire nulla. MISURATO sul 1.3.0.71: 10/10 cicli ON -> OFF con il manifest non ancora caricato, 0/10 con il manifest caldo; dopo 5 cambi frame il pulsante diceva ON mentre il flag interno era false, e il cambio prodotto lasciava l'overlay orfano. Ora l'intenzione dell'utente (liveAfaWanted) e' separata dallo stato reale (liveAfaEnabled): il click va ON SUBITO, la legenda scrive «carico lo slot HH:MM…», il manifest viene ritentato (6 tentativi a 1,5 s) e un errore spegne il pulsante con il messaggio in #afa-legend-status. Riverificato con lo stesso harness: 10/10 ON e 10/10 OFF anche a manifest freddo, 5/5 cambi frame, rientro nel prodotto radar con l'AFA riaccesa.",
       "SLOT SENZA SEGNALE: con has_signal:false il layer resta ACCESO e la legenda scrive «slot HH:MM · nessuna emissione ottica» (prima era una frase lunga «nessun pixel attivo…»): e' un'osservazione, non un errore.",
@@ -19993,14 +20000,24 @@ stopSyncPlay();
     var STATION_FIELD_RING_KM = 7.3;       // 0,1° di longitudine a 49°N: distanza minima di un anello
     var STATION_FIELD_SUPERSAMPLE = 2;     // fattore di supersampling del raster (2 = 4x pixel)
     // 1.3.0.69 - DUE METODI DI INTERPOLAZIONE (selettore #stationfield-method).
-    // `local` = comportamento storico: k=12, raggio 25 km, trasparente dove non
-    // ci sono vicini (nessun valore inventato). `full` = nessun buco sulla terra:
-    // k=16 con raggio illimitato, celle a 1° (111 km) e alfa pieno. Il prezzo e'
-    // dichiarato in legenda: dove non c'e' una stazione vicina il valore e'
-    // un'INFERENZA, non una misura. Costo misurato: vedi README/test.
+    // `local` = il raster della 1.3.0.68 che l'utente accettava: k=12, raggio
+    // 25 km, trasparente dove non ci sono vicini (nessun valore inventato).
+    // `full` = nessun buco sulla terra: k=16 e nessun cut-off, calcolato PER
+    // PIXEL sullo stesso indice a bucket (nessun reticolo, nessun bilineare).
+    // Il prezzo e' dichiarato in legenda: dove non c'e' una stazione vicina il
+    // valore e' un'INFERENZA, non una misura.
     var STATION_FIELD_FULL_K = 16;
-    var STATION_FIELD_FULL_BUCKET_DEG = 1.0;
-    var STATION_FIELD_FULL_MAX_RING = 24;  // 24° ~ 2.600 km: copre qualunque frame italiano
+    // 1.3.0.73 - l'indice dei vicini di `full` e' lo STESSO a 0,1° di `local`.
+    // Le liste per CELLA a 1° (1.3.0.69) producevano i seam su righe e colonne
+    // intere (1,96 °C misurati) e il reticolo 0,5° + bilineare (1.3.0.71) spalmava
+    // la pioggia dove non pioveva: qui si espandono anelli a 0,1° finche' ci sono
+    // abbastanza candidati e il k-NN resta esatto. Se un pixel non ne trova
+    // (reti rade) si usa la lista intera: nessun buco, nessun valore a caso.
+    var STATION_FIELD_FULL_BUCKET_DEG = 0.1;
+    var STATION_FIELD_FULL_MAX_RING = 8;   // 0,8° ~ 89 km: oltre, fallback alla lista intera
+    // Raggio della PIOGGIA in `local` (grandezza discontinua): 12 km. Con 25 km
+    // un nucleo piovoso spalmava il colore dove le stazioni vicine segnavano 0.
+    var STATION_FIELD_RAIN_CUTOFF_KM = 12;
     // 1.3.0.69 - TERZA MODALITA': `contour` = campo continuo (come `full`) PIU'
     // isolinee calcolate sui VALORI interpolati (marching squares), non sui colori.
     // Livelli per variabile: passo e livelli "marcati" (linea spessa + etichetta).
@@ -20047,35 +20064,11 @@ stopSyncPlay();
         rh: { maxMin: 360, tauMin: 120 },
         snow: { maxMin: 720, tauMin: 240 }
     };
-    // 1.3.0.70 - PESO GAUSSIANO (al posto di 1/(d^2+1) con k fisso). Il troncamento
-    // a k vicini faceva cambiare l'INSIEME dei vicini da pixel a pixel e produceva
-    // gli «spicchi»: qui il peso e' continuo nella distanza e si sommano TUTTI i
-    // vicini entro il raggio (local) o nella lista di cella (full), senza k.
-    // σ = raggio/2: a 25 km il peso vale exp(-4)=0,018, quindi il taglio al bordo
-    // del raggio non si vede.
-    var STATION_FIELD_SIGMA_FRAC = 0.5;
-    // 1.3.0.70 - km per grado usato dall'IDW (lo stesso 111,32 di stationFieldDistKm:
-    // qui la distanza si calcola inline, senza chiamate, nel ciclo piu' caldo).
-    var STATION_FIELD_KM_PER_DEG = 111.32;
-    // 1.3.0.70 - LUT dell'esponenziale negativo: exp(-x) per x in [0, 12] con 3072
-    // passi. Nel ciclo caldo (pixel x vicini) Math.exp costava 4-6x la lettura di
-    // una tabella; exp(-12) = 6e-6, sotto la soglia di contributo, quindi il taglio
-    // a 12 non cambia il risultato in modo misurabile.
-    var STATION_FIELD_EXP_STEPS = 3072;
-    var STATION_FIELD_EXP_MAX = 12;
-    var STATION_FIELD_EXP_LUT = (function () {
-        var t = new Float32Array(STATION_FIELD_EXP_STEPS + 1);
-        for (var i = 0; i <= STATION_FIELD_EXP_STEPS; i++) {
-            t[i] = Math.exp(-(i / STATION_FIELD_EXP_STEPS) * STATION_FIELD_EXP_MAX);
-        }
-        return t;
-    })();
-    // 1.3.0.70 - Reticolo del metodo `full`: le liste di vicini per cella a 1°
-    // creavano SEAM sulle righe/colonne intere (misurato: salti fino a 1,96 °C
-    // sulle longitudini 8, 11, 13, 15, 17 e latitudini 38, 39, 43, 44, 46).
-    // Il valore si calcola sui NODI di un reticolo a 0,5° e si campiona con
-    // interpolazione BILINEARE: le discontinuita' spariscono per costruzione.
-    var STATION_FIELD_LATTICE_DEG = 0.5;
+    // 1.3.0.73 - NIENTE PESO GAUSSIANO e NIENTE RETICOLO. Il peso e' quello
+    // della 1.3.0.68 (1/(d^2+1) sui k vicini piu' vicini, vedi
+    // stationFieldIdwAt): il gaussiano largo sommava TUTTI i vicini e spalmava
+    // la pioggia dove non era caduta. Il reticolo 0,5° + bilineare del metodo
+    // `full` e' stato rimosso: il calcolo torna PER PIXEL (una sola strada).
     var stationFieldMethod = 'local';
     var STATION_FIELD_VARS = {
         temp: { label: 'Temperatura 2 m', unit: '°C', decimals: 1 },
@@ -20817,48 +20810,39 @@ stopSyncPlay();
     // IDW su una lista di candidati. k vicini entro il raggio, w = 1/(d^2+1);
     // d_k = distanza del vicino piu' lontano USATO (serve all'opacita'). Il pareggio
     // di distanza si risolve con l'ordine dei candidati (deterministico).
+    // 1.3.0.73 - RITORNO AL RASTER DELLA 1.3.0.68: peso 1/(d^2+1) sui K VICINI
+    // PIU' VICINI entro il cut-off. Nessuna somma di tutti i vicini (il gaussiano
+    // largo della 1.3.0.70 spalmava la pioggia dove non era caduta). Il peso
+    // temporale exp(-eta/tau) resta: e' un contratto della 1.3.0.69, non del
+    // kernel spaziale.
     function stationFieldIdwAt(lat, lon, cand, cosLat, kOpt, cutoffOpt) {
         var k = kOpt || STATION_FIELD_K;
         var cutoff = (cutoffOpt === undefined || cutoffOpt === null) ? STATION_FIELD_CUTOFF_KM : cutoffOpt;
-        var sigma = (cutoff === Infinity) ? 60 : cutoff * STATION_FIELD_SIGMA_FRAC;
-        var inv2s2 = 1 / (sigma * sigma);
-        var bd = [], n = 0, j, d;
-        var sum = 0, acc = 0;
-        // 1.3.0.70 - UN SOLO PASSAGGIO sui candidati: si accumula il peso gaussiano
-        // di TUTTI (nessun troncamento a k) e in parallelo si tiene la lista dei k
-        // piu vicini, che serve solo per dk (il fade del bordo in local).
+        var bl = [], bd = [], n = 0, j, d;
         for (j = 0; j < cand.length; j++) {
-            var o = cand[j];
-            var dla = lat - o.lat;
-            var dlo = (lon - o.lon) * cosLat;
-            d = Math.sqrt(dla * dla + dlo * dlo) * STATION_FIELD_KM_PER_DEG;
+            d = stationFieldDistKm(lat, lon, cand[j].lat, cand[j].lon, cosLat);
             if (!(d <= cutoff)) continue;
-            var wa = o.wAge;
-            if (wa === undefined || wa === null) wa = 1;
-            if (wa > 0) {
-                // exp(-(d/σ)²) letto dalla LUT (x = d²/σ², indice lineare)
-                var xi = (d * d) * inv2s2;
-                var w;
-                if (xi >= STATION_FIELD_EXP_MAX) {
-                    w = 0;
-                } else {
-                    w = STATION_FIELD_EXP_LUT[(xi * STATION_FIELD_EXP_STEPS / STATION_FIELD_EXP_MAX) | 0] * wa;
-                }
-                if (w >= 1e-9) { acc += w * o.v; sum += w; }
-            }
             if (n < k) {
                 var p = n;
-                while (p > 0 && bd[p - 1] > d) { bd[p] = bd[p - 1]; p--; }
-                bd[p] = d;
+                while (p > 0 && bd[p - 1] > d) { bd[p] = bd[p - 1]; bl[p] = bl[p - 1]; p--; }
+                bd[p] = d; bl[p] = cand[j];
                 n++;
             } else if (d < bd[n - 1]) {
                 var q = n - 1;
-                while (q > 0 && bd[q - 1] > d) { bd[q] = bd[q - 1]; q--; }
-                bd[q] = d;
+                while (q > 0 && bd[q - 1] > d) { bd[q] = bd[q - 1]; bl[q] = bl[q - 1]; q--; }
+                bd[q] = d; bl[q] = cand[j];
             }
         }
-        if (!n || !(sum > 0)) return { v: null, dk: null, dn: null, n: n };
-        return { v: acc / sum, dk: bd[n - 1], dn: bd[0], n: n };
+        if (!n) return { v: null, dk: null, dn: null, n: 0 };
+        var sum = 0, acc = 0;
+        for (j = 0; j < n; j++) {
+            var wa = bl[j].wAge;
+            if (wa === undefined || wa === null) wa = 1;
+            var w = wa / (bd[j] * bd[j] + 1);
+            acc += w * bl[j].v;
+            sum += w;
+        }
+        return { v: (sum > 0 ? acc / sum : null), dk: bd[n - 1], dn: bd[0], n: n };
     }
 
     // 1.3.0.70 - RICAMPIONAMENTO BILINEARE del campo sulla griglia delle isolinee.
@@ -20911,118 +20895,6 @@ stopSyncPlay();
         return out;
     }
 
-    // 1.3.0.70 - METODO `full`: valore sui NODI di un reticolo a 0,5° e campionamento
-    // BILINEARE sui pixel. Le liste di vicini per cella a 1° creavano SEAM su
-    // righe/colonne intere (misurato: salti fino a 1,96 °C su longitudini 8, 11, 13,
-    // 15, 17 e latitudini 38, 39, 43, 44, 46); interpolare i VALORI toglie la
-    // discontinuita' per costruzione. Restituisce { values, dnear } a risoluzione
-    // del raster (NaN dove non c'e' copertura).
-    function stationFieldFullGrid(points, frame, W, H) {
-        var values = new Float32Array(W * H);
-        var dnear = new Float32Array(W * H);
-        var q0;
-        for (q0 = 0; q0 < values.length; q0++) { values[q0] = NaN; dnear[q0] = NaN; }
-        if (!points || !points.length) return { values: values, dnear: dnear };
-        var step = STATION_FIELD_LATTICE_DEG;
-        var lon0 = frame.minLon, lat0 = frame.minLat;
-        var nx = Math.max(2, Math.ceil((frame.maxLon - frame.minLon) / step) + 2);
-        var ny = Math.max(2, Math.ceil((frame.maxLat - frame.minLat) / step) + 2);
-        var nodeV = new Float32Array(nx * ny), nodeD = new Float32Array(nx * ny);
-        var nodeOk = new Uint8Array(nx * ny);
-        var B = STATION_FIELD_FULL_BUCKET_DEG, pad = 6;
-        var bLon0 = Math.floor(lon0 / B) - pad, bLat0 = Math.floor(lat0 / B) - pad;
-        var gnx = Math.max(1, Math.floor(frame.maxLon / B) - Math.floor(lon0 / B) + 1 + 2 * pad);
-        var gny = Math.max(1, Math.floor(frame.maxLat / B) - Math.floor(lat0 / B) + 1 + 2 * pad);
-        var cells = gnx * gny;
-        var counts = new Int32Array(cells + 1), pi, gx, gy;
-        for (pi = 0; pi < points.length; pi++) {
-            gx = Math.floor(points[pi].lon / B) - bLon0;
-            gy = Math.floor(points[pi].lat / B) - bLat0;
-            if (gx < 0 || gx >= gnx || gy < 0 || gy >= gny) continue;
-            counts[gy * gnx + gx + 1]++;
-        }
-        for (pi = 0; pi < cells; pi++) counts[pi + 1] += counts[pi];
-        var offsets = new Int32Array(cells + 1); offsets.set(counts);
-        var order = new Int32Array(counts[cells]), fill = new Int32Array(cells);
-        for (pi = 0; pi < points.length; pi++) {
-            gx = Math.floor(points[pi].lon / B) - bLon0;
-            gy = Math.floor(points[pi].lat / B) - bLat0;
-            if (gx < 0 || gx >= gnx || gy < 0 || gy >= gny) continue;
-            var cell = gy * gnx + gx;
-            order[counts[cell] + fill[cell]] = pi;
-            fill[cell]++;
-        }
-        var cand = [], kk, nyi, nxi, rf, dyf, dxf, cyf, cxf, cf;
-        for (nyi = 0; nyi < ny; nyi++) {
-            var nlat = lat0 + nyi * step;
-            if (nlat > frame.maxLat + step) break;
-            var cosL = Math.cos(nlat * Math.PI / 180);
-            if (cosL < 0.2) cosL = 0.2;
-            var pgy = Math.floor(nlat / B) - bLat0;
-            for (nxi = 0; nxi < nx; nxi++) {
-                var nlon = lon0 + nxi * step;
-                if (nlon > frame.maxLon + step) break;
-                var pgx = Math.floor(nlon / B) - bLon0;
-                cand.length = 0;
-                for (rf = 0; rf <= 4; rf++) {
-                    for (dyf = -rf; dyf <= rf; dyf++) {
-                        cyf = pgy + dyf;
-                        if (cyf < 0 || cyf >= gny) continue;
-                        for (dxf = -rf; dxf <= rf; dxf++) {
-                            if (Math.max(Math.abs(dxf), Math.abs(dyf)) !== rf) continue;
-                            cxf = pgx + dxf;
-                            if (cxf < 0 || cxf >= gnx) continue;
-                            cf = cyf * gnx + cxf;
-                            for (kk = offsets[cf]; kk < offsets[cf + 1]; kk++) cand.push(points[order[kk]]);
-                        }
-                    }
-                    if (cand.length >= 2 * STATION_FIELD_FULL_K) break;
-                }
-                if (!cand.length) {
-                    cand.length = 0;
-                    for (kk = 0; kk < points.length; kk++) cand.push(points[kk]);
-                }
-                var g = stationFieldIdwAt(nlat, nlon, cand, cosL, STATION_FIELD_FULL_K, Infinity);
-                if (g.v !== null) {
-                    nodeV[nyi * nx + nxi] = g.v;
-                    nodeD[nyi * nx + nxi] = (g.dn === null) ? 0 : g.dn;
-                    nodeOk[nyi * nx + nxi] = 1;
-                }
-            }
-        }
-        var mSpan = frame.mxM - frame.mnM, lonSpan = frame.maxLon - frame.minLon;
-        var j, i2, lat, lon, fy, iy, ty, fx, ix, tx, w00, w10, w01, w11;
-        var p00, p10, p01, p11, sum, acc, dsum;
-        for (j = 0; j < H; j++) {
-            var mj = frame.mxM - (j + 0.5) / H * mSpan;
-            lat = (2 * Math.atan(Math.exp(mj)) - Math.PI / 2) * 180 / Math.PI;
-            fy = (lat - lat0) / step;
-            iy = Math.floor(fy); ty = fy - iy;
-            if (iy < 0) { iy = 0; ty = 0; }
-            if (iy > ny - 2) { iy = ny - 2; ty = 1; }
-            for (i2 = 0; i2 < W; i2++) {
-                lon = frame.minLon + (i2 + 0.5) / W * lonSpan;
-                fx = (lon - lon0) / step;
-                ix = Math.floor(fx); tx = fx - ix;
-                if (ix < 0) { ix = 0; tx = 0; }
-                if (ix > nx - 2) { ix = nx - 2; tx = 1; }
-                w00 = (1 - tx) * (1 - ty); w10 = tx * (1 - ty);
-                w01 = (1 - tx) * ty; w11 = tx * ty;
-                p00 = iy * nx + ix; p10 = p00 + 1; p01 = p00 + nx; p11 = p01 + 1;
-                sum = 0; acc = 0; dsum = 0;
-                if (nodeOk[p00]) { acc += w00 * nodeV[p00]; dsum += w00 * nodeD[p00]; sum += w00; }
-                if (nodeOk[p10]) { acc += w10 * nodeV[p10]; dsum += w10 * nodeD[p10]; sum += w10; }
-                if (nodeOk[p01]) { acc += w01 * nodeV[p01]; dsum += w01 * nodeD[p01]; sum += w01; }
-                if (nodeOk[p11]) { acc += w11 * nodeV[p11]; dsum += w11 * nodeD[p11]; sum += w11; }
-                if (sum <= 1e-9) continue;
-                var idx2 = j * W + i2;
-                values[idx2] = acc / sum;
-                dnear[idx2] = dsum / sum;
-            }
-        }
-        return { values: values, dnear: dnear };
-    }
-
     function stationFieldRaster(points, scale, frame, mask, ssOpt, methodOpt) {
         var baseW = frame.W | 0, baseH = frame.H | 0;
         // 1.3.0.61 - SUPERSAMPLING: con ss=2 il raster e' 512x454 sullo STESSO
@@ -21038,12 +20910,11 @@ stopSyncPlay();
                     data: data, values: values, alphas: alphas, painted: 0, points: 0 };
         if (!points || !points.length || !scale) return res;
         res.points = points.length;
-        // 1.3.0.69 - METODO: `local` (storico), `full` (nessun buco sulla terra) o
-        // `contour` (come `full` + isolinee dai valori). In `full`/`contour` il
-        // cutoff e' illimitato (Infinity, NON null: null significa «usa il
-        // default 25 km»), le celle sono a 1° e k=16. L'alfa resta pieno (235) su
-        // tutta la terra: la copertura e' il punto del metodo, e la legenda
-        // dichiara che dove non ci sono stazioni il valore e' inferito.
+        // 1.3.0.73 - UN SOLO RASTER, calcolato PER PIXEL come la 1.3.0.68.
+        // `local` = k=12 entro 25 km (12 km per la pioggia) + fade sul bordo.
+        // `full`/`contour` = k=16 senza cut-off: ogni pixel di terra prende i k
+        // vicini piu' vicini, quindi la terra non ha buchi. Nessun reticolo a
+        // 0,5° e nessun bilineare: il valore e' sempre calcolato sul pixel.
         var full = (methodOpt === 'full' || methodOpt === 'contour');
         res.method = full ? (methodOpt === 'contour' ? 'contour' : 'full') : 'local';
         // Alias LOCALI delle costanti e delle funzioni usate nel ciclo per pixel:
@@ -21054,6 +20925,11 @@ stopSyncPlay();
             FADE = STATION_FIELD_FADE_KM,
             MAXRING = full ? STATION_FIELD_FULL_MAX_RING : STATION_FIELD_MAX_RING,
             idwAt = stationFieldIdwAt, bandIndex = stationFieldBandIndex;
+        // 1.3.0.73 - PIOGGIA: grandezza discontinua, cut-off piu' stretto (12 km)
+        // SOLO in `local`. In `full`/`contour` il raggio resta illimitato perche'
+        // il metodo dichiara l'inferenza; il colore resta comunque trasparente
+        // dove il valore interpolato cade nella prima banda (asciutto).
+        var cut = (!full && stationFieldVar === 'rain') ? STATION_FIELD_RAIN_CUTOFF_KM : CUT;
         // INDICE A BUCKET SU ARRAY PIATTI (niente Map, niente chiavi stringa):
         // counts -> offset (somme prefisse) -> indici dei punti ordinati per cella.
         // Con 58.112 pixel e una finestra 7x7 di celle sono ~2,85 M letture di
@@ -21091,15 +20967,7 @@ stopSyncPlay();
         var cols = scale.colors.light || scale.colors.dark;
         var lonSpan = frame.lonSpan, mSpan = frame.mxM - frame.mnM;
         var cand = [];
-        // 1.3.0.69 - CANDIDATI PER CELLA (solo `full`): i pixel della stessa cella
-        // a 1° condividono la lista dei vicini. Costruirla una volta per cella
-        // invece che per pixel e' la differenza fra ~500 ms e ~50 ms sui casi
-        // radi (reti con poche stazioni), ed e' un'approssimazione DICHIARATA:
-        // i 16 vicini sono scelti da una lista raccolta intorno alla CELLA, non
-        // intorno al singolo pixel. Su una superficie dichiarata «inferenza» e'
-        // accettabile; su `local` NON si usa (resta esatto per pixel).
         var maskMul = mask ? stationFieldSoftenMask(mask, baseW, baseH) : null;
-        var fullGrid = full ? stationFieldFullGrid(points, frame, W, H) : null;
         // Diagnostica del metodo `full`: terre coperte, distanze al vicino piu'
         // prossimo (min/mediana/max). Nessuna stima: si raccoglie nel ciclo.
         var landPixels = 0, dnSamples = null, dnN = 0;
@@ -21126,12 +20994,46 @@ stopSyncPlay();
                 var lon = frame.minLon + (ii + 0.5) / W * lonSpan;
                 var pgx = Math.floor(lon / B) - bLon0;
                 var got;
+                cand.length = 0;
                 if (full) {
-                    var fv = fullGrid.values[p];
-                    if (!isFinite(fv)) continue;
-                    got = { v: fv, dk: 0, dn: isFinite(fullGrid.dnear[p]) ? fullGrid.dnear[p] : null, n: 1 };
+                    // 1.3.0.73 - ANELLI IN PERIMETRO per `full`: 8r celle per
+                    // anello invece di scandire (2r+1)^2 celle scartando l'interno.
+                    // Stesso insieme di vicini del giro precedente, ~4x meno
+                    // iterazioni: il costo per pixel resta sotto il tetto.
+                    var fr, fdy, fdx, fside, fcy, fcx, fci, fq, fdown, fup;
+                    for (fr = 0; fr <= MAXRING; fr++) {
+                        if (fr === 0) {
+                            if (pgy >= 0 && pgy < gny && pgx >= 0 && pgx < gnx) {
+                                fci = pgy * gnx + pgx;
+                                for (fq = offsets[fci]; fq < offsets[fci + 1]; fq++) cand.push(points[order[fq]]);
+                            }
+                            continue;
+                        }
+                        fdown = pgy - fr; fup = pgy + fr;
+                        for (fdy = -fr; fdy <= fr; fdy++) {
+                            fcy = pgy + fdy;
+                            if (fcy < 0 || fcy >= gny) continue;
+                            for (fside = 0; fside < 2; fside++) {
+                                fcx = pgx + (fside === 0 ? -fr : fr);
+                                if (fcx < 0 || fcx >= gnx) continue;
+                                fci = fcy * gnx + fcx;
+                                for (fq = offsets[fci]; fq < offsets[fci + 1]; fq++) cand.push(points[order[fq]]);
+                            }
+                        }
+                        for (fdx = -fr + 1; fdx <= fr - 1; fdx++) {
+                            fcx = pgx + fdx;
+                            if (fcx < 0 || fcx >= gnx) continue;
+                            for (fside = 0; fside < 2; fside++) {
+                                fcy = fside === 0 ? fdown : fup;
+                                if (fcy < 0 || fcy >= gny) continue;
+                                fci = fcy * gnx + fcx;
+                                for (fq = offsets[fci]; fq < offsets[fci + 1]; fq++) cand.push(points[order[fq]]);
+                            }
+                        }
+                    }
                 } else {
-                    cand.length = 0;
+                    // 1.3.0.68 IDENTICO: anelli 0..3, scansione (2r+1)^2 con il
+                    // filtro sul perimetro. Non cambiare: e' il raster accettato.
                     for (var r = 0; r <= MAXRING; r++) {
                         for (var dy = -r; dy <= r; dy++) {
                             var cy = pgy + dy;
@@ -21145,10 +21047,18 @@ stopSyncPlay();
                             }
                         }
                     }
-                    if (!cand.length) continue;
-                    got = idwAt(lat, lon, cand, cosLat, K, CUT);
-                    if (got.v === null || got.dk === null) continue;
                 }
+                // 1.3.0.73 - `local`: nessun vicino entro il raggio -> pixel
+                // trasparente (onesta' del dato, come la 1.3.0.68). `full`: se
+                // negli anelli (0,8°) non ci sono nemmeno k stazioni — rete rada
+                // o pixel isolato — si usa la lista INTERA (nessuna copia: si
+                // passa il riferimento), cosi' il k-NN resta esatto e la terra
+                // non ha buchi.
+                var list = cand;
+                if (full && cand.length < K) list = points;
+                else if (!cand.length) continue;
+                got = idwAt(lat, lon, list, cosLat, K, cut);
+                if (got.v === null || got.dk === null) continue;
                 var fade = full ? 1 : (CUT - got.dk) / FADE;
                 if (fade < 0) fade = 0;
                 if (fade > 1) fade = 1;

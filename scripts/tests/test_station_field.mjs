@@ -109,15 +109,16 @@ const FNS = [
   'stationFieldContourLevels', 'stationFieldContourSegments',
   'stationFieldContourLabels', 'stationFieldContourVectorData',
   'stationFieldContourResample', 'stationFieldContourPolylines', 'stationFieldChaikin',
-  'stationFieldSoftenMask', 'stationFieldFullGrid'
+  'stationFieldSoftenMask'
 ];
 const VARS = [
   'STATION_FIELD_K', 'STATION_FIELD_CUTOFF_KM', 'STATION_FIELD_FADE_KM', 'STATION_FIELD_SUPERSAMPLE',
   'STATION_FIELD_FULL_K', 'STATION_FIELD_FULL_BUCKET_DEG', 'STATION_FIELD_FULL_MAX_RING',
   'STATION_FIELD_CONTOUR', 'STATION_FIELD_CONTOUR_LABEL_MAX', 'STATION_FIELD_CONTOUR_LABEL_MIN_PX',
   'STATION_FIELD_CONTOUR_GRID_MULT', 'STATION_FIELD_CONTOUR_GRID_MAX_W', 'STATION_FIELD_CONTOUR_CHAIKIN',
-  'STATION_FIELD_SIGMA_FRAC', 'STATION_FIELD_LATTICE_DEG', 'STATION_FIELD_KM_PER_DEG',
-  'STATION_FIELD_EXP_STEPS', 'STATION_FIELD_EXP_MAX', 'STATION_FIELD_EXP_LUT',
+  // 1.3.0.73 - il peso gaussiano (σ, LUT) e il reticolo 0,5° non esistono piu':
+  // il raster torna per pixel con il kernel 1/(d^2+1) della 1.3.0.68.
+  'STATION_FIELD_RAIN_CUTOFF_KM', 'stationFieldVar',
   'STATION_FIELD_AGE_POLICY',
   'stationFieldMethod',
   'STATION_FIELD_BUCKET_DEG', 'STATION_FIELD_MAX_RING', 'STATION_FIELD_MIN_COVERAGE',
@@ -221,29 +222,34 @@ const CAND3 = [
 const cos41 = Math.cos(41 * Math.PI / 180);
 const dSide = 0.1 * 111.32 * cos41;   // 8,4013 km
 const dUp = 0.1 * 111.32;             // 11,132 km
-// 1.3.0.70 - PESO GAUSSIANO: w = exp(-(d/σ)²) con σ = 25 km * 0,5 = 12,5 km,
-// nessun troncamento a k (prima era 1/(d²+1) e k=12).
-const SIGMA = 25 * ctxObj.STATION_FIELD_SIGMA_FRAC;
-const w1 = Math.exp(-Math.pow(dSide / SIGMA, 2));
-const w3 = Math.exp(-Math.pow(dUp / SIGMA, 2));
+// 1.3.0.73 - KERNEL DELLA 1.3.0.68 (lo stato che l'utente accettava): peso
+// 1/(d²+1) sui K VICINI PIU' VICINI entro il cut-off. Il gaussiano largo della
+// 1.3.0.70 sommava TUTTI i vicini e spalmava la pioggia dove non era caduta.
+const w1 = 1 / (dSide * dSide + 1);
+const w3 = 1 / (dUp * dUp + 1);
 const expected = (10 * w1 + 20 * w1 + 30 * w3) / (2 * w1 + w3);
 const idw = ctxObj.stationFieldIdwAt(41.0, 9.0, CAND3, cos41);
 ok('distanza laterale 0,1° a 41°N = 8,4013 km', Math.abs(dSide - 8.4013) < 0.001, dSide.toFixed(4) + ' km');
 ok('distanza verticale 0,1° = 11,132 km', Math.abs(dUp - 11.132) < 0.001, dUp.toFixed(4) + ' km');
-ok('σ dichiarato = raggio/2 = 12,5 km', SIGMA === 12.5, SIGMA + ' km');
-ok('IDW gaussiano al centro = ' + expected.toFixed(4) + ' °C (LUT: tolleranza 0,02)',
-  Math.abs(idw.v - expected) < 0.02, 'ottenuto ' + idw.v.toFixed(6));
+ok('kernel 1/(d²+1): valore al centro = ' + expected.toFixed(6) + ' °C',
+  Math.abs(idw.v - expected) < 1e-9, 'ottenuto ' + idw.v.toFixed(9));
 ok('d_k = distanza del vicino piu lontano usato (11,132 km)', Math.abs(idw.dk - dUp) < 1e-9, idw.dk.toFixed(6));
-ok('usa 3 vicini (nessun troncamento a k)', idw.n === 3, 'n=' + idw.n);
-// 1.3.0.70 - NIENTE TRONCAMENTO A k: il 13° vicino contribuisce (prima k=12 lo
-// scartava del tutto, creando discontinuita' quando entrava/usciva).
+ok('usa i 3 candidati entro il raggio', idw.n === 3, 'n=' + idw.n);
+// 1.3.0.73 - k=12 e' un TRONCAMENTO: il 13° vicino NON contribuisce (era il
+// difetto del gaussiano: ogni vicino entrava, anche a 100 km).
 const many = [];
 for (let i = 0; i < 20; i++) many.push({ lat: 41.0 + i * 0.0005, lon: 9.0 + i * 0.0005, v: 10 + i });
 const idwMany = ctxObj.stationFieldIdwAt(41.0, 9.0, many, cos41);
-const sumAll = many.reduce((a, p) => a + Math.exp(-Math.pow(ctxObj.stationFieldDistKm(41.0, 9.0, p.lat, p.lon, cos41) / SIGMA, 2)) * p.v, 0);
-const wAll = many.reduce((a, p) => a + Math.exp(-Math.pow(ctxObj.stationFieldDistKm(41.0, 9.0, p.lat, p.lon, cos41) / SIGMA, 2)), 0);
-ok('con 20 vicini il valore somma TUTTI (non solo i primi 12)',
-  Math.abs(idwMany.v - sumAll / wAll) < 0.02, idwMany.v.toFixed(4) + ' vs ' + (sumAll / wAll).toFixed(4));
+function wClassic(p) {
+  const d = ctxObj.stationFieldDistKm(41.0, 9.0, p.lat, p.lon, cos41);
+  return 1 / (d * d + 1);
+}
+const best12 = many.slice().sort((a, b) => wClassic(b) - wClassic(a)).slice(0, 12);
+const sum12 = best12.reduce((a, p) => a + wClassic(p) * p.v, 0);
+const w12 = best12.reduce((a, p) => a + wClassic(p), 0);
+ok('k=12: valore = media pesata dei 12 vicini piu vicini, il 13° resta fuori',
+  idwMany.n === 12 && Math.abs(idwMany.v - sum12 / w12) < 1e-9,
+  'n=' + idwMany.n + ' · ' + idwMany.v.toFixed(6) + ' vs ' + (sum12 / w12).toFixed(6));
 const one = ctxObj.stationFieldIdwAt(41.0, 9.0, [{ lat: 41.0, lon: 9.0, v: 7 }], cos41);
 ok('con un solo vicino a distanza 0 il valore e il suo stesso valore', Math.abs(one.v - 7) < 1e-9 && one.dk === 0);
 
@@ -676,6 +682,11 @@ ok('temperatura (istantanea, media assente): nessun filtro di copertura e nessun
   colTemp.used === 1 && colTemp.coverageN === 0, 'used=' + colTemp.used);
 
 console.log('\nG0. SUPERSAMPLING 2x: raster intermedio, downscale, granulosita');
+// 1.3.0.73 - la variabile di stato va FISSATA: il cut-off della pioggia (12 km)
+// dipende da stationFieldVar e i test precedenti la lasciano su 'rain'/'snow'.
+// La granulosita' si misura sul campo di temperatura (cut-off 25 km), come nella
+// 1.3.0.68: senza questo, l'assert misurava il raggio della pioggia.
+ctxObj.stationFieldVar = 'temp';
 // Il raster a ss=2 deve avere ESATTAMENTE il doppio dei pixel per lato (stesso
 // frame Mercator) e il downscale deve tornare alla griglia base.
 const frameSS = makeFrame(40, 42, 8, 10, 9, 9);
@@ -729,8 +740,11 @@ const gran1 = granularity(g1.values, g1.alphas, g1.W, g1.H);
 const gran2 = granularity(g2d.values, g2d.alphas, g2d.W, g2d.H);
 ok('granulosita (|Δ| medio fra adiacenti) CALA con supersampling+downscale',
   gran2 < gran1, gran1.toFixed(3) + ' -> ' + gran2.toFixed(3) + ' °C');
-ok('il calo resta positivo (col peso gaussiano il campo e gia liscio: il margine e minore di prima)',
-  gran2 < gran1 * 0.995, 'rapporto ' + (gran2 / gran1).toFixed(3));
+// 1.3.0.73 - CONTRATTO DELLA 1.3.0.68 ripristinato: il calo deve essere almeno
+// del 10% (la 1.3.0.72 lo aveva allentato a 0,5% perche' il gaussiano rendeva il
+// campo gia' liscio). Con il kernel 1/(d²+1) il supersampling torna a mordere.
+ok('il calo e almeno del 10%', gran2 < gran1 * 0.9,
+  'rapporto ' + (gran2 / gran1).toFixed(3));
 
 console.log('\nG. Costo del raster su 256 x 227 (punti sintetici, misurato in due contesti)');
 const bigFrame = makeFrame(36.0, 48.0, 6.0, 19.0, 256, 227);
@@ -1042,6 +1056,9 @@ ok('range stretto (10..10,4): poche etichette e orientamento orizzontale',
 // 1.3.0.69 - L. DUE METODI DI INTERPOLAZIONE (local = buchi, full = nessun buco)
 // --------------------------------------------------------------------------
 console.log('\nL. Metodi di interpolazione: local (buchi) contro full (copertura)');
+// 1.3.0.73 - stato esplicito: i due metodi si confrontano sulla temperatura
+// (cut-off 25 km in local). La variabile non deve dipendere dai test precedenti.
+ctxObj.stationFieldVar = 'temp';
 const frameL = makeFrame(36.0, 48.0, 6.0, 19.0, 256, 227);
 const maskLand = new Uint8Array(256 * 227).fill(255);
 const sparse = [];
@@ -1054,9 +1071,15 @@ ok('local: la mappa ha BUCHI (pixel trasparenti sulla terra)',
   rLocal.painted < 256 * 227, 'dipinti ' + rLocal.painted + '/' + (256 * 227));
 ok('full: ZERO buchi sulla terra (ogni pixel di terra dipinto)',
   rFull.painted === 256 * 227, 'dipinti ' + rFull.painted + '/' + (256 * 227));
-ok('full: k=16, celle a 1°, nessun cutoff (dichiarati)',
-  ctxObj.STATION_FIELD_FULL_K === 16 && ctxObj.STATION_FIELD_FULL_BUCKET_DEG === 1 &&
-  ctxObj.STATION_FIELD_FULL_MAX_RING === 24);
+ok('full: k=16, indice a 0,1° (lo stesso di local) e calcolo PER PIXEL: nessun reticolo',
+  ctxObj.STATION_FIELD_FULL_K === 16 && ctxObj.STATION_FIELD_FULL_BUCKET_DEG === 0.1 &&
+  ctxObj.STATION_FIELD_FULL_MAX_RING === 8);
+// 1.3.0.73 - CONTROLLO SULLA SORGENTE: il reticolo 0,5° + bilineare, il peso
+// gaussiano e la lista di vicini per cella a 1° NON devono sopravvivere. Erano
+// la causa misurata dei seam (1,96 °C) e della pioggia spalmata sull'asciutto.
+ok('il reticolo 0,5°, il gaussiano e il bilineare su nodi sono ASSENTI dal sorgente',
+  !/STATION_FIELD_LATTICE_DEG|STATION_FIELD_SIGMA_FRAC|STATION_FIELD_EXP_LUT/.test(src) &&
+  !/function\s+stationFieldFullGrid\s*\(/.test(src));
 ok('full: alfa pieno 235 anche lontano dalle stazioni (nessun fade)',
   (() => { for (let i = 0; i < rFull.alphas.length; i++) if (rFull.alphas[i] !== 235) return false; return true; })());
 ok('full: distanza al vicino più prossimo MISURATA (min <= mediana <= max)',
