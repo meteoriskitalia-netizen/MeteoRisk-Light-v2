@@ -2212,7 +2212,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
          metodo dichiarato e attribuzione. Nessun CSS nuovo: stesse classi
          .live-legend/.legend-title/.legend-row delle altre legende del pannello. -->
     <div class="live-legend" id="live-stationfield-box" style="display:none;">
-        <div class="legend-title" id="live-stationfield-title">Campo osservato dalle centraline — superficie interpolata (osservato, non modello)</div>
+        <div class="legend-title" id="live-stationfield-title">Campo osservato dalle centraline</div>
         <div class="legend-row" style="gap:8px;flex-wrap:wrap;">
             <label for="stationfield-var" style="font-size:10px;color:#94a3b8;">Variabile</label>
             <select id="stationfield-var" class="fm-select" onchange="stationFieldVarChanged(this.value)" title="Variabile osservata da interpolare sulla mappa: temperatura a 2 m (media sulla finestra), temperatura massima e minima (finestra e giornata), umidità relativa, punto di rugiada, pioggia cumulata, vento medio, raffica massima e neve al suolo. Le grandezze non interpolabili (direzione del vento, pressione di stazione, livello idrico) restano nel popup della singola stazione: dettaglio nella scheda Fonti e metodologie." style="font-size:11px;">
@@ -3218,9 +3218,18 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.69';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.70';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-24';
     const APP_CHANGELOG = [
+    { version: '1.3.0.70', date: '2026-11-24', changes: [
+      "ISOLINEE VETTORIALI (modalità contour): linee e etichette non sono più disegnate nel canvas del campo (256x227, poi scalato da Leaflet = sfocato), ma come L.polyline SVG e marker HTML in un pane dedicato (stationFieldIsoPane, z 408, pointer-events none). Nitide a qualunque zoom e riproiettate da Leaflet: pan e zoom non ricostruiscono nulla. Lapulizia avviene a ogni render e allo spegnimento (stationFieldIsoClear), quindi polilinee e marker non si accumulano.",
+      "GEOMETRIA DELLE LINEE: griglia dedicata 4x il campo (1024x1340 sul frame reale), valori ricampionati con interpolazione BILINEARE (l'alpha resta dal vicino più prossimo: nessuna linea sul mare), marching squares con intersezione LINEARE sui lati della cella e smoothing Chaikin x2 (la curva resta dentro il poligono di controllo, quindi non si sposta oltre mezza cella). Costo MISURATO nel browser reale: 149-234 ms per il render contour completo, dati vettoriali 344 ms nel test Node: sotto il limite di 800 ms.",
+      "ETICHETTE NITIDE: marker L.divIcon con testo HTML (11 px, ombra scura per leggibilità), solo sui livelli marcati, massimo 5 per livello e distanza minima 45 px di SCHERMO (convertita in pixel di campo dalla scala reale della mappa).",
+      "LEGENDA DELLE SCALE ORIZZONTALE: i numeri non sono più ruotati di 90° (erano illeggibili); il passo è adattivo sulla larghezza reale della barra (nessuna sovrapposizione, minimo/massimo reali e 0 sempre presenti) e le TACCHE restano su tutte le bande. Al passo 1 non si scrive nulla in più.",
+      "TESTI DELL'INTERFACCIA SNNELLITI: la riga di stato del campo centraline è «N stazioni · finestra · età mediana» (disponibili, escluse, copertura, decadimento e inferenza nel title), la legenda delle etichette è «N centraline attive · aggiornato X», la riga di metodo è «Unità · scala · IDW k · non è un campo radar» (una volta sola), le note di decimazione sono su una riga con i dettagli nel title.",
+      "SERVER INVARIATO in questa build: le 13 colonne dell'indice, il fallback on-demand, il peso temporale e i tre metodi sono già nella 1.3.0.69.",
+      "TEST: test_station_field.mjs 221 controlli / 0 falliti (griglia 4x, segmenti in aumento, Chaikin dentro il controllo, etichette orizzontali senza sovrapposizioni, tacca per ogni banda, riga di stato breve con title completo); test_html_js_syntax, test_tooltips_coverage e test_station_field_index verdi."
+    ]},
     { version: '1.3.0.69', date: '2026-11-24', changes: [
       "SERVER, INDICE DELLE CENTRALINE: mancavano 13 colonne che il client seleziona (rain_3h_mm, gust_max_3h_ms, wind_mean_3h_ms, wind_mean_30m_ms, gust_max_30m_ms, temp_max/min 5m/30m/1h/3h). Il client legge index.json come fonte PRIMARIA: «Pioggia cumulata + 3 ore» dava 0 stazioni usate su 0 mentre latest.json aveva rain_3h_mm su 3.827 stazioni. MISURATO: 46 -> 59 station_fields, 176.314 -> 205.232 B gzip (+28.918 B, +16,4%); il tetto passa da 200 KiB a 240 KiB (245.760 B) con margine 40.528 B. I campi della GIORNATA (temp_max_day_c, temp_min_day_c, ore del picco, temp_day_partial) NON entrano nell'indice: in latest.json non esistono (0/4.947), vivono nel blob daily_series.json. Nuovo test scripts/tests/test_station_field_index.py: legge STATION_FIELD_FIELDS dall'HTML, costruisce l'indice con la funzione del server e fallisce se un campo del client manca (o se un campo del blob finisce nell'indice).",
       "CLIENT PRO, TRE STATI ONESTI E FALLBACK AL FILE COMPLETO: se un campo non e una colonna dell'indice ma esiste in latest.json, il client lo scarica ON-DEMAND (una volta, con cache), lo fonde nei record gia normalizzati (SOLO le chiavi assenti: un valore dell'indice non viene mai sovrascritto) e ridisegna. I messaggi distinguono (a) campo assente da entrambi i file -> «non pubblicata dal server»; (b) assente nell'indice ma presente in latest -> «carico i valori completi»; (c) presente ma senza valore per le stazioni -> «pubblicato dal server ma nessuna stazione ne ha un valore» + i motivi *_null_reason. Vale per tutte le variabili con finestra.",
@@ -18690,11 +18699,15 @@ stopSyncPlay();
             } else {
                 var gen = stationsData.meta.generatedAt;
                 var age = gen ? Math.round(stationsAgeMin(gen)) : null;
-                el.textContent = '🕒 ultimo aggiornamento: ' +
+                // 1.3.0.70 - UNA RIGA: «N centraline attive · aggiornato X». I numeri
+                // completi (totale, soglia, orologio dell'aggiornamento) nel title.
+                el.textContent = stationsActiveCount() + ' centraline attive' +
+                    (age === null ? '' : ' · aggiornato ' + (age < 1 ? 'adesso' : age + ' min fa'));
+                el.title = 'Ultimo aggiornamento ' +
                     (age === null ? 'n/d' : (age < 1 ? 'adesso' : age + ' min fa')) +
-                    (gen ? ' (' + stationsClock(gen) + ')' : '') + ' · ' +
-                    stationsActiveCount() + '/' + stationsData.stations.length +
-                    ' centraline attive (osservazione <= ' + STATIONS_MAX_OBS_AGE_MIN + ' min)';
+                    (gen ? ' (' + stationsClock(gen) + ')' : '') + '. ' +
+                    stationsActiveCount() + ' centraline attive su ' + stationsData.stations.length +
+                    ' (osservazione fino a ' + STATIONS_MAX_OBS_AGE_MIN + ' min).';
             }
         }
         if (stale) {
@@ -18710,12 +18723,15 @@ stopSyncPlay();
         }
         if (dec) {
             if (stationsStats && stationsData) {
-                dec.textContent = 'Etichette: ' + stationsStats.drawn + ' disegnate su ' + stationsStats.candidates +
+                // 1.3.0.70 - una riga; i dettagli della decimazione nel title.
+                dec.textContent = stationsStats.drawn + ' etichette · ' + stationsStats.candidates +
+                    ' nell\'area · ' + stationsStats.drawMs + ' ms';
+                dec.title = 'Etichette: ' + stationsStats.drawn + ' disegnate su ' + stationsStats.candidates +
                     ' centraline attive con ' + STATIONS_LABEL_FIELD.label.toLowerCase() + ' nell\u2019area visibile' +
                     ' (tetto ' + STATIONS_MAX_POINTS + ', griglia ' + stationsStats.cell + ' px, zoom ' + stationsStats.zoom +
-                    ', ' + stationsStats.collisions + ' scartate perche\u2019 si sovrapporrebbero' +
+                    ', ' + stationsStats.collisions + ' scartate perché si sovrapporrebbero' +
                     (stationsStats.noValue ? ', ' + stationsStats.noValue + ' senza ' + STATIONS_LABEL_FIELD.label.toLowerCase() + ' non disegnate' : '') +
-                    ', disegno ' + stationsStats.drawMs + ' ms).';
+                    ').';
             } else {
                 dec.textContent = '';
             }
@@ -19600,6 +19616,8 @@ stopSyncPlay();
     var stationFieldMask = null;
     var stationFieldMaskKey = '';
     var stationFieldLastStats = null;
+    // 1.3.0.70 - layer Leaflet delle isolinee (polilinee SVG + marker HTML).
+    var stationFieldIsoLayer = null;
     var STATION_FIELD_K = 12;
     var STATION_FIELD_CUTOFF_KM = 25;
     // 1.3.0.61 - MORBIDEZZA: il campo appariva a bolle per la bassa risoluzione
@@ -19643,6 +19661,14 @@ stopSyncPlay();
     };
     var STATION_FIELD_CONTOUR_LABEL_MAX = 5;    // etichette per livello (dichiarato in legenda)
     var STATION_FIELD_CONTOUR_LABEL_MIN_PX = 45; // distanza minima fra due etichette
+    // 1.3.0.70 - RISOLUZIONE DELLE ISOLINEE. Il campo e' 256x227 (una cella ~4-5 km):
+    // calcolare le linee su QUELLA griglia dava gradini visibili a zoom alto. Le
+    // isolinee si calcolano su una griglia dedicata 4x (1024x908), ricampionando i
+    // VALORI del campo con interpolazione BILINEARE (non nearest): la forma del
+    // campo non cambia, cambia solo la densita' dei punti di attraversamento.
+    var STATION_FIELD_CONTOUR_GRID_MULT = 4;
+    var STATION_FIELD_CONTOUR_GRID_MAX_W = 1024;   // tetto di sicurezza (frame piu' larghi)
+    var STATION_FIELD_CONTOUR_CHAIKIN = 2;         // iterazioni di smoothing (Chaikin)
     // 1.3.0.69 - PESO TEMPORALE (sostituisce il filtro secco a 90 minuti).
     // w_i = (1/(d_i^2+1)) * exp(-age_i / tau). `age` = minuti dall'ULTIMA
     // osservazione della stazione, NON la finestra del valore: la finestra dice
@@ -20702,12 +20728,31 @@ stopSyncPlay();
             pane.style.zIndex = '405';        // sopra overlayPane (400), sotto i confini (410)
             pane.style.pointerEvents = 'none';
         }
+        // 1.3.0.70 - PANE DELLE ISOLINEE VETTORIALI: sopra il campo colorato (405)
+        // e sopra i confini, ma senza intercettare il mouse.
+        var iso = map.getPane('stationFieldIsoPane');
+        if (!iso) {
+            iso = map.createPane('stationFieldIsoPane');
+            iso.style.zIndex = '408';
+            iso.style.pointerEvents = 'none';
+        }
         return pane;
     }
 
     function stationFieldRemoveOverlay() {
         if (stationFieldOverlay && map) { try { map.removeLayer(stationFieldOverlay); } catch (e) { } }
         stationFieldOverlay = null;
+        stationFieldIsoClear();
+    }
+
+    // 1.3.0.70 - ISOLINEE VETTORIALI: il layer delle isolinee si svuota SEMPRE
+    // prima di ricostruirlo (cambio variabile/finestra/metodo, spegnimento) per
+    // non accumulare path e marker.
+    function stationFieldIsoClear() {
+        try {
+            if (stationFieldIsoLayer) stationFieldIsoLayer.clearLayers();
+        } catch (e) { }
+        if (!stationFieldIsoLayer) stationFieldIsoLayer = null;
     }
 
     // Ora del picco (temp_max_day_hour / temp_min_day_hour). Il server pubblica un
@@ -20754,19 +20799,30 @@ stopSyncPlay();
         return parts.length ? ('linear-gradient(90deg,' + parts.join(',') + ')') : '';
     }
 
-    // 1.3.0.69 - UNA ETICHETTA PER BANDA VISIBILE (prima solo 6 tacche fisse:
-    // «-20 0 10 20 30 40», l'utente ha chiesto «tutti i valori»).
+    // 1.3.0.69 - UNA ETICHETTA PER BANDA VISIBILE (prima solo 6 tacche fisse).
+    // 1.3.0.70 - ETICHETTE ORIZZONTALI: la rotazione a 90° era illeggibile
+    // («perché i numeri sono girati?»). Ora si ruota mai nulla: si sceglie il
+    // PASSO in base allo spazio REALE (larghezza della barra e larghezza stimata
+    // dell'etichetta), con priorità a minimo reale, massimo reale e 0.
     // Regole, tutte dichiarate:
-    //  1. l'intervallo della barra e' il range REALE dei dati raccolti esteso ai
-    //     bordi delle bande che li contengono (non -80…+50 se i dati coprono 2…27);
+    //  1. l'intervallo della barra e' il range REALE dei dati esteso ai bordi
+    //     delle bande che li contengono (non -80…+50 se i dati coprono 2…27);
     //     senza dati si usa l'intervallo dichiarato in STATION_FIELD_LEGEND;
-    //  2. un'etichetta per OGNI bordo di banda nell'intervallo, piu' il minimo e il
-    //     massimo REALI dei dati (se non coincidono gia' con un bordo) e lo 0 se
-    //     cade nell'intervallo;
-    //  3. leggibilita': fino a 7 etichette orizzontali; oltre, ruotate di 90° a
-    //     8 px. Se anche cosi' non ci stanno, si tiene UNA OGNI `step` bande e la
-    //     legenda lo DICHIARA nel testo («etichette ogni N bande»): non si
-    //     omettono mai in silenzio.
+    //  2. un'etichetta per OGNI bordo di banda nell'intervallo, piu' il minimo e
+    //     il massimo REALI (se non coincidono gia' con un bordo) e lo 0 se cade
+    //     nell'intervallo;
+    //  3. se le etichette orizzontali non ci stanno si tiene UNA OGNI `step`
+    //     bande, sempre con min/max/0, e la legenda scrive «etichette ogni N
+    //     valori» SOLO se N>1;
+    //  4. le tacche (1 px) restano su TUTTE le bande, cosi' la scala resta
+    //     leggibile anche con meno numeri.
+    function stationFieldLegendLabelText(v) {
+        return stationFieldTickText(v);
+    }
+    function stationFieldLegendLabelWidth(text) {
+        // Stima volutamente prudente: ~6,4 px per carattere a 9 px + 6 di aria.
+        return Math.max(18, String(text).length * 6.4 + 6);
+    }
     function stationFieldLegendLayout(spec, stats) {
         var sc = spec ? stationFieldScale(spec.scale) : null;
         var fixed = (spec && STATION_FIELD_LEGEND[spec.scale]) ? STATION_FIELD_LEGEND[spec.scale] : null;
@@ -20774,7 +20830,8 @@ stopSyncPlay();
         var out = {
             lo: fixed ? fixed.lo : 0, hi: fixed ? fixed.hi : 1,
             values: fixed ? fixed.ticks.slice() : [0, 1],
-            fromData: false, bandCount: 0, step: 1, shown: 0, rotated: false, width: 0
+            fromData: false, bandCount: 0, step: 1, shown: 0, rotated: false, width: 0,
+            ticks: [], items: []
         };
         if (!sc || !sc.breakpoints || sc.breakpoints.length < 2) return out;
         var bp = sc.breakpoints, n = bp.length;
@@ -20800,9 +20857,8 @@ stopSyncPlay();
         if (lo <= 0 && hi >= 0) pushVal(0);
         vals.sort(function (a, b) { return a - b; });
         // Dedup: due valori piu' vicini del 2% dell'intervallo finirebbero
-        // sovrapposti. Si tiene UN valore per gruppo, ma il minimo e il massimo
-        // REALI dei dati hanno la precedenza sul bordo di banda che li contiene
-        // (requisito: gli estremi veri devono comparire fra le etichette).
+        // sovrapposti. Il minimo e il massimo REALI hanno la precedenza sul bordo
+        // di banda che li contiene.
         var tol = (hi - lo) / 50, uniq = [];
         var vMin = haveData ? st.vMin : null, vMax = haveData ? st.vMax : null;
         for (var j = 0; j < vals.length; j++) {
@@ -20816,34 +20872,70 @@ stopSyncPlay();
             }
             uniq.push(vv);
         }
-        out.lo = lo; out.hi = hi; out.values = uniq;
-        // Bande effettivamente presenti nella barra.
+        out.lo = lo; out.hi = hi;
+        // Bande effettivamente presenti nella barra (per le tacche e la dicitura).
         var bandCount = 0;
-        for (var b = 0; b < n; b++) if (bp[b] >= lo - 1e-9 && bp[b] <= hi + 1e-9) bandCount++;
+        out.ticks = [];
+        for (var b = 0; b < n; b++) {
+            if (bp[b] >= lo - 1e-9 && bp[b] <= hi + 1e-9) {
+                bandCount++;
+                out.ticks.push({ v: bp[b], x: (bp[b] - lo) / (hi - lo) });
+            }
+        }
         out.bandCount = bandCount;
-        // Larghezza reale della barra se il DOM la espone (browser), altrimenti una
-        // larghezza tipica del pannello stretto: la regola resta deterministica.
         var bar = (typeof document !== 'undefined' && document.getElementById)
             ? document.getElementById('live-stationfield-scale') : null;
         var width = (bar && bar.clientWidth) ? bar.clientWidth : 260;
         out.width = width;
-        out.rotated = uniq.length > 7;
-        // Spazio per etichetta: ~26 px in orizzontale, ~9 px in verticale (8 px di
-        // font ruotato + 1 di aria).
-        var perLabel = out.rotated ? 9 : 26;
-        var maxLabels = Math.max(3, Math.floor(width / perLabel));
-        if (uniq.length > maxLabels) {
-            out.step = Math.ceil(uniq.length / maxLabels);
-            var kept = [];
-            for (var t = 0; t < uniq.length; t++) {
-                var isEdge = (t === 0 || t === uniq.length - 1);
-                var isExtreme = haveData && (uniq[t] === st.vMin || uniq[t] === st.vMax);
-                var isZero = (uniq[t] === 0);
-                if (isEdge || isExtreme || isZero || (t % out.step === 0)) kept.push(uniq[t]);
-            }
-            out.values = kept;
+        // Posizioni e larghezze REALI (stimate) di tutte le etichette candidate.
+        var cand = [], span = hi - lo;
+        for (var m = 0; m < uniq.length; m++) {
+            var t = stationFieldLegendLabelText(uniq[m]);
+            cand.push({
+                v: uniq[m], x: span ? (uniq[m] - lo) / span * width : 0,
+                w: stationFieldLegendLabelWidth(t), text: t
+            });
         }
-        out.shown = out.values.length;
+        // PRIORITA': minimo reale, massimo reale, 0. Si piazzano per primi e
+        // nessuna etichetta successiva puo' sovrapporsi a loro.
+        var keep = [], i2, k2;
+        function overlaps(a) {
+            for (var q = 0; q < keep.length; q++) {
+                if (Math.abs(keep[q].x - a.x) < (keep[q].w + a.w) / 2 + 2) return true;
+            }
+            return false;
+        }
+        var forced = [];
+        if (cand.length) {
+            forced.push(cand[0]);
+            if (cand.length > 1) forced.push(cand[cand.length - 1]);
+            for (i2 = 0; i2 < cand.length; i2++) if (cand[i2].v === 0) forced.push(cand[i2]);
+            for (i2 = 0; i2 < cand.length; i2++) {
+                if (haveData && (cand[i2].v === vMin || cand[i2].v === vMax)) forced.push(cand[i2]);
+            }
+        }
+        // ordine: prima i bordi, poi 0 e gli estremi; in caso di conflitto vince
+        // l'ordine di inserimento (min/max prima dello 0).
+        forced.sort(function (a, b) { return a.x - b.x; });
+        for (i2 = 0; i2 < forced.length; i2++) {
+            var f = forced[i2];
+            if (keep.indexOf(f) >= 0) continue;
+            if (!overlaps(f)) keep.push(f);
+        }
+        for (i2 = 0; i2 < cand.length; i2++) {
+            var c2 = cand[i2];
+            if (keep.indexOf(c2) >= 0) continue;
+            if (!overlaps(c2)) keep.push(c2);
+        }
+        keep.sort(function (a, b) { return a.x - b.x; });
+        out.items = keep;
+        out.values = keep.map(function (o) { return o.v; });
+        out.shown = keep.length;
+        out.rotated = false;
+        // Passo dichiarato: quante bande separano due etichette consecutive.
+        if (keep.length > 1 && bandCount > keep.length) {
+            out.step = Math.max(1, Math.round((bandCount - 1) / (keep.length - 1)));
+        }
         return out;
     }
 
@@ -20861,30 +20953,35 @@ stopSyncPlay();
         }
         var lg = stationFieldLegendLayout(spec, stats);
         bar.style.background = stationFieldGradient(sc, lg.lo, lg.hi) || 'linear-gradient(90deg,#1e293b,#1e293b)';
+        // TACCHE su TUTTE le bande: la scala resta leggibile anche con meno numeri.
+        bar.style.position = 'relative';
+        var tickHtml = '';
+        for (var t = 0; t < lg.ticks.length; t++) {
+            tickHtml += '<span style="position:absolute;left:' + (Math.round(lg.ticks[t].x * 1000) / 10) +
+                '%;bottom:0;width:1px;height:4px;background:rgba(148,163,184,.75);pointer-events:none;"></span>';
+        }
+        bar.innerHTML = tickHtml;
         if (labels) {
-            var span = lg.hi - lg.lo, html = '';
-            var fontPx = lg.rotated ? 8 : 9;
-            for (var i = 0; i < lg.values.length; i++) {
-                var pct = span ? (lg.values[i] - lg.lo) / span * 100 : 0;
+            // 1.3.0.70 - ETICHETTE ORIZZONTALI (nessuna rotazione): il passo e' stato
+            // scelto sulla larghezza reale, quindi non servono trasformazioni.
+            var html = '';
+            for (var i = 0; i < lg.items.length; i++) {
+                var it = lg.items[i];
+                var pct = (lg.hi - lg.lo) ? (it.v - lg.lo) / (lg.hi - lg.lo) * 100 : 0;
                 if (pct < 0) pct = 0;
                 if (pct > 100) pct = 100;
-                html += '<span style="position:absolute;left:' + (Math.round(pct * 10) / 10) + '%;' +
-                    (lg.rotated
-                        ? 'top:0;writing-mode:vertical-rl;transform:translateX(-50%) rotate(180deg);'
-                        : 'transform:translateX(-50%);') +
-                    'font-size:' + fontPx + 'px;line-height:1;white-space:nowrap;">' +
-                    escapeHtml(stationFieldTickText(lg.values[i])) + '</span>';
-            }
-            // Se si e' dovuto saltare qualche banda lo si dichiara (non si tace).
-            if (lg.step > 1) {
-                html += '<span style="position:absolute;right:0;top:' + (lg.rotated ? '20px' : '0') +
-                    ';font-size:8px;color:#64748b;">etichette ogni ' + lg.step + ' bande (' + lg.bandCount +
-                    ' bande nell\'intervallo)</span>';
+                html += '<span style="position:absolute;left:' + (Math.round(pct * 10) / 10) +
+                    '%;transform:translateX(-50%);font-size:9px;line-height:1;white-space:nowrap;">' +
+                    escapeHtml(it.text) + '</span>';
             }
             labels.innerHTML = html;
             labels.style.position = 'relative';
-            labels.style.height = lg.rotated ? '34px' : '13px';
+            labels.style.height = '13px';
             labels.style.overflow = 'visible';
+            labels.title = 'etichette ' + lg.shown + ' su ' + lg.bandCount + ' bande' +
+                (lg.step > 1 ? (' (una ogni ' + lg.step + ' valori)') : '') +
+                '; tacche su tutte le bande. Minimo reale ' + fmtNum(lg.lo, 1) +
+                ', massimo reale ' + fmtNum(lg.hi, 1) + '.';
         }
     }
 
@@ -20975,90 +21072,63 @@ stopSyncPlay();
                 if (!mk.length && st.missingNoReason > 0) {
                     missTxt += ' · ' + st.missingNoReason + ' stazioni senza il valore del campo (nessun motivo pubblicato)';
                 }
-                // 1.3.0.69 - METODO `full`: la riga di inferenza e le distanze
-                // MISURATE (mediana/min/max al vicino più prossimo) e la quota di
-                // terra effettivamente dipinta. In `local` non si aggiunge nulla.
-                var inferTxt = '';
-                if (st.method === 'full' || st.method === 'contour') {
-                    inferTxt = ' · copertura interpolata: dove non ci sono stazioni vicine il valore è un\'inferenza, non una misura';
-                    if (st.full && st.full.dmedianKm !== null) {
-                        var pctLand = st.full.landPixels > 0
-                            ? Math.round(100 * st.full.paintedPixels / st.full.landPixels) : 0;
-                        inferTxt += ' · ' + pctLand + '% della terra dipinta · distanza al vicino più prossimo: mediana ' +
-                            fmtNum(st.full.dmedianKm, 1) + ' km, minima ' + fmtNum(st.full.dminKm, 1) +
-                            ' km, massima ' + fmtNum(st.full.dmaxKm, 1) + ' km';
-                    } else {
-                        inferTxt += ' · distanze al vicino non disponibili';
-                    }
-                }
-                // 1.3.0.69 - ISOLINEE: passo, livelli marcati e numero di linee ed
-                // etichette realmente disegnate (nessuna stima).
-                if (st.method === 'contour') {
-                    var ccfg = STATION_FIELD_CONTOUR[spec.varKey] || STATION_FIELD_CONTOUR.temp;
-                    var stepTxt = ccfg.list
-                        ? ('livelli ' + ccfg.list.join(', ') + ' ' + spec.unit)
-                        : ('ogni ' + ccfg.step + ' ' + spec.unit);
-                    var marksTxt = ccfg.list
-                        ? ccfg.marked.join(', ')
-                        : ('0, ' + ccfg.markedStep + ', ' + (2 * ccfg.markedStep) + ', ...');
-                    inferTxt += ' · isolinee ' + stepTxt + '; in grassetto i valori ' + marksTxt +
-                        ' · ' + (st.contour ? (st.contour.levels + ' livelli, ' + st.contour.segs + ' segmenti, ' +
-                        st.contour.labels + ' etichette (max ' + STATION_FIELD_CONTOUR_LABEL_MAX + ' per livello)')
-                        : 'isolinee non calcolate');
-                }
-                el.textContent = st.used + ' stazioni usate su ' + st.withValue +
-                    ' con il valore, su ' + st.total + ' disponibili · finestra ' +
-                    stationFieldWindowLabel(spec.window) + windowRangeTxt + dayTxt +
+                // 1.3.0.70 - UNA RIGA: «N stazioni · finestra · età mediana». Tutto il
+                // resto (disponibili, escluse, copertura, decadimento, età massima,
+                // inferenza) sta nel title: a schermo solo ciò che serve subito.
+                var gold = ' · ';
+                el.textContent = st.used + ' stazioni' +
+                    gold + stationFieldWindowLabel(spec.window) +
                     (st.ageMedianMin !== null && st.ageMedianMin !== undefined
-                        ? ' · età mediana delle osservazioni: ' + Math.round(st.ageMedianMin) + ' min' : '') +
-                    ' · peso temporale attivo (decadimento ' + agePol.tauMin + ' min, età massima ' +
-                    agePol.maxMin + ' min)' +
-                    (st.tooOld ? ' · ' + st.tooOld + ' escluse perché più vecchie' : ' · nessuna esclusa perché più vecchia') +
-                    ' · ' + covTxt + snowTxt +
-                    (st.excludedCoverage ? ' · ' + st.excludedCoverage + ' escluse per copertura < 50%' : '') +
-                    (st.partialWindow ? ' · finestra parziale su ' + st.partialWindow + '/' + st.used + ' stazioni (flag *_partial del blob)' : '') +
-                    missTxt + inferTxt;
-                // 1.3.0.69 - SPIEGAZIONE: la finestra del valore e l'eta' della
-                // stazione sono due cose diverse (erano confuse nella riga vecchia
-                // «osservazioni ≤ 90 min» letta come un limite della finestra).
-                el.title = 'La finestra dice quanti minuti/ore di dati entrano nel valore; ' +
-                    'l\'età dice quanto è recente l\'ultima osservazione della stazione. ' +
-                    'Le stazioni fino a ' + agePol.maxMin + ' minuti entrano con peso exp(-età/' +
-                    agePol.tauMin + ') (decadimento: ' + agePol.tauMin + ' minuti), oltre restano fuori. ' +
-                    'Le due cose sono indipendenti: con la finestra 6 ore una stazione ferma da 3 ore ' +
-                    'entra con peso ridotto (se la variabile lo consente).';
+                        ? gold + 'età mediana ' + Math.round(st.ageMedianMin) + ' min' : '') +
+                    (st.tooOld ? gold + st.tooOld + ' più vecchie' : '') +
+                    (st.zeroExcluded ? gold + st.zeroExcluded + ' a 0 cm' : '') +
+                    (st.method === 'contour' ? gold + 'isolinee' : '');
+                var titleTxt = st.used + ' stazioni usate su ' + st.withValue +
+                    ' con il valore, su ' + st.total + ' disponibili. Finestra ' +
+                    stationFieldWindowLabel(spec.window) + windowRangeTxt + dayTxt + '. ' +
+                    (st.ageMedianMin !== null && st.ageMedianMin !== undefined
+                        ? 'Età mediana delle osservazioni ' + Math.round(st.ageMedianMin) + ' min; ' : '') +
+                    'peso temporale exp(-età/' + agePol.tauMin + '), età massima ' + agePol.maxMin + ' min' +
+                    (st.tooOld ? '; ' + st.tooOld + ' escluse perché più vecchie' : '') +
+                    (st.excludedCoverage ? '; ' + st.excludedCoverage + ' escluse per copertura < 50%' : '') +
+                    (st.partialWindow ? '; ' + st.partialWindow + ' finestre parziali' : '') +
+                    (st.coverageN ? '; copertura media ' + fmtNum(100 * st.coverageSum / st.coverageN, 0) + '%'
+                                  : '; copertura non dichiarata dal server') +
+                    (st.method === 'full' || st.method === 'contour'
+                        ? '; interpolazione con copertura totale: dove non ci sono stazioni vicine il valore è un\'inferenza' : '') +
+                    '. La finestra dice quanti minuti/ore di dati entrano nel valore; l\'età dice quanto è ' +
+                    'recente l\'ultima osservazione della stazione.';
+                el.title = titleTxt;
             } else {
                 el.textContent = 'Layer acceso: in attesa della prima interpolazione.';
             }
         }
         if (method) {
             var n = st ? st.used : 0;
-            // 1.3.0.69 - la frase dichiara il METODO scelto e i suoi parametri
-            // reali (prima diceva k=8, ma il default e' k=12 dal 1.3.0.61).
-            var methodTxt = (stationFieldMethod === 'full' || stationFieldMethod === 'contour')
-                ? ("Interpolazione IDW da " + n + " stazioni (k=" + STATION_FIELD_FULL_K +
-                   ", senza raggio limite: la superficie copre tutta la terra). " +
-                   "Dove non ci sono stazioni vicine il valore è un'inferenza, non una misura: " +
-                   "non è un campo radar e non è una misura d'area." +
-                   (stationFieldMethod === 'contour'
-                       ? ' Le isolinee sono calcolate sui valori interpolati (marching squares), non sui colori.'
-                       : ''))
-                : ("Interpolazione IDW da " + n + " stazioni (k=" + STATION_FIELD_K +
-                   ", raggio " + STATION_FIELD_CUTOFF_KM + " km: trasparente dove non ci sono vicini). " +
-                   "Non è un campo radar e non è una misura d'area: dice dove le centraline che possono misurare hanno osservato.");
-            // LEGENDA DICHIARATA: unita' e scala della variabile scelta, sempre.
-            methodTxt += ' Unità ' + spec.unit + ', scala colori ' + (spec.scale || 'nessuna') + ' del registro mappe.';
-            if (spec.scale === 'station_relative_humidity') {
-                methodTxt += ' Opacità della banda forzata a 1: la rampa del registro sfuma a trasparente sotto il 50%, qui il colore resta leggibile.';
-            }
-            if (spec.meanFallback) {
-                methodTxt += ' Valore istantaneo: la media sulla finestra non è ancora pubblicata dal server.';
-            }
-            if (spec.varKey === 'snow') {
-                methodTxt += ' Neve al suolo: si disegnano SOLO le stazioni con spessore > 0 cm, gli zeri non sono ';
-                methodTxt += 'disegnati (per pioggia, vento e raffica lo 0 resta invece un valore reale).';
-            }
+            // 1.3.0.70 - UNA RIGA: unità, scala, IDW e (una volta sola) la frase
+            // sull'onestà del dato. Il resto va nel title.
+            var isFull = (stationFieldMethod === 'full' || stationFieldMethod === 'contour');
+            var methodTxt = 'Unità ' + spec.unit + ' · scala ' + (spec.scale || 'nessuna') +
+                ' · IDW k=' + (isFull ? STATION_FIELD_FULL_K : STATION_FIELD_K) +
+                ' · non è un campo radar';
+            if (spec.varKey === 'snow') methodTxt += ' · solo neve > 0';
+            if (spec.meanFallback) methodTxt += ' · valore istantaneo';
             method.textContent = methodTxt;
+            method.title = 'Interpolazione IDW da ' + n + ' stazioni.' +
+                (isFull
+                    ? ' La superficie copre tutta la terra: dove non ci sono stazioni vicine il valore è' +
+                      ' un\'inferenza, non una misura.' +
+                      (stationFieldMethod === 'contour'
+                          ? ' Le isolinee sono calcolate sui valori interpolati (marching squares), non sui colori.'
+                          : '')
+                    : ' Trasparente dove non ci sono vicini entro ' + STATION_FIELD_CUTOFF_KM + ' km.') +
+                ' Non è una misura d\'area: dice dove le centraline che possono misurare hanno osservato.' +
+                (spec.scale === 'station_relative_humidity'
+                    ? ' Opacità della banda forzata a 1: la rampa del registro sfuma a trasparente sotto il 50%.'
+                    : '') +
+                (spec.meanFallback
+                    ? ' Valore istantaneo: la media sulla finestra non è ancora pubblicata dal server.'
+                    : '');
         }
     }
 
@@ -21221,8 +21291,9 @@ stopSyncPlay();
     // STATION_FIELD_CONTOUR_LABEL_MAX per livello, distribuite lungo le linee e
     // distanti almeno STATION_FIELD_CONTOUR_LABEL_MIN_PX fra loro (se una cade
     // troppo vicina si salta: il numero di etichette e' un tetto dichiarato).
-    function stationFieldContourLabels(levels, segsByLevel) {
+    function stationFieldContourLabels(levels, segsByLevel, minPxOpt) {
         var placed = [], out = [];
+        var minPx = (minPxOpt > 0) ? minPxOpt : STATION_FIELD_CONTOUR_LABEL_MIN_PX;
         for (var i = 0; i < levels.length; i++) {
             if (!levels[i].major) continue;
             var segs = segsByLevel[i] || [];
@@ -21236,7 +21307,7 @@ stopSyncPlay();
                 var tooClose = false;
                 for (var p = 0; p < placed.length; p++) {
                     var dx = placed[p][0] - mx, dy = placed[p][1] - my;
-                    if (Math.sqrt(dx * dx + dy * dy) < STATION_FIELD_CONTOUR_LABEL_MIN_PX) { tooClose = true; break; }
+                    if (Math.sqrt(dx * dx + dy * dy) < minPx) { tooClose = true; break; }
                 }
                 if (tooClose) continue;
                 placed.push([mx, my]);
@@ -21250,50 +21321,220 @@ stopSyncPlay();
         return out;
     }
 
-    // Disegno: linee sottili (1 px) sui livelli intermedi, spesse (2 px) sui
-    // marcati; etichette solo sui marcati con alone chiaro e testo ruotato lungo
-    // la linea (raddrizzato per non finire capovolto).
-    function stationFieldDrawContours(ctx, values, alphas, W, H, varKey, stats, unit) {
+    // 1.3.0.70 - RICAMPIONAMENTO BILINEARE del campo sulla griglia delle isolinee.
+    // L'alpha (copertura) si prende dal vicino piu' prossimo: e' la maschera terra,
+    // deve restare DURA (nessuna linea sul mare). I valori si interpolano fra i
+    // vicini DIPINTI con pesi rinormalizzati: un pixel di bordo non trascina il
+    // valore dal mare.
+    function stationFieldContourResample(values, alphas, W, H, FW, FH) {
+        var fv = new Float32Array(FW * FH);
+        var fa = new Uint8Array(FW * FH);
+        var sx = W / FW, sy = H / FH;
+        for (var j = 0; j < FH; j++) {
+            var y0 = (j + 0.5) * sy - 0.5;
+            var iy = Math.floor(y0);
+            var ty = y0 - iy;
+            if (iy < 0) { iy = 0; ty = 0; }
+            if (iy > H - 2) { iy = H - 2; ty = 1; }
+            var row0 = iy * W, row1 = row0 + W;
+            for (var i = 0; i < FW; i++) {
+                var x0 = (i + 0.5) * sx - 0.5;
+                var ix = Math.floor(x0);
+                var tx = x0 - ix;
+                if (ix < 0) { ix = 0; tx = 0; }
+                if (ix > W - 2) { ix = W - 2; tx = 1; }
+                var p00 = row0 + ix, p10 = p00 + 1, p01 = row1 + ix, p11 = p01 + 1;
+                var k = j * FW + i;
+                var a00 = alphas[p00], a10 = alphas[p10], a01 = alphas[p01], a11 = alphas[p11];
+                var an = a00 || a10 || a01 || a11;
+                if (!an) continue;                 // mare: resta fuori
+                fa[k] = an;
+                var w00 = (1 - tx) * (1 - ty), w10 = tx * (1 - ty),
+                    w01 = (1 - tx) * ty, w11 = tx * ty;
+                var sum = 0, acc = 0;
+                if (a00) { acc += w00 * values[p00]; sum += w00; }
+                if (a10) { acc += w10 * values[p10]; sum += w10; }
+                if (a01) { acc += w01 * values[p01]; sum += w01; }
+                if (a11) { acc += w11 * values[p11]; sum += w11; }
+                fv[k] = sum > 0 ? (acc / sum) : values[p00];
+            }
+        }
+        return { values: fv, alphas: fa, W: FW, H: FH };
+    }
+
+    // Concatena i segmenti di una isolinea in POLILINEE (grado 2): senza questo
+    // passo lo smoothing non ha una sequenza di vertici da smussare.
+    function stationFieldContourPolylines(segs) {
+        var keyOf = function (p) {
+            return (Math.round(p[0] * 1000) / 1000) + ':' + (Math.round(p[1] * 1000) / 1000);
+        };
+        var map = {}, i, k;
+        for (i = 0; i < segs.length; i++) {
+            for (var e = 0; e < 2; e++) {
+                k = keyOf(segs[i][e]);
+                (map[k] || (map[k] = [])).push(i);
+            }
+        }
+        var used = new Uint8Array(segs.length), out = [];
+        for (i = 0; i < segs.length; i++) {
+            if (used[i]) continue;
+            used[i] = 1;
+            var chain = [segs[i][0], segs[i][1]], grew = true, c, s2, p, si;
+            while (grew) {
+                grew = false;
+                var end = chain[chain.length - 1], ks = keyOf(end);
+                var cand = map[ks] || [];
+                for (c = 0; c < cand.length; c++) {
+                    si = cand[c];
+                    if (used[si]) continue;
+                    s2 = segs[si];
+                    p = (keyOf(s2[0]) === ks) ? s2[1] : ((keyOf(s2[1]) === ks) ? s2[0] : null);
+                    if (!p) continue;
+                    chain.push(p); used[si] = 1; grew = true; break;
+                }
+            }
+            grew = true;
+            while (grew) {
+                grew = false;
+                var start = chain[0], ks2 = keyOf(start);
+                var cand2 = map[ks2] || [];
+                for (c = 0; c < cand2.length; c++) {
+                    si = cand2[c];
+                    if (used[si]) continue;
+                    s2 = segs[si];
+                    var q = (keyOf(s2[0]) === ks2) ? s2[1] : ((keyOf(s2[1]) === ks2) ? s2[0] : null);
+                    if (!q) continue;
+                    chain.unshift(q); used[si] = 1; grew = true; break;
+                }
+            }
+            if (chain.length >= 2) out.push(chain);
+        }
+        return out;
+    }
+
+    // SMOOTHING di Chaikin: ogni iterazione sostituisce il vertice con due punti a
+    // 1/4 e 3/4 del segmento. La curva resta DENTRO il poligono di controllo,
+    // quindi non sposta la linea piu' di mezza cella (requisito: <= 1 cella).
+    function stationFieldChaikin(pts, iterations) {
+        var cur = pts;
+        for (var it = 0; it < iterations; it++) {
+            if (cur.length < 3) return cur;
+            var out = [cur[0]];
+            for (var i = 0; i < cur.length - 1; i++) {
+                var p = cur[i], q = cur[i + 1];
+                out.push([0.75 * p[0] + 0.25 * q[0], 0.75 * p[1] + 0.25 * q[1]]);
+                out.push([0.25 * p[0] + 0.75 * q[0], 0.25 * p[1] + 0.75 * q[1]]);
+            }
+            out.push(cur[cur.length - 1]);
+            cur = out;
+        }
+        return cur;
+    }
+
+    // 1.3.0.70 - DATI VETTORIALI DELLE ISOLINEE (niente raster: il disegno lo fa
+    // Leaflet in SVG, nitido a ogni zoom). Ritorna, per ogni livello, le polilinee
+    // in coordinate [lat, lon] e le etichette dei livelli marcati. Funzione PURA
+    // (nessun oggetto Leaflet): si puo' testare in Node senza browser.
+    function stationFieldContourVectorData(values, alphas, W, H, frame, varKey, stats, unit, opts) {
         var levels = stationFieldContourLevels(varKey, stats);
-        var res = { levels: levels.length, segs: 0, labels: 0, levelList: levels, labelList: [] };
-        if (!levels.length || !ctx) return res;
-        var byLevel = [];
+        var res = {
+            levels: levels.length, segs: 0, labels: 0, levelList: levels, labelList: [],
+            grid: { W: W, H: H }, smooth: STATION_FIELD_CONTOUR_CHAIKIN, points: 0, polylines: 0,
+            groups: []
+        };
+        if (!levels.length || !frame || !values) return res;
+        var FW = Math.min(W * STATION_FIELD_CONTOUR_GRID_MULT, STATION_FIELD_CONTOUR_GRID_MAX_W);
+        var FH = Math.max(2, Math.round(H * FW / W));
+        var fine = stationFieldContourResample(values, alphas, W, H, FW, FH);
+        res.grid = { W: FW, H: FH };
+        var kx = W / FW, ky = H / FH;
+        var toLatLon = function (x, y) {
+            var lon = frame.minLon + (x / W) * (frame.maxLon - frame.minLon);
+            var m = frame.mxM - (y / H) * (frame.mxM - frame.mnM);
+            var lat = (2 * Math.atan(Math.exp(m)) - Math.PI / 2) * 180 / Math.PI;
+            return [lat, lon];
+        };
+        var scale = (opts && opts.pxPerFieldPx > 0) ? opts.pxPerFieldPx : 1;
+        var minFieldPx = Math.max(6, STATION_FIELD_CONTOUR_LABEL_MIN_PX / scale);
         for (var i = 0; i < levels.length; i++) {
-            var segs = stationFieldContourSegments(values, alphas, W, H, levels[i].v);
-            byLevel.push(segs);
+            var segs = stationFieldContourSegments(fine.values, fine.alphas, FW, FH, levels[i].v);
             res.segs += segs.length;
-            if (!segs.length) continue;
-            ctx.beginPath();
-            for (var s = 0; s < segs.length; s++) {
-                ctx.moveTo(segs[s][0][0] + 0.5, segs[s][0][1] + 0.5);
-                ctx.lineTo(segs[s][1][0] + 0.5, segs[s][1][1] + 0.5);
+            var group = { v: levels[i].v, major: levels[i].major, lines: [], segsForLabels: [] };
+            if (segs.length) {
+                var chains = stationFieldContourPolylines(segs);
+                res.polylines += chains.length;
+                for (var c = 0; c < chains.length; c++) {
+                    var pts = stationFieldChaikin(chains[c], STATION_FIELD_CONTOUR_CHAIKIN);
+                    res.points += pts.length;
+                    var line = [];
+                    for (var p = 0; p < pts.length; p++) {
+                        var fx = pts[p][0] * kx, fy = pts[p][1] * ky;
+                        line.push(toLatLon(fx, fy));
+                    }
+                    group.lines.push(line);
+                    // segmenti (in pixel di campo) per le etichette: coppie consecutive
+                    for (var q = 1; q < pts.length; q++) {
+                        group.segsForLabels.push([
+                            [pts[q - 1][0] * kx, pts[q - 1][1] * ky],
+                            [pts[q][0] * kx, pts[q][1] * ky]
+                        ]);
+                    }
+                }
             }
-            ctx.lineWidth = levels[i].major ? 2 : 1;
-            ctx.strokeStyle = levels[i].major ? 'rgba(15,23,42,0.85)' : 'rgba(15,23,42,0.55)';
-            ctx.stroke();
+            res.groups.push(group);
         }
-        var labels = stationFieldContourLabels(levels, byLevel);
-        res.labelList = labels;
-        res.labels = labels.length;
-        if (labels.length) {
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.font = '600 10px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
-            for (var L = 0; L < labels.length; L++) {
-                var lb = labels[L];
-                var txt = String(lb.v) + (unit ? (' ' + unit) : '');
-                ctx.save();
-                ctx.translate(lb.x + 0.5, lb.y + 0.5);
-                ctx.rotate(lb.angle);
-                ctx.lineWidth = 3;
-                ctx.strokeStyle = 'rgba(255,255,255,0.88)';
-                ctx.strokeText(txt, 0, 0);
-                ctx.fillStyle = '#0f172a';
-                ctx.fillText(txt, 0, 0);
-                ctx.restore();
-            }
-        }
+        // Etichette sui livelli marcati, distanza minima in PIXEL SCHERMO convertita
+        // in pixel di campo (cosi' resta 45 px di schermo al momento del disegno).
+        var segsByLevel = [];
+        for (var g = 0; g < res.groups.length; g++) segsByLevel.push(res.groups[g].segsForLabels);
+        var labels = stationFieldContourLabels(levels, segsByLevel, minFieldPx);
+        res.labelList = labels.map(function (lb) {
+            var ll = toLatLon(lb.x, lb.y);
+            return { v: lb.v, major: true, lat: ll[0], lon: ll[1], angle: lb.angle };
+        });
+        res.labels = res.labelList.length;
         return res;
+    }
+
+    // Applica i dati vettoriali al layer Leaflet: una L.polyline per polilinea e un
+    // L.marker con divIcon HTML per ogni etichetta marcata. Il testo e' HTML, quindi
+    // nitido a qualunque zoom (il canvas del campo resta a bassa risoluzione).
+    function stationFieldApplyContours(data) {
+        if (!map || !window.L || !data) return null;
+        stationFieldPaneEnsure();
+        if (!stationFieldIsoLayer) stationFieldIsoLayer = L.layerGroup([]);
+        var layer = stationFieldIsoLayer;
+        try { if (!map.hasLayer(layer)) layer.addTo(map); } catch (e) { }
+        var added = 0, marks = 0;
+        for (var i = 0; i < data.groups.length; i++) {
+            var gr = data.groups[i];
+            for (var c = 0; c < gr.lines.length; c++) {
+                var pl = L.polyline(gr.lines[c], {
+                    pane: 'stationFieldIsoPane',
+                    color: '#0f172a',
+                    weight: gr.major ? 2.2 : 1.2,
+                    opacity: gr.major ? 0.85 : 0.55,
+                    lineJoin: 'round',
+                    lineCap: 'round',
+                    interactive: false,
+                    smoothFactor: 0
+                });
+                layer.addLayer(pl);
+                added++;
+            }
+        }
+        for (var j = 0; j < data.labelList.length; j++) {
+            var lb = data.labelList[j];
+            var html = '<span class="sf-iso-label" style="transform:rotate(' +
+                Math.round(-lb.angle * 180 / Math.PI) + 'deg);">' +
+                escapeHtml(String(lb.v) + (data.unit ? (' ' + data.unit) : '')) + '</span>';
+            var icon = L.divIcon({ html: html, className: 'sf-iso-label-wrap', iconSize: [0, 0], iconAnchor: [0, 0] });
+            var mk = L.marker([lb.lat, lb.lon], { icon: icon, interactive: false, keyboard: false, pane: 'stationFieldIsoPane' });
+            layer.addLayer(mk);
+            marks++;
+        }
+        data.vector = { polylines: added, markers: marks };
+        return data.vector;
     }
 
     // Maschera terra (province): calcolata UNA volta per frame e riusata. Se il
@@ -21386,14 +21627,6 @@ stopSyncPlay();
         var img = ctx.createImageData(frame.W, frame.H);
         img.data.set(d.data);
         ctx.putImageData(img, 0, 0);
-        // 1.3.0.69 - ISOLINEE (metodo `contour`): si disegnano sullo STESSO canvas
-        // DOPO il campo, leggendo i VALORI interpolati. La maschera terra resta
-        // quella del campo: una cella con un angolo fuori copertura non produce
-        // segmenti, quindi nessuna linea sul mare.
-        if (stationFieldMethod === 'contour') {
-            col.contour = stationFieldDrawContours(ctx, r.values, r.alphas, frame.W, frame.H,
-                stationFieldVar, col, spec.unit);
-        }
         var url = cv.toDataURL('image/png');
         var bounds = L.latLngBounds(L.latLng(frame.minLat, frame.minLon), L.latLng(frame.maxLat, frame.maxLon));
         stationFieldPaneEnsure();
@@ -21405,6 +21638,27 @@ stopSyncPlay();
                 pane: 'stationFieldPane', opacity: 0.85, interactive: false
             });
             stationFieldOverlay.addTo(map);
+        }
+        // 1.3.0.70 - ISOLINEE VETTORIALI (metodo `contour`): il canvas resta solo
+        // per il campo colorato; le linee e le etichette sono SVG/HTML di Leaflet,
+        // quindi nitide a qualunque zoom. La pulizia avviene SEMPRE prima di
+        // ricostruire (o quando il metodo non e' contour).
+        if (stationFieldMethod === 'contour') {
+            var pxScale = 1;
+            try {
+                var ptNW = map.latLngToContainerPoint([frame.maxLat, frame.minLon]);
+                var ptSE = map.latLngToContainerPoint([frame.minLat, frame.maxLon]);
+                var dxs = Math.abs(ptSE.x - ptNW.x);
+                if (dxs > 10) pxScale = dxs / frame.W;
+            } catch (e) { }
+            stationFieldIsoClear();
+            var vdata = stationFieldContourVectorData(r.values, r.alphas, frame.W, frame.H, frame,
+                stationFieldVar, col, spec.unit, { pxPerFieldPx: pxScale });
+            vdata.unit = spec.unit;
+            col.contour = vdata;
+            stationFieldApplyContours(vdata);
+        } else {
+            stationFieldIsoClear();
         }
         // 1.3.0.61 - `image-rendering: auto` DICHIARATO sul layer: il PNG viene
         // ridimensionato dal browser con interpolazione (nessun pixel-art), che e'

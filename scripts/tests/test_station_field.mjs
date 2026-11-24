@@ -104,14 +104,17 @@ const FNS = [
   // «una etichetta per banda visibile».
   'stationsIndexColumn', 'stationsFullColumnState', 'stationsFullFieldIndex',
   'stationsMergeFull', 'stationFieldLegendLayout', 'stationFieldBuildLegend',
+  'stationFieldLegendLabelText', 'stationFieldLegendLabelWidth',
   'stationFieldMethodChanged',
   'stationFieldContourLevels', 'stationFieldContourSegments',
-  'stationFieldContourLabels', 'stationFieldDrawContours'
+  'stationFieldContourLabels', 'stationFieldContourVectorData',
+  'stationFieldContourResample', 'stationFieldContourPolylines', 'stationFieldChaikin'
 ];
 const VARS = [
   'STATION_FIELD_K', 'STATION_FIELD_CUTOFF_KM', 'STATION_FIELD_FADE_KM', 'STATION_FIELD_SUPERSAMPLE',
   'STATION_FIELD_FULL_K', 'STATION_FIELD_FULL_BUCKET_DEG', 'STATION_FIELD_FULL_MAX_RING',
   'STATION_FIELD_CONTOUR', 'STATION_FIELD_CONTOUR_LABEL_MAX', 'STATION_FIELD_CONTOUR_LABEL_MIN_PX',
+  'STATION_FIELD_CONTOUR_GRID_MULT', 'STATION_FIELD_CONTOUR_GRID_MAX_W', 'STATION_FIELD_CONTOUR_CHAIKIN',
   'STATION_FIELD_AGE_POLICY',
   'stationFieldMethod',
   'STATION_FIELD_BUCKET_DEG', 'STATION_FIELD_MAX_RING', 'STATION_FIELD_MIN_COVERAGE',
@@ -519,11 +522,11 @@ ctxObj.stationFieldWindow = 'day';
 ctxObj.stationFieldLastStats = ctxObj.stationFieldCollect(ctxObj.stationsData.stations, ctxObj.stationFieldSpec('tmax', 'day'), nowD4);
 ctxObj.stationFieldStatus();
 const statusTxt = el('live-stationfield-status').textContent;
-ok('riga di stato: "max 18,2 °C alle 14:00"', /max 18[.,]2 °C alle 14:00/.test(statusTxt), statusTxt);
-ok('riga di stato: "2 stazioni usate" e finestra oggi', /2 stazioni usate/.test(statusTxt) &&
-  /oggi \(dalla mezzanotte\)/.test(statusTxt));
-ok('giornata in corso: "il massimo puo ancora salire"', /giornata in corso/.test(statusTxt) &&
-  /il massimo può ancora salire/.test(statusTxt));
+const statusTitle = el('live-stationfield-status').title;
+ok('riga di stato: "max 18,2 °C alle 14:00" nel title', /max 18[.,]2 °C alle 14:00/.test(statusTitle), statusTitle.slice(0, 140));
+ok('riga di stato: "2 stazioni" e finestra oggi', /^2 stazioni · oggi \(dalla mezzanotte\)/.test(statusTxt), statusTxt);
+ok('giornata in corso: "il massimo può ancora salire" nel title', /giornata in corso/.test(statusTitle) &&
+  /il massimo può ancora salire/.test(statusTitle));
 // La riga di stato SENZA blob dichiara il caricamento (non una mappa vuota muta).
 ctxObj.stationsDaily = null;
 ctxObj.stationFieldLastStats = null;
@@ -730,7 +733,7 @@ const benchRaster = new Function('var stationsDaily=null;var STATIONS_MAX_OBS_AG
   code + '\nreturn stationFieldRaster;')();
 // 1.3.0.69 - le isolinee si misurano con lo stesso criterio (realm normale).
 const benchDrawContours = new Function('var stationsDaily=null;var STATIONS_MAX_OBS_AGE_MIN=90;\n' +
-  code + '\nreturn stationFieldDrawContours;')();
+  code + '\nreturn stationFieldContourVectorData;')();
 benchRaster(bigPts, T_SCALE, bigFrame, maskAll);          // warmup
 let best = Infinity;
 for (let i = 0; i < 3; i++) {
@@ -806,8 +809,9 @@ ok('cache per variabile/finestra/dati prima di ricalcolare',
   /stationFieldCache\.key === key/.test(src) && /generated_at/.test(src));
 ok('attribuzione CC BY 4.0 riusata da stationsAttributionLine',
   /credit\.innerHTML = stationsAttributionLine\(\)/.test(src));
-ok('frase di metodo fissa (non e un campo radar, non e una misura d area)',
-  /Non è un campo radar e non è una misura d'area: dice dove le centraline che possono misurare hanno osservato\./.test(src));
+ok('frase di metodo: «non è un campo radar» a schermo UNA volta, il resto nel title',
+  (src.match(/' · non è un campo radar'/g) || []).length === 1 &&
+  /Non è una misura d.{1,2}area: dice dove le centraline che possono misurare hanno osservato/.test(src));
 ok('la finestra 6/24 h non viene mai letta da latest.json',
   !/rain_6h_mm/.test(src.split('STATION_FIELD_DAILY')[1].split('};')[0]) ||
   true);   // guardia documentale: i campi 6 h stanno solo nella tabella DAILY
@@ -926,13 +930,13 @@ const txtSnow = els['live-stationfield-status'].textContent;
 ok('stato con tutte a 0: «nessuna stazione con neve al suolo al momento (2 stazioni con il campo, tutte a 0 cm)»',
   /nessuna stazione con neve al suolo al momento \(2 stazioni con il campo, tutte a 0 cm\)/.test(txtSnow), txtSnow);
 ok('la riga di metodo dichiara il filtro degli zeri della neve',
-  /Neve al suolo: si disegnano SOLO le stazioni con spessore > 0 cm/.test(els['live-stationfield-method'].textContent));
+  /solo neve > 0/.test(els['live-stationfield-method'].textContent),
+  els['live-stationfield-method'].textContent);
 ctxObj.stationFieldLastStats = colSnowSome;
 ctxObj.stationsData = { stations: stsSnow, meta: { compact: false } };
 ctxObj.stationFieldStatus();
-ok('stato con 1 stazione > 0: conta anche le 2 a zero non disegnate',
-  /1 stazioni usate su 3 con il valore/.test(els['live-stationfield-status'].textContent) &&
-  /2 stazioni a 0 cm non disegnate/.test(els['live-stationfield-status'].textContent),
+ok('stato con 1 stazione > 0: riga breve con le 2 a zero',
+  /^1 stazioni · 1 ora · età mediana \d+ min · 2 a 0 cm$/.test(els['live-stationfield-status'].textContent),
   els['live-stationfield-status'].textContent);
 
 // PI OGGIA: lo 0 resta un valore reale (nessun filtro)
@@ -973,27 +977,43 @@ ok('lo 0 NON compare quando l intervallo parte da 2 (non e nel range)', lgData.v
 // ... e con dati che attraversano lo zero, lo 0 DEVE esserci
 const lgZero = ctxObj.stationFieldLegendLayout(specLegend, { vMin: -3.4, vMax: 12.1 });
 ok('dati -3,4..12,1: lo 0 e fra le etichette', lgZero.values.indexOf(0) >= 0, JSON.stringify(lgZero.values));
-ok('tante etichette -> ruotate di 90° (non rimosse)',
-  lgData.rotated === true && lgData.step === 1);
-// Barra STRETTA: si deve ridurre il numero di etichette DICHIARANDOLO.
+// 1.3.0.70 - ETICHETTE ORIZZONTALI con passo adattivo (niente più rotazione).
+ok('etichette ORIZZONTALI: nessuna rotazione',
+  lgData.rotated === false && lgData.items.length > 0);
+ok('passo adattivo: con la barra larga 260 px le etichette stanno senza sovrapporsi',
+  (function () {
+    for (var i = 1; i < lgData.items.length; i++) {
+      var a = lgData.items[i - 1], b = lgData.items[i];
+      if (Math.abs(b.x - a.x) < (a.w + b.w) / 2 + 1.5) return false;
+    }
+    return true;
+  })(), lgData.items.length + ' etichette su ' + lgData.bandCount + ' bande');
+ok('minimo e massimo reali restano fra le etichette (anche con passo adattivo)',
+  lgData.values.indexOf(2.1) >= 0 && lgData.values.indexOf(26.7) >= 0, JSON.stringify(lgData.values));
+// Barra STRETTA: si riduce il numero di etichette, senza rotazione.
 el('live-stationfield-scale').clientWidth = 90;
 const lgNarrow = ctxObj.stationFieldLegendLayout(specLegend, { vMin: 2.1, vMax: 26.7 });
-ok('barra da 90 px: le etichette si diradano (step > 1) invece di sovrapporsi',
-  lgNarrow.step > 1 && lgNarrow.values.length < lgData.values.length,
-  'step=' + lgNarrow.step + ' etichette=' + lgNarrow.values.length);
-ok('con il diradamento restano minimo e massimo',
+ok('barra da 90 px: meno etichette di quella larga, ancora orizzontali',
+  lgNarrow.shown <= lgData.shown && lgNarrow.rotated === false,
+  'stretta=' + lgNarrow.shown + ' larga=' + lgData.shown);
+ok('con la barra stretta restano minimo e massimo',
   lgNarrow.values.indexOf(2.1) >= 0 && lgNarrow.values.indexOf(26.7) >= 0,
   JSON.stringify(lgNarrow.values));
 el('live-stationfield-scale').clientWidth = 0;
 ctxObj.stationFieldBuildLegend(specLegend, { vMin: 2.1, vMax: 26.7 });
 const lgHtml = els['live-stationfield-scale-labels'].innerHTML;
 const nSpans = (lgHtml.match(/<span/g) || []).length;
-ok('la legenda DOM contiene UNA etichetta per ogni valore (non 6 fisse)',
+ok('la legenda DOM contiene una etichetta per ogni valore scelto',
   nSpans === lgData.values.length, nSpans + ' span vs ' + lgData.values.length);
-ok('etichette ruotate con writing-mode (leggibili senza sovrapporsi)',
-  /writing-mode:vertical-rl/.test(lgHtml));
-ok('altezza dell area etichette portata a 34 px per il testo ruotato',
-  els['live-stationfield-scale-labels'].style.height === '34px');
+ok('nessuna rotazione nel DOM (niente writing-mode)',
+  !/writing-mode/.test(lgHtml) && !/rotate\(/.test(lgHtml));
+ok('altezza dell area etichette 13 px (testo orizzontale)',
+  els['live-stationfield-scale-labels'].style.height === '13px');
+// TACCHE su tutte le bande, dentro la barra
+const barHtml = els['live-stationfield-scale'].innerHTML;
+const nTicks = (barHtml.match(/<span/g) || []).length;
+ok('tacche su TUTTE le bande dell intervallo', nTicks === lgData.bandCount && nTicks > 0,
+  nTicks + ' tacche per ' + lgData.bandCount + ' bande');
 // Range stretto: poche bande -> etichette orizzontali, nessun diradamento
 const lgTight = ctxObj.stationFieldLegendLayout(specLegend, { vMin: 10, vMax: 10.4 });
 ok('range stretto (10..10,4): poche etichette e orientamento orizzontale',
@@ -1048,14 +1068,14 @@ ctxObj.stationFieldLastStats = {
 };
 ctxObj.stationFieldStatus();
 const txtFull = els['live-stationfield-status'].textContent;
-ok('legenda full: riga di INFERENZA esplicita',
-  /copertura interpolata: dove non ci sono stazioni vicine il valore è un'inferenza, non una misura/.test(txtFull), txtFull);
-ok('legenda full: distanza mediana/min/max al vicino piu prossimo',
-  /mediana 18\.4 km, minima 2\.1 km, massima 95\.2 km/.test(txtFull));
-ok('legenda full: quota di terra dipinta (100%)',
-  /100% della terra dipinta/.test(txtFull));
-ok('riga di metodo: dichiara k=16 e «senza raggio limite»',
-  /k=16, senza raggio limite/.test(els['live-stationfield-method'].textContent));
+const titleFull = els['live-stationfield-status'].title;
+// 1.3.0.70 - riga corta, dettagli nel title.
+ok('legenda full: la riga a schermo resta breve (N stazioni · finestra · età · isolinee assenti)',
+  /^4 stazioni · 1 ora · età mediana 0 min$/.test(txtFull) || /^4 stazioni · 1 ora/.test(txtFull), txtFull);
+ok('legenda full: inferenza e copertura nel title (non a schermo)',
+  /inferenza/.test(titleFull) && /copertura media 0%|copertura non dichiarata/.test(titleFull));
+ok('legenda full: il title riporta i disponibili e le escluse',
+  /4 stazioni usate su 4 con il valore, su 5 disponibili/.test(titleFull), titleFull.slice(0, 120));
 ok('selettore #stationfield-method con 3 opzioni e title',
   /id="stationfield-method"[^>]*title="[^"]{6,}"/.test(src) &&
   (src.slice(src.indexOf('id="stationfield-method"'), src.indexOf('</select>', src.indexOf('id="stationfield-method"'))).match(/<option /g) || []).length === 3);
@@ -1143,17 +1163,49 @@ for (let i = 0; i < 2; i++) {
   contourBest = Math.min(contourBest, Number(process.hrtime.bigint() - a) / 1e6);
   contourInfo = rr;
 }
-// tempo REALE con il disegno delle isolinee (ctx finto, nessun canvas)
+// tempo REALE della costruzione dei DATI VETTORIALI (griglia fine + Chaikin)
 const drawT0 = process.hrtime.bigint();
-const drawInfo = benchDrawContours(noopCtx, contourInfo.values, contourInfo.alphas,
-  contourInfo.W, contourInfo.H, 'temp', { vMin: 2, vMax: 20 }, '°C');
+const drawInfo = benchDrawContours(contourInfo.values, contourInfo.alphas,
+  contourInfo.W, contourInfo.H, frameL, 'temp', { vMin: 2, vMax: 20 }, '°C', { pxPerFieldPx: 1 });
 const drawMs = Number(process.hrtime.bigint() - drawT0) / 1e6;
-ok('contour: isolinee calcolate e disegnate con etichette', drawInfo.segs > 0 && drawInfo.labels > 0,
-  drawInfo.levels + ' livelli, ' + drawInfo.segs + ' segmenti, ' + drawInfo.labels + ' etichette');
-ok('contour: costo totale (raster + isolinee) sotto 600 ms', contourBest + drawMs < 600,
+ok('contour: dati vettoriali con linee e etichette', drawInfo.segs > 0 && drawInfo.labels > 0 &&
+  drawInfo.polylines > 0, drawInfo.levels + ' livelli, ' + drawInfo.segs + ' segmenti, ' +
+  drawInfo.polylines + ' polilinee, ' + drawInfo.labels + ' etichette');
+ok('contour: ogni linea e una sequenza di [lat, lon] (vettori Leaflet)',
+  drawInfo.groups.length > 0 && drawInfo.groups.every((g) => Array.isArray(g.lines)) &&
+  (function () {
+    const g = drawInfo.groups.find((x) => x.lines.length);
+    if (!g) return false;
+    const l = g.lines[0];
+    return l.length >= 2 && Math.abs(l[0][0]) <= 90 && Math.abs(l[0][1]) <= 180;
+  })(), 'primo punto ' + (function () {
+    const g = drawInfo.groups.find((x) => x.lines.length);
+    return g ? JSON.stringify(g.lines[0][0]) : 'n/d';
+  })());
+// 1.3.0.70 - GRIGLIA DEDICATA DELLE ISOLINEE (piu' fine del campo)
+ok('contour: le isolinee usano una griglia PIU FINE del campo (4x)',
+  drawInfo.grid && drawInfo.grid.W === contourInfo.W * 4 && drawInfo.grid.H >= contourInfo.H * 4 - 2,
+  drawInfo.grid ? drawInfo.grid.W + 'x' + drawInfo.grid.H + ' vs campo ' + contourInfo.W + 'x' + contourInfo.H : 'assente');
+const segsBase = ctxObj.stationFieldContourSegments(contourInfo.values, contourInfo.alphas,
+  contourInfo.W, contourInfo.H, 12);
+ok('contour: a 1024x908 i segmenti del livello 12 sono MOLTI di piu che a 256x227',
+  drawInfo.segs > 4 * segsBase.length,
+  drawInfo.segs + ' (fine) vs ' + segsBase.length + ' (campo)');
+ok('contour: smoothing Chaikin applicato (2 iterazioni) e vertici prodotti',
+  drawInfo.smooth === 2 && drawInfo.points > drawInfo.segs * 2,
+  drawInfo.points + ' vertici, ' + drawInfo.polylines + ' polilinee');
+// Chaikin resta dentro il poligono di controllo: nessun vertice oltre mezza cella
+ok('contour: Chaikin non sposta la linea oltre mezza cella',
+  (function () {
+    const line = [[0, 0], [10, 0], [10, 10]];
+    const sm = ctxObj.stationFieldChaikin(line, 2);
+    return sm.every((p) => p[0] >= -1e-9 && p[0] <= 10 + 1e-9 && p[1] >= -1e-9 && p[1] <= 10 + 1e-9);
+  })());
+ok('contour: costo totale (raster + isolinee a 4x + smoothing) sotto 800 ms', contourBest + drawMs < 800,
   (contourBest + drawMs).toFixed(0) + ' ms (raster ' + contourBest.toFixed(0) + ' + isolinee ' + drawMs.toFixed(0) + ')');
 console.log('    contour: ' + sparse.length + ' punti -> raster ' + contourBest.toFixed(0) + ' ms + isolinee ' +
-  drawMs.toFixed(0) + ' ms (' + drawInfo.segs + ' segmenti, ' + drawInfo.labels + ' etichette)');
+  drawMs.toFixed(0) + ' ms a ' + drawInfo.grid.W + 'x' + drawInfo.grid.H + ' (' + drawInfo.segs + ' segmenti, ' +
+  drawInfo.points + ' vertici, ' + drawInfo.labels + ' etichette)');
 // Legenda contour
 ctxObj.stationFieldMethod = 'contour';
 ctxObj.stationFieldLastStats = {
@@ -1164,12 +1216,17 @@ ctxObj.stationFieldLastStats = {
 };
 ctxObj.stationFieldStatus();
 const txtContour = els['live-stationfield-status'].textContent;
-ok('legenda contour: passo dichiarato «ogni 5 °C» e marcati',
-  /isolinee ogni 5 °C; in grassetto i valori 0, 10, 20/.test(txtContour), txtContour);
-ok('legenda contour: conteggio reale di livelli/segmenti/etichette',
-  /livelli, \d+ segmenti, \d+ etichette/.test(txtContour));
-ok('legenda contour: contiene anche la riga di inferenza del campo',
-  /copertura interpolata: dove non ci sono stazioni vicine il valore è un'inferenza/.test(txtContour));
+const titleContour = els['live-stationfield-status'].title;
+// 1.3.0.70 - RIGA CORTA + title completo: a schermo «N stazioni · finestra · età
+// mediana · isolinee», i dettagli (inferenza, copertura, distanza) nel title.
+ok('legenda contour: la riga e BREVE (N stazioni · finestra · età · isolinee)',
+  /^4 stazioni · 1 ora( · età mediana \d+ min)? · isolinee$/.test(txtContour), txtContour);
+ok('legenda contour: nessuna frase lunga a schermo (niente «inferenza» nella riga)',
+  !/inferenza|segmenti|grassetto/i.test(txtContour));
+ok('legenda contour: inferenza e copertura sono nel title',
+  /inferenza/.test(titleContour) && /copertura/.test(titleContour), titleContour.slice(0, 160));
+ok('legenda contour: il title dichiara la finestra con gli orari e il peso',
+  /Finestra 1 ora/.test(titleContour) && /peso temporale exp\(-età\/120\)/.test(titleContour));
 ctxObj.stationFieldMethod = 'local';
 
 // --------------------------------------------------------------------------
@@ -1207,16 +1264,18 @@ ok('ancora reale della finestra: la piu recente = 17:55',
 ctxObj.stationFieldLastStats = colN;
 ctxObj.stationFieldStatus();
 const txtN = els['live-stationfield-status'].textContent;
-ok('riga di stato: finestra con orari REALI (dalle 16:55 alle 17:55)',
-  /finestra 1 ora \(dalle 16:55 alle 17:55, dato più recente\)/.test(txtN), txtN);
-ok('riga di stato: eta mediana delle osservazioni (15 min)',
-  /età mediana delle osservazioni: 15 min/.test(txtN));
-ok('riga di stato: peso temporale con decadimento e eta massima',
-  /peso temporale attivo \(decadimento 120 min, età massima 360 min\)/.test(txtN));
-ok('riga di stato: «1 escluse perché più vecchie»', /1 escluse perché più vecchie/.test(txtN));
-ok('title: spiega finestra vs eta e la formula del peso',
-  /La finestra dice quanti minuti\/ore di dati entrano nel valore/.test(els['live-stationfield-status'].title) &&
-  /peso exp\(-età\/120\)/.test(els['live-stationfield-status'].title));
+const titleN = els['live-stationfield-status'].title;
+// 1.3.0.70 - a schermo UNA riga; orari, disponibili e peso stanno nel title.
+ok('riga di stato: una riga breve con N stazioni, finestra ed età mediana',
+  /^2 stazioni · 1 ora · età mediana 15 min · 1 più vecchie$/.test(txtN), txtN);
+ok('riga di stato: nessuna frase lunga a schermo',
+  txtN.length < 60 && !/disponibili|decadimento|inferenza/i.test(txtN), txtN.length + ' caratteri');
+ok('title: finestra con gli orari REALI (dalle 16:55 alle 17:55)',
+  /Finestra 1 ora \(dalle 16:55 alle 17:55, dato più recente\)/.test(titleN), titleN.slice(0, 130));
+ok('title: peso temporale con decadimento ed età massima',
+  /peso temporale exp\(-età\/120\), età massima 360 min/.test(titleN));
+ok('title: disponibili e escluse', /su 4 disponibili/.test(titleN) && /1 escluse perché più vecchie/.test(titleN), titleN.slice(0, 120));
+ok('title: spiega finestra vs età', /La finestra dice quanti minuti\/ore/.test(titleN));
 
 console.log('\nO. Soglie per variabile (pioggia/vento 180, temperatura 360, neve 720)');
 function wAgeOf(varKey, win, ageMin, fieldObj) {
