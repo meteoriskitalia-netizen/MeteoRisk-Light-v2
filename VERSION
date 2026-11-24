@@ -1,4 +1,17 @@
 VERSION=1.3.0.71
+BUILD=202
+DATE=2026-11-24
+APP_FILE=mri-light-1.3.0.71.html
+MeteoRisk Light - 1.3.0.71 - NOWCAST DEL CAMPO DI PIOGGIA (SRI): trasporto del campo a +15/+30/+60 min, verifica su 49 ancore (CSI 0,499 vs persistenza 0,478), toggle HTML non ancora applicato (BUILD=202, backend)
+VERSION=1.3.0.71
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=202
+RELEASE_TYPE=backend
+DATE=2026-11-24
+NOTE=Release backend 1.3.0.71 BUILD=202 (nessuna modifica all'app: APP_FILE resta mri-light-1.3.0.71.html). NOWCAST DEL CAMPO DI PIOGGIA (SRI DPC), layer additivo: scripts/radar_engine/nowcast_field.py chiamato da main.py dopo il mosaico e phase2, prima dell'output. Flusso ottico denso Lucas-Kanade piramidale in numpy/scipy (pySTEPS/OpenCV non installati e non aggiunti; unica dipendenza nuova Pillow==12.3.0, gia' dipendenza di matplotlib, pinnata per l'encoder WebP) sul campo SRI mm/h; trasporto semi-Lagrangiano a passi di 5 min; lead +15/+30/+60; vettori sopra 110 km/h AZZERATI (non clampati); nessuna crescita di intensita'; maschera valid_mask del dominio radar applicata a ogni passo. Ingresso: ultimi 6 SRI dal bundle fase 2 (costo rete 0) oppure fetch.fetch_frames(product=SRI) (6 download, ~5 s e ~2 MB se la fase 2 non ha candidati, caso del 24/11); con <3 frame il file esce available:false (sri_unavailable / sri_frames_lt_3) e il run radar non fallisce. Output: data/radar/nowcast.json + 3 WebP RGBA EPSG:3857 a 1500 m (~80 kB misurati); il JSON con i 3 campi grezzi (~20 MB) e' stato misurato e scartato. VERIFICA MISURATA: replay su 49 ancore orarie 22-24/11/2026 (393 download SRI, 1591 s), tutte con pioggia osservata; CSI medio pooled lead 15/30/60 x soglie 0,5/2,0 mm/h = 0,499 vs persistenza 0,478 -> beats_persistence=true (delta +0,021). A +60 min e 0,5 mm/h la persistenza vince 0,470 vs 0,464. CAVEAT: 49 ancore su 2 giorni con finestre sovrapposte, NON indipendenti; il verdetto descrive quei giorni, non una climatologia. Costi: compute 17,8-23,4 s, immagini 4,7-6,2 s, end-to-end 22,6 s. Il toggle HTML NON e' applicato: frammento pronto in docs/NOWCAST_FIELD.md (legenda mm/h, nota 'dopo 30 minuti l'affidabilita' cala') con gating su beats_persistence. Test: 14 nuovi in test_nowcast_field.py + suite radar 877 passed; py_compile OK; yaml.safe_load OK.
+VERSION=1.3.0.71
 BUILD=201
 DATE=2026-11-24
 APP_FILE=mri-light-1.3.0.71.html

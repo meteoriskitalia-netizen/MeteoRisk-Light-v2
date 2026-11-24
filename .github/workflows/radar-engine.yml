@@ -439,7 +439,9 @@ jobs:
                    doppler_coverage.geojson accumulation.json \
                    accumulation_validation.json \
                    doppler_analysis.json \
-                   mesocyclone_tracks.json; do
+                   mesocyclone_tracks.json \
+                   nowcast.json nowcast_lead015.webp nowcast_lead030.webp \
+                   nowcast_lead060.webp nowcast_verification.json; do
             if [ -f "data/radar/$f" ]; then git add "data/radar/$f"; fi
           done
           # Registro append-only delle predizioni (data/state, rotazione 30 gg).

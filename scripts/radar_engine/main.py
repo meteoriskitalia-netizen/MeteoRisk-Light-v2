@@ -289,6 +289,7 @@ STAGE_PARENTS = {
     "tracking_metrics": (),
     "convective_structure": (),
     "phase2": (),
+    "nowcast_field": (),
     "write_outputs": (),
     "history_archive": (),
     "predictions_record": (),
@@ -314,6 +315,7 @@ STAGE_TARGETS = {
     "fetch_cappi": "fetch.fetch_cappi_set (set CAPPI allineato alla VMI)",
     "fetch_vil_etm_poh_sri": "fetch.fetch_product_bundle (VIL/ETM/POH/SRI)",
     "fetch_ir108": "main._fetch_ir108 (frame IR_108 per l'OT)",
+    "nowcast_field": "nowcast_field.run (flusso ottico SRI + trasporto)",
     "preprocess": "preprocess.read_raster (decodifica+validazione GeoTIFF)",
     "aggregate_frame": "aggregation.aggregate_frame (una chiamata per frame)",
 }
@@ -2705,6 +2707,31 @@ def _run_pipeline(config, out_dir, product, max_frames, dry_run,
     except Exception as exc:  # layer additivo: mai rompere il pipeline base
         bundle.warnings.append(f"phase2 layer failed: {exc}")
         bundle.phase2 = {"status": "unavailable", "warnings": bundle.warnings}
+
+    # ---- NOWCAST DEL CAMPO DI PIOGGIA (novembre 2026, additivo) ------------
+    # DOPO il mosaico e DOPO phase2 (che ha gia' scaricato SRI su tutti gli
+    # slot del bundle: costo di rete aggiuntivo ZERO), PRIMA dell'output.
+    # Sposta il CAMPO (SRI, mm/h) con flusso ottico denso: non e' `forecast.py`
+    # (che sposta il contorno di una struttura tracciata) e non dipende dal
+    # tracking. Puro trasporto: nessuna crescita di intensita'. Un errore NON
+    # fa fallire il run (warning) e il nowcast resta assente con motivo.
+    # In dry-run non si scrive nulla (ritorno prima dell'output).
+    if not dry_run:
+        try:
+            from radar_engine import nowcast_field as _nowcast
+            with timers.stage("nowcast_field"):
+                _nowcast.run(bundle, config, out_dir, clock=clock,
+                             warnings=bundle.warnings)
+            _nc = getattr(bundle, "nowcast", None) or {}
+            if not _nc.get("available"):
+                bundle.warnings.append(
+                    "nowcast: unavailable ({})".format(
+                        _nc.get("null_reason")))
+        except Exception as exc:  # layer additivo: mai rompere il pipeline base
+            bundle.warnings.append("nowcast layer failed: {}".format(exc))
+            bundle.nowcast = {"available": False,
+                              "null_reason": "layer_error:{}".format(
+                                  exc.__class__.__name__)}
 
     # ---- DESCRITTORI DI FORMA (additivo, publish_descriptors): -------------
     # Solo se il flag separato e' True: descrittori numerici sui footprint GIA'
