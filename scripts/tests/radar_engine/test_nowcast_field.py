@@ -5,7 +5,8 @@
 Coprono i vincoli dichiarati nel modulo:
   - <3 fotogrammi SRI -> `available: false` con motivo, nessuna eccezione;
   - trasporto: un blob sintetico spostato di 1 cella finisce dove deve;
-  - cap 110 km/h: vettore da 200 km/h AZZERATO (non clampato a 110);
+  - cap 110 km/h: vettore da 200 km/h SOSTITUITO dalla mediana del vicinato
+    (0 solo se non esiste nessun vicino valido);
   - nessuna crescita di intensita' (max previsto <= max osservato);
   - maschera del dominio rispettata (fuori dominio -> 0);
   - `main.py` continua se il modulo fallisce (try/except con warning);
@@ -167,17 +168,19 @@ def test_flow_synthetic_one_pixel_direction(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 3. cap 110 km/h: azzerato, non clampato
+# 3. cap 110 km/h: sostituito dal vicinato, non azzerato
 # ---------------------------------------------------------------------------
-def test_cap_110_zeroes_200_kmh_vector():
-    # passo 5 min, pixel 1 km: 200 km/h = 16.667 px/step
+def test_cap_110_replaces_200_kmh_vector():
+    # passo 5 min, pixel 1 km: 200 km/h = 16.667 px/step, 100 km/h = 8.333
     u = np.array([[16.667, 8.333]], dtype=np.float32)
     v = np.array([[0.0, 0.0]], dtype=np.float32)
     cu, cv, n = nf.cap_speed(u, v, 1.0, 300)
-    assert n == 1
-    assert cu[0, 0] == 0.0 and cv[0, 0] == 0.0      # azzerato, NON 9.17
-    assert 8.2 <= cu[0, 1] <= 8.5                   # 100 km/h invariato
+    assert n == 1                                    # uno sopra cap
     assert nf.SPEED_CAP_KMH == 110.0
+    # sostituito dalla mediana del vicinato (l'unico vettore valido): NON 0
+    assert cu[0, 0] == pytest.approx(8.333, abs=1e-3)
+    assert cv[0, 0] == 0.0
+    assert 8.2 <= cu[0, 1] <= 8.5                    # 100 km/h invariato
 
 
 def test_cap_is_per_vector_not_global():
@@ -187,8 +190,19 @@ def test_cap_is_per_vector_not_global():
     u[1, 1] = 2.0            # 24 km/h
     cu, _cv, n = nf.cap_speed(u, v, 1.0, 300)
     assert n == 1
-    assert cu[0, 0] == 0.0
+    assert cu[0, 0] == pytest.approx(2.0)            # dal vicino, non 0
     assert cu[1, 1] == 2.0
+
+
+def test_cap_without_any_neighbor_stays_zero():
+    """Nessun vicino valido (tutti NaN): 0 dichiarato, non un clamp a 110."""
+    u = np.full((2, 2), np.nan, dtype=np.float32)
+    v = np.full((2, 2), np.nan, dtype=np.float32)
+    u[0, 0] = 30.0           # 360 km/h, isolato
+    v[0, 0] = 0.0
+    cu, cv, n = nf.cap_speed(u, v, 1.0, 300)
+    assert n == 1
+    assert cu[0, 0] == 0.0 and cv[0, 0] == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +236,104 @@ def test_domain_mask_respected(tmp_path):
     assert payload["domain_mask"] == "latest_sri_valid_mask"
     for lead in nf.LEADS_MIN:
         assert float(native[lead][~domain].max(initial=0.0)) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# 5b. mediana: una coppia senza stima NON vota 0
+# ---------------------------------------------------------------------------
+def test_median_ignores_missing_pairs():
+    a = np.array([[np.nan, 2.0]], dtype=np.float32)
+    b = np.array([[np.nan, 2.5]], dtype=np.float32)
+    c = np.array([[1.0, 2.2]], dtype=np.float32)
+    med = nf._nan_median_stack([a, b, c])
+    assert med[0, 0] == 1.0                  # una sola stima -> quella
+    assert med[0, 1] == pytest.approx(2.2)   # mediana delle tre
+    allnan = nf._nan_median_stack(
+        [np.full((1, 2), np.nan, np.float32), a])
+    assert np.isnan(allnan[0, 0])            # tutti mancanti -> mancante
+    assert allnan[0, 1] == 2.0
+
+
+# ---------------------------------------------------------------------------
+# 5c. eco comparsa SOLO nell'ultimo frame: eredita il moto del vicinato
+# ---------------------------------------------------------------------------
+def _new_echo_frames(tmp_path, rows=200, cols=200):
+    """Blob in moto (1 px/frame) + una striscia che compare solo nel +2."""
+    domain = _disk_domain(rows, cols, 100, 100, 95)
+    rasters = []
+    for k in range(3):
+        field = _blob(rows, cols, 100, 60 + k, sigma=3.0, amp=20.0)
+        if k == 2:
+            field = field.copy()
+            field[80:121, 76:82] = 8.0     # nuova eco, adiacente al blob
+        rasters.append(_write_frame(tmp_path, "e%d.tif" % k, field, domain,
+                                    T0 + k * STEP_MS))
+    return rasters, domain
+
+
+def test_new_echo_gets_motion_from_neighborhood(tmp_path):
+    rasters, domain = _new_echo_frames(tmp_path)
+    bundle = _Bundle(rasters)
+    payload, native = nf.compute(bundle, _config(tmp_path),
+                                 clock_mod.Clock.at_ms(T0 + 2 * STEP_MS),
+                                 bundle.warnings)
+    assert payload["available"] is True
+    u, v = native["_motion"]
+    rain = domain & (rasters[-1].data > nf.RAIN_MIN_MMH)
+    strip = np.zeros(rain.shape, dtype=bool)
+    strip[80:121, 76:82] = rain[80:121, 76:82]
+    assert int(strip.sum()) > 50
+    # non e' ferma: eredita il moto del vicinato (~1 px/5 min)
+    assert float(np.median(u[strip])) > 0.5
+    assert abs(float(np.median(v[strip]))) < 0.3
+    # nessun pixel della striscia con vettore 0 (ha vicini validi entro 10 px)
+    assert int((strip & (u == 0) & (v == 0)).sum()) == 0
+    # in questo caso la striscia ha una stima propria (non serve riempimento),
+    # ma NESSUN pixel di pioggia resta senza vettore
+    assert payload["motion_unfilled_pixels"] == 0
+    assert payload["motion_null_reason"] is None
+    assert payload["speed_cap_mode"] == "replaced_by_neighbor_median"
+
+
+def test_rain_only_in_last_frame_is_missing_not_zero(tmp_path):
+    """La non-stima e' NaN (mancante), NON 0: il test della causa misurata.
+
+    Un'eco che compare solo nell'ultimo frame e' lontana da ogni altra
+    pioggia: nessuna coppia ha gradiente la' e la mediana non deve
+    restituire 0 (che congelerebbe l'eco per tutto l'orizzonte)."""
+    domain = np.ones((200, 200), dtype=bool)
+    frames = []
+    for k in range(3):
+        data = _blob(200, 200, 100, 60 + k, sigma=4.0, amp=20.0)
+        if k == 2:
+            data = data.copy()
+            data[80:121, 150:171] = 8.0        # comparsa, lontana dal blob
+        frames.append((data.astype(np.float32), domain, T0 + k * STEP_MS))
+    motion = nf.estimate_motion(frames, [])
+    assert motion is not None
+    far = (slice(80, 121), slice(150, 171))
+    assert np.isnan(motion["u"][far]).all()    # mancante, non 0
+    assert np.isnan(motion["v"][far]).all()
+    # il blob in moto invece e' stimato (~1 px/5min)
+    near = (slice(95, 106), slice(58, 66))
+    assert float(np.nanmedian(motion["u"][near])) > 0.5
+    assert abs(float(np.nanmedian(motion["v"][near]))) < 0.3
+
+
+def test_fill_motion_uses_neighbors_and_declares_isolated():
+    u = np.full((20, 20), np.nan, dtype=np.float32)
+    v = np.full((20, 20), np.nan, dtype=np.float32)
+    u[:, 0:4] = 2.0
+    v[:, 0:4] = 0.0
+    missing = np.zeros((20, 20), dtype=bool)
+    missing[:, 4:7] = True        # a <=3 px da un vettore valido
+    missing[:, 15:20] = True      # isolati (12 px): restano mancanti
+    cu, cv, info = nf.fill_motion(u, v, missing, valid=np.isfinite(u),
+                                  max_radius=3)
+    assert np.allclose(cu[:, 4:7], 2.0) and np.allclose(cv[:, 4:7], 0.0)
+    assert np.isnan(cu[:, 15:20]).all()
+    assert info["filled"] == 20 * 3
+    assert info["unfilled"] == 20 * 5
 
 
 # ---------------------------------------------------------------------------
@@ -270,8 +382,8 @@ def test_frames_are_cumulative_and_coherent(tmp_path):
     assert payload["available"] is True
     frames = [(nf._rain_array(r)[0], nf._rain_array(r)[1], int(r.time_ms))
               for r in rasters]
-    motion = nf.estimate_motion(frames, [])
-    u, v, _capped = nf.cap_speed(motion["u"], motion["v"], 1.0, 300)
+    # il campo di moto EFFETTIVO del run (dopo cap, riempimento e smoothing)
+    u, v = native["_motion"]
     advanced = nf.semi_lagrangian(native[5], u, v, 1, domain)
     assert np.array_equal(advanced, native[10])
     advanced3 = nf.semi_lagrangian(native[5], u, v, 3, domain)

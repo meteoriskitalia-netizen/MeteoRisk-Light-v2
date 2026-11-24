@@ -23,8 +23,10 @@ Vincoli rispettati (dichiarati anche nell'output)
 - NESSUNA crescita di intensita': solo trasporto (semi-Lagrangiano). Il
   campionamento bilineare e' una combinazione convessa, quindi il massimo del
   campo previsto non puo' superare il massimo del campo osservato.
-- Un vettore sopra `SPEED_CAP_KMH` (110 km/h) viene AZZERATO (0,0), non
-  clampato a 110: un moto non fisico non viene "aggiustato".
+- Un vettore sopra `SPEED_CAP_KMH` (110 km/h) NON viene azzerato: viene
+  SOSTITUITO con la mediana del vicinato dei vettori sotto cap (0 solo se non
+  esiste nessun vicino valido, e il caso e' contato). Un moto non fisico non
+  viene passato al trasporto e non ferma la pioggia.
 
 Flusso ottico
 -------------
@@ -38,7 +40,12 @@ interpolato a 1 km. Costo misurato nel report; nessun peso da scaricare.
 
 Il flusso e' stimato fra frame CONSECUTIVI (passo 5 min) sulle ultime
 `FLOW_PAIRS` coppie e combinato con la MEDIANA per componente (robusta a una
-coppia anomala).
+coppia anomala). Una coppia che non riesce a stimare un vettore (fuori dalla
+`texture`, cioe' nessun gradiente: l'eco e' comparsa dopo) vale NaN, NON 0:
+con la mediana di (0, 0, x) il risultato sarebbe 0 e quel pezzo di pioggia
+non si muoverebbe mai. I buchi residui vengono riempiti con la mediana del
+vicinato (`fill_motion`) e i pixel senza nessun vicino valido restano fermi
+ma sono contati e dichiarati (`no_neighbor_motion`).
 
 Ingresso
 --------
@@ -79,6 +86,7 @@ import json
 import math
 import os
 import tempfile
+import warnings
 
 import numpy as np
 
@@ -99,7 +107,9 @@ LEADS_MIN = tuple(range(5, 61, 5))
 # Verifica ufficiale: solo questi tre (invariata rispetto alla 1.3.0.71).
 OFFICIAL_LEADS = (15, 30, 60)
 FLOW_PAIRS = 3                  # coppie consecutive usate per il flusso
-SPEED_CAP_KMH = 110.0           # sopra questo valore il vettore e' AZZERATO
+SPEED_CAP_KMH = 110.0           # sopra: vettore SOSTITUITO dal vicinato
+MOTION_FILL_MAX_RADIUS = 10     # px - raggio massimo del riempimento
+MOTION_SMOOTH_PX = 3            # mediana 3x3 dentro la pioggia (0 = spenta)
 RAIN_MIN_MMH = 0.05             # sotto: nessuna pioggia disegnata (0.0 e' valido)
 DOMAIN_MASK_SOURCE = "latest_sri_valid_mask"
 MOTION = "optical_flow"
@@ -325,14 +335,36 @@ def estimate_flow(prev, curr, valid, smooth_sigma=2.0):
 
 
 def _median_stack(arrays):
-    """Mediana per componente su una lista di array (robusta a 1 coppia)."""
+    """Mediana per componente su una lista di array (robusta a 1 coppia).
+
+    Tenuta per compatibilita': il moto usa `_nan_median_stack`, che ignora le
+    non-stime invece di farle votare 0."""
     if len(arrays) == 1:
         return arrays[0]
     return np.median(np.stack(arrays, axis=0), axis=0).astype(np.float32)
 
 
+def _nan_median_stack(arrays):
+    """Mediana per componente con le non-stime come NaN.
+
+    Il risultato e' NaN solo se TUTTE le coppie mancano: e' il marcatore
+    "vettore mancante" (da riempire), NON uno zero (che ferma la pioggia)."""
+    if len(arrays) == 1:
+        return np.asarray(arrays[0], dtype=np.float32).copy()
+    stack = np.stack([np.asarray(a, dtype=np.float32) for a in arrays], axis=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        med = np.nanmedian(stack, axis=0)
+    return med.astype(np.float32)
+
+
 def estimate_motion(frames, warnings):
-    """Moto (u, v) per frame, mediana delle ultime `FLOW_PAIRS` coppie."""
+    """Moto (u, v) per frame, mediana delle ultime `FLOW_PAIRS` coppie.
+
+    Una coppia che non riesce a stimare un vettore vale NaN (non 0): la
+    mediana di (0, 0, x) sarebbe 0 e il pixel non si muoverebbe mai. Il
+    risultato e' NaN dove NESSUNA coppia ha una stima; il riempimento dal
+    vicinato lo fa `compute` con `fill_motion`, sulla maschera di pioggia."""
     pairs = min(FLOW_PAIRS, len(frames) - 1)
     if pairs < 1:
         return None
@@ -354,17 +386,20 @@ def estimate_motion(frames, warnings):
             warnings.append("nowcast: coppia senza pioggia, esclusa dal moto")
             continue
         u, v = estimate_flow(prev, curr, texture)
+        # non-stima = NaN; in pioggia il moto vero non e' mai 0 e lo 0
+        # fermerebbe l'eco (era il 71% dei pixel fermi misurati il 24/11).
+        measured = np.isfinite(u) & np.isfinite(v) & ((u != 0.0) | (v != 0.0))
         # normalizza al PASSO NOMINALE di 5 minuti (px/frame -> px/5min)
         scale = (STEP_MIN * 60.0) / float(dt_s)
-        us.append(u * scale)
-        vs.append(v * scale)
+        us.append(np.where(measured, u * scale, np.nan).astype(np.float32))
+        vs.append(np.where(measured, v * scale, np.nan).astype(np.float32))
         dts.append(dt_s)
         used += 1
     if not used:
         return None
     return {
-        "u": _median_stack(us),
-        "v": _median_stack(vs),
+        "u": _nan_median_stack(us),
+        "v": _nan_median_stack(vs),
         "pairs": used,
         "pair_dt_s": sorted(set(dts)),
         "algorithm": MOTION_ALGORITHM,
@@ -381,17 +416,94 @@ def pixel_speed_kmh(u, v, pixel_km, step_s):
     return px_km * 3600.0 / float(step_s)
 
 
-def cap_speed(u, v, pixel_km, step_s, cap_kmh=SPEED_CAP_KMH):
-    """Azzera (0,0) i vettori sopra il cap. NON clampa a `cap_kmh`.
+def _window_median(u, v, rows, cols, size):
+    """Mediana nan-aware di (u, v) nella finestra size x size attorno a
+    (rows, cols). NaN dove la finestra non contiene nessun valore finito."""
+    k = int(size) // 2
+    out = []
+    for a in (u, v):
+        ap = np.pad(np.asarray(a, dtype=np.float32), k, mode="constant",
+                    constant_values=np.nan)
+        vals = [ap[rows + dy, cols + dx]
+                for dy in range(int(size)) for dx in range(int(size))]
+        stack = np.stack(vals, axis=0)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            out.append(np.nanmedian(stack, axis=0).astype(np.float32))
+    return out[0], out[1]
 
-    Ritorna (u, v, n_zeroed): il conteggio e' pubblicato nel JSON."""
+
+def fill_motion(u, v, missing, valid, max_radius=MOTION_FILL_MAX_RADIUS):
+    """Riempie `missing` con la MEDIANA del vicinato di `valid`.
+
+    Il raggio cresce di 1 px per passo fino a `max_radius` (~10 px). I pixel
+    che restano senza nessun vicino valido diventano NaN (marcatore
+    "mancante"), NON 0: lo zero fermerebbe la pioggia e non e' distinguibile
+    da un moto nullo. Ritorna (u, v, {"filled", "unfilled"})."""
+    u = np.array(u, dtype=np.float32, copy=True)
+    v = np.array(v, dtype=np.float32, copy=True)
+    known = np.asarray(valid, dtype=bool) & np.isfinite(u) & np.isfinite(v)
+    todo = np.asarray(missing, dtype=bool).copy() & ~known
+    filled = 0
+    radius = 1
+    while todo.any() and radius <= int(max_radius):
+        rr, cc = np.nonzero(todo)
+        if rr.size == 0:
+            break
+        mu, mv = _window_median(np.where(known, u, np.nan),
+                                np.where(known, v, np.nan), rr, cc,
+                                2 * radius + 1)
+        ok = np.isfinite(mu) & np.isfinite(mv)
+        if ok.any():
+            u[rr[ok], cc[ok]] = mu[ok]
+            v[rr[ok], cc[ok]] = mv[ok]
+            got = np.zeros(todo.shape, dtype=bool)
+            got[rr[ok], cc[ok]] = True
+            known |= got
+            todo &= ~got
+            filled += int(ok.sum())
+        radius += 1
+    if todo.any():
+        u[todo] = np.nan
+        v[todo] = np.nan
+    return u, v, {"filled": filled, "unfilled": int(todo.sum())}
+
+
+def cap_and_replace(u, v, pixel_km, step_s, cap_kmh=SPEED_CAP_KMH, rain=None):
+    """Vettori sopra `cap_kmh` -> MEDIANA del vicinato (non 0).
+
+    `rain` limita i vicini accettati ai pixel che trasportano pioggia: un
+    vettore sopra cap sul bordo dell'eco non viene "aggiustato" con lo zero
+    di un'area secca. I pixel sopra cap senza nessun vicino valido restano
+    NaN (il chiamante li conta e li dichiara). Ritorna
+    (u, v, {"over_cap", "replaced", "unfilled", "over_mask"})."""
+    u = np.asarray(u, dtype=np.float32)
+    v = np.asarray(v, dtype=np.float32)
     speed = pixel_speed_kmh(u, v, pixel_km, step_s)
-    over = speed > float(cap_kmh)
-    n = int(over.sum())
-    if n:
-        u = np.where(over, 0.0, u).astype(np.float32)
-        v = np.where(over, 0.0, v).astype(np.float32)
-    return u, v, n
+    finite = np.isfinite(u) & np.isfinite(v)
+    over = finite & (speed > float(cap_kmh))
+    info = {"over_cap": int(over.sum()), "replaced": 0, "unfilled": 0,
+            "over_mask": over}
+    if not info["over_cap"]:
+        return u, v, info
+    valid = finite & ~over & ((u != 0.0) | (v != 0.0))
+    if rain is not None:
+        valid = valid & np.asarray(rain, dtype=bool)
+    cu, cv, fill = fill_motion(u, v, missing=over, valid=valid)
+    info["replaced"] = int(fill["filled"])
+    info["unfilled"] = int(fill["unfilled"])
+    return cu, cv, info
+
+
+def cap_speed(u, v, pixel_km, step_s, cap_kmh=SPEED_CAP_KMH):
+    """Compatibilita': sostituisce i vettori sopra cap e ritorna
+    (u, v, n_over_cap). 0 solo se non esiste nessun vicino valido.
+
+    `n_over_cap` e' il numero di vettori che superavano il cap (non piu'
+    "azzerati": il nome del vecchio contatore resta nel JSON per i lettori)."""
+    cu, cv, info = cap_and_replace(u, v, pixel_km, step_s, cap_kmh)
+    return (np.nan_to_num(cu, nan=0.0), np.nan_to_num(cv, nan=0.0),
+            info["over_cap"])
 
 
 def semi_lagrangian(field, u, v, steps, domain):
@@ -613,6 +725,15 @@ def _unavailable(reason, clock, extra=None):
         "motion": MOTION,
         "motion_algorithm": MOTION_ALGORITHM,
         "speed_cap_kmh": SPEED_CAP_KMH,
+        "speed_cap_mode": "replaced_by_neighbor_median",
+        "vectors_zeroed_by_cap": None,
+        "vectors_over_cap_total": None,
+        "vectors_replaced_by_cap": None,
+        "vectors_unfilled_by_cap": None,
+        "motion_filled_pixels": None,
+        "motion_unfilled_pixels": None,
+        "motion_null_reason": None,
+        "motion_smoothing_px": MOTION_SMOOTH_PX,
         "frames_used": 0,
         "leads": [],
         "beats_persistence": None,
@@ -659,6 +780,49 @@ def load_verification(out_dir):
             "full_series_in": VERIFICATION_FILE,
         }
     return data
+
+
+def resolve_motion(motion, latest, domain, pixel_km, step_s):
+    """Campo di moto EFFETTIVO applicato al trasporto.
+
+    (1) vettori sopra cap -> mediana del vicinato (mai 0 se esiste un vicino
+    valido, cercato dentro la pioggia); (2) buchi dentro la pioggia ->
+    mediana del vicinato, raggio fino a `MOTION_FILL_MAX_RADIUS`; (3) mediana
+    `MOTION_SMOOTH_PX` x `MOTION_SMOOTH_PX` dentro la pioggia; (4) gli
+    isolati restano 0 ma sono contati e dichiarati (`no_neighbor_motion`).
+
+    Ritorna (u, v, info); `info` contiene i contatori pubblicati nel JSON."""
+    rain = np.asarray(domain, dtype=bool) & (
+        np.asarray(latest, dtype=np.float32) > RAIN_MIN_MMH)
+    u, v, cap_info = cap_and_replace(motion["u"], motion["v"], pixel_km,
+                                     step_s, rain=rain)
+    over_rain = cap_info["over_mask"] & rain
+    known = rain & np.isfinite(u) & np.isfinite(v)
+    u, v, fill_info = fill_motion(u, v, missing=rain & ~known, valid=known)
+    if MOTION_SMOOTH_PX >= 3:
+        rr, cc = np.nonzero(rain)
+        if rr.size:
+            mu, mv = _window_median(np.where(rain, u, np.nan),
+                                    np.where(rain, v, np.nan), rr, cc,
+                                    MOTION_SMOOTH_PX)
+            ok = np.isfinite(mu) & np.isfinite(mv)
+            u[rr[ok], cc[ok]] = mu[ok]
+            v[rr[ok], cc[ok]] = mv[ok]
+    replaced_cap = int((over_rain & np.isfinite(u) & np.isfinite(v)).sum())
+    unfilled = rain & ~(np.isfinite(u) & np.isfinite(v))
+    info = {
+        "rain_pixels": int(rain.sum()),
+        "over_cap_total": int(cap_info["over_cap"]),
+        "over_cap_rain": int(over_rain.sum()),
+        "replaced_by_cap": replaced_cap,
+        "unfilled_by_cap": int(over_rain.sum()) - replaced_cap,
+        "filled": int(fill_info["filled"]),
+        "unfilled": int(unfilled.sum()),
+        "smooth_px": int(MOTION_SMOOTH_PX),
+    }
+    u = np.where(np.isfinite(u), u, 0.0).astype(np.float32)
+    v = np.where(np.isfinite(v), v, 0.0).astype(np.float32)
+    return u, v, info
 
 
 def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
@@ -711,8 +875,10 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
 
     pixel_km = _pixel_km(rd)
     step_s = STEP_MIN * 60
-    u, v, capped = cap_speed(motion["u"], motion["v"], pixel_km, step_s)
-    speed = pixel_speed_kmh(motion["u"], motion["v"], pixel_km, step_s)
+    u, v, motion_info = resolve_motion(motion, latest, domain, pixel_km,
+                                       step_s)
+    speed = pixel_speed_kmh(u, v, pixel_km, step_s)
+    rain = domain & (latest > RAIN_MIN_MMH)
     grid = _output_grid(rd)
 
     native = {}
@@ -785,8 +951,19 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
         "motion_algorithm": MOTION_ALGORITHM,
         "motion_pairs": motion["pairs"],
         "speed_cap_kmh": SPEED_CAP_KMH,
-        "speed_cap_mode": "vector_zeroed_not_clamped",
-        "vectors_zeroed_by_cap": capped,
+        "speed_cap_mode": "replaced_by_neighbor_median",
+        # contato sui pixel che TRASPORTANO PIOGGIA (prima era su tutto il
+        # dominio: 6.712 contro 3.597 reali). Non sono piu' azzerati: sono
+        # sostituiti dalla mediana del vicinato.
+        "vectors_zeroed_by_cap": motion_info["over_cap_rain"],
+        "vectors_over_cap_total": motion_info["over_cap_total"],
+        "vectors_replaced_by_cap": motion_info["replaced_by_cap"],
+        "vectors_unfilled_by_cap": motion_info["unfilled_by_cap"],
+        "motion_filled_pixels": motion_info["filled"],
+        "motion_unfilled_pixels": motion_info["unfilled"],
+        "motion_null_reason": ("no_neighbor_motion"
+                               if motion_info["unfilled"] else None),
+        "motion_smoothing_px": motion_info["smooth_px"],
         "frames_used": len(frames),
         "frames_origin": origin,
         "frames_slots": [_iso(f[2]) for f in frames],
@@ -811,13 +988,12 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
         "legend": [{"mmh": p[0], "rgb": list(p[1])} for p in PALETTE],
         "motion_pair_dt_s": motion.get("pair_dt_s"),
         "motion_stats": {
-            "median_speed_kmh": round(float(np.median(
-                speed[domain & (latest > RAIN_MIN_MMH)])), 2)
-            if bool((domain & (latest > RAIN_MIN_MMH)).any()) else None,
-            "p95_speed_kmh": round(float(np.percentile(
-                speed[domain & (latest > RAIN_MIN_MMH)], 95)), 2)
-            if bool((domain & (latest > RAIN_MIN_MMH)).any()) else None,
-            "pixels_over_cap": capped,
+            "median_speed_kmh": round(float(np.median(speed[rain])), 2)
+            if bool(rain.any()) else None,
+            "p95_speed_kmh": round(float(np.percentile(speed[rain], 95)), 2)
+            if bool(rain.any()) else None,
+            "pixels_over_cap": motion_info["over_cap_rain"],
+            "pixels_over_cap_total": motion_info["over_cap_total"],
         },
         "limits": LIMITS,
         "orographic_enhancement": oro_block,
@@ -831,6 +1007,7 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
     native["_domain"] = domain
     native["_grid"] = grid
     native["_rd"] = rd
+    native["_motion"] = (u, v)
     return payload, native
 
 

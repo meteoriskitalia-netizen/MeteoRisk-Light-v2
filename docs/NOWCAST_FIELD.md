@@ -26,7 +26,9 @@ Vincoli rispettati:
 - sorgente **SRI**, mai VMI convertito in mm/h con una Z-R;
 - nessun uso di ICON-2I / `nwp_motion.py`, nessun tracking ungherese;
 - **solo trasporto**: nessuna crescita o decadimento dell'intensita';
-- un vettore sopra **110 km/h viene azzerato** (0,0), non clampato a 110;
+- un vettore sopra **110 km/h viene sostituito** con la mediana del vicinato
+  (0 solo se non esiste nessun vicino valido, e il caso e' contato): non e'
+  clampato a 110 e non ferma la pioggia;
 - fuori dal dominio radar non viene disegnato nulla.
 
 ## Ingresso
@@ -61,14 +63,31 @@ se l'ultimo campo e' asciutto non c'e' nulla da spostare), `motion_unavailable`,
 2. Il moto usato e' la **mediana per componente** delle ultime 3 coppie
    consecutive (robusta a una coppia anomala), normalizzata al passo di 5 minuti.
    Coppie con buco temporale > 15 min sono escluse (dichiarato nei warning).
+   **Una coppia senza stima vale NaN, non 0**: `estimate_flow` restituisce 0
+   fuori dalla `texture` (nessun gradiente, per esempio l'eco e' comparsa dopo)
+   e con la mediana di (0, 0, x) il risultato sarebbe 0, cioe' un pezzo di
+   pioggia fermo per tutto l'orizzonte. Misurato il 24/11/2026 sullo slot
+   19:55Z: 12.843 pixel di pioggia con vettore 0 (12,19%), di cui 9.174
+   (71,4%) da questo meccanismo e 3.597 dal cap; 20,4% della pioggia si
+   spostava < 0,5 km in 30 minuti.
 3. **Cap 110 km/h**: `speed = hypot(u,v) * pixel_km * 3600 / 300`. Sopra il cap
-   il vettore diventa (0,0). Il numero di vettori azzerati e' pubblicato
-   (`vectors_zeroed_by_cap`).
-4. **Trasporto semi-Lagrangiano** a passi di 5 minuti:
+   il vettore e' **sostituito** con la mediana del vicinato dei vettori sotto
+   cap (finestra 5, 7, 9 ... fino a 10 px, vicini cercati dentro la pioggia);
+   resta 0 solo se non esiste nessun vicino valido. Contatori pubblicati:
+   `vectors_zeroed_by_cap` (pixel di PIOGGIA sopra cap, nome storico),
+   `vectors_over_cap_total`, `vectors_replaced_by_cap`,
+   `vectors_unfilled_by_cap`.
+4. **Riempimento**: ogni pixel di pioggia senza vettore prende la mediana del
+   vicinato valido (raggio fino a 10 px); gli isolati restano 0 e sono contati
+   (`motion_filled_pixels`, `motion_unfilled_pixels`,
+   `motion_null_reason: "no_neighbor_motion"`). Poi una mediana 3x3 dentro la
+   pioggia (`motion_smoothing_px`), che non tocca le aree secche e non
+   reintroduce zeri.
+5. **Trasporto semi-Lagrangiano** a passi di 5 minuti:
    `F(x) <- F(x - u)` con campionamento bilineare e maschera del dominio a ogni
    passo. Il bilineare e' una combinazione convessa: il massimo previsto non
    puo' superare il massimo osservato.
-5. **Maschera**: `valid_mask` del frame SRI piu' recente (la stessa del resto
+6. **Maschera**: `valid_mask` del frame SRI piu' recente (la stessa del resto
    del motore, -9999 = fuori copertura). Il motore non ha una maschera
    terra/mare separata per il radar: il SRI e' un mosaico che copre anche il
    mare entro la portata. Il nowcast non aggiunge nessun pixel fuori da quella
@@ -89,6 +108,10 @@ qui pinnata per l'encoder WebP).
 ```
 available, null_reason, source: "DPC_SRI", source_slot, generated_at,
 motion: "optical_flow", motion_algorithm, speed_cap_kmh: 110,
+speed_cap_mode: "replaced_by_neighbor_median",
+vectors_zeroed_by_cap, vectors_over_cap_total, vectors_replaced_by_cap,
+vectors_unfilled_by_cap, motion_filled_pixels, motion_unfilled_pixels,
+motion_null_reason, motion_smoothing_px,
 frames_used, frames_slots, domain_mask, motion_stats,
 leads: [{lead_min: 5|10|...|60, valid_time, unit: "mm/h", image, image_crs,
          official: bool, stats}],
