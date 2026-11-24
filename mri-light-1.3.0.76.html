@@ -2629,6 +2629,22 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                     <option value="thunderstorm">Solo Temporali</option>
                 </select>
             </label>
+            <!-- 1.3.0.76 - NOWCAST PIOGGIA (SRI DPC, +15/+30/+60 min). Toggle spento
+                 di default nel gruppo dei layer. La visibilita' la decide il gate dei
+                 dati (available E beats_persistence === true) oppure Sviluppo ON. -->
+            <label class="mp-switch" id="nowcast-toggle-wrap" style="display:none; width:132px;" title="Nowcast pioggia: campo radar SRI spostato a +15/+30/+60 minuti (solo trasporto, l'intensità non cresce né cala)">
+                <input type="checkbox" id="nowcast-toggle" onchange="toggleNowcastField(this.checked)">
+                <span class="mp-knob"></span>
+                <span class="mp-label">Nowcast pioggia</span>
+            </label>
+            <label class="mp-select" id="nowcast-lead-wrap" style="display:none; width:120px;" title="Orizzonte temporale del nowcast pioggia">
+                <span class="mp-label">Lead</span>
+                <select id="nowcast-lead" onchange="setNowcastLead(parseInt(this.value,10))" title="Scegli l'orizzonte del nowcast pioggia: +15, +30 o +60 minuti">
+                    <option value="15">+15 min</option>
+                    <option value="30" selected>+30 min</option>
+                    <option value="60">+60 min</option>
+                </select>
+            </label>
         </div>
         <!-- Preloader satellite + fulmini -->
         <div id="preload-overlay" class="preload-overlay">
@@ -2700,6 +2716,17 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
             <div class="legend-row" style="font-size:10px;color:#94a3b8;">
                 Fonte: EUMETSAT MTG-I LI — layer <code>mtg_fd:li_afa</code> · CC BY 4.0 · © EUMETSAT.
             </div>
+        </div>
+        <!-- 1.3.0.76 - LEGENDA NOWCAST PIOGGIA: visibile SOLO con il layer acceso
+             (nowcastShow la apre/chiude). Scala in mm/h; riusa .live-legend,
+             .legend-title e .legend-row gia' presenti. -->
+        <div class="live-legend" id="nowcast-legend" style="display:none; margin-top:6px;">
+            <div class="legend-title">Nowcast pioggia (SRI DPC) — previsione per trasporto · mm/h</div>
+            <div style="height:10px; border:1px solid #334155; border-radius:3px; background:linear-gradient(90deg,#9ad0ff 0%,#3d8bff 34%,#00c878 55%,#ffdd33 69%,#ff9100 79%,#e62828 90%,#b000b0 100%);"></div>
+            <div class="legend-row" style="justify-content:space-between; font-size:10px; color:#94a3b8; margin-top:2px;">
+                <span>0,05</span><span>0,5</span><span>2</span><span>5</span><span>10</span><span>20+</span>
+            </div>
+            <div class="legend-row" style="font-size:10px; color:#cbd5e1;">dopo 30 minuti l'affidabilità cala</div>
         </div>
         <!-- Selettore ORARIO a slider sotto la mappa (sostituisce la tendina) -->
         <div class="hour-slider" id="hour-slider-wrap" style="display:none;">
@@ -3240,9 +3267,15 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.75';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.76';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-24';
     const APP_CHANGELOG = [
+    { version: '1.3.0.76', date: '2026-11-24', changes: [
+      "ADD NOWCAST PIOGGIA (SRI DPC): checkbox nel gruppo dei layer (.map-corner-switches), spento di default, con selettore +15/+30/+60 (default +30) visibile solo a toggle ON. L.imageOverlay su data/radar/nowcast_lead0XX.webp con i bounds del JSON convertiti da EPSG:3857 (map.options.crs.unproject), pane dedicato nowcastPane z 407, opacita 0.75. URL SENZA query-string: con un cache-buster il CDN risponde 404.",
+      "GATE: il toggle e' pubblico solo con available:true E beats_persistence:true (null vale false); con available:false o beats_persistence diverso da true compare SOLO con Sviluppo ON. Il cambio lead SOSTITUISCE l'immagine (un solo layer, nessun accumulo); lo spegnimento rimuove overlay e legenda; il cambio prodotto fuori da radar/LIVE nasconde il layer.",
+      "LEGENDA in mm/h con gli stop 0,05 / 0,5 / 2 / 5 / 10 / 20+ e la frase dopo 30 minuti l'affidabilita' cala (coerente col replay: a +60 min e 0,5 mm/h la persistenza vince di 0,006).",
+      "TEST: node --check sugli script inline, test_html_js_syntax, test_tooltips_coverage, test_station_field.mjs e test_sw_cache_policy; verifica in browser reale di ON/OFF, cambio lead e gate Sviluppo."
+    ]},
     { version: '1.3.0.75', date: '2026-11-24', changes: [
       "NEVE: IL CAMPO NON COPRE PIÙ DOVE NON C'È NEVE. Raggio dedicato di 10 km (le altre grandezze 12/25) applicato in TUTTI i metodi, compresi full e contour: oltre 10 km il pixel resta trasparente anche con «copertura totale», perché la neve è discontinua e riempirla è inventarla. Dissolvenza dedicata 2 km (piena fino a 8 km, spenta a 10). Scala: sotto 1 cm è trasparente (0,5 cm compreso), poi 1/5/10/25/50/100/200/300 cm.",
       "MISURA SUI DATI REALI (latest.json 2026-11-24T16:20Z, 146 stazioni con neve > 0, frame Italia 256x227, maschera province): pixel dipinti metodo local 4.252 -> 1.620 (-61,9%), terra 31,80% -> 11,76%; metodo full 14.359 -> 1.620 (-88,7%), terra 100% -> 11,76%; Sicilia (36,6-38,3N / 12,3-15,7E) dipinta 1.140 -> 0 in full e 0 -> 0 in local.",
@@ -26577,6 +26610,9 @@ function syncProductUI() {
     syncTeleconnMapCard();
     if (typeof syncSynWebpMapCard === 'function') syncSynWebpMapCard();
     if (typeof syncRadarProductVisuals === 'function') syncRadarProductVisuals();
+    // 1.3.0.76 - il nowcast pioggia e' un layer radar-derivato: fuori da radar/LIVE
+    // si spegne (nessun accumulo di layer sopra un altro prodotto).
+    if (typeof nowcastProductChanged === 'function') nowcastProductChanged();
     if (typeof syncMetricSelectEnabled === 'function') syncMetricSelectEnabled();
     // 1.3.0.54 - il cambio prodotto deve ridipingere (o neutralizzare) la mappa:
     // senza questa chiamata i fill restavano quelli del prodotto precedente.
@@ -26938,6 +26974,9 @@ function toggleForecastMaps() {
             }
         }
         syncDevRiskControls();   // 1.3.0.17: gate contestuale (Sviluppo ON + prodotto rischi)
+        // 1.3.0.76 - il gate del nowcast pioggia dipende da Sviluppo: spegnendo lo
+        // switch il toggle sparisce se i dati non superano il gate pubblico.
+        if (typeof nowcastSyncVisibility === 'function') nowcastSyncVisibility();
         // 1.3.0.59 - il selettore dell'header riflette SEMPRE lo stato reale.
         if (typeof syncAppModeSelect === 'function') syncAppModeSelect();
     }
@@ -26956,6 +26995,131 @@ function toggleForecastMaps() {
         try { localStorage.setItem('mri.newIndices', isNewIndicesActive ? '1' : '0'); } catch (e) {}
         updateUI();
         refreshRiskSummary(); // ri-renderizza il riepilogo aperto con il profilo del nuovo stato
+    }
+
+    // --- Nowcast pioggia (SRI DPC): campo previsto a +15/+30/+60 minuti ---
+    // Un solo layer alla volta: il cambio di lead SOSTITUISCE l'immagine.
+    // Nessun colore inventato: la legenda e' statica in mm/h e l'overlay usa il
+    // WebP pubblicato dal motore. URL SENZA query-string: con un cache-buster il
+    // CDN risponde 404 (verificato live).
+    var NOWCAST_URL = 'data/radar/nowcast.json';
+    var NOWCAST_IMG = { 15: 'nowcast_lead015.webp', 30: 'nowcast_lead030.webp', 60: 'nowcast_lead060.webp' };
+    var nowcastState = { data: null, loaded: false, loading: false, waiters: [], layer: null, lead: 30, on: false };
+    function nowcastLoad(cb) {
+        if (nowcastState.loaded) { if (cb) { try { cb(nowcastState.data); } catch (e) { } } return; }
+        if (cb) nowcastState.waiters.push(cb);
+        if (nowcastState.loading) return;
+        nowcastState.loading = true;
+        fetch(NOWCAST_URL, { cache: 'no-store' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) { nowcastState.data = d; })
+            .catch(function () { nowcastState.data = null; })
+            .then(function () {
+                nowcastState.loading = false;
+                nowcastState.loaded = true;
+                var w = nowcastState.waiters.slice();
+                nowcastState.waiters = [];
+                for (var i = 0; i < w.length; i++) { try { w[i](nowcastState.data); } catch (e) { } }
+            });
+    }
+    // Gate dichiarato: pubblico solo con available:true E beats_persistence:true
+    // (null vale false). available:false o beats_persistence non-true -> il toggle
+    // e' visibile SOLO con Sviluppo ON.
+    function nowcastDevMode() { return !!(typeof isSviluppoActive !== 'undefined' && isSviluppoActive); }
+    function nowcastPublicOk(d) {
+        return !!(d && d.available === true && d.beats_persistence === true);
+    }
+    function nowcastVisible(d) { return nowcastDevMode() || nowcastPublicOk(d); }
+    function nowcastBounds(b) {
+        var crs = map.options.crs;
+        return L.latLngBounds(crs.unproject(L.point(b[0], b[1])),
+                              crs.unproject(L.point(b[2], b[3])));
+    }
+    function nowcastPane() {
+        if (!map) return 'overlayPane';
+        if (!map.getPane('nowcastPane')) {
+            map.createPane('nowcastPane');
+            map.getPane('nowcastPane').style.zIndex = 407;
+            map.getPane('nowcastPane').style.pointerEvents = 'none';
+        }
+        return 'nowcastPane';
+    }
+    function nowcastShow(on) {
+        nowcastState.on = !!on;
+        var lg = document.getElementById('nowcast-legend');
+        var leadWrap = document.getElementById('nowcast-lead-wrap');
+        if (nowcastState.layer) {
+            try { map.removeLayer(nowcastState.layer); } catch (e) { }
+            nowcastState.layer = null;
+        }
+        if (leadWrap) leadWrap.style.display = (on && nowcastVisible(nowcastState.data)) ? 'inline-flex' : 'none';
+        if (!on) { if (lg) lg.style.display = 'none'; return; }
+        var d = nowcastState.data;
+        if (!d || d.available !== true || !d.grid || !d.grid.bounds) {
+            if (lg) lg.style.display = 'none';
+            return;
+        }
+        var img = 'data/radar/' + NOWCAST_IMG[nowcastState.lead];
+        try {
+            nowcastState.layer = L.imageOverlay(img, nowcastBounds(d.grid.bounds), {
+                opacity: 0.75,
+                pane: nowcastPane(),
+                className: 'nowcast-field',
+                interactive: false
+            }).addTo(map);
+        } catch (e) { nowcastState.layer = null; }
+        if (lg) lg.style.display = 'block';
+    }
+    function nowcastSyncVisibility() {
+        var wrap = document.getElementById('nowcast-toggle-wrap');
+        if (!wrap) return;
+        var cb = document.getElementById('nowcast-toggle');
+        var leadWrap = document.getElementById('nowcast-lead-wrap');
+        var visible = !!(nowcastState.loaded && nowcastVisible(nowcastState.data));
+        wrap.style.display = visible ? '' : 'none';
+        if (!visible) {
+            if (cb) cb.checked = false;
+            nowcastShow(false);
+            if (leadWrap) leadWrap.style.display = 'none';
+        } else if (leadWrap) {
+            leadWrap.style.display = nowcastState.on ? 'inline-flex' : 'none';
+        }
+    }
+    // Cambio prodotto FUORI da radar/LIVE: il layer radar-derivato sparisce,
+    // come gli altri layer del radar; il toggle resta regolato dal gate dei dati.
+    function nowcastProductChanged() {
+        var radarOn = true;
+        try { radarOn = (typeof isRadarToolsProduct === 'function') ? isRadarToolsProduct() : true; } catch (e) { radarOn = true; }
+        if (!radarOn && (nowcastState.on || nowcastState.layer)) {
+            var cb = document.getElementById('nowcast-toggle');
+            if (cb) cb.checked = false;
+            nowcastShow(false);
+        }
+    }
+    function toggleNowcastField(on) {
+        var cb = document.getElementById('nowcast-toggle');
+        if (!on) { nowcastShow(false); return; }
+        nowcastLoad(function (d) {
+            if (!nowcastVisible(d)) {
+                if (cb) cb.checked = false;
+                nowcastShow(false);
+                nowcastSyncVisibility();
+                return;
+            }
+            nowcastShow(true);
+        });
+    }
+    function setNowcastLead(lead) {
+        nowcastState.lead = (lead === 15 || lead === 60) ? lead : 30;
+        if (nowcastState.on) nowcastShow(true);   // sostituisce, non accumula
+    }
+    function nowcastBoot() {
+        nowcastLoad(function () { nowcastSyncVisibility(); });
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', nowcastBoot);
+    } else {
+        nowcastBoot();
     }
 
     // --- Toggle Rischio Termico: Heat Index / Humidex / Wind Chill ---

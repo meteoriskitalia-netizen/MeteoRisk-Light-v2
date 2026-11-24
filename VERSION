@@ -1,3 +1,16 @@
+VERSION=1.3.0.76
+BUILD=207
+DATE=2026-11-24
+APP_FILE=mri-light-1.3.0.76.html
+MeteoRisk Light - 1.3.0.76 - NOWCAST PIOGGIA SRI NEL CLIENT: toggle layer (default OFF), selettore +15/+30/+60, overlay EPSG:3857, legenda mm/h, gate available+beats_persistence con fallback Sviluppo (BUILD=207)
+VERSION=1.3.0.76
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=207
+RELEASE_TYPE=release
+DATE=2026-11-24
+NOTE=Release 1.3.0.76 (bump da 1.3.0.75; nessuna modifica al backend ne' al nowcast del motore; APP_FILE mri-light-1.3.0.76.html). NOWCAST PIOGGIA (SRI DPC) NEL CLIENT: nuovo toggle nel gruppo .map-corner-switches, spento di default, con selettore +15/+30/+60 (default +30) visibile solo a toggle ON; L.imageOverlay sui WebP data/radar/nowcast_lead0XX.webp con i bounds del JSON convertiti da EPSG:3857, pane dedicato nowcastPane z 407, opacita 0.75, URL senza query-string (il CDN risponde 404 con cache-buster); legenda in mm/h con gli stop 0,05/0,5/2/5/10/20+ e la frase dopo 30 minuti l'affidabilita' cala. GATE: toggle pubblico solo con available:true E beats_persistence:true (null vale false), altrimenti visibile solo con Sviluppo ON; cambio lead SOSTITUISCE l'immagine (un solo layer), spegnimento rimuove overlay e legenda, cambio prodotto fuori da radar/LIVE nasconde il layer. TEST MISURATI: node --check 9/9 script inline; pytest test_html_js_syntax.py + test_tooltips_coverage.py 3 passed; test_sw_cache_policy PASS; test_app_mode_selector PASS; test_ensemble_module PASS; test_satellite_sources_italy PASS; test_fascia_slots PASS; test_station_field.mjs 247 controlli con 2 FAIL SOLO di tempo (realm 811 ms > 400, contour 1034 ms > 800) e test_player_fluidity 2 FAIL pre-esistenti (E1/E5 toolbar). Browser reale (Chrome headless 1243 via CDP, server statico locale): 33/33 PASS - toggle default OFF e selettore lead nascosto; ON -> overlay nowcast_lead030.webp, pane nowcastPane z 407, opacita 0.75, immagine caricata, legenda e lead visibili, un solo overlay; lead 60 -> URL nowcast_lead060.webp con sostituzione (vecchia istanza rimossa, sempre un overlay); OFF -> overlay/legenda/lead rimossi; gate dev OFF con beats false/null/available false -> nascosto, Sviluppo ON -> visibile; cambio prodotto a rischi -> layer rimosso e checkbox spenta; rete nowcast senza query-string e tutta 200; 0 eccezioni JS e 0 errori console. Funzioni: 1350 -> 1362 (+12, nessuna rimossa).
 VERSION=1.3.0.75
 BUILD=206
 DATE=2026-11-24
