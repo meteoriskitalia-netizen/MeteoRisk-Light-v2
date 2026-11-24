@@ -24,6 +24,10 @@ data/radar/*.tmp
 # Una riga per slot scaricato (PNG + sidecar JSON con sha256). Mai nel repo.
 data/cache/
 
+# ---- Cache dei tile DEM per l'orografia (scripts/geography/build_orography.py) ----
+# ~18 MB di PNG Terrarium: si rigenera, il file derivato (75 KB) sta in data/geography.
+.cache/
+
 # ---- Climatologia di riferimento: la cache delle fonti non va committata ----
 # 3 subset NCEP da ~525 KB; con --source era5 anche una cella per file
 # (~50 MB). Si rigenera con `python scripts/climate/build_climatology.py --refresh`.

@@ -35,6 +35,9 @@ Nessuna dichiarazione di licenza completa è presente all'interno del file HTML 
 | ~~Meteociel spaghetti~~ (RIMOSSO in 1.0.0.15) | Integrazione ensemble Meteociel eliminata dal modulo | NON PIÙ UTILIZZATO |
 | Leaflet 1.9.4 (CSS+JS) | Nessuna nel codice (progetto open-source noto) | PROBABILE OPEN — da confermare sul sito ufficiale |
 | Chart.js | Nessuna nel codice (progetto open-source noto) | PROBABILE OPEN — da confermare sul sito ufficiale |
+| Orografia 0,1° `data/geography/orography_it_0p1.json` — 257 quote di punto | Quote dal campo `elevation` di Open-Meteo (Copernicus DEM GLO-90 2021); Elevation API Open-Meteo con licenza dichiarata **CC BY 4.0** (`openapi/elevation.yml`) | **CONFERMATA** — attribuzione: "Copernicus DEM - ESA (doi:10.5270/ESA-c5d3d65). Dati: Open-Meteo.com" |
+| Orografia 0,05° `data/geography/orography_it_0p05.json` — DEM ridotto | **SRTM** via Terrain Tiles (Mapzen/joerd, AWS Open Data): SRTM è **pubblico dominio** (NASA/NGA/USGS) con attribuzione richiesta | **CONFERMATA** — attribuzione: "SRTM data courtesy of the U.S. Geological Survey" |
+| Terrain Tiles (Mapzen, Linux Foundation) — pacchetto tile su AWS Open Data | Nessuna licenza unica dichiarata: valgono le attribuzioni per fonte di `tilezen/joerd/docs/attribution.md`; per l'Italia a zoom 8 → SRTM, per il mare → ETOPO1 (NOAA, pubblico dominio) | **CONFERMATA** come obbligo di attribuzione (non è una licenza unica) |
 
 ## Azioni raccomandate prima della pubblicazione
 

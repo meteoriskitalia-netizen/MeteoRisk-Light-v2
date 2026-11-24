@@ -1,7 +1,16 @@
 VERSION=1.3.0.79
-BUILD=214
+BUILD=215
 DATE=2026-11-24
 APP_FILE=mri-light-1.3.0.79.html
+MeteoRisk Light - 1.3.0.79 - OROGRAFIA DEM (SRTM z8) IN data/geography, NON ANCORA CONSUMATA (BUILD=215, backend)
+VERSION=1.3.0.79
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=215
+RELEASE_TYPE=backend
+DATE=2026-11-24
+NOTE=Release backend 1.3.0.79 BUILD=215 (nessuna modifica all'HTML: APP_FILE resta mri-light-1.3.0.79.html, nessun nuovo HTML). OROGRAFIA SEMPLIFICATA IN data/geography: pubblicata SOLO la variante DEM, orography_it_0p05.json - griglia 320x260 a 0,05 gradi (circa 5,5 km) su lon 4-20 / lat 35-48, 83.200 celle int16, 254.024 B raw / 74.939 B gzip, sha256 cc823da4...f021cc. SORGENTE: Terrain Tiles (Mapzen/joerd, AWS Open Data) a zoom 8, dove il suolo italiano e' SRTM 1/3 arcsec (circa 90 m); ogni cella e' la media pesata cos(lat) di 108 pixel mediani, mare e batimetria ETOPO1 azzerati a 0 m. COSTO: 182 tile, 18,7 MB scaricati UNA TANTUM (154 s la prima volta, poi cache); il file che resta in main e' 75 KB gzip. LICENZA: SRTM pubblico dominio (NASA/NGA/USGS) con attribuzione 'SRTM data courtesy of the U.S. Geological Survey', ETOPO1 NOAA pubblico dominio, attribuzioni per fonte del pacchetto tile; testo nel JSON e in docs/LICENSES.md (3 righe nuove). VERIFICA: 10 test (schema, plausibilita', copertura di TUTTI i 23.374 vertici provinciali senza buchi, licenza SRTM nel file e nella scheda Fonti, riproducibilita' byte-identica su doppia generazione, guardia che la variante A non sia pubblicata); valori di controllo Alpi 2685 m, Monte Bianco 3259 m, Monte Rosa 3675 m (massimo del file), Pianura Padana 46 m, Sicilia interna 554 m, Adriatico 0 m. VARIANTE A SCARTATA: la griglia 0,1 gradi interpolata dalle 257 quote di punto (IDW) NON e' pubblicata perche' il descrittore w.grad(h) ha errore relativo del 98% rispetto al DEM (gradiente MAE 15,4 m/km contro 9,5 m/km di segnale mediano) e sbaglia la Pianura Padana (118 m contro 46 m); resta documentata in docs/OROGRAFIA.md e il generatore conserva --mode points solo per rifare il confronto. NON ANCORA CONSUMATO: nessuna parte dell'app, del radar-engine o del nowcast legge oggi il campo; e' una base dati pronta per il descrittore upslope (w.grad(h)), senza alcun effetto sull'intensita' o sulle soglie. Aggiunti scripts/geography/build_orography.py, scripts/tests/test_orography.py, docs/OROGRAFIA.md; .gitignore ignora .cache/ (18 MB di tile). 20/20 workflow yaml.safe_load OK.
 MeteoRisk Light - 1.3.0.79 - NOWCAST SULLA TIMELINE UNICA (un solo player, sorgente leads[]) E LEGENDA SULLA SCALA SRI 1/5/10/20/50/100 con gli RGB del radar (BUILD=214)
 VERSION=1.3.0.79
 MAJOR=1
