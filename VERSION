@@ -1,4 +1,16 @@
-VERSION=1.3.0.74
+VERSION=1.3.0.75
+BUILD=206
+DATE=2026-11-24
+APP_FILE=mri-light-1.3.0.75.html
+MeteoRisk Light - 1.3.0.75 - CAMPO CENTRALINE, NEVE ONESTA (raggio 10 km in tutti i metodi, sotto 1 cm trasparente), AFA regione non piu' «accesa» e #btn-radar-afa neutro OFF / verde ON (BUILD=206)
+VERSION=1.3.0.75
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=206
+RELEASE_TYPE=release
+DATE=2026-11-24
+NOTE=Release 1.3.0.75 (bump da 1.3.0.74; nessuna modifica al backend, BUILD del nowcast invariato; APP_FILE mri-light-1.3.0.75.html). TRE DIFETTI, STESSO FILE. (1) NEVE CHE COPRE DOVE NON C'E': il campo interpolava con il raggio generale di 25 km e in full/contour senza limite, fra stazioni lontane, e colorava l'intera penisola. Ora la neve ha STATION_FIELD_SNOW_CUTOFF_KM = 10 applicato in TUTTI i metodi (anche full/contour, dove oltre il raggio NON si riempie) e STATION_FIELD_SNOW_FADE_KM = 2 (piena fino a 8 km, spenta a 10). Scala: sotto 1 cm TRASPARENTE (0,5 cm compreso), poi 1/5/10/25/50/100/200/300 cm; 1 cm = 186,230,253 e 25 cm = 14,165,233, distanza RGB massima 172 (>60). MISURA (scripts/validation/measure_station_field_13075.mjs; data/stations/latest.json del 2026-11-24T16:20:35Z, 146 stazioni con neve_depth_m > 0, frame Italia 256x227 36-48N 6-19E, maschera province even-odd, raster ss=2 + downscale): metodo local pixel dipinti 4.252 -> 1.620 (-61,9%), terra 3.928 -> 1.453 px (31,80% -> 11,76%); metodo full 14.359 -> 1.620 (-88,7%), terra 12.353 -> 1.453 (100% -> 11,76%); Sicilia (lat 36,6-38,3 / lon 12,3-15,7) 1.140 -> 0 px in full e 0 -> 0 in local. (2) REGIONE AFA: i pulsanti Italia/Europa usavano la classe .on (viola, #2e1065 / #a855f7), lo stesso stile dei toggle accesi, quindi la regione selezionata sembrava un layer attivo. Ora usano .afa-region-btn.is-selected (bordo #cbd5e1, fondo #334155, box-shadow interna chiara), distinta da .on e dal verde. afaSyncTitles() aggiorna is-selected, non piu' on; #afa-region-switch e' display:none con l'AFA OFF e passa a inline-flex quando il layer va ON (liveAfaSyncButtons), quindi non resta a schermo un selettore «selezionato» per un layer spento. (3) #btn-radar-afa VIOLA: la causa era un border-color:#a855f7 INLINE nel markup, nessuna regola di stato; rimosso. Nuove regole: #btn-radar-afa OFF border #334155 (neutro, testo .tool-btn), #btn-radar-afa.on ON border #22c55e, fondo #14532d, testo #dcfce7. La riga di metodo dice per la neve «IDW k 12 entro 10 km» (o k 16 in full/contour) e non piu' «gaussiano» (il kernel e' 1/(d^2+1)); il title non promette copertura totale per la neve. TEST: test_station_field.mjs 247 controlli / 0 falliti (247 = 238 della 1.3.0.74 + 9: soglia 0,5 e 0,9 cm trasparente, 1 cm dipinto, 0 cm nessun pixel, 1 vs 25 cm RGB 172, local/full/contour con centro e ~6 km dipinti e ~13 km alpha 0, controllo temperatura in full a 13 km, raggio dichiarato 10/2, riga metodo «entro 10 km»); test_html_js_syntax, test_tooltips_coverage e test_sw_cache_policy verdi. Browser headless (Chrome 1243, DOM reale, rete bloccata): AFA OFF con bordo rgb(51,65,85) e senza viola; regione Italia selezionata con bordo rgb(203,213,225) contro lo stile .on #2e1065/#a855f7; AFA con classe on -> bordo rgb(34,197,94). NON FATTO/DICHIARATO: nessuno screenshot del campo neve su schermo (la misura e' sul raster finale, non sui pixel del monitor); la soglia 10 km e la scala sotto 1 cm sono SCELTE INGEGNERISTICHE dichiarate, non una taratura.VERSION=1.3.0.74
 BUILD=205
 DATE=2026-11-24
 APP_FILE=mri-light-1.3.0.74.html

@@ -121,6 +121,7 @@ const VARS = [
   // 1.3.0.73 - il peso gaussiano (σ, LUT) e il reticolo 0,5° non esistono piu':
   // il raster torna per pixel con il kernel 1/(d^2+1) della 1.3.0.68.
   'STATION_FIELD_RAIN_CUTOFF_KM', 'stationFieldVar',
+  'STATION_FIELD_SNOW_CUTOFF_KM', 'STATION_FIELD_SNOW_FADE_KM',
   'STATION_FIELD_AGE_POLICY',
   'stationFieldMethod',
   'STATION_FIELD_BUCKET_DEG', 'STATION_FIELD_MAX_RING', 'STATION_FIELD_MIN_COVERAGE',
@@ -452,14 +453,20 @@ const snowRGB = (cm) => {
   const c = ctxObj.STATION_FIELD_SNOW_SCALE.colors.light[band];
   return [c[0], c[1], c[2], c[3]];
 };
-const s05 = snowRGB(0.5), s10 = snowRGB(10), s50 = snowRGB(50), s100 = snowRGB(100), s200 = snowRGB(200);
+const s1 = snowRGB(1), s10 = snowRGB(10), s50 = snowRGB(50), s100 = snowRGB(100), s200 = snowRGB(200);
 const dMax = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]));
 ok('neve: 10 cm e 100 cm hanno colori DIVERSI (distanza RGB max ' + dMax(s10, s100) + ' > 60)',
   dMax(s10, s100) > 60, '10=' + s10.slice(0, 3).join(',') + ' · 100=' + s100.slice(0, 3).join(','));
-ok('neve: 0,5 / 10 / 50 / 200 cm sono quattro colori distinti',
-  dMax(s05, s10) > 60 && dMax(s10, s50) > 60 && dMax(s50, s200) > 60);
-ok('neve: lo zero e trasparente (alpha 0) e i valori > 0 sono opachi',
-  snowRGB(0)[3] === 0 && s05[3] === 1 && s10[3] === 1);
+ok('neve: 1 / 10 / 50 / 200 cm sono quattro colori distinti',
+  dMax(s1, s10) > 60 && dMax(s10, s50) > 60 && dMax(s50, s200) > 60);
+ok('neve: lo zero e 0,5 cm sono trasparenti (alpha 0), da 1 cm in su opaco',
+  snowRGB(0)[3] === 0 && snowRGB(0.5)[3] === 0 && snowRGB(0.9)[3] === 0 &&
+  snowRGB(1)[3] === 1 && s10[3] === 1);
+ok('neve: 1 cm e 25 cm sono distinguibili (distanza RGB max ' + dMax(snowRGB(1), snowRGB(25)) + ' > 60)',
+  dMax(snowRGB(1), snowRGB(25)) > 60,
+  '1=' + snowRGB(1).slice(0, 3).join(',') + ' · 25=' + snowRGB(25).slice(0, 3).join(','));
+ok('neve: raggio dedicato 10 km con fade 2 km (dichiarati)',
+  ctxObj.STATION_FIELD_SNOW_CUTOFF_KM === 10 && ctxObj.STATION_FIELD_SNOW_FADE_KM === 2);
 ok('stationFieldScale risolve le due scale nuove (fuori dal blocco MAPPE, che resta self-contained)',
   ctxObj.stationFieldScale('station_relative_humidity') === ctxObj.STATION_FIELD_RH_SCALE &&
   ctxObj.stationFieldScale('station_snow_cm') === ctxObj.STATION_FIELD_SNOW_SCALE);
@@ -1003,12 +1010,49 @@ ok('stato con tutte a 0: «nessuna stazione con neve al suolo al momento (2 staz
 ok('la riga di metodo dichiara il filtro degli zeri della neve',
   /solo neve > 0/.test(els['live-stationfield-method'].textContent),
   els['live-stationfield-method'].textContent);
+ok('la riga di metodo dichiara il raggio di 10 km della neve',
+  /entro 10 km/.test(els['live-stationfield-method'].textContent),
+  els['live-stationfield-method'].textContent);
 ctxObj.stationFieldLastStats = colSnowSome;
 ctxObj.stationsData = { stations: stsSnow, meta: { compact: false } };
 ctxObj.stationFieldStatus();
 ok('stato con 1 stazione > 0: riga breve con le 2 a zero',
   /^1 stazioni · 1 ora · età mediana \d+ min · 2 a 0 cm$/.test(els['live-stationfield-status'].textContent),
   els['live-stationfield-status'].textContent);
+
+// --------------------------------------------------------------------------
+// 1.3.0.75 - J2. NEVE: RAGGIO 10 km IN TUTTI I METODI E SOGLIA 1 cm
+// --------------------------------------------------------------------------
+console.log('\nJ2. Neve: 10 km anche in full/contour, sotto 1 cm trasparente');
+const frameSnow = makeFrame(44.8, 45.2, 8.8, 9.2, 21, 21);
+ctxObj.stationFieldVar = 'snow';
+const snowScale = ctxObj.STATION_FIELD_SNOW_SCALE;
+const snowPoint = [{ lat: 45.0, lon: 9.0, v: 12 }];
+for (const method of ['local', 'full', 'contour']) {
+  const rs = ctxObj.stationFieldRaster(snowPoint, snowScale, frameSnow, null, 1, method);
+  const aCenter = rs.alphas[10 * 21 + 10];
+  const aNear = rs.alphas[7 * 21 + 10];        // ~6 km a nord
+  const aFar = rs.alphas[4 * 21 + 10];         // ~13 km a nord
+  ok('neve/' + method + ': centro e vicino (~6 km) dipinti, oltre 10 km TRASPARENTE',
+    aCenter > 0 && aNear > 0 && aFar === 0,
+    'centro=' + aCenter + ' 6km=' + aNear + ' 13km=' + aFar);
+}
+// `full`/`contour` per le ALTRE grandezze riempiono la terra (controllo): la neve no.
+ctxObj.stationFieldVar = 'temp';
+const tempFull = ctxObj.stationFieldRaster(
+  [{ lat: 45.0, lon: 9.0, v: 12 }], T_SCALE, frameSnow, null, 1, 'full');
+ok('controllo: la temperatura in full dipinge anche il pixel a ~13 km (la neve no)',
+  tempFull.alphas[10 * 21 + 10 - 6] > 0,
+  'alpha=' + tempFull.alphas[10 * 21 + 10 - 6]);
+ctxObj.stationFieldVar = 'snow';
+const rSnow09 = ctxObj.stationFieldRaster([{ lat: 45.0, lon: 9.0, v: 0.9 }], snowScale, frameSnow, null, 1);
+const rSnow10 = ctxObj.stationFieldRaster([{ lat: 45.0, lon: 9.0, v: 1.0 }], snowScale, frameSnow, null, 1);
+ok('neve: 0,9 cm non dipinge NESSUN pixel, 1,0 cm si (soglia sotto 1 cm trasparente)',
+  rSnow09.painted === 0 && rSnow10.painted > 0,
+  '0,9 cm=' + rSnow09.painted + ' px · 1,0 cm=' + rSnow10.painted + ' px');
+const rSnowZero = ctxObj.stationFieldRaster([{ lat: 45.0, lon: 9.0, v: 0 }], snowScale, frameSnow, null, 1);
+ok('neve: 0 cm non dipinge (alpha 0, nessun pixel)', rSnowZero.painted === 0);
+ctxObj.stationFieldVar = 'temp';
 
 // PI OGGIA: lo 0 resta un valore reale (nessun filtro)
 ctxObj.stationFieldVar = 'rain';

@@ -237,6 +237,18 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 .sc-toggles { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px 10px 6px 10px; }
 .sc-toggle { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 9999px; border: 1px solid #334155; background: #1e293b; color: #94a3b8; cursor: pointer; }
 .sc-toggle.on { border-color: #a855f7; background: #2e1065; color: #e9d5ff; }
+/* 1.3.0.75 - SELEZIONE REGIONE != LAYER ACCESO. Il pulsante della regione AFA
+   (Italia/Europa) e' una scelta di inquadratura, non un layer acceso: prima
+   usava `.on`, lo stesso stile viola dei toggle attivi, e sembrava che l'AFA
+   fosse ON mentre il pulsante AFA era OFF. Ora ha uno stile proprio di
+   "selezionato" (bordo chiaro, fondo neutro), distinto sia dal viola `.on` sia
+   dal verde dei toggle attivi. */
+.afa-region-btn.is-selected { border-color: #cbd5e1; background: #334155; color: #f8fafc; box-shadow: inset 0 0 0 1px rgba(203,213,225,.55); }
+/* 1.3.0.75 - #btn-radar-afa: OFF neutro (bordo #334155, testo normale), ON verde
+   come gli altri toggle attivi. Il viola non aveva significato: veniva da un
+   border-color inline #a855f7 e da nessuna regola di stato. */
+#btn-radar-afa { border-color: #334155; }
+#btn-radar-afa.on { border-color: #22c55e; background: #14532d; color: #dcfce7; }
 /* 1.2.4.73 - STRUTTURA CONVETTIVA: DRAWER LATERALE (desktop) / BOTTOM-SHEET (mobile).
    Il pannello non sta piu' SOPRA la mappa: a >=1280px e' un cassetto fisso a destra
    (440px) che lascia scoperta la map-card; sotto i 1280px e' un foglio dal basso
@@ -2075,7 +2087,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
              1.3.0.53 - lo slot arriva da afaSlotIsoForUi(): prima del fix partiva
              da liveAfaSlotIso(), che legge SOLO scRadarData e restituiva null
              quando il pannello SC non aveva dati (il pulsante non faceva nulla). -->
-        <button type="button" class="tool-btn" id="btn-radar-afa" data-label="AFA · emissione ottica" onclick="afaToggleAfa()" title="Attività elettrica (AFA) MTG-I LI: area con emissione ottica, non conteggio di scariche. Copertura: Italia 6,6-18,8°E · 36,5-47,2°N · 12,2° su 1024 px = 1,33 km/px in EPSG:3857 (≈1,0 km/px al suolo a 42°N). Fonte: EUMETSAT CC BY 4.0." style="font-size:11px; display:none; border-color:#a855f7;">AFA · emissione ottica · OFF</button>
+        <button type="button" class="tool-btn" id="btn-radar-afa" data-label="AFA · emissione ottica" onclick="afaToggleAfa()" title="Attività elettrica (AFA) MTG-I LI: area con emissione ottica, non conteggio di scariche. Copertura: Italia 6,6-18,8°E · 36,5-47,2°N · 12,2° su 1024 px = 1,33 km/px in EPSG:3857 (≈1,0 km/px al suolo a 42°N). Fonte: EUMETSAT CC BY 4.0." style="font-size:11px; display:none;">AFA · emissione ottica · OFF</button>
         <select id="sat-source-select" class="tool-btn" onchange="changeSatSource(this.value)" title="Scegli il canale satellite EUMETSAT: infrarosso, Airmass RGB o Geo Colour RGB" style="font-size:11px; display:none; flex-shrink:0">
             <option value="eumetsat_italy" selected>EUMETSAT IR Italia (timeline)</option>
             <option value="eumetsat_airmass_italy">EUMETSAT / Airmass RGB Italia</option>
@@ -2168,9 +2180,9 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
         <button type="button" id="live-toggle-afa" class="sc-toggle" data-label="Attività elettrica (AFA)" onclick="afaToggleAfa()" title="Area con emissione ottica rilevata da MTG-I LI (AFA): non e' un conteggio di scariche e non distingue fulmini intra-nube da terra. Copertura: Italia 6,6-18,8°E · 36,5-47,2°N · 12,2° su 1024 px = 1,33 km/px in EPSG:3857 (≈1,0 km/px al suolo a 42°N). Fonte: EUMETSAT CC BY 4.0. Spento di default.">Attività elettrica (AFA) · OFF</button>
         <!-- 1.3.0.72 - A3: due inquadrature dello stesso strumento. Default Italia;
              il pulsante dell'AFA resta UNO: cambia solo la sorgente del frame. -->
-        <span id="afa-region-switch" style="display:inline-flex; gap:4px; margin-left:4px;" title="Inquadratura del layer AFA: Italia (serie statica del motore) o Europa (serie statica se pubblicata, altrimenti richiesta diretta al servizio EUMETSAT)">
-            <button type="button" id="afa-region-it" class="sc-toggle on" aria-pressed="true" onclick="afaSetRegion('it')" title="AFA Italia — Copertura: Italia 6,6-18,8°E · 36,5-47,2°N · 12,2° su 1024 px = 1,33 km/px in EPSG:3857 (≈1,0 km/px al suolo a 42°N) · serie statica satellite/afa">AFA Italia</button>
-            <button type="button" id="afa-region-eu" class="sc-toggle" aria-pressed="false" onclick="afaSetRegion('eu')" title="AFA Europa — Copertura: Europa -25-45°E · 30-72°N · 70° su 2048 px = 3,80 km/px in EPSG:3857 (≈2,4 km/px al suolo a 50°N) · serie statica se pubblicata, altrimenti GetMap diretta a EUMETSAT">AFA Europa</button>
+        <span id="afa-region-switch" style="display:none; gap:4px; margin-left:4px;" title="Inquadratura del layer AFA: Italia (serie statica del motore) o Europa (serie statica se pubblicata, altrimenti richiesta diretta al servizio EUMETSAT)">
+            <button type="button" id="afa-region-it" class="sc-toggle afa-region-btn is-selected" aria-pressed="true" onclick="afaSetRegion('it')" title="AFA Italia — Copertura: Italia 6,6-18,8°E · 36,5-47,2°N · 12,2° su 1024 px = 1,33 km/px in EPSG:3857 (≈1,0 km/px al suolo a 42°N) · serie statica satellite/afa">AFA Italia</button>
+            <button type="button" id="afa-region-eu" class="sc-toggle afa-region-btn" aria-pressed="false" onclick="afaSetRegion('eu')" title="AFA Europa — Copertura: Europa -25-45°E · 30-72°N · 70° su 2048 px = 3,80 km/px in EPSG:3857 (≈2,4 km/px al suolo a 50°N) · serie statica se pubblicata, altrimenti GetMap diretta a EUMETSAT">AFA Europa</button>
         </span>
         <!-- Sub-toggle spostati dal pannello #sc-radar-panel: stessa logica, stessi handler,
              id dedicati (live-toggle-*), visibili SOLO con celle organizzate attive (come #live-sc-*). -->
@@ -3230,9 +3242,17 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.74';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.75';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-24';
     const APP_CHANGELOG = [
+    { version: '1.3.0.75', date: '2026-11-24', changes: [
+      "NEVE: IL CAMPO NON COPRE PIÙ DOVE NON C'È NEVE. Raggio dedicato di 10 km (le altre grandezze 12/25) applicato in TUTTI i metodi, compresi full e contour: oltre 10 km il pixel resta trasparente anche con «copertura totale», perché la neve è discontinua e riempirla è inventarla. Dissolvenza dedicata 2 km (piena fino a 8 km, spenta a 10). Scala: sotto 1 cm è trasparente (0,5 cm compreso), poi 1/5/10/25/50/100/200/300 cm.",
+      "MISURA SUI DATI REALI (latest.json 2026-11-24T16:20Z, 146 stazioni con neve > 0, frame Italia 256x227, maschera province): pixel dipinti metodo local 4.252 -> 1.620 (-61,9%), terra 31,80% -> 11,76%; metodo full 14.359 -> 1.620 (-88,7%), terra 100% -> 11,76%; Sicilia (36,6-38,3N / 12,3-15,7E) dipinta 1.140 -> 0 in full e 0 -> 0 in local.",
+      "AFA: LA REGIONE NON È UN LAYER ACCESO. I pulsanti AFA Italia/Europa usavano la classe `.on` (viola), lo stesso stile dei toggle attivi: sembrava che l'AFA fosse ON mentre #btn-radar-afa diceva OFF. Ora hanno la classe `.afa-region-btn.is-selected` (bordo chiaro, fondo neutro), distinta sia dal viola `.on` sia dal verde dei toggle, e il selettore della regione è VISIBILE SOLO con l'AFA accesa (prima restava a schermo, selezionato, anche col layer spento).",
+      "#btn-radar-afa: OFF NEUTRO, ON VERDE. Il viola veniva da un `border-color:#a855f7` INLINE nel markup (nessuna regola di stato): rimosso. Ora OFF = bordo #334155 e testo normale; ON = bordo #22c55e, fondo #14532d, testo #dcfce7, come gli altri toggle attivi.",
+      "Riga di metodo del campo: per la neve dichiara «IDW k … entro 10 km»; corretto anche il testo che diceva «gaussiano» (il kernel è 1/(d²+1)) e il title non promette più copertura totale per la neve.",
+      "TEST: test_station_field.mjs 247 controlli / 0 falliti (neve a 0,5 e 0,9 cm trasparente, 1 cm visibile, 1 vs 25 cm distanza RGB 172 > 60; local/full/contour: centro e ~6 km dipinti, ~13 km alpha 0; controllo che in full la temperatura invece dipinga a 13 km). Nuovo scripts/validation/measure_station_field_13075.mjs. Browser headless: AFA OFF neutro, regione selezionata non «accesa», ON verde."
+    ]},
     { version: '1.3.0.74', date: '2026-11-24', changes: [
       "CAMPO CENTRALINE, BORDO QUASI NETTO (confini e costa): la maschera terra della 1.3.0.70 sfumava con dilatazione 2 px + box blur 5x5, cioe' ~7 px di gradiente sul raster 256x227 che il browser ingrandiva a ~15-20 px sullo schermo: il colore sembrava sconfinare oltre la costa. Ora la terra resta alpha 1, l'unico mare colorato e' l'anello di 1 px (box blur 3x3, alpha 0,44-0,67) e oltre 1 px l'alpha e' ESATTAMENTE 0. Il feather e' applicato UNA volta (prima era soft al quadrato fra raster e downscale).",
       "NEVE AL SUOLO, SCALA DEDICATA IN CM: la rampa vecchia era quella di snow_depth (in METRI) moltiplicata x100, quindi sotto i 50 cm tutte le bande erano verdi quasi identiche. Nuova scala a 10 bande in cm, bianco-azzurro -> blu -> viola (0,5/1/5/10/25/50/100/200/300 cm); 0 cm trasparente. 10 cm #38bdf8 e 100 cm #4c1d95 distano 160 sul canale verde.",
@@ -8881,11 +8901,11 @@ var liLabel;
         var it = document.getElementById('afa-region-it');
         var eu = document.getElementById('afa-region-eu');
         if (it) {
-            it.classList.toggle('on', afaRegion === 'it');
+            it.classList.toggle('is-selected', afaRegion === 'it');
             it.setAttribute('aria-pressed', afaRegion === 'it' ? 'true' : 'false');
         }
         if (eu) {
-            eu.classList.toggle('on', afaRegion === 'eu');
+            eu.classList.toggle('is-selected', afaRegion === 'eu');
             eu.setAttribute('aria-pressed', afaRegion === 'eu' ? 'true' : 'false');
         }
         afaSyncCoverage();
@@ -8961,6 +8981,12 @@ var liLabel;
             var lbl = b.getAttribute('data-label');
             if (lbl) b.textContent = lbl + (on ? ' · ON' : ' · OFF');
         }
+        // 1.3.0.75 - il selettore della REGIONE serve solo col layer acceso: con
+        // l'AFA OFF era un controllo "selezionato" per una cosa non visibile, ed
+        // e' esattamente cio' che faceva sembrare l'AFA accesa. Ora compare con
+        // il layer e sparisce con lui.
+        var sw = document.getElementById('afa-region-switch');
+        if (sw) sw.style.display = on ? 'inline-flex' : 'none';
     }
 
     // 1.3.0.72 - RETRY VISIBILE E STATO ONESTA. liveAfaWanted e' l'intenzione
@@ -20024,6 +20050,14 @@ stopSyncPlay();
     // Raggio della PIOGGIA in `local` (grandezza discontinua): 12 km. Con 25 km
     // un nucleo piovoso spalmava il colore dove le stazioni vicine segnavano 0.
     var STATION_FIELD_RAIN_CUTOFF_KM = 12;
+    // 1.3.0.75 - RAGGIO DELLA NEVE, 10 km in TUTTI i metodi (anche full/contour).
+    // La neve al suolo e' discontinua e localizzata: con il raggio di 25 km (e in
+    // full/contour senza limite) l'IDW fra stazioni lontane colorava l'intera
+    // penisola. Oltre 10 km il pixel resta TRASPARENTE pure in full/contour: li'
+    // non si riempie, perche' riempire sarebbe inventare la neve. La dissolvenza
+    // e' dedicata (2 km) e non i 14 km delle altre grandezze.
+    var STATION_FIELD_SNOW_CUTOFF_KM = 10;
+    var STATION_FIELD_SNOW_FADE_KM = 2;
     // 1.3.0.69 - TERZA MODALITA': `contour` = campo continuo (come `full`) PIU'
     // isolinee calcolate sui VALORI interpolati (marching squares), non sui colori.
     // Livelli per variabile: passo e livelli "marcati" (linea spessa + etichetta).
@@ -20228,11 +20262,12 @@ stopSyncPlay();
     // METRI) moltiplicata x100: sotto i 50 cm tutte le bande cadevano su un verde
     // quasi identico (verde scuro -> verde), da cui «0-100 cm e' sempre verde».
     // 1.3.0.74: scala DEDICATA in cm, 10 bande bianco-azzurro -> blu -> viola.
-    // 0 cm resta TRASPARENTE (gli zeri non si disegnano), 0,5 cm e' gia' visibile.
+    // 1.3.0.75: sotto 1 cm e' TRASPARENTE (0,5 cm compreso: una traccia di neve
+    // non deve dipingere), poi 1/5/10/25/50/100/200/300 cm sono visibili.
     var STATION_FIELD_SNOW_BREAKPOINTS = [0, 0.5, 1, 5, 10, 25, 50, 100, 200, 300];
     var STATION_FIELD_SNOW_COLORS = [
         [224, 242, 254, 0],   // 0 cm   trasparente
-        [224, 242, 254, 1],   // 0,5 cm #e0f2fe
+        [224, 242, 254, 0],   // 0,5 cm trasparente (soglia minima 1 cm)
         [186, 230, 253, 1],   // 1 cm   #bae6fd
         [125, 211, 252, 1],   // 5 cm   #7dd3fc
         [56, 189, 248, 1],    // 10 cm  #38bdf8
@@ -20955,7 +20990,12 @@ stopSyncPlay();
         // SOLO in `local`. In `full`/`contour` il raggio resta illimitato perche'
         // il metodo dichiara l'inferenza; il colore resta comunque trasparente
         // dove il valore interpolato cade nella prima banda (asciutto).
-        var cut = (!full && stationFieldVar === 'rain') ? STATION_FIELD_RAIN_CUTOFF_KM : CUT;
+        // 1.3.0.75 - NEVE: 10 km in TUTTI i metodi. Anche in full/contour il
+        // pixel oltre 10 km non si riempie: la neve e' discontinua e inventarla su
+        // tutta la terra era il difetto segnalato («ha nevicato in tutta Italia»).
+        var isSnow = (stationFieldVar === 'snow');
+        var cut = isSnow ? STATION_FIELD_SNOW_CUTOFF_KM
+                  : ((!full && stationFieldVar === 'rain') ? STATION_FIELD_RAIN_CUTOFF_KM : CUT);
         // INDICE A BUCKET SU ARRAY PIATTI (niente Map, niente chiavi stringa):
         // counts -> offset (somme prefisse) -> indici dei punti ordinati per cella.
         // Con 58.112 pixel e una finestra 7x7 di celle sono ~2,85 M letture di
@@ -21086,7 +21126,12 @@ stopSyncPlay();
                 else if (!cand.length) continue;
                 got = idwAt(lat, lon, list, cosLat, K, cut);
                 if (got.v === null || got.dk === null) continue;
-                var fade = full ? 1 : (CUT - got.dk) / FADE;
+                // 1.3.0.75 - la neve sfuma sul SUO raggio: (10-dk)/2, cosi' il
+                // colore e' pieno fino a 8 km e si spegne a 10. Per `full`/`contour`
+                // le altre grandezze restano senza fade (copertura totale
+                // dichiarata); la neve no, perche' la' il cut-off vale sempre.
+                var fade = isSnow ? ((STATION_FIELD_SNOW_CUTOFF_KM - got.dk) / STATION_FIELD_SNOW_FADE_KM)
+                                  : (full ? 1 : (CUT - got.dk) / FADE);
                 if (fade < 0) fade = 0;
                 if (fade > 1) fade = 1;
                 var a = 235 * fade * mk;
@@ -21562,7 +21607,9 @@ stopSyncPlay();
                     (st.coverageN ? '; copertura media ' + fmtNum(100 * st.coverageSum / st.coverageN, 0) + '%'
                                   : '; copertura non dichiarata dal server') +
                     (st.method === 'full' || st.method === 'contour'
-                        ? '; interpolazione con copertura totale: dove non ci sono stazioni vicine il valore è un\'inferenza' : '') +
+                        ? (spec.varKey === 'snow'
+                            ? '; neve: raggio ' + STATION_FIELD_SNOW_CUTOFF_KM + ' km anche con copertura totale'
+                            : '; interpolazione con copertura totale: dove non ci sono stazioni vicine il valore è un\'inferenza') : '') +
                     '. La finestra dice quanti minuti/ore di dati entrano nel valore; l\'età dice quanto è ' +
                     'recente l\'ultima osservazione della stazione.';
                 el.title = titleTxt;
@@ -21580,19 +21627,27 @@ stopSyncPlay();
             // sull'onestà del dato. Il resto va nel title.
             var isFull = (stationFieldMethod === 'full' || stationFieldMethod === 'contour');
             var methodTxt = 'Unità ' + spec.unit + ' · scala ' + (spec.scale || 'nessuna') +
-                ' · ' + (isFull ? 'gaussiano su reticolo 0,5°' : 'gaussiano σ 12,5 km') +
+                ' · ' + (spec.varKey === 'snow'
+                    ? 'IDW k ' + (isFull ? STATION_FIELD_FULL_K : STATION_FIELD_K) +
+                      ' entro ' + STATION_FIELD_SNOW_CUTOFF_KM + ' km'
+                    : (isFull ? 'IDW k ' + STATION_FIELD_FULL_K + ' senza cut-off'
+                              : 'IDW k ' + STATION_FIELD_K + ' entro ' + STATION_FIELD_CUTOFF_KM + ' km')) +
                 ' · non è un campo radar';
             if (spec.varKey === 'snow') methodTxt += ' · solo neve > 0';
             if (spec.meanFallback) methodTxt += ' · valore istantaneo';
             method.textContent = methodTxt;
             method.title = 'Interpolazione IDW da ' + n + ' stazioni.' +
-                (isFull
-                    ? ' La superficie copre tutta la terra: dove non ci sono stazioni vicine il valore è' +
-                      ' un\'inferenza, non una misura.' +
-                      (stationFieldMethod === 'contour'
-                          ? ' Le isolinee sono calcolate sui valori interpolati (marching squares), non sui colori.'
-                          : '')
-                    : ' Trasparente dove non ci sono vicini entro ' + STATION_FIELD_CUTOFF_KM + ' km.') +
+                (spec.varKey === 'snow'
+                    ? ' La neve è discontinua: raggio dedicato di ' + STATION_FIELD_SNOW_CUTOFF_KM +
+                      ' km in TUTTI i metodi, oltre il quale il pixel resta trasparente anche con' +
+                      ' copertura totale (non si riempie dove non c\'è una stazione vicina).'
+                    : (isFull
+                        ? ' La superficie copre tutta la terra: dove non ci sono stazioni vicine il valore è' +
+                          ' un\'inferenza, non una misura.' +
+                          (stationFieldMethod === 'contour'
+                              ? ' Le isolinee sono calcolate sui valori interpolati (marching squares), non sui colori.'
+                              : '')
+                        : ' Trasparente dove non ci sono vicini entro ' + STATION_FIELD_CUTOFF_KM + ' km.')) +
                 ' Non è una misura d\'area: dice dove le centraline che possono misurare hanno osservato.' +
                 (spec.scale === 'station_relative_humidity'
                     ? ' Opacità della banda forzata a 1: la rampa del registro sfuma a trasparente sotto il 50%.'
