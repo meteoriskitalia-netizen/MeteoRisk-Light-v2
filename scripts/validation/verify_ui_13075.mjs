@@ -135,8 +135,48 @@ try {
       liveAfaSyncButtons(false);
       swAfterOff = sw ? getComputedStyle(sw).display : null;
     }
+    // 1.3.0.75 (quarta correzione) - riga #live-afa-status.
+    var row = byId('live-afa-status');
+    var rowState = function () {
+      return row ? { display: getComputedStyle(row).display, html: row.innerHTML,
+                     text: (row.textContent || '').trim() } : null;
+    };
+    // «Struttura convettiva» ON, AFA OFF: la riga NON deve esserci.
+    window.liveShowSupercells = true;
+    window.liveAfaEnabled = false;
+    window.liveAfaMeta = null;
+    window.liveUpdateAfaStatus();
+    var rowScOnAfaOff = rowState();
+    // AFA ON con pixel reali.
+    window.liveAfaEnabled = true;
+    window.liveAfaMeta = { slot: '2026-11-24T14:35:00Z', region: 'it', px: 582, hasSignal: true };
+    window.liveUpdateAfaStatus();
+    var rowAfaOn = rowState();
+    // AFA ON senza segnale (has_signal false).
+    window.liveAfaMeta = { slot: '2026-11-24T14:40:00Z', region: 'it', px: 0, hasSignal: false };
+    window.liveUpdateAfaStatus();
+    var rowNoSignal = rowState();
+    // AFA ON senza metadati (es. GetMap Europa): area con emissione ottica.
+    window.liveAfaMeta = { slot: '2026-11-24T14:45:00Z', region: 'eu', px: null, hasSignal: null };
+    window.liveUpdateAfaStatus();
+    var rowNoPx = rowState();
+    // Ciclo reale via liveAfaSyncButtons.
+    window.liveAfaEnabled = true;
+    window.liveAfaMeta = { slot: '2026-11-24T14:50:00Z', region: 'it', px: 12, hasSignal: true };
+    window.liveAfaSyncButtons(true);
+    var rowSyncOn = rowState();
+    window.liveAfaEnabled = false;
+    window.liveAfaMeta = null;
+    window.liveAfaSyncButtons(false);
+    var rowSyncOff = rowState();
     return {
       debug: dbg,
+      row_sc_on_afa_off: rowScOnAfaOff,
+      row_afa_on: rowAfaOn,
+      row_no_signal: rowNoSignal,
+      row_no_px: rowNoPx,
+      row_sync_on: rowSyncOn,
+      row_sync_off: rowSyncOff,
       switch_afa_off: swOff,
       switch_afa_on: swAfterOn,
       switch_afa_off_again: swAfterOff,
@@ -188,6 +228,27 @@ try {
   ck('AFA sincronizzato ON: bordo verde #22c55e',
     d.btn_afa_sync_on && d.btn_afa_sync_on.bordo === 'rgb(34, 197, 94)',
     d.btn_afa_sync_on && d.btn_afa_sync_on.bordo);
+  ck('SC ON + AFA OFF: #live-afa-status NON a schermo e vuota',
+    d.row_sc_on_afa_off && d.row_sc_on_afa_off.display === 'none' && d.row_sc_on_afa_off.html === '',
+    d.row_sc_on_afa_off && (d.row_sc_on_afa_off.display + ' html=' + JSON.stringify(d.row_sc_on_afa_off.html)));
+  ck('AFA ON: testo utile «AFA MTG-I · slot 14:35 · 582 px attivi»',
+    d.row_afa_on && /AFA MTG-I · slot 14:35 · 582 px attivi/.test(d.row_afa_on.text),
+    d.row_afa_on && d.row_afa_on.text);
+  ck('nessun messaggio di debug («dato non pubblicato in latest.json»)',
+    [d.row_sc_on_afa_off, d.row_afa_on, d.row_no_signal, d.row_no_px, d.row_sync_on, d.row_sync_off]
+      .every((r) => !r || !/dato non pubblicato|vedi strutture/.test(r.text)));
+  ck('AFA ON con has_signal false: «nessun pixel attivo»',
+    d.row_no_signal && /slot 14:40 · nessun pixel attivo/.test(d.row_no_signal.text),
+    d.row_no_signal && d.row_no_signal.text);
+  ck('AFA ON senza metadati (Europa WMS): «area con emissione ottica»',
+    d.row_no_px && /slot 14:45 · area con emissione ottica/.test(d.row_no_px.text),
+    d.row_no_px && d.row_no_px.text);
+  ck('liveAfaSyncButtons(true) con layer acceso: riga visibile con slot e pixel',
+    d.row_sync_on && d.row_sync_on.display !== 'none' && /slot 14:50 · 12 px attivi/.test(d.row_sync_on.text),
+    d.row_sync_on && d.row_sync_on.text);
+  ck('liveAfaSyncButtons(false): riga nascosta e svuotata (nessun residuo)',
+    d.row_sync_off && d.row_sync_off.display === 'none' && d.row_sync_off.html === '',
+    d.row_sync_off && (d.row_sync_off.display + ' html=' + JSON.stringify(d.row_sync_off.html)));
   ck('APP_VERSION = 1.3.0.75', d.app_version === '1.3.0.75', d.app_version);
 
   out.checks = checks;

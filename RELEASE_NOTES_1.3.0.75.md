@@ -54,6 +54,29 @@ Nuove regole:
 - ON → bordo **`#22c55e`** (`rgb(34,197,94)`), fondo `#14532d`, testo `#dcfce7`,
   come gli altri toggle attivi.
 
+## 4) Riga `#live-afa-status`: solo con l'AFA accesa, testo utile
+
+Prima la riga compariva attivando **«Struttura convettiva»** e mostrava un
+messaggio di debug: «dato non pubblicato in latest.json — vedi strutture».
+
+Ora:
+
+- visibile **solo quando il layer AFA è effettivamente in mappa**
+  (`liveAfaEnabled`); a layer spento è `display:none` e vuota;
+- **nessun legame con `liveShowSupercells`** (il gate che la mostrava è rimosso);
+- testo: **`AFA MTG-I · slot HH:MM · N px attivi`**, oppure
+  **`· nessun pixel attivo`** (`has_signal:false` o 0 px), oppure
+  **`· area con emissione ottica`** senza metadati (es. GetMap Europa);
+- slot e pixel vengono da `liveAfaMeta`, scritto da `afaUpdateLegend` con i campi
+  reali del manifest (`served_iso`, `active_pixels`, `has_signal`); azzerato da
+  `liveAfaRemoveLayer`.
+
+Verifica headless (stessa Chrome 1243, DOM reale): **22/22 PASS**, in particolare
+`SC ON + AFA OFF` → riga `none` e vuota; AFA ON → `slot 14:35 · 582 px attivi`;
+`has_signal:false` → `nessun pixel attivo`; senza metadati → `area con emissione
+ottica`; `liveAfaSyncButtons(true/false)` → riga visibile poi nascosta e svuotata,
+senza residui.
+
 ## Verifica
 
 - `scripts/tests/test_station_field.mjs`: **247 controlli / 0 falliti**

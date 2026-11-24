@@ -2309,13 +2309,11 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     </div>
     <div id="live-sc-confidence" class="sc-confidence" style="display:none;"></div>
     <div id="live-sc-summary" style="display:none;gap:8px;flex-wrap:wrap;padding:0 10px 6px 10px;font-size:11px;color:#e2e8f0;"></div>
-    <!-- FIX 1.3.0.40 - indicatore qualitativo ONESTO dell'attivita' elettrica.
-         `latest.json` NON pubblica un campo `lightning_afa` con conteggio (verificato
-         sul payload reale 2026-11-21: solo `engine.stage_timings_ms.stages.lightning_afa`,
-         un tempo di esecuzione, e `phase2_best_candidate.lightning: null`). Il conteggio
-         viene quindi letto dalle strutture gia' caricate (convective_structures.json),
-         dove `lightning_afa.value` e' un booleano per struttura. Nessun numero inventato:
-         se il campo manca si dice che il dato non e' pubblicato. -->
+    <!-- 1.3.0.40 / 1.3.0.75 (quarta correzione) - riga di stato AFA del pannello LIVE.
+         Ora NON e' legata a «Struttura convettiva»: la mostra solo
+         liveUpdateAfaStatus() quando il layer AFA e' davvero in mappa
+         (liveAfaEnabled), con slot e pixel del frame servito. Con l'AFA spenta
+         resta display:none e vuota (nessun messaggio di debug). -->
     <div id="live-afa-status" class="sc-cells-count" style="display:none;margin-top:0;"></div>
     <div id="live-sc-phenomena" style="display:none;"></div>
     <div id="live-sc-list" style="max-height:220px;overflow-y:auto;border-top:1px solid #334155;"></div>
@@ -3250,6 +3248,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
       "MISURA SUI DATI REALI (latest.json 2026-11-24T16:20Z, 146 stazioni con neve > 0, frame Italia 256x227, maschera province): pixel dipinti metodo local 4.252 -> 1.620 (-61,9%), terra 31,80% -> 11,76%; metodo full 14.359 -> 1.620 (-88,7%), terra 100% -> 11,76%; Sicilia (36,6-38,3N / 12,3-15,7E) dipinta 1.140 -> 0 in full e 0 -> 0 in local.",
       "AFA: LA REGIONE NON È UN LAYER ACCESO. I pulsanti AFA Italia/Europa usavano la classe `.on` (viola), lo stesso stile dei toggle attivi: sembrava che l'AFA fosse ON mentre #btn-radar-afa diceva OFF. Ora hanno la classe `.afa-region-btn.is-selected` (bordo chiaro, fondo neutro), distinta sia dal viola `.on` sia dal verde dei toggle, e il selettore della regione è VISIBILE SOLO con l'AFA accesa (prima restava a schermo, selezionato, anche col layer spento).",
       "#btn-radar-afa: OFF NEUTRO, ON VERDE. Il viola veniva da un `border-color:#a855f7` INLINE nel markup (nessuna regola di stato): rimosso. Ora OFF = bordo #334155 e testo normale; ON = bordo #22c55e, fondo #14532d, testo #dcfce7, come gli altri toggle attivi.",
+      "RIGA #live-afa-status: prima compariva attivando «Struttura convettiva» e mostrava un messaggio di debug («dato non pubblicato in latest.json — vedi strutture»), anche con l'AFA spenta. Ora è visibile SOLO con il layer AFA effettivamente in mappa (liveAfaEnabled), senza alcun legame con liveShowSupercells; il testo è «AFA MTG-I · slot HH:MM · N px attivi» (oppure «nessun pixel attivo» con has_signal false / 0 px, oppure «area con emissione ottica» senza metadati, es. GetMap Europa). Slot e pixel vengono da liveAfaMeta, scritto da afaUpdateLegend con i campi reali del manifest; allo spegnimento la riga è display:none e svuotata.",
       "Riga di metodo del campo: per la neve dichiara «IDW k … entro 10 km»; corretto anche il testo che diceva «gaussiano» (il kernel è 1/(d²+1)) e il title non promette più copertura totale per la neve.",
       "TEST: test_station_field.mjs 247 controlli / 0 falliti (neve a 0,5 e 0,9 cm trasparente, 1 cm visibile, 1 vs 25 cm distanza RGB 172 > 60; local/full/contour: centro e ~6 km dipinti, ~13 km alpha 0; controllo che in full la temperatura invece dipinga a 13 km). Nuovo scripts/validation/measure_station_field_13075.mjs. Browser headless: AFA OFF neutro, regione selezionata non «accesa», ON verde."
     ]},
@@ -8649,6 +8648,10 @@ var liLabel;
     var liveAfaRetryCount = 0;
     var liveAfaFrameGen = 0;
     var liveAfaStatusMsg = null;
+    // 1.3.0.75 (quarta correzione) - ultimo frame AFA servito, per la riga di
+    // stato #live-afa-status: { slot, px, hasSignal }. Lo scrive afaUpdateLegend
+    // con i campi REALI del manifest (afa_meta.active_pixels / has_signal).
+    var liveAfaMeta = null;
 
     function afaRegionDef() { return AFA_REGIONS[afaRegion] || AFA_REGIONS[AFA_REGION_DEFAULT]; }
     function afaNum(v) { return String(Math.round(Number(v) * 10) / 10).replace('.', ','); }
@@ -8833,6 +8836,14 @@ var liLabel;
         afaShowLegend();
         if (!st) return;
         liveAfaStatusMsg = null;
+        // 1.3.0.75 (quarta correzione) - memorizza lo slot e i pixel REALI del
+        // frame servito: la riga #live-afa-status li legge da qui.
+        liveAfaMeta = {
+            slot: servedIso || null,
+            region: afaRegion,
+            px: (meta && typeof meta.active_pixels === 'number') ? meta.active_pixels : null,
+            hasSignal: (meta && typeof meta.has_signal !== 'undefined') ? meta.has_signal : null
+        };
         var served = String(servedIso || '');
         var text;
         if (meta && typeof meta.has_signal !== 'undefined') {
@@ -8966,6 +8977,9 @@ var liLabel;
         // 1.3.0.72 - invalida gli handler di caricamento in volo: un errore tardivo
         // del frame rimosso non deve cambiare lo stato del toggle.
         liveAfaFrameGen++;
+        // 1.3.0.75 (quarta correzione) - nessun frame servito: la riga di stato
+        // non deve restare con lo slot del frame precedente.
+        liveAfaMeta = null;
         // 1.3.0.53 - la legenda AFA sparisce con il layer: nessun riquadro orfano.
         afaHideLegend();
         liveAfaSyncButtons(false);
@@ -8987,6 +9001,9 @@ var liLabel;
         // il layer e sparisce con lui.
         var sw = document.getElementById('afa-region-switch');
         if (sw) sw.style.display = on ? 'inline-flex' : 'none';
+        // 1.3.0.75 (quarta correzione) - la riga di stato AFA segue il layer:
+        // accesa -> testo con slot e pixel; spenta -> non esiste a schermo.
+        liveUpdateAfaStatus();
     }
 
     // 1.3.0.72 - RETRY VISIBILE E STATO ONESTA. liveAfaWanted e' l'intenzione
@@ -13391,40 +13408,34 @@ removeLightningTile();
             (shearKnown ? '<span class="sc-chip sc-chip-neutral" title="Shear azimutale osservato dal radar Doppler: solo le strutture con una misura valida hanno il simbolo; le altre portano il motivo nella riga.">Shear Doppler ' + shearValued + '/' + shearKnown + '</span>' : '');
     }
 
-    // FIX 1.3.0.40 - indicatore AFA onesto nel Pannello LIVE.
-    // `latest.json` NON contiene un campo `lightning_afa` con conteggio: viene
-    // letto dalle strutture gia' caricate (scRadarData.structures), dove
-    // lightning_afa.value e' un booleano (area con emissione ottica nel raggio,
-    // NON conteggio di scariche). Nessun collegamento al tracking o al SOI
-    // (nessuna soglia validata, memoria #218): e' solo un conteggio descrittivo.
+    // 1.3.0.75 (quarta correzione) - INDICATORE AFA DEL PANNELLO LIVE.
+    // Prima la riga compariva con «Struttura convettiva» ACCESA e mostrava un
+    // messaggio di debug («dato non pubblicato in latest.json — vedi strutture»),
+    // anche con l'AFA spenta. Ora:
+    //   - visibile SOLO se il layer AFA e' davvero in mappa (liveAfaEnabled);
+    //   - nessun legame con liveShowSupercells (Struttura convettiva);
+    //   - testo utile con lo slot e i pixel del frame servito, letti da
+    //     `liveAfaMeta` (scritto da afaUpdateLegend con i campi del manifest).
+    // I pixel sono l'AREA con emissione ottica, NON un conteggio di scariche:
+    // nessun collegamento al tracking o al SOI (memoria #218).
     function liveAfaStatusHtml() {
-        var structures = (scRadarData && Array.isArray(scRadarData.structures)) ? scRadarData.structures : [];
-        var disclaimer = 'Indicatore di attività ottica, NON conteggio di scariche; non distingue fulmini intra-nube da terra. Fonte: EUMETSAT CC BY 4.0';
-        if (!structures.length) {
-            return '<b>Attività elettrica (MTG-I LI AFA):</b> dato non pubblicato in latest.json — vedi strutture' +
-                '<span class="sc-cells-sub">' + disclaimer + '</span>';
-        }
-        var known = 0, active = 0, i, a;
-        for (i = 0; i < structures.length; i++) {
-            a = structures[i] && structures[i].lightning_afa;
-            if (a && typeof a === 'object' && (a.value === true || a.value === false)) {
-                known++;
-                if (a.value === true) active++;
-            }
-        }
-        var head = known
-            ? '<b>Attività elettrica (MTG-I LI AFA): ' + active + ' strutture con emissione ottica nelle ultime 30 min</b>' +
-              '<span class="sc-cells-sub">su ' + known + ' strutture con campo AFA disponibile · ' +
-              'conteggio letto da convective_structures.json (latest.json non pubblica un conteggio AFA)</span>'
-            : '<b>Attività elettrica (MTG-I LI AFA):</b> dato non pubblicato in latest.json — vedi strutture';
-        return head + '<span class="sc-cells-sub' + (known ? '' : ' sc-cells-warn') + '">' + disclaimer + '</span>' +
-            '<span class="sc-cells-sub">Il raster AFA è attivabile con il toggle «Attività elettrica (AFA)» sulla mappa: mostra l\'area coperta dall\'emissione ottica, non i fulmini puntuali.</span>';
+        if (!liveAfaEnabled) return '';
+        var meta = liveAfaMeta || {};
+        var iso = meta.slot || liveAfaLastIso || '';
+        var hhmm = (typeof iso === 'string' && iso.length >= 16) ? iso.substr(11, 5) : '';
+        var px = (typeof meta.px === 'number' && isFinite(meta.px)) ? Math.round(meta.px) : null;
+        var head = 'AFA MTG-I' + (hhmm ? ' · slot ' + hhmm : '');
+        if (meta.hasSignal === false || px === 0) head += ' · nessun pixel attivo';
+        else if (px !== null) head += ' · ' + px + ' px attivi';
+        else head += ' · area con emissione ottica';
+        return '<b>' + head + '</b>' +
+            '<span class="sc-cells-sub">Area con emissione ottica, non un conteggio di scariche; non distingue fulmini intra-nube da terra. Fonte: EUMETSAT CC BY 4.0</span>';
     }
 
     function liveUpdateAfaStatus() {
         var el = document.getElementById('live-afa-status');
         if (!el) return;
-        if (!liveShowSupercells) { el.style.display = 'none'; el.innerHTML = ''; return; }
+        if (!liveAfaEnabled) { el.style.display = 'none'; el.innerHTML = ''; return; }
         el.style.display = '';
         el.innerHTML = liveAfaStatusHtml();
     }
