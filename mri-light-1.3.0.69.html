@@ -20146,6 +20146,11 @@ stopSyncPlay();
                 spec.meanPending = true;
                 return spec;
             }
+            // 1.3.0.69 - FINESTRA DICHIARATA NON PUBBLICATA (strictAbsence): si
+            // risponde PRIMA del fallback. `temp_mean_day_c` (media della giornata)
+            // non esiste in latest.json per costruzione: tentare il file completo
+            // sarebbe un download da ~6 MB per niente, e lo stato direbbe «carico»
+            // invece della verita' («il server pubblica massima e minima»).
             // 1.3.0.69 - TRE STATI ONESTI. Prima la coda di questa funzione diceva
             // «non è pubblicata dal server» anche quando il campo esisteva in
             // latest.json e mancava solo la COLONNA nell'indice compatto: MISURATO
