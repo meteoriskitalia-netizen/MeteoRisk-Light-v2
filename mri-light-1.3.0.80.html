@@ -1273,6 +1273,11 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
             margin-bottom: 4px;
         }
         .nowcast-panel-title { font-size: 11px; color: #64748b; }
+        /* 1.3.0.80 - riga slot + pulsante Aggiorna del nowcast. */
+        .nowcast-slot-row { display: inline-flex; align-items: center; gap: 8px; font-size: 10px; color: #94a3b8; }
+        #nowcast-refresh { padding: 2px 8px; border-radius: 10px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; font-size: 10px; cursor: pointer; }
+        #nowcast-refresh:hover { background: #334155; }
+        #nowcast-refresh:disabled { opacity: .6; cursor: default; }
         /* 1.3.0.78 - legenda SRI del nowcast: 6 stop con gli stessi RGB del radar
            (DPC_SRI_STOPS); gli official sono indicati nell'etichetta della timeline. */
         .nowcast-ramp { display: flex; height: 10px; border: 1px solid #334155; border-radius: 3px; overflow: hidden; }
@@ -2730,6 +2735,11 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
         <div class="nowcast-panel" id="nowcast-panel" style="display:none;">
             <div class="nowcast-panel-head">
                 <div class="nowcast-panel-title">Nowcast pioggia (SRI DPC) — previsione per trasporto · player nella timeline sincronizzata</div>
+                <!-- 1.3.0.80 - Freshness dello slot + aggiornamento manuale. -->
+                <div class="nowcast-slot-row">
+                    <span id="nowcast-slot" title="Slot sorgente del nowcast e quanti minuti sono passati">slot -</span>
+                    <button type="button" id="nowcast-refresh" onclick="nowcastManualRefresh()" title="Rileggi ora data/radar/nowcast.json e aggiorna i frame del nowcast">Aggiorna</button>
+                </div>
             </div>
 
             <div class="nowcast-legend" id="nowcast-legend">
@@ -3279,9 +3289,17 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.79';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.80';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-24';
     const APP_CHANGELOG = [
+    { version: '1.3.0.80', date: '2026-11-24', changes: [
+      "NOWCAST: AGGIORNAMENTO AUTOMATICO OGNI 5 MINUTI mentre il prodotto e' attivo (il motore gira ogni 10, il polling a 5 non perde il giro). Se source_slot cambia, il JSON viene riletto e la timeline ricostruita sui nuovi leads[]; la posizione NON si resetta: si mantiene lo stesso lead_min (in pausa o in play) e si aggiorna l'immagine.",
+      "CACHE DEI WEBP: URL NUDO e reload forzato con fetch(cache:'reload') + blob per file (nessuna query-string: il CDN risponde 404 con ?v=). Il nuovo blob sostituisce la versione vecchia; nessun 404 introdotto.",
+      "Tasto «Aggiorna» nel pannello del nowcast: rilegge subito nowcast.json, stato «aggiorno…» -> «slot HH:MM», title valido; se il fetch fallisce -> «slot non disponibile».",
+      "STOP PULITO: cambiando prodotto o spegnendo, l'intervallo viene cancellato (nessun timer orfano); il tick non fa fetch se document.hidden e al ritorno in primo piano riprende se sono passati >= 5 minuti.",
+      "FRESCHEZZA: l'etichetta dello slot mostra «slot HH:MM» e, oltre 30 minuti, «slot HH:MM · N min fa» invece di far sembrare attuale un dato vecchio.",
+      "TEST: node --check 9/9; test_html_js_syntax e test_tooltips_coverage 3 passed; test_sw_cache_policy; browser reale CDP con JSON mutabile: slot cambiato senza reload, +30 preservato con immagine blob nuova, Aggiorna manuale, background senza fetch, timer fermato al cambio prodotto, nessun 404/query."
+    ]},
     { version: '1.3.0.79', date: '2026-11-24', changes: [
       "LEGENDA NOWCAST ALLINEATA ALLA SCALA SRI: le tacche non sono piu' 0,05/0,5/2/5/10/20+ ma 1/5/10/20/50/100 mm/h, con gli stessi RGB della legenda SRI del radar (DPC_SRI_STOPS, rampa Universal Blue usata dai WebP). Costruita a runtime dalla costante del radar: nessun colore duplicato a mano.",
       "NOTA BREVE: resta «dopo 30 minuti l'affidabilità cala» e si aggiunge una riga sola: sotto 1 mm/h il radar osservato è trasparente, il nowcast mostra la pioggia debole.",
@@ -27217,28 +27235,44 @@ function toggleForecastMaps() {
     // ON si precaricano tutti i WebP (~8 KB ciascuno, ~100 KB per 12 frame).
     var NOWCAST_URL = 'data/radar/nowcast.json';
     var NOWCAST_PLAY_MS = 700;
+    var NOWCAST_REFRESH_MS = 5 * 60 * 1000;   // 5 min: il motore gira ogni 10, cosi' non si perde il giro
+    var NOWCAST_STALE_MIN = 30;
     var nowcastState = {
         data: null, loaded: false, loading: false, waiters: [],
         layer: null, frame: 0, on: false, timelineActive: false,
-        preloaded: [], preloadFor: null
+        preloaded: [], preloadFor: null,
+        slot: null, blobs: {}, refreshTimer: null, refreshing: false, lastFetchMs: 0
     };
+    // Fetch del JSON: cache:'reload' (niente query-string sul CDN). Aggiorna lo
+    // stato e lo slot solo se la risposta e' valida.
+    function nowcastFetchData(cb) {
+        return fetch(NOWCAST_URL, { cache: 'reload' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .catch(function () { return null; })
+            .then(function (d) {
+                nowcastState.lastFetchMs = Date.now();
+                // NON aggiornare qui `slot`: il confronto vecchio/nuovo lo fa
+                // nowcastApplyFreshData, altrimenti risulterebbe sempre invariato.
+                if (d) { nowcastState.data = d; }
+                if (cb) { try { cb(d); } catch (e) { } }
+                return d;
+            });
+    }
     function nowcastLoad(cb) {
         if (nowcastState.loaded) { if (cb) { try { cb(nowcastState.data); } catch (e) { } } return; }
         if (cb) nowcastState.waiters.push(cb);
         if (nowcastState.loading) return;
         nowcastState.loading = true;
-        fetch(NOWCAST_URL, { cache: 'no-store' })
-            .then(function (r) { return r.ok ? r.json() : null; })
-            .then(function (d) { nowcastState.data = d; })
-            .catch(function () { nowcastState.data = null; })
-            .then(function () {
-                nowcastState.loading = false;
-                nowcastState.loaded = true;
-                var w = nowcastState.waiters.slice();
-                nowcastState.waiters = [];
-                for (var i = 0; i < w.length; i++) { try { w[i](nowcastState.data); } catch (e) { } }
-                if (typeof nowcastSyncProductOption === 'function') nowcastSyncProductOption();
-            });
+        nowcastFetchData(function () {
+            nowcastState.loading = false;
+            nowcastState.loaded = true;
+            nowcastState.slot = (nowcastState.data && nowcastState.data.source_slot) || null;
+            var w = nowcastState.waiters.slice();
+            nowcastState.waiters = [];
+            for (var i = 0; i < w.length; i++) { try { w[i](nowcastState.data); } catch (e) { } }
+            if (typeof nowcastSyncProductOption === 'function') nowcastSyncProductOption();
+            nowcastUpdateSlot();
+        });
     }
     // Lista frame NORMALIZZATA dal JSON: ordina per lead_min e tiene solo i lead
     // con un'immagine. PURA: testabile con 3 o 12 lead, nessun numero hardcodato.
@@ -27260,6 +27294,125 @@ function toggleForecastMaps() {
     function nowcastLeads() { return nowcastLeadList(nowcastState.data); }
     function nowcastIsOfficial(item) { return !!(item && item.official); }
     function nowcastImgUrl(item) { return 'data/radar/' + item.image; }
+    // Sorgente effettiva dell'overlay: blob aggiornato col reload se c'e',
+    // altrimenti l'URL nudo (mai una query-string: il CDN risponde 404).
+    function nowcastSrc(item) {
+        var b = nowcastState.blobs && nowcastState.blobs[item.image];
+        return b || nowcastImgUrl(item);
+    }
+    function nowcastSlotLabel(d) {
+        d = d || nowcastState.data;
+        var slot = d && d.source_slot;
+        if (!slot) return 'slot \u2014';
+        var ms = new Date(slot).getTime();
+        if (isNaN(ms)) return 'slot \u2014';
+        var t;
+        try { t = new Date(ms).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }); }
+        catch (e) { t = String(slot); }
+        var age = Math.floor((Date.now() - ms) / 60000);
+        return 'slot ' + t + (age > NOWCAST_STALE_MIN ? ' \u00b7 ' + age + ' min fa' : '');
+    }
+    function nowcastUpdateSlot(txt) {
+        var el = document.getElementById('nowcast-slot');
+        if (el) el.textContent = txt || nowcastSlotLabel(nowcastState.data);
+    }
+    // Ricarica i WebP con cache:'reload' (URL nudo) e tiene un blob per file:
+    // il browser non puo' servire la versione vecchia e non si usa ?v=.
+    function nowcastRefreshImages(cb) {
+        var leads = nowcastLeads();
+        if (!leads.length) { if (cb) cb(); return; }
+        var pending = leads.length, doneCalled = false;
+        function done() { if (--pending <= 0 && !doneCalled) { doneCalled = true; if (cb) cb(); } }
+        for (var i = 0; i < leads.length; i++) {
+            (function (item) {
+                fetch(nowcastImgUrl(item), { cache: 'reload' })
+                    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+                    .then(function (b) {
+                        var old = nowcastState.blobs[item.image];
+                        var u = URL.createObjectURL(b);
+                        nowcastState.blobs[item.image] = u;
+                        if (old) { try { URL.revokeObjectURL(old); } catch (e) { } }
+                    })
+                    .catch(function () { /* resta l'URL nudo gia' funzionante */ })
+                    .then(done);
+            })(leads[i]);
+        }
+    }
+    // Applica i dati nuovi: se lo slot e' cambiato ricostruisce la timeline
+    // mantenendo il lead su cui l'utente e' fermo (pausa o play).
+    function nowcastApplyFreshData(d) {
+        if (!d) { nowcastUpdateSlot('slot non disponibile'); return false; }
+        var prevSlot = nowcastState.slot;
+        var changed = (d.source_slot || null) !== prevSlot;
+        nowcastState.data = d;
+        nowcastState.slot = d.source_slot || null;
+        nowcastUpdateSlot();
+        nowcastSyncProductOption();
+        if (!changed) return false;
+        var keepLead = null;
+        if (syncTimelineSource === 'nowcast' && syncTimeline.length && syncTimeline[syncIndex]) {
+            keepLead = syncTimeline[syncIndex].lead;
+        }
+        nowcastRefreshImages(function () {
+            if (!nowcastState.timelineActive) return;
+            buildSyncTimeline();
+            if (keepLead !== null) {
+                var t = nowcastLeads(), idx = -1, best = 0, bd = Infinity;
+                for (var i = 0; i < t.length; i++) {
+                    if (t[i].lead === keepLead) { idx = i; break; }
+                    var dd = Math.abs(t[i].lead - keepLead);
+                    if (dd < bd) { bd = dd; best = i; }
+                }
+                if (idx < 0) idx = best;
+                if (idx >= 0) applySyncFrame(idx);
+            } else {
+                applySyncFrame(0);
+            }
+            updateSyncCaption();
+            nowcastUpdateSlot();
+        });
+        return true;
+    }
+    function nowcastAutoTick() {
+        if (!nowcastState.timelineActive) { nowcastStopAutoRefresh(); return; }
+        if (typeof document !== 'undefined' && document.hidden) return;   // background: nessun fetch
+        if (nowcastState.refreshing) return;
+        nowcastState.refreshing = true;
+        nowcastFetchData(function (d) {
+            nowcastState.refreshing = false;
+            if (!nowcastState.timelineActive) return;   // prodotto cambiato nel frattempo
+            if (d) nowcastApplyFreshData(d); else nowcastUpdateSlot();
+        });
+    }
+    function nowcastStartAutoRefresh() {
+        nowcastStopAutoRefresh();
+        nowcastState.refreshTimer = setInterval(nowcastAutoTick, NOWCAST_REFRESH_MS);
+    }
+    function nowcastStopAutoRefresh() {
+        if (nowcastState.refreshTimer) { clearInterval(nowcastState.refreshTimer); nowcastState.refreshTimer = null; }
+    }
+    function nowcastManualRefresh() {
+        if (!nowcastState.timelineActive || nowcastState.refreshing) return;
+        var btn = document.getElementById('nowcast-refresh');
+        nowcastState.refreshing = true;
+        if (btn) { btn.disabled = true; btn.textContent = 'aggiorno\u2026'; }
+        nowcastUpdateSlot('aggiorno\u2026');
+        nowcastFetchData(function (d) {
+            nowcastState.refreshing = false;
+            if (btn) { btn.disabled = false; btn.textContent = 'Aggiorna'; }
+            if (!d) { nowcastUpdateSlot('slot non disponibile'); return; }
+            nowcastApplyFreshData(d);   // aggiorna etichetta e, se cambia, timeline+immagini
+        });
+    }
+    // Al ritorno in primo piano riprende: aggiorna l'eta' dello slot e, se sono
+    // passati >= 5 minuti dall'ultimo fetch, rilegge subito il JSON.
+    document.addEventListener('visibilitychange', function () {
+        if (!nowcastState.timelineActive) return;
+        if (document.visibilityState !== 'visible') return;
+        nowcastUpdateSlot();
+        if (nowcastState.refreshing) return;
+        if (Date.now() - (nowcastState.lastFetchMs || 0) >= NOWCAST_REFRESH_MS) nowcastAutoTick();
+    });
     function nowcastFrameLabel(item) {
         if (!item) return '';
         var txt = '+' + item.lead + ' min';
@@ -27346,7 +27499,7 @@ function toggleForecastMaps() {
         if (!leads.length || !nowcastState.layer) return;
         if (nowcastState.frame < 0) nowcastState.frame = 0;
         if (nowcastState.frame > leads.length - 1) nowcastState.frame = leads.length - 1;
-        try { nowcastState.layer.setUrl(nowcastImgUrl(leads[nowcastState.frame])); } catch (e) { }
+        try { nowcastState.layer.setUrl(nowcastSrc(leads[nowcastState.frame])); } catch (e) { }
     }
     function nowcastShow(on) {
         on = !!on;
@@ -27373,7 +27526,7 @@ function toggleForecastMaps() {
         if (!nowcastState.layer) {
             nowcastState.frame = 0;            // ON -> primo frame
             try {
-                nowcastState.layer = L.imageOverlay(nowcastImgUrl(leads[0]), nowcastBounds(d.grid.bounds), {
+                nowcastState.layer = L.imageOverlay(nowcastSrc(leads[0]), nowcastBounds(d.grid.bounds), {
                     opacity: 0.75,
                     pane: nowcastPane(),
                     className: 'nowcast-field',
@@ -27415,11 +27568,13 @@ function toggleForecastMaps() {
             }
             nowcastShow(true);
             nowcastTimelineActivate();
+            nowcastStartAutoRefresh();
         });
         return false;
     }
     function nowcastProductOff() {
         nowcastState.timelineActive = false;
+        nowcastStopAutoRefresh();
         if (syncTimelineSource === 'nowcast' && isSyncPlaying) stopSyncPlay();
         nowcastShow(false);
         var frames = document.getElementById('tile-load-frames');
@@ -27458,6 +27613,7 @@ function toggleForecastMaps() {
         if (activeProductId === 'nowcast') return;
         if (nowcastState.timelineActive) {
             nowcastState.timelineActive = false;
+            nowcastStopAutoRefresh();
             if (syncTimelineSource === 'nowcast' && isSyncPlaying) stopSyncPlay();
             var panel = document.getElementById('sync-timeline-panel');
             if (panel) panel.classList.remove('active');
@@ -27473,7 +27629,8 @@ function toggleForecastMaps() {
         nowcastLoad(function () {
             nowcastSyncProductOption();
             nowcastUpdateLabel();
-            if (nowcastState.timelineActive) nowcastTimelineActivate();
+            nowcastUpdateSlot();
+            if (nowcastState.timelineActive) { nowcastTimelineActivate(); nowcastStartAutoRefresh(); }
         });
     }
     if (document.readyState === 'loading') {
