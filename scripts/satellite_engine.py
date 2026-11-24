@@ -6,21 +6,22 @@ Satellite Engine (satellite_engine.py): scarica i frame satellitari EUMETSAT
 (2 ore a passo di 5 minuti) in satellite/<sourceId>/<slotISO>.webp.
 
 I frame GetMap (PNG) vengono ri-codificati in WebP (quality 80, method 6) con
-risoluzione INVARIATA rispetto alla GetMap (Europa 1024px, Italia 1024px): stessa identita' del
-frame, dimensioni su disco/Pages molto piu' piccole. I vecchi frame PNG gia'
-presenti su disco vengono migrati localmente senza nuove richieste al WMS.
+risoluzione INVARIATA rispetto alla GetMap (Europa 2048px dal 2026-11-24, Italia
+1024px): stessa identita' del frame, dimensioni su disco/Pages molto piu' piccole.
+I vecchi frame PNG gia' presenti su disco vengono migrati localmente senza nuove
+richieste al WMS.
 
 Faithful port della logica dell'app (mri-light-1.2.3.1.html):
   - buildEumetsatLiveGetMap: GetMap EPSG:3857 su SATELLITE_EUROPE_BOUNDS
-    [[22,-28],[72,55]] (width FRAME_WIDTH, height proporzionale, stessa sequenza di
-    parametri layers/styles/format/transparent/version/time/width/height/srs/bbox);
+    [[22,-28],[72,55]] (width FRAME_WIDTH = 2048, height proporzionale, stessa
+    sequenza di parametri layers/styles/format/transparent/version/time/width/height/srs/bbox);
   - frame Italia: stessa formula su SATELLITE_ITALY_BOUNDS [[36.5,6.6],[47.2,18.8]]
     con ITALY_FRAME_WIDTH = 1024;
   - buildSyncTimeline + EUMETSAT_DATA_LAG_MS: time = ora corrente - 15 minuti,
     floor a 5 minuti (setUTCMinutes(floor(m/5)*5, 0, 0)), formato .000Z.
 
-6 sorgenti: 3 Europa (1024px, ~1,05 MP per frame) + 3 Italia (1024px, ~1,3 MP
-per frame, pixel -70% rispetto all'Europa).
+6 sorgenti: 3 Europa (2048px, ~4,2 MP per frame) + 3 Italia (1024px, ~1,3 MP
+per frame).
 
 Backfill: ogni run scarica tutti gli slot mancanti della finestra di 2 ore
 (25 slot x 6 sorgenti), dallo slot corrente al piu' vecchio, su MAX_WORKERS
@@ -76,16 +77,20 @@ EU_SOUTH, EU_NORTH = 22.0, 72.0
 IT_WEST, IT_EAST = 6.6, 18.8
 IT_SOUTH, IT_NORTH = 36.5, 47.2
 WORLD_M = 40075016.685578488
-# Risoluzione Europa. MISURATA il 2026-10-26 sulla WMS reale (stessa GetMap,
-# solo width variabile): rgb_geocolour 2048 px = 166,0 s / 7,61 MB contro
-# 1024 px = 42,9 s / 2,08 MB (3,87x); ir105_hrfi 2048 px = 33,2 s / 1,29 MB
-# contro 1024 px = 5,1 s / 6,51x. Con 2048 l'intera finestra (25 slot x 6
-# sorgenti) richiedeva 6031 s = 100 minuti contro una cadenza di 10: il ciclo
-# non entrava MAI nella cadenza, quindi ogni run trovava la finestra vecchia e
-# ricominciava il backfill completo (9 dispatch su 10 scartati da GitHub).
-# Il pannello dell'app e' largo 754 px: 1024 e' 1,36x di sovracampionamento,
-# 2048 era 2,7x e si pagava 4x in tempo.
-FRAME_WIDTH = 1024
+# Risoluzione Europa. 2026-11-24 - 1024 -> 2048: il client chiedeva GIA' 2048 px in
+# WMS e la serie statica (static-first) consegnava 1024, cioe' la vista ampia aveva
+# la STESSA larghezza dell'Italia (12,2 gradi su 1024 px = 1,33 km/px contro 83
+# gradi su 1024 px = 9,02 km/px di proiezione, ~6,2 km/px al suolo a 47N).
+# MISURATO il 2026-11-24 sulla WMS reale (ir105_hrfi, GetMap 83 gradi, PNG):
+#   1024 px = 362.578 B / 3,1 s; 1600 px = 963.023 B / 8,8 s;
+#   2048 px = 1.275.498 B / 10,4 s; 4096 px = 4.320.988 B / 17,5 s (risponde).
+# 2048 porta la serie statica a 3,80 km/px di proiezione (2,45 km/px al suolo a 50N)
+# e coincide con EUMETSAT_FRAME_WIDTH del client: nessun doppio regime.
+# Costo: il commento storico del 2026-10-26 misurava 25 slot x 6 sorgenti = 6031 s a
+# 2048; qui solo le 3 sorgenti Europa salgono a 2048 (l'Italia resta 1024), quindi il
+# backfill completo resta ben dentro la finestra e in steady-state si scarica UN solo
+# slot per sorgente a run (max ~166 s per rgb_geocolour, sotto la cadenza di 10 min).
+FRAME_WIDTH = 2048
 ITALY_FRAME_WIDTH = 1024
 SOURCES = {
     "eumetsat_italy":           {"layer": "mtg_fd:ir105_hrfi",   "bounds": (IT_WEST, IT_EAST, IT_SOUTH, IT_NORTH), "width": ITALY_FRAME_WIDTH},

@@ -20,9 +20,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import satellite_engine as SE  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
-# 1.3.0.48: la 1.3.0.43 non e' piu' nel repo (pulizia release vecchie): resta
-# il solo client attivo, APP_FILE di VERSION.
-HTML_CANDIDATES = ("mri-light-1.3.0.55.html",)
+
+
+def _app_html_path():
+    """File dell'app attivo: APP_FILE di VERSION (nessun nome scritto a mano).
+
+    1.3.0.72 - la lista statica puntava a mri-light-1.3.0.55.html, che non esiste
+    piu': il test falliva per FileNotFound anche quando il client era corretto.
+    """
+    version = REPO / "VERSION"
+    for line in version.read_text(encoding="utf-8").splitlines():
+        if line.startswith("APP_FILE="):
+            p = REPO / line.split("=", 1)[1].strip()
+            if p.is_file():
+                return p
+    return None
+
+
+HTML_CANDIDATES = ("mri-light-1.3.0.72.html",)
 
 
 def _webp_bytes(size=(8, 8), alpha=0):
@@ -126,11 +141,13 @@ def test_afa_http_error_does_not_write_file(tmp_path, monkeypatch):
 # 4. Client STATIC-ONLY: showAfaFrameAt usa il manifest, nessun fallback WMS.
 # ---------------------------------------------------------------------------
 def test_client_afa_has_no_wms_fallback():
-    html_path = None
-    for name in HTML_CANDIDATES:
-        if (REPO / name).is_file():
-            html_path = REPO / name
-            break
+    html_path = _app_html_path()
+    if html_path is None:
+        html_path = None
+        for name in HTML_CANDIDATES:
+            if (REPO / name).is_file():
+                html_path = REPO / name
+                break
     assert html_path is not None, "nessun html di release trovato"
     html = html_path.read_text(encoding="utf-8")
 
@@ -159,3 +176,38 @@ def test_client_afa_has_no_wms_fallback():
     assert sync_start != -1
     sync = html[sync_start:html.find("function onSyncSliderChange(", sync_start)]
     assert "showAfaFrameAt(slot.ms)" in sync
+
+
+# ---------------------------------------------------------------------------
+# 5. 1.3.0.72 - STATO AFA: intenzione separata dal layer, fallback Europa
+#    dichiarato, copertura esplicita. Il ramo ITALIA resta static-only (test 4).
+# ---------------------------------------------------------------------------
+def test_client_afa_toggle_state_and_europe_fallback():
+    html_path = _app_html_path()
+    assert html_path is not None, "nessun html di release trovato"
+    html = html_path.read_text(encoding="utf-8")
+
+    # A1: due variabili distinte e click indipendente dal flag del layer.
+    assert "var liveAfaWanted = false;" in html
+    assert "var liveAfaEnabled = false;" in html
+    assert 'onclick="afaToggleAfa()"' in html
+    assert "function liveAfaApply(" in html
+    assert "AFA_RETRY_MAX" in html and "AFA_RETRY_MS" in html
+    # Il messaggio di errore usa l'id REALE del riquadro di legenda.
+    assert "document.getElementById('afa-legend-status')" in html
+    # A2: copertura e risoluzione dichiarate nel title e in legenda.
+    assert "Copertura: Italia 6,6-18,8" in html
+    assert 'id="afa-legend-coverage"' in html
+    assert "1,33 km/px" in html
+    # A3: due regioni, default Italia, bbox Europa -25..45E / 30..72N.
+    assert "AFA_REGION_DEFAULT = 'it'" in html
+    assert 'id="afa-region-it"' in html and 'id="afa-region-eu"' in html
+    assert "L.latLngBounds([[30, -25], [72, 45]])" in html
+    # Il fallback WMS vive in showAfaEuropeFrameAt, dichiarato, non nel ramo Italia.
+    eu_start = html.find("function showAfaEuropeFrameAt(")
+    assert eu_start != -1, "showAfaEuropeFrameAt assente"
+    eu_end = html.find("function warmAheadEumetsatTiles", eu_start)
+    eu_body = html[eu_start:eu_end]
+    assert "sources.afa_eu" in eu_body
+    assert "buildEumetsatLiveGetMap(AFA_WMS_LAYER" in eu_body
+    assert "richiesta diretta al servizio EUMETSAT" in eu_body

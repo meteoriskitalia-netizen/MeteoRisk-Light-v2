@@ -2075,7 +2075,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
              1.3.0.53 - lo slot arriva da afaSlotIsoForUi(): prima del fix partiva
              da liveAfaSlotIso(), che legge SOLO scRadarData e restituiva null
              quando il pannello SC non aveva dati (il pulsante non faceva nulla). -->
-        <button type="button" class="tool-btn" id="btn-radar-afa" data-label="AFA · emissione ottica" onclick="liveToggleAfaLayer(!liveAfaEnabled, afaSlotIsoForUi())" title="Attività elettrica (AFA) MTG-I LI: area con emissione ottica, non conteggio di scariche. Fonte: EUMETSAT CC BY 4.0." style="font-size:11px; display:none; border-color:#a855f7;">AFA · emissione ottica · OFF</button>
+        <button type="button" class="tool-btn" id="btn-radar-afa" data-label="AFA · emissione ottica" onclick="afaToggleAfa()" title="Attività elettrica (AFA) MTG-I LI: area con emissione ottica, non conteggio di scariche. Copertura: Italia 6,6-18,8°E · 36,5-47,2°N · 12,2° su 1024 px = 1,33 km/px in EPSG:3857 (≈1,0 km/px al suolo a 42°N). Fonte: EUMETSAT CC BY 4.0." style="font-size:11px; display:none; border-color:#a855f7;">AFA · emissione ottica · OFF</button>
         <select id="sat-source-select" class="tool-btn" onchange="changeSatSource(this.value)" title="Scegli il canale satellite EUMETSAT: infrarosso, Airmass RGB o Geo Colour RGB" style="font-size:11px; display:none; flex-shrink:0">
             <option value="eumetsat_italy" selected>EUMETSAT IR Italia (timeline)</option>
             <option value="eumetsat_airmass_italy">EUMETSAT / Airmass RGB Italia</option>
@@ -2165,7 +2165,13 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
              temporale e' quello reale dei dati radar (slot_iso/radar_timestamp).
              1.3.0.53 - slot da afaSlotIsoForUi() (timeline del player -> ultimo frame
              radar -> slot SC), non piu' dal solo scRadarData. -->
-        <button type="button" id="live-toggle-afa" class="sc-toggle" data-label="Attività elettrica (AFA)" onclick="liveToggleAfaLayer(!liveAfaEnabled, afaSlotIsoForUi())" title="Area con emissione ottica rilevata da MTG-I LI (AFA). Non e' un conteggio di scariche e non distingue fulmini intra-nube da terra. Fonte: EUMETSAT CC BY 4.0. Spento di default.">Attività elettrica (AFA) · OFF</button>
+        <button type="button" id="live-toggle-afa" class="sc-toggle" data-label="Attività elettrica (AFA)" onclick="afaToggleAfa()" title="Area con emissione ottica rilevata da MTG-I LI (AFA): non e' un conteggio di scariche e non distingue fulmini intra-nube da terra. Copertura: Italia 6,6-18,8°E · 36,5-47,2°N · 12,2° su 1024 px = 1,33 km/px in EPSG:3857 (≈1,0 km/px al suolo a 42°N). Fonte: EUMETSAT CC BY 4.0. Spento di default.">Attività elettrica (AFA) · OFF</button>
+        <!-- 1.3.0.72 - A3: due inquadrature dello stesso strumento. Default Italia;
+             il pulsante dell'AFA resta UNO: cambia solo la sorgente del frame. -->
+        <span id="afa-region-switch" style="display:inline-flex; gap:4px; margin-left:4px;" title="Inquadratura del layer AFA: Italia (serie statica del motore) o Europa (serie statica se pubblicata, altrimenti richiesta diretta al servizio EUMETSAT)">
+            <button type="button" id="afa-region-it" class="sc-toggle on" aria-pressed="true" onclick="afaSetRegion('it')" title="AFA Italia — Copertura: Italia 6,6-18,8°E · 36,5-47,2°N · 12,2° su 1024 px = 1,33 km/px in EPSG:3857 (≈1,0 km/px al suolo a 42°N) · serie statica satellite/afa">AFA Italia</button>
+            <button type="button" id="afa-region-eu" class="sc-toggle" aria-pressed="false" onclick="afaSetRegion('eu')" title="AFA Europa — Copertura: Europa -25-45°E · 30-72°N · 70° su 2048 px = 3,80 km/px in EPSG:3857 (≈2,4 km/px al suolo a 50°N) · serie statica se pubblicata, altrimenti GetMap diretta a EUMETSAT">AFA Europa</button>
+        </span>
         <!-- Sub-toggle spostati dal pannello #sc-radar-panel: stessa logica, stessi handler,
              id dedicati (live-toggle-*), visibili SOLO con celle organizzate attive (come #live-sc-*). -->
         <button type="button" id="live-toggle-trails" class="sc-toggle" onclick="toggleScTrails()" title="Traccia 2h dei candidati attivi (archivio rolling radar-history)" style="display:none;">Traccia 2h</button>
@@ -2673,8 +2679,13 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
             <div class="legend-row" id="afa-legend-status" style="font-size:10px;color:#94a3b8;">
                 Nessun pixel attivo = in quello slot non è stata rilevata emissione ottica nell'area inquadrata: <b>non</b> significa «zero fulmini» né «nessun temporale».
             </div>
+            <!-- 1.3.0.72 - A2/A3: copertura e risoluzione DICHIARATE e, quando il layer
+                 e' in mappa, anche i bounds MISURATI da Leaflet (✓ se coincidono). -->
+            <div class="legend-row" id="afa-legend-coverage" style="font-size:10px;color:#cbd5e1;">
+                Copertura: Italia 6,6-18,8°E · 36,5-47,2°N · 12,2° su 1024 px = 1,33 km/px in EPSG:3857 (≈1,0 km/px al suolo a 42°N) · layer non in mappa
+            </div>
             <div class="legend-row" style="font-size:10px;color:#94a3b8;">
-                Cadenza: uno slot ogni 5 minuti; il player usa lo slot più vicino entro 10 minuti, altrimenti l'ultimo disponibile (finestra pubblicata: 25 slot, ~2 ore). Inquadratura: 6,6-18,8°E / 36,5-47,2°N; le aree fuori dal ritaglio sono tagliate sul bordo.
+                Cadenza: uno slot ogni 5 minuti; il player usa lo slot più vicino entro 10 minuti, altrimenti l'ultimo disponibile (finestra pubblicata: 25 slot, ~2 ore). Inquadratura: «AFA Italia» 6,6-18,8°E / 36,5-47,2°N dal motore; «AFA Europa» -25-45°E / 30-72°N con richiesta diretta a EUMETSAT finché il motore non pubblica satellite/afa_eu. Le aree fuori dal ritaglio sono tagliate sul bordo.
             </div>
             <div class="legend-row" style="font-size:10px;color:#94a3b8;">
                 Fonte: EUMETSAT MTG-I LI — layer <code>mtg_fd:li_afa</code> · CC BY 4.0 · © EUMETSAT.
@@ -3219,9 +3230,17 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.71';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.72';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-24';
     const APP_CHANGELOG = [
+    { version: '1.3.0.72', date: '2026-11-24', changes: [
+      "AFA, IL TOGGLE CHE RESTAVA OFF (riprodotto con un harness che esegue il blocco AFA reale estratto dall'HTML): lo stato dell'interfaccia e quello del layer erano lo STESSO flag (liveAfaEnabled), quindi un click arrivato prima che satellite/manifest.json fosse in memoria usciva da showAfaFrameAt con false e spegneva il pulsante senza dire nulla. MISURATO sul 1.3.0.71: 10/10 cicli ON -> OFF con il manifest non ancora caricato, 0/10 con il manifest caldo; dopo 5 cambi frame il pulsante diceva ON mentre il flag interno era false, e il cambio prodotto lasciava l'overlay orfano. Ora l'intenzione dell'utente (liveAfaWanted) e' separata dallo stato reale (liveAfaEnabled): il click va ON SUBITO, la legenda scrive «carico lo slot HH:MM…», il manifest viene ritentato (6 tentativi a 1,5 s) e un errore spegne il pulsante con il messaggio in #afa-legend-status. Riverificato con lo stesso harness: 10/10 ON e 10/10 OFF anche a manifest freddo, 5/5 cambi frame, rientro nel prodotto radar con l'AFA riaccesa.",
+      "SLOT SENZA SEGNALE: con has_signal:false il layer resta ACCESO e la legenda scrive «slot HH:MM · nessuna emissione ottica» (prima era una frase lunga «nessun pixel attivo…»): e' un'osservazione, non un errore.",
+      "COPERTURA DICHIARATA E MISURATA: la legenda e il title dei due pulsanti portano «Copertura: Italia 6,6-18,8°E · 36,5-47,2°N» con la risoluzione misurata (12,2° su 1024 px = 1,33 km/px in EPSG:3857, ~1,0 km/px al suolo a 42°N) e, a layer in mappa, i bounds letti da Leaflet con ✓ quando coincidono con quelli dichiarati (verificato: 6,6-18,8 / 36,5-47,2).",
+      "AFA EUROPA (nuova inquadratura, default Italia): due voci «AFA Italia» / «AFA Europa» (-25-45°E / 30-72°N, 2048 px = 3,80 km/px, ~2,4 km/px al suolo a 50°N). MISURATO il 2026-11-24 sul manifest live di satellite-cache: sources ha solo afa, NON afa_eu; il client legge sources.afa_eu quando ci sara' e fino ad allora usa UNA GetMap diretta mtg_fd:li_afa sulla bbox Europa (78.111 B, 8,6 s, 2048x2168) dichiarando «Europa: richiesta diretta al servizio EUMETSAT» in legenda e nell'attribuzione. Se la GetMap non carica, l'handler error del layer porta allo stato di errore con messaggio, non al silenzio.",
+      "SATELLITE EUROPA, RISOLUZIONE: il motore pubblicava le 3 sorgenti Europa a 1024 px, la STESSA larghezza dell'Italia, mentre il client chiedeva gia' 2048 in WMS: la vista ampia arrivava a ~6,2 km/px al suolo (9,02 km/px di proiezione) contro ~1,0 dell'Italia. FRAME_WIDTH 1024 -> 2048, misurato sulla WMS reale con il layer HRFI mtg_fd:ir105_hrfi (bbox 83°): 1024 px = 362.578 B / 3,1 s, 1600 px = 963.023 B / 8,8 s, 2048 px = 1.275.498 B / 10,4 s, 4096 px = 4.320.988 B / 17,5 s (il server risponde fino a 4096, che non si usa). A 2048 la serie statica Europa vale 3,80 km/px di proiezione (~2,45 km/px al suolo a 50°N) e coincide con EUMETSAT_FRAME_WIDTH del client.",
+      "TEST: test_html_js_syntax 1 passed, test_tooltips_coverage 2 passed, test_station_field.mjs PASS, test_sw_cache_policy PASS; conteggio funzioni 1637 -> 1657 (nessuna funzione rimossa); diff 417 righe aggiunte / 82 rimosse, 0 righe con caratteri corrotti."
+    ]},
     { version: '1.3.0.71', date: '2026-11-24', changes: [
       "ARTEFATTI GEOMETRICI DEL CAMPO CORRETTI (misurati, non a occhio): il metodo `full` aveva SEAM su righe e colonne intere (salti fino a 1,96 °C sulle longitudini 8, 11, 13, 15, 17 e latitudini 38, 39, 43, 44, 46) perche' i 16 vicini erano scelti da una lista per CELLA a 1°. Ora il valore si calcola sui NODI di un reticolo a 0,5° e si campiona con interpolazione BILINEARE: la differenza media fra pixel adiacenti scende da 0,211 a 0,068 °C per colonna e il massimo da 1,96 a 0,27 °C.",
       "PESO GAUSSIANO: al posto di 1/(d²+1) con k fisso si usa exp(-(d/σ)²) con σ = raggio/2 = 12,5 km, sommando TUTTI i vicini entro il raggio (nessun troncamento a k, che faceva cambiare l'insieme dei vicini da pixel a pixel e produceva gli «spicchi»). Il calcolo e' a un solo passaggio e l'esponenziale usa una LUT (3072 passi, taglio a 12): il metodo `local` scende da 623 a 191 ms.",
@@ -8554,21 +8573,124 @@ var liLabel;
     // non e' toccato (arriva dal WebP del motore), cambia solo l'opacita' dell'overlay.
     var AFA_OPACITY = 0.85;
     var AFA_ATTRIBUTION = 'EUMETSAT MTG-I LI AFA — area con emissione ottica, non conteggio di scariche — CC BY 4.0';
+    // 1.3.0.72 - DUE INQUADRATURE, STESSO STRUMENTO. AFA_REGIONS e' l'UNICA fonte di
+    // verita' per bounds, serie statica, dichiarazione di copertura e risoluzione:
+    //   it -> satellite/afa/<slot>.webp pubblicati dal motore (bbox Italia, 1024 px);
+    //   eu -> satellite/afa_eu/<slot>.webp se il motore li pubblica (sources.afa_eu),
+    //         altrimenti UNA GetMap diretta al WMS EUMETSAT a richiesta (2048 px).
+    // I km/px sono MISURATI sulla larghezza richiesta in EPSG:3857: 12,2 gradi su
+    // 1024 px = 1,33 km/px di proiezione; 70 gradi su 2048 px = 3,80 km/px. Fra
+    // parentesi il valore al suolo alla latitudine centrale (1,33*cos(42°) = 0,99).
+    var AFA_REGIONS = {
+        it: {
+            id: 'it', label: 'Italia',
+            bounds: SATELLITE_ITALY_BOUNDS,
+            staticSource: 'afa',
+            wmsWidth: ITALY_LIVE_WIDTH,
+            coverage: 'Copertura: Italia 6,6-18,8°E · 36,5-47,2°N',
+            kmpx: '12,2° su 1024 px = 1,33 km/px in EPSG:3857 (≈1,0 km/px al suolo a 42°N)'
+        },
+        eu: {
+            id: 'eu', label: 'Europa',
+            bounds: L.latLngBounds([[30, -25], [72, 45]]),
+            staticSource: 'afa_eu',
+            wmsWidth: 2048,
+            coverage: 'Copertura: Europa -25-45°E · 30-72°N',
+            kmpx: '70° su 2048 px = 3,80 km/px in EPSG:3857 (≈2,4 km/px al suolo a 50°N)'
+        }
+    };
+    var AFA_REGION_DEFAULT = 'it';
+    var AFA_WMS_LAYER = 'mtg_fd:li_afa';
+    // 1.3.0.72 - retry del manifest: 6 tentativi a 1,5 s (9 s) coprono il fetch di
+    // avvio e il primo fallimento di rete senza martellare il server (il manifest
+    // pesa ~14 KB e loadSatelliteManifest() ha gia' un solo fetch in volo).
+    var AFA_RETRY_MAX = 6;
+    var AFA_RETRY_MS = 1500;
+    var afaRegion = AFA_REGION_DEFAULT;
+    var afaSourceMode = null;     // 'static' | 'wms': da dove arriva il frame in mappa
     var liveAfaLayer = null;
-    var liveAfaEnabled = false;
+    var liveAfaEnabled = false;   // layer effettivamente in mappa
+    var liveAfaWanted = false;    // intenzione dell'utente: sopravvive al cambio prodotto
     var liveAfaLastIso = null;
+    var liveAfaRetryTimer = null;
+    var liveAfaRetryCount = 0;
+    var liveAfaFrameGen = 0;
+    var liveAfaStatusMsg = null;
+
+    function afaRegionDef() { return AFA_REGIONS[afaRegion] || AFA_REGIONS[AFA_REGION_DEFAULT]; }
+    function afaNum(v) { return String(Math.round(Number(v) * 10) / 10).replace('.', ','); }
+    // Etichetta dei bounds con la virgola decimale (stessa forma della dichiarazione).
+    function afaBoundsLabel(b) {
+        if (!b) return '';
+        return afaNum(b.getWest()) + '-' + afaNum(b.getEast()) + '°E · ' +
+            afaNum(b.getSouth()) + '-' + afaNum(b.getNorth()) + '°N';
+    }
 
     // 1.3.0.45 — AFA STATIC-FIRST: 25 slot WebP pubblicati da satellite_engine
     // in satellite/afa/<slot>.webp e dichiarati in manifest.json (sources.afa).
     // Il WMS resta SOLO lato workflow: qui non c'e' ALCUN fallback WMS.
     // Riutilizza loadSatelliteManifest(): nessun secondo fetch del manifesto.
     var liveAfaMissMsg = null;
+
+    // 1.3.0.72 - UNICO PUNTO CHE TOCCA LEAFLET. Il layer si riusa SOLO se i bounds
+    // coincidono: un L.imageOverlay non puo' cambiare i bounds, e passando da Italia a
+    // Europa con il layer vecchio il frame nuovo finirebbe sui bounds sbagliati.
+    // L'handler 'error' e' agganciato al caricamento corrente (generazione): un 404 o
+    // una GetMap fallita NON puo' spegnere un frame piu' nuovo gia' caricato.
+    function afaPlaceLayer(url, bounds, att) {
+        if (!url || typeof L === 'undefined' || !map || !bounds) return false;
+        if (!map.getPane('afaPane')) {
+            map.createPane('afaPane');
+            map.getPane('afaPane').style.zIndex = 420;
+            map.getPane('afaPane').style.pointerEvents = 'none';
+        }
+        var sameBounds = false;
+        try {
+            sameBounds = !!liveAfaLayer && typeof liveAfaLayer.getBounds === 'function' &&
+                liveAfaLayer.getBounds().equals(bounds);
+        } catch (e) { sameBounds = false; }
+        var gen = ++liveAfaFrameGen;
+        var onErr = function () {
+            if (gen !== liveAfaFrameGen) return;
+            afaFail('AFA ' + afaRegionDef().label + ': frame non caricato (immagine assente o errore del servizio)');
+        };
+        try {
+            if (sameBounds) {
+                liveAfaLayer.setUrl(url);
+                liveAfaLayer.options.attribution = att;
+                if (!map.hasLayer(liveAfaLayer)) liveAfaLayer.addTo(map);
+                if (typeof liveAfaLayer.off === 'function') liveAfaLayer.off('error');
+                if (typeof liveAfaLayer.on === 'function') liveAfaLayer.on('error', onErr);
+            } else {
+                if (liveAfaLayer && map.hasLayer(liveAfaLayer)) map.removeLayer(liveAfaLayer);
+                liveAfaLayer = L.imageOverlay(url, bounds, {
+                    opacity: AFA_OPACITY,
+                    pane: 'afaPane',
+                    interactive: false,
+                    attribution: att,
+                    alt: 'Area con emissione ottica MTG-I LI AFA — non conteggio di scariche'
+                });
+                if (typeof liveAfaLayer.on === 'function') liveAfaLayer.on('error', onErr);
+                liveAfaLayer.addTo(map);
+            }
+            if (typeof liveAfaLayer.setOpacity === 'function') liveAfaLayer.setOpacity(AFA_OPACITY);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
     function showAfaFrameAt(slotMs) {
+        // 1.3.0.72 - la regione decide QUALE sorgente: `afa` (Italia) o, per l'Europa,
+        // `afa_eu` con fallback WMS dichiarato (showAfaEuropeFrameAt). Il ramo Italia
+        // resta STATIC-ONLY: nessuna richiesta WMS costruita qui.
+        if (afaRegion === 'eu') return showAfaEuropeFrameAt(slotMs);
         // 1.3.0.53 - RETRY DEL MANIFEST: se il fetch di boot fallisce il manifest
         // resta null e OGNI tentativo successivo usciva subito da qui (il toggle AFA
         // non faceva nulla per tutta la sessione). loadSatelliteManifest() ha gia'
         // cache 5 minuti e un solo fetch in volo, quindi questa guardia non produce
-        // richieste ripetute: al massimo un retry per chiamata.
+        // richieste ripetute: al massimo un retry per chiamata. Il retry VISIBILE
+        // (stato «carico lo slot…») e' in liveAfaApply.
         if (!satStaticManifest || !satStaticManifest.sources) {
             if (typeof loadSatelliteManifest === 'function') loadSatelliteManifest();
         }
@@ -8593,77 +8715,183 @@ var liLabel;
         if (!chosen) return false;
         var chosenMs = satSlotNameToMs(chosen);
         var url = satStaticUrl('afa', new Date(chosenMs).toISOString());
-        if (!url || typeof L === 'undefined' || !map) return false;
-        if (!map.getPane('afaPane')) {
-            map.createPane('afaPane');
-            map.getPane('afaPane').style.zIndex = 420;
-            map.getPane('afaPane').style.pointerEvents = 'none';
-        }
+        if (!url) return false;
         var meta = (satStaticManifest.afa_meta && satStaticManifest.afa_meta[chosen]) || null;
         var servedIso = (meta && meta.served_iso) ||
             new Date(chosenMs).toISOString().replace(/\.\d{3}Z$/, '.000Z');
         var att = AFA_ATTRIBUTION + ' — frame servito ' + servedIso;
         if (missed) {
-            liveAfaMissMsg = 'aggiornamento AFA non riuscito per lo slot ' + iso.substr(11, 5);
-            att += ' — ' + liveAfaMissMsg + ' (ultimo frame: ' + servedIso + ')';
+            liveAfaMissMsg = 'slot ' + iso.substr(11, 5) + ' non disponibile: mostrato ' + servedIso.substr(11, 5);
+            att += ' — ' + liveAfaMissMsg;
         } else {
             liveAfaMissMsg = null;
         }
-        try {
-            if (liveAfaLayer) {
-                liveAfaLayer.setUrl(url);
-                liveAfaLayer.options.attribution = att;
-                if (!map.hasLayer(liveAfaLayer)) liveAfaLayer.addTo(map);
-            } else {
-                liveAfaLayer = L.imageOverlay(url, SATELLITE_ITALY_BOUNDS, {
-                    opacity: AFA_OPACITY,
-                    pane: 'afaPane',
-                    interactive: false,
-                    attribution: att,
-                    alt: 'Area con emissione ottica MTG-I LI AFA — non conteggio di scariche'
-                }).addTo(map);
-            }
-            // 1.3.0.53 - se il layer esisteva gia' con l'opacita' vecchia, la allinea.
-            if (typeof liveAfaLayer.setOpacity === 'function') liveAfaLayer.setOpacity(AFA_OPACITY);
-            liveAfaLastIso = iso;
-            afaUpdateLegend(servedIso, meta, missed, iso);
-            liveAfaSyncButtons(true);
-            return true;
-        } catch (e) {
-            return false;
+        if (!afaPlaceLayer(url, SATELLITE_ITALY_BOUNDS, att)) return false;
+        afaSourceMode = 'static';
+        liveAfaLastIso = iso;
+        afaUpdateLegend(servedIso, meta, missed, iso, 'static');
+        liveAfaSyncButtons(true);
+        return true;
+    }
+
+    // 1.3.0.72 - EUROPA. Prima scelta: la serie statica `afa_eu` del manifest (stessi
+    // slot di 5 minuti, stessi metadati). Se il motore NON la pubblica ancora
+    // (MISURATO il 2026-11-24 sul manifest live di satellite-cache: sources ha solo
+    // `afa`), si chiede UNA sola GetMap al WMS EUMETSAT per l'istante dello slot,
+    // dichiarandolo in legenda e nell'attribuzione. Nessun frame inventato: se la
+    // GetMap non carica, l'handler 'error' del layer porta allo stato di errore.
+    function showAfaEuropeFrameAt(slotMs) {
+        var def = afaRegionDef();
+        if (!satStaticManifest || !satStaticManifest.sources) {
+            if (typeof loadSatelliteManifest === 'function') loadSatelliteManifest();
         }
+        var iso = new Date(slotMs).toISOString().replace(/\.\d{3}Z$/, '.000Z');
+        var wanted = satSlotNameToMs(satStaticSlotName(iso));
+        if (!isFinite(wanted)) return false;
+        var euList = (satStaticManifest && satStaticManifest.sources && satStaticManifest.sources.afa_eu) || null;
+        var capMs = satManifestNewestMs('afa_eu');
+        if (!isFinite(capMs)) capMs = satManifestNewestMs('afa');
+        if (!isFinite(capMs)) capMs = satFloor5Ms(Date.now() - SAT_STATIC_FALLBACK_LAG_MS);
+        if (wanted > capMs) wanted = capMs;
+        if (euList && typeof euList.length === 'number' && euList.length) {
+            var best = null, bestDelta = Infinity;
+            for (var i = 0; i < euList.length; i++) {
+                var ms = satSlotNameToMs(euList[i]);
+                if (!isFinite(ms)) continue;
+                var delta = Math.abs(ms - wanted);
+                if (delta < bestDelta) { bestDelta = delta; best = euList[i]; }
+            }
+            var missedEu = (!best || bestDelta > 10 * 60 * 1000);
+            var chosenEu = missedEu ? euList[euList.length - 1] : best;
+            var urlEu = chosenEu ? satStaticUrl('afa_eu', new Date(satSlotNameToMs(chosenEu)).toISOString()) : null;
+            if (urlEu) {
+                var metaEu = (satStaticManifest.afa_eu_meta && satStaticManifest.afa_eu_meta[chosenEu]) || null;
+                var servedEu = (metaEu && metaEu.served_iso) ||
+                    new Date(satSlotNameToMs(chosenEu)).toISOString().replace(/\.\d{3}Z$/, '.000Z');
+                var attEu = AFA_ATTRIBUTION + ' — frame servito ' + servedEu + ' — serie statica satellite/afa_eu';
+                if (!afaPlaceLayer(urlEu, def.bounds, attEu)) return false;
+                afaSourceMode = 'static';
+                liveAfaLastIso = iso;
+                afaUpdateLegend(servedEu, metaEu, missedEu, iso, 'static');
+                liveAfaSyncButtons(true);
+                return true;
+            }
+        }
+        var servedIsoWms = new Date(wanted).toISOString().replace(/\.\d{3}Z$/, '.000Z');
+        var urlWms = buildEumetsatLiveGetMap(AFA_WMS_LAYER, servedIsoWms, def.wmsWidth, def.bounds);
+        if (!urlWms) return false;
+        var attWms = AFA_ATTRIBUTION + ' — Europa: richiesta diretta al servizio EUMETSAT, slot ' +
+            servedIsoWms.substr(11, 5) + ', ' + def.wmsWidth + ' px';
+        if (!afaPlaceLayer(urlWms, def.bounds, attWms)) return false;
+        afaSourceMode = 'wms';
+        liveAfaLastIso = iso;
+        afaUpdateLegend(servedIsoWms, null, false, iso, 'wms');
+        liveAfaSyncButtons(true);
+        return true;
     }
 
     // 1.3.0.53 - LEGENDA AFA: mostra il riquadro e scrive lo stato dello slot
     // servito con i campi reali del manifest (afa_meta: has_signal, active_pixels).
-    // `has_signal === false` NON e' un errore: e' un'osservazione di assenza di
-    // emissione ottica in quello slot, e la legenda lo dice esplicitamente.
-    function afaUpdateLegend(servedIso, meta, missed, wantedIso) {
-        var box = document.getElementById('afa-legend-box');
+    // 1.3.0.72 - `has_signal === false` scrive ESATTAMENTE «slot HH:MM · nessuna
+    // emissione ottica» e il layer resta ACCESO: e' un'osservazione, non un errore.
+    // `mode` = 'wms' dichiara che per l'Europa il frame e' una richiesta diretta.
+    function afaUpdateLegend(servedIso, meta, missed, wantedIso, mode) {
         var st = document.getElementById('afa-legend-status');
-        if (box) box.style.display = 'block';
+        afaShowLegend();
         if (!st) return;
+        liveAfaStatusMsg = null;
         var served = String(servedIso || '');
-        var parts = [];
+        var text;
         if (meta && typeof meta.has_signal !== 'undefined') {
             if (meta.has_signal === false) {
-                parts.push('slot ' + served.substr(11, 5) + ': nessun pixel attivo (nessuna emissione ottica in quello slot)');
+                text = 'slot ' + served.substr(11, 5) + ' · nessuna emissione ottica';
             } else {
                 var px = (typeof meta.active_pixels === 'number') ? meta.active_pixels : null;
-                parts.push('slot ' + served.substr(11, 5) + ': emissione ottica rilevata' +
-                    (px !== null ? ' (' + px + ' pixel attivi)' : ''));
+                text = 'slot ' + served.substr(11, 5) + ' · emissione ottica rilevata' +
+                    (px !== null ? ' (' + px + ' pixel attivi)' : '');
             }
         } else {
-            parts.push('slot ' + served.substr(11, 5));
+            text = 'slot ' + served.substr(11, 5);
         }
+        if (mode === 'wms') text += ' · Europa: richiesta diretta al servizio EUMETSAT';
         if (missed && wantedIso) {
-            parts.push('slot richiesto ' + String(wantedIso).substr(11, 5) + ' non disponibile: mostrato l\'ultimo');
+            text += ' · slot richiesto ' + String(wantedIso).substr(11, 5) + ' non disponibile: mostrato l\'ultimo';
         }
-        st.textContent = parts.join(' · ');
+        if (afaRegion === 'eu' && mode !== 'wms') text += ' · serie statica satellite/afa_eu';
+        st.textContent = text;
+        afaSyncCoverage();
     }
     function afaHideLegend() {
         var box = document.getElementById('afa-legend-box');
         if (box) box.style.display = 'none';
+    }
+    // 1.3.0.72 - il riquadro resta visibile anche nello stato di errore: il messaggio
+    // vive in #afa-legend-status (id REALE del riquadro, nessun id inventato).
+    function afaShowLegend() {
+        var box = document.getElementById('afa-legend-box');
+        if (box) box.style.display = 'block';
+        afaSyncCoverage();
+    }
+    // Copertura dichiarata + bounds MISURATI dal layer in mappa: se i due non
+    // coincidono la legenda lo dice (✗ MISMATCH) invece di dichiarare il falso.
+    function afaSyncCoverage() {
+        var row = document.getElementById('afa-legend-coverage');
+        if (!row) return;
+        var def = afaRegionDef();
+        var txt = def.coverage + ' · ' + def.kmpx;
+        var b = null;
+        try {
+            b = (liveAfaLayer && typeof map !== 'undefined' && map && map.hasLayer(liveAfaLayer) &&
+                typeof liveAfaLayer.getBounds === 'function') ? liveAfaLayer.getBounds() : null;
+        } catch (e) { b = null; }
+        if (b) {
+            var same = false;
+            try { same = b.equals(def.bounds); } catch (e) { same = false; }
+            txt += ' · layer in mappa: ' + afaBoundsLabel(b) + (same ? ' ✓' : ' ✗ MISMATCH');
+        } else {
+            txt += ' · layer non in mappa';
+        }
+        if (afaRegion === 'eu' && afaSourceMode === 'wms') {
+            txt += ' · Europa: richiesta diretta al servizio EUMETSAT';
+        }
+        row.textContent = txt;
+    }
+    // 1.3.0.72 - A2: la copertura e la risoluzione stanno anche nel title dei DUE
+    // pulsanti (AFA LIVE e Radar Player) e nelle due voci di regione.
+    function afaSyncTitles() {
+        var def = afaRegionDef();
+        var common = def.coverage + ' · ' + def.kmpx;
+        var b1 = document.getElementById('live-toggle-afa');
+        if (b1) b1.title = 'Area con emissione ottica rilevata da MTG-I LI (AFA): non e\' un conteggio di scariche e non distingue fulmini intra-nube da terra. ' + common + '. Fonte: EUMETSAT CC BY 4.0.';
+        var b2 = document.getElementById('btn-radar-afa');
+        if (b2) b2.title = 'Attività elettrica (AFA) MTG-I LI: area con emissione ottica, non conteggio di scariche. ' + common + '. Fonte: EUMETSAT CC BY 4.0.';
+        var it = document.getElementById('afa-region-it');
+        var eu = document.getElementById('afa-region-eu');
+        if (it) {
+            it.classList.toggle('on', afaRegion === 'it');
+            it.setAttribute('aria-pressed', afaRegion === 'it' ? 'true' : 'false');
+        }
+        if (eu) {
+            eu.classList.toggle('on', afaRegion === 'eu');
+            eu.setAttribute('aria-pressed', afaRegion === 'eu' ? 'true' : 'false');
+        }
+        afaSyncCoverage();
+    }
+    // 1.3.0.72 - A3: due inquadrature, default Italia. Il cambio ricostruisce il
+    // layer sui nuovi bounds SOLO se l'AFA e' acceso: nessun overlay orfano.
+    function afaSetRegion(region) {
+        if (!AFA_REGIONS[region] || region === afaRegion) { afaSyncTitles(); return; }
+        afaRegion = region;
+        afaSourceMode = null;
+        afaSyncTitles();
+        if (!liveAfaWanted) return;
+        if (liveAfaLayer && typeof map !== 'undefined' && map && map.hasLayer(liveAfaLayer)) map.removeLayer(liveAfaLayer);
+        liveAfaLayer = null;
+        liveAfaFrameGen++;
+        liveAfaRetryCount = 0;
+        afaClearRetry();
+        var slot = afaSlotIsoForUi();
+        if (slot) liveAfaApply(slot);
     }
 
     // Lo slot usato e' SEMPRE quello dei dati radar (campo `slot_iso` quando
@@ -8702,6 +8930,9 @@ var liLabel;
         if (liveAfaLayer && typeof map !== 'undefined' && map && map.hasLayer(liveAfaLayer)) {
             map.removeLayer(liveAfaLayer);
         }
+        // 1.3.0.72 - invalida gli handler di caricamento in volo: un errore tardivo
+        // del frame rimosso non deve cambiare lo stato del toggle.
+        liveAfaFrameGen++;
         // 1.3.0.53 - la legenda AFA sparisce con il layer: nessun riquadro orfano.
         afaHideLegend();
         liveAfaSyncButtons(false);
@@ -8719,44 +8950,153 @@ var liLabel;
         }
     }
 
-    // Toggle del pannello LIVE. `iso` e' opzionale: di default si legge dallo
-    // slot reale dei dati radar, mai da Date.now().
-    function liveToggleAfaLayer(on, iso) {
-        liveAfaEnabled = !!on;
-        if (!liveAfaEnabled) { liveAfaRemoveLayer(); return; }
-        var slot = iso || liveAfaSlotIso();
-        if (!slot) {
-            // 1.3.0.53 - STATO COERENTE: senza slot il layer non puo' esistere, quindi
-            // il flag torna false PRIMA di ridisegnare i pulsanti (prima restava true
-            // e il pulsante OFF non coincideva con lo stato reale).
-            liveAfaEnabled = false;
-            liveAfaSyncButtons(false);
-            return;
-        }
-        // 1.3.0.53 - stesso motivo se il frame non e' mostrabile (manifest assente
-        // anche dopo il retry): niente flag acceso senza layer.
-        if (!liveAfaEnsureLayer(slot)) {
-            liveAfaEnabled = false;
-            liveAfaSyncButtons(false);
+    // 1.3.0.72 - RETRY VISIBILE E STATO ONESTA. liveAfaWanted e' l'intenzione
+    // dell'utente, liveAfaEnabled e' il layer davvero in mappa: erano lo stesso flag,
+    // quindi un cambio prodotto o un manifest non ancora arrivato lasciavano il
+    // pulsante OFF (o ON senza layer) senza spiegazione.
+    function afaClearRetry() {
+        if (liveAfaRetryTimer) {
+            clearTimeout(liveAfaRetryTimer);
+            liveAfaRetryTimer = null;
         }
     }
+    function afaSetStatus(msg) {
+        liveAfaStatusMsg = msg || null;
+        var st = document.getElementById('afa-legend-status');
+        if (st) st.textContent = liveAfaStatusMsg || '';
+    }
+    // Errore: ON torna OFF, il layer non resta orfano, il messaggio e' VISIBILE nel
+    // riquadro reale #afa-legend-status (nessun id inventato).
+    function afaFail(msg) {
+        afaClearRetry();
+        liveAfaRetryCount = 0;
+        liveAfaWanted = false;
+        liveAfaEnabled = false;
+        if (liveAfaLayer && typeof map !== 'undefined' && map && map.hasLayer(liveAfaLayer)) map.removeLayer(liveAfaLayer);
+        liveAfaFrameGen++;
+        liveAfaSyncButtons(false);
+        afaShowLegend();
+        afaSetStatus(msg);
+        afaSyncTitles();
+    }
+    function afaShowLoading(slot) {
+        afaShowLegend();
+        afaSetStatus('carico lo slot ' + String(slot).substr(11, 5) + '…');
+    }
+    function afaScheduleRetry(slot) {
+        if (liveAfaRetryCount >= AFA_RETRY_MAX) return false;
+        liveAfaRetryCount++;
+        afaShowLegend();
+        afaSetStatus('carico lo slot ' + String(slot).substr(11, 5) +
+            '… (manifest satellite, tentativo ' + liveAfaRetryCount + '/' + AFA_RETRY_MAX + ')');
+        liveAfaRetryTimer = setTimeout(function () {
+            liveAfaRetryTimer = null;
+            if (!liveAfaWanted) return;
+            liveAfaApply(slot);
+        }, AFA_RETRY_MS);
+        return true;
+    }
+    // Unico punto di applicazione: prova lo slot, e in caso di fallimento distingue
+    // «manifest non ancora in memoria» (retry, resta ON) da «errore» (ON -> OFF).
+    function liveAfaApply(slot) {
+        if (!liveAfaWanted) return;
+        // 1.3.0.72 - il manifest si ASPETTA anche per l'Europa: senza questa attesa
+        // il primo click cadeva sempre nel fallback WMS anche quando `sources.afa_eu`
+        // esisteva (misurato nell'harness: manifest non ancora in memoria -> WMS).
+        if (!satStaticManifest || !satStaticManifest.sources) {
+            if (typeof loadSatelliteManifest === 'function') loadSatelliteManifest();
+            if (afaScheduleRetry(slot)) return;
+            if (afaRegion !== 'eu') {
+                afaFail('AFA non disponibile: satellite/manifest.json non caricato dopo ' +
+                    AFA_RETRY_MAX + ' tentativi — riprova');
+                return;
+            }
+            // Europa: retry esauriti, il WMS diretto resta la via dichiarata.
+        }
+        var ok = false;
+        try { ok = liveAfaEnsureLayer(slot); } catch (e) { ok = false; }
+        if (ok) {
+            liveAfaEnabled = true;
+            liveAfaRetryCount = 0;
+            afaClearRetry();
+            liveAfaSyncButtons(true);
+            afaSyncTitles();
+            return;
+        }
+        liveAfaEnabled = false;
+        if (!satStaticManifest || !satStaticManifest.sources) {
+            afaFail('AFA non disponibile: satellite/manifest.json non caricato dopo ' +
+                AFA_RETRY_MAX + ' tentativi — riprova');
+            return;
+        }
+        if (afaRegion === 'it' && !(satStaticManifest.sources.afa && satStaticManifest.sources.afa.length)) {
+            afaFail('AFA non disponibile: sources.afa assente nel manifest satellite');
+            return;
+        }
+        if (afaRegion === 'it') {
+            afaFail('AFA: nessuno slot utilizzabile per ' + String(slot).substr(11, 5) + ' nel manifest satellite');
+            return;
+        }
+        afaFail('AFA Europa: richiesta diretta al servizio EUMETSAT non riuscita per lo slot ' +
+            String(slot).substr(11, 5));
+    }
+    function liveAfaEnable(slot) {
+        liveAfaWanted = true;
+        liveAfaRetryCount = 0;
+        afaClearRetry();
+        // FEEDBACK IMMEDIATO: i due pulsanti vanno ON al click, prima di qualunque rete.
+        liveAfaSyncButtons(true);
+        afaSyncTitles();
+        if (!slot) {
+            afaFail('AFA: nessuno slot temporale disponibile (apri il Radar Player o il pannello LIVE)');
+            return;
+        }
+        afaShowLoading(slot);
+        liveAfaApply(slot);
+    }
+    function liveAfaDisable() {
+        liveAfaWanted = false;
+        liveAfaEnabled = false;
+        liveAfaRetryCount = 0;
+        afaClearRetry();
+        liveAfaRemoveLayer();
+        afaHideLegend();
+    }
+    // Toggle dei due pulsanti. `iso` e' opzionale: di default si legge dallo slot
+    // che il PLAYER sta mostrando, mai da Date.now().
+    function liveToggleAfaLayer(on, iso) {
+        if (on) liveAfaEnable(iso || afaSlotIsoForUi());
+        else liveAfaDisable();
+    }
+    function afaToggleAfa() {
+        if (liveAfaWanted) liveAfaDisable();
+        else liveAfaEnable(afaSlotIsoForUi());
+    }
 
-    // Radar Player: visibilità del pulsante e sincronizzazione dello strato
-    // con il prodotto attivo e con il Provider radar. Richiamata da
-    // syncRadarProductVisuals() (via syncProductUI) e da changeRadarProvider().
-    // Quando i controlli radar escono dal prodotto attivo lo strato si spegne,
-    // come già fa l'area Doppler: nessun overlay orfano sulla mappa.
+    // Radar Player: visibilità del pulsante e sincronizzazione dello strato con il
+    // prodotto attivo. Quando i controlli radar escono dal prodotto lo strato si
+    // spegne (nessun overlay orfano) ma l'INTENZIONE resta: al rientro l'AFA si
+    // riaccende invece di restare OFF (1.3.0.72).
     function radarAfaSync() {
         var btn = document.getElementById('btn-radar-afa');
         var radarOn = false;
         try { radarOn = isRadarToolsProduct(); } catch (e) { radarOn = false; }
         if (btn) btn.style.display = radarOn ? '' : 'none';
-        if (!radarOn && liveAfaEnabled) {
-            liveAfaEnabled = false;
-            liveAfaRemoveLayer();
-        } else if (radarOn && liveAfaEnabled) {
-            var slot = liveAfaSlotIso();
-            if (slot && slot !== liveAfaLastIso) liveAfaEnsureLayer(slot);
+        if (!radarOn) {
+            if (liveAfaEnabled || liveAfaLayer) {
+                liveAfaEnabled = false;
+                liveAfaRemoveLayer();
+            }
+            return;
+        }
+        if (liveAfaWanted && !liveAfaEnabled) {
+            var s = afaSlotIsoForUi();
+            if (s) liveAfaApply(s);
+            return;
+        }
+        if (liveAfaEnabled) {
+            var slot = afaSlotIsoForUi();
+            if (slot && slot !== liveAfaLastIso) liveAfaApply(slot);
         }
     }
 
@@ -38279,6 +38619,9 @@ syncSelect('lightning-source-select', [
         syncSelect('mnw-source-select', [
             ['live', 'metarIem'], ['model', 'openMeteo']
         ]);
+        // 1.3.0.72 - stato iniziale dell'AFA: regione di default (Italia), title dei
+        // due pulsanti con la copertura e la risoluzione, riga di copertura in legenda.
+        if (typeof afaSyncTitles === 'function') afaSyncTitles();
 
         // --- Elementi UI delle feature disabilitate: nascosti ---
         // Rimosso il vecchio selettore Allerte DPC (now absorbed by .day-selector).

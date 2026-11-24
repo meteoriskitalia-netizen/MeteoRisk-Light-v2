@@ -1,3 +1,16 @@
+VERSION=1.3.0.72
+BUILD=203
+DATE=2026-11-24
+APP_FILE=mri-light-1.3.0.72.html
+MeteoRisk Light - 1.3.0.72 - AFA: il toggle non resta piu' OFF (ON separato dal layer, retry del manifest, errori visibili), slot senza segnale dichiarato, copertura Italia/Europa con risoluzione misurata, satellite Europa a 2048 px (BUILD=203)
+VERSION=1.3.0.72
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=203
+RELEASE_TYPE=release
+DATE=2026-11-24
+NOTE=Release 1.3.0.72 (bump da 1.3.0.71; il backend BUILD=202 del nowcast resta com'e'; APP_FILE mri-light-1.3.0.72.html). (1) AFA, IL TOGGLE CHE RESTAVA OFF, CAUSA MISURATA: lo stato dell interfaccia e quello del layer erano lo STESSO flag liveAfaEnabled, quindi un click arrivato prima che satellite/manifest.json fosse in memoria spegneva il pulsante senza messaggio. Riprodotto con un harness Node che esegue il blocco AFA REALE estratto dall HTML: 10/10 cicli ON -> OFF a manifest freddo, 0/10 a manifest caldo; dopo 5 cambi frame il pulsante diceva ON con il flag interno false; il cambio prodotto lasciava l overlay orfano. ORA: liveAfaWanted (intenzione) separato da liveAfaEnabled (layer in mappa), click = ON immediato, legenda ?carico lo slot HH:MM??, 6 retry del manifest a 1,5 s, errore = OFF con messaggio in #afa-legend-status. Riverificato con lo stesso harness: 10/10 ON e 10/10 OFF a manifest freddo, 5/5 cambi frame, rientro nel prodotto radar con l AFA riaccesa. (2) has_signal:false -> layer ACCESO e legenda ?slot HH:MM ? nessuna emissione ottica?. (3) COPERTURA esplicita in legenda e nel title dei due pulsanti: ?Copertura: Italia 6,6-18,8 E ? 36,5-47,2 N?, 12,2 gradi su 1024 px = 1,33 km/px in EPSG:3857 (~1,0 km/px al suolo a 42N); bounds del layer MISURATI e confrontati (6,6-18,8 / 36,5-47,2: coincidono). (4) AFA EUROPA: due voci AFA Italia / AFA Europa (-25-45 E / 30-72 N, 2048 px = 3,80 km/px, ~2,4 km/px al suolo a 50N), default Italia; MISURATO il 2026-11-24 che il manifest live ha sources.afa ma NON afa_eu, quindi il client legge afa_eu quando ci sara e fino ad allora usa UNA GetMap diretta mtg_fd:li_afa sulla bbox Europa (78.111 B, 8,6 s, 2048x2168) dichiarandolo in legenda e attribuzione; errore della GetMap -> messaggio. (5) SATELLITE EUROPA: FRAME_WIDTH del motore 1024 -> 2048 (la vista ampia aveva la STESSA larghezza dell Italia, ~6,2 km/px al suolo contro ~1,0), misurato sulla WMS reale con mtg_fd:ir105_hrfi (bbox 83 gradi): 1024 px = 362.578 B / 3,1 s, 1600 px = 963.023 B / 8,8 s, 2048 px = 1.275.498 B / 10,4 s, 4096 px = 4.320.988 B / 17,5 s (il server risponde fino a 4096, non usato). (6) TEST: test_html_js_syntax, test_tooltips_coverage, test_station_field.mjs, test_sw_cache_policy verdi; conteggio funzioni 1637 -> 1657 (nessuna funzione rimossa); 0 righe con caratteri corrotti. NON FATTO: nessun confronto visivo in browser della resa della mappa (la verifica live copre toggle, bounds e URL), nessuna modifica alle altre fonti.
 VERSION=1.3.0.71
 BUILD=202
 DATE=2026-11-24
