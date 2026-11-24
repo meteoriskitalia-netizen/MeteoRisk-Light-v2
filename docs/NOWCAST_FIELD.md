@@ -110,6 +110,50 @@ reale di pioggia leggera (24/11 12:45Z) e **324.736 byte (317,1 kB)** sul caso
 intenso del 23/11 10:25Z: il costo dipende da quanta pioggia c'e' nel frame.
 Il JSON e' **~6 kB** (12.4 kB con il blocco di verifica incorporato).
 
+## Palette: allineata alla scala SRI del client (MISURATA)
+
+Prima di questa modifica il nowcast usava una rampa propria a **8 stop**
+(0,05/0,5/1/2/5/10/20/40 mm/h: azzurro, blu, verde, giallo, arancio, rosso,
+viola, magenta) mentre il radar **SRI** del client usa `DPC_SRI_STOPS`
+(mri-light-1.3.0.77.html righe 10983-10990, tabella Universal Blue: blu ->
+azzurro -> ciano -> giallo -> arancio -> rosso) con **6 stop**
+1/5/10/20/50/100 mm/h. Non erano gli stessi colori ne' gli stessi breakpoint:
+distanza RGB 144 a 0,5, 300 a 2, 340 a 5, 284 a 10 mm/h (verde/giallo/rosso
+contro blu/ciano/giallo).
+
+Ora `nowcast_field.PALETTE` e' **la copia esatta** di `DPC_SRI_STOPS`:
+
+| mm/h | nowcast RGB (dopo) | radar SRI RGB (client) | distanza | note |
+| ---: | :--- | :--- | ---: | :--- |
+| 0,5 | `(0,85,136)` | `(0,85,136)` | **0** | coda: sotto 1 mm/h -> primo colore |
+| 2 | `(0,104,158)` | `(0,104,158)` | **0** | interpolazione lineare 1->5 |
+| 5 | `(0,163,224)` | `(0,163,224)` | **0** | |
+| 10 | `(136,221,238)` | `(136,221,238)` | **0** | |
+| 20 | `(255,238,0)` | `(255,238,0)` | **0** | |
+| 50 | `(255,170,0)` | `(255,170,0)` | **0** | |
+| 100 | `(193,0,0)` | `(193,0,0)` | **0** | |
+| >100 | `(193,0,0)` | `(193,0,0)` | **0** | coda dichiarata (SRI si ferma a 100) |
+
+Round-trip nell'encoder: un campo costante a 50 mm/h salvato in WebP lossy
+(q80) si rilegge `(254,170,0)` invece di `(255,170,0)` — **delta 1/255 sul
+canale R**, alpha esatto; e' la perdita del codec, non la palette.
+
+**Differenza di VISIBILITA' (dichiarata)**: il client rende trasparenti i
+pixel grezzi del tile SRI con R,G,B < 25/255, cioe' sotto **~9,8 mm/h**
+(`DPC_TRANSPARENT_R = 25`, riga 10976). Il nowcast invece disegna anche la
+pioggia leggera (alpha da 0,05 a 0,20 mm/h): a 0,5-5 mm/h il radar osservato
+e' vuoto e il nowcast e' colorato. Non e' un errore di colore: e' una soglia
+di visibilita' del client, ed e' dichiarata qui. Se si vuole la stessa
+visibilita' basta portare `RAIN_MIN_MMH` a 9,8 nel nowcast, ma si perderebbe
+tutta la pioggia debole (la maggior parte del prodotto).
+
+**Legenda del client**: il markup della legenda nowcast in
+`mri-light-1.3.0.77.html` (righe 2773-2777) ha ancora le etichette
+0,05/0,5/2/5/10/20+, scritte a mano. Il JSON ora pubblica gli stop corretti in
+`legend` (1/5/10/20/50/100) e i WebP usano quei colori, ma l'HTML non e' stato
+toccato in questa release: le etichette della legenda vanno riallineate in una
+release successiva (stesse sei voci della legenda SRI).
+
 ## Costi misurati (24/11/2026, host di sviluppo, slot reali)
 
 | Voce | Misura |
@@ -215,8 +259,8 @@ sostituire `nowcastDevAllowed()` con il segnale di modo dell'app.
 </label>
 <div id="nowcast-legend" style="display:none; ...">
   <div class="nowcast-bar"></div>
-  <div class="nowcast-ticks"><span>0,05</span><span>0,5</span><span>2</span><span>5</span><span>10</span><span>20+</span></div>
-  <div class="nowcast-note">mm/h · dopo 30 minuti l'affidabilità cala</div>
+  <div class="nowcast-ticks"><span>1</span><span>5</span><span>10</span><span>20</span><span>50</span><span>100+</span></div>
+  <div class="nowcast-note">mm/h · stessa scala del radar SRI · dopo 30 minuti l'affidabilità cala</div>
 </div>
 
 <script>
@@ -225,8 +269,9 @@ sostituire `nowcastDevAllowed()` con il segnale di modo dell'app.
 window.NOWCAST = (function () {
   var URL = 'data/radar/nowcast.json';
   var LEADS = [5,10,15,20,25,30,35,40,45,50,55,60];   /* 12 frame */
-  var PALETTE = [[0.05,'#9ad0ff'],[0.5,'#3d8bff'],[1,'#00c878'],[2,'#ffdd33'],
-                 [5,'#ff9100'],[10,'#e62828'],[20,'#b000b0'],[40,'#ff00ff']];
+  /* stessi RGB di DPC_SRI_STOPS del client (Universal Blue) */
+  var PALETTE = [[1,'#005588'],[5,'#00a3e0'],[10,'#88ddee'],[20,'#ffee00'],
+                 [50,'#ffaa00'],[100,'#c10000']];
   var st = {data:null, layer:null, lead:30, busy:false, timer:null};
   function img(lead) {                 /* nowcast_lead005 ... nowcast_lead060 */
     return 'data/radar/nowcast_lead' + ('00' + lead).slice(-3) + '.webp';

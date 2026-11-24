@@ -1,7 +1,16 @@
 VERSION=1.3.0.77
-BUILD=209
+BUILD=210
 DATE=2026-11-24
 APP_FILE=mri-light-1.3.0.77.html
+MeteoRisk Light - 1.3.0.77 - PALETTE NOWCAST ALLINEATA ALLA SCALA SRI DEL CLIENT (stessi 6 stop e stessi RGB, distanza 0 misurata) (BUILD=210, backend)
+VERSION=1.3.0.77
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=210
+RELEASE_TYPE=release
+DATE=2026-11-24
+NOTE=Release backend 1.3.0.77 BUILD=210 (nessuna modifica all'HTML: APP_FILE resta mri-light-1.3.0.77.html). PALETTE NOWCAST ALLINEATA ALLA SCALA SRI DEL CLIENT: prima il nowcast usava 8 stop propri (0,05/0,5/1/2/5/10/20/40 mm/h: azzurro/blu/verde/giallo/arancio/rosso/viola/magenta) mentre il radar SRI usa DPC_SRI_STOPS (mri-light-1.3.0.77.html righe 10983-10990, Universal Blue: 6 stop 1/5/10/20/50/100). Distanze RGB misurate PRIMA: 144 a 0,5, 300 a 2, 340 a 5, 284 a 10 mm/h. Ora nowcast_field.PALETTE e' la copia esatta di DPC_SRI_STOPS: distanza 0 a 0,5/2/5/10/20/50/100 (2 mm/h interpolato lineare -> (0,104,158)); code dichiarate (<1 mm/h -> primo colore, >100 -> ultimo). Round-trip WebP lossy q80: un campo costante a 50 mm/h si rilegge (254,170,0) invece di (255,170,0): delta 1/255 sul solo R, alpha esatto (perdita del codec, non della palette). VISIBILITA': il client rende trasparente il tile SRI grezzo sotto ~9,8 mm/h (DPC_TRANSPARENT_R=25) mentre il nowcast disegna anche la pioggia debole (alpha 0,05-0,20): differenza dichiarata, non di colore. LEGENDA CLIENT: il markup in mri-light-1.3.0.77.html righe 2773-2777 ha ancora le etichette 0,05/0,5/2/5/10/20+; il JSON pubblica legend 1/5/10/20/50/100 e i WebP usano quei colori, ma l'HTML non e' stato toccato: le etichette vanno riallineate in una release successiva. TEST: 26 nowcast (2 nuovi sulla palette), suite radar 920 passed, py_compile OK.
 MeteoRisk Light - 1.3.0.77 - NOWCAST A 12 FRAME (+5..+60 ogni 5 min, player fluido), verifica ufficiale invariata 15/30/60, archivio/verifica adeguati (BUILD=209, backend)
 VERSION=1.3.0.77
 MAJOR=1

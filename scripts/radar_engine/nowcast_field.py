@@ -110,17 +110,22 @@ WEBP_QUALITY = 80
 IMAGE_NAMES = {lead: "nowcast_lead%03d.webp" % lead for lead in LEADS_MIN}
 VERIFICATION_FILE = "nowcast_verification.json"
 
-# Legenda (mm/h -> colore). La stessa lista va nel JSON: il client non deve
-# inventare colori. Sotto RAIN_MIN_MMH il pixel e' trasparente.
+# Legenda (mm/h -> colore). STESSA SCALA DEL RADAR SRI DEL CLIENT: i sei stop
+# sono copiati da `DPC_SRI_STOPS` di mri-light-1.3.0.77.html (righe 10983-10990,
+# tabella Universal Blue: blu -> azzurro -> ciano -> giallo -> arancio -> rosso)
+# con gli stessi RGB, cosi' "pioggia prevista" e "pioggia osservata" hanno lo
+# stesso significato cromatico. La lista va anche nel JSON (`legend`).
+# CODE: sotto 1 mm/h il colore e' quello del primo stop; sopra 100 mm/h quello
+# dell'ultimo (il radar SRI si ferma a 100). L'alpha del nowcast resta una
+# rampa separata (0 sotto RAIN_MIN_MMH, 200/255 da ALPHA_FULL_MMH): il client
+# radar SRI, invece, rende trasparenti i pixel grezzi < 25/255 (~9,8 mm/h).
 PALETTE = (
-    (0.05, (154, 208, 255)),
-    (0.50, (61, 139, 255)),
-    (1.00, (0, 200, 120)),
-    (2.00, (255, 221, 51)),
-    (5.00, (255, 145, 0)),
-    (10.00, (230, 40, 40)),
-    (20.00, (176, 0, 176)),
-    (40.00, (255, 0, 255)),
+    (1.0, (0, 85, 136)),
+    (5.0, (0, 163, 224)),
+    (10.0, (136, 221, 238)),
+    (20.0, (255, 238, 0)),
+    (50.0, (255, 170, 0)),
+    (100.0, (193, 0, 0)),
 )
 ALPHA_FULL_MMH = 0.20           # da qui in su alpha pieno (200/255)
 ALPHA_MAX = 200

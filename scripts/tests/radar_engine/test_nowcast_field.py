@@ -245,7 +245,9 @@ def test_output_json_and_webp(tmp_path):
     assert len(data["grid"]["bounds"]) == 4
     assert data["grid"]["resolution_m"] == nf.OUTPUT_RES_M
     assert data["motion_algorithm"] == "lucas_kanade_pyramidal"
-    assert data["legend"][0]["mmh"] == 0.05
+    assert data["legend"][0]["mmh"] == 1.0
+    assert [l["mmh"] for l in data["legend"]] == [1.0, 5.0, 10.0, 20.0, 50.0,
+                                                  100.0]
     for lead in nf.LEADS_MIN:
         p = out / nf.IMAGE_NAMES[lead]
         assert p.exists() and p.stat().st_size > 0
@@ -337,6 +339,33 @@ def test_beats_persistence_comes_from_verification_file(tmp_path):
     data = json.loads((out / "nowcast.json").read_text(encoding="utf-8"))
     assert data["beats_persistence"] is False
     assert data["verification"]["cases_with_rain"] == 24
+
+
+# ---------------------------------------------------------------------------
+# 6b. palette ALLINEATA alla scala SRI del client (stessi RGB)
+# ---------------------------------------------------------------------------
+# Copia letterale di DPC_SRI_STOPS (mri-light-1.3.0.77.html, righe 10983-10990).
+CLIENT_DPC_SRI_STOPS = ((1, (0, 85, 136)), (5, (0, 163, 224)),
+                        (10, (136, 221, 238)), (20, (255, 238, 0)),
+                        (50, (255, 170, 0)), (100, (193, 0, 0)))
+
+
+def test_palette_is_the_client_sri_scale():
+    assert nf.PALETTE == CLIENT_DPC_SRI_STOPS
+    for mmh, rgb in CLIENT_DPC_SRI_STOPS:
+        px = nf._rgba(np.array([[np.float32(mmh)]]))[0, 0]
+        assert [int(px[0]), int(px[1]), int(px[2])] == list(rgb)
+    # code dichiarate: sotto 1 mm/h -> primo colore, sopra 100 -> ultimo
+    low = nf._rgba(np.array([[np.float32(0.5)]]))[0, 0]
+    high = nf._rgba(np.array([[np.float32(200.0)]]))[0, 0]
+    assert [int(low[0]), int(low[1]), int(low[2])] == [0, 85, 136]
+    assert [int(high[0]), int(high[1]), int(high[2])] == [193, 0, 0]
+
+
+def test_palette_between_stops_is_linear_like_the_client():
+    # 2 mm/h: il client interpola 1->5 (t=0,25) -> (0,104.5,158) arrotondato
+    px = nf._rgba(np.array([[np.float32(2.0)]]))[0, 0]
+    assert [int(px[0]), int(px[1]), int(px[2])] == [0, 104, 158]
 
 
 # ---------------------------------------------------------------------------
