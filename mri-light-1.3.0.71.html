@@ -2222,6 +2222,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                 <option value="rain">Pioggia cumulata (mm)</option>
                 <option value="wind">Vento medio (m/s)</option>
                 <option value="gust">Raffica massima (m/s)</option>
+                <option value="gustEst">Raffica stimata (m/s)</option>
                 <option value="rh">Umidità relativa 2 m (%)</option>
                 <option value="dew">Punto di rugiada 2 m (°C)</option>
                 <option value="snow">Neve al suolo (cm)</option>
@@ -3218,9 +3219,17 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.70';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.71';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-24';
     const APP_CHANGELOG = [
+    { version: '1.3.0.71', date: '2026-11-24', changes: [
+      "ARTEFATTI GEOMETRICI DEL CAMPO CORRETTI (misurati, non a occhio): il metodo `full` aveva SEAM su righe e colonne intere (salti fino a 1,96 °C sulle longitudini 8, 11, 13, 15, 17 e latitudini 38, 39, 43, 44, 46) perche' i 16 vicini erano scelti da una lista per CELLA a 1°. Ora il valore si calcola sui NODI di un reticolo a 0,5° e si campiona con interpolazione BILINEARE: la differenza media fra pixel adiacenti scende da 0,211 a 0,068 °C per colonna e il massimo da 1,96 a 0,27 °C.",
+      "PESO GAUSSIANO: al posto di 1/(d²+1) con k fisso si usa exp(-(d/σ)²) con σ = raggio/2 = 12,5 km, sommando TUTTI i vicini entro il raggio (nessun troncamento a k, che faceva cambiare l'insieme dei vicini da pixel a pixel e produceva gli «spicchi»). Il calcolo e' a un solo passaggio e l'esponenziale usa una LUT (3072 passi, taglio a 12): il metodo `local` scende da 623 a 191 ms.",
+      "MASCHERA TERRA MORBIDA: la maschera delle province viene dilatata di 2 px e sfumata con un box blur 5x5; l'alpha del campo scende gradualmente a 0 sul bordo invece di essere tagliata di netto. Il mare oltre il feather resta trasparente: nessun valore inventato, i buchi del metodo `local` restano.",
+      "RAFFICA STIMATA (`gustEst`): nuova voce del selettore, separata dalla raffica misurata. Usa solo gust_est_* (nessuna mescolanza con gust_max_*), finestre 1 e 3 ore (le altre disabilitate con il motivo), stessa scala colori della raffica per confrontabilita', riga di legenda «Raffica stimata dal vento (passo N min) · N stazioni». Se il campo non c'e' il messaggio e' «nessuna stazione con serie abbastanza fine per la stima».",
+      "VENTO MASSIMO MEDIO RIMOSSO: `wind_max_3h_ms` non si pubblica piu' (del vento resta la media, per il massimo c'e' la raffica) e il client non lo legge piu'.",
+      "TEST: test_station_field.mjs 228 controlli / 0 falliti (gaussiano, LUT, reticolo 0,5°, maschera sfumata, gustEst); test_station_wind.py aggiornato; test_html_js_syntax, test_tooltips_coverage, test_station_field_index, test_stations verdi."
+    ]},
     { version: '1.3.0.70', date: '2026-11-24', changes: [
       "ISOLINEE VETTORIALI (modalità contour): linee e etichette non sono più disegnate nel canvas del campo (256x227, poi scalato da Leaflet = sfocato), ma come L.polyline SVG e marker HTML in un pane dedicato (stationFieldIsoPane, z 408, pointer-events none). Nitide a qualunque zoom e riproiettate da Leaflet: pan e zoom non ricostruiscono nulla. Lapulizia avviene a ogni render e allo spegnimento (stationFieldIsoClear), quindi polilinee e marker non si accumulano.",
       "GEOMETRIA DELLE LINEE: griglia dedicata 4x il campo (1024x1340 sul frame reale), valori ricampionati con interpolazione BILINEARE (l'alpha resta dal vicino più prossimo: nessuna linea sul mare), marching squares con intersezione LINEARE sui lati della cella e smoothing Chaikin x2 (la curva resta dentro il poligono di controllo, quindi non si sposta oltre mezza cella). Costo MISURATO nel browser reale: 149-234 ms per il render contour completo, dati vettoriali 344 ms nel test Node: sotto il limite di 800 ms.",
@@ -18189,13 +18198,21 @@ stopSyncPlay();
                 rainHourly: stationsNum(s.rain_hourly),
                 windMean1h: stationsNum(s.wind_mean_1h_ms),
                 windMean3h: stationsNum(s.wind_mean_3h_ms),
-                windMax3h: stationsNum(s.wind_max_3h_ms),
                 windMean1hCov: stationsNum(s.wind_mean_1h_coverage_frac),
                 windMean3hCov: stationsNum(s.wind_mean_3h_coverage_frac),
                 gustMax1h: stationsNum(s.gust_max_1h_ms),
                 gustMax3h: stationsNum(s.gust_max_3h_ms),
                 gustMax1hCov: stationsNum(s.gust_max_1h_coverage_frac),
                 gustMax3hCov: stationsNum(s.gust_max_3h_coverage_frac),
+                // 1.3.0.70 - RAFFICA STIMATA dal vento (massimo delle osservazioni
+                // della serie al passo di campionamento). Campo SEPARATO dalla
+                // raffica misurata: la mappa stimata usa solo gust_est_* e non
+                // mescola misure e inferenze.
+                gustEst1h: stationsNum(s.gust_est_1h_ms),
+                gustEst3h: stationsNum(s.gust_est_3h_ms),
+                gustEst1hCov: stationsNum(s.gust_est_1h_coverage_frac),
+                gustEst3hCov: stationsNum(s.gust_est_3h_coverage_frac),
+                gustEstPeriodS: stationsNum(s.gust_est_period_s),
                 // 1.3.0.61 - MEDIE SULLA FINESTRA (i nomi sono quelli che il server
                 // pubblica: temp_mean_5m_c / rh_mean_30m_pct / dew_mean_3h_c ...).
                 // Un campo assente resta null: non si ricostruisce da un'istantanea.
@@ -19657,6 +19674,7 @@ stopSyncPlay();
         rain: { list: [1, 5, 10, 25, 50], marked: [1, 10, 50] },
         wind: { list: [5, 10, 15, 20, 25], marked: [10, 20] },
         gust: { list: [5, 10, 15, 20, 25], marked: [10, 20] },
+        gustEst: { list: [5, 10, 15, 20, 25], marked: [10, 20] },
         snow: { list: [5, 10, 25, 50], marked: [10, 50] }
     };
     var STATION_FIELD_CONTOUR_LABEL_MAX = 5;    // etichette per livello (dichiarato in legenda)
@@ -19689,6 +19707,35 @@ stopSyncPlay();
         rh: { maxMin: 360, tauMin: 120 },
         snow: { maxMin: 720, tauMin: 240 }
     };
+    // 1.3.0.70 - PESO GAUSSIANO (al posto di 1/(d^2+1) con k fisso). Il troncamento
+    // a k vicini faceva cambiare l'INSIEME dei vicini da pixel a pixel e produceva
+    // gli «spicchi»: qui il peso e' continuo nella distanza e si sommano TUTTI i
+    // vicini entro il raggio (local) o nella lista di cella (full), senza k.
+    // σ = raggio/2: a 25 km il peso vale exp(-4)=0,018, quindi il taglio al bordo
+    // del raggio non si vede.
+    var STATION_FIELD_SIGMA_FRAC = 0.5;
+    // 1.3.0.70 - km per grado usato dall'IDW (lo stesso 111,32 di stationFieldDistKm:
+    // qui la distanza si calcola inline, senza chiamate, nel ciclo piu' caldo).
+    var STATION_FIELD_KM_PER_DEG = 111.32;
+    // 1.3.0.70 - LUT dell'esponenziale negativo: exp(-x) per x in [0, 12] con 3072
+    // passi. Nel ciclo caldo (pixel x vicini) Math.exp costava 4-6x la lettura di
+    // una tabella; exp(-12) = 6e-6, sotto la soglia di contributo, quindi il taglio
+    // a 12 non cambia il risultato in modo misurabile.
+    var STATION_FIELD_EXP_STEPS = 3072;
+    var STATION_FIELD_EXP_MAX = 12;
+    var STATION_FIELD_EXP_LUT = (function () {
+        var t = new Float32Array(STATION_FIELD_EXP_STEPS + 1);
+        for (var i = 0; i <= STATION_FIELD_EXP_STEPS; i++) {
+            t[i] = Math.exp(-(i / STATION_FIELD_EXP_STEPS) * STATION_FIELD_EXP_MAX);
+        }
+        return t;
+    })();
+    // 1.3.0.70 - Reticolo del metodo `full`: le liste di vicini per cella a 1°
+    // creavano SEAM sulle righe/colonne intere (misurato: salti fino a 1,96 °C
+    // sulle longitudini 8, 11, 13, 15, 17 e latitudini 38, 39, 43, 44, 46).
+    // Il valore si calcola sui NODI di un reticolo a 0,5° e si campiona con
+    // interpolazione BILINEARE: le discontinuita' spariscono per costruzione.
+    var STATION_FIELD_LATTICE_DEG = 0.5;
     var stationFieldMethod = 'local';
     var STATION_FIELD_VARS = {
         temp: { label: 'Temperatura 2 m', unit: '°C', decimals: 1 },
@@ -19699,6 +19746,11 @@ stopSyncPlay();
         rain: { label: 'Pioggia cumulata', unit: 'mm', decimals: 1 },
         wind: { label: 'Vento medio', unit: 'm/s', decimals: 1 },
         gust: { label: 'Raffica massima', unit: 'm/s', decimals: 1 },
+        // 1.3.0.70 - «Raffica stimata»: massimo delle OSSERVAZIONI del vento al
+        // passo della serie (sottostima i picchi piu' brevi di un passo). E' una
+        // stima diversa dalla raffica misurata: stessa unita' e stessa scala
+        // colori (classi 5/10/15/20/25 m/s) per confrontabilita', campi separati.
+        gustEst: { label: 'Raffica stimata', unit: 'm/s', decimals: 1 },
         snow: { label: 'Neve al suolo', unit: 'cm', decimals: 1 }
     };
     var STATION_FIELD_WINDOWS = ['5m', '30m', '1h', '3h', '6h', '24h', 'day'];
@@ -19761,6 +19813,15 @@ stopSyncPlay();
             '30m': { key: 'gustMax30m', cov: 'gustMax30mCov', raw: 'gust_max_30m_ms', mean: true, fallback: null },
             '1h': { key: 'gustMax1h', cov: 'gustMax1hCov', raw: 'gust_max_1h_ms' },
             '3h': { key: 'gustMax3h', cov: 'gustMax3hCov', raw: 'gust_max_3h_ms' }
+        },
+        // 1.3.0.70 - RAFFICA STIMATA: massimo delle osservazioni del vento nella
+        // finestra, al passo della serie (sottostima i picchi piu' brevi). E' un
+        // campo SEPARATO dalla raffica misurata: si usano SOLO gust_est_*, cosi'
+        // la mappa e' omogenea (tutte stime). Finestre: solo 1 h e 3 h (il server
+        // non pubblica le altre per questa grandezza).
+        gustEst: {
+            '1h': { key: 'gustEst1h', cov: 'gustEst1hCov', raw: 'gust_est_1h_ms' },
+            '3h': { key: 'gustEst3h', cov: 'gustEst3hCov', raw: 'gust_est_3h_ms' }
         }
     };
     // Mappa chiave normalizzata -> nome REALE nel file: serve a leggere il motivo
@@ -20337,6 +20398,15 @@ stopSyncPlay();
                     out.windowEndMax = wEndMs;
                 }
             }
+            // 1.3.0.70 - PASSO DELLA SERIE per la raffica stimata: mediana dei passi
+            // delle stazioni usate (il server pubblica gust_est_period_s in secondi).
+            if (spec.varKey === 'gustEst') {
+                var ps = st.gustEstPeriodS;
+                if (ps !== null && ps !== undefined && isFinite(Number(ps))) {
+                    if (out.periodSamples === undefined) out.periodSamples = [];
+                    out.periodSamples.push(Number(ps));
+                }
+            }
             // 1.3.0.69 - NEVE: gli ZERI non si disegnano. Uno spessore 0 non e' una
             // misura utile sulla mappa (dipingerebbe mezza Italia con il colore
             // della prima banda) e l'utente ha chiesto di non mostrarli. Il valore
@@ -20410,45 +20480,209 @@ stopSyncPlay();
     function stationFieldIdwAt(lat, lon, cand, cosLat, kOpt, cutoffOpt) {
         var k = kOpt || STATION_FIELD_K;
         var cutoff = (cutoffOpt === undefined || cutoffOpt === null) ? STATION_FIELD_CUTOFF_KM : cutoffOpt;
-        var bl = [], bd = [], n = 0, j, d;
+        var sigma = (cutoff === Infinity) ? 60 : cutoff * STATION_FIELD_SIGMA_FRAC;
+        var inv2s2 = 1 / (sigma * sigma);
+        var bd = [], n = 0, j, d;
+        var sum = 0, acc = 0;
+        // 1.3.0.70 - UN SOLO PASSAGGIO sui candidati: si accumula il peso gaussiano
+        // di TUTTI (nessun troncamento a k) e in parallelo si tiene la lista dei k
+        // piu vicini, che serve solo per dk (il fade del bordo in local).
         for (j = 0; j < cand.length; j++) {
-            d = stationFieldDistKm(lat, lon, cand[j].lat, cand[j].lon, cosLat);
+            var o = cand[j];
+            var dla = lat - o.lat;
+            var dlo = (lon - o.lon) * cosLat;
+            d = Math.sqrt(dla * dla + dlo * dlo) * STATION_FIELD_KM_PER_DEG;
             if (!(d <= cutoff)) continue;
+            var wa = o.wAge;
+            if (wa === undefined || wa === null) wa = 1;
+            if (wa > 0) {
+                // exp(-(d/σ)²) letto dalla LUT (x = d²/σ², indice lineare)
+                var xi = (d * d) * inv2s2;
+                var w;
+                if (xi >= STATION_FIELD_EXP_MAX) {
+                    w = 0;
+                } else {
+                    w = STATION_FIELD_EXP_LUT[(xi * STATION_FIELD_EXP_STEPS / STATION_FIELD_EXP_MAX) | 0] * wa;
+                }
+                if (w >= 1e-9) { acc += w * o.v; sum += w; }
+            }
             if (n < k) {
                 var p = n;
-                while (p > 0 && bd[p - 1] > d) { bd[p] = bd[p - 1]; bl[p] = bl[p - 1]; p--; }
-                bd[p] = d; bl[p] = cand[j];
+                while (p > 0 && bd[p - 1] > d) { bd[p] = bd[p - 1]; p--; }
+                bd[p] = d;
                 n++;
             } else if (d < bd[n - 1]) {
                 var q = n - 1;
-                while (q > 0 && bd[q - 1] > d) { bd[q] = bd[q - 1]; bl[q] = bl[q - 1]; q--; }
-                bd[q] = d; bl[q] = cand[j];
+                while (q > 0 && bd[q - 1] > d) { bd[q] = bd[q - 1]; q--; }
+                bd[q] = d;
             }
         }
-        if (!n) return { v: null, dk: null, dn: null, n: 0 };
-        var sum = 0, acc = 0;
-        for (j = 0; j < n; j++) {
-            // 1.3.0.69 - PESO TEMPORALE: w = 1/(d^2+1) * exp(-eta/tau). Il fattore
-            // e' gia' calcolato in stationFieldCollect (`wAge`); i punti senza
-            // `wAge` (test, chiamate storiche) valgono 1. Si legge l'oggetto UNA
-            // volta: e' il ciclo piu' caldo del layer.
-            var o = bl[j];
-            var dd = bd[j];
-            var wa = o.wAge;
-            if (wa === undefined || wa === null) wa = 1;
-            var w = wa / (dd * dd + 1);
-            acc += w * o.v;
-            sum += w;
-        }
-        // 1.3.0.69 - `dn` = distanza del vicino PIU' VICINO (bd[0]): serve alla
-        // legenda del metodo `full` («distanza mediana al vicino piu' prossimo»).
-        return { v: (sum > 0 ? acc / sum : null), dk: bd[n - 1], dn: bd[0], n: n };
+        if (!n || !(sum > 0)) return { v: null, dk: null, dn: null, n: n };
+        return { v: acc / sum, dk: bd[n - 1], dn: bd[0], n: n };
     }
 
-    // Raster IDW del campo: griglia W x H del frame Mercator (W=256, H~227),
-    // indice a bucket da 0,1° con espansione ad anelli (k=8, raggio 25 km).
-    // Ritorna i byte RGBA, i valori interpolati e le opacita': cosi' il test puo'
-    // verificare un pixel con i numeri, non solo il colore.
+    // 1.3.0.70 - RICAMPIONAMENTO BILINEARE del campo sulla griglia delle isolinee.
+    // L'alpha (copertura) si prende dal vicino piu' prossimo: e' la maschera terra,
+    // deve restare DURA (nessuna linea sul mare). I valori si interpolano fra i
+    // vicini DIPINTI con pesi rinormalizzati: un pixel di bordo non trascina il
+    // valore dal mare.
+    // 1.3.0.70 - MASCHERA TERRA MORBIDA. Prima il campo veniva tagliato di netto
+    // sulla maschera delle province: su confini e costa si vedevano spigoli e
+    // «zone squadrate». Ora la maschera si dilata di 2 px (il colore arriva al
+    // bordo) e si sfuma con un box blur 5x5: l'alpha scende gradualmente a 0, il
+    // MARE resta trasparente oltre il feather e nessun valore viene inventato.
+    function stationFieldSoftenMask(mask, W, H) {
+        if (!mask) return null;
+        var soft = new Float32Array(W * H);
+        var x, y, dx, dy, s, n, idx, yy, xx;
+        for (y = 0; y < H; y++) {
+            for (x = 0; x < W; x++) {
+                idx = y * W + x;
+                if (mask[idx] >= 128) { soft[idx] = 1; continue; }
+                var near = 0;
+                for (dy = -2; dy <= 2 && !near; dy++) {
+                    yy = y + dy;
+                    if (yy < 0 || yy >= H) continue;
+                    for (dx = -2; dx <= 2; dx++) {
+                        xx = x + dx;
+                        if (xx < 0 || xx >= W) continue;
+                        if (mask[yy * W + xx] >= 128) { near = 1; break; }
+                    }
+                }
+                soft[idx] = near ? 0.75 : 0;
+            }
+        }
+        var out = new Float32Array(W * H);
+        for (y = 0; y < H; y++) {
+            for (x = 0; x < W; x++) {
+                s = 0; n = 0;
+                for (dy = -2; dy <= 2; dy++) {
+                    yy = y + dy;
+                    if (yy < 0 || yy >= H) continue;
+                    for (dx = -2; dx <= 2; dx++) {
+                        xx = x + dx;
+                        if (xx < 0 || xx >= W) continue;
+                        s += soft[yy * W + xx]; n++;
+                    }
+                }
+                out[y * W + x] = n ? (s / n) : 0;
+            }
+        }
+        return out;
+    }
+
+    // 1.3.0.70 - METODO `full`: valore sui NODI di un reticolo a 0,5° e campionamento
+    // BILINEARE sui pixel. Le liste di vicini per cella a 1° creavano SEAM su
+    // righe/colonne intere (misurato: salti fino a 1,96 °C su longitudini 8, 11, 13,
+    // 15, 17 e latitudini 38, 39, 43, 44, 46); interpolare i VALORI toglie la
+    // discontinuita' per costruzione. Restituisce { values, dnear } a risoluzione
+    // del raster (NaN dove non c'e' copertura).
+    function stationFieldFullGrid(points, frame, W, H) {
+        var values = new Float32Array(W * H);
+        var dnear = new Float32Array(W * H);
+        var q0;
+        for (q0 = 0; q0 < values.length; q0++) { values[q0] = NaN; dnear[q0] = NaN; }
+        if (!points || !points.length) return { values: values, dnear: dnear };
+        var step = STATION_FIELD_LATTICE_DEG;
+        var lon0 = frame.minLon, lat0 = frame.minLat;
+        var nx = Math.max(2, Math.ceil((frame.maxLon - frame.minLon) / step) + 2);
+        var ny = Math.max(2, Math.ceil((frame.maxLat - frame.minLat) / step) + 2);
+        var nodeV = new Float32Array(nx * ny), nodeD = new Float32Array(nx * ny);
+        var nodeOk = new Uint8Array(nx * ny);
+        var B = STATION_FIELD_FULL_BUCKET_DEG, pad = 6;
+        var bLon0 = Math.floor(lon0 / B) - pad, bLat0 = Math.floor(lat0 / B) - pad;
+        var gnx = Math.max(1, Math.floor(frame.maxLon / B) - Math.floor(lon0 / B) + 1 + 2 * pad);
+        var gny = Math.max(1, Math.floor(frame.maxLat / B) - Math.floor(lat0 / B) + 1 + 2 * pad);
+        var cells = gnx * gny;
+        var counts = new Int32Array(cells + 1), pi, gx, gy;
+        for (pi = 0; pi < points.length; pi++) {
+            gx = Math.floor(points[pi].lon / B) - bLon0;
+            gy = Math.floor(points[pi].lat / B) - bLat0;
+            if (gx < 0 || gx >= gnx || gy < 0 || gy >= gny) continue;
+            counts[gy * gnx + gx + 1]++;
+        }
+        for (pi = 0; pi < cells; pi++) counts[pi + 1] += counts[pi];
+        var offsets = new Int32Array(cells + 1); offsets.set(counts);
+        var order = new Int32Array(counts[cells]), fill = new Int32Array(cells);
+        for (pi = 0; pi < points.length; pi++) {
+            gx = Math.floor(points[pi].lon / B) - bLon0;
+            gy = Math.floor(points[pi].lat / B) - bLat0;
+            if (gx < 0 || gx >= gnx || gy < 0 || gy >= gny) continue;
+            var cell = gy * gnx + gx;
+            order[counts[cell] + fill[cell]] = pi;
+            fill[cell]++;
+        }
+        var cand = [], kk, nyi, nxi, rf, dyf, dxf, cyf, cxf, cf;
+        for (nyi = 0; nyi < ny; nyi++) {
+            var nlat = lat0 + nyi * step;
+            if (nlat > frame.maxLat + step) break;
+            var cosL = Math.cos(nlat * Math.PI / 180);
+            if (cosL < 0.2) cosL = 0.2;
+            var pgy = Math.floor(nlat / B) - bLat0;
+            for (nxi = 0; nxi < nx; nxi++) {
+                var nlon = lon0 + nxi * step;
+                if (nlon > frame.maxLon + step) break;
+                var pgx = Math.floor(nlon / B) - bLon0;
+                cand.length = 0;
+                for (rf = 0; rf <= 4; rf++) {
+                    for (dyf = -rf; dyf <= rf; dyf++) {
+                        cyf = pgy + dyf;
+                        if (cyf < 0 || cyf >= gny) continue;
+                        for (dxf = -rf; dxf <= rf; dxf++) {
+                            if (Math.max(Math.abs(dxf), Math.abs(dyf)) !== rf) continue;
+                            cxf = pgx + dxf;
+                            if (cxf < 0 || cxf >= gnx) continue;
+                            cf = cyf * gnx + cxf;
+                            for (kk = offsets[cf]; kk < offsets[cf + 1]; kk++) cand.push(points[order[kk]]);
+                        }
+                    }
+                    if (cand.length >= 2 * STATION_FIELD_FULL_K) break;
+                }
+                if (!cand.length) {
+                    cand.length = 0;
+                    for (kk = 0; kk < points.length; kk++) cand.push(points[kk]);
+                }
+                var g = stationFieldIdwAt(nlat, nlon, cand, cosL, STATION_FIELD_FULL_K, Infinity);
+                if (g.v !== null) {
+                    nodeV[nyi * nx + nxi] = g.v;
+                    nodeD[nyi * nx + nxi] = (g.dn === null) ? 0 : g.dn;
+                    nodeOk[nyi * nx + nxi] = 1;
+                }
+            }
+        }
+        var mSpan = frame.mxM - frame.mnM, lonSpan = frame.maxLon - frame.minLon;
+        var j, i2, lat, lon, fy, iy, ty, fx, ix, tx, w00, w10, w01, w11;
+        var p00, p10, p01, p11, sum, acc, dsum;
+        for (j = 0; j < H; j++) {
+            var mj = frame.mxM - (j + 0.5) / H * mSpan;
+            lat = (2 * Math.atan(Math.exp(mj)) - Math.PI / 2) * 180 / Math.PI;
+            fy = (lat - lat0) / step;
+            iy = Math.floor(fy); ty = fy - iy;
+            if (iy < 0) { iy = 0; ty = 0; }
+            if (iy > ny - 2) { iy = ny - 2; ty = 1; }
+            for (i2 = 0; i2 < W; i2++) {
+                lon = frame.minLon + (i2 + 0.5) / W * lonSpan;
+                fx = (lon - lon0) / step;
+                ix = Math.floor(fx); tx = fx - ix;
+                if (ix < 0) { ix = 0; tx = 0; }
+                if (ix > nx - 2) { ix = nx - 2; tx = 1; }
+                w00 = (1 - tx) * (1 - ty); w10 = tx * (1 - ty);
+                w01 = (1 - tx) * ty; w11 = tx * ty;
+                p00 = iy * nx + ix; p10 = p00 + 1; p01 = p00 + nx; p11 = p01 + 1;
+                sum = 0; acc = 0; dsum = 0;
+                if (nodeOk[p00]) { acc += w00 * nodeV[p00]; dsum += w00 * nodeD[p00]; sum += w00; }
+                if (nodeOk[p10]) { acc += w10 * nodeV[p10]; dsum += w10 * nodeD[p10]; sum += w10; }
+                if (nodeOk[p01]) { acc += w01 * nodeV[p01]; dsum += w01 * nodeD[p01]; sum += w01; }
+                if (nodeOk[p11]) { acc += w11 * nodeV[p11]; dsum += w11 * nodeD[p11]; sum += w11; }
+                if (sum <= 1e-9) continue;
+                var idx2 = j * W + i2;
+                values[idx2] = acc / sum;
+                dnear[idx2] = dsum / sum;
+            }
+        }
+        return { values: values, dnear: dnear };
+    }
+
     function stationFieldRaster(points, scale, frame, mask, ssOpt, methodOpt) {
         var baseW = frame.W | 0, baseH = frame.H | 0;
         // 1.3.0.61 - SUPERSAMPLING: con ss=2 il raster e' 512x454 sullo STESSO
@@ -20524,7 +20758,8 @@ stopSyncPlay();
         // i 16 vicini sono scelti da una lista raccolta intorno alla CELLA, non
         // intorno al singolo pixel. Su una superficie dichiarata «inferenza» e'
         // accettabile; su `local` NON si usa (resta esatto per pixel).
-        var cellCand = full ? new Array(cells) : null;
+        var maskMul = mask ? stationFieldSoftenMask(mask, baseW, baseH) : null;
+        var fullGrid = full ? stationFieldFullGrid(points, frame, W, H) : null;
         // Diagnostica del metodo `full`: terre coperte, distanze al vicino piu'
         // prossimo (min/mediana/max). Nessuna stima: si raccoglie nel ciclo.
         var landPixels = 0, dnSamples = null, dnN = 0;
@@ -20540,51 +20775,23 @@ stopSyncPlay();
                 // La maschera terra e' a risoluzione BASE: al supersampling si
                 // campiona il pixel base che contiene questo subpixel (bordo duro
                 // alla risoluzione finale, poi ammorbidito dal downscale).
-                var mIdx = -1;
+                var mIdx = -1, mk = 1;
                 if (mask) {
                     mIdx = (ss === 1) ? p
                         : (((j / ss) | 0) * baseW + ((ii / ss) | 0));
-                    if (mask[mIdx] < 128) continue;
+                    mk = maskMul ? maskMul[mIdx] : (mask[mIdx] >= 128 ? 1 : 0);
+                    if (!(mk > 0.01)) continue;
                 }
                 if (full) landPixels++;
                 var lon = frame.minLon + (ii + 0.5) / W * lonSpan;
                 var pgx = Math.floor(lon / B) - bLon0;
+                var got;
                 if (full) {
-                    // Lista dei vicini PER CELLA (costruita una volta sola)...
-                    var pcellFull = pgy * gnx + pgx;
-                    if (pcellFull >= 0 && pcellFull < cells && cellCand[pcellFull]) {
-                        cand = cellCand[pcellFull];
-                    } else {
-                        cand = [];
-                        // ...anelli crescenti fino a 2*k candidati...
-                        for (var rf = 0; rf <= MAXRING; rf++) {
-                            for (var dyf = -rf; dyf <= rf; dyf++) {
-                                var cyf = pgy + dyf;
-                                if (cyf < 0 || cyf >= gny) continue;
-                                for (var dxf = -rf; dxf <= rf; dxf++) {
-                                    if (Math.max(Math.abs(dxf), Math.abs(dyf)) !== rf) continue;
-                                    var cxf = pgx + dxf;
-                                    if (cxf < 0 || cxf >= gnx) continue;
-                                    var cellF = cyf * gnx + cxf;
-                                    for (var qf = offsets[cellF]; qf < offsets[cellF + 1]; qf++) cand.push(points[order[qf]]);
-                                }
-                            }
-                            if (cand.length >= 2 * K) break;
-                        }
-                        // ...e, se la rete e' rada, la lista completa (piu'
-                        // economica che espandere anelli vuoti fino a 24).
-                        if (cand.length < 2 * K) {
-                            cand = [];
-                            for (var pa = 0; pa < points.length; pa++) cand.push(points[pa]);
-                        }
-                        if (pcellFull >= 0 && pcellFull < cells) cellCand[pcellFull] = cand;
-                    }
+                    var fv = fullGrid.values[p];
+                    if (!isFinite(fv)) continue;
+                    got = { v: fv, dk: 0, dn: isFinite(fullGrid.dnear[p]) ? fullGrid.dnear[p] : null, n: 1 };
                 } else {
                     cand.length = 0;
-                    // Anelli 0..3 SENZA uscita anticipata: un anello 'r' puo' contenere un
-                    // vicino piu' vicino di uno gia' trovato, quindi l'ordine di visita non
-                    // basta a scartarlo. L'anello 4 e' gia' oltre i 25 km in Italia (0,3°
-                    // di longitudine a 36,7°N = 26,8 km), per questo il tetto e' 3.
                     for (var r = 0; r <= MAXRING; r++) {
                         for (var dy = -r; dy <= r; dy++) {
                             var cy = pgy + dy;
@@ -20598,14 +20805,14 @@ stopSyncPlay();
                             }
                         }
                     }
+                    if (!cand.length) continue;
+                    got = idwAt(lat, lon, cand, cosLat, K, CUT);
+                    if (got.v === null || got.dk === null) continue;
                 }
-                if (!cand.length) continue;
-                var got = idwAt(lat, lon, cand, cosLat, K, CUT);
-                if (got.v === null || got.dk === null) continue;
                 var fade = full ? 1 : (CUT - got.dk) / FADE;
                 if (fade < 0) fade = 0;
                 if (fade > 1) fade = 1;
-                var a = 235 * fade;
+                var a = 235 * fade * mk;
                 var band = bandIndex(scale, got.v);
                 var c = cols[band] || cols[cols.length - 1];
                 if (!c) continue;
@@ -20650,139 +20857,98 @@ stopSyncPlay();
     //     l'alpha (quindi senza far sbavare la copertura oltre la maschera).
     //  3. MASCHERA TERRA RIAPPLICATA sull'alpha finale: resta dura, come prima.
     // Ritorna anche `values` (media dei valori interpolati) per la diagnostica.
-    function stationFieldDownscale(r, W, H, ss, mask) {
-        var out = new Uint8ClampedArray(W * H * 4);
-        var vals = new Float32Array(W * H);
-        var alph = new Uint8Array(W * H);
-        if (!r || !r.data) return { W: W, H: H, data: out, values: vals, alphas: alph, painted: 0 };
-        var src = r.data, srcV = r.values, sw = r.W;
-        var n = ss * ss, x, y, dx, dy, o, sx, sy, p, q, sumA, sumR, sumG, sumB, sumV, vN;
-        for (y = 0; y < H; y++) {
-            for (x = 0; x < W; x++) {
-                sumA = 0; sumR = 0; sumG = 0; sumB = 0; sumV = 0; vN = 0;
-                for (dy = 0; dy < ss; dy++) {
-                    sy = y * ss + dy;
-                    for (dx = 0; dx < ss; dx++) {
-                        sx = x * ss + dx;
-                        p = sy * sw + sx; q = p * 4;
-                        var a = src[q + 3];
-                        sumA += a;
-                        sumR += src[q] * a;
-                        sumG += src[q + 1] * a;
-                        sumB += src[q + 2] * a;
-                        // Il valore interpolato si media sui soli subpixel DIPINTI:
-                        // includere gli zeri dei subpixel trasparenti (bordo del
-                        // cutoff) tirava giu' il valore di bordo e creava un
-                        // gradiente finto.
-                        if (a > 0) { sumV += srcV[p]; vN++; }
-                    }
-                }
-                o = (y * W + x) * 4;
-                if (sumA > 0) {
-                    out[o] = sumR / sumA;
-                    out[o + 1] = sumG / sumA;
-                    out[o + 2] = sumB / sumA;
-                    out[o + 3] = sumA / n;
-                    if (vN > 0) vals[y * W + x] = sumV / vN;
+
+    function stationFieldContourLevels(varKey, stats) {
+        var cfg = STATION_FIELD_CONTOUR[varKey] || STATION_FIELD_CONTOUR.temp;
+        var st = (stats === undefined) ? stationFieldLastStats : stats;
+        var lo = (st && st.vMin !== null && st.vMin !== undefined) ? Number(st.vMin) : null;
+        var hi = (st && st.vMax !== null && st.vMax !== undefined) ? Number(st.vMax) : null;
+        var out = [], i, v;
+        if (cfg.list) {
+            for (i = 0; i < cfg.list.length; i++) {
+                v = cfg.list[i];
+                // Livelli FUORI dal range reale non si inventano.
+                if (lo !== null && hi !== null && (v <= lo || v >= hi)) continue;
+                out.push({ v: v, major: cfg.marked.indexOf(v) >= 0 });
+            }
+            return out;
+        }
+        if (lo === null || hi === null) return out;
+        var step = cfg.step, mstep = cfg.markedStep;
+        var start = Math.ceil(lo / step) * step;
+        for (v = start; v < hi; v += step) {
+            var vv = Math.round(v * 1000) / 1000;
+            if (vv <= lo || vv >= hi) continue;
+            out.push({ v: vv, major: Math.abs(vv % mstep) < 1e-9 });
+        }
+        return out;
+    }
+
+    function stationFieldContourSegments(values, alphas, W, H, level) {
+        var segs = [];
+        var v = Number(level);
+        for (var y = 0; y < H - 1; y++) {
+            for (var x = 0; x < W - 1; x++) {
+                var i0 = y * W + x, i1 = i0 + 1, i3 = i0 + W + 1, i2 = i0 + W;
+                if (alphas[i0] === 0 || alphas[i1] === 0 || alphas[i2] === 0 || alphas[i3] === 0) continue;
+                var a = values[i0], b = values[i1], c = values[i3], d = values[i2];
+                var idx = (a > v ? 1 : 0) | (b > v ? 2 : 0) | (c > v ? 4 : 0) | (d > v ? 8 : 0);
+                if (idx === 0 || idx === 15) continue;
+                var ta = (v - a) / ((b - a) || 1e-12), tb = (v - b) / ((c - b) || 1e-12);
+                var tc = (v - d) / ((c - d) || 1e-12), td = (v - a) / ((d - a) || 1e-12);
+                ta = ta < 0 ? 0 : (ta > 1 ? 1 : ta);
+                tb = tb < 0 ? 0 : (tb > 1 ? 1 : tb);
+                tc = tc < 0 ? 0 : (tc > 1 ? 1 : tc);
+                td = td < 0 ? 0 : (td > 1 ? 1 : td);
+                var top = [x + ta, y];
+                var right = [x + 1, y + tb];
+                var bottom = [x + tc, y + 1];
+                var left = [x, y + td];
+                switch (idx) {
+                    case 1: case 14: segs.push([left, top]); break;
+                    case 2: case 13: segs.push([top, right]); break;
+                    case 3: case 12: segs.push([left, right]); break;
+                    case 4: case 11: segs.push([right, bottom]); break;
+                    case 6: case 9: segs.push([top, bottom]); break;
+                    case 7: case 8: segs.push([left, bottom]); break;
+                    case 5: segs.push([left, top]); segs.push([right, bottom]); break;
+                    case 10: segs.push([top, right]); segs.push([left, bottom]); break;
                 }
             }
         }
-        // 2) tent 3x3 su RGB, SOLO dove c'e' alpha (i vicini trasparenti non contano).
-        var rgb = new Uint8ClampedArray(out);
-        for (y = 1; y < H - 1; y++) {
-            for (x = 1; x < W - 1; x++) {
-                var c = (y * W + x) * 4;
-                if (rgb[c + 3] === 0) continue;
-                var wsum = 0, cr = 0, cg = 0, cb = 0;
-                for (dy = -1; dy <= 1; dy++) {
-                    for (dx = -1; dx <= 1; dx++) {
-                        var nc = ((y + dy) * W + (x + dx)) * 4;
-                        if (rgb[nc + 3] === 0) continue;
-                        var wgt = (dx === 0 && dy === 0) ? 4 : ((dx === 0 || dy === 0) ? 2 : 1);
-                        wsum += wgt; cr += rgb[nc] * wgt; cg += rgb[nc + 1] * wgt; cb += rgb[nc + 2] * wgt;
-                    }
+        return segs;
+    }
+
+    function stationFieldContourLabels(levels, segsByLevel, minPxOpt) {
+        var placed = [], out = [];
+        var minPx = (minPxOpt > 0) ? minPxOpt : STATION_FIELD_CONTOUR_LABEL_MIN_PX;
+        for (var i = 0; i < levels.length; i++) {
+            if (!levels[i].major) continue;
+            var segs = segsByLevel[i] || [];
+            if (!segs.length) continue;
+            var want = Math.min(STATION_FIELD_CONTOUR_LABEL_MAX, segs.length);
+            var stride = Math.max(1, Math.floor(segs.length / want));
+            var got = 0;
+            for (var k = 0; k < segs.length && got < want; k += stride) {
+                var s = segs[k];
+                var mx = (s[0][0] + s[1][0]) / 2, my = (s[0][1] + s[1][1]) / 2;
+                var tooClose = false;
+                for (var p = 0; p < placed.length; p++) {
+                    var dx = placed[p][0] - mx, dy = placed[p][1] - my;
+                    if (Math.sqrt(dx * dx + dy * dy) < minPx) { tooClose = true; break; }
                 }
-                if (wsum > 0) {
-                    out[c] = cr / wsum; out[c + 1] = cg / wsum; out[c + 2] = cb / wsum;
-                }
+                if (tooClose) continue;
+                placed.push([mx, my]);
+                var ang = Math.atan2(s[1][1] - s[0][1], s[1][0] - s[0][0]);
+                if (ang > Math.PI / 2) ang -= Math.PI;
+                if (ang < -Math.PI / 2) ang += Math.PI;
+                out.push({ v: levels[i].v, major: true, x: mx, y: my, angle: ang });
+                got++;
             }
         }
-        // 3) maschera terra e conteggio dei pixel dipinti.
-        var painted = 0;
-        for (y = 0; y < H; y++) {
-            for (x = 0; x < W; x++) {
-                var idx = y * W + x, qq = idx * 4;
-                if (mask && mask[idx] < 128) { out[qq + 3] = 0; out[qq] = 0; out[qq + 1] = 0; out[qq + 2] = 0; }
-                alph[idx] = out[qq + 3];
-                if (alph[idx] > 0) painted++;
-            }
-        }
-        return { W: W, H: H, data: out, values: vals, alphas: alph, painted: painted };
+        return out;
     }
 
-    function stationFieldPaneEnsure() {
-        if (!map) return null;
-        var pane = map.getPane('stationFieldPane');
-        if (!pane) {
-            pane = map.createPane('stationFieldPane');
-            pane.style.zIndex = '405';        // sopra overlayPane (400), sotto i confini (410)
-            pane.style.pointerEvents = 'none';
-        }
-        // 1.3.0.70 - PANE DELLE ISOLINEE VETTORIALI: sopra il campo colorato (405)
-        // e sopra i confini, ma senza intercettare il mouse.
-        var iso = map.getPane('stationFieldIsoPane');
-        if (!iso) {
-            iso = map.createPane('stationFieldIsoPane');
-            iso.style.zIndex = '408';
-            iso.style.pointerEvents = 'none';
-        }
-        return pane;
-    }
-
-    function stationFieldRemoveOverlay() {
-        if (stationFieldOverlay && map) { try { map.removeLayer(stationFieldOverlay); } catch (e) { } }
-        stationFieldOverlay = null;
-        stationFieldIsoClear();
-    }
-
-    // 1.3.0.70 - ISOLINEE VETTORIALI: il layer delle isolinee si svuota SEMPRE
-    // prima di ricostruirlo (cambio variabile/finestra/metodo, spegnimento) per
-    // non accumulare path e marker.
-    function stationFieldIsoClear() {
-        try {
-            if (stationFieldIsoLayer) stationFieldIsoLayer.clearLayers();
-        } catch (e) { }
-        if (!stationFieldIsoLayer) stationFieldIsoLayer = null;
-    }
-
-    // Ora del picco (temp_max_day_hour / temp_min_day_hour). Il server pubblica un
-    // NUMERO e l'unita' (ora locale decimale o minuti dalla mezzanotte) NON e'
-    // verificata su un file reale: si formatta la forma piu' probabile senza
-    // inventare ":00" quando il valore e' gia' un'ora intera.
-    function stationFieldHourText(v) {
-        var n = Number(v);
-        if (!isFinite(n)) return '';
-        var h, m;
-        if (n >= 0 && n <= 23.999) {
-            h = Math.floor(n); m = Math.round((n - h) * 60);
-        } else if (n > 23 && n <= 1439) {
-            h = Math.floor(n / 60); m = Math.round(n % 60);
-        } else {
-            return String(n);
-        }
-        return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
-    }
-
-    function stationFieldTickText(v) {
-        var n = Number(v);
-        if (!isFinite(n)) return '';
-        var s = (Math.round(n * 100) / 100).toString();
-        return s.replace('.', ',');
-    }
-
-    // Rampa della legenda: segmenti della scala RITAGLIATI sull'intervallo mostrato.
-    // I colori sono quelli della scala (nessuna rampa nuova), le tacche sono
-    // posizionate sulla loro percentuale reale.
     function stationFieldGradient(scale, lo, hi) {
         var bp = scale.breakpoints, cols = scale.colors.light || scale.colors.dark;
         var n = bp.length, parts = [], span = hi - lo;
@@ -20799,30 +20965,36 @@ stopSyncPlay();
         return parts.length ? ('linear-gradient(90deg,' + parts.join(',') + ')') : '';
     }
 
-    // 1.3.0.69 - UNA ETICHETTA PER BANDA VISIBILE (prima solo 6 tacche fisse).
-    // 1.3.0.70 - ETICHETTE ORIZZONTALI: la rotazione a 90° era illeggibile
-    // («perché i numeri sono girati?»). Ora si ruota mai nulla: si sceglie il
-    // PASSO in base allo spazio REALE (larghezza della barra e larghezza stimata
-    // dell'etichetta), con priorità a minimo reale, massimo reale e 0.
-    // Regole, tutte dichiarate:
-    //  1. l'intervallo della barra e' il range REALE dei dati esteso ai bordi
-    //     delle bande che li contengono (non -80…+50 se i dati coprono 2…27);
-    //     senza dati si usa l'intervallo dichiarato in STATION_FIELD_LEGEND;
-    //  2. un'etichetta per OGNI bordo di banda nell'intervallo, piu' il minimo e
-    //     il massimo REALI (se non coincidono gia' con un bordo) e lo 0 se cade
-    //     nell'intervallo;
-    //  3. se le etichette orizzontali non ci stanno si tiene UNA OGNI `step`
-    //     bande, sempre con min/max/0, e la legenda scrive «etichette ogni N
-    //     valori» SOLO se N>1;
-    //  4. le tacche (1 px) restano su TUTTE le bande, cosi' la scala resta
-    //     leggibile anche con meno numeri.
+    function stationFieldTickText(v) {
+        var n = Number(v);
+        if (!isFinite(n)) return '';
+        var s = (Math.round(n * 100) / 100).toString();
+        return s.replace('.', ',');
+    }
+
+    function stationFieldHourText(v) {
+        var n = Number(v);
+        if (!isFinite(n)) return '';
+        var h, m;
+        if (n >= 0 && n <= 23.999) {
+            h = Math.floor(n); m = Math.round((n - h) * 60);
+        } else if (n > 23 && n <= 1439) {
+            h = Math.floor(n / 60); m = Math.round(n % 60);
+        } else {
+            return String(n);
+        }
+        return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+    }
+
     function stationFieldLegendLabelText(v) {
         return stationFieldTickText(v);
     }
+
     function stationFieldLegendLabelWidth(text) {
         // Stima volutamente prudente: ~6,4 px per carattere a 9 px + 6 di aria.
         return Math.max(18, String(text).length * 6.4 + 6);
     }
+
     function stationFieldLegendLayout(spec, stats) {
         var sc = spec ? stationFieldScale(spec.scale) : null;
         var fixed = (spec && STATION_FIELD_LEGEND[spec.scale]) ? STATION_FIELD_LEGEND[spec.scale] : null;
@@ -20948,7 +21120,7 @@ stopSyncPlay();
         if (!bar) return;
         if (!sc) {
             bar.style.background = 'linear-gradient(90deg,#1e293b,#1e293b)';
-            if (labels) labels.innerHTML = '<span style="position:absolute;left:0;">nessuna scala dedicata per questa variabile — campo non disegnato</span>';
+            if (labels) labels.innerHTML = '<span style="position:absolute;left:0;">nessuna scala dedicata per questa variabile ÔÇö campo non disegnato</span>';
             return;
         }
         var lg = stationFieldLegendLayout(spec, stats);
@@ -20985,9 +21157,6 @@ stopSyncPlay();
         }
     }
 
-    // Riga di stato: N usate su M con il valore su T disponibili, finestra, copertura
-    // media, eta' delle osservazioni. La frase di metodo e' fissa e dichiara il
-    // limite: non e' un campo radar e non e' una misura d'area.
     function stationFieldStatus(msg) {
         var el = document.getElementById('live-stationfield-status');
         var method = document.getElementById('live-stationfield-method');
@@ -21010,7 +21179,15 @@ stopSyncPlay();
                 // assente»: e' «sto caricando i valori completi».
                 el.textContent = 'carico i valori completi (latest.json)...';
             } else if (!spec.available) {
-                el.innerHTML = '⛔ ' + escapeHtml(spec.reason || 'variabile non disponibile');
+                if (spec.varKey === 'gustEst') {
+                    el.textContent = 'nessuna stazione con serie abbastanza fine per la stima ' +
+                        '(il server non pubblica gust_est_* in questo momento)';
+                } else {
+                    el.innerHTML = 'Ôøö ' + escapeHtml(spec.reason || 'variabile non disponibile');
+                }
+} else if (spec.varKey === 'gustEst' && st && st.used === 0 && st.withValue === 0) {
+                    el.textContent = 'nessuna stazione con serie abbastanza fine per la stima ' +
+                        '(campo gust_est_* senza valori per questa finestra)';
             } else if (st && spec.varKey === 'snow' && st.used === 0) {
                 // 1.3.0.69 - NEVE: gli zeri non si disegnano. Se sono TUTTI zero la
                 // mappa resta senza campo ma lo STATO lo dice (prima sarebbe rimasta
@@ -21076,10 +21253,23 @@ stopSyncPlay();
                 // resto (disponibili, escluse, copertura, decadimento, età massima,
                 // inferenza) sta nel title: a schermo solo ciò che serve subito.
                 var gold = ' · ';
-                el.textContent = st.used + ' stazioni' +
+                // 1.3.0.70 - RAFFICA STIMATA: riga dedicata di una sola riga.
+                var prefix = '';
+                if (spec.varKey === 'gustEst') {
+                    var pmed = null;
+                    if (st.periodSamples && st.periodSamples.length) {
+                        var psort = st.periodSamples.slice().sort(function (a, b) { return a - b; });
+                        pmed = psort[Math.floor(psort.length / 2)] / 60;
+                    }
+                    prefix = 'Raffica stimata dal vento' +
+                        (pmed ? (' (passo ' + (pmed < 1 ? Math.round(pmed * 60) + ' s' : fmtNum(pmed, 1) + ' min') + ')') : '') +
+                        gold;
+                }
+                el.textContent = prefix + st.used + ' stazioni' +
                     gold + stationFieldWindowLabel(spec.window) +
-                    (st.ageMedianMin !== null && st.ageMedianMin !== undefined
-                        ? gold + 'età mediana ' + Math.round(st.ageMedianMin) + ' min' : '') +
+                    (spec.varKey === 'gustEst' ? '' :
+                        (st.ageMedianMin !== null && st.ageMedianMin !== undefined
+                            ? gold + 'età mediana ' + Math.round(st.ageMedianMin) + ' min' : '')) +
                     (st.tooOld ? gold + st.tooOld + ' più vecchie' : '') +
                     (st.zeroExcluded ? gold + st.zeroExcluded + ' a 0 cm' : '') +
                     (st.method === 'contour' ? gold + 'isolinee' : '');
@@ -21109,7 +21299,7 @@ stopSyncPlay();
             // sull'onestà del dato. Il resto va nel title.
             var isFull = (stationFieldMethod === 'full' || stationFieldMethod === 'contour');
             var methodTxt = 'Unità ' + spec.unit + ' · scala ' + (spec.scale || 'nessuna') +
-                ' · IDW k=' + (isFull ? STATION_FIELD_FULL_K : STATION_FIELD_K) +
+                ' · ' + (isFull ? 'gaussiano su reticolo 0,5°' : 'gaussiano σ 12,5 km') +
                 ' · non è un campo radar';
             if (spec.varKey === 'snow') methodTxt += ' · solo neve > 0';
             if (spec.meanFallback) methodTxt += ' · valore istantaneo';
@@ -21132,15 +21322,6 @@ stopSyncPlay();
         }
     }
 
-    // Abilita/disabilita le opzioni della finestra in base ai campi VERI del file e
-    // del blob delle serie giornaliere, e scrive la NOTA con il motivo reale.
-    // Regole:
-    //  - finestre corte (5 min, 30 min, 1 ora, 3 ore): SEMPRE selezionabili (anche
-    //    quando il campo manca: la nota dice che si mostra l'istantanea o che la
-    //    finestra non è calcolabile);
-    //  - 6 ore / 24 ore: selezionabili solo se il blob le pubblica complete;
-    //  - il selettore finestra NON si disabilita mai: la temperatura ha le finestre
-    //    (media), non è più un campo istantaneo.
     function stationFieldSyncControls() {
         var selVar = document.getElementById('stationfield-var');
         if (selVar) selVar.value = stationFieldVar;
@@ -21207,6 +21388,12 @@ stopSyncPlay();
                         : ('non disponibile: ' + ((dst && dst.reason) || 'campo non pubblicato'));
                     continue;
                 }
+                if (stationFieldVar === 'gustEst') {
+                    opts[i].disabled = true;
+                    opts[i].title = 'la raffica stimata è pubblicata dal server solo per 1 e 3 ore ' +
+                        '(massimo delle osservazioni del vento al passo della serie)';
+                    continue;
+                }
                 opts[i].disabled = true;
                 opts[i].title = (stationFieldVar === 'snow')
                     ? 'la neve al suolo è uno spessore istantaneo: la finestra non cambia il valore'
@@ -21218,114 +21405,38 @@ stopSyncPlay();
         if (note) note.textContent = spec.note || '';
     }
 
-    // ================================================================
-    // 1.3.0.69 - ISOLINEE (metodo `contour`)
-    // ================================================================
-    // Si calcolano sui VALORI interpolati (`res.values`, Float32Array W×H), non
-    // sui colori: i colori sono a bande, i valori no. Marching squares sulle
-    // celle 2x2; una cella con un angolo fuori copertura (alpha 0, cioe' mare o
-    // fuori maschera) NON produce segmenti: nessuna linea sul mare.
-    function stationFieldContourLevels(varKey, stats) {
-        var cfg = STATION_FIELD_CONTOUR[varKey] || STATION_FIELD_CONTOUR.temp;
-        var st = (stats === undefined) ? stationFieldLastStats : stats;
-        var lo = (st && st.vMin !== null && st.vMin !== undefined) ? Number(st.vMin) : null;
-        var hi = (st && st.vMax !== null && st.vMax !== undefined) ? Number(st.vMax) : null;
-        var out = [], i, v;
-        if (cfg.list) {
-            for (i = 0; i < cfg.list.length; i++) {
-                v = cfg.list[i];
-                // Livelli FUORI dal range reale non si inventano.
-                if (lo !== null && hi !== null && (v <= lo || v >= hi)) continue;
-                out.push({ v: v, major: cfg.marked.indexOf(v) >= 0 });
-            }
-            return out;
+    function stationFieldPaneEnsure() {
+        if (!map) return null;
+        var pane = map.getPane('stationFieldPane');
+        if (!pane) {
+            pane = map.createPane('stationFieldPane');
+            pane.style.zIndex = '405';        // sopra overlayPane (400), sotto i confini (410)
+            pane.style.pointerEvents = 'none';
         }
-        if (lo === null || hi === null) return out;
-        var step = cfg.step, mstep = cfg.markedStep;
-        var start = Math.ceil(lo / step) * step;
-        for (v = start; v < hi; v += step) {
-            var vv = Math.round(v * 1000) / 1000;
-            if (vv <= lo || vv >= hi) continue;
-            out.push({ v: vv, major: Math.abs(vv % mstep) < 1e-9 });
+        // 1.3.0.70 - PANE DELLE ISOLINEE VETTORIALI: sopra il campo colorato (405)
+        // e sopra i confini, ma senza intercettare il mouse.
+        var iso = map.getPane('stationFieldIsoPane');
+        if (!iso) {
+            iso = map.createPane('stationFieldIsoPane');
+            iso.style.zIndex = '408';
+            iso.style.pointerEvents = 'none';
         }
-        return out;
+        return pane;
     }
 
-    // Segmenti di una isolinea: coordinate in PIXEL (angoli della cella).
-    function stationFieldContourSegments(values, alphas, W, H, level) {
-        var segs = [];
-        var v = Number(level);
-        for (var y = 0; y < H - 1; y++) {
-            for (var x = 0; x < W - 1; x++) {
-                var i0 = y * W + x, i1 = i0 + 1, i3 = i0 + W + 1, i2 = i0 + W;
-                if (alphas[i0] === 0 || alphas[i1] === 0 || alphas[i2] === 0 || alphas[i3] === 0) continue;
-                var a = values[i0], b = values[i1], c = values[i3], d = values[i2];
-                var idx = (a > v ? 1 : 0) | (b > v ? 2 : 0) | (c > v ? 4 : 0) | (d > v ? 8 : 0);
-                if (idx === 0 || idx === 15) continue;
-                var ta = (v - a) / ((b - a) || 1e-12), tb = (v - b) / ((c - b) || 1e-12);
-                var tc = (v - d) / ((c - d) || 1e-12), td = (v - a) / ((d - a) || 1e-12);
-                ta = ta < 0 ? 0 : (ta > 1 ? 1 : ta);
-                tb = tb < 0 ? 0 : (tb > 1 ? 1 : tb);
-                tc = tc < 0 ? 0 : (tc > 1 ? 1 : tc);
-                td = td < 0 ? 0 : (td > 1 ? 1 : td);
-                var top = [x + ta, y];
-                var right = [x + 1, y + tb];
-                var bottom = [x + tc, y + 1];
-                var left = [x, y + td];
-                switch (idx) {
-                    case 1: case 14: segs.push([left, top]); break;
-                    case 2: case 13: segs.push([top, right]); break;
-                    case 3: case 12: segs.push([left, right]); break;
-                    case 4: case 11: segs.push([right, bottom]); break;
-                    case 6: case 9: segs.push([top, bottom]); break;
-                    case 7: case 8: segs.push([left, bottom]); break;
-                    case 5: segs.push([left, top]); segs.push([right, bottom]); break;
-                    case 10: segs.push([top, right]); segs.push([left, bottom]); break;
-                }
-            }
-        }
-        return segs;
+    function stationFieldRemoveOverlay() {
+        if (stationFieldOverlay && map) { try { map.removeLayer(stationFieldOverlay); } catch (e) { } }
+        stationFieldOverlay = null;
+        stationFieldIsoClear();
     }
 
-    // Etichette sui SOLI livelli marcati: al massimo
-    // STATION_FIELD_CONTOUR_LABEL_MAX per livello, distribuite lungo le linee e
-    // distanti almeno STATION_FIELD_CONTOUR_LABEL_MIN_PX fra loro (se una cade
-    // troppo vicina si salta: il numero di etichette e' un tetto dichiarato).
-    function stationFieldContourLabels(levels, segsByLevel, minPxOpt) {
-        var placed = [], out = [];
-        var minPx = (minPxOpt > 0) ? minPxOpt : STATION_FIELD_CONTOUR_LABEL_MIN_PX;
-        for (var i = 0; i < levels.length; i++) {
-            if (!levels[i].major) continue;
-            var segs = segsByLevel[i] || [];
-            if (!segs.length) continue;
-            var want = Math.min(STATION_FIELD_CONTOUR_LABEL_MAX, segs.length);
-            var stride = Math.max(1, Math.floor(segs.length / want));
-            var got = 0;
-            for (var k = 0; k < segs.length && got < want; k += stride) {
-                var s = segs[k];
-                var mx = (s[0][0] + s[1][0]) / 2, my = (s[0][1] + s[1][1]) / 2;
-                var tooClose = false;
-                for (var p = 0; p < placed.length; p++) {
-                    var dx = placed[p][0] - mx, dy = placed[p][1] - my;
-                    if (Math.sqrt(dx * dx + dy * dy) < minPx) { tooClose = true; break; }
-                }
-                if (tooClose) continue;
-                placed.push([mx, my]);
-                var ang = Math.atan2(s[1][1] - s[0][1], s[1][0] - s[0][0]);
-                if (ang > Math.PI / 2) ang -= Math.PI;
-                if (ang < -Math.PI / 2) ang += Math.PI;
-                out.push({ v: levels[i].v, major: true, x: mx, y: my, angle: ang });
-                got++;
-            }
-        }
-        return out;
+    function stationFieldIsoClear() {
+        try {
+            if (stationFieldIsoLayer) stationFieldIsoLayer.clearLayers();
+        } catch (e) { }
+        if (!stationFieldIsoLayer) stationFieldIsoLayer = null;
     }
 
-    // 1.3.0.70 - RICAMPIONAMENTO BILINEARE del campo sulla griglia delle isolinee.
-    // L'alpha (copertura) si prende dal vicino piu' prossimo: e' la maschera terra,
-    // deve restare DURA (nessuna linea sul mare). I valori si interpolano fra i
-    // vicini DIPINTI con pesi rinormalizzati: un pixel di bordo non trascina il
-    // valore dal mare.
     function stationFieldContourResample(values, alphas, W, H, FW, FH) {
         var fv = new Float32Array(FW * FH);
         var fa = new Uint8Array(FW * FH);
@@ -21612,7 +21723,15 @@ stopSyncPlay();
         // metodi hanno due risoluzioni di calcolo, non due rese diverse.
         var ss = (stationFieldMethod === 'local') ? STATION_FIELD_SUPERSAMPLE : 1;
         var r = stationFieldRaster(col.points, stationFieldScale(spec.scale), frame, mask, ss, stationFieldMethod);
-        var d = (ss > 1) ? stationFieldDownscale(r, frame.W, frame.H, ss, mask) : r;
+        // 1.3.0.70 - al downscale si passa la maschera MORBIDA (feather 2-4 px):
+        // il bordo non viene piu' tagliato di netto.
+        var softMask = null;
+        if (mask) {
+            var sm = stationFieldSoftenMask(mask, frame.W, frame.H);
+            softMask = new Uint8Array(sm.length);
+            for (var mi = 0; mi < sm.length; mi++) softMask[mi] = Math.round(sm[mi] * 255);
+        }
+        var d = (ss > 1) ? stationFieldDownscale(r, frame.W, frame.H, ss, softMask) : r;
         // 1.3.0.69 - diagnostica del metodo, per la legenda (nessuna stima):
         // terra coperta, pixel dipinti, distanza min/mediana/max al vicino.
         col.method = stationFieldMethod;
@@ -21676,6 +21795,78 @@ stopSyncPlay();
         stationFieldStatus();
         return true;
     }
+
+    function stationFieldDownscale(r, W, H, ss, mask) {
+        var out = new Uint8ClampedArray(W * H * 4);
+        var vals = new Float32Array(W * H);
+        var alph = new Uint8Array(W * H);
+        if (!r || !r.data) return { W: W, H: H, data: out, values: vals, alphas: alph, painted: 0 };
+        var src = r.data, srcV = r.values, sw = r.W;
+        var n = ss * ss, x, y, dx, dy, o, sx, sy, p, q, sumA, sumR, sumG, sumB, sumV, vN;
+        for (y = 0; y < H; y++) {
+            for (x = 0; x < W; x++) {
+                sumA = 0; sumR = 0; sumG = 0; sumB = 0; sumV = 0; vN = 0;
+                for (dy = 0; dy < ss; dy++) {
+                    sy = y * ss + dy;
+                    for (dx = 0; dx < ss; dx++) {
+                        sx = x * ss + dx;
+                        p = sy * sw + sx; q = p * 4;
+                        var a = src[q + 3];
+                        sumA += a;
+                        sumR += src[q] * a;
+                        sumG += src[q + 1] * a;
+                        sumB += src[q + 2] * a;
+                        // Il valore interpolato si media sui soli subpixel DIPINTI:
+                        // includere gli zeri dei subpixel trasparenti (bordo del
+                        // cutoff) tirava giu' il valore di bordo e creava un
+                        // gradiente finto.
+                        if (a > 0) { sumV += srcV[p]; vN++; }
+                    }
+                }
+                o = (y * W + x) * 4;
+                if (sumA > 0) {
+                    out[o] = sumR / sumA;
+                    out[o + 1] = sumG / sumA;
+                    out[o + 2] = sumB / sumA;
+                    out[o + 3] = sumA / n;
+                    if (vN > 0) vals[y * W + x] = sumV / vN;
+                }
+            }
+        }
+        // 2) tent 3x3 su RGB, SOLO dove c'e' alpha (i vicini trasparenti non contano).
+        var rgb = new Uint8ClampedArray(out);
+        for (y = 1; y < H - 1; y++) {
+            for (x = 1; x < W - 1; x++) {
+                var c = (y * W + x) * 4;
+                if (rgb[c + 3] === 0) continue;
+                var wsum = 0, cr = 0, cg = 0, cb = 0;
+                for (dy = -1; dy <= 1; dy++) {
+                    for (dx = -1; dx <= 1; dx++) {
+                        var nc = ((y + dy) * W + (x + dx)) * 4;
+                        if (rgb[nc + 3] === 0) continue;
+                        var wgt = (dx === 0 && dy === 0) ? 4 : ((dx === 0 || dy === 0) ? 2 : 1);
+                        wsum += wgt; cr += rgb[nc] * wgt; cg += rgb[nc + 1] * wgt; cb += rgb[nc + 2] * wgt;
+                    }
+                }
+                if (wsum > 0) {
+                    out[c] = cr / wsum; out[c + 1] = cg / wsum; out[c + 2] = cb / wsum;
+                }
+            }
+        }
+        // 3) maschera terra e conteggio dei pixel dipinti.
+        var painted = 0;
+        for (y = 0; y < H; y++) {
+            for (x = 0; x < W; x++) {
+                var idx = y * W + x, qq = idx * 4;
+                if (mask && mask[idx] < 128) { out[qq + 3] = 0; out[qq] = 0; out[qq + 1] = 0; out[qq + 2] = 0; }
+            else if (mask) { out[qq + 3] = Math.round(out[qq + 3] * (mask[idx] / 255)); }
+                alph[idx] = out[qq + 3];
+                if (alph[idx] > 0) painted++;
+            }
+        }
+        return { W: W, H: H, data: out, values: vals, alphas: alph, painted: painted };
+    }
+
 
     function stationFieldVarChanged(v) {
         stationFieldVar = STATION_FIELD_VARS[v] ? v : 'temp';

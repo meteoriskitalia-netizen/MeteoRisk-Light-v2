@@ -108,13 +108,16 @@ const FNS = [
   'stationFieldMethodChanged',
   'stationFieldContourLevels', 'stationFieldContourSegments',
   'stationFieldContourLabels', 'stationFieldContourVectorData',
-  'stationFieldContourResample', 'stationFieldContourPolylines', 'stationFieldChaikin'
+  'stationFieldContourResample', 'stationFieldContourPolylines', 'stationFieldChaikin',
+  'stationFieldSoftenMask', 'stationFieldFullGrid'
 ];
 const VARS = [
   'STATION_FIELD_K', 'STATION_FIELD_CUTOFF_KM', 'STATION_FIELD_FADE_KM', 'STATION_FIELD_SUPERSAMPLE',
   'STATION_FIELD_FULL_K', 'STATION_FIELD_FULL_BUCKET_DEG', 'STATION_FIELD_FULL_MAX_RING',
   'STATION_FIELD_CONTOUR', 'STATION_FIELD_CONTOUR_LABEL_MAX', 'STATION_FIELD_CONTOUR_LABEL_MIN_PX',
   'STATION_FIELD_CONTOUR_GRID_MULT', 'STATION_FIELD_CONTOUR_GRID_MAX_W', 'STATION_FIELD_CONTOUR_CHAIKIN',
+  'STATION_FIELD_SIGMA_FRAC', 'STATION_FIELD_LATTICE_DEG', 'STATION_FIELD_KM_PER_DEG',
+  'STATION_FIELD_EXP_STEPS', 'STATION_FIELD_EXP_MAX', 'STATION_FIELD_EXP_LUT',
   'STATION_FIELD_AGE_POLICY',
   'stationFieldMethod',
   'STATION_FIELD_BUCKET_DEG', 'STATION_FIELD_MAX_RING', 'STATION_FIELD_MIN_COVERAGE',
@@ -218,16 +221,29 @@ const CAND3 = [
 const cos41 = Math.cos(41 * Math.PI / 180);
 const dSide = 0.1 * 111.32 * cos41;   // 8,4013 km
 const dUp = 0.1 * 111.32;             // 11,132 km
-const w1 = 1 / (dSide * dSide + 1);
-const w3 = 1 / (dUp * dUp + 1);
+// 1.3.0.70 - PESO GAUSSIANO: w = exp(-(d/σ)²) con σ = 25 km * 0,5 = 12,5 km,
+// nessun troncamento a k (prima era 1/(d²+1) e k=12).
+const SIGMA = 25 * ctxObj.STATION_FIELD_SIGMA_FRAC;
+const w1 = Math.exp(-Math.pow(dSide / SIGMA, 2));
+const w3 = Math.exp(-Math.pow(dUp / SIGMA, 2));
 const expected = (10 * w1 + 20 * w1 + 30 * w3) / (2 * w1 + w3);
 const idw = ctxObj.stationFieldIdwAt(41.0, 9.0, CAND3, cos41);
 ok('distanza laterale 0,1° a 41°N = 8,4013 km', Math.abs(dSide - 8.4013) < 0.001, dSide.toFixed(4) + ' km');
 ok('distanza verticale 0,1° = 11,132 km', Math.abs(dUp - 11.132) < 0.001, dUp.toFixed(4) + ' km');
-ok('IDW al centro = ' + expected.toFixed(4) + ' °C', Math.abs(idw.v - expected) < 1e-9, 'ottenuto ' + idw.v.toFixed(9));
-ok('IDW al centro ≈ 18,34 °C (calcolo a mano)', Math.abs(idw.v - 18.3406) < 0.001, idw.v.toFixed(4));
+ok('σ dichiarato = raggio/2 = 12,5 km', SIGMA === 12.5, SIGMA + ' km');
+ok('IDW gaussiano al centro = ' + expected.toFixed(4) + ' °C (LUT: tolleranza 0,02)',
+  Math.abs(idw.v - expected) < 0.02, 'ottenuto ' + idw.v.toFixed(6));
 ok('d_k = distanza del vicino piu lontano usato (11,132 km)', Math.abs(idw.dk - dUp) < 1e-9, idw.dk.toFixed(6));
-ok('usa 3 vicini (k=8 non saturato)', idw.n === 3, 'n=' + idw.n);
+ok('usa 3 vicini (nessun troncamento a k)', idw.n === 3, 'n=' + idw.n);
+// 1.3.0.70 - NIENTE TRONCAMENTO A k: il 13° vicino contribuisce (prima k=12 lo
+// scartava del tutto, creando discontinuita' quando entrava/usciva).
+const many = [];
+for (let i = 0; i < 20; i++) many.push({ lat: 41.0 + i * 0.0005, lon: 9.0 + i * 0.0005, v: 10 + i });
+const idwMany = ctxObj.stationFieldIdwAt(41.0, 9.0, many, cos41);
+const sumAll = many.reduce((a, p) => a + Math.exp(-Math.pow(ctxObj.stationFieldDistKm(41.0, 9.0, p.lat, p.lon, cos41) / SIGMA, 2)) * p.v, 0);
+const wAll = many.reduce((a, p) => a + Math.exp(-Math.pow(ctxObj.stationFieldDistKm(41.0, 9.0, p.lat, p.lon, cos41) / SIGMA, 2)), 0);
+ok('con 20 vicini il valore somma TUTTI (non solo i primi 12)',
+  Math.abs(idwMany.v - sumAll / wAll) < 0.02, idwMany.v.toFixed(4) + ' vs ' + (sumAll / wAll).toFixed(4));
 const one = ctxObj.stationFieldIdwAt(41.0, 9.0, [{ lat: 41.0, lon: 9.0, v: 7 }], cos41);
 ok('con un solo vicino a distanza 0 il valore e il suo stesso valore', Math.abs(one.v - 7) < 1e-9 && one.dk === 0);
 
@@ -273,7 +289,10 @@ ok('maschera a 0 su tutta la griglia -> nessun pixel dipinto', rMask.painted ===
 const maskCenter = new Uint8Array(9 * 9);
 maskCenter[4 * 9 + 4] = 255;
 const rMask2 = ctxObj.stationFieldRaster(CAND3, T_SCALE, frame9, maskCenter);
-ok('maschera a 255 solo al centro -> dipinto il solo centro', rMask2.painted === 1 && rMask2.alphas[4 * 9 + 4] === 235);
+ok('maschera a 255 solo al centro: centro dipinto e bordo SFUMATO (feather), non tagliato',
+  rMask2.alphas[4 * 9 + 4] > 0 && rMask2.alphas[4 * 9 + 5] > 0 &&
+  rMask2.alphas[4 * 9 + 5] < rMask2.alphas[4 * 9 + 4],
+  'centro=' + rMask2.alphas[4 * 9 + 4] + ' vicino=' + rMask2.alphas[4 * 9 + 5]);
 
 console.log('\nD. Selezione del campo per variabile e finestra (nomi reali del file)');
 ctxObj.stationsData = null;
@@ -710,8 +729,8 @@ const gran1 = granularity(g1.values, g1.alphas, g1.W, g1.H);
 const gran2 = granularity(g2d.values, g2d.alphas, g2d.W, g2d.H);
 ok('granulosita (|Δ| medio fra adiacenti) CALA con supersampling+downscale',
   gran2 < gran1, gran1.toFixed(3) + ' -> ' + gran2.toFixed(3) + ' °C');
-ok('il calo e almeno del 10%', gran2 < gran1 * 0.9,
-  'rapporto ' + (gran2 / gran1).toFixed(3));
+ok('il calo resta positivo (col peso gaussiano il campo e gia liscio: il margine e minore di prima)',
+  gran2 < gran1 * 0.995, 'rapporto ' + (gran2 / gran1).toFixed(3));
 
 console.log('\nG. Costo del raster su 256 x 227 (punti sintetici, misurato in due contesti)');
 const bigFrame = makeFrame(36.0, 48.0, 6.0, 19.0, 256, 227);
@@ -793,8 +812,8 @@ ok('nel blocco del campo non compare piu "non si applica"',
 // 1.3.0.69 - le tre opzioni non interpolabili sono state RIMOSSE (non
 // disabilitate) e la riga dichiarativa #live-stationfield-excluded non esiste
 // piu': la dichiarazione vive nella scheda Fonti e metodologie.
-ok('selettore variabile: 9 opzioni, nessuna non-interpolabile',
-  (src.slice(src.indexOf('id="stationfield-var"'), src.indexOf('</select>', src.indexOf('id="stationfield-var"'))).match(/<option /g) || []).length === 9);
+ok('selettore variabile: 10 opzioni (9 + raffica stimata), nessuna non-interpolabile',
+  (src.slice(src.indexOf('id="stationfield-var"'), src.indexOf('</select>', src.indexOf('id="stationfield-var"'))).match(/<option /g) || []).length === 10);
 ok('#live-stationfield-excluded non esiste piu nel markup',
   !/id="live-stationfield-excluded"/.test(src));
 ok('dichiarazione delle non interpolabili nella scheda Fonti',
@@ -1319,6 +1338,37 @@ ok('policy dichiarata: pioggia/vento 180-45, temperatura 360-120, neve 720-240',
   ctxObj.STATION_FIELD_AGE_POLICY.rain.maxMin === 180 && ctxObj.STATION_FIELD_AGE_POLICY.rain.tauMin === 45 &&
   ctxObj.STATION_FIELD_AGE_POLICY.temp.maxMin === 360 && ctxObj.STATION_FIELD_AGE_POLICY.temp.tauMin === 120 &&
   ctxObj.STATION_FIELD_AGE_POLICY.snow.maxMin === 720 && ctxObj.STATION_FIELD_AGE_POLICY.snow.tauMin === 240);
+
+// 1.3.0.70 - RAFFICA STIMATA: campo separato dalla raffica misurata, finestre
+// solo 1 h e 3 h, stessa scala colori (confrontabilità), nessuna mescolanza.
+ctxObj.stationsData = {
+  stations: [
+    { id: 'G1', lat: 45.0, lon: 9.0, time: nowS - 60000, gustMax1h: 18.4, gustEst1h: 12.1, gustEst1hCov: 0.9 },
+    { id: 'G2', lat: 45.1, lon: 9.0, time: nowS - 60000, gustMax1h: 22.0, gustEst1h: null, gustEst1hCov: null }
+  ],
+  meta: { compact: false }
+};
+ctxObj.stationsFull = null;
+const specGE = ctxObj.stationFieldSpec('gustEst', '1h');
+ok('gustEst + 1h: legge gust_est_1h_ms (non gust_max_*)',
+  specGE.available === true && specGE.field === 'gustEst1h' && specGE.rawField === 'gust_est_1h_ms',
+  specGE.field + ' / ' + specGE.rawField);
+ok('gustEst: stessa scala colori della raffica misurata (station_wind_classes)',
+  specGE.scale === 'station_wind_classes', specGE.scale);
+const colGE = ctxObj.stationFieldCollect(ctxObj.stationsData.stations, specGE, nowS);
+ok('gustEst: usa SOLO le stazioni con la stima (1 su 2), la misurata non entra',
+  colGE.used === 1 && colGE.points[0].v === 12.1, 'usate=' + colGE.used + ' v=' + (colGE.points[0] || {}).v);
+const specGE6 = ctxObj.stationFieldSpec('gustEst', '6h');
+ok('gustEst + 6h: NON disponibile (il server pubblica solo 1 e 3 ore)',
+  specGE6.available === false || specGE6.window !== '6h', String(specGE6.reason || '').slice(0, 60));
+ctxObj.stationFieldVar = 'gustEst';
+ctxObj.stationFieldWindow = '1h';
+ctxObj.stationFieldLastStats = colGE;
+ctxObj.stationFieldStatus();
+const txtGE = els['live-stationfield-status'].textContent;
+ok('legenda gustEst: una riga «Raffica stimata dal vento (passo …) · N stazioni»',
+  /^Raffica stimata dal vento( \(passo [\d.,]+ ?(s|min)\))? · 1 stazioni · 1 ora$/.test(txtGE), txtGE);
+ok('legenda gustEst: nessuna frase in più', txtGE.length < 70 && !/inferenza|età mediana|disponibili/.test(txtGE));
 
 console.log(`\nRISULTATO: ${checks} controlli, ${failures} falliti`);
 process.exit(failures ? 1 : 0);

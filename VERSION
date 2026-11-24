@@ -1,3 +1,16 @@
+VERSION=1.3.0.71
+BUILD=201
+DATE=2026-11-24
+APP_FILE=mri-light-1.3.0.71.html
+MeteoRisk Light - 1.3.0.71 - Artefatti del campo corretti (reticolo 0,5 gradi + bilineare, peso gaussiano con LUT, maschera terra sfumata), raffica stimata separata dalla misurata, rimosso il vento massimo medio (BUILD=201)
+VERSION=1.3.0.71
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=201
+RELEASE_TYPE=release
+DATE=2026-11-24
+NOTE=Release 1.3.0.71 (bump da 1.3.0.70; APP_FILE mri-light-1.3.0.71.html). (1) ARTEFATTI GEOMETRICI: il metodo full aveva seam su righe/colonne intere perche i 16 vicini erano scelti da una lista per CELLA a 1 gradi (misurato: salti fino a 1,96 C su longitudini 8, 11, 13, 15, 17 e latitudini 38, 39, 43, 44, 46). Ora il valore si calcola sui nodi di un reticolo a 0,5 gradi e si campiona con interpolazione bilineare: differenza media fra pixel adiacenti da 0,211 a 0,068 C (massimo da 1,96 a 0,27). (2) PESO GAUSSIANO exp(-(d/sigma)^2) con sigma = raggio/2 = 12,5 km e somma di TUTTI i vicini entro il raggio (nessun troncamento a k, che produceva spicchi); esponenziale su LUT (3072 passi, taglio a 12): local da 623 a 191 ms. (3) MASCHERA TERRA MORBIDA: dilatazione 2 px + box blur 5x5 sull'alpha, mare trasparente oltre il feather, nessun valore inventato. (4) RAFFICA STIMATA gustEst: voce separata, solo gust_est_*, finestre 1 e 3 ore, stessa scala colori della raffica, riga «Raffica stimata dal vento (passo N min) - N stazioni». (5) RIMOSSO il vento massimo medio (wind_max_3h_ms): non si pubblica piu e il client non lo legge. (6) TEST: test_station_field.mjs 228 controlli 0 falliti; test_station_wind.py aggiornato; html_js_syntax, tooltips_coverage, station_field_index e stations verdi. INVARIATI: motore radar, mappe, dataset.
 VERSION=1.3.0.70
 BUILD=201
 DATE=2026-11-24
