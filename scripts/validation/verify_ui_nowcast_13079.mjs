@@ -1,20 +1,19 @@
 #!/usr/bin/env node
-// VERIFICA BROWSER REALE (Chrome headless via CDP) del PRODOTTO nowcast pioggia 1.3.0.77.
+// VERIFICA BROWSER REALE (Chrome headless via CDP) del PRODOTTO nowcast pioggia 1.3.0.79.
 //
 // Apre l'APP_FILE di VERSION da un server statico locale (stessa origine dei
 // dati: data/radar/nowcast.json e i WebP), con la rete esterna bloccata tranne
 // unpkg/jsdelivr (Leaflet) e 127.0.0.1. Guida l'UI vera:
-//   A) la voce «Nowcast pioggia» e' nella tendina, subito dopo «Radar Player»;
-//   B) selezionandola compaiono overlay (+ primo frame), player e legenda;
-//   C) play -> animazione a ~1 frame/700 ms; pausa; slider -> frame scelto;
-//   D) la lista frame viene da leads[] (nessun 3/12 hardcodato);
-//   E) tornando a «Radar Player» il nowcast sparisce e il radar si accende;
-//   F) «— nessuno —» spegne tutto, nessun layer orfano;
-//   G) gate: available:false o beats_persistence:false -> voce nascosta salvo
-//      Sviluppo ON (null passa);
-//   H) URL nowcast senza query-string e tutte le risposte 200; 0 eccezioni JS.
+//   A) Radar Player -> Nowcast: la timeline NON sparisce, passa a leads[] e
+//      mostra «+N min · HH:MM»; il conteggio frame e' quello dei lead;
+//   B) play/pausa/slider/preload della timeline funzionano sui frame nowcast;
+//   C) Nowcast -> Radar Player: torna ai 25 slot e a «Frame: n/25»;
+//   D) Nowcast -> «— nessuno —»: pannello nascosto, nessun timer, nessun layer;
+//   E) nessun doppio player (#nowcast-player-wrap assente dal DOM);
+//   F) legenda SRI 1/5/10/20/50/100 con gli stessi RGB del radar;
+//   G) gate Sviluppo sulla voce del prodotto; 0 eccezioni JS.
 //
-// USO: node scripts/validation/verify_ui_nowcast_13077.mjs [url]
+// USO: node scripts/validation/verify_ui_nowcast_13079.mjs [url]
 'use strict';
 import { spawn } from 'child_process';
 import fs from 'fs';
@@ -153,35 +152,53 @@ try {
       return { text: opt.textContent, title: opt.getAttribute('title') || '', index: idx,
                prev: idx > 0 ? sel.options[idx - 1].value : null,
                hidden: !!opt.hidden, disabled: !!opt.disabled, display: cs.display,
-               offsetH: opt.offsetHeight, visible: !opt.hidden && !opt.disabled && cs.display !== 'none' };
+               visible: !opt.hidden && !opt.disabled && cs.display !== 'none' };
+    }
+    function tlState() {
+      var panel = document.getElementById('sync-timeline-panel');
+      var slider = document.getElementById('sync-slider');
+      var frames = document.getElementById('tile-load-frames');
+      var nc = document.getElementById('sync-nowcast-label');
+      return {
+        source: syncTimelineSource, length: syncTimeline.length, index: syncIndex,
+        playing: isSyncPlaying, panelActive: !!(panel && panel.classList.contains('active')),
+        sliderMax: slider ? slider.max : null, sliderValue: slider ? slider.value : null,
+        time: (document.getElementById('sync-time-display') || {}).innerText,
+        framesDisplay: frames ? getComputedStyle(frames).display : null,
+        nowcastLabelDisplay: nc ? getComputedStyle(nc).display : null,
+        nowcastLabel: nc ? nc.textContent : null,
+        caption: (document.getElementById('sync-caption') || {}).innerText
+      };
     }
     var res = {};
     res.app_version = (typeof APP_VERSION !== 'undefined') ? APP_VERSION : null;
     res.data = { available: nowcastState.data && nowcastState.data.available,
                  beats: nowcastState.data && nowcastState.data.beats_persistence,
                  leads: (nowcastState.data && nowcastState.data.leads ? nowcastState.data.leads.length : 0) };
-    res.leads = nowcastLeads().map(function (x) { return { lead: x.lead, image: x.image, valid: x.valid }; });
+    res.leads = nowcastLeads().map(function (x) { return { lead: x.lead, image: x.image, official: x.official }; });
     res.option_initial = optionState();
-    res.initial = { active: activeProductId, panel: disp('nowcast-panel'), count: countNowcast() };
+    res.initial = { active: activeProductId, panel: disp('nowcast-panel'), count: countNowcast(), tl: tlState() };
+    res.no_dup_player = document.querySelectorAll('#nowcast-player-wrap, #nowcast-play, #nowcast-slider').length;
 
-    // B) seleziona il prodotto nowcast
     var sel = document.getElementById('product-select');
+
+    // A) RADAR PLAYER -> NOWCAST: la timeline non deve sparire.
+    sel.value = 'radar-player'; selectProduct('radar-player');
+    await sleep(2500);
+    res.radar_first = tlState();
     sel.value = 'nowcast'; selectProduct('nowcast');
     await sleep(1200);
     var leads = nowcastLeads();
     var l1 = nowcastState.layer;
     var firstUrl = l1 && l1._url;
     res.on = {
-      active: activeProductId, layer: !!l1, hasLayer: !!(l1 && map.hasLayer(l1)),
-      url: l1 && l1._url, opacity: l1 && l1.options.opacity, pane: l1 && l1.options.pane,
+      active: activeProductId, timelineActive: !!nowcastState.timelineActive,
+      layer: !!l1, hasLayer: !!(l1 && map.hasLayer(l1)), url: firstUrl,
+      opacity: l1 && l1.options.opacity, pane: l1 && l1.options.pane,
       paneZ: map.getPane('nowcastPane') ? getComputedStyle(map.getPane('nowcastPane')).zIndex : null,
-      panel: disp('nowcast-panel'), legend: disp('nowcast-legend'), player: disp('nowcast-player-wrap'),
-      slider: (function () { var s = document.getElementById('nowcast-slider'); return s ? { min: s.min, max: s.max, value: s.value, disabled: s.disabled } : null; })(),
-      label: (document.getElementById('nowcast-frame-label') || {}).textContent,
-      expectedFirst: leads.length ? ('+' + leads[0].lead + ' min') : null,
-      count: countNowcast(),
-      preloaded: nowcastState.preloaded.length,
-      mapCard: (function () { var m = document.querySelector('.map-card'); return m ? getComputedStyle(m).display : null; })(),
+      panel: disp('nowcast-panel'), legend: disp('nowcast-legend'), count: countNowcast(),
+      preloaded: nowcastState.preloaded.length, tl: tlState(),
+     	mapCard: (function () { var m = document.querySelector('.map-card'); return m ? getComputedStyle(m).display : null; })(),
       others: { radarPlayer: !!isRadarPlayerActive, satellite: !!isSatelliteActive,
                 live: !!isLivePanelActive, supercells: !!liveShowSupercells },
       img_load: await new Promise(function (r) {
@@ -190,61 +207,70 @@ try {
       })
     };
 
-    // C) play -> animazione
-    var startFrame = nowcastState.frame, startUrl = nowcastState.layer && nowcastState.layer._url;
-    var btn = document.getElementById('nowcast-play');
-    btn.click();
-    var playing = !!nowcastState.timer;
-    await sleep(1800);
-    var midFrame = nowcastState.frame, midUrl = nowcastState.layer && nowcastState.layer._url;
-    btn.click();  // pausa
-    var paused = !nowcastState.timer;
+    // A2) legenda SRI + official
+    var savedFrame = syncIndex;
+    if (syncTimeline.length) applySyncFrame(syncTimeline.length - 1);
+    res.officialLabelLast = (document.getElementById('sync-nowcast-label') || {}).textContent;
+    if (syncTimeline.length) applySyncFrame(savedFrame);
+    res.legend = {
+      colors: Array.prototype.map.call(document.querySelectorAll('#nowcast-legend-ramp .nowcast-sw'), function (e) { return getComputedStyle(e).backgroundColor; }),
+      ticks: Array.prototype.map.call(document.querySelectorAll('#nowcast-legend-ticks span'), function (e) { return e.textContent; }),
+      note: ((document.getElementById('nowcast-legend') || {}).textContent || '')
+    };
+    res.officialLabel = { none: nowcastFrameLabel({ lead: 25, valid: null, official: false }),
+                          yes: nowcastFrameLabel({ lead: 30, valid: null, official: true }) };
+
+    // B) play/pausa sulla timeline nowcast
+    var startFrame = syncIndex, startUrl = nowcastState.layer && nowcastState.layer._url;
+    toggleSyncPlay();
+    var playing = isSyncPlaying;
+    await sleep(1600);
+    var midFrame = syncIndex, midUrl = nowcastState.layer && nowcastState.layer._url;
+    toggleSyncPlay();
+    var paused = !isSyncPlaying;
     await sleep(900);
-    var afterPauseFrame = nowcastState.frame;
     res.play = { playing: playing, startFrame: startFrame, midFrame: midFrame, advanced: midFrame !== startFrame,
                  urlChanged: midUrl !== startUrl, midUrl: midUrl, paused: paused,
-                 frozen: afterPauseFrame === midFrame, btnText: btn.textContent };
+                 frozen: syncIndex === midFrame };
 
-    // D) slider -> ultimo frame
-    var s = document.getElementById('nowcast-slider');
-    var last = leads.length - 1;
-    s.value = String(last); nowcastSliderInput(s.value);
-    await sleep(400);
-    var lastUrl = nowcastState.layer && nowcastState.layer._url;
-    res.slider = { last: last, frame: nowcastState.frame,
-                   url: lastUrl,
-                   expectedUrl: leads.length ? ('data/radar/' + leads[last].image) : null,
-                   label: (document.getElementById('nowcast-frame-label') || {}).textContent,
-                   expectedLabel: leads.length ? ('+' + leads[last].lead + ' min') : null,
-                   count: countNowcast(),
-                   img_load: await new Promise(function (r) {
-                     var im = new Image(); im.onload = function () { r({ ok: true }); };
-                     im.onerror = function () { r({ ok: false }); }; im.src = lastUrl;
-                   }) };
+    // C) preload della timeline nowcast
+    syncStartPreload();
+    await sleep(1400);
+    res.preload = { status: (document.getElementById('sync-preload-status') || {}).innerText,
+                    btnDisabled: (document.getElementById('sync-preload-btn') || {}).disabled,
+                    preloaded: nowcastState.preloaded.length, n: leads.length };
 
-    // D2) lista dinamica: 12 lead sintetici (nessun 3/12 hardcodato)
+    // D) lista dinamica: 12 lead sintetici -> timeline 12, official riconoscibili
     var savedLeads = nowcastState.data.leads;
     var fake = []; for (var q = 1; q <= 12; q++) fake.push({ lead_min: q * 5, valid_time: '2026-11-24T12:' + (q * 5 < 10 ? '0' : '') + (q * 5) + ':00Z', image: 'nowcast_lead0' + (q * 5 < 10 ? '0' : '') + (q * 5) + '.webp' });
     nowcastState.data.leads = fake;
-    nowcastUpdateSlider(); nowcastUpdateLabel();
-    var s2 = document.getElementById('nowcast-slider');
-    res.dynamic = { n: nowcastLeads().length, max: s2.max, first: nowcastFrameLabel(nowcastLeads()[0]),
-                    leads: nowcastLeads().map(function (x) { return x.lead; }) };
+    nowcastState.timelineActive = true;
+    buildSyncTimeline();
+    var t12 = syncTimeline;
+    res.dynamic = { n: t12.length, max: document.getElementById('sync-slider').max,
+                    first: t12.length ? t12[0].lead : null,
+                    official: t12.filter(function (x) { return x.official; }).map(function (x) { return x.lead; }),
+                    label30: t12.length > 5 ? nowcastFrameLabel(t12[5]) : null };
     nowcastState.data.leads = savedLeads;
-    nowcastUpdateSlider();
+    buildSyncTimeline();
 
-    // E) torna a Radar Player
+    // E) NOWCAST -> RADAR PLAYER
     sel.value = 'radar-player'; selectProduct('radar-player');
     await sleep(3000);
-    res.toRadar = { active: activeProductId, radar: !!isRadarPlayerActive,
-                    nowcastOn: !!nowcastState.on, layer: !!nowcastState.layer,
-                    count: countNowcast(), panel: disp('nowcast-panel'), timer: !!nowcastState.timer };
+    res.toRadar = tlState();
+    res.toRadar.radar = !!isRadarPlayerActive;
+    res.toRadar.nowcastLayer = !!nowcastState.layer;
+    res.toRadar.timelineActive = !!nowcastState.timelineActive;
+    res.toRadar.count = countNowcast();
 
-    // F) «— nessuno —»
+    // F) NOWCAST -> «— nessuno —»
+    sel.value = 'nowcast'; selectProduct('nowcast');
+    await sleep(900);
+    res.noneBefore = tlState();
     sel.value = ''; selectProduct('');
-    await sleep(2000);
-    res.none = { active: activeProductId, count: countNowcast(), panel: disp('nowcast-panel'),
-                 layer: !!nowcastState.layer, timer: !!nowcastState.timer };
+    await sleep(1500);
+    res.none = { active: activeProductId, panel: disp('nowcast-panel'), count: countNowcast(),
+                 layer: !!nowcastState.layer, tl: tlState(), timelineActive: !!nowcastState.timelineActive };
 
     // G) gate: Sviluppo OFF + beats false/null, available false
     if (typeof toggleSviluppo === 'function') toggleSviluppo(false);
@@ -264,40 +290,64 @@ try {
   })()`);
 
   const d = out.dom;
+  if (d && d.legend && d.legend.note) d.legend.note = d.legend.note.replace(/\s+/g, ' ').trim();
   const checks = [];
   const ck = (label, cond, detail) => checks.push({ check: label, pass: !!cond, dettaglio: detail });
-  ck('APP_VERSION = 1.3.0.77', d.app_version === '1.3.0.77', d.app_version);
+  const SRI_RGB = ['rgb(0, 85, 136)', 'rgb(0, 163, 224)', 'rgb(136, 221, 238)', 'rgb(255, 238, 0)', 'rgb(255, 170, 0)', 'rgb(193, 0, 0)'];
+  const nLeads = d.leads.length;
+
+  ck('APP_VERSION = 1.3.0.79', d.app_version === '1.3.0.79', d.app_version);
   ck('dati live: available true e beats_persistence true', d.data.available === true && d.data.beats === true, JSON.stringify(d.data));
-  ck('option «Nowcast pioggia» presente, con title, subito dopo «Radar Player»',
-    d.option_initial && d.option_initial.text === 'Nowcast pioggia' && d.option_initial.title.length > 10 &&
-    d.option_initial.prev === 'radar-player', JSON.stringify(d.option_initial));
-  ck('option visibile con dati validi e Sviluppo OFF', d.option_initial && d.option_initial.visible === true, JSON.stringify(d.option_initial));
-  ck('all\'avvio nowcast spento (nessun overlay, pannello nascosto)', d.initial.active !== 'nowcast' && d.initial.count.n === 0 && d.initial.panel === 'none', JSON.stringify(d.initial));
-  ck('selezione prodotto: activeProductId = nowcast', d.on.active === 'nowcast', d.on.active);
-  ck('selezione prodotto: overlay presente e in mappa', d.on.layer === true && d.on.hasLayer === true, JSON.stringify({ layer: d.on.layer, has: d.on.hasLayer }));
-  ck('ON: primo frame visibile (lead_min minimo)', d.on.url && /nowcast_lead0\d\d\.webp$/.test(d.on.url) && d.on.label.indexOf(d.on.expectedFirst) === 0, d.on.url + ' / ' + d.on.label + ' atteso ' + d.on.expectedFirst);
-  ck('ON: un solo overlay nowcast', d.on.count.n === 1, JSON.stringify(d.on.count));
-  ck('ON: pane nowcastPane z 407, opacita 0.75', d.on.pane === 'nowcastPane' && d.on.paneZ === '407' && d.on.opacity === 0.75, d.on.pane + '/' + d.on.paneZ + '/' + d.on.opacity);
-  ck('ON: pannello, legenda e player visibili', d.on.panel === 'block' && d.on.legend !== 'none' && d.on.player !== 'none', d.on.panel + '/' + d.on.legend + '/' + d.on.player);
-  ck('ON: slider costruito sui lead reali (max = n-1)', d.on.slider && d.on.slider.min === '0' && parseInt(d.on.slider.max, 10) === d.leads.length - 1, JSON.stringify(d.on.slider));
-  ck('ON: precaricati tutti i frame', d.on.preloaded === d.leads.length, d.on.preloaded + ' vs ' + d.leads.length);
-  ck('ON: immagine del primo frame caricata', d.on.img_load && d.on.img_load.ok === true && d.on.img_load.w > 0, JSON.stringify(d.on.img_load));
-  ck('ON: la mappa resta visibile (.map-card non none)', d.on.mapCard !== 'none', d.on.mapCard);
-  ck('ON: gli altri layer interferenti sono spenti', d.on.others.radarPlayer === false && d.on.others.satellite === false && d.on.others.live === false && d.on.others.supercells === false, JSON.stringify(d.on.others));
+  ck('nessun doppio player nel DOM', d.no_dup_player === 0, d.no_dup_player);
+  ck('option «Nowcast pioggia» presente, con title, dopo «Radar Player»',
+    d.option_initial && d.option_initial.text === 'Nowcast pioggia' && d.option_initial.title.length > 10 && d.option_initial.prev === 'radar-player',
+    JSON.stringify(d.option_initial));
+  ck('Radar Player: timeline radar con 25 slot e «Frame: n/25»',
+    d.radar_first.source === 'radar' && d.radar_first.length === 25 && d.radar_first.sliderMax === '24' && d.radar_first.framesDisplay !== 'none' && d.radar_first.panelActive === true,
+    JSON.stringify(d.radar_first));
+  ck('Radar Player -> Nowcast: il pannello timeline RESTA attivo', d.on.tl.panelActive === true, JSON.stringify(d.on.tl));
+  ck('Radar Player -> Nowcast: sorgente nowcast e conteggio = lead', d.on.tl.source === 'nowcast' && d.on.tl.length === nLeads, JSON.stringify({ source: d.on.tl.source, len: d.on.tl.length, leads: nLeads }));
+  ck('Nowcast: slider max = lead-1 e parte dal primo frame', d.on.tl.sliderMax === String(nLeads - 1) && d.on.tl.index === 0, JSON.stringify({ max: d.on.tl.sliderMax, idx: d.on.tl.index }));
+  ck('Nowcast: etichetta «+N min · HH:MM» invece di Frame', d.on.tl.framesDisplay === 'none' && d.on.tl.nowcastLabelDisplay !== 'none' && /^\+\d+ min · \d{2}:\d{2}/.test(String(d.on.tl.nowcastLabel)), JSON.stringify({ frames: d.on.tl.framesDisplay, label: d.on.tl.nowcastLabel }));
+  ck('Nowcast: time display «+N min»', /^\+\d+ min$/.test(String(d.on.tl.time)), d.on.tl.time);
+  ck('Nowcast: caption della timeline descrive il nowcast', /Nowcast pioggia/.test(String(d.on.tl.caption)), d.on.tl.caption);
+  ck('Nowcast: overlay presente (un solo layer) e immagine caricata',
+    d.on.layer === true && d.on.hasLayer === true && d.on.count.n === 1 && d.on.img_load && d.on.img_load.ok === true,
+    JSON.stringify({ layer: d.on.layer, count: d.on.count, img: d.on.img_load }));
+  ck('Nowcast: pane z 407 e opacita 0.75', d.on.pane === 'nowcastPane' && d.on.paneZ === '407' && d.on.opacity === 0.75, d.on.pane + '/' + d.on.paneZ + '/' + d.on.opacity);
+  ck('Nowcast: panel legenda e .map-card visibili', d.on.panel !== 'none' && d.on.legend !== 'none' && d.on.mapCard !== 'none', d.on.panel + '/' + d.on.legend + '/' + d.on.mapCard);
+  ck('Nowcast: altri layer interferenti spenti', d.on.others.radarPlayer === false && d.on.others.satellite === false && d.on.others.live === false && d.on.others.supercells === false, JSON.stringify(d.on.others));
+  ck('Nowcast: precaricati tutti i frame', d.on.preloaded === nLeads, d.on.preloaded + '/' + nLeads);
+  ck('legenda: 6 valori SRI 1/5/10/20/50/100+', d.legend.ticks.join('|') === '1|5|10|20|50|100+', JSON.stringify(d.legend.ticks));
+  ck('legenda: 6 colori IDENTICI alla rampa SRI del radar (DPC_SRI_STOPS)',
+    d.legend.colors.length === 6 && d.legend.colors.every((c, i) => c === SRI_RGB[i]), JSON.stringify(d.legend.colors));
+  ck('legenda: nota affidabilita e riga sotto 1 mm/h',
+    d.legend.note.indexOf("dopo 30 minuti l'affidabilità cala") >= 0 &&
+    /sotto 1 mm\/h il radar osservato è trasparente; il nowcast mostra la pioggia debole/.test(d.legend.note), '');
+  ck('official: etichetta «· ufficiale» solo sul lead official',
+    d.officialLabel.yes.indexOf('ufficiale') >= 0 && d.officialLabel.none.indexOf('ufficiale') < 0, JSON.stringify(d.officialLabel));
+  ck('official: ultimo frame (60) marcato ufficiale', /ufficiale/.test(String(d.officialLabelLast)), d.officialLabelLast);
   ck('play: timer attivo e frame avanzato', d.play.playing === true && d.play.advanced === true, JSON.stringify(d.play));
   ck('play: URL dell\'overlay cambiato (stesso layer)', d.play.urlChanged === true, d.play.midUrl);
   ck('pausa: timer fermo e frame congelato', d.play.paused === true && d.play.frozen === true, JSON.stringify(d.play));
-  ck('slider: ultimo frame, URL e label coerenti', d.slider.frame === d.slider.last && d.slider.url === d.slider.expectedUrl && d.slider.label.indexOf(d.slider.expectedLabel) === 0, JSON.stringify(d.slider));
-  ck('slider: immagine dell\'ultimo frame caricata', d.slider.img_load && d.slider.img_load.ok === true, JSON.stringify(d.slider.img_load));
-  ck('slider: sempre un solo overlay (setUrl, nessun accumulo)', d.slider.count.n === 1, JSON.stringify(d.slider.count));
-  ck('lista dinamica: 12 lead sintetici -> slider max 11, primo +5', d.dynamic.n === 12 && d.dynamic.max === '11' && d.dynamic.first.indexOf('+5 min') === 0, JSON.stringify(d.dynamic));
-  ck('ritorno a Radar Player: nowcast spento e radar acceso', d.toRadar.active === 'radar-player' && d.toRadar.radar === true && d.toRadar.nowcastOn === false && d.toRadar.layer === false && d.toRadar.count.n === 0 && d.toRadar.panel === 'none', JSON.stringify(d.toRadar));
-  ck('«nessuno»: tutto spento, nessun layer orfano', d.none.active === '' && d.none.count.n === 0 && d.none.layer === false && d.none.panel === 'none' && d.none.timer === false, JSON.stringify(d.none));
+  ck('preload timeline nowcast: contatore n/n OK e pulsante riabilitato',
+    new RegExp('^' + nLeads + '/' + nLeads + ' OK$').test(String(d.preload.status)) && d.preload.btnDisabled === false && d.preload.preloaded === nLeads,
+    JSON.stringify(d.preload));
+  ck('lista dinamica: 12 lead -> timeline 12, slider max 11, +5 primo',
+    d.dynamic.n === 12 && d.dynamic.max === '11' && d.dynamic.first === 5, JSON.stringify(d.dynamic));
+  ck('lista dinamica: official 15/30/60 e etichetta +30 ufficiale',
+    d.dynamic.official.join(',') === '15,30,60' && /\+30 min/.test(String(d.dynamic.label30)) && /ufficiale/.test(String(d.dynamic.label30)), JSON.stringify(d.dynamic));
+  ck('Nowcast -> Radar Player: torna a 25 slot, «Frame: n/25» e radar acceso',
+    d.toRadar.source === 'radar' && d.toRadar.length === 25 && d.toRadar.sliderMax === '24' && d.toRadar.framesDisplay !== 'none' && d.toRadar.nowcastLabelDisplay === 'none' && d.toRadar.radar === true && d.toRadar.nowcastLayer === false && d.toRadar.timelineActive === false && d.toRadar.count.n === 0,
+    JSON.stringify(d.toRadar));
+  ck('Nowcast -> «nessuno»: pannello nascosto, nessun timer, nessun overlay',
+    d.none.active === '' && d.none.panel === 'none' && d.none.tl.panelActive === false && d.none.tl.playing === false && d.none.count.n === 0 && d.none.timelineActive === false,
+    JSON.stringify(d.none));
   ck('gate: dev OFF + beats false -> option nascosta', d.gate_false_devoff && d.gate_false_devoff.visible === false && d.gate_false_devoff.hidden === true && d.gate_false_devoff.disabled === true, JSON.stringify(d.gate_false_devoff));
   ck('gate: beats null vale ok (non nascosta)', d.gate_null_devoff && d.gate_null_devoff.visible === true, JSON.stringify(d.gate_null_devoff));
   ck('gate: dev OFF + available false -> option nascosta', d.gate_unavail_devoff && d.gate_unavail_devoff.visible === false, JSON.stringify(d.gate_unavail_devoff));
-  ck('gate: Sviluppo ON -> option visibile anche con gate chiuso', d.gate_dev_on && d.gate_dev_on.visible === true, JSON.stringify(d.gate_dev_on));
-  ck('gate: dati ripristinati -> option di nuovo visibile', d.gate_restored && d.gate_restored.visible === true, JSON.stringify(d.gate_restored));
+  ck('gate: Sviluppo ON -> option visibile', d.gate_dev_on && d.gate_dev_on.visible === true, JSON.stringify(d.gate_dev_on));
+  ck('gate: dati ripristinati -> option visibile', d.gate_restored && d.gate_restored.visible === true, JSON.stringify(d.gate_restored));
 
   out.net = netNowcast;
   const nq = netNowcast.filter((r) => r.hasQuery);
@@ -306,7 +356,7 @@ try {
   ck('rete: tutte le risposte nowcast 200', bad.length === 0, JSON.stringify(bad));
   ck('rete: JSON + almeno un WebP richiesti', netNowcast.length >= 2, JSON.stringify(netNowcast.map((r) => r.url)));
 
-  const ncErrors = consoleErrors.filter((t) => /nowcast|NOWCAST|toggleNowcast|nowcastSlider/i.test(t));
+  const ncErrors = consoleErrors.filter((t) => /nowcast|NOWCAST|syncTimeline|sync-nowcast/i.test(t));
   out.exceptions = exceptions;
   out.console_errors_nowcast = ncErrors;
   ck('nessuna eccezione JS non gestita', exceptions.length === 0, JSON.stringify(exceptions));

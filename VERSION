@@ -1,3 +1,16 @@
+VERSION=1.3.0.79
+BUILD=214
+DATE=2026-11-24
+APP_FILE=mri-light-1.3.0.79.html
+MeteoRisk Light - 1.3.0.79 - NOWCAST SULLA TIMELINE UNICA (un solo player, sorgente leads[]) E LEGENDA SULLA SCALA SRI 1/5/10/20/50/100 con gli RGB del radar (BUILD=214)
+VERSION=1.3.0.79
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=214
+RELEASE_TYPE=release
+DATE=2026-11-24
+NOTE=Release 1.3.0.79 (bump da 1.3.0.78 delle centraline, gia' su main; APP_FILE mri-light-1.3.0.79.html). NOWCAST SULLA TIMELINE UNICA: rimosso il mini-player (#nowcast-player-wrap); il prodotto nowcast usa #sync-timeline-panel con la stessa infrastruttura (buildSyncTimeline/ensureSyncTimeline/applySyncFrame/toggleSyncPlay/syncIndex) e una sorgente diversa (syncTimelineSource) alimentata da nowcast.json leads[] (5..60 min). Play/pausa, slider, preload e x1/x2/x4/x8 riusati; etichetta +N min - HH:MM (con ufficiale su +15/+30/+60) al posto di Frame n/25; da Radar Player a Nowcast la timeline resta e si ricostruisce (25 slot -> 3/12 lead), tornando al radar torna a 25 slot; nessuno -> pannello nascosto. BUG RIPARATO: il pannello restava sui 25 slot radar passando a nowcast. LEGENDA NOWCAST ALLINEATA ALLA SCALA SRI: tacche 1/5/10/20/50/100 mm/h con gli stessi RGB della legenda SRI del radar (DPC_SRI_STOPS), costruita a runtime; resta la nota dopo 30 minuti l'affidabilita' cala piu' una riga sola (sotto 1 mm/h il radar osservato e' trasparente, il nowcast mostra la pioggia debole). TEST MISURATI: node --check 9/9 script inline; test_html_js_syntax + test_tooltips_coverage 3 passed; test_sw_cache_policy PASS; browser reale (Chrome headless 1243 via CDP) 39/39 PASS su timeline (Radar 25 slot -> Nowcast 3 lead con pannello attivo, play/pausa, preload 3/3, ritorno al radar 25 slot, nessuno senza timer ne overlay), legenda (6 valori e 6 RGB di DPC_SRI_STOPS), official e 0 doppi player; 0 eccezioni JS; rete nowcast senza query-string e 200. Funzioni: 1377 dichiarazioni function (misurate).
 VERSION=1.3.0.78
 BUILD=213
 DATE=2026-11-24
