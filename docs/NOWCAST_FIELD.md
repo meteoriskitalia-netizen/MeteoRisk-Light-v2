@@ -108,7 +108,13 @@ Il JSON con i 12 campi grezzi sarebbe ~80 MB/run (12 x 1200 x 1400 float32):
 misurato e scartato. Le 12 WebP costano **90.402 byte (88,3 kB)** su un caso
 reale di pioggia leggera (24/11 12:45Z) e **324.736 byte (317,1 kB)** sul caso
 intenso del 23/11 10:25Z: il costo dipende da quanta pioggia c'e' nel frame.
-Il JSON e' **~6 kB** (12.4 kB con il blocco di verifica incorporato).
+Il JSON e' **~6 kB** (~12 kB con il riassunto di verifica). La **serie**
+completa della verifica (schema 2, una riga per slot x lead x soglia) **non**
+viene incorporata: resta in `nowcast_verification.json` (misurato 76.964 B con
+63 righe e 8 slot) e `nowcast.json` ne porta solo `series_summary` (righe,
+slot, retention). Senza questo taglio il file committato ogni 10 minuti
+crescerebbe con la serie fino a ~9 MB (retention 7 giorni) — misurato 67 kB al
+primo run con la serie intera.
 
 ## Palette: allineata alla scala SRI del client (MISURATA)
 
@@ -164,7 +170,7 @@ release successiva (stesse sei voci della legenda SRI).
 | `compute` (flusso + 12 passi cumulativi + statistiche) | **4,97-5,00 s** |
 | 12 WebP (reproject + encode) | **4,61-5,02 s** |
 | Totale calcolo+immagini (senza fetch) | **9,6-10,0 s** |
-| `nowcast.json` (12 lead) | 6.172-6.275 byte (12,4 kB con la verifica) |
+| `nowcast.json` (12 lead) | 6.172-6.275 byte (~12 kB con il riassunto di verifica, senza la serie) |
 | 12 WebP, pioggia leggera | **90.402 byte** (media 7.534 B/frame) |
 | 12 WebP, pioggia intensa | **324.736 byte** (media 27.061 B/frame) |
 

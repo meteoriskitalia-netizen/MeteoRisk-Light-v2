@@ -1,7 +1,16 @@
 VERSION=1.3.0.77
-BUILD=210
+BUILD=211
 DATE=2026-11-24
 APP_FILE=mri-light-1.3.0.77.html
+MeteoRisk Light - 1.3.0.77 - NOWCAST.JSON SENZA LA SERIE DI VERIFICA (solo series_summary; la serie resta in nowcast_verification.json) (BUILD=211, backend)
+VERSION=1.3.0.77
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=211
+RELEASE_TYPE=release
+DATE=2026-11-24
+NOTE=Release backend 1.3.0.77 BUILD=211 (nessuna modifica all'HTML). NOWCAST.JSON SENZA LA SERIE DI VERIFICA: nowcast_field.load_verification taglia il blocco `series` (schema 2: una riga per slot x lead x soglia) e incorpora solo `series_summary` (rows, slots, retention_days, full_series_in); la serie completa resta in data/radar/nowcast_verification.json. Motivo MISURATO in produzione: con la serie intera nowcast.json era 67.359 B al primo run (63 righe, 8 slot) e sarebbe cresciuto fino a ~9 MB con la retention di 7 giorni, committato ogni 10 minuti; ora torna ~12 kB. Il verdetto beats_persistence e il riassunto schema 1 restano intatti. TEST: 27 nowcast (1 nuovo sul taglio della serie), suite radar 921 passed, py_compile OK.
 MeteoRisk Light - 1.3.0.77 - PALETTE NOWCAST ALLINEATA ALLA SCALA SRI DEL CLIENT (stessi 6 stop e stessi RGB, distanza 0 misurata) (BUILD=210, backend)
 VERSION=1.3.0.77
 MAJOR=1

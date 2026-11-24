@@ -637,6 +637,22 @@ def load_verification(out_dir):
     if not isinstance(data, dict):
         return {"status": "not_evaluated", "beats_persistence": None,
                 "null_reason": "verification_file_invalid"}
+    # Schema 2 (archivio/verifica): la SERIE completa (una riga per slot x lead
+    # x soglia) resta nel file su disco. Incorporarla in nowcast.json, che viene
+    # committato ogni 10 minuti, lo farebbe crescere con la serie (misurato:
+    # 67 kB al primo run, fino a ~9 MB con la retention di 7 giorni). Qui si
+    # tiene solo il riassunto che serve al client (beats + conteggi).
+    series = data.get("series")
+    if isinstance(series, dict):
+        data = dict(data)
+        data.pop("series", None)
+        counts = series.get("counts") or {}
+        data["series_summary"] = {
+            "rows": counts.get("rows"),
+            "slots": counts.get("slots"),
+            "retention_days": series.get("retention_days"),
+            "full_series_in": VERIFICATION_FILE,
+        }
     return data
 
 

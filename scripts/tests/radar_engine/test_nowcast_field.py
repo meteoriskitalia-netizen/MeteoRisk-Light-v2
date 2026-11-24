@@ -341,6 +341,35 @@ def test_beats_persistence_comes_from_verification_file(tmp_path):
     assert data["verification"]["cases_with_rain"] == 24
 
 
+def test_verification_series_not_embedded_in_nowcast_json(tmp_path):
+    """La serie (schema 2) resta nel file: nowcast.json ne porta solo il conteggio.
+
+    Senza questo taglio il JSON committato ogni 10 minuti cresce con la serie
+    (misurato in produzione: 67 kB al primo run)."""
+    rasters, _ = _moving_frames(tmp_path, n=3, dx=1)
+    bundle = _Bundle(rasters)
+    out = tmp_path / "out"
+    out.mkdir(parents=True)
+    (out / nf.VERIFICATION_FILE).write_text(json.dumps({
+        "schema": "meteorisk.nowcast_verification/2",
+        "status": "ok", "beats_persistence": True, "cases_total": 49,
+        "series": {"schema": "meteorisk.nowcast_verification_series/1",
+                   "retention_days": 7,
+                   "counts": {"rows": 63, "slots": 8},
+                   "rows": [{"lead_min": 15, "threshold_mmh": 0.5}]},
+    }), encoding="utf-8")
+    payload = nf.run(bundle, _config(tmp_path), str(out),
+                     clock=clock_mod.Clock.at_ms(T0 + 2 * STEP_MS))
+    ver = payload["verification"]
+    assert "series" not in ver
+    assert ver["series_summary"]["rows"] == 63
+    assert ver["series_summary"]["slots"] == 8
+    assert ver["series_summary"]["retention_days"] == 7
+    assert payload["beats_persistence"] is True
+    data = json.loads((out / "nowcast.json").read_text(encoding="utf-8"))
+    assert "series" not in data["verification"]
+
+
 # ---------------------------------------------------------------------------
 # 6b. palette ALLINEATA alla scala SRI del client (stessi RGB)
 # ---------------------------------------------------------------------------
