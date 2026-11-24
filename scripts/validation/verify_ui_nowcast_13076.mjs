@@ -175,7 +175,14 @@ try {
       im.onerror = function () { r({ ok: false }); }; im.src = res.on.url;
     });
 
-    // B) cambio lead 30 -> 60
+    // B) cambio lead 30 -> 15 -> 60 (l'URL deve cambiare a ogni passaggio)
+    lead.value = '15'; setNowcastLead(15); await sleep(500);
+    var l15 = nowcastState.layer;
+    res.lead15 = { url: l15 && l15._url, count: countNowcast() };
+    res.img15_load = await new Promise(function (r) {
+      var im = new Image(); im.onload = function () { r({ ok: true, w: im.naturalWidth, h: im.naturalHeight }); };
+      im.onerror = function () { r({ ok: false }); }; im.src = res.lead15.url;
+    });
     lead.value = '60'; setNowcastLead(60); await sleep(500);
     var l2 = nowcastState.layer;
     res.lead60 = { url: l2 && l2._url, same_ref: l2 === l1, count: countNowcast(), old_on_map: !!(l1 && map.hasLayer(l1)) };
@@ -237,6 +244,9 @@ try {
   ck('ON: bounds EPSG:3857 convertiti in lat/lon plausibili (34-49N, 4-21E)',
     d.on.bounds && d.on.bounds.sw.lat > 34 && d.on.bounds.ne.lat < 49 && d.on.bounds.sw.lng > 4 && d.on.bounds.ne.lng < 21,
     JSON.stringify(d.on.bounds));
+  ck('cambio lead 15: URL nowcast_lead015.webp e immagine caricata',
+    /nowcast_lead015\.webp$/.test(String(d.lead15.url)) && d.img15_load && d.img15_load.ok === true && d.lead15.count.n === 1,
+    JSON.stringify(d.lead15) + ' img=' + JSON.stringify(d.img15_load));
   ck('cambio lead 60: URL cambiato in nowcast_lead060.webp', /nowcast_lead060\.webp$/.test(String(d.lead60.url)), d.lead60.url);
   ck('cambio lead: layer SOSTITUITO (nuova istanza, vecchia rimossa)', d.lead60.same_ref === false && d.lead60.old_on_map === false, JSON.stringify(d.lead60));
   ck('cambio lead: sempre UN solo overlay (nessun accumulo)', d.lead60.count.n === 1, JSON.stringify(d.lead60.count));

@@ -47,10 +47,11 @@ Il toggle è **pubblico** solo con `available === true` **e**
 - **`test_player_fluidity.mjs`**: 2 FAIL **pre-esistenti** (E1/E5 toolbar),
   non toccati da questa release.
 - **Browser reale** (Chrome headless 1243 via CDP, server statico locale,
-  script `scripts/validation/verify_ui_nowcast_13076.mjs`): **33/33 PASS**
+  script `scripts/validation/verify_ui_nowcast_13076.mjs`): **34/34 PASS**
   - toggle OFF di default, selettore lead nascosto;
   - ON -> overlay `nowcast_lead030.webp` nel pane `nowcastPane` z 407,
     opacità 0.75, immagine caricata, legenda e lead visibili, **1** overlay;
+  - lead 15 -> URL `nowcast_lead015.webp` (immagine caricata, 1 overlay);
   - lead 60 -> URL `nowcast_lead060.webp`, layer **sostituito**, sempre 1;
   - OFF -> overlay, legenda e selettore rimossi;
   - gate: dev OFF + `beats_persistence` true -> visibile; `false` -> nascosto;
