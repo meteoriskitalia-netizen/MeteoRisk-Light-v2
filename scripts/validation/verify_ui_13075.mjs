@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// VERIFICA BROWSER HEADLESS della 1.3.0.75 (stati OFF/ON dei tre elementi AFA).
+// VERIFICA BROWSER HEADLESS degli stati AFA e della legenda vento (1.3.0.75 -> 1.3.0.78).
 //
 // Apre l'app in Chrome headless (CDP, nessuna dipendenza npm), con la rete
 // esterna bloccata (host-resolver-rules) e un server statico locale gia' avviato
@@ -15,12 +15,42 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
-const URL_APP = process.argv[2] || 'http://127.0.0.1:8765/mri-light-1.3.0.75.html';
+const URL_APP = process.argv[2] || 'http://127.0.0.1:8765/mri-light-1.3.0.78.html';
 const CHROME = process.env.CHROME ||
   path.join(process.env.LOCALAPPDATA || '', 'ms-playwright', 'chromium-1243', 'chrome-win64', 'chrome.exe');
 const PORT = 9333;
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mri-cdp-'));
+
+// 1.3.0.78 - Nel browser headless con la rete esterna BLOCCATA il boot dell'app
+// si interrompe prima delle `var` del campo centraline (misurato: STATION_FIELD_K,
+// STATION_FIELD_SNOW_SCALE, L e stationsData sono `undefined`, mentre le function
+// declaration sono disponibili). Per la legenda vento il test passa quindi le
+// STESSE classi/colori letti dal file servito: il DOM, il CSS, le larghezze e la
+// resa delle etichette restano quelli reali.
+function readWindConfig() {
+  const rel = new URL(URL_APP).pathname.replace(/^\//, '');
+  const p = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', rel);
+  const src = fs.readFileSync(p, 'utf8');
+  const strip = (t) => t.replace(/\/\/[^\n]*/g, '').replace(/\s+/g, ' ');
+  const mBp = src.match(/var STATION_FIELD_WIND_BREAKPOINTS\s*=\s*(\[[^\]]*\]);/);
+  const mCol = src.match(/var STATION_FIELD_WIND_COLORS\s*=\s*(\[[\s\S]*?\]);/);
+  if (!mBp || !mCol) throw new Error('classi vento non trovate nel file servito');
+  return { bp: Function('return ' + strip(mBp[1]))(), cols: Function('return ' + strip(mCol[1]))() };
+}
+const WC = readWindConfig();
+const WIND_INJECT = 'if (typeof STATION_FIELD_WIND_SCALE === "undefined") {' +
+  'window.STATION_FIELD_WIND_BREAKPOINTS = ' + JSON.stringify(WC.bp) + ';' +
+  'window.STATION_FIELD_WIND_COLORS = ' + JSON.stringify(WC.cols) + ';' +
+  'window.STATION_FIELD_WIND_SCALE = { type: "breakpoint", unit: "m/s", min: null, max: null,' +
+  ' breakpoints: window.STATION_FIELD_WIND_BREAKPOINTS,' +
+  ' colors: { light: window.STATION_FIELD_WIND_COLORS, dark: window.STATION_FIELD_WIND_COLORS } };' +
+  'window.STATION_FIELD_LEGEND = window.STATION_FIELD_LEGEND || {};' +
+  'window.STATION_FIELD_LEGEND.station_wind_classes = { lo: 0, hi: 30, ticks: window.STATION_FIELD_WIND_BREAKPOINTS.slice() };' +
+  '}' +
+  'if (typeof escapeHtml !== "function") window.escapeHtml = function (s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); };' +
+  'if (typeof fmtNum !== "function") window.fmtNum = function (v, d) { return Number(v).toFixed(d); };';
 
 const chrome = spawn(CHROME, [
   '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
@@ -32,8 +62,7 @@ const chrome = spawn(CHROME, [
   URL_APP
 ], { stdio: 'ignore' });
 
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
-async function waitFor(fn, ms, what) {
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }async function waitFor(fn, ms, what) {
   const t0 = Date.now();
   let last = null;
   while (Date.now() - t0 < ms) {
@@ -100,6 +129,14 @@ try {
                 bodyLen: (document.body ? document.body.innerHTML.length : -1),
                 hasBtn: !!document.getElementById('btn-radar-afa'),
                 sheets: document.styleSheets ? document.styleSheets.length : -1,
+                windScaleType: (typeof STATION_FIELD_WIND_SCALE),
+                kType: (typeof STATION_FIELD_K),
+                snowScaleType: (typeof STATION_FIELD_SNOW_SCALE),
+                lType: (typeof L),
+                stationsDataType: (typeof stationsData),
+                windBp: (typeof STATION_FIELD_WIND_SCALE !== 'undefined' && STATION_FIELD_WIND_SCALE) ? STATION_FIELD_WIND_SCALE.breakpoints.length : null,
+                scaleFn: (typeof stationFieldScale),
+                scaleWind: (typeof stationFieldScale === 'function') ? !!stationFieldScale('station_wind_classes') : null,
                 err: (document.body ? document.body.innerText.slice(0, 200) : '') };
     var byId = function (id) { return document.getElementById(id); };
     var st = function (e) {
@@ -169,8 +206,42 @@ try {
     window.liveAfaMeta = null;
     window.liveAfaSyncButtons(false);
     var rowSyncOff = rowState();
+    // 1.3.0.78 - legenda VENTO reale: costruita nel DOM, larghezza 260 px,
+    // etichette orizzontali con m/s + km/h. Si misura il rettangolo VERO.
+    ${WIND_INJECT}
+    var windLegend = null;
+    var lab = byId('live-stationfield-scale-labels');
+    if (lab && typeof stationFieldBuildLegend === 'function') {
+      var oldParent = lab.parentNode, oldNext = lab.nextSibling;
+      document.body.appendChild(lab);
+      lab.style.position = 'relative';
+      lab.style.display = 'block';
+      lab.style.width = '260px';
+      lab.style.height = '14px';
+      try {
+        stationFieldBuildLegend({ scale: 'station_wind_classes', unit: 'm/s', varKey: 'wind' },
+          { vMin: null, vMax: null });
+        var rects = [], ch = lab.children || [];
+        for (var ci = 0; ci < ch.length; ci++) {
+          var rr = ch[ci].getBoundingClientRect();
+          rects.push({ text: ch[ci].textContent, left: rr.left, right: rr.right, w: rr.width });
+        }
+        var ov = 0;
+        for (var qi = 1; qi < rects.length; qi++) {
+          if (rects[qi].left < rects[qi - 1].right - 0.5) ov++;
+        }
+        var unitEl = byId('live-stationfield-unit');
+        windLegend = { count: rects.length, overlap: ov,
+                       texts: rects.map(function (r) { return r.text; }),
+                       unit: unitEl ? unitEl.textContent : null };
+      } finally {
+        lab.parentNode.removeChild(lab);
+        if (oldParent) oldParent.insertBefore(lab, oldNext);
+      }
+    }
     return {
       debug: dbg,
+      wind_legend: windLegend,
       row_sc_on_afa_off: rowScOnAfaOff,
       row_afa_on: rowAfaOn,
       row_no_signal: rowNoSignal,
@@ -249,7 +320,15 @@ try {
   ck('liveAfaSyncButtons(false): riga nascosta e svuotata (nessun residuo)',
     d.row_sync_off && d.row_sync_off.display === 'none' && d.row_sync_off.html === '',
     d.row_sync_off && (d.row_sync_off.display + ' html=' + JSON.stringify(d.row_sync_off.html)));
-  ck('APP_VERSION = 1.3.0.75', d.app_version === '1.3.0.75', d.app_version);
+  ck('legenda vento: etichette orizzontali senza sovrapposizioni, tutte con km/h',
+    d.wind_legend && d.wind_legend.count >= 6 && d.wind_legend.overlap === 0 &&
+    d.wind_legend.texts.every((t) => /^\d+(,\d+)? \(\d+\)$/.test(t)),
+    d.wind_legend && (d.wind_legend.count + ' etichette, overlap=' + d.wind_legend.overlap + ' · ' + d.wind_legend.texts.join(' | ')));
+  ck('legenda vento: unità «m/s · km/h» e tacca 10 (36)',
+    d.wind_legend && /m\/s/.test(d.wind_legend.unit) && /km\/h/.test(d.wind_legend.unit) &&
+    d.wind_legend.texts.indexOf('10 (36)') >= 0,
+    d.wind_legend && (d.wind_legend.unit + ' · ' + d.wind_legend.texts.join(' | ')));
+  ck('APP_VERSION = 1.3.0.78', d.app_version === '1.3.0.78', d.app_version);
 
   out.checks = checks;
   const fails = checks.filter((c) => !c.pass);

@@ -404,6 +404,46 @@ ok('vento 30 min -> windMean30m con copertura windMean30mCov',
   specW30.field === 'windMean30m' && specW30.covField === 'windMean30mCov' &&
   specW30.available === true && specW30.scale === 'station_wind_classes');
 
+// 1.3.0.76 - VENTO/RAFFICA: 8 classi da 0 a 30 m/s e legenda a doppia unita'.
+console.log('\nD3. Vento/raffica: 8 classi 0..30 m/s, m/s + km/h in legenda');
+ok('vento: 9 breakpoint (8 classi) e 8 colori coerenti',
+  ctxObj.STATION_FIELD_WIND_BREAKPOINTS.join(',') === '0,2.5,5,7.5,10,15,20,25,30' &&
+  ctxObj.STATION_FIELD_WIND_COLORS.length === 8 &&
+  ctxObj.STATION_FIELD_WIND_SCALE.unit === 'm/s');
+const windRGB = (i) => ctxObj.STATION_FIELD_WIND_COLORS[i];
+const windD = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]));
+const windPairs = [];
+for (let wi = 0; wi + 1 < ctxObj.STATION_FIELD_WIND_COLORS.length; wi++) {
+  windPairs.push({ i: wi, d: windD(windRGB(wi), windRGB(wi + 1)) });
+}
+ok('vento: OGNI coppia di classi adiacenti dista > 40 su almeno un canale RGB',
+  windPairs.every((p) => p.d > 40),
+  windPairs.map((p) => p.i + '-' + (p.i + 1) + ':' + p.d).join(' '));
+ok('legenda vento: 9 tacche 0..30 m/s',
+  ctxObj.STATION_FIELD_LEGEND.station_wind_classes.hi === 30 &&
+  ctxObj.STATION_FIELD_LEGEND.station_wind_classes.ticks.join(',') === '0,2.5,5,7.5,10,15,20,25,30');
+ok('etichetta vento: m/s con km/h fra parentesi (10 -> «10 (36)», 2,5 -> «2,5 (9)»)',
+  ctxObj.stationFieldLegendLabelText(10, 'station_wind_classes') === '10 (36)' &&
+  ctxObj.stationFieldLegendLabelText(2.5, 'station_wind_classes') === '2,5 (9)' &&
+  ctxObj.stationFieldLegendLabelText(10, 'temperature_2m') === '10');
+const lgWind = ctxObj.stationFieldLegendLayout({ scale: 'station_wind_classes' }, { vMin: 2, vMax: 28 });
+let windOverlap = 0;
+for (let wi = 1; wi < lgWind.items.length; wi++) {
+  const a = lgWind.items[wi - 1], b = lgWind.items[wi];
+  if (b.x - a.x < (a.w + b.w) / 2 + 2 - 1e-6) windOverlap++;
+}
+ok('legenda vento: etichette orizzontali, nessuna sovrapposizione, tutte con km/h',
+  lgWind.shown === lgWind.items.length && windOverlap === 0 &&
+  lgWind.items.every((it) => /\(\d+\)/.test(it.text)),
+  'mostrate ' + lgWind.shown + '/' + lgWind.bandCount + ' bande, sovrapposizioni=' + windOverlap);
+// 1.3.0.76 - POPUP: vento e raffica mostrano m/s e, piu' piccolo, km/h.
+const popWindSrc = src.slice(src.indexOf('💨 vento'), src.indexOf('💨 vento') + 600);
+const popGustSrc = src.slice(src.indexOf('raffica massima 10 m:'), src.indexOf('raffica massima 10 m:') + 600);
+ok('popup stazione: vento e raffica con m/s e km/h',
+  /m\/s/.test(popWindSrc) && /km\/h/.test(popWindSrc) &&
+  /m\/s/.test(popGustSrc) && /km\/h/.test(popGustSrc),
+  'vento=' + /km\/h/.test(popWindSrc) + ' raffica=' + /km\/h/.test(popGustSrc));
+
 console.log('\nD3. NUOVE VARIABILI: umidità, punto di rugiada, neve + famiglie di esclusione');
 ctxObj.stationsData = { stations: [
   { id: 'A', rhMean1h: 64, rh: 70, dewMean1h: 5.2, dew: 6.1, snowDepthCm: 12 }

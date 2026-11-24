@@ -3318,9 +3318,15 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.77';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.78';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-24';
     const APP_CHANGELOG = [
+    { version: '1.3.0.78', date: '2026-11-24', changes: [
+      "VENTO E RAFFICA, 8 CLASSI E DOPPIA UNITÀ. La scala del campo centraline passa da 6 breakpoint (0/5/10/15/20/25 m/s) a 9 (0/2,5/5/7,5/10/15/20/25/30 m/s), cioè 8 classi utili, con un colore per banda lungo la stessa rampa verde -> giallo -> ambra -> arancio -> rosso -> cremisi -> viola. Distanza RGB minima fra classi adiacenti 54 (richiesto > 40). La legenda mostra il valore in m/s e, più piccolo fra parentesi, il corrispondente in km/h (es. «10 (36)»); l'unità della riga è «m/s · km/h». Stesse classi e stessa rampa per vento medio, raffica massima e raffica stimata.",
+      "POPUP STAZIONE: vento e raffica mostrano m/s con il km/h più piccolo fra parentesi (la raffica prima aveva solo m/s).",
+      "LEGENDA ADATTIVA: le etichette restano orizzontali e il passo si adatta alla larghezza. Misurato a 260 px: 7 etichette su 9 bande (0, 5, 10, 15, 20, 25, 30), distanza minima 2,53 px, zero sovrapposizioni; a 200 px: 4 etichette (passo 3), zero sovrapposizioni; a 320 px: 7 etichette, distanza minima 12,53 px. Prima: 6 etichette su 6, min 21,2 px a 200 px.",
+      "Nessun dato o campo cambiato: solo presentazione (classi, colori, testo delle tacche e popup)."
+    ]},
     { version: '1.3.0.77', date: '2026-11-24', changes: [
       "NOWCAST PIOGGIA DIVENTA UN PRODOTTO: voce «Nowcast pioggia» in #product-select subito dopo «Radar Player», non piu' un toggle nel gruppo dei layer. Accende overlay radar SRI, player a frame e legenda mm/h; spegne radar live, satellite e struttura convettiva. Il toggle nei layer e' stato rimosso.",
       "PLAYER: play/pausa e slider costruiti DINAMICAMENTE su nowcast.json -> leads[] (nessun 3 o 12 hardcodato), un frame ogni 700 ms, etichetta «+25 min · 16:40» con l'ora locale valida. Un solo L.imageOverlay: ogni frame chiama setUrl(), mai un layer nuovo; precaricamento di tutti i WebP al primo ON (~8 KB ciascuno); URL senza query-string.",
@@ -19381,7 +19387,8 @@ stopSyncPlay();
             var dir = (qw !== null)
                 ? ' <span title="direzione ' + fmtNum(st.windDir, 0) + '°">' + qw + '</span>'
                 : ' <span title="direzione non disponibile">n/d</span>';
-            h += '<div>💨 vento ' + fmtNum(st.wind, 1) + ' m/s' + dir + ' (' + fmtNum(st.wind * 3.6, 0) + ' km/h)</div>';
+            h += '<div>💨 vento ' + fmtNum(st.wind, 1) + ' m/s' + dir +
+                 ' <span style="font-size:9px;color:#94a3b8;">(' + fmtNum(st.wind * 3.6, 0) + ' km/h)</span></div>';
         } else if (stationsParam === 'windDir' && st.windDir !== null) {
             var qd = stationsWindDirQuadrant(st.windDir);
             h += '<div>direzione vento: <span title="direzione ' + fmtNum(st.windDir, 0) + '°">' +
@@ -19392,7 +19399,8 @@ stopSyncPlay();
         if (st.stationPressure !== null) h += '<div style="font-size:10px;">pressione di STAZIONE (non MSL): <b>' +
             fmtNum(st.stationPressure, 1) + ' hPa</b></div>';
         if (st.gust !== null) h += '<div style="font-size:10px;">raffica massima 10 m: <b>' +
-            fmtNum(st.gust, 1) + ' m/s</b></div>';
+            fmtNum(st.gust, 1) + ' m/s</b> <span style="font-size:9px;color:#94a3b8;">(' +
+            fmtNum(st.gust * 3.6, 0) + ' km/h)</span></div>';
         if (st.snowDepth !== null) h += '<div style="font-size:10px;">neve al suolo: <b>' +
             fmtNum(st.snowDepth, 2) + ' m</b></div>';
         if (st.freshSnowDepth !== null) h += '<div style="font-size:10px;">neve fresca: <b>' +
@@ -20327,12 +20335,21 @@ stopSyncPlay();
         wind: { '6h': 'wind_6h_ms', '24h': 'wind_24h_ms' },
         gust: { '6h': 'gust_max_6h_ms', '24h': 'gust_max_24h_ms' }
     };
-    // Classi vento/raffica: SCELTA INGEGNERISTICA (Bft 3/5/7/8/10). I colori sono
-    // gli RGB della rampa `wind` del registro FM (FM_WIND_COLORS), freddo -> caldo.
-    var STATION_FIELD_WIND_BREAKPOINTS = [0, 5, 10, 15, 20, 25];
+    // Classi vento/raffica: SCELTA INGEGNERISTICA (Bft 1/2/3/4/5/7/8/10 circa).
+    // 1.3.0.78 - da 6 a 9 breakpoint (8 classi utili): 0/2,5/5/7,5/10/15/20/25/30
+    // m/s. Le tacche della legenda mostrano m/s e, piu' piccolo, il valore in
+    // km/h (es. «10 (36)»); i colori restano la rampa wind freddo -> caldo, con
+    // un colore per banda e distanza RGB > 40 fra classi adiacenti.
+    var STATION_FIELD_WIND_BREAKPOINTS = [0, 2.5, 5, 7.5, 10, 15, 20, 25, 30];
     var STATION_FIELD_WIND_COLORS = [
-        [9, 144, 48, 1], [211, 219, 0, 1], [255, 110, 0, 1],
-        [255, 0, 0, 1], [201, 0, 86, 1], [128, 0, 128, 1]
+        [9, 144, 48, 1],      // 0-2,5   verde
+        [134, 168, 0, 1],     // 2,5-5   verde-giallo
+        [211, 219, 0, 1],     // 5-7,5   giallo
+        [255, 165, 0, 1],     // 7,5-10  ambra
+        [255, 110, 0, 1],     // 10-15   arancio
+        [255, 0, 0, 1],       // 15-20   rosso
+        [201, 0, 86, 1],      // 20-25   cremisi
+        [128, 0, 128, 1]      // 25-30   viola
     ];
     var STATION_FIELD_WIND_SCALE = {
         type: 'breakpoint', unit: 'm/s', min: null, max: null,
@@ -20391,7 +20408,7 @@ stopSyncPlay();
         precipitation: { lo: 0, hi: 50, ticks: [0, 0.5, 2, 5, 10, 20, 50] },
         precipitation_6h: { lo: 0, hi: 30, ticks: [0, 1, 2, 5, 10, 20, 30] },
         precipitation_cum: { lo: 0, hi: 100, ticks: [0, 1, 5, 20, 50, 100] },
-        station_wind_classes: { lo: 0, hi: 25, ticks: [0, 5, 10, 15, 20, 25] },
+        station_wind_classes: { lo: 0, hi: 30, ticks: [0, 2.5, 5, 7.5, 10, 15, 20, 25, 30] },
         station_relative_humidity: { lo: 0, hi: 100, ticks: [0, 20, 40, 60, 80, 100] },
         station_snow_cm: { lo: 0, hi: 300, ticks: [0, 1, 5, 10, 25, 50, 100, 200, 300] }
     };
@@ -21409,13 +21426,27 @@ stopSyncPlay();
         return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
     }
 
-    function stationFieldLegendLabelText(v) {
-        return stationFieldTickText(v);
+    function stationFieldLegendLabelText(v, scaleKey) {
+        var s = stationFieldTickText(v);
+        // 1.3.0.78 - vento/raffica: valore principale in m/s e, fra parentesi,
+        // il corrispondente in km/h (1 m/s = 3,6 km/h). Solo presentazione.
+        if (scaleKey === 'station_wind_classes') {
+            var kmh = Math.round(Number(v) * 3.6);
+            return s + ' (' + kmh + ')';
+        }
+        return s;
     }
 
-    function stationFieldLegendLabelWidth(text) {
-        // Stima volutamente prudente: ~6,4 px per carattere a 9 px + 6 di aria.
-        return Math.max(18, String(text).length * 6.4 + 6);
+    function stationFieldLegendLabelWidth(text, scaleKey) {
+        var s = String(text);
+        // Stima prudente: ~6,4 px per carattere a 9 px + 6 di aria. Per il vento
+        // la parentesi e' a 7 px, quindi pesa meno (4 px/carattere): senza questa
+        // distinzione la legenda a doppia unita' perderebbe etichette inutili.
+        if (scaleKey === 'station_wind_classes') {
+            var i = s.indexOf(' (');
+            if (i > 0) return Math.max(18, i * 5.4 + (s.length - i) * 4.0 + 8);
+        }
+        return Math.max(18, s.length * 6.4 + 6);
     }
 
     function stationFieldLegendLayout(spec, stats) {
@@ -21484,11 +21515,13 @@ stopSyncPlay();
         out.width = width;
         // Posizioni e larghezze REALI (stimate) di tutte le etichette candidate.
         var cand = [], span = hi - lo;
+        var scaleKey = spec ? spec.scale : null;
         for (var m = 0; m < uniq.length; m++) {
-            var t = stationFieldLegendLabelText(uniq[m]);
+            var t = stationFieldLegendLabelText(uniq[m], scaleKey);
             cand.push({
                 v: uniq[m], x: span ? (uniq[m] - lo) / span * width : 0,
-                w: stationFieldLegendLabelWidth(t), text: t
+                w: stationFieldLegendLabelWidth(t, scaleKey), text: t,
+                windKmh: (scaleKey === 'station_wind_classes') ? Math.round(uniq[m] * 3.6) : null
             });
         }
         // PRIORITA': minimo reale, massimo reale, 0. Si piazzano per primi e
@@ -21538,7 +21571,12 @@ stopSyncPlay();
         var bar = document.getElementById('live-stationfield-scale');
         var labels = document.getElementById('live-stationfield-scale-labels');
         var unitEl = document.getElementById('live-stationfield-unit');
-        if (unitEl) unitEl.textContent = (spec && spec.unit) ? spec.unit : '';
+        if (unitEl) {
+            // 1.3.0.78 - per vento/raffica la riga dichiara entrambe le unita'.
+            unitEl.textContent = (spec && spec.unit)
+                ? (spec.scale === 'station_wind_classes' ? (spec.unit + ' · km/h') : spec.unit)
+                : '';
+        }
         var sc = spec ? stationFieldScale(spec.scale) : null;
         if (!bar) return;
         if (!sc) {
@@ -21567,7 +21605,10 @@ stopSyncPlay();
                 if (pct > 100) pct = 100;
                 html += '<span style="position:absolute;left:' + (Math.round(pct * 10) / 10) +
                     '%;transform:translateX(-50%);font-size:9px;line-height:1;white-space:nowrap;">' +
-                    escapeHtml(it.text) + '</span>';
+                    (it.windKmh !== null && it.windKmh !== undefined
+                        ? escapeHtml(stationFieldTickText(it.v)) +
+                          '<span style="font-size:7px;color:#94a3b8;"> (' + it.windKmh + ')</span>'
+                        : escapeHtml(it.text)) + '</span>';
             }
             labels.innerHTML = html;
             labels.style.position = 'relative';
