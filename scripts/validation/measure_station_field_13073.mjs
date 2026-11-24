@@ -187,7 +187,7 @@ function haversineKm(lat1, lon1, lat2, lon2) {
 }
 
 // ---------- dati reali ----------
-const raw = JSON.parse(fs.readFileSync(path.join(ROOT, 'data/stations/latest.json'), 'utf8'));
+const raw = JSON.parse(fs.readFileSync(process.env.STATIONS_JSON || path.join(ROOT, 'data/stations/latest.json'), 'utf8'));
 const NOW = Date.parse(raw.generated_at);
 const AGE_TAU = { rain: 45, temp: 120 }, AGE_MAX = { rain: 180, temp: 360 };
 function collect(varKey) {
@@ -208,7 +208,7 @@ const ptsRain = collect('rain');
 const ptsTemp = collect('temp');
 
 const frame = makeFrame(36.0, 48.0, 6.0, 19.0, 256, 227);
-const geo = JSON.parse(fs.readFileSync(path.join(ROOT, 'data/geography/province_italiane.geojson'), 'utf8'));
+const geo = JSON.parse(fs.readFileSync(process.env.STATIONS_GEO || path.join(ROOT, 'data/geography/province_italiane.geojson'), 'utf8'));
 const mask = landMask(frame, geo);
 let landPixels = 0; for (let i = 0; i < mask.length; i++) if (mask[i]) landPixels++;
 
