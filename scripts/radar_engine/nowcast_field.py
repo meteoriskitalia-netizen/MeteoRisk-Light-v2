@@ -56,12 +56,18 @@ mai per questo modulo: `main.py` lo chiama dentro try/except.
 
 Uscita
 ------
-`data/radar/nowcast.json` (schema `meteorisk.nowcast_field/1`) + tre WebP
-georeferenziati in EPSG:3857 (`nowcast_lead015.webp`, `_030`, `_060`) con
-alpha=0 fuori dal dominio radar. Il JSON porta bbox/risoluzione delle immagini
-e la legenda in mm/h. Il WebP e' stato scelto DOPO aver misurato il JSON con i
-campi grezzi: 3 campi float su 1200x1400 sarebbero ~20 MB per run (misurato),
-le tre immagini costano ~80 kB in totale sullo stesso caso (v. report).
+`data/radar/nowcast.json` (schema `meteorisk.nowcast_field/1`) + **12 WebP**
+georeferenziati in EPSG:3857, uno per ogni multiplo di 5 minuti da +5 a +60
+(`nowcast_lead005.webp` ... `nowcast_lead060.webp`), con alpha=0 fuori dal
+dominio radar. I frame sono CUMULATIVI: il +10 e' il +5 avanzato di altri 5
+minuti (semi-Lagrangiano a passi di 5), non un trasporto indipendente. I tre
+lead **ufficiali di verifica** sono 15/30/60 e portano `official: true`; gli
+altri servono al player e sono dichiarati come tali.
+
+Il JSON porta bbox/risoluzione delle immagini e la legenda in mm/h. Il WebP e'
+stato scelto DOPO aver misurato il JSON con i campi grezzi: 12 campi float su
+1200x1400 sarebbero ~80 MB per run, le 12 immagini costano ~100 kB in totale
+sullo stesso caso (misurato, v. report).
 
 La maschera del dominio e' `valid_mask` del frame SRI piu' recente (la stessa
 usata dal resto del motore: -9999 = fuori copertura). Il campo non viene mai
@@ -86,7 +92,11 @@ PRODUCT_TYPE = "SRI"
 
 FRAMES_WANTED = 6               # ultimi 6 fotogrammi (25 minuti di storia)
 STEP_MIN = 5                    # cadenza misurata del prodotto SRI (PT5M)
-LEADS_MIN = (15, 30, 60)        # orizzonte richiesto
+# UN FRAME OGNI 5 MINUTI da +5 a +60 (12 frame, player fluido come il radar).
+# Il trasporto e' CUMULATIVO: il frame a +N usa N/5 passi da 5 minuti.
+LEADS_MIN = tuple(range(5, 61, 5))
+# Verifica ufficiale: solo questi tre (invariata rispetto alla 1.3.0.71).
+OFFICIAL_LEADS = (15, 30, 60)
 FLOW_PAIRS = 3                  # coppie consecutive usate per il flusso
 SPEED_CAP_KMH = 110.0           # sopra questo valore il vettore e' AZZERATO
 RAIN_MIN_MMH = 0.05             # sotto: nessuna pioggia disegnata (0.0 e' valido)
@@ -97,8 +107,7 @@ MOTION_ALGORITHM = "lucas_kanade_pyramidal"
 OUTPUT_CRS = "EPSG:3857"
 OUTPUT_RES_M = 1500             # risoluzione delle immagini (misurata: v. report)
 WEBP_QUALITY = 80
-IMAGE_NAMES = {15: "nowcast_lead015.webp", 30: "nowcast_lead030.webp",
-               60: "nowcast_lead060.webp"}
+IMAGE_NAMES = {lead: "nowcast_lead%03d.webp" % lead for lead in LEADS_MIN}
 VERIFICATION_FILE = "nowcast_verification.json"
 
 # Legenda (mm/h -> colore). La stessa lista va nel JSON: il client non deve
@@ -704,6 +713,8 @@ def compute(bundle, config, clock, warnings, out_dir=None):
         "frames_origin": origin,
         "frames_slots": [_iso(f[2]) for f in frames],
         "domain_mask": DOMAIN_MASK_SOURCE,
+        "leads_total": len(LEADS_MIN),
+        "official_leads": list(OFFICIAL_LEADS),
         "leads": [
             {
                 "lead_min": lead,
@@ -711,6 +722,9 @@ def compute(bundle, config, clock, warnings, out_dir=None):
                 "unit": "mm/h",
                 "image": IMAGE_NAMES[lead],
                 "image_crs": OUTPUT_CRS,
+                # ufficiale = entra nella verifica contro la persistenza;
+                # gli altri frame sono per il player (dichiarato).
+                "official": lead in OFFICIAL_LEADS,
                 "stats": _lead_stats(native[lead], domain, pixel_km),
             }
             for lead in LEADS_MIN
@@ -765,21 +779,36 @@ def _fallback_raster(config, clock, ts, warnings):
 # scrittura
 # ---------------------------------------------------------------------------
 def write_products(out_dir, payload, native):
-    """Scrive i 3 WebP. Ritorna il dizionario delle misure (il JSON lo scrive
-    `run` DOPO aver inserito le misure: un solo file, nessuna riscrittura)."""
+    """Scrive i 12 WebP. Ritorna il dizionario delle misure (il JSON lo scrive
+    `run` DOPO aver inserito le misure: un solo file, nessuna riscrittura).
+
+    Un frame che non si riesce a scrivere NON annulla gli altri: il lead
+    corrispondente resta con `image: null` e `image_error`, cosi' il player puo'
+    saltare quel frame senza rompersi (lacuna dichiarata, non silenziosa)."""
     os.makedirs(out_dir, exist_ok=True)
-    measured = {"images": {}, "json_bytes": 0}
+    measured = {"images": {}, "image_errors": {}, "json_bytes": 0}
     if payload.get("available") and native:
         rd = native["_rd"]
         grid = native["_grid"]
+        by_lead = {int(l["lead_min"]): l for l in (payload.get("leads") or [])}
         for lead in LEADS_MIN:
-            field = reproject_to_grid(native[lead], native["_domain"], rd, grid)
-            path = os.path.join(out_dir, IMAGE_NAMES[lead])
-            size = write_webp(path, field)
-            measured["images"][IMAGE_NAMES[lead]] = size
-            # statistiche sulla griglia pubblicata (non su quella nativa)
-            stats = payload["leads"][LEADS_MIN.index(lead)]["stats"]
-            stats["published_pixels"] = int(np.isfinite(field).sum())
+            entry = by_lead.get(lead)
+            try:
+                field = reproject_to_grid(native[lead], native["_domain"],
+                                          rd, grid)
+                path = os.path.join(out_dir, IMAGE_NAMES[lead])
+                size = write_webp(path, field)
+                measured["images"][IMAGE_NAMES[lead]] = size
+                # statistiche sulla griglia pubblicata (non su quella nativa)
+                if entry is not None:
+                    entry["stats"]["published_pixels"] = int(
+                        np.isfinite(field).sum())
+            except Exception as exc:
+                reason = "{}:{}".format(exc.__class__.__name__, exc)
+                measured["image_errors"][IMAGE_NAMES[lead]] = reason
+                if entry is not None:
+                    entry["image"] = None
+                    entry["image_error"] = reason
     return measured
 
 
@@ -802,8 +831,19 @@ def run(bundle, config, out_dir, clock=None, warnings=None):
                        null_reason="image_write_failed:{}".format(
                            exc.__class__.__name__),
                        leads=[])
-        measured = {"images": {}}
+        measured = {"images": {}, "image_errors": {}}
     payload["output_bytes"] = {"images": measured["images"]}
+    if measured.get("image_errors"):
+        payload["output_bytes"]["image_errors"] = measured["image_errors"]
+        warnings.append(
+            "nowcast: {} frame su {} non scritti (il player li salta)".format(
+                len(measured["image_errors"]), len(LEADS_MIN)))
+        if not measured["images"]:
+            # nessun frame utilizzabile: il prodotto non e' mostrabile. Lo si
+            # dichiara (available:false) invece di lasciare un layer vuoto.
+            payload = dict(payload, available=False,
+                           null_reason="image_write_failed:all_frames")
+            warnings.append("nowcast: 0 frame su 12 -> available:false")
     path = os.path.join(out_dir, "nowcast.json")
     _atomic_write_text(path, json.dumps(payload, ensure_ascii=False,
                                         allow_nan=False))

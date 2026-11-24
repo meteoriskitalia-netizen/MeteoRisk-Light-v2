@@ -6,7 +6,9 @@ Meteorisk Radar Engine — nowcast_archive.py (novembre 2026)
 ARCHIVIO LEGGERO DEI NOWCAST EMESSI.
 
 Ogni run di `radar-engine` scrive `data/radar/nowcast.json` (schema
-`meteorisk.nowcast_field/1`) e tre WebP. Il nowcast su `main` viene
+`meteorisk.nowcast_field/1`) e **12 WebP** (un frame ogni 5 minuti da +5 a
++60; i tre lead 15/30/60 sono gli ufficiali di verifica). Il nowcast su `main`
+viene
 sovrascritto al run successivo: senza una copia non e' possibile verificare a
 posteriori se il nowcast emesso ieri sera aveva ragione. Questo modulo scrive
 UNA COPIA COMPATTA per slot:
@@ -30,8 +32,9 @@ deterministico (`nowcast_field.compute`) e confronta il `source_slot`
 archiviato con quello ricalcolato. Se i due non coincidono la riga e'
 `not_verifiable` con motivo, non un punteggio inventato.
 
-Retention dichiarata: `RETENTION_DAYS = 7` giorni. Misura: un record e'
-~3-4 kB; 288 slot/giorno (cadenza 5 min) -> ~1,0 MB/giorno, ~7 MB vivi.
+Retention dichiarata: `RETENTION_DAYS = 7` giorni. Misura: con 12 lead un
+record e' ~6,5 kB (misurato 6.456 B su un nowcast reale); 288 slot/giorno
+(cadenza 5 min) -> ~1,9 MB/giorno, ~13 MB vivi.
 
 Il record viene scritto anche quando il nowcast e' `available: false`
 (`sri_unavailable`, `no_rain_in_latest_frame`, ...): serve a misurare la
@@ -54,6 +57,12 @@ import tempfile
 SCHEMA = "meteorisk.nowcast_archive/1"
 ARCHIVE_DIRNAME = "nowcast_archive"
 RETENTION_DAYS = 7
+# Lead ufficiali di verifica. Duplicato di proposito: questo modulo e'
+# eseguibile come script (`python scripts/radar_engine/nowcast_archive.py`) e
+# non deve importare numpy/scipy solo per una costante; il test
+# test_nowcast_archive_verify verifica che coincida con
+# `nowcast_field.OFFICIAL_LEADS`.
+OFFICIAL_LEADS = (15, 30, 60)
 
 _ISO = "%Y-%m-%dT%H:%M:%SZ"
 _UTC = _dt.timezone.utc
@@ -152,10 +161,14 @@ def compact(payload, images_dir=None):
     slot_iso, basis = _slot_basis(payload)
     leads = []
     for lead in payload.get("leads") or []:
+        lead_min = lead.get("lead_min")
         leads.append({
-            "lead_min": lead.get("lead_min"),
+            "lead_min": lead_min,
             "valid_time": lead.get("valid_time"),
             "image": lead.get("image"),
+            # ufficiale = entra nella verifica contro la persistenza
+            "official": bool(lead.get(
+                "official", lead_min in OFFICIAL_LEADS)),
             "stats": lead.get("stats"),
         })
     grid = payload.get("grid") or {}
@@ -325,6 +338,8 @@ disponibilita', moto, cap, riferimento ai WebP, statistiche e griglia).
 dallo stesso slot con `scripts/radar_engine/nowcast_field.py`.
 
 - Schema: `meteorisk.nowcast_archive/1`
+- Lead: 12 frame (5..60 min); `official: true` solo su 15/30/60, gli unici
+  che la verifica confronta con la persistenza. Gli altri sono per il player.
 - Retention: 7 giorni (potatura a ogni pubblicazione)
 - Scritto da: job `radar-engine` (step "Archivia nowcast emesso")
 - Pubblicato su: branch ORPHAN `nowcast-archive` (commit senza parent,

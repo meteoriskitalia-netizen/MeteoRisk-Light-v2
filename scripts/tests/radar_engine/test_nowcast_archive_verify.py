@@ -146,7 +146,9 @@ def test_archive_roundtrip(tmp_path):
     assert rec["schema"] == na.SCHEMA
     assert rec["slot_basis"] == "source_slot"
     assert rec["source_slot"] == "2026-11-24T09:30:00Z"
-    assert [l["lead_min"] for l in rec["leads"]] == [15, 30, 60]
+    assert [l["lead_min"] for l in rec["leads"]] == list(range(5, 61, 5))
+    assert [l["lead_min"] for l in rec["leads"] if l["official"]] == [15, 30, 60]
+    assert na.OFFICIAL_LEADS == nf.OFFICIAL_LEADS
     assert rec["speed_cap_kmh"] == 110.0
     # riferimento ai WebP: byte e sha256, NESSUN file copiato
     for name in nf.IMAGE_NAMES.values():
@@ -158,7 +160,9 @@ def test_archive_roundtrip(tmp_path):
     assert not os.path.exists(os.path.join(root, "nowcast_lead015.webp"))
 
     back = na.read_record(path)
-    assert back["leads"][0]["valid_time"] == "2026-11-24T09:45:00Z"
+    assert back["leads"][0]["lead_min"] == 5
+    assert back["leads"][0]["valid_time"] == "2026-11-24T09:35:00Z"
+    assert back["leads"][2]["lead_min"] == 15 and back["leads"][2]["official"]
     assert list(na.iter_records(root))[0]["_path"] == path
 
 
@@ -237,7 +241,7 @@ def test_verify_counts_match_replay(tmp_path):
     out = str(tmp_path / "verification.json")
 
     observed = {}
-    for lead in nf.LEADS_MIN:
+    for lead in nf.OFFICIAL_LEADS:
         shift = lead // 5
         field = _blob(200, 200, 100, 60 + 2 + shift, amp=20.0)
         observed[source + lead * 60000] = _write_frame(
@@ -252,8 +256,11 @@ def test_verify_counts_match_replay(tmp_path):
 
     cfg = _config(tmp_path)
     now = source + 75 * 60000
-    nv.verify_pending(root, out, cfg, now=now, fetch_fn=fetch_fn,
-                      grace_min=90, max_lookback_hours=24, max_slots=10)
+    stats = nv.verify_pending(root, out, cfg, now=now, fetch_fn=fetch_fn,
+                              grace_min=90, max_lookback_hours=24,
+                              max_slots=10)
+    # gli altri 9 frame del player sono archiviati ma NON verificati
+    assert stats["player_leads_skipped"] == 9
     doc = json.loads(open(out, encoding="utf-8").read())
     rows = {(r["lead_min"], r["threshold_mmh"]): r
             for r in doc["series"]["rows"]}
@@ -264,10 +271,10 @@ def test_verify_counts_match_replay(tmp_path):
     bundle = replay._Bundle(rasters)
     case = replay.evaluate_case(bundle, rasters, cfg, clk,
                                 {l: observed[source + l * 60000]
-                                 for l in nf.LEADS_MIN},
+                                 for l in nf.OFFICIAL_LEADS},
                                 min_rain_pixels=100)
     assert case["status"] == "ok"
-    for lead in nf.LEADS_MIN:
+    for lead in nf.OFFICIAL_LEADS:
         for thr in nf.VERIFY_THRESHOLDS_MMH:
             key = "%d|%.1f" % (lead, thr)
             row = rows[(lead, thr)]

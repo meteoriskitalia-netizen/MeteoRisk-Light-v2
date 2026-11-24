@@ -17,10 +17,12 @@ disponibile, questo modulo:
      altrimenti la riga e' `not_verifiable` con motivo
      `recomputed_source_slot_mismatch` (nessun punteggio su un istante
      diverso);
-  3) scarica l'SRI OSSERVATO allo stesso `valid_time` e calcola, per ogni
-     lead (15/30/60 min) e per ogni soglia GIA' DICHIARATA (0.5 / 2.0 /
-     5.0 mm/h), CSI/POD/FAR del nowcast e della PERSISTENZA (campo fermo
-     allo slot sorgente).
+  3) scarica l'SRI OSSERVATO allo stesso `valid_time` e calcola, per i SOLI
+     lead UFFICIALI (15/30/60 min) e per ogni soglia GIA' DICHIARATA (0.5 /
+     2.0 / 5.0 mm/h), CSI/POD/FAR del nowcast e della PERSISTENZA (campo fermo
+     allo slot sorgente). Gli altri 9 frame prodotti per il player (5, 10, 20,
+     25, 35, 40, 45, 50, 55 min) NON entrano nella verifica: sono trasporto
+     cumulativo per la fluidita', non un secondo prodotto da validare.
 
 La serie temporale viene accumulata in `data/radar/nowcast_verification.json`
 mantenendo INTATTO il riassunto esistente (il file schema 1 con i 49 casi):
@@ -133,6 +135,25 @@ def row_key(row):
     return (str(row.get("source_slot")),
             int(row.get("lead_min")),
             round(float(row.get("threshold_mmh")), 3))
+
+
+def official_leads(record):
+    """Lead del record che entrano nella verifica ufficiale (15/30/60).
+
+    Un record vecchio (schema 1, senza flag `official`) viene filtrato con la
+    costante di `nowcast_field`: nessun lead viene inventato."""
+    out = []
+    for lead in record.get("leads") or []:
+        try:
+            lead_min = int(lead.get("lead_min"))
+        except (TypeError, ValueError):
+            continue
+        flag = lead.get("official")
+        if flag is None:
+            flag = lead_min in nf.OFFICIAL_LEADS
+        if flag and lead_min in nf.OFFICIAL_LEADS:
+            out.append(lead)
+    return out
 
 
 def existing_keys(doc):
@@ -403,7 +424,7 @@ def merge_series(doc, new_rows, now_ms, retention_days=SERIES_RETENTION_DAYS,
         "retention_days": int(retention_days),
         "min_rain_pixels_per_case_lead": int(min_rain_pixels),
         "thresholds_mmh": list(nf.VERIFY_THRESHOLDS_MMH),
-        "leads_min": list(nf.LEADS_MIN),
+        "leads_min": list(nf.OFFICIAL_LEADS),
         "counts": {
             "rows": len(kept),
             "slots": len({str(r.get("source_slot")) for r in kept}),
@@ -463,6 +484,7 @@ def verify_pending(archive_root, verification_path, config, now=None,
         "rows_verified": 0,
         "rows_not_informative": 0,
         "rows_not_verifiable": 0,
+        "player_leads_skipped": 0,
         "records_corrupt": 0,
         "sri_downloads": 0,
         "sri_failures": 0,
@@ -492,6 +514,10 @@ def verify_pending(archive_root, verification_path, config, now=None,
                 valid_ms = na.parse_iso_ms(lead.get("valid_time"))
             except (TypeError, ValueError):
                 stats["records_corrupt"] += 1
+                continue
+            if lead_min not in nf.OFFICIAL_LEADS:
+                # frame del player: registrati nell'archivio, NON verificati
+                stats["player_leads_skipped"] += 1
                 continue
             if valid_ms is None or valid_ms > now_ms:
                 continue
@@ -664,11 +690,12 @@ def main(argv=None):
         return 0
     print("[INFO] verifica nowcast: %d slot dovuti, %d valutati, %d righe "
           "(%d verificate, %d non informative, %d non verificabili), "
-          "%d download SRI, %.1f s, file %s" % (
+          "%d lead player saltati, %d download SRI, %.1f s, file %s" % (
               stats["slots_due"], stats["slots_evaluated"],
               stats["rows_added"], stats["rows_verified"],
               stats["rows_not_informative"], stats["rows_not_verifiable"],
-              stats["sri_downloads"], stats["seconds"],
+              stats["player_leads_skipped"], stats["sri_downloads"],
+              stats["seconds"],
               "aggiornato" if stats["verification_written"] else "invariato"))
     for warning in stats["warnings"][:10]:
         print("[WARN] %s" % warning)

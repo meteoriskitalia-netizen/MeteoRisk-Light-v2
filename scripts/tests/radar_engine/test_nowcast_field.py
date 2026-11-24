@@ -235,18 +235,72 @@ def test_output_json_and_webp(tmp_path):
                      clock=clock_mod.Clock.at_ms(T0 + 2 * STEP_MS))
     assert payload["available"] is True
     data = json.loads((out / "nowcast.json").read_text(encoding="utf-8"))
-    assert [l["lead_min"] for l in data["leads"]] == [15, 30, 60]
+    # 12 frame: 5,10,...,60
+    assert [l["lead_min"] for l in data["leads"]] == list(range(5, 61, 5))
+    assert data["leads_total"] == 12
+    assert data["official_leads"] == [15, 30, 60]
+    assert [l["lead_min"] for l in data["leads"] if l["official"]] == [15, 30, 60]
+    assert all(l["lead_min"] % 5 == 0 for l in data["leads"])
     assert data["grid"]["crs"] == "EPSG:3857"
     assert len(data["grid"]["bounds"]) == 4
     assert data["grid"]["resolution_m"] == nf.OUTPUT_RES_M
     assert data["motion_algorithm"] == "lucas_kanade_pyramidal"
     assert data["legend"][0]["mmh"] == 0.05
-    for lead in (15, 30, 60):
+    for lead in nf.LEADS_MIN:
         p = out / nf.IMAGE_NAMES[lead]
         assert p.exists() and p.stat().st_size > 0
         assert data["leads"][[l["lead_min"] for l in data["leads"]].index(lead)][
             "image"] == nf.IMAGE_NAMES[lead]
         assert p.read_bytes()[:4] == b"RIFF"      # WebP container
+    # 12 file distinti (010, 020, ... non sovrascrivono 005)
+    assert len(list(out.glob("nowcast_lead*.webp"))) == 12
+    assert nf.IMAGE_NAMES[5] == "nowcast_lead005.webp"
+    assert nf.IMAGE_NAMES[60] == "nowcast_lead060.webp"
+
+
+def test_frames_are_cumulative_and_coherent(tmp_path):
+    """Il +10 e' il +5 avanzato di altri 5 minuti, non un trasporto nuovo."""
+    rasters, domain = _moving_frames(tmp_path, n=3, dx=1)
+    bundle = _Bundle(rasters)
+    payload, native = nf.compute(bundle, _config(tmp_path),
+                                 clock_mod.Clock.at_ms(T0 + 2 * STEP_MS),
+                                 bundle.warnings)
+    assert payload["available"] is True
+    frames = [(nf._rain_array(r)[0], nf._rain_array(r)[1], int(r.time_ms))
+              for r in rasters]
+    motion = nf.estimate_motion(frames, [])
+    u, v, _capped = nf.cap_speed(motion["u"], motion["v"], 1.0, 300)
+    advanced = nf.semi_lagrangian(native[5], u, v, 1, domain)
+    assert np.array_equal(advanced, native[10])
+    advanced3 = nf.semi_lagrangian(native[5], u, v, 3, domain)
+    assert np.array_equal(advanced3, native[20])
+
+
+def test_one_missing_frame_does_not_break_the_rest(tmp_path, monkeypatch):
+    """Un frame che non si scrive lascia una lacuna DICHIARATA, non un buco."""
+    rasters, _ = _moving_frames(tmp_path, n=3, dx=1)
+    bundle = _Bundle(rasters)
+    out = tmp_path / "out"
+    original = nf.write_webp
+
+    def _maybe_fail(path, field, quality=nf.WEBP_QUALITY):
+        if path.endswith("nowcast_lead020.webp"):
+            raise RuntimeError("encoder non disponibile per il frame 20")
+        return original(path, field, quality=quality)
+
+    monkeypatch.setattr(nf, "write_webp", _maybe_fail)
+    payload = nf.run(bundle, _config(tmp_path), str(out),
+                     clock=clock_mod.Clock.at_ms(T0 + 2 * STEP_MS))
+    assert payload["available"] is True          # gli altri 11 restano validi
+    by_lead = {l["lead_min"]: l for l in payload["leads"]}
+    assert by_lead[20]["image"] is None
+    assert "RuntimeError" in by_lead[20]["image_error"]
+    assert by_lead[15]["image"] == nf.IMAGE_NAMES[15]
+    assert len(list(out.glob("nowcast_lead*.webp"))) == 11
+    assert not (out / nf.IMAGE_NAMES[20]).exists()
+    data = json.loads((out / "nowcast.json").read_text(encoding="utf-8"))
+    assert data["output_bytes"]["image_errors"]
+    assert any("non scritti" in w for w in bundle.warnings)
 
 
 def test_encoder_failure_degrades_but_writes_json(tmp_path, monkeypatch):
@@ -260,8 +314,10 @@ def test_encoder_failure_degrades_but_writes_json(tmp_path, monkeypatch):
     monkeypatch.setattr(nf, "write_webp", _boom)
     payload = nf.run(bundle, _config(tmp_path), str(out),
                      clock=clock_mod.Clock.at_ms(T0 + 2 * STEP_MS))
+    # tutti i frame falliti -> prodotto non mostrabile, dichiarato
     assert payload["available"] is False
-    assert payload["null_reason"] == "image_write_failed:RuntimeError"
+    assert payload["null_reason"] == "image_write_failed:all_frames"
+    assert all(l["image"] is None for l in payload["leads"])
     assert (out / "nowcast.json").exists()
 
 

@@ -120,7 +120,9 @@ def evaluate_case(bundle, frames, config, clock, observed, min_rain_pixels):
     pers, pvalid = nf._rain_array(latest)
     domain = native["_domain"]
     rows = {}
-    for lead in nf.LEADS_MIN:
+    # VERIFICA UFFICIALE: solo 15/30/60. Gli altri 9 frame del player non
+    # entrano nel confronto con la persistenza (dichiarato nel docstring).
+    for lead in nf.OFFICIAL_LEADS:
         obs_rd = observed.get(lead)
         if obs_rd is None:
             continue
@@ -274,7 +276,7 @@ def main(argv=None):
             continue
         clk = clock_mod.Clock.at_ms(int(frames[-1].time_ms))
         observed = {}
-        for lead in nf.LEADS_MIN:
+        for lead in nf.OFFICIAL_LEADS:
             observed[lead] = cache.get(int(frames[-1].time_ms) + lead * 60000)
         bundle = _Bundle(frames)
         try:

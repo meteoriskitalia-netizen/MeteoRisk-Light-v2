@@ -514,8 +514,13 @@ jobs:
                    accumulation_validation.json \
                    doppler_analysis.json \
                    mesocyclone_tracks.json \
-                   nowcast.json nowcast_lead015.webp nowcast_lead030.webp \
-                   nowcast_lead060.webp nowcast_verification.json; do
+                   nowcast.json nowcast_verification.json \
+                   nowcast_lead005.webp nowcast_lead010.webp \
+                   nowcast_lead015.webp nowcast_lead020.webp \
+                   nowcast_lead025.webp nowcast_lead030.webp \
+                   nowcast_lead035.webp nowcast_lead040.webp \
+                   nowcast_lead045.webp nowcast_lead050.webp \
+                   nowcast_lead055.webp nowcast_lead060.webp; do
             if [ -f "data/radar/$f" ]; then git add "data/radar/$f"; fi
           done
           # Registro append-only delle predizioni (data/state, rotazione 30 gg).

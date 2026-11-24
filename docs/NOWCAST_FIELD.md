@@ -3,15 +3,19 @@
 Modulo: `scripts/radar_engine/nowcast_field.py` ·
 Test: `scripts/tests/radar_engine/test_nowcast_field.py` ·
 Replay: `scripts/validation/nowcast_replay.py` ·
-Output: `data/radar/nowcast.json` + `nowcast_lead015.webp`, `nowcast_lead030.webp`,
-`nowcast_lead060.webp` ·
+Output: `data/radar/nowcast.json` + **12** WebP, `nowcast_lead005.webp` …
+`nowcast_lead060.webp` (un frame ogni 5 minuti; i lead 15/30/60 sono gli
+ufficiali di verifica) ·
 Verifica: `data/radar/nowcast_verification.json` · `docs/NOWCAST_REPLAY.md`
 
 ## Cosa fa e cosa NON fa
 
 Sposta il **campo di pioggia** osservato dal radar (prodotto DPC **SRI**,
-mm/h Float32, griglia 1200x1400 a 1 km) e ne pubblica la posizione prevista a
-**+15, +30, +60 minuti**. Non e' un'estensione di `forecast.py`: quello sposta
+mm/h Float32, griglia 1200x1400 a 1 km) e ne pubblica la posizione prevista con
+**un frame ogni 5 minuti da +5 a +60** (12 frame, player fluido come il radar).
+I tre lead **ufficiali di verifica** restano +15/+30/+60 e portano
+`official: true` nel JSON; gli altri 9 sono per il player e non entrano nel
+confronto con la persistenza. Non e' un'estensione di `forecast.py`: quello sposta
 il contorno di una **struttura convettiva tracciata** e dipende dal moto della
 cella (il 24/11/2026 le strutture erano 0, quindi quel layer non produceva
 nulla). Qui non esiste nessuna identita' di cella e nessuna dipendenza da
@@ -86,7 +90,9 @@ qui pinnata per l'encoder WebP).
 available, null_reason, source: "DPC_SRI", source_slot, generated_at,
 motion: "optical_flow", motion_algorithm, speed_cap_kmh: 110,
 frames_used, frames_slots, domain_mask, motion_stats,
-leads: [{lead_min: 15|30|60, valid_time, unit: "mm/h", image, image_crs, stats}],
+leads: [{lead_min: 5|10|...|60, valid_time, unit: "mm/h", image, image_crs,
+         official: bool, stats}],
+leads_total: 12, official_leads: [15, 30, 60],
 grid: {crs: "EPSG:3857", bounds, width, height, resolution_m},
 legend: [{mmh, rgb}], limits,
 beats_persistence, verification, output_bytes
@@ -98,9 +104,11 @@ Mercator larga 14 gradi a sud e 16 a nord, quindi un overlay con bbox
 geografico sarebbe sbagliato di decine di km. Il JSON dichiara `bounds` in
 3857; il client converte con `map.options.crs.unproject(L.point(x, y))`.
 
-Il JSON con i tre campi grezzi sarebbe ~20 MB/run (3 x 1200 x 1400 float32):
-misurato e scartato. Le tre WebP sullo stesso caso costano **80.330 byte** in
-totale, il JSON **~3 kB** (8.782 byte con il blocco di verifica incorporato).
+Il JSON con i 12 campi grezzi sarebbe ~80 MB/run (12 x 1200 x 1400 float32):
+misurato e scartato. Le 12 WebP costano **90.402 byte (88,3 kB)** su un caso
+reale di pioggia leggera (24/11 12:45Z) e **324.736 byte (317,1 kB)** sul caso
+intenso del 23/11 10:25Z: il costo dipende da quanta pioggia c'e' nel frame.
+Il JSON e' **~6 kB** (12.4 kB con il blocco di verifica incorporato).
 
 ## Costi misurati (24/11/2026, host di sviluppo, slot reali)
 
@@ -109,16 +117,30 @@ totale, il JSON **~3 kB** (8.782 byte con il blocco di verifica incorporato).
 | 6 frame SRI dal DPC (fuori pipeline) | 4,2-5,9 s, ~2,0 MB |
 | Rete aggiuntiva nel run operativo (bundle fase 2) | **0** |
 | Rete aggiuntiva senza candidati (fallback) | 6 download, ~5 s, ~2 MB |
-| `compute` (flusso + trasporto + statistiche) | 17,8-23,4 s |
-| 3 WebP + JSON | 4,7-6,2 s |
-| `nowcast.json` | 2.969-2.972 byte (8.782 con la verifica) |
-| WebP +15 / +30 / +60 | 28.028 / 26.756 / 25.546 byte |
+| `compute` (flusso + 12 passi cumulativi + statistiche) | **4,97-5,00 s** |
+| 12 WebP (reproject + encode) | **4,61-5,02 s** |
+| Totale calcolo+immagini (senza fetch) | **9,6-10,0 s** |
+| `nowcast.json` (12 lead) | 6.172-6.275 byte (12,4 kB con la verifica) |
+| 12 WebP, pioggia leggera | **90.402 byte** (media 7.534 B/frame) |
+| 12 WebP, pioggia intensa | **324.736 byte** (media 27.061 B/frame) |
+
+Il trasporto e' **cumulativo**: i 12 frame costano 12 passi da 5 minuti in
+totale (non 12 trasporti completi), quindi il compute resta ~5 s. Il costo
+vero e' la codifica delle immagini (12 reprojection+WebP ~5 s): il totale e'
+~10 s contro i ~5 s di prima (3 frame), cioe' **+5 s** su un job da 20 minuti.
+Nessuna esplosione: la parte di flusso ottico e' invariata.
+
+Coerenza fra frame consecutivi (misurata sui pixel con pioggia, caso 24/11
+12:45Z / caso intenso 23/11 10:25Z): correlazione +5 vs +10 **0,898 / 0,712**,
+differenza media assoluta **0,196 / 0,330 mm/h**. Il +10 e' inoltre
+**bit-identico** al +5 avanzato di un altro passo da 5 minuti
+(`semi_lagrangian(native[5], u, v, 1) == native[10]`, verificato anche a +20):
+la cumulativita' non e' una coincidenza numerica, e' la stessa operazione.
 
 Run end-to-end `--as-of 2026-11-23T10:25Z` (3 frame VMI, **0 strutture**, quindi
-percorso di fallback): `status=ok`, nowcast `available: true`,
-`frames_origin: fetch_frames`, 6 frame usati, stage `nowcast_field`
-**29,7 s** (misurato sotto carico concorrente; in isolamento ~23 s). Il job
-radar ha un budget di 20 minuti.
+percorso di fallback) con la versione a 3 frame: `status=ok`, nowcast
+`available: true`, `frames_origin: fetch_frames`, 6 frame usati. Con 12 frame
+lo stage resta ~10 s di calcolo; il job radar ha un budget di 20 minuti.
 
 Controllo indipendente del moto (cross-correlazione FFT globale su una finestra
 centrale vs mediana del flusso Lucas-Kanade sui pixel di pioggia, stesse coppie):
@@ -178,17 +200,18 @@ quella variabile, che non e' globale. Se il blocco va in uno script separato,
 sostituire `nowcastDevAllowed()` con il segnale di modo dell'app.
 
 ```html
-<!-- NOWCAST PIOGGIA (SRI, 60 min) — toggle layer -->
+<!-- NOWCAST PIOGGIA (SRI, 12 frame da +5 a +60) — toggle + player -->
 <label id="nowcast-toggle-wrap" style="display:none; align-items:center; gap:6px;"
-       title="Pioggia prevista dal trasporto del radar SRI (15/30/60 min)">
+       title="Pioggia prevista dal trasporto del radar SRI (5-60 min, passo 5)">
   <input type="checkbox" id="nowcast-toggle" onchange="toggleNowcastField(this.checked)">
   <span>Nowcast pioggia</span>
-  <select id="nowcast-lead" onchange="setNowcastLead(parseInt(this.value,10))"
-          style="display:none" title="Orizzonte della previsione">
-    <option value="15">+15 min</option>
-    <option value="30" selected>+30 min</option>
-    <option value="60">+60 min</option>
-  </select>
+  <button type="button" id="nowcast-play" class="tool-btn" style="display:none"
+          onclick="toggleNowcastPlay()" title="Play/pausa del nowcast">&#9654;</button>
+  <input type="range" id="nowcast-lead" min="5" max="60" step="5" value="30"
+         style="display:none; width:120px" oninput="setNowcastLead(parseInt(this.value,10))"
+         title="Orizzonte della previsione (minuti)">
+  <span id="nowcast-lead-label" style="display:none; min-width:52px"
+        title="Orizzonte della previsione">+30 min</span>
 </label>
 <div id="nowcast-legend" style="display:none; ...">
   <div class="nowcast-bar"></div>
@@ -201,10 +224,16 @@ sostituire `nowcastDevAllowed()` con il segnale di modo dell'app.
    gli stessi stop pubblicati in nowcast.json (legend). */
 window.NOWCAST = (function () {
   var URL = 'data/radar/nowcast.json';
-  var IMG = {15:'nowcast_lead015.webp', 30:'nowcast_lead030.webp', 60:'nowcast_lead060.webp'};
+  var LEADS = [5,10,15,20,25,30,35,40,45,50,55,60];   /* 12 frame */
   var PALETTE = [[0.05,'#9ad0ff'],[0.5,'#3d8bff'],[1,'#00c878'],[2,'#ffdd33'],
                  [5,'#ff9100'],[10,'#e62828'],[20,'#b000b0'],[40,'#ff00ff']];
-  var st = {data:null, layer:null, lead:30, busy:false};
+  var st = {data:null, layer:null, lead:30, busy:false, timer:null};
+  function img(lead) {                 /* nowcast_lead005 ... nowcast_lead060 */
+    return 'data/radar/nowcast_lead' + ('00' + lead).slice(-3) + '.webp';
+  }
+  function preload() {                 /* player fluido: 12 frame in cache */
+    LEADS.forEach(function (lead) { var i = new Image(); i.src = img(lead); });
+  }
   function nowcastDevAllowed() {
     return (typeof isSviluppoActive !== 'undefined' && isSviluppoActive) ||
            window.MRI_DEV_MODE === true;
@@ -222,14 +251,43 @@ window.NOWCAST = (function () {
       'linear-gradient(90deg,' + stops.join(',') + ')';
   }
   function show(on) {                      /* il layer e' UNO solo */
-    if (st.layer) { map.removeLayer(st.layer); st.layer = null; }
-    if (!on) { document.getElementById('nowcast-legend').style.display = 'none'; return; }
-    var g = st.data.grid;
-    st.layer = L.imageOverlay('data/radar/' + IMG[st.lead],
-                              bounds3857(g.bounds),
-                              {opacity: 0.75, pane: 'overlayPane',
-                               className: 'nowcast-field'}).addTo(map);
+    if (!on) {
+      if (st.layer) { map.removeLayer(st.layer); st.layer = null; }
+      document.getElementById('nowcast-legend').style.display = 'none';
+      return;
+    }
+    var g = st.data.grid, url = img(st.lead);
+    if (st.layer && st.layer.setUrl) {
+      st.layer.setUrl(url);              /* nessun flicker fra due frame */
+    } else {
+      if (st.layer) map.removeLayer(st.layer);
+      st.layer = L.imageOverlay(url, bounds3857(g.bounds),
+                                {opacity: 0.75, pane: 'overlayPane',
+                                 className: 'nowcast-field'}).addTo(map);
+    }
+    var lbl = document.getElementById('nowcast-lead-label');
+    if (lbl) lbl.textContent = '+' + st.lead + ' min';
     document.getElementById('nowcast-legend').style.display = 'block';
+  }
+  function playIcon(on) {
+    var b = document.getElementById('nowcast-play');
+    if (b) b.innerHTML = on ? '&#10074;&#10074;' : '&#9654;';
+  }
+  function stop() {
+    if (st.timer) { clearInterval(st.timer); st.timer = null; }
+    playIcon(false);
+  }
+  function next() {
+    var i = LEADS.indexOf(st.lead);
+    st.lead = LEADS[(i + 1) % LEADS.length];
+    var s = document.getElementById('nowcast-lead');
+    if (s) s.value = st.lead;
+    show(true);
+  }
+  function play() {                    /* 12 frame, ~800 ms/frame */
+    stop();
+    st.timer = setInterval(next, 800);
+    playIcon(true);
   }
   return {
     load: function (cb) {
@@ -237,10 +295,26 @@ window.NOWCAST = (function () {
       if (st.busy) return;
       st.busy = true;
       fetch(URL, {cache: 'no-store'}).then(function (r) { return r.json(); })
-        .then(function (d) { st.data = d; st.busy = false; cb(d); })
+        .then(function (d) {
+          st.data = d; st.busy = false;
+          if (d && d.available) preload();
+          cb(d);
+        })
         .catch(function () { st.busy = false; cb(null); });
     },
-    setLead: function (lead) { st.lead = lead; if (st.layer) show(true); },
+    setLead: function (lead) {
+      lead = Math.max(5, Math.min(60, Math.round(lead / 5) * 5));
+      st.lead = lead;
+      var s = document.getElementById('nowcast-lead');
+      if (s) s.value = lead;
+      var lbl = document.getElementById('nowcast-lead-label');
+      if (lbl) lbl.textContent = '+' + lead + ' min';
+      if (st.layer) show(true);
+    },
+    next: next,
+    play: play,
+    stop: stop,
+    isPlaying: function () { return !!st.timer; },
     show: show
   };
 })();
@@ -253,14 +327,20 @@ function toggleNowcastField(on) {
     if (!allowed) {
       wrap.style.display = 'none';
       document.getElementById('nowcast-toggle').checked = false;
-      NOWCAST.show(false);
+      NOWCAST.stop(); NOWCAST.show(false);
       return;
     }
-    document.getElementById('nowcast-lead').style.display = on ? 'inline-block' : 'none';
+    ['nowcast-play', 'nowcast-lead', 'nowcast-lead-label'].forEach(function (id) {
+      document.getElementById(id).style.display = on ? 'inline-block' : 'none';
+    });
+    if (!on) NOWCAST.stop();
     NOWCAST.show(on);
   });
 }
 function setNowcastLead(lead) { NOWCAST.setLead(lead); }
+function toggleNowcastPlay() {
+  if (NOWCAST.isPlaying()) NOWCAST.stop(); else NOWCAST.play();
+}
 
 /* Visibilita' del toggle: solo se il prodotto esiste e la verifica lo consente
    (oppure si e' in Sviluppo). Il fetch e' una volta sola al boot. */
@@ -277,8 +357,10 @@ document.addEventListener('DOMContentLoaded', function () {
 ```
 
 Il frammento non e' stato applicato all'HTML (la release e' in corso d'altra
-parte). La legenda e' in **mm/h** e la frase "dopo 30 minuti l'affidabilità
-cala" e' nel testo del widget.
+parte). E' un player sui **12 frame** (slider 5-60 e play a ~800 ms/frame,
+preload dei 12 WebP), non piu' un selettore a 3 valori. La legenda e' in
+**mm/h** e la frase "dopo 30 minuti l'affidabilità cala" e' nel testo del
+widget.
 
 ## Limiti dichiarati
 
@@ -292,6 +374,14 @@ cala" e' nel testo del widget.
 - **Moto a 2 km**: il flusso e' risolto a 2 km e interpolato a 1 km.
 - **Nessun Doppler**: il moto e' un flusso ottico, non una velocita' radiale.
 - **Finestra 25 min**: un moto che cambia dentro la finestra viene mediato.
+- **Frame del player**: i 9 lead non ufficiali sono lo stesso trasporto
+  cumulativo campionato ogni 5 minuti; non hanno una verifica indipendente e
+  non entrano in `beats_persistence` (dichiarato in `official: false` e in
+  `nowcast_verify.py`). La verifica resta sui 15/30/60.
+- **Lacuna di un frame**: se un WebP non si scrive, il lead resta con
+  `image: null` e `image_error`; gli altri 11 sono validi e il player salta il
+  frame. Se non se ne scrive NESSUNO il prodotto passa ad `available: false`
+  con `null_reason: image_write_failed:all_frames`.
 - **Campione**: 49 ancore su 2 giorni, sovrapposte (v. sopra).
 - La maschera e' il dominio radar: sopra il mare dentro la copertura il campo
   e' mostrato (e' il dato reale del mosaico), fuori copertura no.
