@@ -20151,6 +20151,13 @@ stopSyncPlay();
             // non esiste in latest.json per costruzione: tentare il file completo
             // sarebbe un download da ~6 MB per niente, e lo stato direbbe «carico»
             // invece della verita' («il server pubblica massima e minima»).
+            if (f.strictAbsence) {
+                spec.reason = 'la media della giornata non è pubblicata dal server (campo ' + f.raw +
+                    ' assente): il server pubblica la massima e la minima. La finestra resta disabilitata: nessun valore inventato.';
+                spec.note = spec.reason;
+                spec.strictUnavailable = true;
+                return spec;
+            }
             // 1.3.0.69 - TRE STATI ONESTI. Prima la coda di questa funzione diceva
             // «non è pubblicata dal server» anche quando il campo esisteva in
             // latest.json e mancava solo la COLONNA nell'indice compatto: MISURATO
@@ -20199,16 +20206,7 @@ stopSyncPlay();
                 spec.note = 'media non ancora pubblicata dal server: mostro l\'ultimo valore istantaneo';
                 return spec;
             }
-            if (f.strictAbsence) {
-                // La finestra NON ha un ripiego legittimo: il server pubblica
-                // massima e minima della giornata, la media giornaliera no. Si
-                // disabilita con il motivo invece di mostrare un istantaneo.
-                spec.reason = 'la media della giornata non è pubblicata dal server (campo ' + f.raw +
-                    ' assente): il server pubblica la massima e la minima. La finestra resta disabilitata: nessun valore inventato.';
-                spec.note = spec.reason;
-                spec.strictUnavailable = true;
-                return spec;
-            }
+            // (strictAbsence e' gia' stato risolto prima del fallback: qui non si torna)
             spec.reason = 'il campo ' + f.raw + ' è pubblicato dal server ma nessuna stazione attiva ne ha un valore per la finestra ' +
                 stationFieldWindowLabel(win) + ': le stazioni senza il valore restano fuori dalla mappa, nessun valore inventato.';
             spec.note = spec.reason;
