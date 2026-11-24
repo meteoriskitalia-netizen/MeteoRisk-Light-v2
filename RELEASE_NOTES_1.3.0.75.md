@@ -87,7 +87,10 @@ senza residui.
 - `test_html_js_syntax.py` + `test_tooltips_coverage.py`: **3 passed**.
 - `test_sw_cache_policy.mjs`: **PASS** con `CACHE_NAME = 'mri-1.3.0.75'`.
 - **Browser headless** (`scripts/validation/verify_ui_13075.mjs`, Chrome 1243,
-  DOM reale, rete esterna bloccata): **13/13 PASS**.
+  DOM reale, rete esterna bloccata): **22/22 PASS**, inclusa la riga AFA
+  (assente con AFA OFF, `slot 14:35 · 582 px attivi` con AFA ON, `nessun pixel
+  attivo` con `has_signal:false`, `area con emissione ottica` senza metadati,
+  nascosta e svuotata allo spegnimento).
   AFA OFF bordo `rgb(51,65,85)` e nessun border inline; AFA con classe `on`
   bordo `rgb(34,197,94)`; regione Italia bordo `rgb(203,213,225)` e fondo
   `rgb(51,65,85)`, diversi da `.sc-toggle.on` (misurato `rgb(168,85,247)` /
