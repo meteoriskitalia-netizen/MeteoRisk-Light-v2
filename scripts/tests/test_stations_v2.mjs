@@ -56,7 +56,8 @@ const names = [
 const vars = [
   'STATIONS_WIND_QUADRANTS', 'STATIONS_SERIES_KEY', 'STATIONS_SERIES_MAX_POINTS',
   'STATIONS_SERIES_MAX_STATIONS', 'STATIONS_SERIES_MAX_GAP_MIN', 'STATIONS_PARAMS',
-  'STATIONS_NWP_FIELD', 'STATIONS_LABEL_FIELD', 'stationsParam'
+  'STATIONS_NWP_FIELD', 'STATIONS_LABEL_FIELD', 'stationsParam',
+  'stationsPopupOpen', 'stationsPopupRef'
 ];
 
 // ---- DOM / contesto minimo (nessun browser) ----
@@ -202,6 +203,44 @@ ctxObj.stationsParam = 'temp';
 ctxObj.stationsParamChanged('temp');
 ok('rampa ricostruita après textContent (gradient)', el('live-stations-scale').style.background.includes('linear-gradient'));
 ok('labels della scala temperatura ricostruiti', el('live-stations-scale-labels').innerHTML.includes('−80'));
+
+console.log('\nX. POPUP APERTO + CAMBIO PARAMETRO (1.3.0.69)');
+// Il difetto: cambiando il parametro nel selettore, un popup GIA' APERTO
+// continuava a mostrare il grafico del parametro precedente. Qui si verifica la
+// DECISIONE (setContent sulla stessa stazione); il contenuto reale del popup e'
+// verificato nel browser. `stationsPopupHtml` e' uno stub esplicito perche' nel
+// vm mancano le funzioni di rendering del popup.
+const stP = {
+  id: 'A', name: 'A', lat: 45, lon: 9, time: Date.parse('2026-11-17T18:00:00Z'),
+  temp: 10, rh: 80, wind: 2, windDir: 315, precip: null, period: null, dew: 7,
+  stationPressure: 1013.2, gust: 7.6, snowDepth: 0
+};
+ctxObj.stationsData = { stations: [stP], meta: {} };
+ctxObj.stationsPopupHtml = (s) => 'POPUP:' + s.id + ':' + ctxObj.STATIONS_LABEL_FIELD.label;
+const seen = [];
+const fakePopup = { isOpen: () => true, setContent: (h) => { seen.push(h); } };
+ctxObj.stationsPopupOpen = stP;
+ctxObj.stationsPopupRef = fakePopup;
+ctxObj.stationsParamChanged('wind');
+ok('popup aperto: setContent richiamato UNA volta al cambio parametro', seen.length === 1);
+ok('stessa stazione: il popup rigenerato e quello della stazione A', seen.length === 1 && seen[0].indexOf('POPUP:A:') === 0, seen[0]);
+ok('con il NUOVO parametro (velocita vento 10 m)', seen.length === 1 && /Velocit/.test(seen[0]) && /vento 10 m/.test(seen[0]), seen[0]);
+ok('il popup si rigenera da stationsChartHtml (grafico del parametro corrente)',
+  /h \+= stationsChartHtml\(st\);/.test(src) && /var cfg = STATIONS_PARAMS\[stationsParam\]/.test(src));
+// Parametro senza punti: il popup resta aperto e il grafico mostra il messaggio
+ctxObj.stationsParamChanged('snow');
+ok('parametro senza punti (snow): setContent richiamato di nuovo (popup non chiuso)', seen.length === 2);
+const snowChart = ctxObj.stationsChartHtml(stP);
+ok('grafico senza punti: messaggio "Nessun punto osservato ne previsto" (non un grafico muto)',
+  /Nessun punto osservato ne previsto/.test(snowChart));
+// Popup chiuso: nessuna chiamata
+let closedCalls = 0;
+ctxObj.stationsPopupRef = { isOpen: () => false, setContent: () => { closedCalls++; } };
+ctxObj.stationsParamChanged('temp');
+ok('popup chiuso: nessun setContent', closedCalls === 0);
+// La nota #stations-param-note non esiste piu' (ne nel markup ne come getElementById)
+ok('#stations-param-note rimosso dal markup e dal JS',
+  !/id="stations-param-note"/.test(src) && !/getElementById\('stations-param-note'\)/.test(src));
 
 console.log(`\nRISULTATO: ${checks} controlli, ${failures} falliti`);
 process.exit(failures ? 1 : 0);

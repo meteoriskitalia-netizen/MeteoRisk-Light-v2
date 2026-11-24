@@ -2192,7 +2192,6 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                 <option value="gust">Raffica massima vento 10 m (m/s)</option>
                 <option value="snow">Neve al suolo (m)</option>
             </select>
-            <span id="stations-param-note" style="font-size:9px;color:#64748b;">Il parametro scelto vale per etichette, legenda e grafico.</span>
         </div>
         <div class="legend-row" id="live-stations-hydro" style="font-size:9px;color:#64748b;">Livello idrometrico (m): campo idrologico separato, non selezionabile nella tendina meteo.</div>
         <div class="legend-row" id="live-stations-status" style="font-size:11px;">Caricamento centraline...</div>
@@ -2216,7 +2215,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
         <div class="legend-title" id="live-stationfield-title">Campo osservato dalle centraline — superficie interpolata (osservato, non modello)</div>
         <div class="legend-row" style="gap:8px;flex-wrap:wrap;">
             <label for="stationfield-var" style="font-size:10px;color:#94a3b8;">Variabile</label>
-            <select id="stationfield-var" class="fm-select" onchange="stationFieldVarChanged(this.value)" title="Variabile osservata da interpolare sulla mappa: temperatura a 2 m (media sulla finestra), temperatura massima e minima (finestra e giornata), umidità relativa, punto di rugiada, pioggia cumulata, vento medio, raffica massima e neve al suolo. NON interpolabili, con il motivo: direzione del vento (angolo 0-360°), pressione di stazione (dipende dalla quota) e livello idrico (zero idrometrico e unità eterogenei)." style="font-size:11px;">
+            <select id="stationfield-var" class="fm-select" onchange="stationFieldVarChanged(this.value)" title="Variabile osservata da interpolare sulla mappa: temperatura a 2 m (media sulla finestra), temperatura massima e minima (finestra e giornata), umidità relativa, punto di rugiada, pioggia cumulata, vento medio, raffica massima e neve al suolo. Le grandezze non interpolabili (direzione del vento, pressione di stazione, livello idrico) restano nel popup della singola stazione: dettaglio nella scheda Fonti e metodologie." style="font-size:11px;">
                 <option value="temp">Temperatura 2 m (°C, media sulla finestra)</option>
                 <option value="tmax">Temperatura massima (°C)</option>
                 <option value="tmin">Temperatura minima (°C)</option>
@@ -2226,9 +2225,6 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                 <option value="rh">Umidità relativa 2 m (%)</option>
                 <option value="dew">Punto di rugiada 2 m (°C)</option>
                 <option value="snow">Neve al suolo (cm)</option>
-                <option value="windDir" disabled title="NON interpolata: la direzione è un angolo 0-360° e l IDW sugli angoli è matematicamente sbagliato (350° e 10° sono vicini). La rosa del vento per stazione resta nel popup.">Direzione vento — non interpolata (angolo)</option>
-                <option value="pStation" disabled title="NON interpolata: è la pressione di STAZIONE (B10004), non ridotta al livello del mare; dipende dalla quota e un campo interpolato sarebbe fuorviante.">Pressione di stazione — non interpolata (dipende dalla quota)</option>
-                <option value="riverLevel" disabled title="NON interpolata: il livello idrico ha zero idrometrico e unità eterogenei tra le reti (max 91,8 m, min −18,5 m): nessuna soglia assoluta valida.">Livello idrico — non interpolato (zero idrometrico eterogeneo)</option>
             </select>
             <span id="stationfield-window-wrap" style="display:inline-flex;align-items:center;gap:8px;">
                 <label for="stationfield-window" style="font-size:10px;color:#94a3b8;">Finestra</label>
@@ -2243,8 +2239,15 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                 </select>
                 <span id="live-stationfield-window-note" style="font-size:9px;color:#64748b;"></span>
             </span>
+            <span style="display:inline-flex;align-items:center;gap:8px;">
+                <label for="stationfield-method" style="font-size:10px;color:#94a3b8;">Interpolazione</label>
+                <select id="stationfield-method" class="fm-select" onchange="stationFieldMethodChanged(this.value)" title="Come riempire la mappa: solo dove ci sono stazioni vicine (onesto, nessun valore inventato), interpolando su tutta l'Italia (più leggibile, ma dove non ci sono stazioni il valore è un'inferenza) oppure con isolinee calcolate sul campo interpolato." style="font-size:11px;">
+                    <option value="local">Solo vicino alle stazioni</option>
+                    <option value="full">Tutta l'Italia (interpolata)</option>
+                    <option value="contour">Isolinee</option>
+                </select>
+            </span>
         </div>
-        <div class="legend-row" id="live-stationfield-excluded" style="font-size:9px;color:#64748b;">Non interpolabili, dichiarato: direzione del vento (angolo 0-360°, IDW sugli angoli errato), pressione di stazione (dipende dalla quota, non è MSL), livello idrico (zero idrometrico e unità eterogenei tra le reti).</div>
         <div class="legend-row" id="live-stationfield-status" style="font-size:11px;">Layer spento.</div>
         <div class="legend-row" style="margin-top:4px;gap:8px;">
             <span id="live-stationfield-unit" style="font-size:10px;color:#94a3b8;">°C</span>
@@ -2884,6 +2887,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                     <div class="src-item"><b>Precipitazione</b>: ogni stazione dichiara il proprio <b>periodo di accumulo</b> (<code>precipitation_period_s</code>: 60, 300, 600, 900, 1800, 3600 s nei casi prevalenti, con pochi casi a 180 e 360 s). I millimetri <b>non sono confrontabili</b> fra stazioni senza normalizzare al periodo.</div>
                     <div class="src-item"><b>Copertura non uniforme</b>: da reti con poche decine di stazioni fino a <b>~1.045 stazioni MeteoNetwork</b>.</div>
                     <div class="src-item"><b>Questi dati sono osservati, non previsti</b>: la mappa delle centraline è uno strato <b>indipendente</b> dalla sorgente del pannello LIVE (METAR e modelli).</div>
+                    <div class="src-item"><b>Campo osservato dalle centraline</b>: la superficie interpolata (IDW, k=12, raggio 25 km) è disponibile per temperatura (media sulla finestra), temperatura massima e minima, umidità relativa, punto di rugiada, pioggia cumulata, vento medio, raffica massima e neve al suolo. <b>Non sono interpolate</b>: direzione del vento (è un angolo 0-360°: l'interpolazione fra 350° e 10° sarebbe sbagliata), pressione di stazione (dipende dalla quota, non è ridotta al livello del mare) e livello idrico (lo zero idrometrico e le unità sono eterogenei fra le reti). <b>Restano nel popup della singola stazione</b>.</div>
                 </div>
             </div>
             <div class="fl-section">
@@ -3214,9 +3218,20 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.68';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-11-23';
+    const APP_VERSION = '1.3.0.69';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-11-24';
     const APP_CHANGELOG = [
+    { version: '1.3.0.69', date: '2026-11-24', changes: [
+      "SERVER, INDICE DELLE CENTRALINE: mancavano 13 colonne che il client seleziona (rain_3h_mm, gust_max_3h_ms, wind_mean_3h_ms, wind_mean_30m_ms, gust_max_30m_ms, temp_max/min 5m/30m/1h/3h). Il client legge index.json come fonte PRIMARIA: «Pioggia cumulata + 3 ore» dava 0 stazioni usate su 0 mentre latest.json aveva rain_3h_mm su 3.827 stazioni. MISURATO: 46 -> 59 station_fields, 176.314 -> 205.232 B gzip (+28.918 B, +16,4%); il tetto passa da 200 KiB a 240 KiB (245.760 B) con margine 40.528 B. I campi della GIORNATA (temp_max_day_c, temp_min_day_c, ore del picco, temp_day_partial) NON entrano nell'indice: in latest.json non esistono (0/4.947), vivono nel blob daily_series.json. Nuovo test scripts/tests/test_station_field_index.py: legge STATION_FIELD_FIELDS dall'HTML, costruisce l'indice con la funzione del server e fallisce se un campo del client manca (o se un campo del blob finisce nell'indice).",
+      "CLIENT PRO, TRE STATI ONESTI E FALLBACK AL FILE COMPLETO: se un campo non e una colonna dell'indice ma esiste in latest.json, il client lo scarica ON-DEMAND (una volta, con cache), lo fonde nei record gia normalizzati (SOLO le chiavi assenti: un valore dell'indice non viene mai sovrascritto) e ridisegna. I messaggi distinguono (a) campo assente da entrambi i file -> «non pubblicata dal server»; (b) assente nell'indice ma presente in latest -> «carico i valori completi»; (c) presente ma senza valore per le stazioni -> «pubblicato dal server ma nessuna stazione ne ha un valore» + i motivi *_null_reason. Vale per tutte le variabili con finestra.",
+      "PESO TEMPORALE AL POSTO DEL FILTRO SECCO A 90 MINUTI: w = 1/(d^2+1) * exp(-eta/tau), eta = minuti dall'ULTIMA osservazione della stazione (freschezza), non la finestra dell'aggregato. SCELTE INGEGNERISTICHE, NON UNA TARATURA: pioggia/vento/raffica eta massima 180 min e tau 45; temperatura/rugiada/umidita 360 e 120; neve 720 e 240. A 90 minuti il peso vale 0,135 con tau 45 e 0,472 con tau 120. Oltre l'eta massima la stazione si esclude (contata in tooOld). La riga di stato dichiara la finestra con gli ORARI REALI (dalle/alle dall'ancora *_window_end del server), l'eta mediana delle osservazioni e il peso attivo, con un title che spiega la differenza fra finestra e freschezza.",
+      "TRE MODI DI RIEMPIRE LA MAPPA (#stationfield-method): «Solo vicino alle stazioni» (k=12, raggio 25 km, trasparente dove non ci sono vicini), «Tutta l'Italia (interpolata)» (k=16, nessun cutoff, celle a 1°, alfa pieno: ZERO buchi sulla terra, misurato 58.112/58.112 pixel) e «Isolinee» (campo continuo + marching squares sui VALORI interpolati, non sui colori). Livelli: temperatura/rugiada ogni 5 °C con marcati 0/10/20/30, umidita ogni 10 % con marcati 20/40/60/80, pioggia 1/5/10/25/50 (marcati 1/10/50), vento/raffica 5/10/15/20/25 (marcati 10/20), neve 5/10/25/50 (marcati 10/50); i livelli fuori dal range dei dati non compaiono. Etichette solo sui marcati, massimo 5 per livello, distanza minima 45 px, alone chiaro e testo ruotato lungo la linea. Nessuna isolinea sul mare. Costi MISURATI: local ~105-121 ms, full 203 ms, contour 193 ms di raster + 24 ms di isolinee (72 punti sintetici, realm normale).",
+      "LEGENDA: una etichetta per OGNI banda visibile (prima erano 6 tacche fisse «-20 0 10 20 30 40»), intervallo ristretto al range REALE dei dati, minimo e massimo veri sempre presenti, 0 se cade nel range, etichette ruotate oltre 7 e diradate con la dicitura «etichette ogni N bande» quando la barra e stretta.",
+      "NEVE: nel campo si disegnano SOLO le stazioni con spessore > 0 cm (gli zeri non sono disegnati e sono contati); gli zeri di pioggia e vento restano valori reali. Se tutte le stazioni sono a 0 lo stato lo dice invece di lasciare la mappa vuota.",
+      "Selettore variabile ridotto a 9 voci: direzione del vento, pressione di stazione e livello idrico RIMOSSE (non disabilitate) e la riga #live-stationfield-excluded eliminata; la dichiarazione vive nella scheda Fonti e metodologie. La nota #stations-param-note e stata rimossa (spiegava l'ovvio).",
+      "POPUP CENTRALINE: cambiando parametro in #stations-param-select il popup APERTO viene rigenerato sulla STESSA stazione (prima restava quello del parametro precedente); con un parametro senza punti mostra il messaggio di serie vuota senza chiudersi.",
+      "TEST: test_station_field.mjs 201 controlli / 0 falliti (fallback, tre stati, peso temporale per variabile, neve, legenda per banda, local/full/contour, invariante dei conteggi), test_stations_v2.mjs +8 assert sul popup (i 19 fallimenti storici restano tali), nuovo test_station_field_index.py (4 casi), pytest scripts/tests 16 failed pre-esistenti."
+    ]},
     { version: '1.3.0.68', date: '2026-11-23', changes: [
       "SERVER, TEMPERATURA: gate di PLAUSIBILITA FISICA sulla serie delle centraline. Il caso reale e Palma di Montechiaro (dpcn-sicilia:37.20139,13.76111): il blob del 2026-11-23T21:31Z pubblicava temp_max_day_c = 52,0 °C con temperatura istantanea 14,8 °C e serie 24-27 °C; la serie vera alterna 43,3 / 40,0 / 52,0 / 15,2 / 46,0 / 47,6 / 40,5 / 14,8, cioe salti di 15-37 °C in 30-60 minuti che il vecchio gate |T| <= 60 non vede. Regola dichiarata (SCELTA INGEGNERISTICA, non soglia meteorologica validata): si scarta un campione se |dT| > 3,0 °C E |dT|/dt > 6,0 °C/h rispetto all ULTIMO CAMPIONE ACCETTATO. Il fohn a +4 °C/h passa; il salto da sensore rotto no; oltre 3 h di buco il rate non e valutabile e il campione si accetta. Il campione scartato non viene sostituito: sparisce e finisce in temp_qc_rejected. La temperatura ISTANTANEA e temp_hourly usano solo i campioni accettati, quindi il picco falso non entra piu ne in latest.json ne nei bucket del blob giornaliero.",
       "ANCORA CONTRO LA FINESTRA CHE COMINCIA DENTRO IL GUASTO: la query copre 180 minuti; se il sensore si rompe prima, il primo campione della serie e gia falso e un gate relativo non ha un valore sano con cui confrontarlo (misurato: 43,1 °C come PRIMO campione e massimo istantaneo 40,5 °C). Il fetcher legge ora il blob giornaliero ripristinato dal workflow (--baseline, data/stations/daily_series.json), lo ripulisce con lo stesso gate e usa l ultimo campione sano PRIMA dell inizio della finestra come ancora (18:24Z, 14,8 °C nel caso reale). File assente o non ripristinato: nessuna ancora, il fetcher resta stateless.",
@@ -18097,13 +18112,32 @@ stopSyncPlay();
             if (nl[n] && nl[n].id) nets[nl[n].id] = nl[n];
         }
         var out = [];
+        // 1.3.0.69 - NOMI DEI CAMPI COSI' COME SONO NEL FILE. I record
+        // normalizzati usano chiavi camelCase (rain3h), ma il client ragiona sui
+        // nomi del server (rain_3h_mm): senza questa mappa il fallback a
+        // latest.json non saprebbe dire se una COLONNA esiste davvero.
+        var rawKeys = {}, rawValues = {};
+        function noteRaw(name, value) {
+            if (!name) return;
+            rawKeys[name] = true;
+            if (value !== null && value !== undefined && value !== '' && isFinite(Number(value))) {
+                rawValues[name] = (rawValues[name] || 0) + 1;
+            }
+        }
         for (var i = 0; i < raw.length; i++) {
             var row = raw[i];
             var s = null;
-            if (row && typeof row === 'object' && !(row instanceof Array)) s = row;
-            else if (fields && fields.length) {
+            if (row && typeof row === 'object' && !(row instanceof Array)) {
+                s = row;
+                for (var rk in row) {
+                    if (Object.prototype.hasOwnProperty.call(row, rk)) noteRaw(rk, row[rk]);
+                }
+            } else if (fields && fields.length) {
                 s = {};
-                for (var f = 0; f < fields.length; f++) s[fields[f]] = row ? row[f] : null;
+                for (var f = 0; f < fields.length; f++) {
+                    s[fields[f]] = row ? row[f] : null;
+                    noteRaw(fields[f], row ? row[f] : null);
+                }
             }
             if (!s) continue;
             var lat = stationsNum(s.lat), lon = stationsNum(s.lon);
@@ -18193,6 +18227,15 @@ stopSyncPlay();
                 // NEVE: il file la pubblica in METRI, il campo la mostra in CM
                 // (x100 con un decimale). Nessuna soglia inventata.
                 snowDepthCm: (function (mm) { return mm === null ? null : Math.round(mm * 1000) / 10; })(stationsNum(s.snow_depth_m)),
+                // 1.3.0.69 - FINESTRE: l'ancora temporale reale del server.
+                // `<famiglia>_window_end` e' il momento a cui il server ha ancorato
+                // la finestra di quella stazione (non un calcolo del client).
+                tempWindowEnd: s.temp_window_end || null,
+                rainWindowEnd: s.rain_window_end || null,
+                windWindowEnd: s.wind_window_end || null,
+                gustWindowEnd: s.gust_window_end || null,
+                rhWindowEnd: s.rh_window_end || null,
+                dewWindowEnd: s.dew_window_end || null,
                 // Motivi `*_null_reason` del server, per campo media.
                 meanReason: stationsMeanReasons(s)
             });
@@ -18213,6 +18256,17 @@ stopSyncPlay();
                 sourceUrl: payload.source_url || '',
                 schema: payload.schema || 'stations/objects',
                 url: url,
+                // 1.3.0.69 - QUALI COLONNE PORTA IL FILE. L'indice compatto elenca
+                // i campi in `station_fields`; latest.json non li elenca (oggetti
+                // con le chiavi) e vale `null` = "tutte le chiavi presenti nel
+                // record". Serve a distinguere «campo non pubblicato dal server»
+                // da «campo pubblicato ma senza valore per questa stazione».
+                stationFields: fields,
+                compact: !!fields,
+                // Colonne reali del file (nomi del server) con il numero di
+                // record che hanno un valore: e' la base del fallback on-demand.
+                rawFields: rawKeys,
+                rawValues: rawValues,
                 maxAgeMinutes: payload.max_age_minutes || null,
                 attribution: att,
                 networks: nets
@@ -18285,6 +18339,124 @@ stopSyncPlay();
         stationsLoading = p;
         p.then(function () { if (stationsLoading === p) stationsLoading = null; },
                function () { if (stationsLoading === p) stationsLoading = null; });
+        return p;
+    }
+
+    // ================================================================
+    // 1.3.0.69 - FALLBACK AL FILE COMPLETO (latest.json) ON-DEMAND
+    // ================================================================
+    // PERCHE'. index.json e' la fonte PRIMARIA (sta su Pages, e' costruito per
+    // stare nel budget gzip: 240 KiB contro i ~1,2 MB gzip di latest.json), ma
+    // e' un SOTTOINSIEME di colonne: se una colonna non entra nell'indice il
+    // client vedeva `undefined` su tutte le stazioni e scriveva «non pubblicata
+    // dal server» anche quando il campo esisteva in latest.json. MISURATO il
+    // 2026-11-24: `rain_3h_mm` non era nell'indice e «Pioggia cumulata + 3 ore»
+    // dava 0 stazioni usate su 3.882 con il valore.
+    // REGOLA. latest.json si scarica SOLO quando il campo scelto non e' una
+    // colonna dell'indice; si tiene in memoria per la sessione (una volta), si
+    // fonde nei record gia' normalizzati (SOLO le chiavi assenti: un valore
+    // dell'indice non viene mai sovrascritto) e si ridisegna. Nessun valore
+    // inventato: se il file completo non ha il campo, lo stato lo dice.
+    var stationsFull = null;              // normalizzato da latest.json
+    var stationsFullLoading = null;       // Promise del caricamento in corso
+    var stationsFullFailedAt = 0;         // ultimo tentativo fallito
+    var stationsFullMergedInto = null;    // stationsData su cui e' gia' stato fatto il merge
+
+    // Presenza di una COLONNA nell'indice caricato. Se i dati non vengono
+    // dall'indice compatto (fallback su latest.json) ogni chiave e' presente.
+    function stationsIndexColumn(raw) {
+        if (!raw) return true;
+        if (!stationsData || !stationsData.meta || !stationsData.meta.compact) return true;
+        var fs2 = stationsData.meta.stationFields;
+        if (!fs2) return true;
+        return fs2.indexOf(raw) >= 0;
+    }
+
+    // Indice dei campi del FILE COMPLETO: `keys` = la chiave esiste in almeno un
+    // record (anche con valore null), `values` = quanti record hanno un valore
+    // finito. Calcolato UNA volta per caricamento (4.947 record x ~120 chiavi).
+    function stationsFullFieldIndex(norm) {
+        var meta = (norm && norm.meta) || {};
+        norm.fieldKeys = meta.rawFields || {};
+        norm.fieldValues = meta.rawValues || {};
+        return norm;
+    }
+
+    function stationsFullColumnState(raw) {
+        if (!stationsFull || !raw) return { key: false, values: 0 };
+        return {
+            key: !!stationsFull.fieldKeys[raw],
+            values: stationsFull.fieldValues[raw] || 0
+        };
+    }
+
+    // Fonde il file completo nei record normalizzati: riempie SOLO le chiavi
+    // assenti (null/undefined/''), non sovrascrive mai un valore dell'indice.
+    // Se una stazione dell'indice non c'e' nel file completo resta com'e'.
+    function stationsMergeFull() {
+        if (!stationsFull || !stationsData || stationsFullMergedInto === stationsData) return 0;
+        var byId = {};
+        var fl = stationsFull.stations || [];
+        for (var i = 0; i < fl.length; i++) if (fl[i] && fl[i].id) byId[fl[i].id] = fl[i];
+        var dl = stationsData.stations || [];
+        var filled = 0;
+        for (var j = 0; j < dl.length; j++) {
+            var dst = dl[j], src = dst ? byId[dst.id] : null;
+            if (!src) continue;
+            for (var k in src) {
+                if (!Object.prototype.hasOwnProperty.call(src, k)) continue;
+                if (dst[k] === null || dst[k] === undefined || dst[k] === '') {
+                    var v = src[k];
+                    if (v !== null && v !== undefined && v !== '') { dst[k] = v; filled++; }
+                }
+            }
+        }
+        // Le cache per-campo sono agganciate all'identita' di stationsData, che
+        // qui NON cambia: vanno invalidate a mano, altrimenti i conteggi
+        // restano quelli di prima del merge.
+        stationFieldMeanCache = { forData: null, byKey: {} };
+        stationFieldDailyCache = {};
+        stationFieldDailyCacheFor = null;
+        stationsFullMergedInto = stationsData;
+        return filled;
+    }
+
+    function stationsEnsureFull() {
+        if (stationsFull) {
+            stationsMergeFull();
+            return Promise.resolve(stationsFull);
+        }
+        if (stationsFullLoading) return stationsFullLoading;
+        var p = (async function () {
+            try {
+                var res = await fetchWithTimeout(STATIONS_FULL_URL, 30000);
+                if (!res || !res.ok) throw new Error('HTTP ' + (res ? res.status : '?'));
+                var payload = await res.json();
+                var norm = stationsNormalize(payload, STATIONS_FULL_URL);
+                if (!norm) throw new Error('formato non riconosciuto');
+                stationsFull = stationsFullFieldIndex(norm);
+                stationsFullFailedAt = 0;
+                stationsMergeFull();
+                return stationsFull;
+            } catch (e) {
+                stationsFullFailedAt = Date.now();
+                return null;
+            }
+        })();
+        stationsFullLoading = p;
+        p.then(function () { if (stationsFullLoading === p) stationsFullLoading = null; },
+               function () { if (stationsFullLoading === p) stationsFullLoading = null; });
+        // Ridisegna quando arriva (o quando fallisce: lo stato deve passare da
+        // «carico i valori completi...» al motivo reale, non restare appeso).
+        p.then(function () {
+            try { stationsRedraw(); } catch (e) { }
+            try {
+                if (typeof stationFieldActive !== 'undefined' && stationFieldActive) {
+                    stationFieldSyncControls();
+                    stationFieldStatus();
+                }
+            } catch (e) { }
+        });
         return p;
     }
 
@@ -18757,6 +18929,11 @@ stopSyncPlay();
         snow:    { label: 'Neve al suolo', unit: 'm', decimals: 2, scale: 'mri_stations_neutral' }
     };
     var stationsParam = 'temp';
+    // 1.3.0.69 - POPUP APERTO: riferimento alla stazione e all'oggetto L.popup,
+    // così il cambio di parametro può rigenerare il contenuto sulla stessa
+    // stazione (il grafico del popup dipende da `stationsParam`).
+    var stationsPopupOpen = null;
+    var stationsPopupRef = null;
 
     function stationsSeriesRead() {
         try {
@@ -18920,10 +19097,18 @@ stopSyncPlay();
             FM_COLOR_SCALE_OVERRIDES && !FM_COLOR_SCALE_OVERRIDES.mri_stations_neutral) {
             FM_COLOR_SCALE_OVERRIDES.mri_stations_neutral = STATIONS_NEUTRAL_SCALE;
         }
-        var note = document.getElementById('stations-param-note');
-        if (note) note.textContent = (cfg.scale === 'mri_stations_neutral')
-            ? 'Nessuna scala dedicata nell’app: etichetta neutra, senza classificazione.'
-            : 'Valore e colore dalla scala già usata dalle mappe per questa grandezza.';
+        // 1.3.0.69 - #stations-param-note RIMOSSO (spiegava l'ovvio e occupava
+        // spazio in legenda). Al suo posto: se un popup di stazione è APERTO il
+        // contenuto viene rigenerato sulla STESSA stazione, perché il grafico
+        // dentro il popup dipende dal parametro (`stationsChartHtml` legge
+        // `stationsParam`). Il popup NON si chiude: con un parametro senza punti
+        // il grafico mostra il proprio messaggio «nessun punto osservato ne
+        // previsto» dentro il popup.
+        if (stationsPopupOpen && stationsPopupRef) {
+            try {
+                if (stationsPopupRef.isOpen()) stationsPopupRef.setContent(stationsPopupHtml(stationsPopupOpen));
+            } catch (e) { }
+        }
         // Testo della legenda generalizzato al parametro scelto (non piu' "temperatura").
         var nv = document.getElementById('live-stations-novalue-note');
         if (nv) nv.textContent = 'stazione senza ' +
@@ -19262,6 +19447,15 @@ stopSyncPlay();
             .setLatLng([st.lat, st.lon])
             .setContent(stationsPopupHtml(st))
             .openOn(map);
+        // 1.3.0.69 - il popup aperto viene ricordato (stazione + oggetto) per
+        // rigenerarne il contenuto al cambio di parametro.
+        stationsPopupOpen = st;
+        stationsPopupRef = popup;
+        try {
+            popup.on('remove', function () {
+                if (stationsPopupRef === popup) { stationsPopupRef = null; stationsPopupOpen = null; }
+            });
+        } catch (e) { }
         // 1.3.0.61 - Il popup si apre SUBITO, senza aspettare il blob della giornata
         // (prima si faceva un solo setContent e le finestre 6/24 h potevano mancare
         // fino alla riapertura). Se il blob non c'e' ancora, stationsPopupHtml mostra
@@ -19423,6 +19617,53 @@ stopSyncPlay();
     var STATION_FIELD_MIN_COVERAGE = 0.5;
     var STATION_FIELD_RING_KM = 7.3;       // 0,1° di longitudine a 49°N: distanza minima di un anello
     var STATION_FIELD_SUPERSAMPLE = 2;     // fattore di supersampling del raster (2 = 4x pixel)
+    // 1.3.0.69 - DUE METODI DI INTERPOLAZIONE (selettore #stationfield-method).
+    // `local` = comportamento storico: k=12, raggio 25 km, trasparente dove non
+    // ci sono vicini (nessun valore inventato). `full` = nessun buco sulla terra:
+    // k=16 con raggio illimitato, celle a 1° (111 km) e alfa pieno. Il prezzo e'
+    // dichiarato in legenda: dove non c'e' una stazione vicina il valore e'
+    // un'INFERENZA, non una misura. Costo misurato: vedi README/test.
+    var STATION_FIELD_FULL_K = 16;
+    var STATION_FIELD_FULL_BUCKET_DEG = 1.0;
+    var STATION_FIELD_FULL_MAX_RING = 24;  // 24° ~ 2.600 km: copre qualunque frame italiano
+    // 1.3.0.69 - TERZA MODALITA': `contour` = campo continuo (come `full`) PIU'
+    // isolinee calcolate sui VALORI interpolati (marching squares), non sui colori.
+    // Livelli per variabile: passo e livelli "marcati" (linea spessa + etichetta).
+    // Se il range dei dati non copre un livello, quel livello NON si disegna.
+    var STATION_FIELD_CONTOUR = {
+        temp: { step: 5, markedStep: 10 },
+        tmax: { step: 5, markedStep: 10 },
+        tmin: { step: 5, markedStep: 10 },
+        dew: { step: 5, markedStep: 10 },
+        rh: { step: 10, markedStep: 20 },
+        rain: { list: [1, 5, 10, 25, 50], marked: [1, 10, 50] },
+        wind: { list: [5, 10, 15, 20, 25], marked: [10, 20] },
+        gust: { list: [5, 10, 15, 20, 25], marked: [10, 20] },
+        snow: { list: [5, 10, 25, 50], marked: [10, 50] }
+    };
+    var STATION_FIELD_CONTOUR_LABEL_MAX = 5;    // etichette per livello (dichiarato in legenda)
+    var STATION_FIELD_CONTOUR_LABEL_MIN_PX = 45; // distanza minima fra due etichette
+    // 1.3.0.69 - PESO TEMPORALE (sostituisce il filtro secco a 90 minuti).
+    // w_i = (1/(d_i^2+1)) * exp(-age_i / tau). `age` = minuti dall'ULTIMA
+    // osservazione della stazione, NON la finestra del valore: la finestra dice
+    // quanti dati entrano nell'aggregato, l'eta' dice quanto e' fresca la
+    // stazione. Oltre `maxMin` la stazione si esclude (contata in `tooOld`).
+    // SCELTE INGEGNERISTICHE, NON UNA TARATURA: pioggia/vento/raffica cambiano in
+    // fretta (max 180', tau 45'), temperatura/rugiada/umidita' lentamente (360',
+    // 120'), neve molto lentamente (720', 240'). A 90 minuti il peso vale
+    // exp(-2)=0,135 con tau 45 e exp(-0,75)=0,472 con tau 120.
+    var STATION_FIELD_AGE_POLICY = {
+        rain: { maxMin: 180, tauMin: 45 },
+        wind: { maxMin: 180, tauMin: 45 },
+        gust: { maxMin: 180, tauMin: 45 },
+        temp: { maxMin: 360, tauMin: 120 },
+        tmax: { maxMin: 360, tauMin: 120 },
+        tmin: { maxMin: 360, tauMin: 120 },
+        dew: { maxMin: 360, tauMin: 120 },
+        rh: { maxMin: 360, tauMin: 120 },
+        snow: { maxMin: 720, tauMin: 240 }
+    };
+    var stationFieldMethod = 'local';
     var STATION_FIELD_VARS = {
         temp: { label: 'Temperatura 2 m', unit: '°C', decimals: 1 },
         tmax: { label: 'Temperatura massima', unit: '°C', decimals: 1 },
@@ -19784,13 +20025,16 @@ stopSyncPlay();
             spec.field = 'snowDepthCm';
             spec.available = true;
             spec.windowApplies = false;
-            spec.note = 'la neve al suolo è uno spessore istantaneo: la finestra non cambia il valore';
+            spec.note = 'la neve al suolo è uno spessore istantaneo: la finestra non cambia il valore; si disegnano solo le stazioni con neve > 0 cm, gli zeri non sono disegnati';
             return spec;
         }
 
         var f = STATION_FIELD_FIELDS[v] && STATION_FIELD_FIELDS[v][win];
         if (f) {
             spec.rawField = f.raw;
+            // 1.3.0.69 - ancora temporale della finestra pubblicata dal server.
+            var wfam = /^(temp|rain|wind|gust|rh|dew)/.exec(f.raw);
+            spec.windowEndKey = wfam ? (wfam[1] + 'WindowEnd') : null;
             spec.covField = f.cov || null;
             spec.agg = f.agg || 'mean';
             spec.dayWindow = !!f.day;
@@ -19839,6 +20083,49 @@ stopSyncPlay();
             }
             if (!f.mean) {
                 spec.field = f.key;
+                // 1.3.0.69 - anche i campi NON medi (pioggia 3 h, vento 3 h,
+                // raffica 3 h) possono mancare dall'indice compatto: stessa regola
+                // dei tre stati. Prima qui si entrava sempre «disponibile» e la
+                // colonna assente lasciava `rain3h` null su tutte le stazioni:
+                // MISURATO il 2026-11-24 (Pioggia + 3 ore = 0 stazioni usate).
+                if (stationsIndexColumn(f.raw)) { spec.available = true; return spec; }
+                if (!stationsFull) {
+                    if (stationsFullFailedAt && (Date.now() - stationsFullFailedAt) < 60000) {
+                        spec.reason = 'il campo ' + f.raw + ' non è nell\'indice compatto e il file completo ' +
+                            '(data/stations/latest.json) non è stato caricato: nessun valore inventato: riprova tra poco.';
+                        spec.note = spec.reason;
+                        return spec;
+                    }
+                    spec.available = true;
+                    spec.fullPending = true;
+                    spec.note = 'carico i valori completi (latest.json)...';
+                    try { stationsEnsureFull(); } catch (e) { }
+                    return spec;
+                }
+                var nfcs = stationsFullColumnState(f.raw);
+                if (!nfcs.key) {
+                    spec.reason = 'la finestra ' + stationFieldWindowLabel(win) + ' non è pubblicata dal server (campo ' +
+                        f.raw + ' assente anche in latest.json): nessun valore inventato.';
+                    spec.note = spec.reason;
+                    return spec;
+                }
+                // Colonna presente nel file completo: i valori sono arrivati con il
+                // merge (solo le chiavi assenti, mai una sovrascrittura). Se pero'
+                // nessuna stazione ha un valore, NON si finge una mappa piena: e' lo
+                // stato (c) «pubblicato dal server ma nessuna stazione ha il valore».
+                if (stationsData) {
+                    var dl0 = stationsData.stations || [], anyVal = 0;
+                    for (var si = 0; si < dl0.length && !anyVal; si++) {
+                        var sv = dl0[si] ? dl0[si][f.key] : null;
+                        if (sv !== null && sv !== undefined && sv !== '' && isFinite(Number(sv))) anyVal++;
+                    }
+                    if (!anyVal) {
+                        spec.reason = 'il campo ' + f.raw + ' è pubblicato dal server ma nessuna stazione attiva ne ha un valore per la finestra ' +
+                            stationFieldWindowLabel(win) + ': nessun valore inventato.';
+                        spec.note = spec.reason;
+                        return spec;
+                    }
+                }
                 spec.available = true;
                 return spec;
             }
@@ -19859,6 +20146,47 @@ stopSyncPlay();
                 spec.meanPending = true;
                 return spec;
             }
+            // 1.3.0.69 - TRE STATI ONESTI. Prima la coda di questa funzione diceva
+            // «non è pubblicata dal server» anche quando il campo esisteva in
+            // latest.json e mancava solo la COLONNA nell'indice compatto: MISURATO
+            // il 2026-11-24 (Pioggia + 3 ore: 0 stazioni usate con 3.827 stazioni
+            // con il valore in latest.json). Ordine delle risposte, PRIMA dei
+            // ripieghi (un istantaneo non è una scusa per non leggere il campo che
+            // il server pubblica):
+            //   (a) colonna assente dall'indice E dal file completo -> «non
+            //       pubblicato dal server» (la frase di prima, ora motivata);
+            //   (b) colonna assente dall'indice ma presente in latest.json ->
+            //       «carico i valori completi» + caricamento on-demand con cache;
+            //   (c) colonna presente ma nessun valore per le stazioni attive ->
+            //       «pubblicato, ma nessuna stazione con il valore» + il motivo
+            //       reale (`*_null_reason`) se il server lo pubblica.
+            if (!stationsIndexColumn(f.raw)) {
+                if (!stationsFull) {
+                    if (stationsFullFailedAt && (Date.now() - stationsFullFailedAt) < 60000) {
+                        spec.reason = 'il campo ' + f.raw + ' non è nell\'indice compatto e il file completo ' +
+                            '(data/stations/latest.json) non è stato caricato: nessun valore inventato: riprova tra poco.';
+                        spec.note = spec.reason;
+                        return spec;
+                    }
+                    spec.field = f.key;
+                    spec.available = true;
+                    spec.fullPending = true;
+                    spec.note = 'carico i valori completi (latest.json)...';
+                    try { stationsEnsureFull(); } catch (e) { }
+                    return spec;
+                }
+                var fcs = stationsFullColumnState(f.raw);
+                if (!fcs.key) {
+                    spec.reason = 'la finestra ' + stationFieldWindowLabel(win) + ' non è pubblicata dal server (campo ' +
+                        f.raw + ' assente anche in latest.json): nessun valore inventato.';
+                    spec.note = spec.reason;
+                    return spec;
+                }
+                spec.reason = 'il campo ' + f.raw + ' è pubblicato dal server ma nessuna stazione attiva ne ha un valore per la finestra ' +
+                    stationFieldWindowLabel(win) + ': nessun valore inventato.';
+                spec.note = spec.reason;
+                return spec;
+            }
             if (f.fallback) {
                 spec.field = f.fallback;
                 spec.meanFallback = true;
@@ -19876,7 +20204,8 @@ stopSyncPlay();
                 spec.strictUnavailable = true;
                 return spec;
             }
-            spec.reason = 'la finestra ' + stationFieldWindowLabel(win) + ' non è pubblicata dal server (campo ' + f.raw + ' assente): nessun valore inventato.';
+            spec.reason = 'il campo ' + f.raw + ' è pubblicato dal server ma nessuna stazione attiva ne ha un valore per la finestra ' +
+                stationFieldWindowLabel(win) + ': le stazioni senza il valore restano fuori dalla mappa, nessun valore inventato.';
             spec.note = spec.reason;
             return spec;
         }
@@ -19928,15 +20257,31 @@ stopSyncPlay();
         var out = {
             points: [], total: 0, withValue: 0, used: 0, tooOld: 0,
             excludedCoverage: 0, coverageSum: 0, coverageN: 0, partialWindow: 0,
-            peakHour: null, peakValue: null, partialDay: 0
+            peakHour: null, peakValue: null, partialDay: 0,
+            // 1.3.0.69 - estensione REALE dei valori raccolti (serve alla legenda:
+            // le etichette sono una per banda effettivamente presente nella barra)
+            // e i motivi `*_null_reason` delle stazioni senza il valore.
+            vMin: null, vMax: null, zeroExcluded: 0, reasons: {}, missingNoReason: 0,
+            // 1.3.0.69 - INVARIANTE DI CONTEGGIO: total = tooOld + missingValue +
+            // withValue, e used = withValue - excludedCoverage - zeroExcluded.
+            // `missingValue` conta le stazioni SENZA il valore (con o senza motivo).
+            missingValue: 0, windowEndMax: null
         };
         if (!stations || !stations.length || !spec) return out;
         var now = (typeof nowMs === 'number' && isFinite(nowMs)) ? nowMs : Date.now();
+        var snowVar = (spec.varKey === 'snow');
+        // 1.3.0.69 - POLITICA DI FRESCHEZZA della variabile scelta.
+        var agePolicy = STATION_FIELD_AGE_POLICY[spec.varKey] || STATION_FIELD_AGE_POLICY.temp;
+        out.agePolicy = agePolicy;
+        var ages = [];
         out.total = stations.length;
         for (var i = 0; i < stations.length; i++) {
             var st = stations[i];
             if (!st || !isFinite(st.lat) || !isFinite(st.lon)) continue;
-            if (((now - st.time) / 60000) > STATIONS_MAX_OBS_AGE_MIN) { out.tooOld++; continue; }
+            // 1.3.0.69 - PESO TEMPORALE: oltre l'eta' massima della variabile la
+            // stazione si esclude; fino a li' entra con peso exp(-eta/tau).
+            var ageMin = (now - st.time) / 60000;
+            if (ageMin > agePolicy.maxMin) { out.tooOld++; continue; }
             // 1.3.0.68 - La finestra «oggi» di massima/minima ha il valore, l'ora
             // del picco, il flag di parzialita' e la copertura NEL RECORD del blob
             // giornaliero, non nella stazione normalizzata da latest.json.
@@ -19944,8 +20289,33 @@ stopSyncPlay();
                 ? stationsDaily.stations[st.id] : null;
             var v = spec.field ? st[spec.field]
                 : (spec.dailyField ? stationFieldDailyValue(st.id, spec.dailyField) : null);
-            if (v === null || v === undefined || v === '' || !isFinite(Number(v))) continue;
+            if (v === null || v === undefined || v === '' || !isFinite(Number(v))) {
+                // 1.3.0.69 - PERCHE' manca: il motivo del server se c'e'. Serve a
+                // scrivere la verita' («stazione senza il valore» + motivo reale)
+                // invece di un conteggio muto.
+                var mreason = spec.rawField ? stationsNullReason(st, spec.rawField) : null;
+                if (mreason) out.reasons[mreason] = (out.reasons[mreason] || 0) + 1;
+                else out.missingNoReason++;
+                out.missingValue++;
+                continue;
+            }
             out.withValue++;
+            // 1.3.0.69 - ancora temporale REALE della finestra (se il file la porta).
+            var wEnd = spec.windowEndKey ? st[spec.windowEndKey] : null;
+            if (wEnd) {
+                var wEndMs = Date.parse(wEnd);
+                if (isFinite(wEndMs) && (out.windowEndMax === null || wEndMs > out.windowEndMax)) {
+                    out.windowEndMax = wEndMs;
+                }
+            }
+            // 1.3.0.69 - NEVE: gli ZERI non si disegnano. Uno spessore 0 non e' una
+            // misura utile sulla mappa (dipingerebbe mezza Italia con il colore
+            // della prima banda) e l'utente ha chiesto di non mostrarli. Il valore
+            // resta nel popup della singola stazione. ATTENZIONE: questo filtro
+            // vale SOLO per la neve. Per pioggia, vento e raffica lo 0 e' una
+            // informazione reale («qui non piove», «qui non c'e' vento»): filtrarlo
+            // cambierebbe il significato della mappa e NON si fa.
+            if (snowVar && Number(v) <= 0) { out.zeroExcluded++; continue; }
             // 1.3.0.66 - ORA DEL PICCO (solo massima/minima della giornata) e flag
             // di giornata in corso. Il picco e' quello della STAZIONE con il valore
             // piu' estremo: e' la stessa informazione dell'esempio "max 18,2 alle 14".
@@ -19974,9 +20344,26 @@ stopSyncPlay();
                 out.coverageSum += Number(cov);
                 out.coverageN++;
             }
-            out.points.push({ lat: st.lat, lon: st.lon, v: Number(v), id: st.id });
+            var vn = Number(v);
+            if (out.vMin === null || vn < out.vMin) out.vMin = vn;
+            if (out.vMax === null || vn > out.vMax) out.vMax = vn;
+            // 1.3.0.69 - PESO TEMPORALE del punto: exp(-eta/tau). L'eta' e' quella
+            // dell'ULTIMA osservazione della stazione (freschezza), non la finestra
+            // dell'aggregato: sono due cose diverse (vedi title della riga di stato).
+            var wAge = Math.exp(-ageMin / agePolicy.tauMin);
+            if (!(wAge > 0)) wAge = 0;
+            ages.push(ageMin);
+            out.points.push({ lat: st.lat, lon: st.lon, v: vn, id: st.id, wAge: wAge, ageMin: ageMin });
         }
         out.used = out.points.length;
+        // Eta' MEDIANA reale delle osservazioni usate (per la legenda).
+        if (ages.length) {
+            ages.sort(function (a, b) { return a - b; });
+            var mid2 = ages.length >> 1;
+            out.ageMedianMin = (ages.length % 2) ? ages[mid2] : (ages[mid2 - 1] + ages[mid2]) / 2;
+        } else {
+            out.ageMedianMin = null;
+        }
         return out;
     }
 
@@ -20009,21 +20396,31 @@ stopSyncPlay();
                 bd[q] = d; bl[q] = cand[j];
             }
         }
-        if (!n) return { v: null, dk: null, n: 0 };
+        if (!n) return { v: null, dk: null, dn: null, n: 0 };
         var sum = 0, acc = 0;
         for (j = 0; j < n; j++) {
-            var w = 1 / (bd[j] * bd[j] + 1);
-            acc += w * bl[j].v;
+            // 1.3.0.69 - PESO TEMPORALE: w = 1/(d^2+1) * exp(-eta/tau). Il fattore
+            // e' gia' calcolato in stationFieldCollect (`wAge`); i punti senza
+            // `wAge` (test, chiamate storiche) valgono 1. Si legge l'oggetto UNA
+            // volta: e' il ciclo piu' caldo del layer.
+            var o = bl[j];
+            var dd = bd[j];
+            var wa = o.wAge;
+            if (wa === undefined || wa === null) wa = 1;
+            var w = wa / (dd * dd + 1);
+            acc += w * o.v;
             sum += w;
         }
-        return { v: (sum > 0 ? acc / sum : null), dk: bd[n - 1], n: n };
+        // 1.3.0.69 - `dn` = distanza del vicino PIU' VICINO (bd[0]): serve alla
+        // legenda del metodo `full` («distanza mediana al vicino piu' prossimo»).
+        return { v: (sum > 0 ? acc / sum : null), dk: bd[n - 1], dn: bd[0], n: n };
     }
 
     // Raster IDW del campo: griglia W x H del frame Mercator (W=256, H~227),
     // indice a bucket da 0,1° con espansione ad anelli (k=8, raggio 25 km).
     // Ritorna i byte RGBA, i valori interpolati e le opacita': cosi' il test puo'
     // verificare un pixel con i numeri, non solo il colore.
-    function stationFieldRaster(points, scale, frame, mask, ssOpt) {
+    function stationFieldRaster(points, scale, frame, mask, ssOpt, methodOpt) {
         var baseW = frame.W | 0, baseH = frame.H | 0;
         // 1.3.0.61 - SUPERSAMPLING: con ss=2 il raster e' 512x454 sullo STESSO
         // frame Mercator (la proiezione usa W/H correnti, quindi le proporzioni
@@ -20038,19 +20435,34 @@ stopSyncPlay();
                     data: data, values: values, alphas: alphas, painted: 0, points: 0 };
         if (!points || !points.length || !scale) return res;
         res.points = points.length;
+        // 1.3.0.69 - METODO: `local` (storico), `full` (nessun buco sulla terra) o
+        // `contour` (come `full` + isolinee dai valori). In `full`/`contour` il
+        // cutoff e' illimitato (Infinity, NON null: null significa «usa il
+        // default 25 km»), le celle sono a 1° e k=16. L'alfa resta pieno (235) su
+        // tutta la terra: la copertura e' il punto del metodo, e la legenda
+        // dichiara che dove non ci sono stazioni il valore e' inferito.
+        var full = (methodOpt === 'full' || methodOpt === 'contour');
+        res.method = full ? (methodOpt === 'contour' ? 'contour' : 'full') : 'local';
         // Alias LOCALI delle costanti e delle funzioni usate nel ciclo per pixel:
         // dentro il ciclo il motore non deve passare dal globale a ogni iterazione
         // (misurato: e' la differenza fra un layer fluido e uno che scalda la UI).
-        var K = STATION_FIELD_K, CUT = STATION_FIELD_CUTOFF_KM, FADE = STATION_FIELD_FADE_KM,
-            MAXRING = STATION_FIELD_MAX_RING, idwAt = stationFieldIdwAt, bandIndex = stationFieldBandIndex;
+        var K = full ? STATION_FIELD_FULL_K : STATION_FIELD_K,
+            CUT = full ? Infinity : STATION_FIELD_CUTOFF_KM,
+            FADE = STATION_FIELD_FADE_KM,
+            MAXRING = full ? STATION_FIELD_FULL_MAX_RING : STATION_FIELD_MAX_RING,
+            idwAt = stationFieldIdwAt, bandIndex = stationFieldBandIndex;
         // INDICE A BUCKET SU ARRAY PIATTI (niente Map, niente chiavi stringa):
         // counts -> offset (somme prefisse) -> indici dei punti ordinati per cella.
         // Con 58.112 pixel e una finestra 7x7 di celle sono ~2,85 M letture di
         // array contigue: e' il costo che rende il layer utilizzabile in UI.
-        var B = STATION_FIELD_BUCKET_DEG;
-        var bLon0 = Math.floor(frame.minLon / B), bLat0 = Math.floor(frame.minLat / B);
-        var gnx = Math.max(1, Math.floor(frame.maxLon / B) - bLon0 + 1);
-        var gny = Math.max(1, Math.floor(frame.maxLat / B) - bLat0 + 1);
+        // In `full` la griglia e' PADDATA di MAXRING celle: un pixel al bordo del
+        // frame deve poter usare stazioni fuori dal frame (altrimenti la copertura
+        // totale sarebbe finta: buchi sui bordi).
+        var B = full ? STATION_FIELD_FULL_BUCKET_DEG : STATION_FIELD_BUCKET_DEG;
+        var pad = full ? MAXRING : 0;
+        var bLon0 = Math.floor(frame.minLon / B) - pad, bLat0 = Math.floor(frame.minLat / B) - pad;
+        var gnx = Math.max(1, Math.floor(frame.maxLon / B) - Math.floor(frame.minLon / B) + 1 + 2 * pad);
+        var gny = Math.max(1, Math.floor(frame.maxLat / B) - Math.floor(frame.minLat / B) + 1 + 2 * pad);
         var cells = gnx * gny;
         var counts = new Int32Array(cells + 1);
         var pi, pcell, gx, gy;
@@ -20076,6 +20488,18 @@ stopSyncPlay();
         var cols = scale.colors.light || scale.colors.dark;
         var lonSpan = frame.lonSpan, mSpan = frame.mxM - frame.mnM;
         var cand = [];
+        // 1.3.0.69 - CANDIDATI PER CELLA (solo `full`): i pixel della stessa cella
+        // a 1° condividono la lista dei vicini. Costruirla una volta per cella
+        // invece che per pixel e' la differenza fra ~500 ms e ~50 ms sui casi
+        // radi (reti con poche stazioni), ed e' un'approssimazione DICHIARATA:
+        // i 16 vicini sono scelti da una lista raccolta intorno alla CELLA, non
+        // intorno al singolo pixel. Su una superficie dichiarata «inferenza» e'
+        // accettabile; su `local` NON si usa (resta esatto per pixel).
+        var cellCand = full ? new Array(cells) : null;
+        // Diagnostica del metodo `full`: terre coperte, distanze al vicino piu'
+        // prossimo (min/mediana/max). Nessuna stima: si raccoglie nel ciclo.
+        var landPixels = 0, dnSamples = null, dnN = 0;
+        if (full) dnSamples = new Float32Array(baseW * baseH);
         for (var j = 0; j < H; j++) {
             var mj = frame.mxM - (j + 0.5) / H * mSpan;
             var lat = (2 * Math.atan(Math.exp(mj)) - Math.PI / 2) * 180 / Math.PI;
@@ -20087,35 +20511,69 @@ stopSyncPlay();
                 // La maschera terra e' a risoluzione BASE: al supersampling si
                 // campiona il pixel base che contiene questo subpixel (bordo duro
                 // alla risoluzione finale, poi ammorbidito dal downscale).
+                var mIdx = -1;
                 if (mask) {
-                    var mIdx = (ss === 1) ? p
+                    mIdx = (ss === 1) ? p
                         : (((j / ss) | 0) * baseW + ((ii / ss) | 0));
                     if (mask[mIdx] < 128) continue;
                 }
+                if (full) landPixels++;
                 var lon = frame.minLon + (ii + 0.5) / W * lonSpan;
                 var pgx = Math.floor(lon / B) - bLon0;
-                cand.length = 0;
-                // Anelli 0..3 SENZA uscita anticipata: un anello 'r' puo' contenere un
-                // vicino piu' vicino di uno gia' trovato, quindi l'ordine di visita non
-                // basta a scartarlo. L'anello 4 e' gia' oltre i 25 km in Italia (0,3°
-                // di longitudine a 36,7°N = 26,8 km), per questo il tetto e' 3.
-                for (var r = 0; r <= MAXRING; r++) {
-                    for (var dy = -r; dy <= r; dy++) {
-                        var cy = pgy + dy;
-                        if (cy < 0 || cy >= gny) continue;
-                        for (var dx = -r; dx <= r; dx++) {
-                            if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-                            var cx2 = pgx + dx;
-                            if (cx2 < 0 || cx2 >= gnx) continue;
-                            var cellI = cy * gnx + cx2;
-                            for (var q = offsets[cellI]; q < offsets[cellI + 1]; q++) cand.push(points[order[q]]);
+                if (full) {
+                    // Lista dei vicini PER CELLA (costruita una volta sola)...
+                    var pcellFull = pgy * gnx + pgx;
+                    if (pcellFull >= 0 && pcellFull < cells && cellCand[pcellFull]) {
+                        cand = cellCand[pcellFull];
+                    } else {
+                        cand = [];
+                        // ...anelli crescenti fino a 2*k candidati...
+                        for (var rf = 0; rf <= MAXRING; rf++) {
+                            for (var dyf = -rf; dyf <= rf; dyf++) {
+                                var cyf = pgy + dyf;
+                                if (cyf < 0 || cyf >= gny) continue;
+                                for (var dxf = -rf; dxf <= rf; dxf++) {
+                                    if (Math.max(Math.abs(dxf), Math.abs(dyf)) !== rf) continue;
+                                    var cxf = pgx + dxf;
+                                    if (cxf < 0 || cxf >= gnx) continue;
+                                    var cellF = cyf * gnx + cxf;
+                                    for (var qf = offsets[cellF]; qf < offsets[cellF + 1]; qf++) cand.push(points[order[qf]]);
+                                }
+                            }
+                            if (cand.length >= 2 * K) break;
+                        }
+                        // ...e, se la rete e' rada, la lista completa (piu'
+                        // economica che espandere anelli vuoti fino a 24).
+                        if (cand.length < 2 * K) {
+                            cand = [];
+                            for (var pa = 0; pa < points.length; pa++) cand.push(points[pa]);
+                        }
+                        if (pcellFull >= 0 && pcellFull < cells) cellCand[pcellFull] = cand;
+                    }
+                } else {
+                    cand.length = 0;
+                    // Anelli 0..3 SENZA uscita anticipata: un anello 'r' puo' contenere un
+                    // vicino piu' vicino di uno gia' trovato, quindi l'ordine di visita non
+                    // basta a scartarlo. L'anello 4 e' gia' oltre i 25 km in Italia (0,3°
+                    // di longitudine a 36,7°N = 26,8 km), per questo il tetto e' 3.
+                    for (var r = 0; r <= MAXRING; r++) {
+                        for (var dy = -r; dy <= r; dy++) {
+                            var cy = pgy + dy;
+                            if (cy < 0 || cy >= gny) continue;
+                            for (var dx = -r; dx <= r; dx++) {
+                                if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+                                var cx2 = pgx + dx;
+                                if (cx2 < 0 || cx2 >= gnx) continue;
+                                var cellI = cy * gnx + cx2;
+                                for (var q = offsets[cellI]; q < offsets[cellI + 1]; q++) cand.push(points[order[q]]);
+                            }
                         }
                     }
                 }
                 if (!cand.length) continue;
                 var got = idwAt(lat, lon, cand, cosLat, K, CUT);
                 if (got.v === null || got.dk === null) continue;
-                var fade = (CUT - got.dk) / FADE;
+                var fade = full ? 1 : (CUT - got.dk) / FADE;
                 if (fade < 0) fade = 0;
                 if (fade > 1) fade = 1;
                 var a = 235 * fade;
@@ -20132,7 +20590,24 @@ stopSyncPlay();
                 values[p] = got.v;
                 alphas[p] = a;
                 res.painted++;
+                if (full && got.dn !== null && dnN < dnSamples.length) {
+                    dnSamples[dnN++] = got.dn;
+                }
             }
+        }
+        if (full) {
+            var diag = { landPixels: landPixels, paintedPixels: res.painted,
+                         dminKm: null, dmedianKm: null, dmaxKm: null };
+            if (dnN) {
+                var sorted = Array.prototype.slice.call(dnSamples.subarray(0, dnN));
+                sorted.sort(function (x, y) { return x - y; });
+                diag.dminKm = Math.round(sorted[0] * 10) / 10;
+                diag.dmaxKm = Math.round(sorted[sorted.length - 1] * 10) / 10;
+                var mid = sorted.length >> 1;
+                var med = (sorted.length % 2) ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+                diag.dmedianKm = Math.round(med * 10) / 10;
+            }
+            res.full = diag;
         }
         return res;
     }
@@ -20276,7 +20751,100 @@ stopSyncPlay();
         return parts.length ? ('linear-gradient(90deg,' + parts.join(',') + ')') : '';
     }
 
-    function stationFieldBuildLegend(spec) {
+    // 1.3.0.69 - UNA ETICHETTA PER BANDA VISIBILE (prima solo 6 tacche fisse:
+    // «-20 0 10 20 30 40», l'utente ha chiesto «tutti i valori»).
+    // Regole, tutte dichiarate:
+    //  1. l'intervallo della barra e' il range REALE dei dati raccolti esteso ai
+    //     bordi delle bande che li contengono (non -80…+50 se i dati coprono 2…27);
+    //     senza dati si usa l'intervallo dichiarato in STATION_FIELD_LEGEND;
+    //  2. un'etichetta per OGNI bordo di banda nell'intervallo, piu' il minimo e il
+    //     massimo REALI dei dati (se non coincidono gia' con un bordo) e lo 0 se
+    //     cade nell'intervallo;
+    //  3. leggibilita': fino a 7 etichette orizzontali; oltre, ruotate di 90° a
+    //     8 px. Se anche cosi' non ci stanno, si tiene UNA OGNI `step` bande e la
+    //     legenda lo DICHIARA nel testo («etichette ogni N bande»): non si
+    //     omettono mai in silenzio.
+    function stationFieldLegendLayout(spec, stats) {
+        var sc = spec ? stationFieldScale(spec.scale) : null;
+        var fixed = (spec && STATION_FIELD_LEGEND[spec.scale]) ? STATION_FIELD_LEGEND[spec.scale] : null;
+        var st = (stats === undefined) ? stationFieldLastStats : stats;
+        var out = {
+            lo: fixed ? fixed.lo : 0, hi: fixed ? fixed.hi : 1,
+            values: fixed ? fixed.ticks.slice() : [0, 1],
+            fromData: false, bandCount: 0, step: 1, shown: 0, rotated: false, width: 0
+        };
+        if (!sc || !sc.breakpoints || sc.breakpoints.length < 2) return out;
+        var bp = sc.breakpoints, n = bp.length;
+        var lo = fixed ? fixed.lo : bp[0], hi = fixed ? fixed.hi : bp[n - 1];
+        var haveData = !!(st && st.vMin !== null && st.vMax !== null &&
+            isFinite(st.vMin) && isFinite(st.vMax) && st.vMax >= st.vMin);
+        if (haveData) {
+            out.fromData = true;
+            var iMin = stationFieldBandIndex(sc, st.vMin);
+            var iMax = stationFieldBandIndex(sc, st.vMax);
+            lo = bp[iMin];
+            hi = (iMax + 1 < n) ? bp[iMax + 1] : bp[n - 1];
+            if (!(hi > lo)) hi = lo + ((bp[n - 1] - bp[0]) / (n - 1) || 1);
+        }
+        var vals = [];
+        function pushVal(v) {
+            if (v === null || v === undefined || !isFinite(v)) return;
+            if (v < lo - 1e-9 || v > hi + 1e-9) return;
+            vals.push(Number(v));
+        }
+        for (var i = 0; i < n; i++) pushVal(bp[i]);
+        if (haveData) { pushVal(st.vMin); pushVal(st.vMax); }
+        if (lo <= 0 && hi >= 0) pushVal(0);
+        vals.sort(function (a, b) { return a - b; });
+        // Dedup: due valori piu' vicini del 2% dell'intervallo finirebbero
+        // sovrapposti. Si tiene UN valore per gruppo, ma il minimo e il massimo
+        // REALI dei dati hanno la precedenza sul bordo di banda che li contiene
+        // (requisito: gli estremi veri devono comparire fra le etichette).
+        var tol = (hi - lo) / 50, uniq = [];
+        var vMin = haveData ? st.vMin : null, vMax = haveData ? st.vMax : null;
+        for (var j = 0; j < vals.length; j++) {
+            var vv = vals[j];
+            var isExt = (vv === vMin || vv === vMax);
+            if (uniq.length && (vv - uniq[uniq.length - 1]) <= tol) {
+                var last = uniq[uniq.length - 1];
+                var lastExt = (last === vMin || last === vMax);
+                if (isExt && !lastExt) uniq[uniq.length - 1] = vv;
+                continue;
+            }
+            uniq.push(vv);
+        }
+        out.lo = lo; out.hi = hi; out.values = uniq;
+        // Bande effettivamente presenti nella barra.
+        var bandCount = 0;
+        for (var b = 0; b < n; b++) if (bp[b] >= lo - 1e-9 && bp[b] <= hi + 1e-9) bandCount++;
+        out.bandCount = bandCount;
+        // Larghezza reale della barra se il DOM la espone (browser), altrimenti una
+        // larghezza tipica del pannello stretto: la regola resta deterministica.
+        var bar = (typeof document !== 'undefined' && document.getElementById)
+            ? document.getElementById('live-stationfield-scale') : null;
+        var width = (bar && bar.clientWidth) ? bar.clientWidth : 260;
+        out.width = width;
+        out.rotated = uniq.length > 7;
+        // Spazio per etichetta: ~26 px in orizzontale, ~9 px in verticale (8 px di
+        // font ruotato + 1 di aria).
+        var perLabel = out.rotated ? 9 : 26;
+        var maxLabels = Math.max(3, Math.floor(width / perLabel));
+        if (uniq.length > maxLabels) {
+            out.step = Math.ceil(uniq.length / maxLabels);
+            var kept = [];
+            for (var t = 0; t < uniq.length; t++) {
+                var isEdge = (t === 0 || t === uniq.length - 1);
+                var isExtreme = haveData && (uniq[t] === st.vMin || uniq[t] === st.vMax);
+                var isZero = (uniq[t] === 0);
+                if (isEdge || isExtreme || isZero || (t % out.step === 0)) kept.push(uniq[t]);
+            }
+            out.values = kept;
+        }
+        out.shown = out.values.length;
+        return out;
+    }
+
+    function stationFieldBuildLegend(spec, stats) {
         var bar = document.getElementById('live-stationfield-scale');
         var labels = document.getElementById('live-stationfield-scale-labels');
         var unitEl = document.getElementById('live-stationfield-unit');
@@ -20288,23 +20856,32 @@ stopSyncPlay();
             if (labels) labels.innerHTML = '<span style="position:absolute;left:0;">nessuna scala dedicata per questa variabile — campo non disegnato</span>';
             return;
         }
-        var lg = STATION_FIELD_LEGEND[spec.scale] || {
-            lo: sc.breakpoints[0], hi: sc.breakpoints[sc.breakpoints.length - 1],
-            ticks: [sc.breakpoints[0], sc.breakpoints[sc.breakpoints.length - 1]]
-        };
+        var lg = stationFieldLegendLayout(spec, stats);
         bar.style.background = stationFieldGradient(sc, lg.lo, lg.hi) || 'linear-gradient(90deg,#1e293b,#1e293b)';
         if (labels) {
             var span = lg.hi - lg.lo, html = '';
-            for (var i = 0; i < lg.ticks.length; i++) {
-                var pct = (lg.ticks[i] - lg.lo) / span * 100;
+            var fontPx = lg.rotated ? 8 : 9;
+            for (var i = 0; i < lg.values.length; i++) {
+                var pct = span ? (lg.values[i] - lg.lo) / span * 100 : 0;
                 if (pct < 0) pct = 0;
                 if (pct > 100) pct = 100;
-                html += '<span style="position:absolute;left:' + (Math.round(pct * 10) / 10) +
-                    '%;transform:translateX(-50%);">' + escapeHtml(stationFieldTickText(lg.ticks[i])) + '</span>';
+                html += '<span style="position:absolute;left:' + (Math.round(pct * 10) / 10) + '%;' +
+                    (lg.rotated
+                        ? 'top:0;writing-mode:vertical-rl;transform:translateX(-50%) rotate(180deg);'
+                        : 'transform:translateX(-50%);') +
+                    'font-size:' + fontPx + 'px;line-height:1;white-space:nowrap;">' +
+                    escapeHtml(stationFieldTickText(lg.values[i])) + '</span>';
+            }
+            // Se si e' dovuto saltare qualche banda lo si dichiara (non si tace).
+            if (lg.step > 1) {
+                html += '<span style="position:absolute;right:0;top:' + (lg.rotated ? '20px' : '0') +
+                    ';font-size:8px;color:#64748b;">etichette ogni ' + lg.step + ' bande (' + lg.bandCount +
+                    ' bande nell\'intervallo)</span>';
             }
             labels.innerHTML = html;
             labels.style.position = 'relative';
-            labels.style.height = '13px';
+            labels.style.height = lg.rotated ? '34px' : '13px';
+            labels.style.overflow = 'visible';
         }
     }
 
@@ -20327,12 +20904,46 @@ stopSyncPlay();
                 // 1.3.0.68 - la finestra «oggi» di massima/minima aspetta il blob
                 // giornaliero: stato esplicito, non una mappa vuota senza motivo.
                 el.textContent = 'carico la giornata...';
+            } else if (spec.fullPending && !stationsFull) {
+                // 1.3.0.69 - il campo non e' una colonna dell'indice compatto: si
+                // sta scaricando latest.json (una volta, con cache). Non e' «campo
+                // assente»: e' «sto caricando i valori completi».
+                el.textContent = 'carico i valori completi (latest.json)...';
             } else if (!spec.available) {
                 el.innerHTML = '⛔ ' + escapeHtml(spec.reason || 'variabile non disponibile');
+            } else if (st && spec.varKey === 'snow' && st.used === 0) {
+                // 1.3.0.69 - NEVE: gli zeri non si disegnano. Se sono TUTTI zero la
+                // mappa resta senza campo ma lo STATO lo dice (prima sarebbe rimasta
+                // vuota in silenzio).
+                if (st.withValue > 0) {
+                    el.textContent = 'nessuna stazione con neve al suolo al momento (' + st.withValue +
+                        ' stazioni con il campo, tutte a 0 cm): gli zeri non sono disegnati, la mappa resta senza campo.';
+                } else {
+                    el.textContent = 'nessuna stazione attiva con la neve al suolo: campo non disegnato.';
+                }
             } else if (st) {
                 var covTxt = st.coverageN
                     ? ('copertura media ' + fmtNum(100 * st.coverageSum / st.coverageN, 0) + '%')
                     : 'copertura non dichiarata dal server per questa variabile';
+                // 1.3.0.69 - politica di freschezza della variabile (per la legenda).
+                var agePol = (st.agePolicy && st.agePolicy.tauMin)
+                    ? st.agePolicy
+                    : (STATION_FIELD_AGE_POLICY[spec.varKey] || STATION_FIELD_AGE_POLICY.temp);
+                // 1.3.0.69 - INTERVALLO REALE della finestra: il server pubblica
+                // `<famiglia>_window_end` per stazione; si mostra quello PIU'
+                // RECENTE (l'ancora del dato piu' fresco) e, se la finestra ha una
+                // durata fissa, anche l'inizio. Se il file non porta l'ancora si
+                // scrive solo la durata: nessun orario inventato.
+                var windowRangeTxt = '';
+                if (st.windowEndMax) {
+                    var durMin = { '5m': 5, '30m': 30, '1h': 60, '3h': 180, '6h': 360, '24h': 1440 }[spec.window];
+                    if (durMin) {
+                        windowRangeTxt = ' (dalle ' + stationsClock(st.windowEndMax - durMin * 60000) +
+                            ' alle ' + stationsClock(st.windowEndMax) + ', dato più recente)';
+                    } else {
+                        windowRangeTxt = ' (ancorata alle ' + stationsClock(st.windowEndMax) + ', dato più recente)';
+                    }
+                }
                 // 1.3.0.66 - GIORNATA: ora del picco e stato della giornata in corso.
                 var dayTxt = '';
                 if (spec.dayWindow) {
@@ -20346,20 +20957,92 @@ stopSyncPlay();
                             (spec.agg === 'min' ? 'il minimo può ancora scendere' : 'il massimo può ancora salire');
                     }
                 }
+                // 1.3.0.69 - NEVE: gli esclusi a 0 si dichiarano (non si nascondono).
+                var snowTxt = (spec.varKey === 'snow' && st.zeroExcluded)
+                    ? (' · ' + st.zeroExcluded + ' stazioni a 0 cm non disegnate') : '';
+                // 1.3.0.69 - STATO (c): stazioni senza il valore e motivo REALE del
+                // server, non un «campo assente» generico.
+                var missTxt = '';
+                var mk = [], kk;
+                for (kk in st.reasons) if (Object.prototype.hasOwnProperty.call(st.reasons, kk)) mk.push(kk);
+                mk.sort();
+                for (var mi = 0; mi < mk.length; mi++) {
+                    missTxt += ' · ' + st.reasons[mk[mi]] + ' senza il valore: ' + stationFieldReasonIt(mk[mi]);
+                }
+                if (!mk.length && st.missingNoReason > 0) {
+                    missTxt += ' · ' + st.missingNoReason + ' stazioni senza il valore del campo (nessun motivo pubblicato)';
+                }
+                // 1.3.0.69 - METODO `full`: la riga di inferenza e le distanze
+                // MISURATE (mediana/min/max al vicino più prossimo) e la quota di
+                // terra effettivamente dipinta. In `local` non si aggiunge nulla.
+                var inferTxt = '';
+                if (st.method === 'full' || st.method === 'contour') {
+                    inferTxt = ' · copertura interpolata: dove non ci sono stazioni vicine il valore è un\'inferenza, non una misura';
+                    if (st.full && st.full.dmedianKm !== null) {
+                        var pctLand = st.full.landPixels > 0
+                            ? Math.round(100 * st.full.paintedPixels / st.full.landPixels) : 0;
+                        inferTxt += ' · ' + pctLand + '% della terra dipinta · distanza al vicino più prossimo: mediana ' +
+                            fmtNum(st.full.dmedianKm, 1) + ' km, minima ' + fmtNum(st.full.dminKm, 1) +
+                            ' km, massima ' + fmtNum(st.full.dmaxKm, 1) + ' km';
+                    } else {
+                        inferTxt += ' · distanze al vicino non disponibili';
+                    }
+                }
+                // 1.3.0.69 - ISOLINEE: passo, livelli marcati e numero di linee ed
+                // etichette realmente disegnate (nessuna stima).
+                if (st.method === 'contour') {
+                    var ccfg = STATION_FIELD_CONTOUR[spec.varKey] || STATION_FIELD_CONTOUR.temp;
+                    var stepTxt = ccfg.list
+                        ? ('livelli ' + ccfg.list.join(', ') + ' ' + spec.unit)
+                        : ('ogni ' + ccfg.step + ' ' + spec.unit);
+                    var marksTxt = ccfg.list
+                        ? ccfg.marked.join(', ')
+                        : ('0, ' + ccfg.markedStep + ', ' + (2 * ccfg.markedStep) + ', ...');
+                    inferTxt += ' · isolinee ' + stepTxt + '; in grassetto i valori ' + marksTxt +
+                        ' · ' + (st.contour ? (st.contour.levels + ' livelli, ' + st.contour.segs + ' segmenti, ' +
+                        st.contour.labels + ' etichette (max ' + STATION_FIELD_CONTOUR_LABEL_MAX + ' per livello)')
+                        : 'isolinee non calcolate');
+                }
                 el.textContent = st.used + ' stazioni usate su ' + st.withValue +
                     ' con il valore, su ' + st.total + ' disponibili · finestra ' +
-                    stationFieldWindowLabel(spec.window) + dayTxt + ' · ' + covTxt +
-                    ' · osservazioni ≤ ' + STATIONS_MAX_OBS_AGE_MIN + ' min' +
+                    stationFieldWindowLabel(spec.window) + windowRangeTxt + dayTxt +
+                    (st.ageMedianMin !== null && st.ageMedianMin !== undefined
+                        ? ' · età mediana delle osservazioni: ' + Math.round(st.ageMedianMin) + ' min' : '') +
+                    ' · peso temporale attivo (decadimento ' + agePol.tauMin + ' min, età massima ' +
+                    agePol.maxMin + ' min)' +
+                    (st.tooOld ? ' · ' + st.tooOld + ' escluse perché più vecchie' : ' · nessuna esclusa perché più vecchia') +
+                    ' · ' + covTxt + snowTxt +
                     (st.excludedCoverage ? ' · ' + st.excludedCoverage + ' escluse per copertura < 50%' : '') +
-                    (st.partialWindow ? ' · finestra parziale su ' + st.partialWindow + '/' + st.used + ' stazioni (flag *_partial del blob)' : '');
+                    (st.partialWindow ? ' · finestra parziale su ' + st.partialWindow + '/' + st.used + ' stazioni (flag *_partial del blob)' : '') +
+                    missTxt + inferTxt;
+                // 1.3.0.69 - SPIEGAZIONE: la finestra del valore e l'eta' della
+                // stazione sono due cose diverse (erano confuse nella riga vecchia
+                // «osservazioni ≤ 90 min» letta come un limite della finestra).
+                el.title = 'La finestra dice quanti minuti/ore di dati entrano nel valore; ' +
+                    'l\'età dice quanto è recente l\'ultima osservazione della stazione. ' +
+                    'Le stazioni fino a ' + agePol.maxMin + ' minuti entrano con peso exp(-età/' +
+                    agePol.tauMin + ') (decadimento: ' + agePol.tauMin + ' minuti), oltre restano fuori. ' +
+                    'Le due cose sono indipendenti: con la finestra 6 ore una stazione ferma da 3 ore ' +
+                    'entra con peso ridotto (se la variabile lo consente).';
             } else {
                 el.textContent = 'Layer acceso: in attesa della prima interpolazione.';
             }
         }
         if (method) {
             var n = st ? st.used : 0;
-            var methodTxt = "Interpolazione IDW da " + n + " stazioni (k=8, raggio 25 km). " +
-                "Non è un campo radar e non è una misura d'area: dice dove le centraline che possono misurare hanno osservato.";
+            // 1.3.0.69 - la frase dichiara il METODO scelto e i suoi parametri
+            // reali (prima diceva k=8, ma il default e' k=12 dal 1.3.0.61).
+            var methodTxt = (stationFieldMethod === 'full' || stationFieldMethod === 'contour')
+                ? ("Interpolazione IDW da " + n + " stazioni (k=" + STATION_FIELD_FULL_K +
+                   ", senza raggio limite: la superficie copre tutta la terra). " +
+                   "Dove non ci sono stazioni vicine il valore è un'inferenza, non una misura: " +
+                   "non è un campo radar e non è una misura d'area." +
+                   (stationFieldMethod === 'contour'
+                       ? ' Le isolinee sono calcolate sui valori interpolati (marching squares), non sui colori.'
+                       : ''))
+                : ("Interpolazione IDW da " + n + " stazioni (k=" + STATION_FIELD_K +
+                   ", raggio " + STATION_FIELD_CUTOFF_KM + " km: trasparente dove non ci sono vicini). " +
+                   "Non è un campo radar e non è una misura d'area: dice dove le centraline che possono misurare hanno osservato.");
             // LEGENDA DICHIARATA: unita' e scala della variabile scelta, sempre.
             methodTxt += ' Unità ' + spec.unit + ', scala colori ' + (spec.scale || 'nessuna') + ' del registro mappe.';
             if (spec.scale === 'station_relative_humidity') {
@@ -20367,6 +21050,10 @@ stopSyncPlay();
             }
             if (spec.meanFallback) {
                 methodTxt += ' Valore istantaneo: la media sulla finestra non è ancora pubblicata dal server.';
+            }
+            if (spec.varKey === 'snow') {
+                methodTxt += ' Neve al suolo: si disegnano SOLO le stazioni con spessore > 0 cm, gli zeri non sono ';
+                methodTxt += 'disegnati (per pioggia, vento e raffica lo 0 resta invece un valore reale).';
             }
             method.textContent = methodTxt;
         }
@@ -20384,6 +21071,8 @@ stopSyncPlay();
     function stationFieldSyncControls() {
         var selVar = document.getElementById('stationfield-var');
         if (selVar) selVar.value = stationFieldVar;
+        var selMethod = document.getElementById('stationfield-method');
+        if (selMethod) selMethod.value = stationFieldMethod;
         var selWin = document.getElementById('stationfield-window');
         var spec = stationFieldSpec(stationFieldVar, stationFieldWindow);
         var note = document.getElementById('live-stationfield-window-note');
@@ -20411,22 +21100,28 @@ stopSyncPlay();
                 }
                 if (f) {
                     var ms2 = f.mean ? stationFieldMeanStats(f.key) : null;
+                    var colMissing = !stationsIndexColumn(f.raw);
                     var absent = !!(f.mean && stationsData && ms2.withValue === 0 && ms2.withReason === 0);
                     // Solo la finestra "giornata" della MEDIA si disabilita quando il
                     // campo non c'e' (non ha un ripiego legittimo). Le finestre corte
                     // restano selezionabili anche senza il campo: la nota dice cosa
-                    // si sta vedendo.
-                    opts[i].disabled = !!(f.strictAbsence && absent);
+                    // si sta vedendo. 1.3.0.69 - se la colonna manca dall'indice
+                    // compatto NON e' «assente»: si carica il file completo.
+                    opts[i].disabled = !!(f.strictAbsence && absent && !colMissing);
                     if (f.mean) {
                         opts[i].title = (ms2.withValue > 0)
                             ? ('disponibile: ' + f.raw + ' (' + stationFieldAggLabel(f) + ')')
                             : (ms2.withReason > 0
                                 ? ('non calcolabile: ' + stationFieldMeanReasonText(w, ms2))
-                                : ('non ancora pubblicata dal server (' + f.raw + ')' +
-                                   (f.fallback ? ': si mostra il valore istantaneo'
-                                               : (f.strictAbsence ? ': finestra disabilitata' : ': nessun valore'))));
+                                : (colMissing
+                                    ? ('non è una colonna dell\'indice compatto: carico i valori completi (' + f.raw + ')')
+                                    : ('pubblicata dal server ma senza valori per le stazioni attive (' + f.raw + ')' +
+                                       (f.fallback ? ': si mostra il valore istantaneo'
+                                                   : (f.strictAbsence ? ': finestra disabilitata' : ': nessun valore')))));
                     } else {
-                        opts[i].title = 'disponibile: ' + f.raw + (f.cov ? ' con copertura ' + f.cov : '');
+                        opts[i].title = colMissing
+                            ? ('non è una colonna dell\'indice compatto: carico i valori completi (' + f.raw + ')')
+                            : ('disponibile: ' + f.raw + (f.cov ? ' con copertura ' + f.cov : ''));
                     }
                     continue;
                 }
@@ -20448,6 +21143,154 @@ stopSyncPlay();
             selWin.disabled = false;
         }
         if (note) note.textContent = spec.note || '';
+    }
+
+    // ================================================================
+    // 1.3.0.69 - ISOLINEE (metodo `contour`)
+    // ================================================================
+    // Si calcolano sui VALORI interpolati (`res.values`, Float32Array W×H), non
+    // sui colori: i colori sono a bande, i valori no. Marching squares sulle
+    // celle 2x2; una cella con un angolo fuori copertura (alpha 0, cioe' mare o
+    // fuori maschera) NON produce segmenti: nessuna linea sul mare.
+    function stationFieldContourLevels(varKey, stats) {
+        var cfg = STATION_FIELD_CONTOUR[varKey] || STATION_FIELD_CONTOUR.temp;
+        var st = (stats === undefined) ? stationFieldLastStats : stats;
+        var lo = (st && st.vMin !== null && st.vMin !== undefined) ? Number(st.vMin) : null;
+        var hi = (st && st.vMax !== null && st.vMax !== undefined) ? Number(st.vMax) : null;
+        var out = [], i, v;
+        if (cfg.list) {
+            for (i = 0; i < cfg.list.length; i++) {
+                v = cfg.list[i];
+                // Livelli FUORI dal range reale non si inventano.
+                if (lo !== null && hi !== null && (v <= lo || v >= hi)) continue;
+                out.push({ v: v, major: cfg.marked.indexOf(v) >= 0 });
+            }
+            return out;
+        }
+        if (lo === null || hi === null) return out;
+        var step = cfg.step, mstep = cfg.markedStep;
+        var start = Math.ceil(lo / step) * step;
+        for (v = start; v < hi; v += step) {
+            var vv = Math.round(v * 1000) / 1000;
+            if (vv <= lo || vv >= hi) continue;
+            out.push({ v: vv, major: Math.abs(vv % mstep) < 1e-9 });
+        }
+        return out;
+    }
+
+    // Segmenti di una isolinea: coordinate in PIXEL (angoli della cella).
+    function stationFieldContourSegments(values, alphas, W, H, level) {
+        var segs = [];
+        var v = Number(level);
+        for (var y = 0; y < H - 1; y++) {
+            for (var x = 0; x < W - 1; x++) {
+                var i0 = y * W + x, i1 = i0 + 1, i3 = i0 + W + 1, i2 = i0 + W;
+                if (alphas[i0] === 0 || alphas[i1] === 0 || alphas[i2] === 0 || alphas[i3] === 0) continue;
+                var a = values[i0], b = values[i1], c = values[i3], d = values[i2];
+                var idx = (a > v ? 1 : 0) | (b > v ? 2 : 0) | (c > v ? 4 : 0) | (d > v ? 8 : 0);
+                if (idx === 0 || idx === 15) continue;
+                var ta = (v - a) / ((b - a) || 1e-12), tb = (v - b) / ((c - b) || 1e-12);
+                var tc = (v - d) / ((c - d) || 1e-12), td = (v - a) / ((d - a) || 1e-12);
+                ta = ta < 0 ? 0 : (ta > 1 ? 1 : ta);
+                tb = tb < 0 ? 0 : (tb > 1 ? 1 : tb);
+                tc = tc < 0 ? 0 : (tc > 1 ? 1 : tc);
+                td = td < 0 ? 0 : (td > 1 ? 1 : td);
+                var top = [x + ta, y];
+                var right = [x + 1, y + tb];
+                var bottom = [x + tc, y + 1];
+                var left = [x, y + td];
+                switch (idx) {
+                    case 1: case 14: segs.push([left, top]); break;
+                    case 2: case 13: segs.push([top, right]); break;
+                    case 3: case 12: segs.push([left, right]); break;
+                    case 4: case 11: segs.push([right, bottom]); break;
+                    case 6: case 9: segs.push([top, bottom]); break;
+                    case 7: case 8: segs.push([left, bottom]); break;
+                    case 5: segs.push([left, top]); segs.push([right, bottom]); break;
+                    case 10: segs.push([top, right]); segs.push([left, bottom]); break;
+                }
+            }
+        }
+        return segs;
+    }
+
+    // Etichette sui SOLI livelli marcati: al massimo
+    // STATION_FIELD_CONTOUR_LABEL_MAX per livello, distribuite lungo le linee e
+    // distanti almeno STATION_FIELD_CONTOUR_LABEL_MIN_PX fra loro (se una cade
+    // troppo vicina si salta: il numero di etichette e' un tetto dichiarato).
+    function stationFieldContourLabels(levels, segsByLevel) {
+        var placed = [], out = [];
+        for (var i = 0; i < levels.length; i++) {
+            if (!levels[i].major) continue;
+            var segs = segsByLevel[i] || [];
+            if (!segs.length) continue;
+            var want = Math.min(STATION_FIELD_CONTOUR_LABEL_MAX, segs.length);
+            var stride = Math.max(1, Math.floor(segs.length / want));
+            var got = 0;
+            for (var k = 0; k < segs.length && got < want; k += stride) {
+                var s = segs[k];
+                var mx = (s[0][0] + s[1][0]) / 2, my = (s[0][1] + s[1][1]) / 2;
+                var tooClose = false;
+                for (var p = 0; p < placed.length; p++) {
+                    var dx = placed[p][0] - mx, dy = placed[p][1] - my;
+                    if (Math.sqrt(dx * dx + dy * dy) < STATION_FIELD_CONTOUR_LABEL_MIN_PX) { tooClose = true; break; }
+                }
+                if (tooClose) continue;
+                placed.push([mx, my]);
+                var ang = Math.atan2(s[1][1] - s[0][1], s[1][0] - s[0][0]);
+                if (ang > Math.PI / 2) ang -= Math.PI;
+                if (ang < -Math.PI / 2) ang += Math.PI;
+                out.push({ v: levels[i].v, major: true, x: mx, y: my, angle: ang });
+                got++;
+            }
+        }
+        return out;
+    }
+
+    // Disegno: linee sottili (1 px) sui livelli intermedi, spesse (2 px) sui
+    // marcati; etichette solo sui marcati con alone chiaro e testo ruotato lungo
+    // la linea (raddrizzato per non finire capovolto).
+    function stationFieldDrawContours(ctx, values, alphas, W, H, varKey, stats, unit) {
+        var levels = stationFieldContourLevels(varKey, stats);
+        var res = { levels: levels.length, segs: 0, labels: 0, levelList: levels, labelList: [] };
+        if (!levels.length || !ctx) return res;
+        var byLevel = [];
+        for (var i = 0; i < levels.length; i++) {
+            var segs = stationFieldContourSegments(values, alphas, W, H, levels[i].v);
+            byLevel.push(segs);
+            res.segs += segs.length;
+            if (!segs.length) continue;
+            ctx.beginPath();
+            for (var s = 0; s < segs.length; s++) {
+                ctx.moveTo(segs[s][0][0] + 0.5, segs[s][0][1] + 0.5);
+                ctx.lineTo(segs[s][1][0] + 0.5, segs[s][1][1] + 0.5);
+            }
+            ctx.lineWidth = levels[i].major ? 2 : 1;
+            ctx.strokeStyle = levels[i].major ? 'rgba(15,23,42,0.85)' : 'rgba(15,23,42,0.55)';
+            ctx.stroke();
+        }
+        var labels = stationFieldContourLabels(levels, byLevel);
+        res.labelList = labels;
+        res.labels = labels.length;
+        if (labels.length) {
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = '600 10px "Segoe UI", system-ui, -apple-system, Arial, sans-serif';
+            for (var L = 0; L < labels.length; L++) {
+                var lb = labels[L];
+                var txt = String(lb.v) + (unit ? (' ' + unit) : '');
+                ctx.save();
+                ctx.translate(lb.x + 0.5, lb.y + 0.5);
+                ctx.rotate(lb.angle);
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = 'rgba(255,255,255,0.88)';
+                ctx.strokeText(txt, 0, 0);
+                ctx.fillStyle = '#0f172a';
+                ctx.fillText(txt, 0, 0);
+                ctx.restore();
+            }
+        }
+        return res;
     }
 
     // Maschera terra (province): calcolata UNA volta per frame e riusata. Se il
@@ -20495,6 +21338,9 @@ stopSyncPlay();
         }
         var col = stationFieldCollect(stationsData.stations, spec, Date.now());
         stationFieldLastStats = col;
+        // 1.3.0.69 - la legenda dipende dai VALORI (range reale e una etichetta per
+        // banda visibile): si ricostruisce DOPO la raccolta, non prima.
+        stationFieldBuildLegend(spec, col);
         if (!col.points.length) {
             stationFieldRemoveOverlay();
             stationFieldStatus();
@@ -20502,8 +21348,12 @@ stopSyncPlay();
         }
         var gen = stationsData.meta && stationsData.meta.generatedAt ? stationsData.meta.generatedAt : 0;
         var key = stationFieldVar + '|' + spec.window + '|' + (spec.field || spec.dailyField) +
-            '|' + gen + '|' + col.used;
+            '|' + gen + '|' + col.used + '|' + stationFieldMethod;
         if (!force && stationFieldCache && stationFieldCache.key === key && stationFieldOverlay) {
+            // Il colpo in cache non rifa' il raster ma la legenda del metodo `full`
+            // deve restare: si ripristina la diagnostica salvata.
+            if (stationFieldCache.full) col.full = stationFieldCache.full;
+            if (stationFieldCache.contour) col.contour = stationFieldCache.contour;
             stationFieldStatus();
             return true;
         }
@@ -20513,9 +21363,16 @@ stopSyncPlay();
         var t0 = (window.performance && performance.now) ? performance.now() : Date.now();
         // 1.3.0.61 - SUPERSAMPLING x2 + riduzione con media a box (antialiasing),
         // poi sfumatura 3x3 su RGB e maschera terra riapplicata sull'alpha.
-        var ss = STATION_FIELD_SUPERSAMPLE;
-        var r = stationFieldRaster(col.points, stationFieldScale(spec.scale), frame, mask, ss);
+        // 1.3.0.69 - nel metodo `full` l'antialiasing non serve (la superficie e'
+        // gia' continua) e il costo si dimezza per lato: ss=1. DICHIARATO: due
+        // metodi hanno due risoluzioni di calcolo, non due rese diverse.
+        var ss = (stationFieldMethod === 'local') ? STATION_FIELD_SUPERSAMPLE : 1;
+        var r = stationFieldRaster(col.points, stationFieldScale(spec.scale), frame, mask, ss, stationFieldMethod);
         var d = (ss > 1) ? stationFieldDownscale(r, frame.W, frame.H, ss, mask) : r;
+        // 1.3.0.69 - diagnostica del metodo, per la legenda (nessuna stima):
+        // terra coperta, pixel dipinti, distanza min/mediana/max al vicino.
+        col.method = stationFieldMethod;
+        if (r.full) col.full = r.full;
         var t1 = (window.performance && performance.now) ? performance.now() : Date.now();
         var cv = document.createElement('canvas');
         cv.width = frame.W;
@@ -20526,6 +21383,14 @@ stopSyncPlay();
         var img = ctx.createImageData(frame.W, frame.H);
         img.data.set(d.data);
         ctx.putImageData(img, 0, 0);
+        // 1.3.0.69 - ISOLINEE (metodo `contour`): si disegnano sullo STESSO canvas
+        // DOPO il campo, leggendo i VALORI interpolati. La maschera terra resta
+        // quella del campo: una cella con un angolo fuori copertura non produce
+        // segmenti, quindi nessuna linea sul mare.
+        if (stationFieldMethod === 'contour') {
+            col.contour = stationFieldDrawContours(ctx, r.values, r.alphas, frame.W, frame.H,
+                stationFieldVar, col, spec.unit);
+        }
         var url = cv.toDataURL('image/png');
         var bounds = L.latLngBounds(L.latLng(frame.minLat, frame.minLon), L.latLng(frame.maxLat, frame.maxLon));
         stationFieldPaneEnsure();
@@ -20548,7 +21413,8 @@ stopSyncPlay();
         stationFieldCache = {
             key: key, varKey: stationFieldVar, window: spec.window,
             generated_at: gen, used: col.used, painted: d.painted, supersample: ss,
-            raster_ms: Math.round((t1 - t0) * 10) / 10
+            raster_ms: Math.round((t1 - t0) * 10) / 10,
+            full: col.full || null, contour: col.contour || null, method: stationFieldMethod
         };
         stationFieldStatus();
         return true;
@@ -20568,6 +21434,17 @@ stopSyncPlay();
         stationFieldSyncControls();
         stationFieldBuildLegend(stationFieldSpec(stationFieldVar, stationFieldWindow));
         if (stationFieldActive) renderStationFieldOverlay(false);
+    }
+
+    // 1.3.0.69 - METODO DI INTERPOLAZIONE: `local` (solo vicino alle stazioni,
+    // onesto) o `full` (tutta l'Italia, valore inferito dove non ci sono
+    // stazioni). Vale per TUTTE le variabili e per tutte le finestre; entra nella
+    // chiave della cache, quindi il cambio rigenera il raster una volta.
+    function stationFieldMethodChanged(m) {
+        stationFieldMethod = (m === 'full') ? 'full' : ((m === 'contour') ? 'contour' : 'local');
+        stationFieldSyncControls();
+        stationFieldBuildLegend(stationFieldSpec(stationFieldVar, stationFieldWindow));
+        if (stationFieldActive) renderStationFieldOverlay(true);
     }
 
     // Toggle "Campo centraline": ON carica (se serve) e disegna la superficie, OFF

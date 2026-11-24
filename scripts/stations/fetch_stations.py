@@ -258,13 +258,42 @@ INDEX_STATION_FIELDS = (
 # termiche 5m/30m/1h/3h (1.3.0.61). Min/max restano in latest.json: l'indice e'
 # la sorgente del CAMPO, che disegna la media, non gli estremi.
 INDEX_EXTRA_FIELDS = (
+    # Finestre di ACCUMULO e MASSIMO 1.3.0.69: il client le seleziona dal
+    # selettore Finestra del campo centraline. `rain_3h_mm` mancava e la mappa
+    # «Pioggia cumulata + 3 ore» restava VUOTA (misurato il 2026-11-24 sul sito
+    # live: 0 stazioni usate su 0, mentre latest.json ha rain_3h_mm su 3.827
+    # stazioni). Stessa classe di difetto per vento/raffica a 3 h e per le
+    # massime/minime 5m/30m/1h/3h.
     "rain_1h_mm",
+    "rain_3h_mm",
     "gust_max_1h_ms",
+    "gust_max_3h_ms",
     "wind_mean_1h_ms",
+    "wind_mean_3h_ms",
+    # 1.3.0.69 - finestre da 30 min di vento e raffica: il client le chiede
+    # (`mean: true`, nessun ripiego istantaneo) e senza la colonna la mappa
+    # «Vento medio + 30 min» restava vuota. Le ha trovate il test di completezza
+    # `scripts/tests/test_station_field_index.py`.
+    "wind_mean_30m_ms",
+    "gust_max_30m_ms",
     "temp_mean_5m_c",
     "temp_mean_30m_c",
     "temp_mean_1h_c",
     "temp_mean_3h_c",
+    # MASSIMA e MINIMA sulle finestre corte (1.3.0.69): stesse colonne del
+    # client (STATION_FIELD_FIELDS tmax/tmin). La GIORNATA (temp_*_day_c,
+    # *_day_hour, temp_day_partial) NON e' qui: non esiste in latest.json
+    # (misurato: 0/4.947 stazioni), vive solo nel blob daily_series.json e il
+    # client la legge da li'. Aggiungerla all'indice sarebbe una colonna di
+    # soli null a ogni stazione.
+    "temp_max_5m_c",
+    "temp_min_5m_c",
+    "temp_max_30m_c",
+    "temp_min_30m_c",
+    "temp_max_1h_c",
+    "temp_min_1h_c",
+    "temp_max_3h_c",
+    "temp_min_3h_c",
     "rh_mean_5m_pct",
     "rh_mean_30m_pct",
     "rh_mean_1h_pct",
@@ -309,12 +338,20 @@ INDEX_STRING_FIELDS = frozenset(
 # la degradazione dichiarata resta il comportamento.
 # MISURATO il 2026-11-23 21:09Z con le MEDIE TERMICHE (1.3.0.61): 4.897 stazioni,
 # indice con nomi e 29 campi extra (15 valori + 14 motivi) = 1.840.880 B raw /
-# 175.779 B gzip, cioe' SOPRA i 160 KiB. 200 KiB (204.800 B) lasciano ~29 kB di
-# margine (14%). I motivi costano solo ~9 kB gzip (stringhe ripetute), ma senza
+# 175.779 B gzip, cioe' SOPRA i 160 KiB. 200 KiB (204.800 B) lasciavano ~29 kB
+# di margine (14%). I motivi costano solo ~9 kB gzip (stringhe ripetute), ma senza
 # di loro il client che carica index.json non distingue "finestra non calcolabile"
-# da "grandezza assente". Se la crescita lo sfonda, la degradazione dichiarata
-# (prima i campi extra, poi i nomi) resta attiva.
-INDEX_MAX_GZIP_BYTES = 204_800  # 200 KiB (misurato 178.003 B con valori e motivi)
+# da "grandezza assente".
+# MISURATO il 2026-11-24 con le 13 colonne delle finestre mancanti (1.3.0.69:
+# rain_3h_mm, gust_max_3h_ms, wind_mean_3h_ms, temp_max/min 5m/30m/1h/3h,
+# wind_mean_30m_ms, gust_max_30m_ms) sui 4.947 di data/stations/latest.json:
+# 46 -> 59 campi, 1.857.420 -> 2.107.888 B raw, 176.314 -> 205.232 B gzip
+# (+28.918 B, +16,4%). Il vecchio tetto di 200 KiB veniva sfondato di 432 B,
+# quindi l'indice sarebbe degradato a `name_omitted`.
+# NUOVO tetto 240 KiB (245.760 B): margine misurato 40.528 B (19,8% sopra la
+# misura, 16,5% del tetto). Le tre degradazioni dichiarate restano in cascata:
+# prima i campi extra, poi i nomi.
+INDEX_MAX_GZIP_BYTES = 245_760  # 240 KiB (misurato 205.232 B con valori e motivi)
 
 
 # --------------------------------------------------------------------------
@@ -2974,7 +3011,7 @@ def main(argv: list[str] | None = None) -> int:
         "--index-max-gzip-bytes",
         type=int,
         default=INDEX_MAX_GZIP_BYTES,
-        help="budget dell'indice in byte gzip (default 163840 = 160 KiB)",
+        help="budget dell'indice in byte gzip (default 245760 = 240 KiB)",
     )
     ap.add_argument("--refresh-networks", action="store_true")
     ap.add_argument(

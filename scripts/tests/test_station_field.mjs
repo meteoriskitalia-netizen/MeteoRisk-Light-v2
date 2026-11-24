@@ -99,10 +99,21 @@ const FNS = [
   'stationFieldTickText', 'stationFieldGradient', 'stationFieldMeanStats',
   'stationFieldMeanReasonText', 'stationFieldReasonIt', 'stationsMeanReasons', 'stationsNullReason',
   'stationFieldScale', 'stationFieldDownscale', 'stationFieldHourText',
-  'stationFieldAggLabel', 'stationFieldAggShort', 'stationFieldStatus'
+  'stationFieldAggLabel', 'stationFieldAggShort', 'stationFieldStatus',
+  // 1.3.0.69 - fallback al file completo (tre stati del messaggio) e legenda
+  // «una etichetta per banda visibile».
+  'stationsIndexColumn', 'stationsFullColumnState', 'stationsFullFieldIndex',
+  'stationsMergeFull', 'stationFieldLegendLayout', 'stationFieldBuildLegend',
+  'stationFieldMethodChanged',
+  'stationFieldContourLevels', 'stationFieldContourSegments',
+  'stationFieldContourLabels', 'stationFieldDrawContours'
 ];
 const VARS = [
   'STATION_FIELD_K', 'STATION_FIELD_CUTOFF_KM', 'STATION_FIELD_FADE_KM', 'STATION_FIELD_SUPERSAMPLE',
+  'STATION_FIELD_FULL_K', 'STATION_FIELD_FULL_BUCKET_DEG', 'STATION_FIELD_FULL_MAX_RING',
+  'STATION_FIELD_CONTOUR', 'STATION_FIELD_CONTOUR_LABEL_MAX', 'STATION_FIELD_CONTOUR_LABEL_MIN_PX',
+  'STATION_FIELD_AGE_POLICY',
+  'stationFieldMethod',
   'STATION_FIELD_BUCKET_DEG', 'STATION_FIELD_MAX_RING', 'STATION_FIELD_MIN_COVERAGE',
   'STATION_FIELD_VARS', 'STATION_FIELD_WINDOWS', 'STATION_FIELD_FIELDS',
   'STATION_FIELD_DAILY', 'STATION_FIELD_WIND_BREAKPOINTS', 'STATION_FIELD_WIND_COLORS',
@@ -111,7 +122,8 @@ const VARS = [
   'STATION_FIELD_RH_BREAKPOINTS', 'STATION_FIELD_RH_COLORS', 'STATION_FIELD_RH_SCALE',
   'STATION_FIELD_SNOW_BREAKPOINTS', 'STATION_FIELD_SNOW_COLORS', 'STATION_FIELD_SNOW_SCALE',
   'STATIONS_MEAN_FIELDS',
-  'FM_TEMP2M_BREAKPOINTS', 'FM_TEMP2M_COLORS', 'FM_PRECIP_BREAKPOINTS', 'FM_PRECIP_COLORS'
+  'FM_TEMP2M_BREAKPOINTS', 'FM_TEMP2M_COLORS', 'FM_PRECIP_BREAKPOINTS', 'FM_PRECIP_COLORS',
+  'stationsFull', 'stationsFullLoading', 'stationsFullFailedAt', 'stationsFullMergedInto'
 ];
 
 // ---- DOM minimo: solo i due select e il div della nota servono a syncControls ----
@@ -137,7 +149,21 @@ const ctxObj = {
   stationFieldWindow: '1h',
   stationFieldLastStats: null,
   stationsAttributionLine: () => 'Dati centraline: CC BY 4.0',
-  fmtNum: (v, d) => Number(v).toFixed(d)
+  // 1.3.0.69 - orologio deterministico per il test: la pagina usa
+  // toLocaleTimeString('it-IT') (ora LOCALE), qui si formatta in UTC per non far
+  // dipendere l'assert dal fuso del host.
+  stationsClock: function (t) {
+    var d = new Date(t);
+    return String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0');
+  },
+  fmtNum: (v, d) => Number(v).toFixed(d),
+  // 1.3.0.69 - il fallback al file completo e il redraw sono STUB espliciti: il
+  // test verifica la DECISIONE (tre stati del messaggio + chiamata al
+  // caricamento), non la rete. Il caricamento reale e' verificato nel browser.
+  stationsEnsureFull: function () { ctxObj.__fullCalls++; return Promise.resolve(null); },
+  __fullCalls: 0,
+  stationsRedraw: function () { },
+  fetchWithTimeout: function () { return new Promise(function () { }); }
 };
 
 let code;
@@ -374,15 +400,16 @@ ok('stationFieldScale risolve le due scale nuove (fuori dal blocco MAPPE, che re
 ok('legenda dedicata per umidità e neve (intervalli e tacche)',
   ctxObj.STATION_FIELD_LEGEND.station_relative_humidity.hi === 100 &&
   ctxObj.STATION_FIELD_LEGEND.station_snow_cm.hi === 300);
-// ESCLUSIONI DICHIARATE NEL SELETTORE (non silenziose).
-ok('direzione del vento esclusa con motivo (angolo, IDW errato)',
-  /value="windDir" disabled title="[^"]*angolo[^"]*IDW[^"]*"/.test(src));
-ok('pressione di stazione esclusa con motivo (dipende dalla quota, non MSL)',
-  /value="pStation" disabled title="[^"]*(quota)[^"]*"/.test(src));
-ok('livello idrico escluso con motivo (zero idrometrico eterogeneo)',
-  /value="riverLevel" disabled title="[^"]*idrometrico[^"]*eterogenei[^"]*"/.test(src));
-ok('riga dedicata con le tre esclusioni nel blocco del campo',
-  /id="live-stationfield-excluded"/.test(src));
+// 1.3.0.69 - LE TRE VOCI NON INTERPOLABILI SONO STATE RIMOSSE dal selettore (non
+// disabilitate) e la riga #live-stationfield-excluded non esiste piu': la
+// dichiarazione vive nella scheda Fonti e metodologie (verificata nella sezione H).
+ok('nessuna opzione non interpolabile nel selettore del CAMPO (#stationfield-var)',
+  (function () {
+    var a = src.indexOf('id="stationfield-var"');
+    var b = src.indexOf('</select>', a);
+    var block = src.slice(a, b);
+    return !/value="(windDir|pStation|riverLevel)"/.test(block);
+  })());
 
 console.log('\nD4. MASSIMA, MINIMA E GIORNATA (tmax/tmin/day) DAL BLOB GIORNALIERO');
 const nowD4 = Date.parse('2026-11-23T18:00:00Z');
@@ -701,6 +728,9 @@ const vmMs = Number(process.hrtime.bigint() - t0) / 1e6;
 // inline cache. Il numero di riferimento della release e' questo.
 const benchRaster = new Function('var stationsDaily=null;var STATIONS_MAX_OBS_AGE_MIN=90;\n' +
   code + '\nreturn stationFieldRaster;')();
+// 1.3.0.69 - le isolinee si misurano con lo stesso criterio (realm normale).
+const benchDrawContours = new Function('var stationsDaily=null;var STATIONS_MAX_OBS_AGE_MIN=90;\n' +
+  code + '\nreturn stationFieldDrawContours;')();
 benchRaster(bigPts, T_SCALE, bigFrame, maskAll);          // warmup
 let best = Infinity;
 for (let i = 0; i < 3; i++) {
@@ -713,9 +743,16 @@ for (let la = 37; la < 47.5; la += 0.19) {
   for (let lo = 7; lo < 18.6; lo += 0.19) realish.push({ lat: la, lon: lo, v: 10 + (la - 37) });
 }
 benchRaster(realish, T_SCALE, bigFrame, maskAll);
-const a2 = process.hrtime.bigint();
-benchRaster(realish, T_SCALE, bigFrame, maskAll);
-const realMs = Number(process.hrtime.bigint() - a2) / 1e6;
+// MISURA ROBUSTA: minimo di 3 run, lo stesso criterio gia' usato due righe sopra
+// per bigPts. Una singola misura su un host con altri processi oscilla di 2-3x
+// (misurato: 129 / 284 / 339 ms sullo stesso codice): il minimo misura il costo
+// del raster, non lo scheduler.
+let realMs = Infinity;
+for (let i = 0; i < 3; i++) {
+  const a2 = process.hrtime.bigint();
+  benchRaster(realish, T_SCALE, bigFrame, maskAll);
+  realMs = Math.min(realMs, Number(process.hrtime.bigint() - a2) / 1e6);
+}
 console.log('    punti=' + bigPts.length + ' dipinti=' + big.painted +
   ' · vm(contextificato)=' + vmMs.toFixed(0) + ' ms' +
   ' · realm normale=' + best.toFixed(0) + ' ms');
@@ -749,7 +786,16 @@ ok('il wrap non viene nascosto da nessuna parte (display none assente sul wrap)'
 ok('title del selettore finestra: dichiara la MEDIA per temperatura/umidita/rugiada/vento',
   /id="stationfield-window"[^>]*title="[^"]*MEDIA[^"]*"/.test(src));
 ok('nel blocco del campo non compare piu "non si applica"',
-  !/non si applica/i.test(src.slice(src.indexOf('id="live-stationfield-box"'), src.indexOf('id="live-stationfield-excluded"') + 400)));
+  !/non si applica/i.test(src.slice(src.indexOf('id="live-stationfield-box"'), src.indexOf('id="live-doppler-box"'))));
+// 1.3.0.69 - le tre opzioni non interpolabili sono state RIMOSSE (non
+// disabilitate) e la riga dichiarativa #live-stationfield-excluded non esiste
+// piu': la dichiarazione vive nella scheda Fonti e metodologie.
+ok('selettore variabile: 9 opzioni, nessuna non-interpolabile',
+  (src.slice(src.indexOf('id="stationfield-var"'), src.indexOf('</select>', src.indexOf('id="stationfield-var"'))).match(/<option /g) || []).length === 9);
+ok('#live-stationfield-excluded non esiste piu nel markup',
+  !/id="live-stationfield-excluded"/.test(src));
+ok('dichiarazione delle non interpolabili nella scheda Fonti',
+  /Non sono interpolate<\/b>: direzione del vento/.test(src));
 ok('imageOverlay nel pane dedicato con opacity 0,85 e interactive false',
   /L\.imageOverlay\(url, bounds, \{\s*\n?\s*pane: 'stationFieldPane', opacity: 0\.85, interactive: false/.test(src));
 ok('nessun click handler sul campo (pointerEvents none + interactive false)',
@@ -768,6 +814,452 @@ ok('la finestra 6/24 h non viene mai letta da latest.json',
 ok('versione client dichiarata e coerente col nome del file',
   APP_FILE === '' || new RegExp("APP_VERSION = '" + APP_FILE.replace(/^mri-light-|\.html$/g, '').replace(/\./g, '\\.') + "'").test(src),
   path.basename(htmlPath));
+
+// --------------------------------------------------------------------------
+// 1.3.0.69 - I. TRE STATI DEL MESSAGGIO + FALLBACK AL FILE COMPLETO
+// Il difetto misurato: `rain_3h_mm` non era una colonna dell'indice e il client
+// scriveva «non pubblicata dal server» con 3.827 stazioni che avevano il valore
+// in latest.json. Qui si verificano le TRE risposte e il merge.
+// --------------------------------------------------------------------------
+console.log('\nI. Tre stati del messaggio e fallback a latest.json');
+// (b) colonna assente dall'indice, file completo NON ancora caricato
+ctxObj.stationsData = {
+  stations: [{ id: 'A', temperature_2m: 9.8 }],
+  meta: { compact: true, stationFields: ['id', 'lat', 'lon', 'temperature_2m'] }
+};
+ctxObj.stationsFull = null;
+ctxObj.stationsFullFailedAt = 0;
+ctxObj.stationsFullMergedInto = null;
+const callsBefore = ctxObj.__fullCalls;
+const specB = ctxObj.stationFieldSpec('rain', '3h');
+ok('(b) colonna assente dall indice: stato «carico i valori completi (latest.json)»',
+  specB.available === true && specB.fullPending === true &&
+  /carico i valori completi/.test(specB.note), specB.note);
+ok('(b) il caricamento del file completo viene CHIESTO (una volta per spec)',
+  ctxObj.__fullCalls === callsBefore + 1, 'chiamate=' + ctxObj.__fullCalls);
+ok('(b) il messaggio vecchio «non è pubblicata dal server» NON compare',
+  !/non è pubblicata dal server/.test(specB.note || ''));
+
+// (a) colonna assente anche dal file completo -> «non pubblicata dal server»
+// `stationsFullFieldIndex` legge `meta.rawFields` (le colonne del file): si
+// costruisce un normalizzato MINIMO con la stessa forma di stationsNormalize.
+ctxObj.stationsFull = ctxObj.stationsFullFieldIndex({
+  stations: [{ id: 'A', temperature_2m: 9.8 }],
+  meta: { compact: false, rawFields: { id: true, temperature_2m: true }, rawValues: { temperature_2m: 1 } }
+});
+ctxObj.stationsFullMergedInto = ctxObj.stationsData;   // niente merge in questo caso
+const specA = ctxObj.stationFieldSpec('rain', '3h');
+ok('(a) campo assente da indice E da latest: «non è pubblicata dal server» con il nome del campo',
+  specA.available === false && /non è pubblicata dal server/.test(specA.reason) &&
+  /rain_3h_mm/.test(specA.reason), specA.reason);
+ok('(a) la nota dice anche che il campo manca da latest.json (motivo, non scusa)',
+  /assente anche in latest\.json/.test(specA.reason));
+
+// (c) colonna presente nel file completo ma nessun valore
+ctxObj.stationsFull = ctxObj.stationsFullFieldIndex({
+  stations: [{ id: 'A', rain_3h_mm: null }],
+  meta: { compact: false, rawFields: { id: true, rain_3h_mm: true }, rawValues: {} }
+});
+const specC = ctxObj.stationFieldSpec('rain', '3h');
+ok('(c) campo pubblicato ma senza valori: lo stato lo dice («pubblicato dal server ma nessuna stazione»)',
+  specC.available === false && /è pubblicato dal server ma nessuna stazione/.test(specC.reason), specC.reason);
+
+// MERGE: il file completo riempie SOLO le chiavi assenti
+ctxObj.stationsData = {
+  stations: [{ id: 'A', rain1h: 1.2 }],
+  meta: { compact: true, stationFields: ['id', 'rain_1h_mm'] }
+};
+ctxObj.stationsFull = ctxObj.stationsFullFieldIndex({
+  stations: [{ id: 'A', rain1h: 9.9, rain3h: 4.4 }],
+  meta: { compact: false, rawFields: { id: true, rain_1h_mm: true, rain_3h_mm: true }, rawValues: { rain_1h_mm: 1, rain_3h_mm: 1 } }
+});
+ctxObj.stationsFullMergedInto = null;
+ctxObj.stationFieldMeanCache = { forData: null, byKey: {} };
+const filled = ctxObj.stationsMergeFull();
+ok('merge: la chiave assente arriva dal file completo (rain3h = 4,4)',
+  ctxObj.stationsData.stations[0].rain3h === 4.4, 'riempiti=' + filled);
+ok('merge: un valore GIA presente nell indice NON viene sovrascritto (rain1h resta 1,2)',
+  ctxObj.stationsData.stations[0].rain1h === 1.2, String(ctxObj.stationsData.stations[0].rain1h));
+const specAfterMerge = ctxObj.stationFieldSpec('rain', '3h');
+ok('dopo il merge il campo è disponibile e legge lo STESSO record',
+  specAfterMerge.available === true && specAfterMerge.fullPending !== true &&
+  ctxObj.stationsData.stations[0][specAfterMerge.field] === 4.4, specAfterMerge.field);
+
+// Il file completo NON serve quando la colonna c'è: nessuna richiesta di rete.
+ctxObj.stationsFull = null;
+ctxObj.stationsFullMergedInto = null;
+ctxObj.stationsData = {
+  stations: [{ id: 'A', rain3h: 2.2 }],
+  meta: { compact: true, stationFields: ['id', 'rain_3h_mm'] }
+};
+const callsBefore2 = ctxObj.__fullCalls;
+const specCol = ctxObj.stationFieldSpec('rain', '3h');
+ok('colonna presente nell indice: disponibile senza caricare latest.json',
+  specCol.available === true && specCol.field === 'rain3h' && ctxObj.__fullCalls === callsBefore2);
+
+// --------------------------------------------------------------------------
+// 1.3.0.69 - J. NEVE: GLI ZERI NON SI DISEGNANO (e SOLO per la neve)
+// --------------------------------------------------------------------------
+console.log('\nJ. Neve: gli zeri non si disegnano, gli altri campi non si toccano');
+const nowS = Date.parse('2026-11-23T18:00:00Z');
+const stsSnow = [
+  { id: 'S1', lat: 45.0, lon: 9.0, time: nowS - 5 * 60000, snowDepthCm: 0 },
+  { id: 'S2', lat: 45.1, lon: 9.0, time: nowS - 5 * 60000, snowDepthCm: 0 },
+  { id: 'S3', lat: 45.2, lon: 9.0, time: nowS - 5 * 60000, snowDepthCm: 12 }
+];
+ctxObj.stationsData = { stations: stsSnow, meta: { compact: false } };
+ctxObj.stationsFull = null;
+const specSnowJ = ctxObj.stationFieldSpec('snow', '1h');
+const colSnowZero = ctxObj.stationFieldCollect(stsSnow.slice(0, 2), specSnowJ, nowS);
+ok('neve, tutte a 0: NESSUN punto disegnato e 2 escluse perché zero',
+  colSnowZero.points.length === 0 && colSnowZero.withValue === 2 && colSnowZero.zeroExcluded === 2,
+  'punti=' + colSnowZero.points.length + ' zero=' + colSnowZero.zeroExcluded);
+const colSnowSome = ctxObj.stationFieldCollect(stsSnow, specSnowJ, nowS);
+ok('neve, alcune > 0: si disegna SOLO quella (1 su 3) e le 2 a zero sono contate',
+  colSnowSome.points.length === 1 && colSnowSome.points[0].v === 12 && colSnowSome.zeroExcluded === 2);
+ctxObj.stationFieldVar = 'snow';
+ctxObj.stationFieldWindow = '1h';
+ctxObj.stationsData = { stations: stsSnow.slice(0, 2), meta: { compact: false } };
+ctxObj.stationFieldLastStats = colSnowZero;
+ctxObj.stationFieldStatus();
+const txtSnow = els['live-stationfield-status'].textContent;
+ok('stato con tutte a 0: «nessuna stazione con neve al suolo al momento (2 stazioni con il campo, tutte a 0 cm)»',
+  /nessuna stazione con neve al suolo al momento \(2 stazioni con il campo, tutte a 0 cm\)/.test(txtSnow), txtSnow);
+ok('la riga di metodo dichiara il filtro degli zeri della neve',
+  /Neve al suolo: si disegnano SOLO le stazioni con spessore > 0 cm/.test(els['live-stationfield-method'].textContent));
+ctxObj.stationFieldLastStats = colSnowSome;
+ctxObj.stationsData = { stations: stsSnow, meta: { compact: false } };
+ctxObj.stationFieldStatus();
+ok('stato con 1 stazione > 0: conta anche le 2 a zero non disegnate',
+  /1 stazioni usate su 3 con il valore/.test(els['live-stationfield-status'].textContent) &&
+  /2 stazioni a 0 cm non disegnate/.test(els['live-stationfield-status'].textContent),
+  els['live-stationfield-status'].textContent);
+
+// PI OGGIA: lo 0 resta un valore reale (nessun filtro)
+ctxObj.stationFieldVar = 'rain';
+ctxObj.stationFieldWindow = '1h';
+const specRain0 = ctxObj.stationFieldSpec('rain', '1h');
+const colRain0 = ctxObj.stationFieldCollect([
+  { id: 'R1', lat: 45.0, lon: 9.0, time: nowS - 60000, rain1h: 0 },
+  { id: 'R2', lat: 45.1, lon: 9.0, time: nowS - 60000, rain1h: 2.4 }
+], specRain0, nowS);
+ok('pioggia: lo 0 è un valore reale, i punti sono 2 su 2 (nessun filtro)',
+  colRain0.points.length === 2 && colRain0.zeroExcluded === 0);
+const specWind0 = ctxObj.stationFieldSpec('wind', '1h');
+const colWind0 = ctxObj.stationFieldCollect([
+  { id: 'W1', lat: 45.0, lon: 9.0, time: nowS - 60000, windMean1h: 0 }
+], specWind0, nowS);
+ok('vento: lo 0 resta un valore reale (1 punto, nessun filtro)',
+  colWind0.points.length === 1 && colWind0.zeroExcluded === 0);
+
+// --------------------------------------------------------------------------
+// 1.3.0.69 - K. LEGENDA: UNA ETICHETTA PER BANDA VISIBILE
+// --------------------------------------------------------------------------
+console.log('\nK. Legenda: una etichetta per banda visibile (non 6 tacche fisse)');
+const specLegend = ctxObj.stationFieldSpec('temp', '1h');
+const lgFixed = ctxObj.stationFieldLegendLayout(specLegend, { vMin: null, vMax: null });
+const lgData = ctxObj.stationFieldLegendLayout(specLegend, { vMin: 2.1, vMax: 26.7 });
+ok('senza dati: intervallo dichiarato -25..+40 con le tacche fisse',
+  lgFixed.lo === -25 && lgFixed.hi === 40 && lgFixed.fromData === false);
+ok('con dati 2,1..26,7 l intervallo si stringe sul range reale',
+  lgData.fromData === true && lgData.lo <= 2.1 && lgData.hi >= 26.7 &&
+  (lgData.hi - lgData.lo) < 65, lgData.lo + '..' + lgData.hi);
+ok('le etichette sono PIU di 6 (prima erano 6 tacche fisse)',
+  lgData.values.length > 6, lgData.values.length + ' etichette');
+ok('minimo e massimo REALI dei dati sono fra le etichette',
+  lgData.values.indexOf(2.1) >= 0 && lgData.values.indexOf(26.7) >= 0,
+  JSON.stringify(lgData.values));
+ok('lo 0 NON compare quando l intervallo parte da 2 (non e nel range)', lgData.values.indexOf(0) < 0);
+// ... e con dati che attraversano lo zero, lo 0 DEVE esserci
+const lgZero = ctxObj.stationFieldLegendLayout(specLegend, { vMin: -3.4, vMax: 12.1 });
+ok('dati -3,4..12,1: lo 0 e fra le etichette', lgZero.values.indexOf(0) >= 0, JSON.stringify(lgZero.values));
+ok('tante etichette -> ruotate di 90° (non rimosse)',
+  lgData.rotated === true && lgData.step === 1);
+// Barra STRETTA: si deve ridurre il numero di etichette DICHIARANDOLO.
+el('live-stationfield-scale').clientWidth = 90;
+const lgNarrow = ctxObj.stationFieldLegendLayout(specLegend, { vMin: 2.1, vMax: 26.7 });
+ok('barra da 90 px: le etichette si diradano (step > 1) invece di sovrapporsi',
+  lgNarrow.step > 1 && lgNarrow.values.length < lgData.values.length,
+  'step=' + lgNarrow.step + ' etichette=' + lgNarrow.values.length);
+ok('con il diradamento restano minimo e massimo',
+  lgNarrow.values.indexOf(2.1) >= 0 && lgNarrow.values.indexOf(26.7) >= 0,
+  JSON.stringify(lgNarrow.values));
+el('live-stationfield-scale').clientWidth = 0;
+ctxObj.stationFieldBuildLegend(specLegend, { vMin: 2.1, vMax: 26.7 });
+const lgHtml = els['live-stationfield-scale-labels'].innerHTML;
+const nSpans = (lgHtml.match(/<span/g) || []).length;
+ok('la legenda DOM contiene UNA etichetta per ogni valore (non 6 fisse)',
+  nSpans === lgData.values.length, nSpans + ' span vs ' + lgData.values.length);
+ok('etichette ruotate con writing-mode (leggibili senza sovrapporsi)',
+  /writing-mode:vertical-rl/.test(lgHtml));
+ok('altezza dell area etichette portata a 34 px per il testo ruotato',
+  els['live-stationfield-scale-labels'].style.height === '34px');
+// Range stretto: poche bande -> etichette orizzontali, nessun diradamento
+const lgTight = ctxObj.stationFieldLegendLayout(specLegend, { vMin: 10, vMax: 10.4 });
+ok('range stretto (10..10,4): poche etichette e orientamento orizzontale',
+  lgTight.values.length <= 7 && lgTight.rotated === false, lgTight.values.length + ' etichette');
+
+// --------------------------------------------------------------------------
+// 1.3.0.69 - L. DUE METODI DI INTERPOLAZIONE (local = buchi, full = nessun buco)
+// --------------------------------------------------------------------------
+console.log('\nL. Metodi di interpolazione: local (buchi) contro full (copertura)');
+const frameL = makeFrame(36.0, 48.0, 6.0, 19.0, 256, 227);
+const maskLand = new Uint8Array(256 * 227).fill(255);
+const sparse = [];
+for (let la = 37.2; la < 47.4; la += 1.35) {
+  for (let lo = 7.2; lo < 18.4; lo += 1.35) sparse.push({ lat: la, lon: lo, v: 8 + (la - 37) });
+}
+const rLocal = ctxObj.stationFieldRaster(sparse, T_SCALE, frameL, maskLand, 1, 'local');
+const rFull = ctxObj.stationFieldRaster(sparse, T_SCALE, frameL, maskLand, 1, 'full');
+ok('local: la mappa ha BUCHI (pixel trasparenti sulla terra)',
+  rLocal.painted < 256 * 227, 'dipinti ' + rLocal.painted + '/' + (256 * 227));
+ok('full: ZERO buchi sulla terra (ogni pixel di terra dipinto)',
+  rFull.painted === 256 * 227, 'dipinti ' + rFull.painted + '/' + (256 * 227));
+ok('full: k=16, celle a 1°, nessun cutoff (dichiarati)',
+  ctxObj.STATION_FIELD_FULL_K === 16 && ctxObj.STATION_FIELD_FULL_BUCKET_DEG === 1 &&
+  ctxObj.STATION_FIELD_FULL_MAX_RING === 24);
+ok('full: alfa pieno 235 anche lontano dalle stazioni (nessun fade)',
+  (() => { for (let i = 0; i < rFull.alphas.length; i++) if (rFull.alphas[i] !== 235) return false; return true; })());
+ok('full: distanza al vicino più prossimo MISURATA (min <= mediana <= max)',
+  rFull.full && rFull.full.dminKm <= rFull.full.dmedianKm &&
+  rFull.full.dmedianKm <= rFull.full.dmaxKm && rFull.full.dmaxKm > 0,
+  'min ' + rFull.full.dminKm + ' / mediana ' + rFull.full.dmedianKm + ' / max ' + rFull.full.dmaxKm + ' km');
+ok('full: la terra contata e quella dipinta coincidono (0% buchi)',
+  rFull.full.landPixels === rFull.full.paintedPixels, rFull.full.paintedPixels + '/' + rFull.full.landPixels);
+// COSTO (realm normale, come per il raster locale)
+benchRaster(sparse, T_SCALE, frameL, maskLand, 1, 'full');   // warmup
+let fullBest = Infinity;
+for (let i = 0; i < 3; i++) {
+  const a = process.hrtime.bigint();
+  benchRaster(sparse, T_SCALE, frameL, maskLand, 1, 'full');
+  fullBest = Math.min(fullBest, Number(process.hrtime.bigint() - a) / 1e6);
+}
+ok('full: costo nel realm normale sotto 400 ms', fullBest < 400, fullBest.toFixed(0) + ' ms');
+console.log('    full: ' + sparse.length + ' punti, ' + rFull.painted + ' pixel -> ' + fullBest.toFixed(0) + ' ms');
+// LEGENDA della modalità full
+ctxObj.stationFieldVar = 'temp';
+ctxObj.stationFieldWindow = '1h';
+ctxObj.stationFieldMethod = 'full';
+ctxObj.stationsData = { stations: [{ id: 'A', lat: 45, lon: 9, time: nowS - 60000, tempMean1h: 9 }], meta: {} };
+ctxObj.stationFieldLastStats = {
+  total: 5, withValue: 4, used: 4, tooOld: 0, excludedCoverage: 0, coverageSum: 0, coverageN: 0,
+  partialWindow: 0, partialDay: 0, reasons: {}, missingNoReason: 0, zeroExcluded: 0,
+  method: 'full', full: { landPixels: 58112, paintedPixels: 58112, dminKm: 2.1, dmedianKm: 18.4, dmaxKm: 95.2 }
+};
+ctxObj.stationFieldStatus();
+const txtFull = els['live-stationfield-status'].textContent;
+ok('legenda full: riga di INFERENZA esplicita',
+  /copertura interpolata: dove non ci sono stazioni vicine il valore è un'inferenza, non una misura/.test(txtFull), txtFull);
+ok('legenda full: distanza mediana/min/max al vicino piu prossimo',
+  /mediana 18\.4 km, minima 2\.1 km, massima 95\.2 km/.test(txtFull));
+ok('legenda full: quota di terra dipinta (100%)',
+  /100% della terra dipinta/.test(txtFull));
+ok('riga di metodo: dichiara k=16 e «senza raggio limite»',
+  /k=16, senza raggio limite/.test(els['live-stationfield-method'].textContent));
+ok('selettore #stationfield-method con 3 opzioni e title',
+  /id="stationfield-method"[^>]*title="[^"]{6,}"/.test(src) &&
+  (src.slice(src.indexOf('id="stationfield-method"'), src.indexOf('</select>', src.indexOf('id="stationfield-method"'))).match(/<option /g) || []).length === 3);
+ctxObj.stationFieldMethodChanged('full');
+ok('stationFieldMethodChanged("full") aggiorna lo stato', ctxObj.stationFieldMethod === 'full');
+ctxObj.stationFieldMethodChanged('boh');
+ok('un valore non valido ricade su local (nessuna eccezione)', ctxObj.stationFieldMethod === 'local');
+
+// --------------------------------------------------------------------------
+// 1.3.0.69 - M. ISOLINEE (metodo `contour`)
+// --------------------------------------------------------------------------
+console.log('\nM. Isolinee: livelli per variabile, nessuna linea sul mare, etichette');
+const lvTemp = ctxObj.stationFieldContourLevels('temp', { vMin: -1.2, vMax: 31.4 });
+ok('temperatura: valori = 0,5,10,15,20,25,30 con marcati 0/10/20/30',
+  lvTemp.map((l) => l.v).join(',') === '0,5,10,15,20,25,30' &&
+  lvTemp.filter((l) => l.major).map((l) => l.v).join(',') === '0,10,20,30',
+  lvTemp.map((l) => l.v + (l.major ? '*' : '')).join(' '));
+const lvRh = ctxObj.stationFieldContourLevels('rh', { vMin: 15, vMax: 88 });
+ok('umidita: livelli ogni 10 %, marcati ogni 20 (20/40/60/80)',
+  lvRh.map((l) => l.v).join(',') === '20,30,40,50,60,70,80' &&
+  lvRh.filter((l) => l.major).map((l) => l.v).join(',') === '20,40,60,80',
+  lvRh.map((l) => l.v + (l.major ? '*' : '')).join(' '));
+const lvRain = ctxObj.stationFieldContourLevels('rain', { vMin: 0.2, vMax: 60 });
+ok('pioggia: livelli 1,5,10,25,50 (marcati 1/10/50)',
+  lvRain.map((l) => l.v).join(',') === '1,5,10,25,50' &&
+  lvRain.filter((l) => l.major).map((l) => l.v).join(',') === '1,10,50');
+const lvWind = ctxObj.stationFieldContourLevels('wind', { vMin: 0, vMax: 30 });
+ok('vento: livelli 5,10,15,20,25 (marcati 10/20)',
+  lvWind.map((l) => l.v).join(',') === '5,10,15,20,25' &&
+  lvWind.filter((l) => l.major).map((l) => l.v).join(',') === '10,20');
+const lvSnow = ctxObj.stationFieldContourLevels('snow', { vMin: 1, vMax: 60 });
+ok('neve: livelli 5,10,25,50 (marcati 10/50)',
+  lvSnow.map((l) => l.v).join(',') === '5,10,25,50' &&
+  lvSnow.filter((l) => l.major).map((l) => l.v).join(',') === '10,50');
+ok('livelli fuori dal range dei dati NON compaiono (nessun livello inventato)',
+  ctxObj.stationFieldContourLevels('rain', { vMin: 2, vMax: 4 }).map((l) => l.v).join(',') === '');
+ok('senza dati: nessun livello', ctxObj.stationFieldContourLevels('temp', { vMin: null, vMax: null }).length === 0);
+
+// Matrice dei valori: campo sintetico con gradiente in latitudine
+const Wm = 40, Hm = 30;
+const vals = new Float32Array(Wm * Hm);
+const alph = new Uint8Array(Wm * Hm);
+for (let y = 0; y < Hm; y++) {
+  for (let x = 0; x < Wm; x++) {
+    vals[y * Wm + x] = 30 - y;                 // 30 in alto, 1 in basso
+    alph[y * Wm + x] = (x < Wm / 2) ? 0 : 235; // meta' sinistra = MARE
+  }
+}
+const segs10 = ctxObj.stationFieldContourSegments(vals, alph, Wm, Hm, 10);
+ok('marching squares sul gradiente: 1 segmento per colonna di TERRA (19 su 40 colonne)',
+  segs10.length === (Wm - Wm / 2 - 1), segs10.length + ' segmenti');
+ok('nessuna linea sul MARE: tutti i segmenti nella meta destra',
+  segs10.every((s) => s[0][0] >= Wm / 2 - 1 && s[1][0] >= Wm / 2 - 1));
+const segsOut = ctxObj.stationFieldContourSegments(vals, alph, Wm, Hm, 100);
+ok('livello fuori dal range dei valori: zero segmenti', segsOut.length === 0);
+// Etichette: al massimo 5 per livello e distanti almeno 45 px
+const byLevel = [segs10.map((s) => [[s[0][0], s[0][1]], [s[1][0], s[1][1]]])];
+const labelsM = ctxObj.stationFieldContourLabels([{ v: 10, major: true }], byLevel);
+ok('etichette solo sui livelli marcati, al massimo 5', labelsM.length > 0 && labelsM.length <= 5, labelsM.length + ' etichette');
+ok('due etichette non sono mai piu vicine di 45 px',
+  (() => {
+    for (let i = 0; i < labelsM.length; i++) {
+      for (let j = i + 1; j < labelsM.length; j++) {
+        const dx = labelsM[i].x - labelsM[j].x, dy = labelsM[i].y - labelsM[j].y;
+        if (Math.sqrt(dx * dx + dy * dy) < 45) return false;
+      }
+    }
+    return true;
+  })());
+// Il metodO contour disegna anche il campo (nessun buco) e produce i valori
+const rContour = ctxObj.stationFieldRaster(sparse, T_SCALE, frameL, maskLand, 1, 'contour');
+ok('contour: matrice dei VALORI presente e della stessa dimensione del raster',
+  rContour.values && rContour.values.length === frameL.W * frameL.H,
+  rContour.values ? rContour.values.length + ' valori' : 'assente');
+ok('contour: nessun buco sulla terra (come full)', rContour.painted === frameL.W * frameL.H);
+ok('contour: metodo registrato nel risultato', rContour.method === 'contour');
+// Costo: contour = full + isolinee; limite dichiarato 600 ms (realm normale)
+const noopCtx = new Proxy({}, { get: () => () => { }, set: () => true });
+benchRaster(sparse, T_SCALE, frameL, maskLand, 1, 'contour');   // warmup
+let contourBest = Infinity;
+let contourInfo = null;
+for (let i = 0; i < 2; i++) {
+  const a = process.hrtime.bigint();
+  const rr = benchRaster(sparse, T_SCALE, frameL, maskLand, 1, 'contour');
+  contourBest = Math.min(contourBest, Number(process.hrtime.bigint() - a) / 1e6);
+  contourInfo = rr;
+}
+// tempo REALE con il disegno delle isolinee (ctx finto, nessun canvas)
+const drawT0 = process.hrtime.bigint();
+const drawInfo = benchDrawContours(noopCtx, contourInfo.values, contourInfo.alphas,
+  contourInfo.W, contourInfo.H, 'temp', { vMin: 2, vMax: 20 }, '°C');
+const drawMs = Number(process.hrtime.bigint() - drawT0) / 1e6;
+ok('contour: isolinee calcolate e disegnate con etichette', drawInfo.segs > 0 && drawInfo.labels > 0,
+  drawInfo.levels + ' livelli, ' + drawInfo.segs + ' segmenti, ' + drawInfo.labels + ' etichette');
+ok('contour: costo totale (raster + isolinee) sotto 600 ms', contourBest + drawMs < 600,
+  (contourBest + drawMs).toFixed(0) + ' ms (raster ' + contourBest.toFixed(0) + ' + isolinee ' + drawMs.toFixed(0) + ')');
+console.log('    contour: ' + sparse.length + ' punti -> raster ' + contourBest.toFixed(0) + ' ms + isolinee ' +
+  drawMs.toFixed(0) + ' ms (' + drawInfo.segs + ' segmenti, ' + drawInfo.labels + ' etichette)');
+// Legenda contour
+ctxObj.stationFieldMethod = 'contour';
+ctxObj.stationFieldLastStats = {
+  total: 5, withValue: 4, used: 4, tooOld: 0, excludedCoverage: 0, coverageSum: 0, coverageN: 0,
+  partialWindow: 0, partialDay: 0, reasons: {}, missingNoReason: 0, zeroExcluded: 0,
+  method: 'contour', full: { landPixels: 58112, paintedPixels: 58112, dminKm: 2.1, dmedianKm: 18.4, dmaxKm: 95.2 },
+  contour: drawInfo
+};
+ctxObj.stationFieldStatus();
+const txtContour = els['live-stationfield-status'].textContent;
+ok('legenda contour: passo dichiarato «ogni 5 °C» e marcati',
+  /isolinee ogni 5 °C; in grassetto i valori 0, 10, 20/.test(txtContour), txtContour);
+ok('legenda contour: conteggio reale di livelli/segmenti/etichette',
+  /livelli, \d+ segmenti, \d+ etichette/.test(txtContour));
+ok('legenda contour: contiene anche la riga di inferenza del campo',
+  /copertura interpolata: dove non ci sono stazioni vicine il valore è un'inferenza/.test(txtContour));
+ctxObj.stationFieldMethod = 'local';
+
+// --------------------------------------------------------------------------
+// 1.3.0.69 - N. PESO TEMPORALE PER VARIABILE, FINESTRA vs FRESCHEZZA, INVARIANTE
+// --------------------------------------------------------------------------
+console.log('\nN. Peso temporale: eta max e decadimento per variabile');
+const nowN = Date.parse('2026-11-24T18:00:00Z');
+const stsN = [
+  { id: 'F1', lat: 45.0, lon: 9.0, time: nowN - 10 * 60000, tempMean1h: 12.5, tempWindowEnd: '2026-11-24T17:55:00Z' },
+  { id: 'F2', lat: 45.1, lon: 9.0, time: nowN - 20 * 60000, tempMean1h: 13.5, tempWindowEnd: '2026-11-24T17:50:00Z' },
+  // 500 min: oltre l'eta massima della temperatura (360) -> esclusa
+  { id: 'V1', lat: 45.2, lon: 9.0, time: nowN - 500 * 60000, tempMean1h: 99 },
+  // fresca ma senza il valore
+  { id: 'M1', lat: 45.3, lon: 9.0, time: nowN - 15 * 60000 }
+];
+ctxObj.stationsData = { stations: stsN, meta: { compact: false } };
+ctxObj.stationFieldVar = 'temp';
+ctxObj.stationFieldWindow = '1h';
+const specN = ctxObj.stationFieldSpec('temp', '1h');
+const colN = ctxObj.stationFieldCollect(stsN, specN, nowN);
+ok('temperatura: la stazione a 500 min esce (eta massima 360), le fresche restano',
+  colN.tooOld === 1 && colN.withValue === 2 && colN.used === 2,
+  'tooOld=' + colN.tooOld + ' withValue=' + colN.withValue + ' used=' + colN.used);
+ok('INVARIANTE: total = tooOld + senza valore + con valore',
+  colN.total === colN.tooOld + colN.missingValue + colN.withValue,
+  colN.total + ' = ' + colN.tooOld + ' + ' + colN.missingValue + ' + ' + colN.withValue);
+ok('INVARIANTE: used = con valore - copertura insufficiente - zeri neve',
+  colN.used === colN.withValue - colN.excludedCoverage - colN.zeroExcluded);
+ok('peso temporale: una stazione a 10 min vale exp(-10/120) = 0,920',
+  Math.abs(colN.points[0].wAge - Math.exp(-10 / 120)) < 1e-12,
+  colN.points[0].wAge.toFixed(4));
+ok('ancora reale della finestra: la piu recente = 17:55',
+  colN.windowEndMax === Date.parse('2026-11-24T17:55:00Z'),
+  new Date(colN.windowEndMax).toISOString());
+ctxObj.stationFieldLastStats = colN;
+ctxObj.stationFieldStatus();
+const txtN = els['live-stationfield-status'].textContent;
+ok('riga di stato: finestra con orari REALI (dalle 16:55 alle 17:55)',
+  /finestra 1 ora \(dalle 16:55 alle 17:55, dato più recente\)/.test(txtN), txtN);
+ok('riga di stato: eta mediana delle osservazioni (15 min)',
+  /età mediana delle osservazioni: 15 min/.test(txtN));
+ok('riga di stato: peso temporale con decadimento e eta massima',
+  /peso temporale attivo \(decadimento 120 min, età massima 360 min\)/.test(txtN));
+ok('riga di stato: «1 escluse perché più vecchie»', /1 escluse perché più vecchie/.test(txtN));
+ok('title: spiega finestra vs eta e la formula del peso',
+  /La finestra dice quanti minuti\/ore di dati entrano nel valore/.test(els['live-stationfield-status'].title) &&
+  /peso exp\(-età\/120\)/.test(els['live-stationfield-status'].title));
+
+console.log('\nO. Soglie per variabile (pioggia/vento 180, temperatura 360, neve 720)');
+function wAgeOf(varKey, win, ageMin, fieldObj) {
+  const st = Object.assign({ id: 'X', lat: 45, lon: 9, time: nowN - ageMin * 60000 }, fieldObj);
+  const col = ctxObj.stationFieldCollect([st], ctxObj.stationFieldSpec(varKey, win), nowN);
+  return { col: col, p: col.points[0] || null };
+}
+const wRain150 = wAgeOf('rain', '1h', 150, { rain1h: 2 });
+ok('pioggia a 150 min: inclusa con peso exp(-150/45) = 0,0357',
+  !!wRain150.p && Math.abs(wRain150.p.wAge - Math.exp(-150 / 45)) < 1e-12,
+  wRain150.p ? wRain150.p.wAge.toFixed(5) : 'esclusa');
+ok('pioggia a 200 min: ESCLUSA (eta massima 180)', wAgeOf('rain', '1h', 200, { rain1h: 2 }).p === null);
+ok('vento a 200 min: ESCLUSO (eta massima 180)', wAgeOf('wind', '1h', 200, { windMean1h: 3 }).p === null);
+const wTemp200 = wAgeOf('temp', '1h', 200, { tempMean1h: 10 });
+ok('temperatura a 200 min: INCLUSA (eta massima 360) con peso exp(-200/120) = 0,189',
+  !!wTemp200.p && Math.abs(wTemp200.p.wAge - Math.exp(-200 / 120)) < 1e-12,
+  wTemp200.p ? wTemp200.p.wAge.toFixed(4) : 'esclusa');
+ok('temperatura a 400 min: ESCLUSA (eta massima 360)', wAgeOf('temp', '1h', 400, { tempMean1h: 10 }).p === null);
+const wSnow500 = wAgeOf('snow', '1h', 500, { snowDepthCm: 20 });
+ok('neve a 500 min: INCLUSA (eta massima 720) con peso exp(-500/240) = 0,124',
+  !!wSnow500.p && Math.abs(wSnow500.p.wAge - Math.exp(-500 / 240)) < 1e-12,
+  wSnow500.p ? wSnow500.p.wAge.toFixed(4) : 'esclusa');
+ok('neve a 800 min: ESCLUSA (eta massima 720)', wAgeOf('snow', '1h', 800, { snowDepthCm: 20 }).p === null);
+// Il peso CAMBIA il valore interpolato: due stazioni equidistanti, una fresca
+// (10 °C) e una vecchia (20 °C) -> il risultato pende verso la fresca.
+const candW = [
+  { lat: 45.0, lon: 9.0, v: 10, wAge: 1 },
+  { lat: 45.0, lon: 9.2, v: 20, wAge: Math.exp(-180 / 120) }
+];
+const idwW = ctxObj.stationFieldIdwAt(45.0, 9.1, candW, Math.cos(45 * Math.PI / 180));
+const wFresh = 1 / (8.4013 * 8.4013 + 1);
+const wOld = wFresh * Math.exp(-180 / 120);
+const wantW = (10 * wFresh + 20 * wOld) / (wFresh + wOld);
+ok('IDW con peso temporale: 14,8 °C atteso a mano (e non 15,0 senza peso)',
+  Math.abs(idwW.v - wantW) < 1e-9 && idwW.v < 15, idwW.v.toFixed(4) + ' vs ' + wantW.toFixed(4));
+ok('senza peso temporale (wAge assente) il valore resta la media 15,0',
+  Math.abs(ctxObj.stationFieldIdwAt(45.0, 9.1, [
+    { lat: 45.0, lon: 9.0, v: 10 }, { lat: 45.0, lon: 9.2, v: 20 }
+  ], Math.cos(45 * Math.PI / 180)).v - 15) < 1e-9);
+ok('policy dichiarata: pioggia/vento 180-45, temperatura 360-120, neve 720-240',
+  ctxObj.STATION_FIELD_AGE_POLICY.rain.maxMin === 180 && ctxObj.STATION_FIELD_AGE_POLICY.rain.tauMin === 45 &&
+  ctxObj.STATION_FIELD_AGE_POLICY.temp.maxMin === 360 && ctxObj.STATION_FIELD_AGE_POLICY.temp.tauMin === 120 &&
+  ctxObj.STATION_FIELD_AGE_POLICY.snow.maxMin === 720 && ctxObj.STATION_FIELD_AGE_POLICY.snow.tauMin === 240);
 
 console.log(`\nRISULTATO: ${checks} controlli, ${failures} falliti`);
 process.exit(failures ? 1 : 0);
