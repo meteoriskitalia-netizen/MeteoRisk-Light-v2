@@ -61,11 +61,16 @@ def test_gust_window_coverage_is_declared():
     assert fields["gust_max_3h_coverage_frac"] == pytest.approx(1 / 3, rel=0.01)
 
 
-def test_wind_max_3h_is_the_max_of_the_instantaneous_samples():
-    """Su 3 ore di istantanei il massimo e' il piu' alto, non la somma."""
+def test_wind_max_3h_is_not_published_anymore():
+    """1.3.0.70 - il «vento massimo medio» NON si pubblica piu'.
+
+    Della serie del vento resta la MEDIA (`wind_mean_*`); il massimo del vento e'
+    la RAFFICA (`gust_max_*`), che non cambia. Il campo `wind_max_3h_ms` non esiste
+    piu' in `fields` (verificato anche nel client: zero occorrenze di `windMax3h`).
+    """
     speed = _instant(END, [2.0] * 15 + [4.0, 6.0, 10.0])
     fields, _ = fs.build_wind_block({"254,0,0": speed}, {}, END)
-    assert fields["wind_max_3h_ms"] == pytest.approx(10.0)
+    assert "wind_max_3h_ms" not in fields
     assert fields["wind_mean_3h_ms"] is not None
     assert fields["wind_mean_3h_coverage_frac"] > 0.9
     assert fields["wind_source"] == "series"
@@ -180,17 +185,18 @@ def test_unknown_statistic_type_is_ignored_and_declared():
 # ---------------------------------------------------------------------------
 # invariante: massimo su 3 h >= ultimo valore
 # ---------------------------------------------------------------------------
-def test_max_3h_is_never_below_the_last_instantaneous_value():
-    """Il massimo su 3 h non puo' essere minore di un valore dentro la finestra.
+def test_wind_max_3h_is_never_published():
+    """1.3.0.70 - il campo del «vento massimo» non esiste piu' in nessun caso.
 
-    Caso reale del 2026-11-23 (arpafvg 45.61048,13.75263): ultimo istantaneo
-    2,9 m/s, massimo delle medie orarie 0,9. Con una serie istantanea completa
-    l'invariante regge; con una serie istantanea troppo corta il campo NON viene
-    pubblicato (non si confronta un massimo di medie con un istantaneo).
+    Il caso reale del 2026-11-23 (arpafvg 45.61048,13.75263: ultimo istantaneo
+    2,9 m/s, massimo delle medie orarie 0,9) era il motivo per cui il campo si
+    pubblicava solo da serie istantanee. Ora non si pubblica mai: il massimo del
+    vento e' la RAFFICA (`gust_max_3h_ms`), che resta invariata.
     """
     full = _instant(END, [0.5] * 15 + [0.7, 2.9, 2.9])
     fields, _ = fs.build_wind_block({"254,0,0": full}, {}, END, last_speed=2.9)
-    assert fields["wind_max_3h_ms"] >= 2.9
+    assert "wind_max_3h_ms" not in fields
+    assert fields["wind_mean_3h_ms"] is not None
 
     short = _instant(END, [0.5, 0.7, 0.9, 1.2, 2.9])
     means = [(END, 0.9), (END - timedelta(hours=1), 0.7), (END - timedelta(hours=2), 0.5)]
@@ -283,4 +289,134 @@ def test_gust_max_30m_requires_an_hourly_or_finer_maximum():
     fields, _ = fs.build_wind_block({}, {"2,0,3600": hourly}, END)
     assert fields["gust_max_30m_ms"] is None
     assert fields["gust_max_30m_null_reason"] == "series_too_coarse_for_30min"
+
+
+# ---------------------------------------------------------------------------
+# raffica STIMATA dal massimo della serie del vento
+#
+# Soglia 60 s, non 300: misurato il 2026-11-24 su 1.758 coppie stazione-ora, il
+# massimo di una serie a 10-15 min vale il 19-69% della raffica B11041 della
+# stessa stazione (Piemonte 0,22, Calabria 0,19, Campania 0,58, Bolzano 0,60,
+# Veneto 0,69, Liguria 0,67), a 60 s vale 1,24 (Puglia). Da una serie rada la
+# "stima" sbaglia di 1,4-5x: si pubblica null con il motivo.
+# ---------------------------------------------------------------------------
+def test_gust_estimate_is_the_max_of_a_one_minute_wind_series():
+    """Serie a 60 s con picco: la stima e' il MASSIMO, non la media.
+
+    Il picco e' l'ULTIMO campione (ref = END): il suo intervallo ha durata zero
+    (`_instant_intervals` non inventa futuro) e `_window_max` lo scarterebbe.
+    La stima legge i `ref`, quindi lo vede.
+    """
+    speed = _instant(END, [2.0] * 180 + [13.0], step_minutes=1)
+    fields, _ = fs.build_wind_block({"254,0,0": speed}, {}, END)
+    assert fields["gust_est_1h_ms"] == pytest.approx(13.0)
+    assert fields["gust_est_3h_ms"] == pytest.approx(13.0)
+    assert fields["gust_est_period_s"] == 60
+    assert fields["gust_est_source"] == "max_of_wind_series"
+    assert fields["gust_est_1h_coverage_frac"] > 0.9
+    # la media della stessa finestra e' 2,0: la stima non e' una media
+    assert fields["gust_est_1h_ms"] > fields["wind_mean_1h_ms"]
+
+
+def test_gust_estimate_is_null_when_the_series_is_not_one_minute():
+    """Serie a 900 s: null con `series_too_coarse_for_gust_estimate`."""
+    speed = _instant(END, [2.0] * 13, step_minutes=15)
+    fields, _ = fs.build_wind_block({"254,0,0": speed}, {}, END)
+    assert fields["gust_est_1h_ms"] is None
+    assert fields["gust_est_1h_null_reason"] == "series_too_coarse_for_gust_estimate"
+    assert fields["gust_est_3h_ms"] is None
+    assert fields["gust_est_3h_null_reason"] == "series_too_coarse_for_gust_estimate"
+    assert "gust_est_period_s" not in fields
+    assert "gust_est_source" not in fields
+    # la MEDIA resta calcolabile: la soglia e' della stima, non del vento
+    assert fields["wind_mean_1h_ms"] is not None
+
+
+def test_a_300s_series_is_too_coarse_for_the_estimate():
+    """Il passo di 300 s NON basta piu' (era la soglia sbagliata).
+
+    La media a 30 min resta disponibile: e' solo la stima a non essere
+    calcolabile, perche' a 300 s il massimo della serie e' un numero che
+    sottostima la raffica di 1,4-5x.
+    """
+    speed = _instant(END, [2.0] * 37, step_minutes=5)
+    fields, _ = fs.build_wind_block({"254,0,0": speed}, {}, END)
+    assert fields["gust_est_1h_ms"] is None
+    assert fields["gust_est_1h_null_reason"] == "series_too_coarse_for_gust_estimate"
+    assert fields["wind_mean_30m_ms"] is not None
+
+
+def test_gust_estimate_never_uses_averaged_wind():
+    """Solo medie orarie: il massimo di medie non e' un massimo -> null."""
+    means = [(END - timedelta(hours=3 - i), 3.0) for i in range(4)]
+    fields, _ = fs.build_wind_block({"3,0,3600": means}, {}, END)
+    assert fields["gust_est_1h_ms"] is None
+    assert fields["gust_est_1h_null_reason"] == "series_too_coarse_for_gust_estimate"
+
+
+def test_gust_estimate_needs_half_of_the_window():
+    """24 campioni a 60 s = 23 min su 60 (38%): null con il motivo."""
+    speed = _instant(END, [5.0] * 24, step_minutes=1)
+    fields, _ = fs.build_wind_block({"254,0,0": speed}, {}, END)
+    assert fields["gust_est_1h_ms"] is None
+    assert fields["gust_est_1h_null_reason"] == "coverage_below_50pct"
+
+
+def test_gust_estimate_is_never_below_the_mean_wind():
+    """Invariante: il massimo della serie >= media pesata della stessa serie."""
+    speed = _instant(END, [1.0] * 30 + [8.0] * 30 + [3.0], step_minutes=1)
+    fields, _ = fs.build_wind_block({"254,0,0": speed}, {}, END)
+    assert fields["wind_mean_1h_ms"] == pytest.approx(4.5)
+    assert fields["gust_est_1h_ms"] == pytest.approx(8.0)
+    assert fields["gust_est_1h_ms"] >= fields["wind_mean_1h_ms"]
+
+
+def test_gust_estimate_does_not_replace_the_measured_gust():
+    """Dove c'e' la raffica misurata, la stima NON la sostituisce: convivono."""
+    speed = _instant(END, [2.0] * 180 + [9.0], step_minutes=1)
+    gust = [(END - timedelta(hours=1), 12.0), (END, 18.0)]
+    fields, _ = fs.build_wind_block({"254,0,0": speed}, {"2,0,3600": gust}, END)
+    assert fields["gust_max_1h_ms"] == pytest.approx(18.0)
+    assert fields["gust_est_1h_ms"] == pytest.approx(9.0)
+    assert fields["gust_est_source"] == "max_of_wind_series"
+
+
+def _doc_with_station(station):
+    return {
+        "attribution": [{"network": "x", "text": "x", "url": None}],
+        "stations": [station],
+    }
+
+
+def test_validate_document_enforces_the_estimate_gate_and_the_mean():
+    """Il gate (0..75 m/s), l'invariante sulla media e il passo dichiarato."""
+    base = {
+        "id": "x:1,1",
+        "network": "x",
+        "lat": 1.0,
+        "lon": 1.0,
+        "obs_time": "2026-11-23T12:00:00Z",
+        "wind_speed_10m": 3.0,
+        "wind_mean_1h_ms": 5.0,
+        "gust_est_1h_ms": 6.0,
+        "gust_est_period_s": 60,
+        "gust_est_source": "max_of_wind_series",
+    }
+    ok = fs.validate_document(_doc_with_station(dict(base)), 1, 1_000_000)
+    assert [p for p in ok if "gust_est" in p] == []
+
+    below = fs.validate_document(
+        _doc_with_station(dict(base, gust_est_1h_ms=4.0)), 1, 1_000_000
+    )
+    assert any("sotto la media" in p for p in below)
+
+    over = fs.validate_document(
+        _doc_with_station(dict(base, gust_est_1h_ms=80.0)), 1, 1_000_000
+    )
+    assert any("fuori gate" in p for p in over)
+
+    coarse = fs.validate_document(
+        _doc_with_station(dict(base, gust_est_period_s=900)), 1, 1_000_000
+    )
+    assert any("gust_est_period_s" in p for p in coarse)
 

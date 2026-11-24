@@ -40,10 +40,13 @@ COSA PUBBLICA
                  gust_max_1h_null_reason?, gust_max_3h_null_reason?,
                  gust_period_s?, gust_source_product?, gust_window_end?,
                  gust_hourly?,
+                 gust_est_1h_ms?, gust_est_3h_ms?,
+                 gust_est_1h_coverage_frac?, gust_est_3h_coverage_frac?,
+                 gust_est_1h_null_reason?, gust_est_3h_null_reason?,
+                 gust_est_period_s?, gust_est_source?,
                  wind_mean_1h_ms?, wind_mean_3h_ms?,
                  wind_mean_1h_coverage_frac?, wind_mean_3h_coverage_frac?,
                  wind_mean_1h_null_reason?, wind_mean_3h_null_reason?,
-                 wind_max_3h_ms?, wind_source?, wind_period_s?,
                  wind_source_product?, wind_window_end?, wind_hourly?,
                  wind_qc_rejected?}]}
 
@@ -74,6 +77,12 @@ Regole (dichiarate anche in `derived_fields` del documento):
     (|dT| > 3 degC E |dT|/dt > 6 degC/h rispetto all'ultimo campione
     accettato, ancora dal blob giornaliero con `--baseline`), contato in
     `temp_qc_rejected` / `counts.temp_points_qc_rejected`;
+  * `gust_est_1h_ms`/`gust_est_3h_ms` sono la RAFFICA STIMATA: il massimo delle
+    osservazioni del vento nella finestra, NON una raffica misurata. E' un
+    limite inferiore (un campione a 60 s non vede il picco a 3 s) e si calcola
+    SOLO da serie istantanee con passo <= 60 s; sopra quella soglia il massimo
+    di una serie rada vale il 19-69% della raffica (misurato il 2026-11-24) e
+    il campo e' null con `series_too_coarse_for_gust_estimate`;
   * campo ASSENTE = grandezza non disponibile (come `visibility`); `null` =
     c'e' ma non passa il gate, e porta SEMPRE il motivo (contratto #207).
 
@@ -268,6 +277,17 @@ INDEX_EXTRA_FIELDS = (
     "rain_3h_mm",
     "gust_max_1h_ms",
     "gust_max_3h_ms",
+    # 1.3.0.70 - RAFFICA STIMATA (massimo delle osservazioni del vento al passo
+    # della serie): variabile selezionabile nel client, quindi le sue colonne
+    # devono stare nell'indice come le altre.
+    "gust_est_1h_ms",
+    "gust_est_3h_ms",
+    "gust_est_1h_coverage_frac",
+    "gust_est_3h_coverage_frac",
+    # Il motivo viaggia con la stima: senza, il client che legge solo l'indice
+    # non distingue «serie troppo rada» da «finestra non coperta».
+    "gust_est_1h_null_reason",
+    "gust_est_3h_null_reason",
     "wind_mean_1h_ms",
     "wind_mean_3h_ms",
     # 1.3.0.69 - finestre da 30 min di vento e raffica: il client le chiede
@@ -611,6 +631,26 @@ COARSE_REASON = {
 # un massimo orario no).
 WIND_30M_WINDOW = ("30m", 1800)
 
+# --- RAFFICA STIMATA dalla serie del VENTO --------------------------------
+# Il MASSIMO delle osservazioni del vento (B11002 istantaneo) e' un LIMITE
+# INFERIORE della raffica: non e' una raffica, e' il vento visto a un certo
+# passo. Quanto vale davvero lo dice una misura, non un'ipotesi.
+# MISURATO il 2026-11-24 su 1.758 coppie stazione-ora (massimo della serie /
+# raffica B11041 della stessa stazione, mediana del rapporto): Piemonte 0,22
+# (serie a 10 min), Calabria 0,19 (10 min), Campania 0,58 (10 min), Bolzano
+# 0,60 (10 min), Veneto 0,69 (10 min), Liguria 0,67 (10 min), Puglia 1,24
+# (60 s). Cioe': da una serie a 10-15 min si ottiene il 19-69% della raffica,
+# un numero che sbaglia di 1,4-5x e non e' una stima; solo il passo da 60 s
+# arriva all'ordine giusto. Per questo la soglia e' 60 s e NON 300.
+GUST_EST_MAX_STEP_S = 60
+GUST_EST_COARSE_REASON = "series_too_coarse_for_gust_estimate"
+# Una stima SOTTO la media della stessa finestra e' un artefatto di
+# campionamento (serie rada che non vede il picco): si annulla e si dichiara,
+# non si aggiusta.
+GUST_EST_BELOW_MEAN_REASON = "below_wind_mean_aliasing"
+GUST_EST_RANGE_REASON = "value_out_of_bounds"
+GUST_EST_SOURCE = "max_of_wind_series"
+
 
 def _accum_interval(ref: datetime, period: int, offset: int) -> tuple[datetime, datetime]:
     """Intervallo di un accumulo/estremo con `ref` = FINE (vedi REF_IS_INTERVAL_END)."""
@@ -831,6 +871,32 @@ def _window_max(
     return max(item[2] for item in kept), covered, covered / window_s
 
 
+def _window_peak(
+    intervals: list[tuple[datetime, datetime, int, float]],
+    window_start: datetime,
+    window_end: datetime,
+) -> tuple[float | None, float, float]:
+    """Massimo dei CAMPIONI con `ref` nella finestra; copertura dai loro intervalli.
+
+    Serve alla raffica STIMATA. `_window_max` non va bene: scarta gli intervalli
+    di durata zero, e l'ULTIMO istantaneo (quello con `ref == now`) ha durata zero
+    per costruzione (`_instant_intervals` non inventa futuro). Con `_window_max`
+    il picco sparirebbe proprio quando e' l'ultimo dato, che e' il caso piu'
+    frequente. Qui il massimo si prende sui `ref`; la copertura resta quella
+    pesata sul tempo delle stesse serie (sample-and-hold), cosi' il gate del 50%
+    continua a significare la stessa cosa delle altre finestre.
+    """
+    _value, covered, frac = _window_stats(intervals, window_start, window_end, "mean")
+    samples = [
+        value
+        for ref, _end, _period, value in intervals
+        if window_start <= ref <= window_end
+    ]
+    if not samples:
+        return None, covered, frac
+    return max(samples), covered, frac
+
+
 def _data_end(
     products: dict[str, list[tuple[datetime, datetime, int, float]]],
     now: datetime,
@@ -862,6 +928,8 @@ def _evaluate(
 ) -> tuple[float | None, float, float]:
     if metric == "max":
         return _window_max(intervals, window_start, window_end)
+    if metric == "peak":
+        return _window_peak(intervals, window_start, window_end)
     return _window_stats(intervals, window_start, window_end, metric)
 
 
@@ -1137,7 +1205,7 @@ def build_wind_block(
     last_gust: float | None = None,
     last_gust_period_s: int | None = None,
 ) -> tuple[dict, dict]:
-    """Campi del VENTO: raffica massima, vento medio, massimo del vento medio.
+    """Campi del VENTO: raffica misurata, vento medio, raffica stimata.
 
     Il vento NON si accumula: sommare velocita' non ha senso fisico. Le
     grandezze pubblicate sono quindi un MASSIMO e una MEDIA pesata sul tempo.
@@ -1244,21 +1312,13 @@ def build_wind_block(
             and wide["frac"] >= WIND_MIN_COVERAGE_FRAC
             and trange_stat_type(wide["label"]) == STAT_INSTANT
         ):
-            # Il massimo si pubblica SOLO da una serie ISTANTANEA: il massimo di
-            # una serie di MEDIE orarie non e' "il massimo del vento" e romperebbe
-            # l'invariante `wind_max_3h_ms >= wind_speed_10m` (misurato il
-            # 2026-11-23: 753 casi su 1.494). Il criterio e' costruttivo, non un
-            # ritocco a posteriori del numero.
-            # Massimo dei CAMPIONI con `ref` nella finestra: cosi' entra anche
-            # l'ultimo istantaneo, che nei segmenti ha durata zero e sparirebbe.
-            samples = [
-                value
-                for start, _end, _period, value in speed_products[wide["label"]]
-                if wide_start <= start <= speed_end
-            ]
-            peak = max(samples) if samples else None
-            if peak is not None:
-                fields["wind_max_3h_ms"] = _round(peak, 1)
+            # 1.3.0.70 - IL «VENTO MASSIMO MEDIO» NON SI PUBBLICA PIU'.
+            # L'utente: «vento massimo medio non me ne frega niente»: della serie
+            # del vento resta la MEDIA (`wind_mean_*`) e per il massimo c'e' la
+            # RAFFICA (`gust_max_*`, che resta invariata). Il massimo dei campioni
+            # istantanei non viene piu' calcolato ne' pubblicato: un campo in meno
+            # in latest.json / index.json e nessuna riga di legenda da spiegare.
+            pass
         first = _pick(
             speed_products,
             speed_end - timedelta(seconds=dict(WIND_WINDOWS)["1h"]),
@@ -1325,8 +1385,7 @@ def build_wind_block(
                 "wind_mean_30m_ms",
                 "wind_mean_30m_coverage_frac",
                 "wind_mean_30m_null_reason",
-                "wind_max_3h_ms",
-            ):
+                        ):
                 fields.pop(key, None)
             if last_speed is not None:
                 fields["wind_mean_1h_ms"] = _round(last_speed, 1)
@@ -1337,6 +1396,73 @@ def build_wind_block(
         # Ripiego DICHIARATO: un'osservazione non e' una media su un'ora.
         fields["wind_mean_1h_ms"] = _round(last_speed, 1)
         fields["wind_source"] = "latest_only"
+
+    # --- RAFFICA STIMATA dalla serie del VENTO -------------------------------
+    # Dove la raffica non e' misurata, il MASSIMO delle osservazioni del vento e'
+    # un LIMITE INFERIORE della raffica. Non e' una raffica: e' il massimo di una
+    # serie a 1 minuto, e un campione a 60 s non vede il picco a 3 s.
+    #
+    # Perche' SOLO serie a <= 60 s: misurato il 2026-11-24 su 1.758 coppie
+    # stazione-ora, il massimo di una serie a 10-15 min vale il 19-69% della
+    # raffica B11041 della stessa stazione (mediane 0,19-0,69), mentre a 60 s
+    # vale 1,24. Una stima che sbaglia di 1,4-5x non e' una stima: meglio null
+    # con il motivo dichiarato.
+    if speed_products and speed_end is not None:
+        fine_speed = {
+            label: intervals
+            for label, intervals in speed_products.items()
+            if trange_stat_type(label) == STAT_INSTANT
+            and speed_steps.get(label) is not None
+            and speed_steps[label] <= GUST_EST_MAX_STEP_S
+        }
+        if fine_speed:
+            est_choices: dict[str, dict] = {}
+            for name, seconds in WIND_WINDOWS:
+                start = speed_end - timedelta(seconds=seconds)
+                # metrica "peak": massimo dei CAMPIONI, non `_window_max` (che
+                # perderebbe l'ultimo istantaneo, di durata zero).
+                best = _best_product(fine_speed, start, speed_end, "peak")
+                if best is None:
+                    continue
+                est_choices[name] = best
+                fields[f"gust_est_{name}_coverage_frac"] = _round(best["frac"], 3)
+                value = best["value"]
+                mean_published = fields.get(f"wind_mean_{name}_ms")
+                if value is None or best["frac"] < WIND_MIN_COVERAGE_FRAC:
+                    fields[f"gust_est_{name}_ms"] = None
+                    fields[f"gust_est_{name}_null_reason"] = COVERAGE_BELOW_REASON
+                elif value < 0.0 or value > QC_GUST_MAX_MS:
+                    # difesa in profondita': oggi il gate del vento (60 m/s) sta
+                    # gia' sotto il tetto della raffica (75), ma il tetto della
+                    # stima si applica qui se il gate del vento cambia.
+                    fields[f"gust_est_{name}_ms"] = None
+                    fields[f"gust_est_{name}_null_reason"] = GUST_EST_RANGE_REASON
+                elif (
+                    isinstance(mean_published, (int, float))
+                    and _round(value, 1) < mean_published
+                ):
+                    fields[f"gust_est_{name}_ms"] = None
+                    fields[f"gust_est_{name}_null_reason"] = GUST_EST_BELOW_MEAN_REASON
+                else:
+                    fields[f"gust_est_{name}_ms"] = _round(value, 1)
+            primary = est_choices.get("1h") or est_choices.get("3h")
+            if primary is not None:
+                step = speed_steps.get(primary["label"])
+                if step is not None:
+                    fields["gust_est_period_s"] = int(step)
+                wide_est = est_choices.get("3h")
+                if wide_est is not None and wide_est["label"] != primary["label"]:
+                    wide_step = speed_steps.get(wide_est["label"])
+                    if wide_step is not None:
+                        fields["gust_est_3h_period_s"] = int(wide_step)
+            fields["gust_est_source"] = GUST_EST_SOURCE
+        else:
+            # La serie del vento c'e' ma nessun prodotto ISTANTANEO ha passo
+            # <= 60 s: non si stima. Vale anche quando l'unica serie e' una
+            # media oraria (`3,0,3600`): il massimo di medie non e' un massimo.
+            for name, _seconds in WIND_WINDOWS:
+                fields[f"gust_est_{name}_ms"] = None
+                fields[f"gust_est_{name}_null_reason"] = GUST_EST_COARSE_REASON
 
     gust_end = _data_end(gust_products, now)
     if gust_products and gust_end is not None:
@@ -1860,6 +1986,9 @@ def normalize_payload(
     stations_with_rain_3h = 0
     stations_with_wind_series = 0
     stations_with_gust_1h = 0
+    stations_with_gust_est_1h = 0
+    stations_with_gust_est_3h = 0
+    stations_with_gust_est_1h_and_measured = 0
     stations_with_wind_mean_1h = 0
     stations_with_wind_mean_30m = 0
     stations_with_gust_max_30m = 0
@@ -2255,6 +2384,15 @@ def normalize_payload(
                 stations_with_wind_mean_30m += 1
             if record.get("gust_max_30m_ms") is not None:
                 stations_with_gust_max_30m += 1
+            if record.get("gust_est_1h_ms") is not None:
+                stations_with_gust_est_1h += 1
+            if record.get("gust_est_3h_ms") is not None:
+                stations_with_gust_est_3h += 1
+            if (
+                record.get("gust_est_1h_ms") is not None
+                and record.get("gust_max_1h_ms") is not None
+            ):
+                stations_with_gust_est_1h_and_measured += 1
         # --- temperatura, umidita' relativa, dew point (dalle serie) ---
         if key in temp_series:
             stations_with_temp_series += 1
@@ -2345,6 +2483,16 @@ def normalize_payload(
     id_decimals, id_collisions_4dec = _assign_ids(stations)
     stations.sort(key=lambda s: (s["network"], s["id"]))
 
+    # Conteggio per rete della raffica stimata: «quante stazioni ottengono il
+    # campo» ha una risposta per rete, non solo un totale.
+    gust_est_1h_by_network: dict[str, int] = {}
+    for st in stations:
+        if st.get("gust_est_1h_ms") is not None:
+            net_name = st["network"]
+            gust_est_1h_by_network[net_name] = (
+                gust_est_1h_by_network.get(net_name, 0) + 1
+            )
+
     used_networks = sorted({s["network"] for s in stations})
     # Passo della serie termica per rete: dice quante stazioni possono avere le
     # finestre corte (5m richiede <= 60 s, 30m <= 300 s). Il passo e' quello
@@ -2403,11 +2551,18 @@ def normalize_payload(
             "gust_max_3h_ms": "m/s",
             "gust_max_1h_coverage_frac": "1",
             "gust_max_3h_coverage_frac": "1",
+            # Raffica STIMATA dal massimo della serie del vento (limite
+            # inferiore, non una raffica misurata).
+            "gust_est_1h_ms": "m/s",
+            "gust_est_3h_ms": "m/s",
+            "gust_est_1h_coverage_frac": "1",
+            "gust_est_3h_coverage_frac": "1",
+            "gust_est_period_s": "s",
+            "gust_est_3h_period_s": "s",
             "wind_mean_1h_ms": "m/s",
             "wind_mean_3h_ms": "m/s",
             "wind_mean_1h_coverage_frac": "1",
             "wind_mean_3h_coverage_frac": "1",
-            "wind_max_3h_ms": "m/s",
             "gust_hourly": "m/s",
             "wind_hourly": "m/s",
             "gust_period_s": "s",
@@ -2483,16 +2638,34 @@ def normalize_payload(
                 "`wind_gust_10m` NON e' normalizzato a 10 minuti: il periodo della "
                 "sorgente viaggia in `gust_period_s` e non viene corretto"
             ),
+            "gust_est_1h_ms/gust_est_3h_ms": (
+                "stima: massimo del vento nella finestra, non una raffica "
+                "misurata; sottostima i picchi più brevi del passo della serie. "
+                "E' un LIMITE INFERIORE della raffica: massimo di una serie a "
+                "1 min; un campione a 60 s non vede il picco a 3 s. Calcolata "
+                "SOLO da serie ISTANTANEE (B11002 WIND SPEED, trange 254,0,0) "
+                "con passo MEDIANO <= 60 s, e su un campione conta il `ref` "
+                "anche quando l'intervallo ha durata zero (l'ultimo istantaneo). "
+                "MISURATO il 2026-11-24 su 1.758 coppie stazione-ora, rapporto "
+                "mediano massimo-della-serie/raffica B11041: Piemonte 0,22 "
+                "(serie a 10 min), Calabria 0,19, Campania 0,58, Bolzano 0,60, "
+                "Veneto 0,69, Liguria 0,67, Puglia 1,24 (60 s). Oltre 60 s la "
+                "stima NON si calcola (`series_too_coarse_for_gust_estimate`): "
+                "un numero che sbaglia di 1,4-5x non e' una stima. Il campo e' "
+                "SEPARATO da `gust_max_*` e non la sostituisce MAI: dove la "
+                "raffica misurata esiste il client preferisce quella, e la "
+                "stima puo' superarla (finestre e passi diversi: e' dichiarato, "
+                "non e' un invariante). `gust_est_period_s` = passo della serie "
+                "usata. Gate: 0 <= stima <= 75 m/s; una stima sotto la MEDIA "
+                "della stessa finestra e' un artefatto di campionamento e si "
+                "annulla con `below_wind_mean_aliasing`, non si aggiusta"
+            ),
             "wind_mean_1h_ms/wind_mean_3h_ms": (
                 "MEDIA pesata sul tempo delle serie B11002 (WIND SPEED) istantanee "
                 "(254,0,0, sample-and-hold) o medie (3,0,N). Un istantaneo vale dal "
                 "suo ref al ref successivo: e' l'unico modo di pesare una serie "
                 "irregolare senza inventare un passo. Il tipo `200` non e' "
                 "documentato e viene ignorato"
-            ),
-            "wind_max_3h_ms": (
-                "massimo del vento medio istantaneo nella finestra di 3 h "
-                "(non e' una raffica: per quella vale gust_max_3h_ms)"
             ),
             "wind_source": (
                 "`series` = media/integrale dalle serie; `latest_only` = serie "
@@ -2566,6 +2739,12 @@ def normalize_payload(
             "stations_with_rain_3h": stations_with_rain_3h,
             "stations_with_wind_series": stations_with_wind_series,
             "stations_with_gust_1h": stations_with_gust_1h,
+            "stations_with_gust_est_1h": stations_with_gust_est_1h,
+            "stations_with_gust_est_3h": stations_with_gust_est_3h,
+            "stations_with_gust_est_1h_and_measured": (
+                stations_with_gust_est_1h_and_measured
+            ),
+            "stations_with_gust_est_1h_by_network": gust_est_1h_by_network,
             "stations_with_wind_mean_1h": stations_with_wind_mean_1h,
             "stations_with_wind_mean_30m": stations_with_wind_mean_30m,
             "stations_with_gust_max_30m": stations_with_gust_max_30m,
@@ -2597,6 +2776,7 @@ def normalize_payload(
             "rain_qc_max_rate_mm_h": QC_RAIN_MAX_RATE_MM_H,
             "wind_qc_max_ms": QC_WIND_MAX_MS,
             "gust_qc_max_ms": QC_GUST_MAX_MS,
+            "gust_est_max_step_s": GUST_EST_MAX_STEP_S,
             "temp_qc_max_abs_c": QC_TEMP_MAX_ABS_C,
             "temp_qc_max_rate_c_per_h": QC_TEMP_MAX_RATE_C_PER_H,
             "temp_qc_min_abs_delta_c": TEMP_MIN_ABS_DELTA_C,
@@ -2684,6 +2864,8 @@ def validate_document(doc: dict, min_stations: int, max_bytes: int) -> list[str]
             ("rain_3h", "mm"),
             ("gust_max_1h", "ms"),
             ("gust_max_3h", "ms"),
+            ("gust_est_1h", "ms"),
+            ("gust_est_3h", "ms"),
             ("wind_mean_1h", "ms"),
             ("wind_mean_3h", "ms"),
             ("wind_mean_30m", "ms"),
@@ -2692,6 +2874,50 @@ def validate_document(doc: dict, min_stations: int, max_bytes: int) -> list[str]
             field = f"{prefix}_{suffix}"
             if field in st and st[field] is None and not st.get(f"{prefix}_null_reason"):
                 problems.append(f"null senza motivo: {field} per {sid}")
+        # Raffica STIMATA: e' un limite inferiore con un gate proprio. NON si
+        # pretende che stia sotto la raffica misurata (finestre e passi diversi:
+        # misurato, la stima puo' superarla), ma NON puo' stare sotto la MEDIA
+        # del vento della stessa finestra, che sarebbe un massimo minore della
+        # media. Il passo della serie usata deve essere dichiarato e <= 60 s.
+        step_declared = st.get("gust_est_period_s")
+        for window in ("1h", "3h"):
+            est = st.get(f"gust_est_{window}_ms")
+            if not isinstance(est, (int, float)):
+                continue
+            if est < 0 or est > QC_GUST_MAX_MS:
+                problems.append(
+                    f"gust_est {window} fuori gate 0..{QC_GUST_MAX_MS} m/s "
+                    f"per {sid} ({est})"
+                )
+            mean = st.get(f"wind_mean_{window}_ms")
+            if isinstance(mean, (int, float)) and est < mean:
+                problems.append(
+                    f"gust_est {window} sotto la media del vento per {sid} "
+                    f"({est} < {mean})"
+                )
+            if not isinstance(step_declared, (int, float)):
+                problems.append(
+                    f"stima di raffica {window} senza passo dichiarato per {sid}"
+                )
+        if isinstance(step_declared, (int, float)) and (
+            step_declared <= 0 or step_declared > GUST_EST_MAX_STEP_S
+        ):
+            problems.append(
+                f"gust_est_period_s {step_declared} fuori 1.."
+                f"{GUST_EST_MAX_STEP_S} per {sid}"
+            )
+        step_3h = st.get("gust_est_3h_period_s")
+        if isinstance(step_3h, (int, float)) and (
+            step_3h <= 0 or step_3h > GUST_EST_MAX_STEP_S
+        ):
+            problems.append(
+                f"gust_est_3h_period_s {step_3h} fuori 1.."
+                f"{GUST_EST_MAX_STEP_S} per {sid}"
+            )
+        if "gust_est_source" in st and st["gust_est_source"] != GUST_EST_SOURCE:
+            problems.append(
+                f"gust_est_source inatteso per {sid}: {st['gust_est_source']!r}"
+            )
         for name, suffix in (("temp", "c"), ("rh", "pct"), ("dew", "c")):
             for window in ("5m", "30m", "1h", "3h"):
                 field = f"{name}_mean_{window}_{suffix}"
