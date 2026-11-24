@@ -47,7 +47,8 @@ from . import models
 from .tracking import (haversine_km, bearing_deg, dest_from, _circle_iou,
                        lineage_plan, apply_lineage, _speed_range_kmh,
                        COAST_POSITION_SOURCE, coast_frame_context,
-                       coasting_counters, _coasted_point)
+                       coasting_counters, _coasted_point,
+                       finalize_lifecycle_fields)
 
 _EPS = 1e-12
 
@@ -251,7 +252,7 @@ class StormObjectTracker:
         return dest_from(pr["from_lonlat"], pr["bearing"],
                          pr["speed_kmh"] * dt_h)
 
-    def _new_track(self, obj, frame_index, seed=None):
+    def _new_track(self, obj, frame_index, seed=None, after_reject=False):
         track = models.StormTrack(self._next_track_id, obj.timestamp_ms)
         self._next_track_id += 1
         if seed is not None:
@@ -270,6 +271,9 @@ class StormObjectTracker:
         track.points.append(pt)
         if seed is None:
             track.events.append(models.EVENT_BIRTH)
+            if after_reject:
+                track.birth_after_gate_reject = True
+                track.events.append(models.EVENT_BIRTH_AFTER_GATE_REJECT)
         obj.track_id = track.track_id
         # ambiguità di nascita: solo cell density locale (nessun competitor)
         klass, reason = ambiguity_class(0, obj.cell_density, 1.0, False,
@@ -278,6 +282,45 @@ class StormObjectTracker:
         obj.ambiguity_reason = reason
         pt.ambiguity = klass
         return track
+
+    def _mark_death(self, track, kind):
+        """Chiude una storm track registrando il motivo al momento della morte."""
+        track.status = models.STATUS_DEAD
+        track.death_ms = track.points[-1].timestamp_ms
+        if models.EVENT_DEATH not in track.events:
+            track.events.append(models.EVENT_DEATH)
+        track.death_kind = kind
+        track.death_null_reason = None
+
+    def _merged_into(self, track):
+        """True se la track e' stata assorbita da un figlio con lineage merge.
+
+        Stessa semantica del layer cella: `child_ids` da solo non basta (anche
+        uno split ne produce) e l'evento lineage_merge e' anche sul survivor.
+        """
+        ids = set(getattr(track, "child_ids", None) or [])
+        if not ids:
+            return False
+        for other in self.tracks:
+            if other is track:
+                continue
+            if getattr(other, "lineage", None) != "merge":
+                continue
+            if track.track_id in (getattr(other, "parent_ids", None) or []):
+                return True
+        return False
+
+    def _death_kind_for(self, track, cells_present, gated_row, max_coast):
+        """Stessa semantica del layer cella (v. Tracker._death_kind_for)."""
+        if self._merged_into(track):
+            return models.DEATH_KIND_MERGED_INTO
+        if max_coast > 0 and getattr(track, "_coast_frames", 0) >= max_coast:
+            return models.DEATH_KIND_COASTING_EXPIRED
+        if not cells_present:
+            return models.DEATH_KIND_LOST
+        if gated_row:
+            return models.DEATH_KIND_LOST
+        return models.DEATH_KIND_DISSIPATED
 
     def _seed_matches(self, objs):
         """Accoppia gli storm object del primo frame alle track dell'archivio.
@@ -409,9 +452,9 @@ class StormObjectTracker:
                         t, frame_index, frame_ts_ms, frame_context,
                         max_coast, rows):
                     continue
-                t.status = models.STATUS_DEAD
-                t.death_ms = t.points[-1].timestamp_ms
-                t.events.append(models.EVENT_DEATH)
+                self._mark_death(t, self._death_kind_for(
+                    t, cells_present=False, gated_row=False,
+                    max_coast=max_coast))
                 rows.append({"track_id": t.track_id,
                              "prev_storm_object_id": t.points[-1].storm_object_id,
                              "current_storm_object_id": None,
@@ -497,6 +540,13 @@ class StormObjectTracker:
         # min(N,M), non N*M.
         self.continuity_rejections += sum(
             1 for i, j in ungated_assignment.items() if (i, j) in gated_pairs)
+        # 2026-11-24 — classificazione della nascita/morte: il candidato
+        # UNGATED scelto dall'Hungarian che il gate elimina (stessa base del
+        # contatore qui sopra). Non qualsiasi coppia sotto il tetto di costo.
+        gated_assignment = {(i, j) for (i, j) in ungated_assignment.items()
+                            if (i, j) in gated_pairs}
+        gated_rows = {i for (i, _j) in gated_assignment}
+        rejected_cols = {j for (_i, j) in gated_assignment}
 
         # Lineage merge/split (2026-11-11): piano prima della creazione delle
         # track nuove, cosi' i figli ereditano parent_ids.
@@ -569,7 +619,8 @@ class StormObjectTracker:
         new_tracks_by_col = {}
         for j, obj in enumerate(objs):
             if j not in reversed_assign:
-                track = self._new_track(obj, frame_index)
+                track = self._new_track(obj, frame_index,
+                                        after_reject=(j in rejected_cols))
                 self.tracks.append(track)
                 new_tracks_by_col[j] = track
                 rows.append({"track_id": track.track_id,
@@ -582,9 +633,9 @@ class StormObjectTracker:
                 if self._try_coast(t, frame_index, frame_ts_ms,
                                    frame_context, max_coast, rows):
                     continue
-                t.status = models.STATUS_DEAD
-                t.death_ms = t.points[-1].timestamp_ms
-                t.events.append(models.EVENT_DEATH)
+                self._mark_death(t, self._death_kind_for(
+                    t, cells_present=True, gated_row=(ti in gated_rows),
+                    max_coast=max_coast))
                 rows.append({"track_id": t.track_id,
                              "prev_storm_object_id": t.points[-1].storm_object_id,
                              "current_storm_object_id": None,
@@ -610,6 +661,16 @@ class StormObjectTracker:
                 continue
             track.status = models.STATUS_DEAD
             track.death_ms = obs[-1].timestamp_ms if obs else None
+            # 2026-11-24 — chiusura amministrativa a fine run (v. Tracker).
+            if getattr(track, "death_kind", None) is None:
+                last_pt = track.points[-1] if track.points else None
+                track.death_kind = (
+                    models.DEATH_KIND_COASTING_EXPIRED
+                    if (last_pt is not None
+                        and getattr(last_pt, "position_source", None)
+                        == COAST_POSITION_SOURCE)
+                    else models.DEATH_KIND_LOST)
+                track.death_null_reason = None
         return self.tracks
 
     # ------------------------------------------------------------------
@@ -635,6 +696,8 @@ class StormObjectTracker:
                 if pts_now:
                     track.birth_ms = pts_now[0].timestamp_ms
             all_pts = track.points
+            # 2026-11-24 — origine/morte/crescita (v. tracking.Track).
+            finalize_lifecycle_fields(track)
             # Coasting: ogni statistica di moto usa SOLO le osservazioni.
             pts = [p for p in all_pts if getattr(p, "observed", True)] or all_pts
             duration_min = ((all_pts[-1].timestamp_ms

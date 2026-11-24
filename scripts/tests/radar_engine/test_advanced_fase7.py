@@ -203,6 +203,23 @@ def test_lifecycle_stages(over, expected):
     assert f["value"] == expected, (expected, f)
 
 
+def test_lifecycle_strong_area_growth_is_not_weakening():
+    """Un delta_dbz negativo NON basta se l'area cresce fortemente.
+
+    Caso reale che il vecchio OR etichettava WEAKENING: area +83,9% e
+    delta_dbz -7,0. La crescita dell'area (>= soglia intensifying) vince.
+    """
+    f = adv.derive_lifecycle(_candidate(
+        intensity={"max_dbz": 45.0, "mean_dbz": 40.0, "delta_dbz": -7.0},
+        motion={"duration_min": 30.0, "area_growth_pct": 83.9}))
+    assert f["value"] == "INTENSIFYING", f
+    # Con area in calo il segnale negativo resta WEAKENING.
+    g = adv.derive_lifecycle(_candidate(
+        intensity={"max_dbz": 45.0, "mean_dbz": 40.0, "delta_dbz": -7.0},
+        motion={"duration_min": 30.0, "area_growth_pct": -25.0}))
+    assert g["value"] == "WEAKENING", g
+
+
 def test_lifecycle_null_with_short_history():
     c = _candidate(n_points=1,
                    motion={"duration_min": 5.0, "area_growth_pct": None},

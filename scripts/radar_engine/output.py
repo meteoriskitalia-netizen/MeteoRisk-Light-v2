@@ -263,6 +263,170 @@ def _coasting_summary(bundle):
     }
 
 
+def lifecycle_stats(tracks, layer="cell"):
+    """Statistiche di evoluzione del run (nascite/morti/fusioni/divisioni).
+
+    Conta le TRACK del layer passato, inclusi i record da 1 punto: il filtro
+    `len(points)>=2` di tracks.json/storm_tracks.json non deve rendere
+    invisibile una nascita appena avvenuta (per quelle c'e' anche
+    `births_latest_frame`).
+
+    `merges`/`splits` contano le RELAZIONI, non le track: si somma
+    `len(parent_ids)` sui FIGLI. L'evento e' registrato su entrambi i lati
+    (parent.child_ids e child.parent_ids); contare le track raddoppierebbe.
+    Una fusione a due genitori vale quindi 2 relazioni, una divisione in due
+    figli vale 2 relazioni. E' dichiarato perche' non e' il numero di eventi
+    fisici.
+
+    `median_lifetime_min` esclude le track con `continued_from_history=True`:
+    la loro vita e' troncata dalla finestra rolling e non e' confrontabile.
+    Il numero di track troncate e' pubblicato a parte.
+    """
+    tracks = list(tracks or [])
+    births = {kind: 0 for kind in models.BIRTH_KINDS_PHYSICAL}
+    deaths = {kind: 0 for kind in models.DEATH_KINDS}
+    merges = splits = reid = truncated = unclassified = 0
+    lifetimes = []
+    lifetimes_by = {kind: [] for kind in models.BIRTH_KINDS_PHYSICAL}
+    for track in tracks:
+        events = list(getattr(track, "events", None) or [])
+        kind = getattr(track, "birth_kind", None)
+        if kind is None and models.EVENT_BIRTH in events:
+            # Bundle costruiti a mano / record legacy: stessa regola del
+            # tracker, nessun valore nuovo inventato.
+            kind, _reason = _tracking.compute_birth_kind(track)
+        if kind in births:
+            births[kind] += 1
+        continued = bool(getattr(track, "continued_from_history", False))
+        if continued:
+            truncated += 1
+        death_kind = getattr(track, "death_kind", None)
+        if getattr(track, "status", None) == models.STATUS_DEAD:
+            if death_kind in deaths:
+                deaths[death_kind] += 1
+            else:
+                unclassified += 1
+        lineage = getattr(track, "lineage", None)
+        parent_ids = list(getattr(track, "parent_ids", None) or [])
+        if parent_ids:
+            if lineage == "merge" or "lineage_merge" in events:
+                merges += len(parent_ids)
+            elif lineage == "split" or "lineage_split" in events:
+                splits += len(parent_ids)
+        reid += events.count(_tracking.EVENT_REID_CONTINUATION)
+        lifetime = _track_lifetime_min(track)
+        if lifetime is not None and not continued:
+            lifetimes.append(lifetime)
+            if kind in lifetimes_by:
+                lifetimes_by[kind].append(lifetime)
+
+    def _median(values):
+        return round(float(np.median(values)), 1) if values else None
+
+    return {
+        "schema": "meteorisk.lifecycle_stats/1",
+        "layer": layer,
+        "scope": "all_tracks_including_single_point",
+        "counted_tracks": len(tracks),
+        "births": births,
+        "physical_births_total": sum(births.values()),
+        "deaths": deaths,
+        "deaths_unclassified": unclassified,
+        "merges": merges,
+        "splits": splits,
+        "relations_basis": "sum(len(child.parent_ids))",
+        "reid_stitches": reid,
+        "median_lifetime_min": _median(lifetimes),
+        "median_lifetime_samples": len(lifetimes),
+        "median_lifetime_min_by_birth_kind": {
+            kind: _median(values) for kind, values in lifetimes_by.items()},
+        "median_lifetime_samples_by_birth_kind": {
+            kind: len(values) for kind, values in lifetimes_by.items()},
+        "median_lifetime_null_reason": (
+            None if lifetimes
+            else "no_nontruncated_track_with_two_observed_points"),
+        "lifetime_truncated_by_history": truncated,
+    }
+
+
+def _lifecycle_stats_block(bundle):
+    """Blocco top-level (layer cella) + dettaglio storm object se presente.
+
+    Il layer cella e' la base di tracks.json; lo storm object e' un layer
+    AGGREGATO delle stesse celle, quindi sommarlo al top-level conterebbe due
+    volte gli stessi sistemi. Resta un blocco separato e dichiarato.
+    """
+    stats = lifecycle_stats(getattr(bundle, "tracks", None) or [], "cell")
+    storm = lifecycle_stats(getattr(bundle, "storm_tracks", None) or [],
+                            "storm_object")
+    if storm["counted_tracks"]:
+        stats["storm_object"] = storm
+    return stats
+
+
+def _observed_points(track):
+    """Punti OSSERVATI (coasted esclusi), in ordine temporale."""
+    pts = [p for p in (getattr(track, "points", None) or [])
+           if getattr(p, "observed", True)
+           and getattr(p, "position_source", None)
+           != models.COAST_POSITION_SOURCE]
+    return sorted(pts, key=lambda p: (int(getattr(p, "timestamp_ms", 0)),
+                                      int(getattr(p, "frame_index", -1))))
+
+
+def _track_lifetime_min(track):
+    """Durata fra primo e ultimo punto OSSERVATO (None se <2 punti)."""
+    pts = _observed_points(track)
+    if len(pts) < 2:
+        return None
+    minutes = (pts[-1].timestamp_ms - pts[0].timestamp_ms) / 60000.0
+    return minutes if minutes > 0 else None
+
+
+def _births_latest_frame(bundle):
+    """Nascite dell'ULTIMO frame (array leggero, prima del filtro >=2 punti).
+
+    Una track nata sull'ultimo frame ha UN solo punto e non entra in
+    tracks.json/storm_tracks.json; senza questo array sarebbe invisibile.
+    Inclusi solo i record con `EVENT_BIRTH` (seed e ricuciture escluse).
+    """
+    frames = getattr(bundle, "cells_by_frame", None) or []
+    if not frames:
+        return []
+    latest = len(frames) - 1
+    out = []
+    pools = ((getattr(bundle, "tracks", None) or [], "cell"),
+             (getattr(bundle, "storm_tracks", None) or [], "storm_object"))
+    for tracks, track_type in pools:
+        for track in tracks:
+            events = list(getattr(track, "events", None) or [])
+            if models.EVENT_BIRTH not in events:
+                continue
+            obs = _observed_points(track)
+            if not obs:
+                continue
+            first = obs[0]
+            if int(getattr(first, "frame_index", -1)) != latest:
+                continue
+            kind = getattr(track, "birth_kind", None)
+            if kind is None:
+                kind, _reason = _tracking.compute_birth_kind(track)
+            lon, lat = first.lonlat
+            out.append({
+                "track_id": getattr(track, "track_id", None),
+                "track_type": track_type,
+                "birth_ts": first.timestamp_iso,
+                "position": [round(float(lat), 5), round(float(lon), 5)],
+                "area_km2": round(float(first.area_km2), 2),
+                "max_dbz": round(float(first.max_dbz), 2),
+                "birth_kind": kind,
+                "physical_birth": (kind != models.BIRTH_KIND_REID_CONTINUATION
+                                   if kind is not None else None),
+            })
+    out.sort(key=lambda rec: (str(rec["track_type"]), int(rec["track_id"])))
+    return out
+
+
 def build_latest(bundle, engine_meta=None, previous=None):
     """latest.json (stato del run, mai dati raw)."""
     payload = {
@@ -291,6 +455,11 @@ def build_latest(bundle, engine_meta=None, previous=None):
         **_structure_summary(bundle),
         **_phase2_summary(bundle),
         **_as_of_summary(bundle),
+        # 2026-11-24 — evoluzione dei sistemi: nascite/morti/crescita/fusioni.
+        # ADDITIVO: nessuna chiave esistente cambia. `births_latest_frame`
+        # rende visibili le nascite da 1 punto che i file track filtrano.
+        "lifecycle_stats": _lifecycle_stats_block(bundle),
+        "births_latest_frame": _births_latest_frame(bundle),
         "warnings": bundle.warnings[-50:],
     }
     # 1.2.4.26 — blocco ADDITIVO `cappi_fetch` (verdetto del gate grandine +
@@ -802,14 +971,26 @@ def build_tracking_events(track, radar_timestamp_iso=None):
         }
 
     out = []
-    # nascita
-    if models.EVENT_BIRTH in events or (first is not None):
+    # nascita: SOLO l'evento esplicito. Avere un punto NON e' una nascita:
+    # un seed d'archivio (frame_index=-1) e una track ricucita continuano
+    # un'identita' gia' esistente. Il vecchio `or (first is not None)`
+    # pubblicava birth su 22/22 track contro 11/22 nascite reali.
+    if models.EVENT_BIRTH in events:
+        birth_kind = getattr(track, "birth_kind", None)
+        physical_birth = getattr(track, "physical_birth", None)
+        if birth_kind is None:
+            # Bundle legacy/costruiti a mano: stessa regola del tracker.
+            birth_kind, _reason = _tracking.compute_birth_kind(track)
+            physical_birth = (birth_kind != models.BIRTH_KIND_REID_CONTINUATION
+                              if birth_kind is not None else None)
         out.append(ev("birth",
                       {"track_id": getattr(track, "track_id", None),
-                       "frame_index": getattr(first, "frame_index", None)},
+                       "frame_index": getattr(first, "frame_index", None),
+                       "birth_kind": birth_kind,
+                       "physical_birth": physical_birth},
                       None, birth_ts))
     else:
-        out.append(ev("birth", None, "no_birth_evidence_in_run", radar_timestamp_iso))
+        out.append(ev("birth", None, "not_born_in_this_run", radar_timestamp_iso))
     # prosecuzione (continuazione stessa run o cross-run)
     if lineage == "continuation" or "continued_from_history" in events:
         out.append(ev("continuation",
@@ -821,8 +1002,13 @@ def build_tracking_events(track, radar_timestamp_iso=None):
         out.append(ev("continuation", None, "no_continuation_evidence_in_run",
                       radar_timestamp_iso))
     # morte
-    if models.EVENT_DEATH in events and death_ms is not None:
-        out.append(ev("death", {"death_ms": int(death_ms)}, None, death_ts))
+    if ((models.EVENT_DEATH in events
+         or getattr(track, "status", None) == models.STATUS_DEAD)
+            and death_ms is not None):
+        out.append(ev("death",
+                      {"death_ms": int(death_ms),
+                       "death_kind": getattr(track, "death_kind", None)},
+                      None, death_ts))
     else:
         out.append(ev("death", None, "no_death_observed_track_still_active",
                       radar_timestamp_iso))
@@ -1224,6 +1410,17 @@ def validate_outputs(out_dir):
         errors.append("latest.json missing 'status'")
     if "phase2_status" not in latest:
         errors.append("latest.json missing 'phase2_status'")
+    # 2026-11-24 — blocco lifecycle (additivo): se presente deve avere la
+    # forma dichiarata; un blocco malformato non deve passare in silenzio.
+    ls = latest.get("lifecycle_stats")
+    if isinstance(ls, dict):
+        if not isinstance(ls.get("births"), dict):
+            errors.append("latest.json lifecycle_stats.births not a dict")
+        if not isinstance(ls.get("deaths"), dict):
+            errors.append("latest.json lifecycle_stats.deaths not a dict")
+    bf = latest.get("births_latest_frame")
+    if bf is not None and not isinstance(bf, list):
+        errors.append("latest.json births_latest_frame not a list")
     try:
         with open(os.path.join(out_dir, "storms.geojson"), encoding="utf-8") as fh:
             geojson = json.load(fh)

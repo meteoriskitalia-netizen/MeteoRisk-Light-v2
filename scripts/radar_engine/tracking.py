@@ -437,8 +437,156 @@ def apply_lineage(active, new_tracks_by_col, plan):
 
 
 # ---------------------------------------------------------------------------
-# Metriche di regressione del tracking (2026-11-11)
+# Evoluzione del sistema: origine, crescita, fine (2026-11-24)
 # ---------------------------------------------------------------------------
+def compute_birth_kind(track):
+    """(birth_kind, birth_null_reason) di una track, da evidenza in-memory.
+
+    Ordine di precedenza (dichiarato, non inferito):
+      1. seed d'archivio  -> None / "continuation_from_history"
+      2. nessun evento birth -> None / "not_born_in_this_run"
+      3. merge_result se lineage=="merge" o evento lineage_merge
+      4. split_child se lineage=="split" o evento lineage_split
+      5. reid_continuation se EVENT_REID_CONTINUATION (physical_birth=False)
+      6. after_reject se la colonna aveva un candidato ungated rifiutato
+         dal gate ~110 km/h (evento registrato alla creazione)
+      7. first_observation
+    """
+    events = list(getattr(track, "events", None) or [])
+    if getattr(track, "continued_from_history", False):
+        return None, "continuation_from_history"
+    if models.EVENT_BIRTH not in events:
+        return None, "not_born_in_this_run"
+    lineage = getattr(track, "lineage", None)
+    # `apply_lineage` registra l'evento lineage_* su ENTRAMBI i lati: il
+    # genitore (child_ids) e il figlio (parent_ids). Solo il figlio ha
+    # parent_ids, quindi l'evento da solo non basta a classificare la nascita:
+    # senza questa guardia un genitore che si divide veniva contato come
+    # `split_child` (misurato: 4 split_child contro 2 relazioni di split).
+    parent_ids = list(getattr(track, "parent_ids", None) or [])
+    is_child = bool(parent_ids)
+    if lineage == "merge" or (is_child and "lineage_merge" in events):
+        return models.BIRTH_KIND_MERGE_RESULT, None
+    if lineage == "split" or (is_child and "lineage_split" in events):
+        return models.BIRTH_KIND_SPLIT_CHILD, None
+    if EVENT_REID_CONTINUATION in events:
+        return models.BIRTH_KIND_REID_CONTINUATION, None
+    if (models.EVENT_BIRTH_AFTER_GATE_REJECT in events
+            or getattr(track, "birth_after_gate_reject", False)):
+        return models.BIRTH_KIND_AFTER_REJECT, None
+    return models.BIRTH_KIND_FIRST_OBSERVATION, None
+
+
+def _observed_points(track):
+    """Punti OSSERVATI (esclusi i coasted), in ordine temporale."""
+    pts = [p for p in (getattr(track, "points", None) or [])
+           if getattr(p, "observed", True)
+           and getattr(p, "position_source", None) != COAST_POSITION_SOURCE]
+    return sorted(pts, key=lambda p: (int(getattr(p, "timestamp_ms", 0)),
+                                      int(getattr(p, "frame_index", -1))))
+
+
+def _growth_null(reason, window_points=0, window_min=None):
+    return {
+        "window_points": int(window_points),
+        "window_min": window_min,
+        "area_km2_per_min": None,
+        "max_dbz_per_min": None,
+        "mean_dbz_per_min": None,
+        "area_delta_km2": None,
+        "max_dbz_delta": None,
+        "null_reason": reason,
+        "vil_density": None,
+        "vil_density_null_reason": models.GROWTH_VIL_NULL_REASON,
+        "method": "linear_slope_last_3_observed_points",
+        "source": "track.points (observed=True, position_source!=coasted)",
+    }
+
+
+def compute_growth(track):
+    """Pendenza recente sugli ULTIMI 3 punti OSSERVATI (non cumulato).
+
+    Non e' un tasso "dalla nascita": e' la pendenza della finestra mobile
+    finale, cosi' una struttura che ha gia' raggiunto il picco non viene
+    descritta dalla crescita totale. Con meno di 3 punti osservati i valori
+    sono null con `insufficient_points`.
+    """
+    obs = _observed_points(track)
+    window = obs[-models.GROWTH_WINDOW_POINTS:]
+    n = len(window)
+    if n < models.GROWTH_WINDOW_POINTS:
+        window_min = None
+        if n >= 2:
+            delta = (window[-1].timestamp_ms - window[0].timestamp_ms) / 60000.0
+            window_min = round(delta, 2) if delta > 0 else None
+        return _growth_null(models.GROWTH_NULL_INSUFFICIENT, n, window_min)
+    first, last = window[0], window[-1]
+    window_min = (last.timestamp_ms - first.timestamp_ms) / 60000.0
+    if window_min <= 0:
+        return _growth_null(models.GROWTH_NULL_NON_POSITIVE_WINDOW, n, None)
+
+    def _num(value):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _slope(attr):
+        a, b = _num(getattr(first, attr, None)), _num(getattr(last, attr, None))
+        if a is None or b is None:
+            return None, None
+        return (b - a) / window_min, (b - a)
+
+    area_rate, area_delta = _slope("area_km2")
+    max_rate, max_delta = _slope("max_dbz")
+    mean_rate, _mean_delta = _slope("mean_dbz")
+    return {
+        "window_points": n,
+        "window_min": round(window_min, 2),
+        "area_km2_per_min": (round(area_rate, 3)
+                             if area_rate is not None else None),
+        "max_dbz_per_min": (round(max_rate, 3)
+                            if max_rate is not None else None),
+        "mean_dbz_per_min": (round(mean_rate, 3)
+                             if mean_rate is not None else None),
+        "area_delta_km2": (round(area_delta, 2)
+                           if area_delta is not None else None),
+        "max_dbz_delta": (round(max_delta, 2)
+                          if max_delta is not None else None),
+        "null_reason": None,
+        "vil_density": None,
+        "vil_density_null_reason": models.GROWTH_VIL_NULL_REASON,
+        "method": "linear_slope_last_3_observed_points",
+        "source": "track.points (observed=True, position_source!=coasted)",
+    }
+
+
+def finalize_lifecycle_fields(track):
+    """Popola birth_kind/physical_birth/death_kind/growth di una track.
+
+    Va chiamata in `finalize()`, cioe' DOPO `apply_lineage` e
+    `_stitch_reids_in_run` (l'ultima ricucitura puo' cambiare l'esito) e DOPO
+    `complete_cycles` (che chiude le track non osservate sull'ultimo frame).
+    """
+    kind, reason = compute_birth_kind(track)
+    track.birth_kind = kind
+    track.birth_null_reason = reason
+    track.physical_birth = (None if kind is None
+                            else kind != models.BIRTH_KIND_REID_CONTINUATION)
+    if getattr(track, "status", None) == models.STATUS_DEAD:
+        if getattr(track, "death_kind", None) is None:
+            track.death_kind = models.DEATH_KIND_LOST
+            track.death_null_reason = "death_cause_unavailable"
+        else:
+            track.death_null_reason = None
+    else:
+        track.death_kind = None
+        track.death_null_reason = "track_still_active"
+    track.growth = compute_growth(track)
+    return track
+
+
+
 def tracking_metrics(tracks, track_type="cell", max_speed_kmh=None,
                      reid_window_min=_REID_WINDOW_MIN,
                      reid_radius_km=_REID_RADIUS_KM,
@@ -923,7 +1071,7 @@ class Tracker:
         dist_km = pr["speed_kmh"] * dt_h
         return dest_from(pr["from_lonlat"], pr["bearing"], dist_km)
 
-    def _new_track(self, cell, frame_index, seed=None):
+    def _new_track(self, cell, frame_index, seed=None, after_reject=False):
         track = models.Track(self._next_track_id, cell.timestamp_ms)
         self._next_track_id += 1
         if seed is not None:
@@ -943,7 +1091,59 @@ class Tracker:
         track.points.append(models.TrackPoint(track.track_id, frame_index, cell))
         if seed is None:
             track.events.append(models.EVENT_BIRTH)
+            # 2026-11-24 — la colonna aveva un candidato che il gate 110 km/h
+            # ha rifiutato: la nascita e' un re-ingresso, non un primo eco.
+            if after_reject:
+                track.birth_after_gate_reject = True
+                track.events.append(models.EVENT_BIRTH_AFTER_GATE_REJECT)
         return track
+
+    def _mark_death(self, track, kind):
+        """Chiude una track registrando il MOTIVO al momento della morte."""
+        track.status = models.STATUS_DEAD
+        track.death_ms = track.points[-1].timestamp_ms
+        if models.EVENT_DEATH not in track.events:
+            track.events.append(models.EVENT_DEATH)
+        track.death_kind = kind
+        track.death_null_reason = None
+
+    def _merged_into(self, track):
+        """True se la track e' stata assorbita da un figlio con lineage merge.
+
+        Non basta `child_ids` (anche uno split ne produce) ne' l'evento
+        `lineage_merge` (anche il SURVIVOR di un merge lo porta, ma lui ha
+        assorbito, non e' stato assorbito). Serve un figlio con
+        `lineage == "merge"` che la elenca nei propri `parent_ids`.
+        """
+        ids = set(getattr(track, "child_ids", None) or [])
+        if not ids:
+            return False
+        for other in self.tracks:
+            if other is track:
+                continue
+            if getattr(other, "lineage", None) != "merge":
+                continue
+            if track.track_id in (getattr(other, "parent_ids", None) or []):
+                return True
+        return False
+
+    def _death_kind_for(self, track, cells_present, gated_row, max_coast):
+        """Motivo della morte, deciso con l'evidenza disponibile in quel punto.
+
+        - merged_into: la track e' assorbita da un'altra (merge child reale)
+        - coasting_expired: il grace di coasting e' esaurito
+        - lost: nessuna osservazione utile (frame vuoto o gate 110 km/h)
+        - dissipated: celle presenti ma nessuna associazione: l'eco non c'e' piu'
+        """
+        if self._merged_into(track):
+            return models.DEATH_KIND_MERGED_INTO
+        if max_coast > 0 and getattr(track, "_coast_frames", 0) >= max_coast:
+            return models.DEATH_KIND_COASTING_EXPIRED
+        if not cells_present:
+            return models.DEATH_KIND_LOST
+        if gated_row:
+            return models.DEATH_KIND_LOST
+        return models.DEATH_KIND_DISSIPATED
 
     def _seed_matches(self, cells):
         """Accoppia le celle del primo frame alle track dell'archivio.
@@ -1075,6 +1275,10 @@ class Tracker:
             parent.lineage = "continuation"
             parent.status = models.STATUS_ACTIVE
             parent.death_ms = None
+            # La track e' VIVA di nuovo: il motivo della morte precedente non
+            # descrive piu' il suo stato (resta l'evento EVENT_DEATH in audit).
+            parent.death_kind = None
+            parent.death_null_reason = None
             parent._coast_frames = 0
             # La memoria di matching riparte dal punto cucito (v. _features).
             parent.reid_reset_frame = pt.frame_index
@@ -1231,9 +1435,9 @@ class Tracker:
                         t, frame_index, frame_ts_ms, frame_context,
                         max_coast, rows):
                     continue
-                t.status = models.STATUS_DEAD
-                t.death_ms = t.points[-1].timestamp_ms
-                t.events.append(models.EVENT_DEATH)
+                self._mark_death(t, self._death_kind_for(
+                    t, cells_present=False, gated_row=False,
+                    max_coast=max_coast))
                 rows.append({"track_id": t.track_id, "prev_cell_id":
                              t.points[-1].cell_id, "current_cell_id": None,
                              "assignment_status": "terminated"})
@@ -1348,6 +1552,15 @@ class Tracker:
         kept_pairs = {(i, j) for (i, j) in overlap_kept_pairs
                       if assignment.get(i) == j}
         self.kept_by_overlap += len(kept_pairs)
+        # 2026-11-24 — per la classificazione della NASCITA e della MORTE:
+        # conta il candidato UNGATED SCELTO dall'Hungarian, non qualsiasi
+        # coppia sotto `max_assignment_cost` (con 400 km di tetto ogni cella
+        # avrebbe un "candidato" a 300 km). E' la stessa base di
+        # `continuity_rejections`: associazione finale che il gate elimina.
+        gated_assignment = {(i, j) for (i, j) in ungated_assignment.items()
+                            if (i, j) in gated_pairs}
+        gated_rows = {i for (i, _j) in gated_assignment}
+        rejected_cols = {j for (_i, j) in gated_assignment}
 
         # Lineage merge/split (2026-11-11): piano calcolato PRIMA di creare le
         # track nuove, cosi' i figli possono ereditare parent_ids.
@@ -1408,7 +1621,8 @@ class Tracker:
         new_tracks_by_col = {}
         for j, cell in enumerate(cells):
             if j not in reversed_assign:
-                track = self._new_track(cell, frame_index)
+                track = self._new_track(cell, frame_index,
+                                        after_reject=(j in rejected_cols))
                 self.tracks.append(track)
                 new_tracks_by_col[j] = track
                 rows.append({"track_id": track.track_id,
@@ -1421,9 +1635,9 @@ class Tracker:
                 if self._try_coast(track, frame_index, frame_ts_ms,
                                    frame_context, max_coast, rows):
                     continue
-                track.status = models.STATUS_DEAD
-                track.death_ms = track.points[-1].timestamp_ms
-                track.events.append(models.EVENT_DEATH)
+                self._mark_death(track, self._death_kind_for(
+                    track, cells_present=True, gated_row=(ti in gated_rows),
+                    max_coast=max_coast))
                 rows.append({"track_id": track.track_id,
                              "prev_cell_id": track.points[-1].cell_id,
                              "current_cell_id": None,
@@ -1477,10 +1691,14 @@ class Tracker:
                 if pts_now:
                     track.birth_ms = pts_now[0].timestamp_ms
             pts = track.points
+            # 2026-11-24 — origine/morte/crescita: DOPO lineage, re-ID e
+            # complete_cycles, sui punti gia' definitivi (seed eventualmente
+            # rimosso). Additivo: non tocca motion ne' events.
+            finalize_lifecycle_fields(track)
             # Coasting: il fit e TUTTE le statistiche di moto usano solo i
             # punti OSSERVATI. `duration_min` resta lo span temporale del
             # record (incluso l'eventuale punto stimato); la durata ONesta e'
-            # il nuovo campo separato `duration_observed_min`.
+            # il campo separato `duration_observed_min`.
             obs = [p for p in pts if getattr(p, "observed", True)] or pts
             # 2026-11-24 — un punto tenuto per sovrapposizione e' una
             # OSSERVAZIONE (la cella esiste) ma NON un passo di moto: il fit
@@ -1604,6 +1822,19 @@ class Tracker:
                 continue                      # osservata sull'ultimo frame
             track.status = models.STATUS_DEAD
             track.death_ms = obs[-1].timestamp_ms if obs else None
+            # 2026-11-24 — chiusura amministrativa a fine run: nessuna prova
+            # fisica di dissipazione. Se l'ultimo punto e' coasted il grace si
+            # e' esaurito col termine del run; altrimenti l'identita' non e'
+            # piu' stata osservata.
+            if getattr(track, "death_kind", None) is None:
+                last_pt = track.points[-1] if track.points else None
+                track.death_kind = (
+                    models.DEATH_KIND_COASTING_EXPIRED
+                    if (last_pt is not None
+                        and getattr(last_pt, "position_source", None)
+                        == COAST_POSITION_SOURCE)
+                    else models.DEATH_KIND_LOST)
+                track.death_null_reason = None
         return self.tracks
 
 

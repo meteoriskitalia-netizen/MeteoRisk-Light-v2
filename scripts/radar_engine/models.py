@@ -190,8 +190,67 @@ class DetectedCell:
 EVENT_BIRTH = "birth"
 EVENT_DEATH = "death"
 EVENT_AMBIGUOUS = "ambiguous"   # merge/split candidato (Fase 1: NON inferito)
+# 2026-11-24 — una track nata su una colonna la cui associazione UNGATED
+# scelta dall'Hungarian era stata rifiutata dal gate di continuita' ~110 km/h.
+# E' un evento di AUDIT, non una nuova relazione di lineage: serve a
+# distinguere `after_reject` da una nascita spontanea (`first_observation`).
+EVENT_BIRTH_AFTER_GATE_REJECT = "birth_after_gate_reject"
 STATUS_ACTIVE = "active"
 STATUS_DEAD = "dead"
+
+# ---------------------------------------------------------------------------
+# Origine e fine di una track (2026-11-24)
+# ---------------------------------------------------------------------------
+# `birth_kind` descrive l'ORIGINE dell'identita' registrata a fine run:
+#   first_observation  nessuna relazione, primo punto osservato in questo run
+#   after_reject       l'associazione ungated scelta dall'Hungarian e' stata
+#                      rifiutata dal gate ~110 km/h (la nascita e' un re-ingresso)
+#   split_child        figlio di una divisione (lineage/evento split)
+#   merge_result       risultato di una fusione (lineage/evento merge)
+#   reid_continuation  identita' ricucita su una track morta da <=15 min
+# Seed d'archivio: birth_kind=null, motivo `continuation_from_history`.
+BIRTH_KIND_FIRST_OBSERVATION = "first_observation"
+BIRTH_KIND_AFTER_REJECT = "after_reject"
+BIRTH_KIND_SPLIT_CHILD = "split_child"
+BIRTH_KIND_MERGE_RESULT = "merge_result"
+BIRTH_KIND_REID_CONTINUATION = "reid_continuation"
+BIRTH_KINDS = (
+    BIRTH_KIND_FIRST_OBSERVATION,
+    BIRTH_KIND_AFTER_REJECT,
+    BIRTH_KIND_SPLIT_CHILD,
+    BIRTH_KIND_MERGE_RESULT,
+    BIRTH_KIND_REID_CONTINUATION,
+)
+# Sottoinsieme che conta come nascita FISICA: una reid_continuation e' la
+# stessa cella con un'identita' ricucita, quindi physical_birth=False.
+BIRTH_KINDS_PHYSICAL = (
+    BIRTH_KIND_FIRST_OBSERVATION,
+    BIRTH_KIND_AFTER_REJECT,
+    BIRTH_KIND_SPLIT_CHILD,
+    BIRTH_KIND_MERGE_RESULT,
+)
+
+# `death_kind` e' registrato nel punto in cui il tracker chiude la track:
+#   merged_into       assorbita da un'altra track (lineage merge)
+#   coasting_expired  grace di coasting esaurito
+#   lost              nessuna osservazione utile (frame vuoto o gate 110 km/h)
+#   dissipated        celle presenti ma nessuna associazione: l'eco non c'e' piu'
+DEATH_KIND_MERGED_INTO = "merged_into"
+DEATH_KIND_COASTING_EXPIRED = "coasting_expired"
+DEATH_KIND_LOST = "lost"
+DEATH_KIND_DISSIPATED = "dissipated"
+DEATH_KINDS = (
+    DEATH_KIND_MERGED_INTO,
+    DEATH_KIND_COASTING_EXPIRED,
+    DEATH_KIND_LOST,
+    DEATH_KIND_DISSIPATED,
+)
+
+# Finestra della pendenza di crescita: ULTIMI 3 punti OSSERVATI (non coasted).
+GROWTH_WINDOW_POINTS = 3
+GROWTH_NULL_INSUFFICIENT = "insufficient_points"
+GROWTH_NULL_NON_POSITIVE_WINDOW = "non_positive_window"
+GROWTH_VIL_NULL_REASON = "vil_not_available_per_point"
 
 # 2026-11-21 (#12): blocco `lifecycle` ESPLICITO e ONESTO in tracks.json e
 # storm_tracks.json. Deriva SOLO da dati gia' presenti (events, status,
@@ -354,6 +413,14 @@ class Track:
         self.history_uid = None
         self.history_slot = None
         self.history_age_min = None
+        # 2026-11-24 — evoluzione del sistema. Calcolati in finalize (dopo
+        # apply_lineage e _stitch_reids_in_run). None = non ancora calcolato.
+        self.birth_kind = None
+        self.birth_null_reason = None
+        self.physical_birth = None
+        self.death_kind = None
+        self.death_null_reason = None
+        self.growth = None
 
     def to_dict(self):
         pts = [p.to_dict() for p in self.points]
@@ -381,6 +448,13 @@ class Track:
             "history_uid": self.history_uid,
             "history_slot": self.history_slot,
             "history_age_min": self.history_age_min,
+            # 2026-11-24 — evoluzione del sistema (nascita/morte/crescita).
+            "birth_kind": self.birth_kind,
+            "birth_null_reason": self.birth_null_reason,
+            "physical_birth": self.physical_birth,
+            "death_kind": self.death_kind,
+            "death_null_reason": self.death_null_reason,
+            "growth": self.growth,
             "classification": self.motion.get("classification"),
             "organization_score": self.motion.get("organization_score"),
             "class_probs": self.motion.get("class_probs"),
@@ -566,6 +640,13 @@ class StormTrack:
         self.history_uid = None
         self.history_slot = None
         self.history_age_min = None
+        # 2026-11-24 — stessa semantica del layer cella (v. Track).
+        self.birth_kind = None
+        self.birth_null_reason = None
+        self.physical_birth = None
+        self.death_kind = None
+        self.death_null_reason = None
+        self.growth = None
 
     def to_dict(self):
         pts = [p.to_dict() for p in self.points]
@@ -595,6 +676,13 @@ class StormTrack:
             "history_uid": self.history_uid,
             "history_slot": self.history_slot,
             "history_age_min": self.history_age_min,
+            # 2026-11-24 — evoluzione del sistema (nascita/morte/crescita).
+            "birth_kind": self.birth_kind,
+            "birth_null_reason": self.birth_null_reason,
+            "physical_birth": self.physical_birth,
+            "death_kind": self.death_kind,
+            "death_null_reason": self.death_null_reason,
+            "growth": self.growth,
             "classification": self.motion.get("classification"),
             "organization_score": self.motion.get("organization_score"),
             "class_probs": self.motion.get("class_probs"),

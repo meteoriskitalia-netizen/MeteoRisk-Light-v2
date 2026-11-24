@@ -399,13 +399,21 @@ def derive_lifecycle(candidate, config=None):
     rule = None
     value = None
     dying = (status == "dead" and not on_latest)
-    if dying or ((growth is not None
-                  and growth <= th["life_dissipating_growth_pct"])
-                 or (delta is not None
-                     and delta <= th["life_dissipating_delta_dbz"])):
+    # 2026-11-24 — conflitto area/intensita': un calo di dBZ con area in FORTE
+    # crescita non e' indebolimento (il sistema si sta espandendo). Prima un
+    # delta_dbz=-7.0 con area_growth_pct=+83.9 veniva etichettato WEAKENING
+    # perche' la condizione era un OR senza guardia sull'area.
+    strong_area_growth = (
+        growth is not None and growth >= th["life_intensifying_growth_pct"])
+    if dying or (not strong_area_growth and (
+            (growth is not None
+             and growth <= th["life_dissipating_growth_pct"])
+            or (delta is not None
+                and delta <= th["life_dissipating_delta_dbz"]))):
         value, rule = "DISSIPATING", "dead_or_strong_negative_trend"
-    elif ((growth is not None and growth <= th["life_weakening_growth_pct"])
-          or (delta is not None and delta <= th["life_weakening_delta_dbz"])):
+    elif not strong_area_growth and (
+            (growth is not None and growth <= th["life_weakening_growth_pct"])
+            or (delta is not None and delta <= th["life_weakening_delta_dbz"])):
         value, rule = "WEAKENING", "negative_trend"
     elif (phase == "birth" or (n_points is not None and n_points <= 2)) and (
             max_dbz is None or max_dbz < th["life_genesis_max_dbz"]):

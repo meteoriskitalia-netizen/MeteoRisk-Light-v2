@@ -172,7 +172,7 @@ def test_phase_from_real_output_builder_block():
                                 frame_index=1, position_source="radar",
                                 observed=True)
     track = types.SimpleNamespace(
-        track_id=1, events=[], points=[pt0, pt1], death_ms=None,
+        track_id=1, events=[models.EVENT_BIRTH], points=[pt0, pt1], death_ms=None,
         lineage=None, parent_ids=[], child_ids=[], coasting_null_reason=None,
         tracking_ambiguity=None, continued_from_history=False,
         history_uid=None, ambiguity_reason=None)
@@ -225,7 +225,7 @@ def test_attach_is_additive_and_publishes_tracking_phase_counts():
                                 frame_index=1, position_source="radar",
                                 observed=True)
     track = types.SimpleNamespace(
-        track_id=1, events=[], points=[pt0, pt1], death_ms=None,
+        track_id=1, events=[models.EVENT_BIRTH], points=[pt0, pt1], death_ms=None,
         lineage=None, parent_ids=[], child_ids=[], coasting_null_reason=None,
         tracking_ambiguity=None, continued_from_history=False,
         history_uid=None, ambiguity_reason=None)
