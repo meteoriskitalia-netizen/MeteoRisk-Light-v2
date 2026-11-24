@@ -134,7 +134,8 @@ def load_document(path):
 def row_key(row):
     return (str(row.get("source_slot")),
             int(row.get("lead_min")),
-            round(float(row.get("threshold_mmh")), 3))
+            round(float(row.get("threshold_mmh")), 3),
+            str(row.get("variant") or "no_orog"))
 
 
 def official_leads(record):
@@ -231,8 +232,9 @@ class _Bundle(object):
         self._nowcast_verification = {}
 
 
-def _default_compute(bundle, config, clk):
-    return nf.compute(bundle, config, clk, list(bundle.warnings), out_dir=None)
+def _default_compute(bundle, config, clk, orographic=None):
+    return nf.compute(bundle, config, clk, list(bundle.warnings), out_dir=None,
+                      orographic=orographic)
 
 
 # ---------------------------------------------------------------------------
@@ -272,8 +274,9 @@ def _centroid(mask, rd):
 
 
 def scores_row(source_slot, lead, valid_iso, threshold, pred, pers, obs,
-               domain, rd, min_rain_pixels=MIN_OBS_RAIN_PIXELS):
-    """Una riga (slot, lead, soglia). Nessun valore se il dato manca."""
+               domain, rd, min_rain_pixels=MIN_OBS_RAIN_PIXELS,
+               variant="no_orog"):
+    """Una riga (slot, lead, soglia, variante). Nessun valore se il dato manca."""
     ok = (np.isfinite(pred) & np.isfinite(obs)
           & np.asarray(domain, dtype=bool))
     n_obs_rain = int(np.sum(obs[ok] >= 0.5))
@@ -282,6 +285,7 @@ def scores_row(source_slot, lead, valid_iso, threshold, pred, pers, obs,
         "lead_min": int(lead),
         "valid_time": valid_iso,
         "threshold_mmh": float(threshold),
+        "variant": str(variant),
         "n_px_observed": n_obs_rain,
         "domain_pixels": int(ok.sum()),
         "n_px_observed_ge_threshold": int(np.sum(obs[ok] >= threshold)),
@@ -346,6 +350,7 @@ def not_verifiable_rows(source_slot, lead, valid_iso, reason,
             "lead_min": int(lead),
             "valid_time": valid_iso,
             "threshold_mmh": float(thr),
+            "variant": None,
             "status": "not_verifiable",
             "null_reason": reason,
             "n_px_observed": n_px_observed,
@@ -365,6 +370,131 @@ def not_verifiable_rows(source_slot, lead, valid_iso, reason,
             "error_location": None,
         })
     return rows
+
+
+def _pooled(rows):
+    """Somme di contingenza e CSI pooled (CSI = H/(H+M+F) sui totali)."""
+    h = sum(int(r.get("hits") or 0) for r in rows)
+    m = sum(int(r.get("misses") or 0) for r in rows)
+    f = sum(int(r.get("false_alarms") or 0) for r in rows)
+    cn = sum(int(r.get("correct_negatives") or 0) for r in rows)
+    hp = sum(int(r.get("hits_persistenza") or 0) for r in rows)
+    mp = sum(int(r.get("misses_persistenza") or 0) for r in rows)
+    fp = sum(int(r.get("false_alarms_persistenza") or 0) for r in rows)
+    cnp = sum(int(r.get("correct_negatives_persistenza") or 0) for r in rows)
+
+    def csi(a, b, c):
+        den = a + b + c
+        return round(a / den, 4) if den else None
+
+    return {
+        "n_rows": len(rows),
+        "hits": h, "misses": m, "false_alarms": f, "correct_negatives": cn,
+        "csi_nowcast": csi(h, m, f),
+        "pod": round(h / (h + m), 4) if (h + m) else None,
+        "far": round(f / (h + f), 4) if (h + f) else None,
+        "csi_persistenza": csi(hp, mp, fp),
+        "pod_persistenza": round(hp / (hp + mp), 4) if (hp + mp) else None,
+        "far_persistenza": round(fp / (hp + fp), 4) if (hp + fp) else None,
+    }
+
+
+def orography_ab(rows, min_cases=5):
+    """A/B orografia: stessi slot, varianti `orog` e `no_orog` + persistenza.
+
+    Confronto APPAIATO per (slot, lead, soglia): entrano solo le celle in cui
+    ENTRAMBE le varianti hanno una riga `verified`, cosi' la differenza non e'
+    un effetto di campione. Il verdetto usa il CSI pooled sui totali di
+    contingenza (H/(H+M+F)), non la media di CSI con denominatori diversi.
+    """
+    verified = [r for r in rows if r.get("status") == "verified"]
+    by = {}
+    for r in verified:
+        v = str(r.get("variant") or "no_orog")
+        key = (int(r.get("lead_min")), round(float(r.get("threshold_mmh")), 3),
+               str(r.get("source_slot")))
+        by.setdefault(key, {})[v] = r
+    paired = {k: d for k, d in by.items()
+              if "orog" in d and "no_orog" in d}
+    out = {
+        "schema": "meteorisk.nowcast_orography_ab/1",
+        "variant_key": "variant",
+        "variants": ["orog", "no_orog", "persistenza"],
+        "min_cases_per_verdict": int(min_cases),
+        "paired_cases": len(paired),
+        "cells": [],
+        "overall": {},
+        "null_reason": None,
+    }
+    if not paired:
+        out["null_reason"] = "no_paired_verified_cases"
+        out["beats_persistence_no_orog"] = None
+        out["beats_persistence_orog"] = None
+        out["orog_beats_no_orog"] = None
+        return out
+
+    orog_rows = [d["orog"] for d in paired.values()]
+    no_rows = [d["no_orog"] for d in paired.values()]
+    wins = {"orog": 0, "no_orog": 0, "tie": 0}
+    lead_thr = {}
+    for d in paired.values():
+        o = d["orog"].get("csi_nowcast")
+        n = d["no_orog"].get("csi_nowcast")
+        if o is None or n is None:
+            continue
+        if o > n:
+            wins["orog"] += 1
+        elif n > o:
+            wins["no_orog"] += 1
+        else:
+            wins["tie"] += 1
+        key = (int(d["orog"]["lead_min"]),
+               round(float(d["orog"]["threshold_mmh"]), 3))
+        lead_thr.setdefault(key, {"orog": [], "no_orog": []})
+        lead_thr[key]["orog"].append(d["orog"])
+        lead_thr[key]["no_orog"].append(d["no_orog"])
+
+    for (lead, thr) in sorted(lead_thr):
+        cell = lead_thr[(lead, thr)]
+        po = _pooled(cell["orog"])
+        pn = _pooled(cell["no_orog"])
+        out["cells"].append({
+            "lead_min": lead, "threshold_mmh": thr,
+            "n_cases": po["n_rows"],
+            "csi_orog": po["csi_nowcast"],
+            "csi_no_orog": pn["csi_nowcast"],
+            "csi_persistenza": po["csi_persistenza"],
+            "pod_orog": po["pod"], "pod_no_orog": pn["pod"],
+            "far_orog": po["far"], "far_no_orog": pn["far"],
+            "delta_csi_orog_minus_no_orog": (
+                round(po["csi_nowcast"] - pn["csi_nowcast"], 4)
+                if (po["csi_nowcast"] is not None
+                    and pn["csi_nowcast"] is not None) else None),
+        })
+
+    po = _pooled(orog_rows)
+    pn = _pooled(no_rows)
+    out["overall"] = {"orog": po, "no_orog": pn}
+    out["case_wins"] = wins
+    enough = len(paired) >= int(min_cases)
+
+    def _better(a, b):
+        if not enough or a is None or b is None:
+            return None
+        return bool(a > b)
+
+    out["beats_persistence_orog"] = _better(po["csi_nowcast"],
+                                            po["csi_persistenza"])
+    out["beats_persistence_no_orog"] = _better(pn["csi_nowcast"],
+                                               pn["csi_persistenza"])
+    out["orog_beats_no_orog"] = _better(po["csi_nowcast"], pn["csi_nowcast"])
+    if not enough:
+        out["null_reason"] = "paired_cases_below_%d" % int(min_cases)
+    out["decision"] = (
+        "l'orografia MIGLIORA il nowcast" if out["orog_beats_no_orog"] is True
+        else "l'orografia PEGGIORA il nowcast" if out["orog_beats_no_orog"] is False
+        else "non conclusivo (casi insufficienti o pari)")
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -437,6 +567,7 @@ def merge_series(doc, new_rows, now_ms, retention_days=SERIES_RETENTION_DAYS,
         "rows": kept,
     })
     out["series"] = series
+    out["orography_ab"] = orography_ab(kept)
     return out
 
 
@@ -576,6 +707,21 @@ def verify_pending(archive_root, verification_path, config, now=None,
             payload, native = {"available": False,
                                "null_reason": "compute_error:%s" % (
                                    exc.__class__.__name__)}, None
+        # A/B OROGRAFIA: secondo calcolo dallo STESSO slot e dalle STESSE
+        # frames, con il flag forzato all'OPPOSTO di quello della config. Il
+        # confronto e' quindi a parita' di trasporto: cambia solo la
+        # correzione, non il flusso ottico.
+        cfg_orog = bool(((config or {}).get("orographic_enhancement") or {})
+                        .get("enabled", True))
+        primary_variant = "orog" if cfg_orog else "no_orog"
+        ab_variant = "no_orog" if cfg_orog else "orog"
+        try:
+            payload_ab, native_ab = compute_fn(bundle, config, clk,
+                                               orographic=(not cfg_orog))
+        except Exception as exc:
+            stats["warnings"].append("compute_ab_failed:%s:%s" % (
+                exc.__class__.__name__, exc))
+            payload_ab, native_ab = None, None
         if not payload.get("available") or native is None:
             reason = payload.get("null_reason") or "nowcast_unavailable"
             for lead_min, _valid_ms, valid_iso in to_score:
@@ -599,30 +745,35 @@ def verify_pending(archive_root, verification_path, config, now=None,
                     nf.VERIFY_THRESHOLDS_MMH)
             continue
 
-        # 3) punteggi per lead/soglia
+        # 3) punteggi per lead/soglia, UNA riga per variante (A/B orografia)
         stats["slots_evaluated"] += 1
         domain = native["_domain"]
         pers, pvalid = nf._rain_array(frames[-1])
+        variants = [(primary_variant, native)]
+        if native_ab is not None:
+            variants.append((ab_variant, native_ab))
         for lead_min, _valid_ms, valid_iso in to_score:
             obs_rd = observed[(lead_min, _valid_ms)]
             obs, ovalid = nf._rain_array(obs_rd)
             dom = domain & ovalid & pvalid
-            pred = native.get(lead_min)
-            if pred is None:
-                new_rows.extend(not_verifiable_rows(
-                    slot_iso, lead_min, valid_iso, "lead_not_computed"))
-                stats["rows_not_verifiable"] += len(
-                    nf.VERIFY_THRESHOLDS_MMH)
-                continue
-            for thr in nf.VERIFY_THRESHOLDS_MMH:
-                row = scores_row(slot_iso, lead_min, valid_iso, thr,
-                                 pred, pers, obs, dom, obs_rd,
-                                 min_rain_pixels=min_rain_pixels)
-                new_rows.append(row)
-                if row["status"] == "verified":
-                    stats["rows_verified"] += 1
-                else:
-                    stats["rows_not_informative"] += 1
+            for variant, nat in variants:
+                pred = nat.get(lead_min)
+                if pred is None:
+                    new_rows.extend(not_verifiable_rows(
+                        slot_iso, lead_min, valid_iso, "lead_not_computed"))
+                    stats["rows_not_verifiable"] += len(
+                        nf.VERIFY_THRESHOLDS_MMH)
+                    continue
+                for thr in nf.VERIFY_THRESHOLDS_MMH:
+                    row = scores_row(slot_iso, lead_min, valid_iso, thr,
+                                     pred, pers, obs, dom, obs_rd,
+                                     min_rain_pixels=min_rain_pixels,
+                                     variant=variant)
+                    new_rows.append(row)
+                    if row["status"] == "verified":
+                        stats["rows_verified"] += 1
+                    else:
+                        stats["rows_not_informative"] += 1
 
     out = merge_series(doc, new_rows, now_ms,
                        retention_days=retention_days,

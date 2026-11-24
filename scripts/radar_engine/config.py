@@ -836,6 +836,30 @@ CONFIG = {
             ],
         },
     },
+    # ENHANCEMENT OROGRAFICO DEL NOWCAST (novembre 2026). Attivo di default,
+    # spegnibile: e' un layer additivo e la correzione e' limitata dalla
+    # formula (orography.py), non un moltiplicatore scelto a occhio.
+    # `nowcast_verify` ricalcola ogni slot con il flag ON e OFF (A/B).
+    "orographic_enhancement": {
+        "enabled": True,
+        "grid_file": "data/geography/orography_it_0p05.json",
+        "env_points_file": "data/latest/meteorisk-points.json",
+        "env_metadata_file": "data/latest/metadata.json",
+        "max_env_age_minutes": 240,
+        "min_mean_elev_m": 20.0,
+        "rh_threshold": 0.80,
+        "min_upslope_ms": 0.0005,
+        "upwind_km": 15.0,
+        "upwind_steps": 4,
+        "lee_floor_frac": 0.50,
+        "max_relative_increase": 1.0,
+        "rain_min_mmh": 0.05,
+        "wind_level": "10m",
+        "wind_level_weights": {"850_700": [150.0, 125.0]},
+        "idw_neighbors": 8,
+        "idw_max_km": 200.0,
+        "rv": 461.5,
+    },
     "output": {
         "out_dir": "data/radar",
         "files": ["latest.json", "storms.geojson", "tracks.json",

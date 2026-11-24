@@ -85,6 +85,7 @@ import numpy as np
 from . import clock as clock_mod
 from . import fetch as fetch_mod
 from . import models
+from . import orography as orography_mod
 
 SCHEMA = "meteorisk.nowcast_field/1"
 SOURCE = "DPC_SRI"
@@ -660,11 +661,15 @@ def load_verification(out_dir):
     return data
 
 
-def compute(bundle, config, clock, warnings, out_dir=None):
+def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
     """Calcola il nowcast. Ritorna (payload, campi_nativi).
 
     `campi_nativi` = {lead_min: ndarray mm/h} piu' `_domain`, `_grid`, `_rd`
-    per la validazione offline (nessun secondo calcolo)."""
+    per la validazione offline (nessun secondo calcolo).
+
+    `orographic=None` -> si usa il flag `orographic_enhancement.enabled` della
+    config; True/False lo forzano (usato dall'A/B di `nowcast_verify`).
+    """
     frames, origin = collect_frames(bundle, config, clock, warnings)
     if not frames:
         return _unavailable("sri_unavailable", clock,
@@ -713,12 +718,60 @@ def compute(bundle, config, clock, warnings, out_dir=None):
     native = {}
     stepped = latest.copy()
     done = 0
+
+    # ENHANCEMENT OROGRAFICO: precalcolato UNA volta sul raster nativo (la
+    # quota e il vento NWP non dipendono dal lead), applicato a ogni frame
+    # TRASPORTATO prima delle statistiche e della rampa alpha. Se la quota o
+    # l'ambiente mancano, `ctx["applied"]` e' False con un motivo esplicito e
+    # il campo resta il trasporto puro.
+    oro_cfg = orography_mod.config_for(config)
+    if orographic is not None:
+        oro_cfg = dict(oro_cfg)
+        oro_cfg["enabled"] = bool(orographic)
+    oro_ctx = None
+    try:
+        oro_ctx = orography_mod.prepare(
+            rd, {"orographic_enhancement": oro_cfg}, latest_ts, warnings)
+    except Exception as exc:  # layer additivo: il nowcast resta il trasporto
+        warnings.append("orographic: prepare failed (%s)" % exc)
+        oro_ctx = {"schema": orography_mod.SCHEMA,
+                   "enabled": bool(oro_cfg["enabled"]), "applied": False,
+                   "null_reason": "prepare_error:%s" % exc.__class__.__name__}
+    oro_lead_stats = {}
+
     for lead in LEADS_MIN:
         steps = int(lead // STEP_MIN)
         while done < steps:
             stepped = semi_lagrangian(stepped, u, v, 1, domain)
             done += 1
-        native[lead] = stepped
+        if oro_ctx and oro_ctx.get("applied"):
+            corrected, st = orography_mod.apply(stepped, oro_ctx, oro_cfg)
+            native[lead] = corrected
+            oro_lead_stats[lead] = st
+        else:
+            native[lead] = stepped
+
+    oro_block = orography_mod.summarize(oro_ctx)
+    if oro_block.get("applied") and oro_lead_stats:
+        off = [oro_lead_stats[l] for l in OFFICIAL_LEADS if l in oro_lead_stats]
+        if off:
+            oro_block["delta_mean_mm_h"] = round(
+                float(np.mean([s["delta_mean_mm_h"] for s in off])), 4)
+            oro_block["delta_max_mm_h"] = round(
+                float(np.max([s["delta_max_mm_h"] for s in off])), 4)
+            oro_block["pixels_changed_max"] = int(
+                max(s["pixels_changed"] for s in off))
+            # nomi espliciti richiesti dal contratto del layer
+            oro_block["cells_corrected"] = oro_block["pixels_changed_max"]
+            oro_block["upslope_mean_ms"] = (oro_block.get("upslope_ms") or {}).get("mean")
+            oro_block["delta_mean_scope"] = (
+                "media del delta sui soli pixel cambiati, mediata sui lead "
+                "ufficiali 15/30/60; delta_max_mm_h = massimo sui lead ufficiali")
+        oro_block["per_lead"] = {
+            str(k): {kk: vv for kk, vv in v.items() if kk != "applied"}
+            for k, v in sorted(oro_lead_stats.items())}
+        oro_block["env_time"] = _iso(latest_ts)
+        oro_block["env_held_constant_over_horizon"] = True
 
     payload = {
         "schema": SCHEMA,
@@ -767,10 +820,14 @@ def compute(bundle, config, clock, warnings, out_dir=None):
             "pixels_over_cap": capped,
         },
         "limits": LIMITS,
+        "orographic_enhancement": oro_block,
     }
     verification = verification_for(bundle, config, out_dir)
     payload["verification"] = verification
     payload["beats_persistence"] = verification.get("beats_persistence")
+    ab = verification.get("orography_ab") or {}
+    payload["beats_persistence_no_orog"] = ab.get("beats_persistence_no_orog")
+    payload["beats_persistence_orog"] = ab.get("beats_persistence_orog")
     native["_domain"] = domain
     native["_grid"] = grid
     native["_rd"] = rd
