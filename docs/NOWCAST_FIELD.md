@@ -295,3 +295,12 @@ cala" e' nel testo del widget.
 - **Campione**: 49 ancore su 2 giorni, sovrapposte (v. sopra).
 - La maschera e' il dominio radar: sopra il mare dentro la copertura il campo
   e' mostrato (e' il dato reale del mosaico), fuori copertura no.
+
+## Raccolta e verifica automatica (2026-11-24)
+
+Il nowcast emesso viene ora archiviato per slot (`nowcast_archive`,
+branch orphan `nowcast-archive`, retention 7 giorni) e verificato a posteriori
+contro l'SRI osservato; la serie finisce in
+`data/radar/nowcast_verification.json` (schema
+`meteorisk.nowcast_verification/2`, riassunto schema 1 intatto). Dettagli,
+misure e limiti: **`docs/NOWCAST_VERIFICATION.md`**.
