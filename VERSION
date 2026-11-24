@@ -1,8 +1,16 @@
-VERSION=1.3.0.73
-BUILD=204
+VERSION=1.3.0.74
+BUILD=205
 DATE=2026-11-24
-APP_FILE=mri-light-1.3.0.73.html
-MeteoRisk Light - 1.3.0.73 - CAMPO CENTRALINE: ripristinato il raster della 1.3.0.68 (1/(d²+1), k=12, 25 km; pioggia 12 km) PIU' SOLO la maschera terra morbida, via il reticolo 0,5° + bilineare e il gaussiano largo (BUILD=204)
+APP_FILE=mri-light-1.3.0.74.html
+MeteoRisk Light - 1.3.0.74 - CAMPO CENTRALINE: bordo quasi netto su costa e confini (feather 1 px, prima ~15-20 px a schermo), radar nascosto quando il campo e' acceso, scala neve dedicata in cm (BUILD=205)
+VERSION=1.3.0.74
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=205
+RELEASE_TYPE=release
+DATE=2026-11-24
+NOTE=Release 1.3.0.74 (bump da 1.3.0.73; nessuna modifica al backend, BUILD del nowcast invariato; APP_FILE mri-light-1.3.0.74.html). TRE DIFETTI DEL CAMPO CENTRALINE. (1) MASCHERA TERRA QUASI NETTA: la maschera della 1.3.0.70 dilatava di 2 px e sfumava con box blur 5x5 (7 px di gradiente sul raster 256x227, ~15-20 px sullo schermo una volta ingrandito): il colore sembrava sconfinare oltre costa e confini. Ora la terra resta alpha 1, l'unico mare colorato e' l'anello di 1 px (box blur 3x3), oltre 1 px l'alpha e' ESATTAMENTE 0 e il feather e' applicato UNA volta (prima era soft al quadrato fra raster e downscale). MISURA (scripts/validation/measure_station_field_13074.mjs, maschera province even-odd, frame 256x227 36-48N 6-19E): costa Liguria/Toscana (box lon 8,4-12,6 lat 42,0-44,6) pixel di mare con alpha>0 1.3.0.73 = 714/2.077 (34,38%), di cui 481 a 2+ px, distanza massima 4 px; 1.3.0.74 = 233 (11,22%), ZERO a 2+ px, distanza massima 1 px, alpha medio dell'anello 198/255. Tutta Italia: 7.085 -> 2.006 pixel di mare colorati, 5.079 -> 0 a 2+ px, massimo 4 -> 1 px. Confine sintetico diagonale: 1.448 -> 363 colorati, 1.085 -> 0 a 2+ px, larghezza media del gradiente 8,58 -> 1,59 px (max 9 -> 2). (2) SCALA NEVE IN CM: la rampa era quella di snow_depth (in METRI) x100, sotto i 50 cm tutte le bande erano verdi quasi identiche. Nuova scala dedicata a 10 bande in cm (bianco-azzurro -> blu -> viola), 0 cm trasparente; RGB 10 cm = (56,189,248), 50 = (37,99,235), 100 = (76,29,149), 200 = (124,58,237): distanza massima fra 10 e 100 = 160 sul canale verde (>60 richiesto). Legenda con tacche 0/1/5/10/25/50/100/200/300. (3) RADAR NASCOSTO DAL CAMPO: accendendo il campo osservato il pane radarPane va in display none (le precipitazioni spariscono), il toggle radar NON viene forzato; allo spegnimento il pane torna visibile solo se era visibile prima, gli altri layer non si toccano; riga di stato «radar nascosto dal campo centraline». Vale anche se il radar viene ricreato da un refresh o se si cambia variabile col campo attivo. (4) TEST: test_station_field.mjs 238 controlli / 0 falliti (nuovi: feather 1 px e 0 oltre, quattro colori neve distinti e distanza 10-100, soppressione/ripristino del radar su map finta), test_html_js_syntax e test_tooltips_coverage verdi. (5) NON FATTO/DICHIARATO: nessuno screenshot in browser; la misura e' sul raster e sulla maschera, non sui pixel dello schermo; il testo del metodo nella riga del campo dice ancora «gaussiano» (etichetta della 1.3.0.72, non toccata in questa release).
 VERSION=1.3.0.73
 MAJOR=1
 MINOR=3

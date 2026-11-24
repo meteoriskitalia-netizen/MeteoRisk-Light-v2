@@ -1,4 +1,4 @@
-﻿/* MeteoRisk-Light 1.2.4.77 - Service Worker (cache applicativa + offline parziale).
+/* MeteoRisk-Light 1.2.4.77 - Service Worker (cache applicativa + offline parziale).
  *
  * SCOPO: far partire l'app anche offline/su rete lenta e togliere dalla rete i
  * payload che non cambiano (WebP pre-renderizzati e indici delle mappe), senza
@@ -60,7 +60,7 @@
  * ===== FASE 4 (1.2.4.77): PWA INSTALLABILE E OFFLINE PARZIALE =====
  *
  * TRE cache separate (la potatura di una non tocca le altre):
- *   CACHE_NAME   'mri-1.3.0.73'          html, manifest, offline.html, indici e WebP
+ *   CACHE_NAME   'mri-1.3.0.74'          html, manifest, offline.html, indici e WebP
  *                                        previsionali, JSON di data/radar.
  *   TILE_CACHE   'mri-tiles-1.3.0.68'    tile della mappa base (OpenStreetMap)
  *   FRAME_CACHE  'mri-frames-1.3.0.68'   frame radar (DPC / RainViewer) e satellite
@@ -107,7 +107,7 @@
  */
 'use strict';
 
-var CACHE_NAME = 'mri-1.3.0.73';
+var CACHE_NAME = 'mri-1.3.0.74';
 var TILE_CACHE = 'mri-tiles-1.3.0.68';
 var FRAME_CACHE = 'mri-frames-1.3.0.68';
 var APP_CACHES = [CACHE_NAME, TILE_CACHE, FRAME_CACHE];

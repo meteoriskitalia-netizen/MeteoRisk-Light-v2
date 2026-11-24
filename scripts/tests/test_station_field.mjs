@@ -109,7 +109,9 @@ const FNS = [
   'stationFieldContourLevels', 'stationFieldContourSegments',
   'stationFieldContourLabels', 'stationFieldContourVectorData',
   'stationFieldContourResample', 'stationFieldContourPolylines', 'stationFieldChaikin',
-  'stationFieldSoftenMask'
+  'stationFieldSoftenMask',
+  // 1.3.0.74 - il radar si nasconde quando il campo centraline e' attivo.
+  'stationFieldRadarVisibleNow', 'stationFieldRadarSuppress', 'stationFieldRadarRestore'
 ];
 const VARS = [
   'STATION_FIELD_K', 'STATION_FIELD_CUTOFF_KM', 'STATION_FIELD_FADE_KM', 'STATION_FIELD_SUPERSAMPLE',
@@ -130,7 +132,8 @@ const VARS = [
   'STATION_FIELD_SNOW_BREAKPOINTS', 'STATION_FIELD_SNOW_COLORS', 'STATION_FIELD_SNOW_SCALE',
   'STATIONS_MEAN_FIELDS',
   'FM_TEMP2M_BREAKPOINTS', 'FM_TEMP2M_COLORS', 'FM_PRECIP_BREAKPOINTS', 'FM_PRECIP_COLORS',
-  'stationsFull', 'stationsFullLoading', 'stationsFullFailedAt', 'stationsFullMergedInto'
+  'stationsFull', 'stationsFullLoading', 'stationsFullFailedAt', 'stationsFullMergedInto',
+  'stationFieldRadarHidden', 'stationFieldRadarPaneWasVisible'
 ];
 
 // ---- DOM minimo: solo i due select e il div della nota servono a syncControls ----
@@ -170,7 +173,14 @@ const ctxObj = {
   stationsEnsureFull: function () { ctxObj.__fullCalls++; return Promise.resolve(null); },
   __fullCalls: 0,
   stationsRedraw: function () { },
-  fetchWithTimeout: function () { return new Promise(function () { }); }
+  fetchWithTimeout: function () { return new Promise(function () { }); },
+  // 1.3.0.74 - map minima per la regola «radar nascosto dal campo centraline».
+  // Il test assegna un pane radarPane con style.display e un hasLayer() reale.
+  map: null,
+  isRadarActive: false,
+  liveRadarLayer: null,
+  radarTileLayer: null,
+  allRadarLayers: []
 };
 
 let code;
@@ -299,6 +309,14 @@ ok('maschera a 255 solo al centro: centro dipinto e bordo SFUMATO (feather), non
   rMask2.alphas[4 * 9 + 4] > 0 && rMask2.alphas[4 * 9 + 5] > 0 &&
   rMask2.alphas[4 * 9 + 5] < rMask2.alphas[4 * 9 + 4],
   'centro=' + rMask2.alphas[4 * 9 + 4] + ' vicino=' + rMask2.alphas[4 * 9 + 5]);
+// 1.3.0.74 - FEATHER QUASI NETTO: il colore puo' uscire di UN pixel dalla terra
+// (anello), non due o piu'. Prima era una dilatazione 2 px + blur 5x5.
+const softTight = ctxObj.stationFieldSoftenMask(maskCenter, 9, 9);
+ok('feather: terra alpha 1, anello a 1 px > 0 e < 1, oltre 2 px alpha ESATTAMENTE 0',
+  softTight[4 * 9 + 4] === 1 && softTight[4 * 9 + 5] > 0 && softTight[4 * 9 + 5] < 1 &&
+  softTight[4 * 9 + 6] === 0 && softTight[4 * 9 + 2] === 0 && softTight[2 * 9 + 4] === 0,
+  'centro=' + softTight[4 * 9 + 4] + ' anello=' + softTight[4 * 9 + 5].toFixed(3) +
+  ' a2px=' + softTight[4 * 9 + 6]);
 
 console.log('\nD. Selezione del campo per variabile e finestra (nomi reali del file)');
 ctxObj.stationsData = null;
@@ -418,10 +436,30 @@ ok('scala umidità: 15 bande 0..95 % e colori coerenti',
   ctxObj.STATION_FIELD_RH_SCALE.breakpoints.length === 15 &&
   ctxObj.STATION_FIELD_RH_COLORS.length === 15 &&
   ctxObj.STATION_FIELD_RH_BREAKPOINTS[0] === 0 && ctxObj.STATION_FIELD_RH_BREAKPOINTS[14] === 95);
-ok('scala neve: 12 bande 0..500 cm, stessa rampa del registro (prima banda trasparente)',
-  ctxObj.STATION_FIELD_SNOW_SCALE.breakpoints.length === 12 &&
-  ctxObj.STATION_FIELD_SNOW_COLORS.length === 12 &&
-  ctxObj.STATION_FIELD_SNOW_COLORS[0][3] === 0 && ctxObj.STATION_FIELD_SNOW_BREAKPOINTS[11] === 500);
+// 1.3.0.74 - NEVE: scala DEDICATA in cm (non piu' la rampa di snow_depth in
+// metri x100, dove 0-100 cm erano tutti verdi). 10 bande, 0 trasparente.
+ok('scala neve: 10 bande 0..300 cm in CM, prima banda trasparente',
+  ctxObj.STATION_FIELD_SNOW_SCALE.breakpoints.length === 10 &&
+  ctxObj.STATION_FIELD_SNOW_COLORS.length === 10 &&
+  ctxObj.STATION_FIELD_SNOW_COLORS[0][3] === 0 && ctxObj.STATION_FIELD_SNOW_BREAKPOINTS[0] === 0 &&
+  ctxObj.STATION_FIELD_SNOW_BREAKPOINTS[1] === 0.5 &&
+  ctxObj.STATION_FIELD_SNOW_BREAKPOINTS[9] === 300 &&
+  ctxObj.STATION_FIELD_SNOW_SCALE.unit === 'cm');
+// I colori devono CAMBIARE fra 0,5 / 10 / 50 / 100 / 200 cm: distanza RGB > 60
+// su almeno un canale fra 10 e 100 (prima erano due verdi quasi identici).
+const snowRGB = (cm) => {
+  const band = ctxObj.stationFieldBandIndex(ctxObj.STATION_FIELD_SNOW_SCALE, cm);
+  const c = ctxObj.STATION_FIELD_SNOW_SCALE.colors.light[band];
+  return [c[0], c[1], c[2], c[3]];
+};
+const s05 = snowRGB(0.5), s10 = snowRGB(10), s50 = snowRGB(50), s100 = snowRGB(100), s200 = snowRGB(200);
+const dMax = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]));
+ok('neve: 10 cm e 100 cm hanno colori DIVERSI (distanza RGB max ' + dMax(s10, s100) + ' > 60)',
+  dMax(s10, s100) > 60, '10=' + s10.slice(0, 3).join(',') + ' · 100=' + s100.slice(0, 3).join(','));
+ok('neve: 0,5 / 10 / 50 / 200 cm sono quattro colori distinti',
+  dMax(s05, s10) > 60 && dMax(s10, s50) > 60 && dMax(s50, s200) > 60);
+ok('neve: lo zero e trasparente (alpha 0) e i valori > 0 sono opachi',
+  snowRGB(0)[3] === 0 && s05[3] === 1 && s10[3] === 1);
 ok('stationFieldScale risolve le due scale nuove (fuori dal blocco MAPPE, che resta self-contained)',
   ctxObj.stationFieldScale('station_relative_humidity') === ctxObj.STATION_FIELD_RH_SCALE &&
   ctxObj.stationFieldScale('station_snow_cm') === ctxObj.STATION_FIELD_SNOW_SCALE);
@@ -1392,6 +1430,38 @@ const txtGE = els['live-stationfield-status'].textContent;
 ok('legenda gustEst: una riga «Raffica stimata dal vento (passo …) · N stazioni»',
   /^Raffica stimata dal vento( \(passo [\d.,]+ ?(s|min)\))? · 1 stazioni · 1 ora$/.test(txtGE), txtGE);
 ok('legenda gustEst: nessuna frase in più', txtGE.length < 70 && !/inferenza|età mediana|disponibili/.test(txtGE));
+
+console.log('\nP. RADAR NASCOSTO DAL CAMPO CENTRALINE (1.3.0.74)');
+const paneStub = { style: { display: '' } };
+ctxObj.map = {
+  getPane: (n) => n === 'radarPane' ? paneStub : null,
+  hasLayer: (l) => !!(l && l.__onMap !== false)
+};
+ctxObj.isRadarActive = true;
+ctxObj.liveRadarLayer = null;
+ok('radar acceso: il campo nasconde il pane radar (display none) e ricorda lo stato',
+  ctxObj.stationFieldRadarSuppress() === true && paneStub.style.display === 'none' &&
+  ctxObj.stationFieldRadarHidden === true);
+ok('soppressione idempotente: un secondo giro non cambia il ricordo «era visibile»',
+  ctxObj.stationFieldRadarSuppress() === true && paneStub.style.display === 'none' &&
+  ctxObj.stationFieldRadarPaneWasVisible === true);
+ok('campo spento: il radar torna visibile (display ripristinato)',
+  ctxObj.stationFieldRadarRestore() === true && paneStub.style.display === '' &&
+  ctxObj.stationFieldRadarHidden === false);
+ctxObj.isRadarActive = false;
+paneStub.style.display = '';
+ok('radar SPENTO all accensione del campo: niente da nascondere, nessun ricordo',
+  ctxObj.stationFieldRadarSuppress() === false && paneStub.style.display === '' &&
+  ctxObj.stationFieldRadarHidden === false);
+ok('radar spento prima: allo spegnimento del campo il pane resta com era (non si accende)',
+  ctxObj.stationFieldRadarRestore() === false && paneStub.style.display === '');
+// Layer LIVE / player: la regola vale anche senza isRadarActive (pane comune).
+ctxObj.isRadarActive = false;
+ctxObj.liveRadarLayer = { __onMap: true };
+ok('radar LIVE presente sulla mappa: il campo lo nasconde lo stesso',
+  ctxObj.stationFieldRadarSuppress() === true && paneStub.style.display === 'none');
+ctxObj.stationFieldRadarRestore();
+ctxObj.liveRadarLayer = null;
 
 console.log(`\nRISULTATO: ${checks} controlli, ${failures} falliti`);
 process.exit(failures ? 1 : 0);

@@ -3230,9 +3230,15 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.73';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.74';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-24';
     const APP_CHANGELOG = [
+    { version: '1.3.0.74', date: '2026-11-24', changes: [
+      "CAMPO CENTRALINE, BORDO QUASI NETTO (confini e costa): la maschera terra della 1.3.0.70 sfumava con dilatazione 2 px + box blur 5x5, cioe' ~7 px di gradiente sul raster 256x227 che il browser ingrandiva a ~15-20 px sullo schermo: il colore sembrava sconfinare oltre la costa. Ora la terra resta alpha 1, l'unico mare colorato e' l'anello di 1 px (box blur 3x3, alpha 0,44-0,67) e oltre 1 px l'alpha e' ESATTAMENTE 0. Il feather e' applicato UNA volta (prima era soft al quadrato fra raster e downscale).",
+      "NEVE AL SUOLO, SCALA DEDICATA IN CM: la rampa vecchia era quella di snow_depth (in METRI) moltiplicata x100, quindi sotto i 50 cm tutte le bande erano verdi quasi identiche. Nuova scala a 10 bande in cm, bianco-azzurro -> blu -> viola (0,5/1/5/10/25/50/100/200/300 cm); 0 cm trasparente. 10 cm #38bdf8 e 100 cm #4c1d95 distano 160 sul canale verde.",
+      "RADAR NASCOSTO DAL CAMPO CENTRALINE: accendendo il campo osservato, le precipitazioni radar spariscono dalla mappa (pane radarPane in display none, NON il toggle radar che resta dello utente). Spegnendo il campo il radar torna visibile solo se era acceso prima; gli altri layer non si toccano. Riga di stato: «radar nascosto dal campo centraline».",
+      "TEST: test_station_field.mjs con i nuovi contratti (feather: anello a 1 px > 0 e a 2 px = 0; colori neve distinti con distanza RGB; radar nascosto/ripristinato su un map finto), test_html_js_syntax, test_tooltips_coverage."
+    ]},
     { version: '1.3.0.73', date: '2026-11-24', changes: [
       "CAMPO CENTRALINE, RIPRISTINO DEL RASTER DELLA 1.3.0.68 (lo stato accettato): peso 1/(d²+1) sui k=12 vicini PIU' VICINI entro 25 km, indice a bucket 0,1° con 3 anelli, CALCOLO PER PIXEL. Via il reticolo 0,5° con interpolazione BILINEARE sui nodi e via il peso GAUSSIANO largo exp(-(d/σ)²) con LUT, che sommava TUTTI i vicini e spalmava la pioggia dove non era caduta: erano la causa della mappa che colorava l'asciutto e dei «seam» misurati a 1,96 °C. Il peso temporale exp(-età/τ) resta (contratto della 1.3.0.69), non è il kernel spaziale.",
       "PIOGGIA CON CUT-OFF DI 12 km NEL METODO LOCAL (grandezza discontinua: 25 km la allargavano oltre le stazioni che segnavano 0). Gli altri campi restano a 25 km. `full`/`contour` restano senza cut-off (metodo dichiarato «inferenza»), ma ora calcolano PER PIXEL con k=16 sullo stesso indice a 0,1°: se in 0,8° non ci sono k stazioni si usa la lista intera, quindi il k-NN è esatto e la terra resta senza buchi.",
@@ -20217,14 +20223,24 @@ stopSyncPlay();
         breakpoints: STATION_FIELD_RH_BREAKPOINTS,
         colors: { light: STATION_FIELD_RH_COLORS, dark: STATION_FIELD_RH_COLORS }
     };
-    // NEVE AL SUOLO: la scala `snow_depth` del registro e' in METRI; il campo la
-    // mostra in CENTIMETRI (la stessa rampa, breakpoints x100, 12 bande 0..500 cm,
-    // prima banda trasparente = 0 cm come nel registro). Nessun colore nuovo.
-    var STATION_FIELD_SNOW_BREAKPOINTS = [0, 1, 5, 10, 20, 50, 100, 150, 200, 300, 400, 500];
+    // NEVE AL SUOLO: i valori del campo sono in CENTIMETRI (snowDepthCm). Fino
+    // alla 1.3.0.73 si usava la rampa di `snow_depth` del registro (che e' in
+    // METRI) moltiplicata x100: sotto i 50 cm tutte le bande cadevano su un verde
+    // quasi identico (verde scuro -> verde), da cui «0-100 cm e' sempre verde».
+    // 1.3.0.74: scala DEDICATA in cm, 10 bande bianco-azzurro -> blu -> viola.
+    // 0 cm resta TRASPARENTE (gli zeri non si disegnano), 0,5 cm e' gia' visibile.
+    var STATION_FIELD_SNOW_BREAKPOINTS = [0, 0.5, 1, 5, 10, 25, 50, 100, 200, 300];
     var STATION_FIELD_SNOW_COLORS = [
-        [0, 128, 0, 0], [1, 129, 0, 1], [4, 132, 0, 1], [9, 136, 0, 1], [19, 145, 0, 1],
-        [57, 170, 0, 1], [142, 213, 0, 1], [255, 255, 0, 1], [255, 191, 0, 1], [255, 64, 0, 1],
-        [213, 0, 71, 1], [128, 0, 128, 1]
+        [224, 242, 254, 0],   // 0 cm   trasparente
+        [224, 242, 254, 1],   // 0,5 cm #e0f2fe
+        [186, 230, 253, 1],   // 1 cm   #bae6fd
+        [125, 211, 252, 1],   // 5 cm   #7dd3fc
+        [56, 189, 248, 1],    // 10 cm  #38bdf8
+        [14, 165, 233, 1],    // 25 cm  #0ea5e9
+        [37, 99, 235, 1],     // 50 cm  #2563eb
+        [76, 29, 149, 1],     // 100 cm #4c1d95
+        [124, 58, 237, 1],    // 200 cm #7c3aed
+        [162, 28, 175, 1]     // 300 cm #a21caf
     ];
     var STATION_FIELD_SNOW_SCALE = {
         type: 'breakpoint', unit: 'cm', min: null, max: null,
@@ -20241,7 +20257,7 @@ stopSyncPlay();
         precipitation_cum: { lo: 0, hi: 100, ticks: [0, 1, 5, 20, 50, 100] },
         station_wind_classes: { lo: 0, hi: 25, ticks: [0, 5, 10, 15, 20, 25] },
         station_relative_humidity: { lo: 0, hi: 100, ticks: [0, 20, 40, 60, 80, 100] },
-        station_snow_cm: { lo: 0, hi: 300, ticks: [0, 1, 5, 10, 20, 50, 100, 200, 300] }
+        station_snow_cm: { lo: 0, hi: 300, ticks: [0, 1, 5, 10, 25, 50, 100, 200, 300] }
     };
 
     // STATO DI UN CAMPO NEL BLOB DELLE SERIE GIORNALIERE
@@ -20850,49 +20866,59 @@ stopSyncPlay();
     // deve restare DURA (nessuna linea sul mare). I valori si interpolano fra i
     // vicini DIPINTI con pesi rinormalizzati: un pixel di bordo non trascina il
     // valore dal mare.
-    // 1.3.0.70 - MASCHERA TERRA MORBIDA. Prima il campo veniva tagliato di netto
-    // sulla maschera delle province: su confini e costa si vedevano spigoli e
-    // «zone squadrate». Ora la maschera si dilata di 2 px (il colore arriva al
-    // bordo) e si sfuma con un box blur 5x5: l'alpha scende gradualmente a 0, il
-    // MARE resta trasparente oltre il feather e nessun valore viene inventato.
+    // 1.3.0.74 - MASCHERA TERRA QUASI NETTA. La 1.3.0.70 dilatava di 2 px e
+    // sfumava con un box blur 5x5: sul raster 256x227 (poi ingrandito dal
+    // browser) diventavano ~7 px di gradiente, cioe' ~15-20 px sullo schermo, e
+    // il colore sembrava sconfinare oltre la costa e i confini. Ora:
+    //   1. la terra resta alpha 1 (nessun valore perso all'interno);
+    //   2. l'UNICO mare che puo' ricevere colore e' l'anello di 1 px;
+    //   3. quell'anello viene sfumato con un box blur 3x3 (valore 0,44-0,67);
+    //   4. RITAGLIO finale: oltre 1 px dalla terra l'alpha e' ESATTAMENTE 0.
+    // Gradiente al bordo: 2 px (terra 255 -> anello ~170 -> mare 0), non 7.
     function stationFieldSoftenMask(mask, W, H) {
         if (!mask) return null;
-        var soft = new Float32Array(W * H);
-        var x, y, dx, dy, s, n, idx, yy, xx;
+        var out = new Float32Array(W * H);
+        var x, y, dx, dy, idx, yy, xx, n, s, near;
+        // Passo 1: terra = 1, anello di 1 px = 1, resto = 0 (dilatazione 1 px).
         for (y = 0; y < H; y++) {
             for (x = 0; x < W; x++) {
                 idx = y * W + x;
-                if (mask[idx] >= 128) { soft[idx] = 1; continue; }
-                var near = 0;
-                for (dy = -2; dy <= 2 && !near; dy++) {
+                if (mask[idx] >= 128) { out[idx] = 1; continue; }
+                near = 0;
+                for (dy = -1; dy <= 1 && !near; dy++) {
                     yy = y + dy;
                     if (yy < 0 || yy >= H) continue;
-                    for (dx = -2; dx <= 2; dx++) {
+                    for (dx = -1; dx <= 1; dx++) {
                         xx = x + dx;
                         if (xx < 0 || xx >= W) continue;
                         if (mask[yy * W + xx] >= 128) { near = 1; break; }
                     }
                 }
-                soft[idx] = near ? 0.75 : 0;
+                out[idx] = near ? 1 : 0;
             }
         }
-        var out = new Float32Array(W * H);
+        // Passo 2: box blur 3x3 SOLO sull'anello; la terra resta 1 e il mare
+        // oltre l'anello resta 0 (ritaglio netto, nessuna sbavatura oltre 1 px).
+        var soft = new Float32Array(W * H);
         for (y = 0; y < H; y++) {
             for (x = 0; x < W; x++) {
+                idx = y * W + x;
+                if (mask[idx] >= 128) { soft[idx] = 1; continue; }
+                if (out[idx] <= 0) { soft[idx] = 0; continue; }
                 s = 0; n = 0;
-                for (dy = -2; dy <= 2; dy++) {
+                for (dy = -1; dy <= 1; dy++) {
                     yy = y + dy;
                     if (yy < 0 || yy >= H) continue;
-                    for (dx = -2; dx <= 2; dx++) {
+                    for (dx = -1; dx <= 1; dx++) {
                         xx = x + dx;
                         if (xx < 0 || xx >= W) continue;
-                        s += soft[yy * W + xx]; n++;
+                        s += out[yy * W + xx]; n++;
                     }
                 }
-                out[y * W + x] = n ? (s / n) : 0;
+                soft[idx] = n ? (s / n) : 0;
             }
         }
-        return out;
+        return soft;
     }
 
     function stationFieldRaster(points, scale, frame, mask, ssOpt, methodOpt) {
@@ -20981,8 +21007,9 @@ stopSyncPlay();
             for (var ii = 0; ii < W; ii++) {
                 var p = j * W + ii;
                 // La maschera terra e' a risoluzione BASE: al supersampling si
-                // campiona il pixel base che contiene questo subpixel (bordo duro
-                // alla risoluzione finale, poi ammorbidito dal downscale).
+                // campiona il pixel base che contiene questo subpixel. 1.3.0.74:
+                // qui si applica UNA VOLTA il feather quasi netto (2 px), quindi
+                // non va riapplicato al downscale (era il doppio feather).
                 var mIdx = -1, mk = 1;
                 if (mask) {
                     mIdx = (ss === 1) ? p
@@ -21542,6 +21569,10 @@ stopSyncPlay();
             } else {
                 el.textContent = 'Layer acceso: in attesa della prima interpolazione.';
             }
+            // 1.3.0.74 - riga breve: il radar e' stato nascosto automaticamente.
+            if (typeof stationFieldRadarHidden !== 'undefined' && stationFieldRadarHidden && el.textContent) {
+                el.textContent += ' · radar nascosto dal campo centraline';
+            }
         }
         if (method) {
             var n = st ? st.used : 0;
@@ -21919,6 +21950,9 @@ stopSyncPlay();
     // variabile/finestra/dati.
     function renderStationFieldOverlay(force) {
         if (!stationFieldActive || !map || !window.L) return false;
+        // 1.3.0.74 - finche' il campo e' attivo il radar resta nascosto, anche
+        // dopo un cambio di variabile/finestra o un refresh che ricrea i layer.
+        stationFieldRadarSuppress();
         var spec = stationFieldSpec(stationFieldVar, stationFieldWindow);
         stationFieldBuildLegend(spec);
         if (!spec.available) {
@@ -21973,15 +22007,11 @@ stopSyncPlay();
         // metodi hanno due risoluzioni di calcolo, non due rese diverse.
         var ss = (stationFieldMethod === 'local') ? STATION_FIELD_SUPERSAMPLE : 1;
         var r = stationFieldRaster(col.points, stationFieldScale(spec.scale), frame, mask, ss, stationFieldMethod);
-        // 1.3.0.70 - al downscale si passa la maschera MORBIDA (feather 2-4 px):
-        // il bordo non viene piu' tagliato di netto.
-        var softMask = null;
-        if (mask) {
-            var sm = stationFieldSoftenMask(mask, frame.W, frame.H);
-            softMask = new Uint8Array(sm.length);
-            for (var mi = 0; mi < sm.length; mi++) softMask[mi] = Math.round(sm[mi] * 255);
-        }
-        var d = (ss > 1) ? stationFieldDownscale(r, frame.W, frame.H, ss, softMask) : r;
+        // 1.3.0.74 - il feather e' applicato UNA VOLTA nel raster (mk), alla
+        // risoluzione base: al downscale NON si riapplica la maschera morbida,
+        // altrimenti l'alpha diventava soft² e il bordo si allargava (era il
+        // difetto: 5 px di blur + dilatazione 2 px, poi ingranditi dallo schermo).
+        var d = (ss > 1) ? stationFieldDownscale(r, frame.W, frame.H, ss, null) : r;
         // 1.3.0.69 - diagnostica del metodo, per la legenda (nessuna stima):
         // terra coperta, pixel dipinti, distanza min/mediana/max al vicino.
         col.method = stationFieldMethod;
@@ -22145,6 +22175,68 @@ stopSyncPlay();
         if (stationFieldActive) renderStationFieldOverlay(true);
     }
 
+    // 1.3.0.74 - CAMPO CENTRALINE E RADAR INSIEME CONFONDONO: quando il campo
+    // osservato e' acceso, le precipitazioni radar si NASCONDONO dalla mappa.
+    // Si agisce SOLO sulla visibilita' (pane radarPane, display none): lo stato
+    // del toggle radar resta quello dell'utente, non viene forzato. Il pane e'
+    // comune a player e LIVE, quindi la regola vale per entrambi e resiste ai
+    // refresh che ricreano i layer (il pane resta nascosto).
+    // Al ritorno OFF il radar torna visibile SOLO se era visibile prima.
+    var stationFieldRadarHidden = false;
+    var stationFieldRadarPaneWasVisible = true;
+    function stationFieldRadarVisibleNow() {
+        try {
+            if (typeof isRadarActive !== 'undefined' && isRadarActive) return true;
+        } catch (e) { }
+        try {
+            if (typeof liveRadarLayer !== 'undefined' && liveRadarLayer && map &&
+                typeof map.hasLayer === 'function' && map.hasLayer(liveRadarLayer)) return true;
+        } catch (e) { }
+        try {
+            if (typeof radarTileLayer !== 'undefined' && radarTileLayer && map &&
+                typeof map.hasLayer === 'function' && map.hasLayer(radarTileLayer)) return true;
+        } catch (e) { }
+        try {
+            if (typeof currentRadarTile !== 'undefined' && currentRadarTile && map &&
+                typeof map.hasLayer === 'function' && map.hasLayer(currentRadarTile)) return true;
+        } catch (e) { }
+        try {
+            if (typeof allRadarLayers !== 'undefined' && allRadarLayers && allRadarLayers.length && map &&
+                typeof map.hasLayer === 'function') {
+                for (var i = 0; i < allRadarLayers.length; i++) {
+                    if (allRadarLayers[i] && map.hasLayer(allRadarLayers[i])) return true;
+                }
+            }
+        } catch (e) { }
+        return false;
+    }
+    function stationFieldRadarSuppress() {
+        if (!map || typeof map.getPane !== 'function') return false;
+        // 1.3.0.74 - se il radar non e' visibile NON si azzera il ricordo: un
+        // refresh che rimuove e ricrea il layer in due tempi non deve far
+        // "dimenticare" che il radar era acceso (il pane resterebbe nascosto
+        // per sempre). Si nasconde solo quando c'e' davvero qualcosa da nascondere.
+        if (!stationFieldRadarVisibleNow()) return false;
+        var pane = map.getPane('radarPane');
+        if (!pane || !pane.style) return false;
+        // Lo stato "era visibile" si registra UNA volta: se il pane e' gia'
+        // nascosto da noi, un secondo giro non deve azzerarlo.
+        if (!stationFieldRadarHidden) {
+            stationFieldRadarPaneWasVisible = (pane.style.display !== 'none');
+        }
+        pane.style.display = 'none';
+        stationFieldRadarHidden = true;
+        return true;
+    }
+    function stationFieldRadarRestore() {
+        if (!stationFieldRadarHidden) return false;
+        stationFieldRadarHidden = false;
+        if (!map || typeof map.getPane !== 'function') return true;
+        var pane = map.getPane('radarPane');
+        if (pane && pane.style && stationFieldRadarPaneWasVisible) pane.style.display = '';
+        return true;
+    }
+
     // Toggle "Campo centraline": ON carica (se serve) e disegna la superficie, OFF
     // rimuove l'overlay, nasconde il blocco e ferma il timer. Stato di sessione
     // (liveShowStationField): al reload OFF. Non tocca #mnw-source-select e non
@@ -22166,12 +22258,17 @@ stopSyncPlay();
         var box = document.getElementById('live-stationfield-box');
         if (box) box.style.display = on ? '' : 'none';
         if (!on) {
+            // 1.3.0.74 - il radar torna visibile solo se era acceso prima.
+            stationFieldRadarRestore();
             if (stationFieldTimer) { clearInterval(stationFieldTimer); stationFieldTimer = null; }
             stationFieldRemoveOverlay();
             stationFieldLastStats = null;
             stationFieldStatus('Layer spento.');
             return;
         }
+        // 1.3.0.74 - campo acceso: nascondi le precipitazioni radar (solo
+        // visibilita', nessun cambio del toggle radar).
+        stationFieldRadarSuppress();
         stationFieldSyncControls();
         stationFieldBuildLegend(stationFieldSpec(stationFieldVar, stationFieldWindow));
         stationFieldLastStats = null;
