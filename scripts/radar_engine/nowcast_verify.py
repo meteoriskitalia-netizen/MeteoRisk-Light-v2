@@ -780,8 +780,12 @@ def verify_pending(archive_root, verification_path, config, now=None,
                        min_rain_pixels=min_rain_pixels)
     # NIENTE RISCRITTURE INUTILI: se non ci sono righe nuove e il file e' gia'
     # schema 2, riscriverlo cambierebbe solo `generated_at` e produrrebbe un
-    # commit ogni 10 minuti anche senza dati nuovi.
-    written = bool(new_rows) or doc.get("schema") != SCHEMA
+    # commit ogni 10 minuti anche senza dati nuovi. ECCEZIONE: se manca la
+    # chiave `orography_ab` (file scritto prima dell'A/B) si riscrive UNA volta
+    # per aggiungerla, altrimenti il client non la vedrebbe mai finche' non
+    # arriva una riga nuova.
+    written = (bool(new_rows) or doc.get("schema") != SCHEMA
+               or "orography_ab" not in doc)
     if written:
         _atomic_write(verification_path,
                       json.dumps(out, ensure_ascii=False, allow_nan=False,
