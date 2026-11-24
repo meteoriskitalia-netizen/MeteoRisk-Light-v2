@@ -392,9 +392,10 @@ def test_palette_is_the_client_sri_scale():
 
 
 def test_palette_between_stops_is_linear_like_the_client():
-    # 2 mm/h: il client interpola 1->5 (t=0,25) -> (0,104.5,158) arrotondato
+    # 2 mm/h: interpolazione 1->5 (t=0,25) -> (0,104.5,158); il client usa
+    # Math.round (104.5 -> 105), quindi il server deve dare lo stesso.
     px = nf._rgba(np.array([[np.float32(2.0)]]))[0, 0]
-    assert [int(px[0]), int(px[1]), int(px[2])] == [0, 104, 158]
+    assert [int(px[0]), int(px[1]), int(px[2])] == [0, 105, 158]
 
 
 # ---------------------------------------------------------------------------

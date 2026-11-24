@@ -540,7 +540,11 @@ def _rgba(field):
     nodes = np.array([p[0] for p in PALETTE], dtype=np.float32)
     cols = np.array([p[1] for p in PALETTE], dtype=np.float32)
     for ch in range(3):
-        out[:, :, ch] = np.interp(vv, nodes, cols[:, ch]).astype(np.uint8)
+        # ROUND HALF UP: il client usa Math.round (104.5 -> 105). Il troncamento
+        # di astype(uint8) dava 104 a 2 mm/h, cioe' 1/255 di differenza su un
+        # punto medio esatto fra due stop.
+        out[:, :, ch] = np.clip(np.floor(
+            np.interp(vv, nodes, cols[:, ch]) + 0.5), 0, 255).astype(np.uint8)
     ramp = np.clip((vv - RAIN_MIN_MMH) / (ALPHA_FULL_MMH - RAIN_MIN_MMH),
                    0.0, 1.0)
     alpha = (ramp * ALPHA_MAX).astype(np.uint8)
