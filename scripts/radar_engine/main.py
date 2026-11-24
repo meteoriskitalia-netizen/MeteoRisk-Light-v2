@@ -2675,7 +2675,11 @@ def _run_pipeline(config, out_dir, product, max_frames, dry_run,
                 tracker, "continuity_rejections", 0),
             storm_continuity_rejections=storm_continuity_rejections,
             cell_coasting=getattr(tracker, "coasting", None),
-            storm_coasting=storm_coasting)
+            storm_coasting=storm_coasting,
+            cell_kept_by_overlap=getattr(tracker, "kept_by_overlap", 0),
+            storm_kept_by_overlap=0,
+            cell_reids_stitched=getattr(tracker, "reids_stitched", 0),
+            storm_reids_stitched=0)
 
     # ---- CONVECTIVE STRUCTURE (descrittore SOI, additivo) ------------------
     # SOI su celle + storm object tracciati (stessi dati Fase 1, zero richieste

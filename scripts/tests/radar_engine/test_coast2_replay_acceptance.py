@@ -143,14 +143,16 @@ def test_replay_no_impossible_jumps():
 
 def test_replay_measured_numbers_on_published_json():
     # Numeri MISURATI sul JSON pubblicato in questa copia (6 frame).
-    # Sul pristino (1) cella: id_switch_rate=0.064, reids=3, coasted=28.
-    # Con 2: cella coasted=35, storm coasted=10, combinato=45.
+    # RIMISURATI il 2026-11-24 dopo la riparazione dei salti del tracker
+    # (sovrapposizione dei dischi + re-ID): sul pristino erano rate 0.064,
+    # reids 3, coasted 28 (1 frame) e rate 0.021, reids 1, coasted 35 (2).
+    # Il confronto A/B 1 vs 2 frame resta invariato nella direzione.
     # Usa il valore di CONFIG: sul pristino (1) questi numeri non sono quelli
-    # sotto (rate 0.064, reids 3, coasted 28) e il test FAILS.
+    # sotto.
     r2 = _replay(CONFIG["coasting"]["max_coast_frames"])
-    assert r2["id_switch_rate"] == 0.021
+    assert r2["id_switch_rate"] == 0.022
     assert r2["id_switch_reids"] == 1
-    assert r2["coasted_points"] == 35
+    assert r2["coasted_points"] == 33
     assert r2["id_switch_jumps"] == 0
 
 
@@ -177,8 +179,8 @@ def test_replay_combined_coasted_points_published_counter():
     combined = trk.build_tracking_metrics(
         tr.tracks, s.tracks, cell_coasting=tr.coasting,
         storm_coasting=s.coasting)
-    assert combined["coasted_points"] == 45
-    assert tr.coasting["coasted_points"] == 35
+    assert combined["coasted_points"] == 43
+    assert tr.coasting["coasted_points"] == 33
     assert s.coasting["coasted_points"] == 10
 
 

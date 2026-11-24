@@ -73,6 +73,33 @@ _MOTION_MAX_RESID_KM = 6.0
 # per almeno il 20% dell'unione. E' un criterio geometrico, non una firma
 # meteorologica: serve solo a registrare la relazione, non a fondere gli ID.
 _LINEAGE_IOU = 0.2
+# 2026-11-24 — SALTO DI CENTROIDE SU DISCHI SOVRAPPOSTI.
+# Il gate di continuita' ~110 km/h misura il CENTROIDE. Su una macchia larga
+# (es. 1000 km2 -> raggio equivalente ~17,8 km) un salto di 30 km in 5 minuti
+# implica 360 km/h ma i due dischi si sovrappongono molto: non e' un ID switch,
+# e' lo stesso corpo che cambia forma. Quando i dischi si sovrappongono almeno
+# per `_LINEAGE_IOU` l'associazione viene TENUTA (l'ID non cambia) ma il passo
+# NON entra nel fit del moto: il vettore pubblicato resta nullo con motivo
+# esplicito `centroid_jump_overlapped`. Sotto la soglia il gate resta invariato.
+MOTION_NULL_CENTROID_JUMP_OVERLAPPED = "centroid_jump_overlapped"
+# Re-ID DENTRO il run (2026-11-24): stessa regola del seed fra run
+# (`_seed_matches`), applicata a una traccia MORTA da non piu' di 15 minuti e
+# una NATTA nel frame corrente. I due valori sono gli stessi default di
+# `tracking_metrics` (sorgente unica: la regola di cucitura e la metrica
+# pubblicata non possono divergere).
+_REID_RADIUS_KM = 20.0
+_REID_WINDOW_MIN = 15.0
+# SCELTA INGEGNERISTICA (misurata sul replay 2026-11-24): la sola distanza
+# temporale unitebbe una cella di 87 km2 / 45,5 dBZ a un corpo di 2081 km2 /
+# 61 dBZ a 15 km (rapporto d'area 24x in 10 minuti): non e' la stessa cella, e'
+# una cella nuova (o una fusione). La continuita' richiede area dello stesso
+# ordine di grandezza (rapporto <= 8) e intensita' compatibile (|delta| <= 15
+# dBZ). Le soglie NON sono tarate su etichette: servono solo a rifiutare i
+# legami fisicamente impossibili.
+_REID_MAX_AREA_RATIO = 8.0
+_REID_MAX_DBZ_JUMP = 15.0
+# Evento di audit della cucitura (la prova che il legame e' esplicito).
+EVENT_REID_CONTINUATION = "lineage_continuation_in_run"
 # 1.3.0.38 — semantica del contatore `continuity_rejections`: conta le
 # ASSOCIAZIONI FINALI (uno-a-uno, post-Hungarian) rifiutate dal gate di
 # continuita' ~110 km/h, NON le coppie (i,j) della matrice di costo. La versione
@@ -141,6 +168,13 @@ def _coasted_point(track, frame_index, frame_ts_ms, point_cls, id_attr):
     """
     pts = [p for p in track.points
            if getattr(p, "observed", True) and getattr(p, "frame_index", -1) >= 0]
+    # Dopo una cucitura di re-ID (2026-11-24) il moto da propagare e' solo
+    # quello OSSERVATO DOPO il buco: le due osservazioni a cavallo di 15 minuti
+    # non sono il moto attuale. Con meno di 2 osservazioni post-cucitura il
+    # coasting e' VIETATO (motivo esplicito), come per una track appena nata.
+    reset = getattr(track, "reid_reset_frame", None)
+    if reset is not None:
+        pts = [p for p in pts if p.frame_index >= int(reset)]
     if len(pts) < 2:
         return None, COAST_NULL_INSUFFICIENT_OBS
     if frame_ts_ms is None:
@@ -406,7 +440,8 @@ def apply_lineage(active, new_tracks_by_col, plan):
 # Metriche di regressione del tracking (2026-11-11)
 # ---------------------------------------------------------------------------
 def tracking_metrics(tracks, track_type="cell", max_speed_kmh=None,
-                     reid_window_min=15.0, reid_radius_km=20.0,
+                     reid_window_min=_REID_WINDOW_MIN,
+                     reid_radius_km=_REID_RADIUS_KM,
                      lineage_iou=_LINEAGE_IOU):
     """Metriche per-layer, calcolate sui record PUBBLICATI (n_frames >= 2).
 
@@ -416,8 +451,12 @@ def tracking_metrics(tracks, track_type="cell", max_speed_kmh=None,
     - `id_switch_rate`: (salti > max_speed + re-ID inspiegati) / n_track.
       Un re-ID e' una track che nasce entro `reid_window_min` e
       `reid_radius_km` dalla morte di un'altra track senza un legame di
-      lineage. I salti sono segmenti consecutivi con velocita' implicita
-      sopra `max_speed_kmh` (default: la soglia unica di forecast.py).
+      lineage. I salti sono segmenti consecutivi OSSERVATI con velocita'
+      implicita sopra `max_speed_kmh` (default: la soglia unica di forecast.py),
+      ESCLUSI i segmenti dichiarati `centroid_jump_overlapped`: li' l'ID non e'
+      cambiato e i due dischi si sovrappongono almeno per `lineage_iou`, quindi
+      non e' un ID switch ma un cambio di forma del corpo. Quei segmenti sono
+      contati a parte in `centroid_jump_segments` (nessun numero nascosto).
     - `lineage_split` / `lineage_merge`: track con quel `lineage`.
     """
     tracks = list(tracks or [])
@@ -456,13 +495,21 @@ def tracking_metrics(tracks, track_type="cell", max_speed_kmh=None,
     max_speed = float(max_speed_kmh) if max_speed_kmh is not None \
         else float(_speed_range_kmh()[1])
     jumps = 0
+    jump_overlap_segments = 0
     for t in published:
         # Un punto coasted e' una stima: NON puo' generare un falso ID switch.
         obs = [p for p in t.points if getattr(p, "observed", True)]
         for a, b in zip(obs, obs[1:]):
             dt_h = (b.timestamp_ms - a.timestamp_ms) / 3600000.0
-            if dt_h > 0 and haversine_km(a.lonlat, b.lonlat) / dt_h > max_speed:
-                jumps += 1
+            if dt_h <= 0:
+                continue
+            if haversine_km(a.lonlat, b.lonlat) / dt_h <= max_speed:
+                continue
+            if getattr(b, "centroid_jump", False):
+                # Stesso ID, dischi sovrapposti: cambio di forma, non switch.
+                jump_overlap_segments += 1
+                continue
+            jumps += 1
     reids = 0
     for child in published:
         if getattr(child, "continued_from_history", False):
@@ -506,6 +553,9 @@ def tracking_metrics(tracks, track_type="cell", max_speed_kmh=None,
         "id_switch_rate": (round((jumps + reids) / n, 3) if n else None),
         "id_switch_jumps": jumps,
         "id_switch_reids": reids,
+        # Segmenti sopra soglia TENUTI per sovrapposizione (ID invariato):
+        # contati qui, non nei salti. 0 finche' nessuna associazione e' tenuta.
+        "centroid_jump_segments": jump_overlap_segments,
         "lineage_split": split,
         "lineage_merge": merge,
         "lineage_continuation": continuation,
@@ -536,7 +586,10 @@ def tracking_metrics(tracks, track_type="cell", max_speed_kmh=None,
 def build_tracking_metrics(cell_tracks, storm_tracks,
                            cell_continuity_rejections=0,
                            storm_continuity_rejections=0,
-                            cell_coasting=None, storm_coasting=None, **kwargs):
+                            cell_coasting=None, storm_coasting=None,
+                            cell_kept_by_overlap=0, storm_kept_by_overlap=0,
+                            cell_reids_stitched=0, storm_reids_stitched=0,
+                            **kwargs):
     """Blocco `tracking_metrics` per latest.json: per-layer + aggregato.
 
     I campi piatti (pct_reliable, median_duration_min, id_switch_rate,
@@ -561,6 +614,18 @@ def build_tracking_metrics(cell_tracks, storm_tracks,
                                 "combined", **kwargs)
     n_cell_rej = int(cell_continuity_rejections or 0)
     n_storm_rej = int(storm_continuity_rejections or 0)
+    # 2026-11-24 — contatori della riparazione dei salti: associazioni TENUTE
+    # solo grazie all'IoU dei dischi (`kept_by_overlap`) e re-ID cuciti dentro
+    # il run (`reids_stitched`). Solo interi per run: nessun dettaglio.
+    for block, kept, stitched in (
+            (cell, cell_kept_by_overlap, cell_reids_stitched),
+            (storm, storm_kept_by_overlap, storm_reids_stitched)):
+        block["kept_by_overlap"] = int(kept or 0)
+        block["reids_stitched"] = int(stitched or 0)
+    combined["kept_by_overlap"] = (int(cell_kept_by_overlap or 0)
+                                   + int(storm_kept_by_overlap or 0))
+    combined["reids_stitched"] = (int(cell_reids_stitched or 0)
+                                  + int(storm_reids_stitched or 0))
     for block, n in ((cell, n_cell_rej), (storm, n_storm_rej),
                      (combined, n_cell_rej + n_storm_rej)):
         block["continuity_rejections"] = n
@@ -614,6 +679,7 @@ def build_tracking_metrics(cell_tracks, storm_tracks,
                 "n_tracks", "n_active_tracks", "n_reliable",
                 "n_frames_ge_3", "n_frames_current_ge_3",
                 "continued_from_history", "continuity_rejections",
+                "centroid_jump_segments", "kept_by_overlap", "reids_stitched",
                 "coasted_points", "coasted_tracks_recovered",
                 "coasting_null_reasons", "thresholds"):
         out[key] = combined[key]
@@ -760,6 +826,16 @@ class Tracker:
         # SEMPRE disponibile, anche con diagnostics=False: il dettaglio dei
         # singoli rigetti NON viene pubblicato (solo il conteggio).
         self.continuity_rejections = 0
+        # 2026-11-24 — contatori per RUN della riparazione dei salti:
+        # `kept_by_overlap` = associazioni che il gate 110 km/h avrebbe
+        # rifiutato e che sono state TENUTE per sovrapposizione dei dischi;
+        # `reids_stitched` = re-ID cuciti dentro il run (traccia morta da
+        # <= 15 min + traccia nata ora). `reid_stitches` e' il dettaglio per
+        # il replay, non entra nei file pubblicati.
+        self.kept_by_overlap = 0
+        self.reids_stitched = 0
+        self.reid_stitches = []
+
         self._diagnostics = bool(diagnostics or cfg_tracking.get("diagnostics", False))
         self._improved = str(cfg_tracking.get("cost_formula", "legacy")) == "improved"
         # D2 (1.2.4.17): ultimo frame PROCESSATO. Serve a complete_cycles per
@@ -794,13 +870,27 @@ class Tracker:
             pts = [p for p in track.points if getattr(p, "observed", True)] \
                 or track.points
         last = pts[-1]
+        # 2026-11-24 — dopo una cucitura di re-ID la memoria (area/intensita'
+        # medie e moto di predizione) NON puo' usare le osservazioni di prima
+        # del buco: a 15 minuti di distanza descrivono un altro stato del corpo
+        # e trascinavano l'associazione successiva (misurato in ablazione:
+        # track 27 -> 32). Si riparte dal punto cucito.
+        reset = getattr(track, "reid_reset_frame", None)
+        mem_src = pts
+        if reset is not None:
+            mem_src = [p for p in pts if p.frame_index >= int(reset)] or pts
         mem = int(cfg.get("memory_frames", 3))
-        tail = pts[-mem:]
+        tail = mem_src[-mem:]
         area_avg = sum(p.area_km2 for p in tail) / len(tail)
         dbz_avg = sum(p.max_dbz for p in tail) / len(tail)
         predicted, speed_kmh = None, None
-        if len(pts) >= 2:
-            a, b = pts[-2], pts[-1]
+        # 2026-11-24: un passo tenuto per sovrapposizione (`centroid_jump`) non
+        # e' un'osservazione di MOTO (il centroide e' saltato): la velocita' di
+        # predizione si misura fra gli ultimi due punti NON saltati.
+        motion_pts = [p for p in mem_src
+                      if not getattr(p, "centroid_jump", False)]
+        if len(motion_pts) >= 2:
+            a, b = motion_pts[-2], motion_pts[-1]
             dt_h = (b.timestamp_ms - a.timestamp_ms) / 3600000.0
             if dt_h > 0:
                 d = haversine_km(a.lonlat, b.lonlat)
@@ -899,6 +989,131 @@ class Tracker:
             used_cells.add(ci)
             used_seeds.add(si)
         return out
+
+    def _stitch_reids_in_run(self, born, rows=None):
+        """Ricuce i re-ID dentro il run con le regole del seed fra run.
+
+        Regole (le stesse di `_seed_matches`, valori dalla sorgente unica
+        `_REID_RADIUS_KM` / `_REID_WINDOW_MIN` = default di
+        `tracking_metrics`): una traccia MORTA da non piu' di 15 minuti (la
+        finestra in cui la metrica pubblicata conta un re-ID), entro 20 km,
+        velocita' implicita non superiore alla soglia unica di forecast.py
+        (~110 km/h), accoppiamento greedy uno-a-uno per distanza. Il child e'
+        una traccia NATTA nel frame corrente e ancora viva: una traccia viva
+        non viene MAI unita a un'altra (il parent deve essere STATUS_DEAD).
+        Nessuna cucitura se esiste gia' un legame di lineage (parent_ids /
+        child_ids) o se il child e' un seed d'archivio.
+
+        L'identita' che sopravvive e' quella del parent (track_id piu' vecchio):
+        il child esce da `self.tracks`, il suo punto passa al parent con lo
+        stesso track_id, `lineage = "continuation"` e un evento ESPLICITO
+        (`EVENT_REID_CONTINUATION`). La morte resta negli eventi (audit).
+
+        Perche' non basta "lo farebbe l'Hungarian": il gate 110 km/h si misura
+        dall'ultima OSSERVAZIONE, mentre qui si misura dall'ultima posizione
+        PUBBLICATA (che puo' essere un punto coasted). Sono due misure diverse
+        sullo stesso intervallo, e la metrica dei re-ID usa la seconda.
+        """
+        born = [c for c in (born or [])
+                if c.status == models.STATUS_ACTIVE
+                and len(c.points) == 1
+                and not getattr(c, "continued_from_history", False)
+                and not getattr(c, "parent_ids", None)
+                and not getattr(c, "child_ids", None)]
+        if not born:
+            return {}
+        max_speed = float(_speed_range_kmh()[1])
+        # La cucitura non puo' disfare un gate FISICO configurato: se
+        # `max_storm_speed_kmh` e' attivo, vale anche qui (altrimenti un
+        # rigetto di quel gate verrebbe ricucito subito dopo).
+        gate = self.cfg.get("max_storm_speed_kmh") if self.cfg else None
+        if gate:
+            max_speed = min(max_speed, float(gate))
+        candidates = []
+        for parent in self.tracks:
+            if parent.status != models.STATUS_DEAD or not parent.points:
+                continue
+            if getattr(parent, "child_ids", None):
+                continue                 # legame di lineage gia' esistente
+            observed = [p for p in parent.points if getattr(p, "observed", True)]
+            if not observed:
+                continue
+            first_ts = observed[-1].timestamp_ms
+            for child in born:
+                pt = child.points[0]
+                gap_min = (pt.timestamp_ms - first_ts) / 60000.0
+                if gap_min <= 0 or gap_min > _REID_WINDOW_MIN:
+                    continue
+                dist = haversine_km(observed[-1].lonlat, pt.lonlat)
+                if dist > _REID_RADIUS_KM:
+                    continue
+                if dist / (gap_min / 60.0) > max_speed:
+                    continue
+                prev = observed[-1]
+                big = max(pt.area_km2, prev.area_km2)
+                small = min(pt.area_km2, prev.area_km2)
+                if big / max(small, _EPS) > _REID_MAX_AREA_RATIO:
+                    continue             # corpo diverso (o fusione), non re-ID
+                if abs(pt.max_dbz - prev.max_dbz) > _REID_MAX_DBZ_JUMP:
+                    continue             # intensita' incompatibile
+                candidates.append((dist, gap_min, parent, child))
+        candidates.sort(key=lambda item: (item[0], item[1],
+                                          item[2].track_id, item[3].track_id))
+        used_parents, used_children, stitched = set(), set(), {}
+        for dist, gap_min, parent, child in candidates:
+            if parent.track_id in used_parents or \
+                    child.track_id in used_children:
+                continue
+            if parent.status != models.STATUS_DEAD or not parent.points:
+                continue
+            pt = child.points[0]
+            prev = parent.points[-1]
+            prev_cell_id = prev.cell_id
+            pt.track_id = parent.track_id
+            parent.points.append(pt)
+            parent.events.append(EVENT_REID_CONTINUATION)
+            parent.lineage = "continuation"
+            parent.status = models.STATUS_ACTIVE
+            parent.death_ms = None
+            parent._coast_frames = 0
+            # La memoria di matching riparte dal punto cucito (v. _features).
+            parent.reid_reset_frame = pt.frame_index
+            self._note_coast_recovery(parent)
+            if child in self.tracks:
+                self.tracks.remove(child)
+            # La track cucita prende il POSTO del child nella lista: cosi' la
+            # matrice di costo del frame successivo ha le righe nello stesso
+            # ordine che avrebbe avuto con il child e la cucitura e' un puro
+            # cambio di identita' (misurato: senza questo, l'ordine diverso
+            # cambiava i pareggi dell'Hungarian e frammentava, track 27 -> 32).
+            if parent in self.tracks:
+                self.tracks.remove(parent)
+            self.tracks.append(parent)
+            used_parents.add(parent.track_id)
+            used_children.add(child.track_id)
+            stitched[child.track_id] = parent.track_id
+            self.reids_stitched += 1
+            self.reid_stitches.append({
+                "parent_id": parent.track_id, "child_id": child.track_id,
+                "gap_min": round(gap_min, 2),
+                "distance_km": round(dist, 3),
+                "speed_kmh": round(dist / (gap_min / 60.0), 1),
+                # Audit della continuita' (non pubblicato): la stessa cella non
+                # cambia area/intensita' di ordini di grandezza in 15 minuti.
+                "parent_area_km2": round(prev.area_km2, 1),
+                "child_area_km2": round(pt.area_km2, 1),
+                "parent_max_dbz": round(prev.max_dbz, 1),
+                "child_max_dbz": round(pt.max_dbz, 1),
+                "parent_was_dead": True, "child_was_newborn": True,
+            })
+            if rows is not None:
+                rows.append({"track_id": parent.track_id,
+                             "prev_cell_id": prev_cell_id,
+                             "current_cell_id": pt.cell_id,
+                             "assignment_status": "reid_continuation",
+                             "distance_km": round(dist, 3),
+                             "gap_min": round(gap_min, 2)})
+        return stitched
 
     def _max_coast_frames(self):
         src = self.coasting_cfg or self.cfg or {}
@@ -1003,10 +1218,12 @@ class Tracker:
         seed_map = self._seed_matches(cells) if not active else {}
         if not active or not cells:
             rows = []
+            born = []
             for ci, cell in enumerate(cells):
-                self.tracks.append(self._new_track(cell, frame_index,
-                                                   seed=seed_map.get(ci)))
-                rows.append({"track_id": self._next_track_id - 1,
+                track = self._new_track(cell, frame_index, seed=seed_map.get(ci))
+                self.tracks.append(track)
+                born.append(track)
+                rows.append({"track_id": track.track_id,
                              "prev_cell_id": None, "current_cell_id": cell.cell_id,
                              "assignment_status": "new_track"})
             for t in active:
@@ -1020,6 +1237,11 @@ class Tracker:
                 rows.append({"track_id": t.track_id, "prev_cell_id":
                              t.points[-1].cell_id, "current_cell_id": None,
                              "assignment_status": "terminated"})
+            # Un re-ID puo' esistere anche quando NESSUNA track era attiva (la
+            # traccia morta e' quella del frame precedente): la stessa regola
+            # si applica qui, altrimenti il caso piu' semplice non verrebbe mai
+            # cucito.
+            self._stitch_reids_in_run(born, rows)
             self._record(frame_index, rows)
             return
 
@@ -1032,6 +1254,7 @@ class Tracker:
         # costo). Serve a contare le associazioni finali che il gate elimina.
         cost_ungated = np.full((n_r, n_c), np.inf, dtype=float)
         gated_pairs = set()   # (i,j) rifiutati dal gate ~110 km/h
+        overlap_kept_pairs = set()   # (i,j) tenuti SOLO per sovrapposizione
         cand_meta = {}   # (i,j) -> {distance_km, area_ratio, int_diff, iou, pred_err}
         for i, (t, feats) in enumerate(zip(active, features_list)):
             for j, cell in enumerate(cells):
@@ -1039,7 +1262,16 @@ class Tracker:
                 d = haversine_km(feats["last_lonlat"], cell.centroid_lonlat)
                 dt_h = (cell.timestamp_ms - feats["last_ts_ms"]) / 3600000.0
                 speed_gate = dt_h > 0.0 and d / dt_h > max_cont_kmh
-                if speed_gate:
+                # 2026-11-24 — PRIMA del gate: se i dischi (centroide + area
+                # equivalente) si sovrappongono almeno per `_LINEAGE_IOU`,
+                # l'associazione e' la STESSA cella che ha cambiato forma. Il
+                # gate non la rifiuta (l'ID non cambia) ma il passo non e' un
+                # moto: non entra nel fit, il vettore pubblicato resta nullo.
+                iou = _circle_iou(feats["last_lonlat"], feats["area_avg_km2"],
+                                  cell.centroid_lonlat, cell.area_km2)
+                overlap_kept = bool(speed_gate
+                                    and iou >= float(_LINEAGE_IOU))
+                if speed_gate and not overlap_kept:
                     gated_pairs.add((i, j))
                 pred_target = None
                 if feats.get("predicted"):
@@ -1054,7 +1286,7 @@ class Tracker:
                 if c <= max_cost:
                     cost_ungated[i, j] = c
                 # Matrice "gated": comportamento storico (INF sui rigetti).
-                if speed_gate:
+                if speed_gate and not overlap_kept:
                     continue
                 if sg is not None and d > sg:
                     continue  # fuori gate -> INF (rejected)
@@ -1062,12 +1294,13 @@ class Tracker:
                         and haversine_km(pred_target, cell.centroid_lonlat) > pg):
                     continue
                 cost[i, j] = c
+                if overlap_kept:
+                    overlap_kept_pairs.add((i, j))
                 cand_meta[(i, j)] = {
                     "distance_km": round(d, 3),
                     "area_ratio": round(cell.area_km2 / max(feats["area_avg_km2"], _EPS), 3),
                     "intensity_difference": round(abs(feats["dbz_avg"] - cell.max_dbz), 2),
-                    "iou": round(_circle_iou(feats["last_lonlat"], feats["area_avg_km2"],
-                                             cell.centroid_lonlat, cell.area_km2), 4),
+                    "iou": round(iou, 4),
                     "prediction_error_km": round(
                         haversine_km(pred_target, cell.centroid_lonlat), 3)
                         if pred_target is not None else None,
@@ -1109,6 +1342,12 @@ class Tracker:
         # gate. Un singolo track con M candidati fuori gate conta 1, non M.
         self.continuity_rejections += sum(
             1 for i, j in ungated_assignment.items() if (i, j) in gated_pairs)
+        # 2026-11-24 — associazioni TENUTE solo grazie alla sovrapposizione: il
+        # gate le avrebbe rifiutate. Si contano solo quelle che l'Hungarian ha
+        # effettivamente scelto (non le coppie candidate).
+        kept_pairs = {(i, j) for (i, j) in overlap_kept_pairs
+                      if assignment.get(i) == j}
+        self.kept_by_overlap += len(kept_pairs)
 
         # Lineage merge/split (2026-11-11): piano calcolato PRIMA di creare le
         # track nuove, cosi' i figli possono ereditare parent_ids.
@@ -1118,7 +1357,20 @@ class Tracker:
         for ti, ci in assignment.items():
             cell = cells[ci]
             track = active[ti]
-            track.points.append(models.TrackPoint(track.track_id, frame_index, cell))
+            pt = models.TrackPoint(track.track_id, frame_index, cell)
+            track.points.append(pt)
+            if (ti, ci) in kept_pairs:
+                # ID invariato, passo tenuto per sovrapposizione: dichiarato sul
+                # punto (escluso dal fit del moto) e sulla track (motivo nullo).
+                pt.centroid_jump = True
+                pt.overlap_iou = round(_circle_iou(
+                    features_list[ti]["last_lonlat"],
+                    features_list[ti]["area_avg_km2"],
+                    cell.centroid_lonlat, cell.area_km2), 4)
+                track.centroid_jump_points = \
+                    getattr(track, "centroid_jump_points", 0) + 1
+                if MOTION_NULL_CENTROID_JUMP_OVERLAPPED not in track.events:
+                    track.events.append(MOTION_NULL_CENTROID_JUMP_OVERLAPPED)
             track._coast_frames = 0
             self._note_coast_recovery(track)
             if ti in amb_rows or ci in amb_cols:
@@ -1177,6 +1429,12 @@ class Tracker:
                              "current_cell_id": None,
                              "assignment_status": "terminated"})
 
+        # 2026-11-24 — RE-ID DENTRO IL RUN: una traccia nata in QUESTO frame che
+        # continua una traccia morta da non piu' di 15 minuti (stessa finestra
+        # della metrica pubblicata) e' la stessa cella. Solo ora (dopo morti e
+        # nascite) si puo' decidere: nessuna traccia VIVA viene toccata.
+        self._stitch_reids_in_run(list(new_tracks_by_col.values()), rows)
+
         self._record(frame_index, rows)
 
     # -----------------------------------------------------------------------
@@ -1224,6 +1482,13 @@ class Tracker:
             # record (incluso l'eventuale punto stimato); la durata ONesta e'
             # il nuovo campo separato `duration_observed_min`.
             obs = [p for p in pts if getattr(p, "observed", True)] or pts
+            # 2026-11-24 — un punto tenuto per sovrapposizione e' una
+            # OSSERVAZIONE (la cella esiste) ma NON un passo di moto: il fit
+            # usa solo i punti che non hanno saltato il centroide. Se la track
+            # ne contiene almeno uno, il vettore pubblicato resta nullo con
+            # motivo esplicito (nessun valore inventato).
+            jump_pts = [p for p in obs if getattr(p, "centroid_jump", False)]
+            fit_obs = [p for p in obs if not getattr(p, "centroid_jump", False)]
             duration_observed_min = (
                 (obs[-1].timestamp_ms - obs[0].timestamp_ms) / 60000.0
                 if len(obs) >= 2 else 0.0)
@@ -1269,9 +1534,10 @@ class Tracker:
                     "duration_observed_min": round(duration_observed_min, 1),
                 }
                 continue
-            fit = _forecast.fit_motion(obs)
+            fit = _forecast.fit_motion(fit_obs)
             use_fit = bool(fit["fit_used"]) and \
-                float(fit["resid_std_km"]) < _MOTION_MAX_RESID_KM
+                float(fit["resid_std_km"]) < _MOTION_MAX_RESID_KM and \
+                not jump_pts
             if use_fit:
                 velocity = float(fit["velocity_kmh"])
                 toward = float(fit["direction_toward_deg"])
@@ -1283,8 +1549,12 @@ class Tracker:
                 velocity = None
                 toward = None
                 from_deg = None
-                null_reason = ("fit_residual_too_high" if fit["fit_used"]
-                               else "fit_not_used")
+                if jump_pts:
+                    null_reason = MOTION_NULL_CENTROID_JUMP_OVERLAPPED
+                elif fit["fit_used"]:
+                    null_reason = "fit_residual_too_high"
+                else:
+                    null_reason = "fit_not_used"
                 motion_quality = "unreliable"
                 motion_source = "fallback"
             growth = 0.0
@@ -1306,6 +1576,9 @@ class Tracker:
                 "_avg_solidity": round(sum(p.solidity for p in obs) / n, 4),
                 "_avg_compactness": round(sum(p.compactness for p in obs) / n, 4),
             }
+            if jump_pts:
+                # Audit: quanti passi sono stati ESCLUSI dal fit del moto.
+                track.motion["centroid_jump_points"] = len(jump_pts)
             score, label, probs, _comps = scoring.organization_score(track, scfg)
             track.motion["organization_score"] = score
             track.motion["classification"] = label
