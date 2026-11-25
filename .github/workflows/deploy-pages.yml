@@ -172,6 +172,14 @@ jobs:
         with:
           path: _site
 
+      # 2026-11-25 - L'API artifacts di GitHub puo' impiegare qualche secondo a
+      # rendere visibile l'artifact appena caricato. deploy-pages lo cerca SUBITO
+      # e fallisce con «Found 0 artifact(s)»: MISURATO in questa sessione su tre
+      # run (upload 16:05:51.20 -> deploy 16:05:51.67 = 0 artifact, nonostante
+      # «successfully uploaded»). Attesa breve e dichiarata prima del deploy.
+      - name: Attesa propagazione artifact Pages (API GitHub)
+        run: sleep 20
+
       - name: Deploy su GitHub Pages
         if: success()
         id: deployment
