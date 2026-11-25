@@ -347,12 +347,15 @@ def test_output_json_and_webp(tmp_path):
                      clock=clock_mod.Clock.at_ms(T0 + 2 * STEP_MS))
     assert payload["available"] is True
     data = json.loads((out / "nowcast.json").read_text(encoding="utf-8"))
-    # 12 frame: 5,10,...,60
-    assert [l["lead_min"] for l in data["leads"]] == list(range(5, 61, 5))
-    assert data["leads_total"] == 12
+    # 15 frame a passo crescente: 5..45 ogni 5, 60/75/90 ogni 15, 120/150/180
+    expected = list(range(5, 46, 5)) + [60, 75, 90, 120, 150, 180]
+    assert [l["lead_min"] for l in data["leads"]] == expected
+    assert data["leads_total"] == 15
     assert data["official_leads"] == [15, 30, 60]
     assert [l["lead_min"] for l in data["leads"] if l["official"]] == [15, 30, 60]
-    assert all(l["lead_min"] % 5 == 0 for l in data["leads"])
+    assert [l["step_min"] for l in data["leads"]] == (
+        [5] * 9 + [15] * 3 + [30] * 3)
+    assert data["low_reliability_over_min"] == 90
     assert data["grid"]["crs"] == "EPSG:3857"
     assert len(data["grid"]["bounds"]) == 4
     assert data["grid"]["resolution_m"] == nf.OUTPUT_RES_M
@@ -366,10 +369,11 @@ def test_output_json_and_webp(tmp_path):
         assert data["leads"][[l["lead_min"] for l in data["leads"]].index(lead)][
             "image"] == nf.IMAGE_NAMES[lead]
         assert p.read_bytes()[:4] == b"RIFF"      # WebP container
-    # 12 file distinti (010, 020, ... non sovrascrivono 005)
-    assert len(list(out.glob("nowcast_lead*.webp"))) == 12
+    # 15 file distinti (010, 020, ... non sovrascrivono 005)
+    assert len(list(out.glob("nowcast_lead*.webp"))) == 15
     assert nf.IMAGE_NAMES[5] == "nowcast_lead005.webp"
     assert nf.IMAGE_NAMES[60] == "nowcast_lead060.webp"
+    assert nf.IMAGE_NAMES[180] == "nowcast_lead180.webp"
 
 
 def test_frames_are_cumulative_and_coherent(tmp_path):
@@ -388,6 +392,68 @@ def test_frames_are_cumulative_and_coherent(tmp_path):
     assert np.array_equal(advanced, native[10])
     advanced3 = nf.semi_lagrangian(native[5], u, v, 3, domain)
     assert np.array_equal(advanced3, native[20])
+    # il +180 e' il +5 avanzato di altri 35 passi (36 totali), non un salto
+    advanced35 = nf.semi_lagrangian(native[5], u, v, 35, domain)
+    assert np.array_equal(advanced35, native[180])
+
+
+def test_step_min_for_growing_leads():
+    """Il passo pubblicato e' la distanza dal frame precedente."""
+    assert nf.step_min_for(5) == 5
+    assert nf.step_min_for(45) == 5
+    assert nf.step_min_for(60) == 15
+    assert nf.step_min_for(90) == 15
+    assert nf.step_min_for(120) == 30
+    assert nf.step_min_for(180) == 30
+    # override dei backtest: il passo si ricava dalla lista, non da una tabella
+    assert nf.step_min_for(180, (5, 30, 90, 180)) == 90
+
+
+def test_reliability_by_lead_from_measured_file(tmp_path):
+    """L'affidabilita' e' quella MISURATA nel file: nessun numero inventato."""
+    rasters, _ = _moving_frames(tmp_path, n=3, dx=1)
+    bundle = _Bundle(rasters)
+    out = tmp_path / "out"
+    out.mkdir(parents=True)
+    (out / nf.RELIABILITY_FILE).write_text(json.dumps({
+        "schema": "meteorisk.nowcast_reliability/1",
+        "measured_on": "2026-11-25",
+        "sample": {"days": 12, "cases": 24},
+        "horizons": {
+            "90": {"lead_min": 90, "cases": 24, "level": "media",
+                   "nowcast_csi": 0.31, "persistence_csi": 0.29,
+                   "csi_delta": 0.02, "nowcast_fss": 0.40,
+                   "persistence_fss": 0.38, "fss_delta": 0.02,
+                   "nowcast_beats_persistence": True,
+                   "low_reliability": False},
+            "180": {"lead_min": 180, "cases": 24, "level": "bassa",
+                    "nowcast_csi": 0.18, "persistence_csi": 0.22,
+                    "csi_delta": -0.04, "nowcast_fss": 0.25,
+                    "persistence_fss": 0.30, "fss_delta": -0.05,
+                    "nowcast_beats_persistence": False,
+                    "low_reliability": True},
+        },
+    }), encoding="utf-8")
+    payload = nf.run(bundle, _config(tmp_path), str(out),
+                     clock=clock_mod.Clock.at_ms(T0 + 2 * STEP_MS))
+    rel = payload["reliability_by_lead"]
+    assert rel["horizons"]["180"]["nowcast_csi"] == 0.18
+    by_lead = {l["lead_min"]: l for l in payload["leads"]}
+    assert by_lead[15]["reliability"] is None          # orizzonte non misurato
+    assert by_lead[180]["reliability"]["nowcast_csi"] == 0.18
+    assert by_lead[180]["reliability"]["low_reliability"] is True
+    assert by_lead[90]["reliability"]["level"] == "media"
+
+
+def test_reliability_missing_is_declared_null(tmp_path):
+    rasters, _ = _moving_frames(tmp_path, n=3, dx=1)
+    bundle = _Bundle(rasters)
+    out = tmp_path / "out"
+    payload = nf.run(bundle, _config(tmp_path), str(out),
+                     clock=clock_mod.Clock.at_ms(T0 + 2 * STEP_MS))
+    assert payload["reliability_by_lead"] is None
+    assert all(l["reliability"] is None for l in payload["leads"])
+    assert payload["low_reliability_over_min"] == 90
 
 
 def test_one_missing_frame_does_not_break_the_rest(tmp_path, monkeypatch):
@@ -405,12 +471,12 @@ def test_one_missing_frame_does_not_break_the_rest(tmp_path, monkeypatch):
     monkeypatch.setattr(nf, "write_webp", _maybe_fail)
     payload = nf.run(bundle, _config(tmp_path), str(out),
                      clock=clock_mod.Clock.at_ms(T0 + 2 * STEP_MS))
-    assert payload["available"] is True          # gli altri 11 restano validi
+    assert payload["available"] is True          # gli altri 14 restano validi
     by_lead = {l["lead_min"]: l for l in payload["leads"]}
     assert by_lead[20]["image"] is None
     assert "RuntimeError" in by_lead[20]["image_error"]
     assert by_lead[15]["image"] == nf.IMAGE_NAMES[15]
-    assert len(list(out.glob("nowcast_lead*.webp"))) == 11
+    assert len(list(out.glob("nowcast_lead*.webp"))) == 14
     assert not (out / nf.IMAGE_NAMES[20]).exists()
     data = json.loads((out / "nowcast.json").read_text(encoding="utf-8"))
     assert data["output_bytes"]["image_errors"]

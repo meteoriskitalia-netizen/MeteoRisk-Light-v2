@@ -146,7 +146,7 @@ def test_archive_roundtrip(tmp_path):
     assert rec["schema"] == na.SCHEMA
     assert rec["slot_basis"] == "source_slot"
     assert rec["source_slot"] == "2026-11-24T09:30:00Z"
-    assert [l["lead_min"] for l in rec["leads"]] == list(range(5, 61, 5))
+    assert [l["lead_min"] for l in rec["leads"]] == list(nf.LEADS_MIN)
     assert [l["lead_min"] for l in rec["leads"] if l["official"]] == [15, 30, 60]
     assert na.OFFICIAL_LEADS == nf.OFFICIAL_LEADS
     assert rec["speed_cap_kmh"] == 110.0
@@ -259,8 +259,8 @@ def test_verify_counts_match_replay(tmp_path):
     stats = nv.verify_pending(root, out, cfg, now=now, fetch_fn=fetch_fn,
                               grace_min=90, max_lookback_hours=24,
                               max_slots=10)
-    # gli altri 9 frame del player sono archiviati ma NON verificati
-    assert stats["player_leads_skipped"] == 9
+    # gli altri 12 frame del player sono archiviati ma NON verificati
+    assert stats["player_leads_skipped"] == 12
     doc = json.loads(open(out, encoding="utf-8").read())
     rows = {(r["lead_min"], r["threshold_mmh"]): r
             for r in doc["series"]["rows"]}

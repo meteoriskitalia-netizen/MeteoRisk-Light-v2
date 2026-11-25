@@ -20,9 +20,11 @@ disponibile, questo modulo:
   3) scarica l'SRI OSSERVATO allo stesso `valid_time` e calcola, per i SOLI
      lead UFFICIALI (15/30/60 min) e per ogni soglia GIA' DICHIARATA (0.5 /
      2.0 / 5.0 mm/h), CSI/POD/FAR del nowcast e della PERSISTENZA (campo fermo
-     allo slot sorgente). Gli altri 9 frame prodotti per il player (5, 10, 20,
-     25, 35, 40, 45, 50, 55 min) NON entrano nella verifica: sono trasporto
-     cumulativo per la fluidita', non un secondo prodotto da validare.
+     allo slot sorgente). Gli altri 12 frame prodotti per il player (5, 10, 20,
+     25, 35, 40, 45, 75, 90, 120, 150, 180 min) NON entrano nella verifica:
+     sono trasporto cumulativo per la fluidita', non un secondo prodotto da
+     validare. La loro affidabilita' si misura nel backtest dedicato a 3 ore
+     (`scripts/validation/nowcast_reliability_backtest.py`).
 
 La serie temporale viene accumulata in `data/radar/nowcast_verification.json`
 mantenendo INTATTO il riassunto esistente (il file schema 1 con i 49 casi):
@@ -715,8 +717,15 @@ def verify_pending(archive_root, verification_path, config, now=None,
             continue
         clk = clock_mod.Clock.at_ms(int(frames[-1].time_ms))
         bundle = _Bundle(frames)
+        # La verifica ufficiale confronta SOLO i lead 15/30/60: chiedere al
+        # motore l'intero contratto (15 frame fino a +180) sarebbe tempo
+        # sprecato e potrebbe sforare il budget dello step. `nowcast_leads_min`
+        # e' l'override previsto per i backtest; i campi calcolati sono gli
+        # stessi (il trasporto a +60 resta 12 passi cumulativi).
+        compute_config = dict(config or {})
+        compute_config["nowcast_leads_min"] = tuple(nf.OFFICIAL_LEADS)
         try:
-            payload, native = compute_fn(bundle, config, clk)
+            payload, native = compute_fn(bundle, compute_config, clk)
         except Exception as exc:
             stats["warnings"].append("compute_failed:%s:%s" % (
                 exc.__class__.__name__, exc))
@@ -732,7 +741,7 @@ def verify_pending(archive_root, verification_path, config, now=None,
         primary_variant = "orog" if cfg_orog else "no_orog"
         ab_variant = "no_orog" if cfg_orog else "orog"
         try:
-            payload_ab, native_ab = compute_fn(bundle, config, clk,
+            payload_ab, native_ab = compute_fn(bundle, compute_config, clk,
                                                orographic=(not cfg_orog))
         except Exception as exc:
             stats["warnings"].append("compute_ab_failed:%s:%s" % (

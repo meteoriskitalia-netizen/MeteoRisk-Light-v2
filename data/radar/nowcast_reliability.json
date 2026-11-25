@@ -1,0 +1,164 @@
+{
+ "schema": "meteorisk.nowcast_reliability/1",
+ "measured_on": "2026-11-25",
+ "method": "stesso compute() della produzione (cascata/matching/decay/orografia spenti) contro SRI osservato; persistenza = SRI dell'ancora; CSI pooled, FSS a 15 km medio sui casi",
+ "days": 12,
+ "anchors": [
+  "11:00",
+  "15:00"
+ ],
+ "cases": 24,
+ "csi_thresholds_mmh": [
+  0.5,
+  2.0,
+  5.0
+ ],
+ "fss_side_km": 15,
+ "official_leads_unchanged": [
+  15,
+  30,
+  60
+ ],
+ "horizons": {
+  "30": {
+   "lead_min": 30,
+   "cases": 24,
+   "nowcast_csi": 0.5176,
+   "persistence_csi": 0.4583,
+   "csi_delta": 0.0593,
+   "csi_by_threshold": {
+    "0.5": 0.5473,
+    "2.0": 0.4878,
+    "5.0": 0.362
+   },
+   "persistence_csi_by_threshold": {
+    "0.5": 0.4997,
+    "2.0": 0.4169,
+    "5.0": 0.2959
+   },
+   "nowcast_fss": 0.6138,
+   "persistence_fss": 0.6293,
+   "fss_delta": -0.0155,
+   "nowcast_beats_persistence": true,
+   "low_reliability": false,
+   "level": "media"
+  },
+  "60": {
+   "lead_min": 60,
+   "cases": 24,
+   "nowcast_csi": 0.3723,
+   "persistence_csi": 0.3435,
+   "csi_delta": 0.0289,
+   "csi_by_threshold": {
+    "0.5": 0.3986,
+    "2.0": 0.3461,
+    "5.0": 0.2512
+   },
+   "persistence_csi_by_threshold": {
+    "0.5": 0.3862,
+    "2.0": 0.3007,
+    "5.0": 0.2004
+   },
+   "nowcast_fss": 0.4018,
+   "persistence_fss": 0.43,
+   "fss_delta": -0.0282,
+   "nowcast_beats_persistence": true,
+   "low_reliability": false,
+   "level": "media"
+  },
+  "90": {
+   "lead_min": 90,
+   "cases": 24,
+   "nowcast_csi": 0.2926,
+   "persistence_csi": 0.2852,
+   "csi_delta": 0.0073,
+   "csi_by_threshold": {
+    "0.5": 0.3146,
+    "2.0": 0.2705,
+    "5.0": 0.1698
+   },
+   "persistence_csi_by_threshold": {
+    "0.5": 0.3249,
+    "2.0": 0.2456,
+    "5.0": 0.1375
+   },
+   "nowcast_fss": 0.3006,
+   "persistence_fss": 0.3468,
+   "fss_delta": -0.0462,
+   "nowcast_beats_persistence": true,
+   "low_reliability": false,
+   "level": "media"
+  },
+  "120": {
+   "lead_min": 120,
+   "cases": 24,
+   "nowcast_csi": 0.2422,
+   "persistence_csi": 0.2413,
+   "csi_delta": 0.0009,
+   "csi_by_threshold": {
+    "0.5": 0.2591,
+    "2.0": 0.2254,
+    "5.0": 0.1338
+   },
+   "persistence_csi_by_threshold": {
+    "0.5": 0.2784,
+    "2.0": 0.2043,
+    "5.0": 0.1117
+   },
+   "nowcast_fss": 0.236,
+   "persistence_fss": 0.2876,
+   "fss_delta": -0.0516,
+   "nowcast_beats_persistence": true,
+   "low_reliability": true,
+   "level": "bassa"
+  },
+  "150": {
+   "lead_min": 150,
+   "cases": 24,
+   "nowcast_csi": 0.1897,
+   "persistence_csi": 0.1971,
+   "csi_delta": -0.0073,
+   "csi_by_threshold": {
+    "0.5": 0.214,
+    "2.0": 0.1654,
+    "5.0": 0.0903
+   },
+   "persistence_csi_by_threshold": {
+    "0.5": 0.2389,
+    "2.0": 0.1553,
+    "5.0": 0.0769
+   },
+   "nowcast_fss": 0.1805,
+   "persistence_fss": 0.2284,
+   "fss_delta": -0.0479,
+   "nowcast_beats_persistence": false,
+   "low_reliability": true,
+   "level": "bassa"
+  },
+  "180": {
+   "lead_min": 180,
+   "cases": 24,
+   "nowcast_csi": 0.1606,
+   "persistence_csi": 0.1736,
+   "csi_delta": -0.013,
+   "csi_by_threshold": {
+    "0.5": 0.1841,
+    "2.0": 0.1371,
+    "5.0": 0.0652
+   },
+   "persistence_csi_by_threshold": {
+    "0.5": 0.2156,
+    "2.0": 0.1316,
+    "5.0": 0.0603
+   },
+   "nowcast_fss": 0.1442,
+   "persistence_fss": 0.1931,
+   "fss_delta": -0.0489,
+   "nowcast_beats_persistence": false,
+   "low_reliability": true,
+   "level": "bassa"
+  }
+ },
+ "loses_to_persistence_from_min": 150,
+ "limits": "Campione di 12 giornate indipendenti x 2 ancore (24 casi): CSI pooled e FSS medio, non una climatologia. Persistenza = campo dell'ancora. Le stesse giornate del backtest della cascata; nessuna soglia tarata su questo campione."
+}

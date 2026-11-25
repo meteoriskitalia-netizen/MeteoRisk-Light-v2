@@ -3,19 +3,58 @@
 Modulo: `scripts/radar_engine/nowcast_field.py` ·
 Test: `scripts/tests/radar_engine/test_nowcast_field.py` ·
 Replay: `scripts/validation/nowcast_replay.py` ·
-Output: `data/radar/nowcast.json` + **12** WebP, `nowcast_lead005.webp` …
-`nowcast_lead060.webp` (un frame ogni 5 minuti; i lead 15/30/60 sono gli
-ufficiali di verifica) ·
-Verifica: `data/radar/nowcast_verification.json` · `docs/NOWCAST_REPLAY.md`
+Output: `data/radar/nowcast.json` + **15** WebP a passo crescente,
+`nowcast_lead005.webp` … `nowcast_lead180.webp` (i lead 15/30/60 sono gli
+ufficiali di verifica; l'affidabilita' per orizzonte e' in
+`data/radar/nowcast_reliability.json`) ·
+Verifica: `data/radar/nowcast_verification.json` · `docs/NOWCAST_REPLAY.md` ·
+Affidabilita': `docs/NOWCAST_RELIABILITY.md`
+
+## Contratto attuale (1.3.0.81, 25/11/2026): 15 frame fino a +3 ore
+
+Frame e passi pubblicati (il TRASPORTO resta cumulativo a passi di 5 minuti:
+il +180 e' il +5 avanzato 36 volte):
+
+| fascia | lead (min) | passo |
+| :--- | :--- | ---: |
+| centrale | 5, 10, 15, 20, 25, 30, 35, 40, 45 | 5 min |
+| estesa | 60, 75, 90 | 15 min |
+| lunga | 120, 150, 180 | 30 min |
+
+`leads_total = 15`, `official_leads = [15, 30, 60]` invariati. Ogni voce di
+`leads[]` porta `step_min` (distanza dal frame precedente), `valid_time`,
+`image`, `official` e `reliability` (misurata o `null`). Oltre
+`low_reliability_over_min = 90` il client etichetta il frame «affidabilita'
+bassa». Costo misurato sullo stesso slot reale (2026-11-23T10:25Z, 6 frame):
+`compute` 8,64 s (12 frame) -> **10,47 s** (15), WebP 4,68 -> **6,38 s**,
+totale **13,32 -> 16,85 s (+3,52 s, +26%)**; 15 WebP **162.804 B** contro
+147.366 B (**+15.438 B, +10,5%**); picco RSS del processo di misura 478 -> 574 MB.
+Nessuna riduzione proposta: il delta resta sotto il tetto di +8 s.
+
+Affidabilita' MISURATA (12 giornate x 2 ancore = 24 casi, SRI osservato, FSS a
+15 km): dettaglio in `docs/NOWCAST_RELIABILITY.md`. In sintesi:
+
+| lead | CSI nowcast | CSI persist. | FSS nowcast | FSS persist. |
+| ---: | ---: | ---: | ---: | ---: |
+| +30 | 0,518 | 0,458 | 0,614 | 0,629 |
+| +60 | 0,372 | 0,344 | 0,402 | 0,430 |
+| +90 | 0,293 | 0,285 | 0,301 | 0,347 |
+| +120 | 0,242 | 0,241 | 0,236 | 0,288 |
+| +150 | 0,190 | 0,197 | 0,180 | 0,228 |
+| +180 | 0,161 | 0,174 | 0,144 | 0,193 |
+
+Da +150 min il nowcast e' **peggiore** della persistenza su CSI; l'FSS e'
+peggiore a **tutti** gli orizzonti. Le due metriche non concordano: il verdetto
+ufficiale (`beats_persistence`, lead 15/30/60) resta invariato e separato.
 
 ## Cosa fa e cosa NON fa
 
 Sposta il **campo di pioggia** osservato dal radar (prodotto DPC **SRI**,
 mm/h Float32, griglia 1200x1400 a 1 km) e ne pubblica la posizione prevista con
-**un frame ogni 5 minuti da +5 a +60** (12 frame, player fluido come il radar).
-I tre lead **ufficiali di verifica** restano +15/+30/+60 e portano
-`official: true` nel JSON; gli altri 9 sono per il player e non entrano nel
-confronto con la persistenza. Non e' un'estensione di `forecast.py`: quello sposta
+**15 frame a passo crescente fino a +180 minuti** (vedi contratto sopra; la
+storia della release a 12 frame resta sotto). I tre lead **ufficiali di
+verifica** restano +15/+30/+60 e portano `official: true` nel JSON; gli altri 12
+sono per il player e non entrano nel confronto ufficiale con la persistenza. Non e' un'estensione di `forecast.py`: quello sposta
 il contorno di una **struttura convettiva tracciata** e dipende dal moto della
 cella (il 24/11/2026 le strutture erano 0, quindi quel layer non produceva
 nulla). Qui non esiste nessuna identita' di cella e nessuna dipendenza da

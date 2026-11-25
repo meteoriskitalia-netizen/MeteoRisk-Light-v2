@@ -63,17 +63,19 @@ mai per questo modulo: `main.py` lo chiama dentro try/except.
 
 Uscita
 ------
-`data/radar/nowcast.json` (schema `meteorisk.nowcast_field/1`) + **12 WebP**
-georeferenziati in EPSG:3857, uno per ogni multiplo di 5 minuti da +5 a +60
-(`nowcast_lead005.webp` ... `nowcast_lead060.webp`), con alpha=0 fuori dal
-dominio radar. I frame sono CUMULATIVI: il +10 e' il +5 avanzato di altri 5
-minuti (semi-Lagrangiano a passi di 5), non un trasporto indipendente. I tre
-lead **ufficiali di verifica** sono 15/30/60 e portano `official: true`; gli
-altri servono al player e sono dichiarati come tali.
+`data/radar/nowcast.json` (schema `meteorisk.nowcast_field/1`) + **15 WebP**
+georeferenziati in EPSG:3857 a PASSO CRESCENTE: +5..+45 ogni 5 minuti, +60,
++75, +90 ogni 15, +120, +150, +180 ogni 30 (`nowcast_lead005.webp` ...
+`nowcast_lead180.webp`), con alpha=0 fuori dal dominio radar. I frame sono
+CUMULATIVI: il +180 e' il +5 avanzato 36 volte (semi-Lagrangiano a passi di
+5 minuti), non un trasporto indipendente ne' un salto secco. I tre lead
+**ufficiali di verifica** restano 15/30/60 e portano `official: true`; gli
+altri servono al player e sono dichiarati come tali. Ogni lead porta il suo
+`step_min` (passo pubblicato) e `reliability` dall'affidabilita' MISURATA.
 
 Il JSON porta bbox/risoluzione delle immagini e la legenda in mm/h. Il WebP e'
-stato scelto DOPO aver misurato il JSON con i campi grezzi: 12 campi float su
-1200x1400 sarebbero ~80 MB per run, le 12 immagini costano ~100 kB in totale
+stato scelto DOPO aver misurato il JSON con i campi grezzi: 15 campi float su
+1200x1400 sarebbero ~100 MB per run, le 15 immagini costano ~125 kB in totale
 sullo stesso caso (misurato, v. report).
 
 La maschera del dominio e' `valid_mask` del frame SRI piu' recente (la stessa
@@ -101,11 +103,24 @@ PRODUCT_TYPE = "SRI"
 
 FRAMES_WANTED = 6               # ultimi 6 fotogrammi (25 minuti di storia)
 STEP_MIN = 5                    # cadenza misurata del prodotto SRI (PT5M)
-# UN FRAME OGNI 5 MINUTI da +5 a +60 (12 frame, player fluido come il radar).
-# Il trasporto e' CUMULATIVO: il frame a +N usa N/5 passi da 5 minuti.
-LEADS_MIN = tuple(range(5, 61, 5))
+# 15 FRAME A PASSO CRESCENTE fino a +3 ore (come Meteo&Radar/WetterOnline):
+#   +5..+45 ogni 5 min (9 frame), +60/+75/+90 ogni 15 min (3 frame),
+#   +120/+150/+180 ogni 30 min (3 frame).
+# Il TRASPORTO resta CUMULATIVO a passi da 5 minuti: il frame a +N usa N/5
+# avanzamenti da 5 minuti (il +180 e' il +5 ripetuto 36 volte, non un salto).
+LEADS_MIN = tuple(range(5, 46, 5)) + (60, 75, 90, 120, 150, 180)
+# Passo pubblicato di ogni frame = distanza dal frame precedente.
+STEP_MIN_BY_LEAD = {
+    5: 5, 10: 5, 15: 5, 20: 5, 25: 5, 30: 5, 35: 5, 40: 5, 45: 5,
+    60: 15, 75: 15, 90: 15,
+    120: 30, 150: 30, 180: 30,
+}
 # Verifica ufficiale: solo questi tre (invariata rispetto alla 1.3.0.71).
+# I frame oltre +60 sono per il player e NON entrano nel verdetto ufficiale.
 OFFICIAL_LEADS = (15, 30, 60)
+# Oltre questo orizzonte il frame e' etichettato "affidabilita' bassa" nel
+# client: la misura dell'affidabilita' per lead e' in reliability_by_lead.
+LOW_RELIABILITY_OVER_MIN = 90
 FLOW_PAIRS = 3                  # coppie consecutive usate per il flusso
 SPEED_CAP_KMH = 110.0           # sopra: vettore SOSTITUITO dal vicinato
 MOTION_FILL_MAX_RADIUS = 10     # px - raggio massimo del riempimento
@@ -120,6 +135,11 @@ OUTPUT_RES_M = 1500             # risoluzione delle immagini (misurata: v. repor
 WEBP_QUALITY = 80
 IMAGE_NAMES = {lead: "nowcast_lead%03d.webp" % lead for lead in LEADS_MIN}
 VERIFICATION_FILE = "nowcast_verification.json"
+# Affidabilita' per orizzonte: MISURATA dal backtest
+# `scripts/validation/nowcast_reliability_backtest.py` e scritta accanto al
+# nowcast. Il motore la incorpora in `nowcast.json` (reliability_by_lead) senza
+# ricalcolare nulla: un file assente -> null con motivo, niente numeri inventati.
+RELIABILITY_FILE = "nowcast_reliability.json"
 
 # Legenda (mm/h -> colore). STESSA SCALA DEL RADAR SRI DEL CLIENT: i sei stop
 # sono copiati da `DPC_SRI_STOPS` di mri-light-1.3.0.77.html (righe 10983-10990,
@@ -737,6 +757,8 @@ def _unavailable(reason, clock, extra=None):
         "frames_used": 0,
         "leads": [],
         "beats_persistence": None,
+        "reliability_by_lead": None,
+        "low_reliability_over_min": LOW_RELIABILITY_OVER_MIN,
         "verification": {"status": "not_evaluated",
                          "beats_persistence": None,
                          "null_reason": "nowcast_unavailable"},
@@ -834,6 +856,7 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
     `orographic=None` -> si usa il flag `orographic_enhancement.enabled` della
     config; True/False lo forzano (usato dall'A/B di `nowcast_verify`).
     """
+    leads = leads_min(config)
     frames, origin = collect_frames(bundle, config, clock, warnings)
     if not frames:
         return _unavailable("sri_unavailable", clock,
@@ -905,7 +928,7 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
                    "null_reason": "prepare_error:%s" % exc.__class__.__name__}
     oro_lead_stats = {}
 
-    for lead in LEADS_MIN:
+    for lead in leads:
         steps = int(lead // STEP_MIN)
         while done < steps:
             stepped = semi_lagrangian(stepped, u, v, 1, domain)
@@ -918,6 +941,7 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
             native[lead] = stepped
 
     oro_block = orography_mod.summarize(oro_ctx)
+    reliability = reliability_for(bundle, config, out_dir)
     if oro_block.get("applied") and oro_lead_stats:
         off = [oro_lead_stats[l] for l in OFFICIAL_LEADS if l in oro_lead_stats]
         if off:
@@ -968,21 +992,24 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
         "frames_origin": origin,
         "frames_slots": [_iso(f[2]) for f in frames],
         "domain_mask": DOMAIN_MASK_SOURCE,
-        "leads_total": len(LEADS_MIN),
+        "leads_total": len(leads),
         "official_leads": list(OFFICIAL_LEADS),
         "leads": [
             {
                 "lead_min": lead,
+                "step_min": step_min_for(lead, leads),
                 "valid_time": _iso(latest_ts + lead * 60000),
                 "unit": "mm/h",
-                "image": IMAGE_NAMES[lead],
+                "image": IMAGE_NAMES.get(lead),
                 "image_crs": OUTPUT_CRS,
                 # ufficiale = entra nella verifica contro la persistenza;
                 # gli altri frame sono per il player (dichiarato).
                 "official": lead in OFFICIAL_LEADS,
+                # affidabilita' MISURATA per orizzonte (null se non misurato)
+                "reliability": _reliability_entry(lead, reliability),
                 "stats": _lead_stats(native[lead], domain, pixel_km),
             }
-            for lead in LEADS_MIN
+            for lead in leads
         ],
         "grid": {k: v for k, v in grid.items() if k != "dst_transform"},
         "legend": [{"mmh": p[0], "rgb": list(p[1])} for p in PALETTE],
@@ -1001,6 +1028,8 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
     verification = verification_for(bundle, config, out_dir)
     payload["verification"] = verification
     payload["beats_persistence"] = verification.get("beats_persistence")
+    payload["reliability_by_lead"] = reliability
+    payload["low_reliability_over_min"] = LOW_RELIABILITY_OVER_MIN
     ab = verification.get("orography_ab") or {}
     payload["beats_persistence_no_orog"] = ab.get("beats_persistence_no_orog")
     payload["beats_persistence_orog"] = ab.get("beats_persistence_orog")
@@ -1022,6 +1051,88 @@ def verification_for(bundle, config, out_dir=None):
         (config.get("output") or {}).get("out_dir") or ".")
 
 
+def leads_min(config):
+    """Orizzonti del nowcast: default `LEADS_MIN`.
+
+    Una lista diversa (`config['nowcast_leads_min']`) esiste SOLO per i
+    backtest: la produzione, `IMAGE_NAMES` e il client usano i 15 frame del
+    contratto. Con la lista di default il payload non cambia di forma.
+    """
+    raw = (config or {}).get("nowcast_leads_min")
+    if not raw:
+        return LEADS_MIN
+    try:
+        out = tuple(sorted({int(x) for x in raw if int(x) > 0}))
+    except (TypeError, ValueError):
+        return LEADS_MIN
+    return out or LEADS_MIN
+
+
+def step_min_for(lead, leads=None):
+    """Passo pubblicato del frame: distanza dal lead precedente.
+
+    Con il contratto di produzione: 5 min fino a +45, 15 min a +60/+75/+90,
+    30 min a +120/+150/+180. Per il primo frame il passo e' 5 min (non c'e'
+    un precedente pubblicato). Il TRASPORTO sottostante resta a 5 minuti.
+    Con `leads` esplicito la tabella non si usa: il passo si ricava dalla
+    lista data (e' il caso dei backtest con orizzonti diversi).
+    """
+    lead = int(lead)
+    if leads is None:
+        return STEP_MIN_BY_LEAD.get(lead, STEP_MIN)
+    seq = sorted(int(x) for x in leads)
+    if lead in seq:
+        i = seq.index(lead)
+        return int(lead - seq[i - 1]) if i > 0 else STEP_MIN
+    prev = [x for x in seq if x < lead]
+    return int(lead - prev[-1]) if prev else STEP_MIN
+
+
+def load_reliability(out_dir):
+    """Affidabilita' per orizzonte dal file scritto dal backtest.
+
+    File assente o invalido -> `None`: il payload non dichiara numeri che non
+    esistono. Il file e' piccolo (una voce per orizzonte) e viene incorporato
+    per intero in `nowcast.json` (`reliability_by_lead`).
+    """
+    path = os.path.join(out_dir or ".", RELIABILITY_FILE)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or not isinstance(
+            data.get("horizons"), dict):
+        return None
+    return data
+
+
+def reliability_for(bundle, config, out_dir=None):
+    """Affidabilita' iniettata nel bundle (test) o letta accanto all'output."""
+    injected = getattr(bundle, "_nowcast_reliability", None)
+    if isinstance(injected, dict):
+        return injected
+    if out_dir:
+        return load_reliability(out_dir)
+    return load_reliability(
+        (config.get("output") or {}).get("out_dir") or ".")
+
+
+def _reliability_entry(lead, doc):
+    """Voce compatta per un lead (None se quell'orizzonte non e' misurato)."""
+    if not isinstance(doc, dict):
+        return None
+    horizons = doc.get("horizons") or {}
+    row = horizons.get(str(int(lead)))
+    if not isinstance(row, dict):
+        return None
+    keys = ("lead_min", "cases", "level", "nowcast_csi", "persistence_csi",
+            "csi_delta", "nowcast_fss", "persistence_fss", "fss_delta",
+            "nowcast_beats_persistence", "low_reliability")
+    out = {k: row.get(k) for k in keys if k in row}
+    return out or None
+
+
 def _fallback_raster(config, clock, ts, warnings):
     """Raster di georeferenziazione quando il bundle non c'e' (raro)."""
     try:
@@ -1038,8 +1149,8 @@ def _fallback_raster(config, clock, ts, warnings):
 # scrittura
 # ---------------------------------------------------------------------------
 def write_products(out_dir, payload, native):
-    """Scrive i 12 WebP. Ritorna il dizionario delle misure (il JSON lo scrive
-    `run` DOPO aver inserito le misure: un solo file, nessuna riscrittura).
+    """Scrive i WebP dei lead pubblicati. Ritorna il dizionario delle misure
+    (il JSON lo scrive `run` DOPO aver inserito le misure: un solo file).
 
     Un frame che non si riesce a scrivere NON annulla gli altri: il lead
     corrispondente resta con `image: null` e `image_error`, cosi' il player puo'
@@ -1049,25 +1160,25 @@ def write_products(out_dir, payload, native):
     if payload.get("available") and native:
         rd = native["_rd"]
         grid = native["_grid"]
-        by_lead = {int(l["lead_min"]): l for l in (payload.get("leads") or [])}
-        for lead in LEADS_MIN:
-            entry = by_lead.get(lead)
+        for entry in (payload.get("leads") or []):
+            lead = int(entry["lead_min"])
+            name = entry.get("image") or IMAGE_NAMES.get(lead)
+            if not name:
+                continue
             try:
                 field = reproject_to_grid(native[lead], native["_domain"],
                                           rd, grid)
-                path = os.path.join(out_dir, IMAGE_NAMES[lead])
+                path = os.path.join(out_dir, name)
                 size = write_webp(path, field)
-                measured["images"][IMAGE_NAMES[lead]] = size
+                measured["images"][name] = size
                 # statistiche sulla griglia pubblicata (non su quella nativa)
-                if entry is not None:
-                    entry["stats"]["published_pixels"] = int(
-                        np.isfinite(field).sum())
+                entry["stats"]["published_pixels"] = int(
+                    np.isfinite(field).sum())
             except Exception as exc:
                 reason = "{}:{}".format(exc.__class__.__name__, exc)
-                measured["image_errors"][IMAGE_NAMES[lead]] = reason
-                if entry is not None:
-                    entry["image"] = None
-                    entry["image_error"] = reason
+                measured["image_errors"][name] = reason
+                entry["image"] = None
+                entry["image_error"] = reason
     return measured
 
 
@@ -1102,7 +1213,8 @@ def run(bundle, config, out_dir, clock=None, warnings=None):
             # dichiara (available:false) invece di lasciare un layer vuoto.
             payload = dict(payload, available=False,
                            null_reason="image_write_failed:all_frames")
-            warnings.append("nowcast: 0 frame su 12 -> available:false")
+            warnings.append("nowcast: 0 frame su {} -> available:false".format(
+                len(LEADS_MIN)))
     path = os.path.join(out_dir, "nowcast.json")
     _atomic_write_text(path, json.dumps(payload, ensure_ascii=False,
                                         allow_nan=False))

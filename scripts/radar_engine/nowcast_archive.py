@@ -344,8 +344,9 @@ disponibilita', moto, cap, riferimento ai WebP, statistiche e griglia).
 dallo stesso slot con `scripts/radar_engine/nowcast_field.py`.
 
 - Schema: `meteorisk.nowcast_archive/1`
-- Lead: 12 frame (5..60 min); `official: true` solo su 15/30/60, gli unici
-  che la verifica confronta con la persistenza. Gli altri sono per il player.
+- Lead: 15 frame a passo crescente (5..45 ogni 5 min, 60/75/90 ogni 15,
+  120/150/180 ogni 30); `official: true` solo su 15/30/60, gli unici che la
+  verifica confronta con la persistenza. Gli altri sono per il player.
 - Retention: 7 giorni (potatura a ogni pubblicazione)
 - Scritto da: job `radar-engine` (step "Archivia nowcast emesso")
 - Pubblicato su: branch ORPHAN `nowcast-archive` (commit senza parent,

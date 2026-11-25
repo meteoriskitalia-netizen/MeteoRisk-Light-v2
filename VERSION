@@ -1,3 +1,16 @@
+VERSION=1.3.0.81
+BUILD=221
+DATE=2026-11-25
+APP_FILE=mri-light-1.3.0.81.html
+MeteoRisk Light - 1.3.0.81 - NOWCAST A +3 ORE: 15 FRAME A PASSO CRESCENTE, ETICHETTA DI AFFIDABILITA' E LEGENDA CON I NUMERI MISURATI (BUILD=221)
+VERSION=1.3.0.81
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=221
+RELEASE_TYPE=release
+DATE=2026-11-25
+NOTE=NOWCAST A +3 ORE (15 FRAME A PASSO CRESCENTE) + AFFIDABILITA MISURATA. Frame e passi: +5..+45 ogni 5 min (9), +60/+75/+90 ogni 15 (3), +120/+150/+180 ogni 30 (3); nowcast_lead005..180.webp. Il TRASPORTO resta CUMULATIVO a passi di 5 minuti (il +180 e il +5 avanzato 36 volte), non 15 trasporti indipendenti: compute 10,47 s contro 8,64 s di 12 frame sullo stesso slot (2026-11-23T10:25Z), WebP 6,38 s contro 4,68 s, totale 16,85 s contro 13,32 s (+3,52 s, +26%), 15 WebP 162.804 B contro 147.366 B (+15.438 B, +10,5%), picco RSS 574 MB nel processo di misura (478 MB con 12). Delta sotto il tetto di +8 s: nessuna riduzione proposta. OFFICIAL_LEADS invariati 15/30/60 (official:true); leads_total 15; ogni lead pubblica step_min, valid_time, image, official, reliability; low_reliability_over_min=90. AFFIDABILITA MISURATA con scripts/validation/nowcast_reliability_backtest.py sulle 12 giornate del backtest della cascata x 2 ancore (11:00,15:00 = 24 casi, SRI osservato, FSS 15 km), scritta in data/radar/nowcast_reliability.json e incorporata in nowcast.json come reliability_by_lead: CSI nowcast/persistenza 0,518/0,458 a +30, 0,372/0,344 a +60, 0,293/0,285 a +90, 0,242/0,241 a +120, 0,190/0,197 a +150, 0,161/0,174 a +180; FSS nowcast/persistenza 0,614/0,629, 0,402/0,430, 0,301/0,347, 0,236/0,288, 0,180/0,228, 0,144/0,193. ESITO DICHIARATO: da +150 min il nowcast e PEGGIORE della persistenza su CSI e l FSS e peggiore a TUTTI gli orizzonti (le due metriche non concordano a breve: il verdetto ufficiale usa il CSI, resta invariato sui lead 15/30/60). CLIENT: etichetta «+120 min - HH:MM - affidabilita bassa» oltre 90 (soglia dal server), legenda con i numeri misurati e aggiornamento a runtime da reliability_by_lead (frase statica coerente), caption «passo 5/15/30 min»; timeline/play/slider/preload invariati e dinamici su leads[] (15 frame, una lacuna image:null viene saltata). WORKFLOW radar-engine: commit dei 15 WebP + nowcast_reliability.json; rimossi i lead 050/055 dal contratto e dal repo. ARCHIVIO/VERIFICA: nowcast_archive registra 15 lead (official solo 15/30/60); nowcast_verify ricalcola SOLO i lead ufficiali (override nowcast_leads_min) per non sforare il budget; serie e verdetto invariati. STRUMENTI: nuovo scripts/validation/nowcast_reliability_backtest.py e docs/NOWCAST_RELIABILITY.md. TEST: scripts/tests/radar_engine/test_nowcast_field.py (15 lead, step_min 5/15/30, cumulativita a +180, reliability file/no file), test_nowcast_archive_verify.py e test_nowcast_ledger.py aggiornati, nuovo scripts/tests/test_nowcast_lead_steps.mjs (15 lead, lacuna, etichette, numeri in legenda) PASS, test_html_js_syntax e test_tooltips_coverage 3 passed, test_sw_cache_policy PASS con CACHE_NAME mri-1.3.0.81, py_compile OK.
 VERSION=1.3.0.80
 BUILD=220
 DATE=2026-11-25

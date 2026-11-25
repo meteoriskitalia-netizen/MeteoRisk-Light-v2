@@ -2072,7 +2072,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
             <option value="">— nessuno —</option>
             <option value="forecast-maps">Mappe previsionali</option>
             <option value="radar-player">Radar Player</option>
-            <option value="nowcast" title="Nowcast pioggia: campo radar SRI spostato nel tempo, player a frame da 5 a 60 minuti (solo trasporto, l'intensità non cresce né cala)">Nowcast pioggia</option>
+            <option value="nowcast" title="Nowcast pioggia: campo radar SRI spostato nel tempo, player a frame da 5 a 180 minuti (passo crescente 5/15/30, oltre 90 minuti affidabilità bassa)">Nowcast pioggia</option>
             <option value="rischi" selected>Mappa dei rischi</option>
             <option value="forecast">Previsioni</option>
             <option value="live">Pannello LIVE</option>
@@ -2746,7 +2746,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                 <div class="legend-title">Intensità prevista · mm/h · scala SRI (DPC)</div>
                 <div class="nowcast-ramp" id="nowcast-legend-ramp"></div>
                 <div class="nowcast-ticks" id="nowcast-legend-ticks"></div>
-                <div class="legend-row" style="font-size:10px; color:#cbd5e1;">dopo 30 minuti l'affidabilità cala</div>
+                <div class="legend-row" id="nowcast-legend-note" style="font-size:10px; color:#cbd5e1;">misurato su 24 casi: a +180 min il nowcast è peggiore della persistenza (CSI 0,16 contro 0,17; FSS 0,14 contro 0,19) e oltre 90 minuti l'abilità è meno di metà di quella a +30</div>
                 <div class="legend-row" style="font-size:10px; color:#94a3b8;">sotto 1 mm/h il radar osservato è trasparente; il nowcast mostra la pioggia debole</div>
             </div>
         </div>
@@ -3289,9 +3289,16 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.80';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-11-24';
+    const APP_VERSION = '1.3.0.81';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-11-25';
     const APP_CHANGELOG = [
+    { version: '1.3.0.81', date: '2026-11-25', changes: [
+      "NOWCAST A +3 ORE, 15 FRAME A PASSO CRESCENTE: +5..+45 ogni 5 min (9), +60/+75/+90 ogni 15 (3), +120/+150/+180 ogni 30 (3). Il trasporto resta CUMULATIVO a passi di 5 minuti: il +180 e' il +5 avanzato 36 volte, non un salto. Ogni lead dichiara step_min e valid_time; i tre lead ufficiali di verifica restano 15/30/60.",
+      "AFFIDABILITA' BASSA OLTRE 90 MINUTI: l'etichetta del frame diventa «+120 min · 18:15 · affidabilità bassa»; la soglia arriva dal server (low_reliability_over_min = 90), non e' un numero scritto due volte.",
+      "LEGENDA CON I NUMERI MISURATI: la frase generica «dopo 30 minuti l'affidabilità cala» e' sostituita dalla misura su 12 giornate x 2 ancore (24 casi) contro la persistenza, e viene aggiornata a runtime da reliability_by_lead nel nowcast.json. MISURA: CSI nowcast/persistenza 0,52/0,46 a +30, 0,29/0,29 a +90, 0,24/0,24 a +120, 0,19/0,20 a +150, 0,16/0,17 a +180; FSS 0,14 contro 0,19 a +180. A +180 min il nowcast e' PEGGIORE della persistenza su CSI e FSS: dichiarato in legenda, non nascosto.",
+      "TIMELINE: play/pausa, slider e preload restano quelli esistenti e leggono leads[] dinamicamente (15 frame, passi 5/15/30); una lacuna (image:null) salta il frame senza rompere il player. Caption «passo 5/15/30 min».",
+      "TEST: nuovo scripts/tests/test_nowcast_lead_steps.mjs (15 lead, lacuna, etichette, numeri in legenda) + 4 test Python su passo crescente, cumulativita' a +180 e reliability_by_lead."
+    ]},
     { version: '1.3.0.80', date: '2026-11-24', changes: [
       "NOWCAST: AGGIORNAMENTO AUTOMATICO OGNI 5 MINUTI mentre il prodotto e' attivo (il motore gira ogni 10, il polling a 5 non perde il giro). Se source_slot cambia, il JSON viene riletto e la timeline ricostruita sui nuovi leads[]; la posizione NON si resetta: si mantiene lo stesso lead_min (in pausa o in play) e si aggiorna l'immagine.",
       "CACHE DEI WEBP: URL NUDO e reload forzato con fetch(cache:'reload') + blob per file (nessuna query-string: il CDN risponde 404 con ?v=). Il nuovo blob sostituisce la versione vecchia; nessun 404 introdotto.",
@@ -8181,7 +8188,7 @@ cleanupAllSatLayers();
             var nl = nowcastLeads();
             cap.innerText = 'Nowcast pioggia \u00b7 SRI DPC \u00b7 ' +
                 (nl.length ? ('+' + nl[0].lead + '\u2026+' + nl[nl.length - 1].lead + ' min') : 'nessun frame') +
-                ' (passo 5 min)';
+                ' (passo 5/15/30 min)';
             return;
         }
         var parts = [];
@@ -27423,7 +27430,62 @@ function toggleForecastMaps() {
             } catch (e) { }
         }
         if (item.official) txt += ' \u00b7 ufficiale';
+        // Oltre 90 minuti il frame e' dichiarato a BASSA affidabilita' (la
+        // misura e' in nowcast.json -> reliability_by_lead; la soglia arriva
+        // dal server, con 90 come default del contratto).
+        if (nowcastLowReliability(item.lead)) txt += ' \u00b7 affidabilit\u00e0 bassa';
         return txt;
+    }
+    function nowcastLowReliability(lead) {
+        var thr = 90;
+        var d = nowcastState.data;
+        if (d && isFinite(parseInt(d.low_reliability_over_min, 10))) {
+            thr = parseInt(d.low_reliability_over_min, 10);
+        }
+        return parseInt(lead, 10) > thr;
+    }
+    function nowcastCsiTxt(v) {
+        if (typeof v !== 'number' || !isFinite(v)) return null;
+        return String(v.toFixed(2)).replace('.', ',');
+    }
+    // Frase di legenda con i NUMERI MISURATI (reliability_by_lead): nessun
+    // valore hardcodato oltre al testo di riserva. Se il file manca resta la
+    // frase statica misurata nella release.
+    function nowcastReliabilityText(d) {
+        var rel = (d || nowcastState.data || {}).reliability_by_lead;
+        var h = rel && rel.horizons;
+        if (!h) return null;
+        function row(k) {
+            var r = h[String(k)];
+            return (r && nowcastCsiTxt(r.nowcast_csi) && nowcastCsiTxt(r.persistence_csi)) ? r : null;
+        }
+        var c = row(30), a = row(90), b = row(180);
+        if (!a && !b) return null;
+        var parts = [];
+        if (a) parts.push('a +90 min CSI ' + nowcastCsiTxt(a.nowcast_csi) +
+                          ' contro ' + nowcastCsiTxt(a.persistence_csi) + ' della persistenza');
+        if (b) parts.push('a +180 min ' + nowcastCsiTxt(b.nowcast_csi) +
+                          ' contro ' + nowcastCsiTxt(b.persistence_csi) +
+                          (nowcastCsiTxt(b.nowcast_fss) && nowcastCsiTxt(b.persistence_fss)
+                              ? ' (FSS ' + nowcastCsiTxt(b.nowcast_fss) + ' contro ' +
+                                nowcastCsiTxt(b.persistence_fss) + ')'
+                              : ''));
+        var txt = 'Affidabilità misurata (' + (rel.cases || 0) + ' casi): ' + parts.join('; ');
+        if (c && b && b.nowcast_csi && c.nowcast_csi) {
+            var pct = Math.round(100 * b.nowcast_csi / c.nowcast_csi);
+            txt += '. Oltre 90 minuti l\u2019abilità scende a ' + pct +
+                   '% di quella a +30 min';
+        }
+        if (b && b.nowcast_beats_persistence === false) {
+            txt += ': a +180 min il nowcast \u00e8 PEGGIORE della persistenza';
+        }
+        return txt + '.';
+    }
+    function nowcastUpdateReliabilityNote() {
+        var el = document.getElementById('nowcast-legend-note');
+        if (!el) return;
+        var txt = nowcastReliabilityText(nowcastState.data);
+        if (txt) el.textContent = txt;
     }
     function nowcastDevMode() { return !!(typeof isSviluppoActive !== 'undefined' && isSviluppoActive); }
     // Gate: available:true E beats_persistence !== false (null passa, false no).
@@ -27493,6 +27555,7 @@ function toggleForecastMaps() {
         }
         ramp.innerHTML = r;
         ticks.innerHTML = t;
+        nowcastUpdateReliabilityNote();
     }
     function nowcastApplyFrame() {
         var leads = nowcastLeads();
