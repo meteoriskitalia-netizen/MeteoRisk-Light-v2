@@ -62,6 +62,11 @@ e' stata sostituita con `scipy.ndimage.uniform_filter` (dipendenza gia'
 obbligatoria del motore) e con `den`/`ok` calcolati 3 volte per lead invece
 di 9. Nessuna asserzione allentata.
 
+Dipendenza: `zstandard>=0.22` (in `scripts/radar_engine/requirements.txt`),
+con fallback gzip automatico. Il codec e' **uno per giorno**: se il file del
+giorno esiste, l'append riusa il suo codec (mai `.bin.zst` + `.bin.gz` per lo
+stesso giorno).
+
 ## Prova su dati reali
 
 `scripts/validation/nowcast_ledger_check.py`, finestra

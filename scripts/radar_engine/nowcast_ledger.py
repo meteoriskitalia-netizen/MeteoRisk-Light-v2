@@ -691,9 +691,14 @@ def merge_record(old, new):
 
 
 def append_record(root, record):
-    """Aggiunge (o fonde) un record nel file del giorno. Ritorna misure."""
+    """Aggiunge (o fonde) un record nel file del giorno. Ritorna misure.
+
+    Il CODEC del giorno e' quello del file gia' esistente: un giorno non puo'
+    avere sia `.bin.zst` sia `.bin.gz` (due file per lo stesso giorno
+    renderebbero invisibile uno dei due a `read_day`)."""
     t0 = time.time()
     day = day_of_slot_ms(record["slot_ms"])
+    existing_path, existing_codec = find_day_path(root, day)
     existing = read_day(root, day)
     by_slot = {int(r["slot_ms"]): r for r in existing}
     slot = int(record["slot_ms"])
@@ -704,8 +709,9 @@ def append_record(root, record):
         by_slot[slot] = record
         merged = False
     raw = b"".join(pack(by_slot[k]) for k in sorted(by_slot))
-    blob, codec = compress(raw)
-    path = day_path(root, day, codec)
+    codec = existing_codec or _codec()
+    blob, _codec_used = compress(raw, codec)
+    path = existing_path or day_path(root, day, codec)
     _atomic_write_bytes(path, blob)
     return {
         "path": path,

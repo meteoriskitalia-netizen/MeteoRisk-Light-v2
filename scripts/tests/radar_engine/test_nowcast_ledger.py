@@ -229,6 +229,27 @@ def test_archive_grows_one_file_per_day_and_no_pruning(tmp_path):
     assert len(list(nl.iter_records(root))) == 3
 
 
+def test_day_keeps_one_codec(tmp_path):
+    """Un giorno NON puo' avere sia .bin.zst sia .bin.gz: se esiste un file
+    gzip il giorno resta gzip, anche se zstd e' disponibile."""
+    root = str(tmp_path / "nowcast_ledger")
+    slot = _slot_ms("2026-11-23T06:25:00Z")
+    pred, obs, dom = _scene(seed=41)
+    rec = nl.build_record(slot, {15: pred}, {15: obs}, {15: dom},
+                          {15: slot + 900000}, generated_ms=slot + 600000)
+    day_path = nl.day_path(root, "2026-11-23", "gz")
+    os.makedirs(os.path.dirname(day_path), exist_ok=True)
+    blob, _c = nl.compress(nl.pack(rec), "gz")
+    with open(day_path, "wb") as fh:
+        fh.write(blob)
+    slot2 = slot + 5 * 60000
+    nl.append_slot(root, slot2, {15: pred}, {15: obs}, {15: dom},
+                   {15: slot2 + 900000}, generated_ms=slot2 + 600000)
+    files = os.listdir(os.path.join(root, "2026", "11"))
+    assert files == ["23.bin.gz"]
+    assert len(nl.read_day(root, "2026-11-23")) == 2
+
+
 def test_compression_roundtrip_and_ratio():
     rec, _p, _o, _d = _one_lead_record(seed=37)
     raw = nl.pack(rec) * 12
