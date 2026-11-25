@@ -96,6 +96,7 @@ const FNS = [
   'stationFieldSpec', 'stationFieldCollect', 'stationFieldDistKm', 'stationFieldIdwAt',
   'stationFieldRaster', 'stationFieldBandIndex', 'stationFieldDailyHas',
   'stationFieldDailyValue', 'stationFieldDailyState', 'stationFieldSyncControls', 'stationFieldWindowLabel',
+  'stationFieldDailyPartialLabel',
   'stationFieldTickText', 'stationFieldGradient', 'stationFieldMeanStats',
   'stationFieldMeanReasonText', 'stationFieldReasonIt', 'stationsMeanReasons', 'stationsNullReason',
   'stationFieldScale', 'stationFieldDownscale', 'stationFieldHourText',
@@ -129,6 +130,7 @@ const VARS = [
   'STATION_FIELD_DAILY', 'STATION_FIELD_WIND_BREAKPOINTS', 'STATION_FIELD_WIND_COLORS',
   'STATION_FIELD_WIND_SCALE', 'STATION_FIELD_LEGEND', 'stationFieldDailyCache', 'stationFieldDailyCacheFor',
   'STATION_FIELD_DAILY_PARTIAL', 'STATION_FIELD_MEAN_KEY_RAW', 'stationFieldMeanCache',
+  'STATION_FIELD_DAILY_PARTIAL_POLICY',
   'STATION_FIELD_RH_BREAKPOINTS', 'STATION_FIELD_RH_COLORS', 'STATION_FIELD_RH_SCALE',
   'STATION_FIELD_SNOW_BREAKPOINTS', 'STATION_FIELD_SNOW_COLORS', 'STATION_FIELD_SNOW_SCALE',
   'STATIONS_MEAN_FIELDS',
@@ -150,6 +152,8 @@ const ctxObj = {
   escapeHtml: (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
   STATIONS_MAX_OBS_AGE_MIN: 90,
   stationsDaily: null,
+  stationsDailyLoading: null,
+  stationsDailyLoad: function () { return new Promise(function () { }); },
   // 1.3.0.61 - la spec legge stationsData per decidere se la MEDIA sulla finestra
   // e' pubblicata (tre stati: presente / bloccata con motivo / assente). Nel vm
   // deve esistere, altrimenti la prima lettura lancia ReferenceError.
@@ -673,17 +677,48 @@ ok('stationFieldDailyHas distingue presente/assente',
 ok('blob presente ma campo assente: il motivo nomina il campo mancante',
   (() => { const s = ctxObj.stationFieldSpec('rain', '24h'); return /rain_24h_mm/.test(s.reason || ''); })(),
   ctxObj.stationFieldSpec('rain', '24h').reason);
-// CASO MISURATO su rain_24h_mm il 2026-11-23: il campo c'e' ma TUTTE le stazioni sono
-// parziali (rain_24h_partial true su 4.000/4.000). Una finestra cosi' NON e' una
-// misura della finestra: deve restare disabilitata con il motivo.
+// 1.3.0.82 - CAMBIO DI REGOLA: per una CUMULATA un buco non invalida il valore.
+// rain_24h_partial=true su tutte le stazioni NON disabilita la finestra: i
+// millimetri misurati sono un limite inferiore (sottostima possibile).
 ctxObj.stationsDaily = { schema: 'stations-daily-series/2', day: '2026-11-23',
   stations: { A: { rain_24h_mm: 30.1, rain_24h_partial: true }, B: { rain_24h_mm: 0.0, rain_24h_partial: true } } };
 const spec24b = ctxObj.stationFieldSpec('rain', '24h');
-ok('24 h con *_partial=true su tutte le stazioni -> DISABILITATA',
-  spec24b.available === false, 'available=' + spec24b.available);
-ok('il motivo dichiara la parzialita\' con i conteggi misurati',
-  /parziale/.test(spec24b.reason) && /rain_24h_partial/.test(spec24b.reason) && /2\/2/.test(spec24b.reason),
-  spec24b.reason);
+ok('24 h con *_partial=true su tutte le stazioni -> ABILITATA (limite inferiore)',
+  spec24b.available === true && spec24b.partialLowerBound === true && spec24b.partialOnly === true,
+  'available=' + spec24b.available + ' partialOnly=' + spec24b.partialOnly);
+ok('etichetta breve esatta: «cumulata da mezzanotte · parziale, possibile sottostima»',
+  spec24b.note === 'cumulata da mezzanotte · parziale, possibile sottostima', JSON.stringify(spec24b.note));
+ok('title esteso con i conteggi e la parola «limite inferiore»',
+  /2\/2/.test(spec24b.partialTitle) && /limite inferiore/.test(spec24b.partialTitle) &&
+  /NON sono stimate/.test(spec24b.partialTitle), spec24b.partialTitle);
+ok('stato del campo: policy lower_bound e 2 parziali su 2',
+  spec24b.dailyState && spec24b.dailyState.policy === 'lower_bound' &&
+  spec24b.dailyState.partial === 2 && spec24b.dailyState.complete === 0,
+  JSON.stringify(spec24b.dailyState));
+ok('la policy vale SOLO per cumulate/massimi: temperatura, umidità, rugiada e vento medio restano gate',
+  ctxObj.STATION_FIELD_DAILY_PARTIAL_POLICY.rain_24h_mm === 'lower_bound' &&
+  ctxObj.STATION_FIELD_DAILY_PARTIAL_POLICY.rain_6h_mm === 'lower_bound' &&
+  ctxObj.STATION_FIELD_DAILY_PARTIAL_POLICY.gust_max_24h_ms === 'lower_bound' &&
+  !ctxObj.STATION_FIELD_DAILY_PARTIAL_POLICY.temp_24h_c &&
+  !ctxObj.STATION_FIELD_DAILY_PARTIAL_POLICY.rh_24h_pct &&
+  !ctxObj.STATION_FIELD_DAILY_PARTIAL_POLICY.wind_24h_ms);
+// Controprova: una MEDIA con tutte le finestre parziali resta NON disponibile.
+ctxObj.stationsDaily = { schema: 'stations-daily-series/2', day: '2026-11-23',
+  stations: { A: { wind_24h_ms: 5.0, wind_24h_partial: true }, B: { wind_24h_ms: 6.0, wind_24h_partial: true },
+              C: { temp_24h_c: 9.0, temp_24h_partial: true } } };
+ok('vento medio 24 h parziale su tutte -> NON disponibile (una media sui buchi non è una media)',
+  ctxObj.stationFieldSpec('wind', '24h').available === false,
+  ctxObj.stationFieldSpec('wind', '24h').reason);
+ok('temperatura media 24 h parziale su tutte -> NON disponibile',
+  ctxObj.stationFieldSpec('temp', '24h').available === false,
+  ctxObj.stationFieldSpec('temp', '24h').reason);
+ok('raffica massima 24 h parziale -> DISPONIBILE (massimo osservato = limite inferiore)',
+  (() => {
+    ctxObj.stationsDaily = { schema: 'stations-daily-series/2', day: '2026-11-23',
+      stations: { A: { gust_max_24h_ms: 21.0, gust_max_24h_partial: true } } };
+    const sg = ctxObj.stationFieldSpec('gust', '24h');
+    return sg.available === true && sg.partialLowerBound === true;
+  })());
 // Con almeno una stazione completa la finestra e' disponibile e il conteggio resta.
 ctxObj.stationsDaily = { schema: 'stations-daily-series/2', day: '2026-11-23',
   stations: { A: { rain_6h_mm: 12.4, rain_6h_partial: false }, B: { rain_6h_mm: 3.0, rain_6h_partial: true } } };
@@ -709,14 +744,19 @@ ok('select finestra: 1 h/3 h abilitate, 6 h/24 h DISABILITATE senza blob',
   selWin.options[2].disabled === false && selWin.options[3].disabled === false &&
   selWin.options[4].disabled === true && selWin.options[5].disabled === true &&
   /daily_series\.json/.test(selWin.options[4].title || ''), selWin.options[4].title);
-ok('pioggia 30 min: opzione presente e disabilitata con il motivo (nessun campo di accumulo a 30 min)',
-  selWin.options[1].disabled === true && /30 min/.test(selWin.options[1].title || ''),
-  selWin.options[1].title);
+ok('pioggia 5 min/30 min e «oggi» NASCOSTE (non sono finestre di accumulo pubblicate; «oggi» = 24 h)',
+  selWin.options[0].hidden === true && selWin.options[1].hidden === true &&
+  selWin.options[2].hidden !== true && selWin.options[3].hidden !== true &&
+  selWin.options[4].hidden !== true && selWin.options[5].hidden !== true,
+  '5m=' + selWin.options[0].hidden + ' 30m=' + selWin.options[1].hidden);
 ctxObj.stationsDaily = { schema: 'stations-daily-series/2', day: '2026-11-23',
-  stations: { A: { rain_6h_mm: 12.4, rain_6h_partial: false, rain_24h_mm: 30.1, rain_24h_partial: false } } };
+  stations: { A: { rain_6h_mm: 12.4, rain_6h_partial: false, rain_24h_mm: 30.1, rain_24h_partial: true } } };
 ctxObj.stationFieldSyncControls();
 ok('con i campi completi nel blob le due finestre tornano selezionabili',
   selWin.options[4].disabled === false && selWin.options[5].disabled === false);
+ok('24 h parziale: opzione ABILITATA e title che spiega il limite inferiore',
+  selWin.options[5].disabled === false && /limite inferiore/.test(selWin.options[5].title || '') &&
+  /parziale/.test(selWin.options[5].title || ''), selWin.options[5].title);
 // 1.3.0.61 - LA TEMPERATURA HA LE FINESTRE: il selettore resta VISIBILE e ABILITATO
 // e le finestre corte sono sempre selezionabili (nota, non blocco).
 ctxObj.stationsData = { stations: [{ id: 'A', temperature_2m: 9.8 }] };

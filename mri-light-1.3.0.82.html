@@ -3289,9 +3289,17 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.81';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.82';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-25';
     const APP_CHANGELOG = [
+    { version: '1.3.0.82', date: '2026-11-25', changes: [
+      "PIOGGIA, 6 E 24 ORE ABILITATE ANCHE SE PARZIALI. Per una CUMULATA un buco non invalida il valore: i millimetri caduti e misurati sono quelli, le ore senza dato non sono stimate, quindi il totale è un limite inferiore (possibile sottostima). Prima rain_24h_partial=true su tutte le stazioni disabilitava la finestra; ora si mostra. Etichetta breve accanto a Finestra: «cumulata da mezzanotte · parziale, possibile sottostima» (6 h: «cumulata 6 ore · parziale, possibile sottostima»); spiegazione estesa nel title con i conteggi.",
+      "MEDIE INVARIATE: temperatura, umidità, rugiada e vento medio restano con il gate di completezza (una media sui buchi non è una media). Il massimo della raffica segue la regola della cumulata (massimo osservato = limite inferiore).",
+      "IL SELETTORE NON RESTAVA INDIETRO: il blob daily_series.json arriva in background; quando arrivava, il selettore non veniva riallineato e 6 h/24 h restavano disabilitate per sempre. Era il motivo per cui la Pioggia mostrava solo 1 h e 3 h. Ora al caricamento del blob si richiama stationFieldSyncControls().",
+      "PIOGGIA: 5 min, 30 min e «oggi (dalla mezzanotte)» NASCOSTE invece di mostrate disabilitate. 5/30 min non sono finestre di accumulo pubblicate; «oggi» è la stessa cosa di 24 h «cumulata da mezzanotte».",
+      "MISURA (blob 2026-11-25T15:31Z, 5.138 stazioni): rain_24h_mm non-null 4.163, parziali 4.163/4.163; rain_6h_mm non-null 4.163, parziali 2.420, complete 1.743. Browser reale: blob caricato da raw, 6 h e 24 h abilitate, 4.089 stazioni usate e 8.630 px dipinti (24 h), 8.718 px (6 h). Pages per daily_series.json resta 404 (raw primario, funzionante).",
+      "TEST: test_station_field.mjs aggiornato (24 h parziale abilitata con etichetta e title, medie parziali ancora bloccate, raffica massima abilitata, 5/30 min nascoste); 258/260 PASS con 2 soli assert di performance preesistenti, misurati identici sull'HTML 1.3.0.81 NON modificato (full 818 ms > 400, contour 1087 ms > 800). test_html_js_syntax e test_tooltips_coverage verdi."
+    ]},
     { version: '1.3.0.81', date: '2026-11-25', changes: [
       "NOWCAST A +3 ORE, 15 FRAME A PASSO CRESCENTE: +5..+45 ogni 5 min (9), +60/+75/+90 ogni 15 (3), +120/+150/+180 ogni 30 (3). Il trasporto resta CUMULATIVO a passi di 5 minuti: il +180 e' il +5 avanzato 36 volte, non un salto. Ogni lead dichiara step_min e valid_time; i tre lead ufficiali di verifica restano 15/30/60.",
       "AFFIDABILITA' BASSA OLTRE 90 MINUTI: l'etichetta del frame diventa «+120 min · 18:15 · affidabilità bassa»; la soglia arriva dal server (low_reliability_over_min = 90), non e' un numero scritto due volte.",
@@ -18929,7 +18937,18 @@ stopSyncPlay();
         // «oggi» delle massime/minime deve passare da «carico la giornata...»
         // al motivo reale, non restare in caricamento per sempre.
         dailyP.then(function (d) {
-            if (d) { stationsRedraw(); return; }
+            if (d) {
+                // 1.3.0.82 - il blob e' arrivato DOPO il primo sync: senza questo
+                // riallineamento le opzioni 6 h/24 h restavano disabilitate per sempre
+                // (era il motivo per cui la Pioggia mostrava solo 1 h e 3 h).
+                try {
+                    if (typeof stationFieldActive !== 'undefined' && stationFieldActive) {
+                        stationFieldSyncControls();
+                    }
+                } catch (e2) { }
+                stationsRedraw();
+                return;
+            }
             try {
                 if (typeof stationFieldActive !== 'undefined' && stationFieldActive) {
                     stationFieldSyncControls();
@@ -20552,8 +20571,34 @@ stopSyncPlay();
         rain_6h_mm: 'rain_6h_partial',
         rain_24h_mm: 'rain_24h_partial',
         wind_6h_ms: 'wind_6h_partial',
-        wind_24h_ms: 'wind_24h_partial'
+        wind_24h_ms: 'wind_24h_partial',
+        // 1.3.0.82 - flag pubblicati dal blob anche per le MEDIE e per il massimo
+        // della raffica: senza la mappatura il codice trattava 'nessun flag' come
+        // 'completa' e la media parziale passava il gate.
+        temp_6h_c: 'temp_6h_partial', temp_24h_c: 'temp_24h_partial',
+        rh_6h_pct: 'rh_6h_partial', rh_24h_pct: 'rh_24h_partial',
+        dew_6h_c: 'dew_6h_partial', dew_24h_c: 'dew_24h_partial',
+        gust_max_6h_ms: 'gust_max_6h_partial', gust_max_24h_ms: 'gust_max_24h_partial'
     };
+    // 1.3.0.82 - PER UNA CUMULATA (e per un MASSIMO) UN BUCO NON INVALIDA IL VALORE:
+    // i millimetri misurati sono quelli, le ore senza dato non sono stimate, quindi
+    // il totale e' un LIMITE INFERIORE (sottostima possibile), non un valore
+    // sbagliato. Per una MEDIA (temperatura, umidita', rugiada, vento medio) invece
+    // un buco la rende non rappresentativa: resta il gate di completezza.
+    // `gust_max_*` e' un massimo osservato -> stessa regola della cumulata.
+    var STATION_FIELD_DAILY_PARTIAL_POLICY = {
+        rain_6h_mm: 'lower_bound',
+        rain_24h_mm: 'lower_bound',
+        gust_max_6h_ms: 'lower_bound',
+        gust_max_24h_ms: 'lower_bound'
+    };
+    function stationFieldDailyPartialLabel(field) {
+        if (field === 'rain_24h_mm') return 'cumulata da mezzanotte';
+        if (field === 'rain_6h_mm') return 'cumulata 6 ore';
+        if (field === 'gust_max_24h_ms') return 'massimo 24 ore';
+        if (field === 'gust_max_6h_ms') return 'massimo 6 ore';
+        return 'valore parziale';
+    }
     var stationFieldDailyCache = {};
     var stationFieldDailyCacheFor = null;
     function stationFieldDailyState(field) {
@@ -20569,7 +20614,8 @@ stopSyncPlay();
         var ck = schema + '|' + day + '|' + field;
         if (stationFieldDailyCache[ck]) return stationFieldDailyCache[ck];
         var st = { field: field, available: false, total: 0, complete: 0, partial: 0,
-                   hasPartialFlag: false, reason: null };
+                   hasPartialFlag: false, reason: null, policy: null,
+                   lowerBound: false, partialOnly: false, partialShare: 0 };
         var recs = (stationsDaily && stationsDaily.stations) ? stationsDaily.stations : null;
         if (!recs) {
             st.reason = 'il blob data/stations/daily_series.json non è disponibile in questa sessione e ' +
@@ -20578,6 +20624,8 @@ stopSyncPlay();
             return st;
         }
         var partialField = STATION_FIELD_DAILY_PARTIAL[field] || null;
+        var policy = STATION_FIELD_DAILY_PARTIAL_POLICY[field] || 'discard';
+        st.policy = policy;
         var ids = Object.keys(recs);
         for (var i = 0; i < ids.length; i++) {
             var e = recs[ids[i]];
@@ -20590,12 +20638,19 @@ stopSyncPlay();
             else if (e[partialField] === false) { st.complete++; st.hasPartialFlag = true; }
             else { st.complete++; }
         }
+        st.partialShare = st.total ? (st.partial / st.total) : 0;
         if (!st.total) {
             st.reason = 'il campo ' + field + ' non è presente in data/stations/daily_series.json. ' +
                 'Nessun valore inventato.';
+        } else if (policy === 'lower_bound') {
+            // Cumulata/massimo: il valore si mostra anche se parziale. Le ore senza
+            // dato non si stimano: il totale e' un limite inferiore dichiarato.
+            st.available = true;
+            st.lowerBound = true;
+            st.partialOnly = (st.complete === 0 && st.partial > 0);
         } else if (st.hasPartialFlag && st.complete === 0) {
             st.reason = 'il blob pubblica ' + field + ' solo su una finestra parziale (' + partialField +
-                ' = true su ' + st.partial + '/' + st.total + ' stazioni): non è una misura di questa finestra.';
+                ' = true su ' + st.partial + '/' + st.total + ' stazioni): non è una media di questa finestra.';
         } else {
             st.available = true;
         }
@@ -20926,7 +20981,30 @@ stopSyncPlay();
             var dst = stationFieldDailyState(daily);
             spec.dailyState = dst;
             spec.dailyPartialField = dst.hasPartialFlag ? (STATION_FIELD_DAILY_PARTIAL[daily] || null) : null;
-            if (dst.available) { spec.available = true; return spec; }
+            if (dst.available) {
+                spec.available = true;
+                spec.dailyLowerBound = !!dst.lowerBound;
+                // 1.3.0.82 - cumulata/massimo parziale: si mostra. Etichetta corta
+                // accanto alla finestra, spiegazione estesa nel title.
+                if (dst.lowerBound && dst.hasPartialFlag && dst.partial > 0) {
+                    var lbl = stationFieldDailyPartialLabel(daily);
+                    var gen = (stationsDaily && stationsDaily.generated_at) ? String(stationsDaily.generated_at) : '';
+                    var hhmm = gen.length >= 16 ? gen.substr(11, 5) : '';
+                    spec.partialLowerBound = true;
+                    spec.partialOnly = dst.partialOnly;
+                    spec.note = lbl + ' · parziale, possibile sottostima';
+                    spec.partialTitle = (lbl.charAt(0).toUpperCase() + lbl.slice(1)) +
+                        (win === '24h' ? ' dalle 00:00' : '') +
+                        (hhmm ? (' alle ' + hhmm + 'Z') : '') + ': ' +
+                        dst.partial + '/' + dst.total + ' stazioni con il dato parziale' +
+                        (dst.complete ? (' (' + dst.complete + ' complete)') : ' (nessuna completa)') +
+                        '. ' + (daily.indexOf('rain_') === 0
+                            ? 'I millimetri caduti e misurati sono quelli'
+                            : 'Il massimo osservato è quello') +
+                        '; le ore senza dato NON sono stimate, quindi è un limite inferiore e può essere sottostimato.';
+                }
+                return spec;
+            }
             spec.reason = 'la finestra ' + stationFieldWindowLabel(win) + ' non è disponibile: ' + dst.reason;
             spec.note = 'finestra non disponibile: ' + dst.reason;
             return spec;
@@ -21855,7 +21933,8 @@ stopSyncPlay();
                             ? gold + 'età mediana ' + Math.round(st.ageMedianMin) + ' min' : '')) +
                     (st.tooOld ? gold + st.tooOld + ' più vecchie' : '') +
                     (st.zeroExcluded ? gold + st.zeroExcluded + ' a 0 cm' : '') +
-                    (st.method === 'contour' ? gold + 'isolinee' : '');
+                    (st.method === 'contour' ? gold + 'isolinee' : '') +
+                    (spec.partialLowerBound ? gold + 'parziale, possibile sottostima' : '');
                 var titleTxt = st.used + ' stazioni usate su ' + st.withValue +
                     ' con il valore, su ' + st.total + ' disponibili. Finestra ' +
                     stationFieldWindowLabel(spec.window) + windowRangeTxt + dayTxt + '. ' +
@@ -21872,7 +21951,8 @@ stopSyncPlay();
                             ? '; neve: raggio ' + STATION_FIELD_SNOW_CUTOFF_KM + ' km anche con copertura totale'
                             : '; interpolazione con copertura totale: dove non ci sono stazioni vicine il valore è un\'inferenza') : '') +
                     '. La finestra dice quanti minuti/ore di dati entrano nel valore; l\'età dice quanto è ' +
-                    'recente l\'ultima osservazione della stazione.';
+                    'recente l\'ultima osservazione della stazione.' +
+                    (spec.partialTitle ? ' ' + spec.partialTitle : '');
                 el.title = titleTxt;
             } else {
                 el.textContent = 'Layer acceso: in attesa della prima interpolazione.';
@@ -21929,8 +22009,31 @@ stopSyncPlay();
         var note = document.getElementById('live-stationfield-window-note');
         if (selWin) {
             var opts = selWin.options || [];
+            // 1.3.0.82 - il blob giornaliero serve alle finestre 6 h/24 h: se non e'
+            // ancora arrivato si chiede ORA e si riallinea il selettore quando arriva
+            // (prima il selettore restava con le opzioni disabilitate per sempre,
+            // anche dopo il caricamento: era il motivo per cui la Pioggia mostrava
+            // solo 1 h e 3 h).
+            if (STATION_FIELD_DAILY[stationFieldVar] && !stationsDaily && !stationsDailyLoading &&
+                !(stationsDailyFailedAt && (Date.now() - stationsDailyFailedAt) < 60000)) {
+                try {
+                    stationsDailyLoad().then(function () { stationFieldSyncControls(); }, function () { });
+                } catch (e) { }
+            }
             for (var i = 0; i < opts.length; i++) {
                 var w = opts[i].value;
+                opts[i].hidden = false;
+                try { if (opts[i].style) opts[i].style.display = ''; } catch (e0) { }
+                // 1.3.0.82 - PIOGGIA: 5 min, 30 min e «oggi dalla mezzanotte» non sono
+                // finestre di accumulo pubblicate (5/30 min non esistono; «oggi» e' la
+                // stessa cosa di 24 h «cumulata da mezzanotte»): si NASCONDONO invece di
+                // mostrarle disabilitate, come per le metriche non interpolabili.
+                if (stationFieldVar === 'rain' && (w === '5m' || w === '30m' || w === 'day')) {
+                    opts[i].hidden = true;
+                    opts[i].disabled = true;
+                    try { if (opts[i].style) opts[i].style.display = 'none'; } catch (e1) { }
+                    continue;
+                }
                 var f = STATION_FIELD_FIELDS[stationFieldVar] && STATION_FIELD_FIELDS[stationFieldVar][w];
                 // 1.3.0.68 - «oggi» di tmax/tmin: disponibilita' dal blob
                 // giornaliero, non da latest.json (dove il campo non esiste).
@@ -21978,11 +22081,25 @@ stopSyncPlay();
                 }
                 var daily = STATION_FIELD_DAILY[stationFieldVar] && STATION_FIELD_DAILY[stationFieldVar][w];
                 if (daily) {
+                    if (!stationsDaily) {
+                        opts[i].disabled = true;
+                        opts[i].title = (stationsDailyFailedAt && (Date.now() - stationsDailyFailedAt) < 60000)
+                            ? 'cumulata non disponibile: il blob daily_series.json non è stato caricato (riprova tra poco)'
+                            : 'carico la cumulata dal blob daily_series.json...';
+                        continue;
+                    }
                     var dst = stationFieldDailyState(daily);
                     opts[i].disabled = !dst.available;
-                    opts[i].title = dst.available
-                        ? ('disponibile: ' + daily)
-                        : ('non disponibile: ' + ((dst && dst.reason) || 'campo non pubblicato'));
+                    if (dst.available && dst.lowerBound && dst.hasPartialFlag && dst.partial > 0) {
+                        opts[i].title = stationFieldDailyPartialLabel(daily) + ': parziale su ' +
+                            dst.partial + '/' + dst.total + ' stazioni. Il valore è mostrato come limite inferiore' +
+                            ' (possibile sottostima): le ore senza dato non sono stimate.' +
+                            (dst.partialOnly ? ' Nessuna stazione ha la finestra completa.' : '');
+                    } else {
+                        opts[i].title = dst.available
+                            ? ('disponibile: ' + daily)
+                            : ('non disponibile: ' + ((dst && dst.reason) || 'campo non pubblicato'));
+                    }
                     continue;
                 }
                 if (stationFieldVar === 'gustEst') {
