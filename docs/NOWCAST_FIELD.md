@@ -122,6 +122,36 @@ se l'ultimo campo e' asciutto non c'e' nulla da spostare), `motion_unavailable`,
    `motion_null_reason: "no_neighbor_motion"`). Poi una mediana 3x3 dentro la
    pioggia (`motion_smoothing_px`), che non tocca le aree secche e non
    reintroduce zeri.
+4. **bis Estensione del moto a tutto il dominio** (`motion_extended`, fix del
+   2026-11-25). Il trasporto campiona il campo nel **punto di arrivo**
+   (`F(x) <- F(x - u(x))`): con il vettore 0 fuori dall'eco il bordo d'attacco
+   **non puo' avanzare** e ogni eco piu' piccola dello spostamento viene
+   cancellata in un passo. Misurato su 3 ancore reali (2026-11-24/25): area di
+   pioggia al **65% a +60 min** (osservato 97-113%), fronte fermo a **+9,7 km**
+   contro **38,7 attesi**, striscia 2 px a valle del fronte riempita al
+   **23-32%** (osservato 46-73%). Ogni pixel prende quindi il vettore del
+   **pixel valido piu' vicino** (`scipy.ndimage.distance_transform_edt`) e il
+   campo viene levigato con una gaussiana `MOTION_EXTEND_SIGMA_PX = 25` px: la
+   divergenza di un campo a gradini duplica massa nel ricampionamento (+14% in
+   60 min senza smoothing). Contatori: `motion_pixels_known`,
+   `motion_pixels_from_zero`, `motion_extended_sigma_px`,
+   `motion_extend_null_reason`. La maschera del dominio **non** entra nel moto:
+   resta applicata all'output come prima.
+4. **quater Fattore di velocita'** (`motion_speed_factor = 0,8`, TARATURA
+   dichiarata, non calibrazione): il flusso ottico misura la velocita' del
+   *pattern*, piu' alta di quella della massa; sulle 3 ancore reali lo
+   spostamento del centroide e' 25-33% sotto il vettore stimato. Il fattore e'
+   stato fissato **su quelle 3 ancore** (campione 24-25/11) e poi confermato
+   sui **24 casi del backtest** (12 giornate x 2 ancore, campione disgiunto):
+   con il fattore CSI@60 0,4108 -> 0,4228 e FAR@60 0,348 -> 0,335; senza, il
+   fix perde il criterio CSI@60 >= 0,42 (0,4108) e il FAR peggiora. Un fattore
+   unico per tutti i regimi: da rivedere con un campione piu' ampio.
+4. **ter Cap della sola crescita di massa** (`mass_growth_capped`): a ogni
+   passo, se il campo guadagna massa (ricampionamento con campo di moto non
+   divergenza-free) viene riportato alla massa del passo precedente; il calo
+   (pioggia che esce dal dominio) **non** viene re-inflazza. Contatori:
+   `mass_cap_steps`, e la scala cumulata per lead `native["_mass_scale"]` che
+   mantiene i frame cumulativi.
 5. **Trasporto semi-Lagrangiano** a passi di 5 minuti:
    `F(x) <- F(x - u)` con campionamento bilineare e maschera del dominio a ogni
    passo. Il bilineare e' una combinazione convessa: il massimo previsto non
@@ -151,6 +181,9 @@ speed_cap_mode: "replaced_by_neighbor_median",
 vectors_zeroed_by_cap, vectors_over_cap_total, vectors_replaced_by_cap,
 vectors_unfilled_by_cap, motion_filled_pixels, motion_unfilled_pixels,
 motion_null_reason, motion_smoothing_px,
+motion_extended, motion_extended_method, motion_extended_sigma_px,
+motion_pixels_known, motion_pixels_from_zero, motion_extend_null_reason,
+motion_speed_factor, mass_growth_capped, mass_cap_steps,
 frames_used, frames_slots, domain_mask, motion_stats,
 leads: [{lead_min: 5|10|...|60, valid_time, unit: "mm/h", image, image_crs,
          official: bool, stats}],

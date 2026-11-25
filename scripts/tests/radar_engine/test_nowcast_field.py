@@ -386,15 +386,20 @@ def test_frames_are_cumulative_and_coherent(tmp_path):
     assert payload["available"] is True
     frames = [(nf._rain_array(r)[0], nf._rain_array(r)[1], int(r.time_ms))
               for r in rasters]
-    # il campo di moto EFFETTIVO del run (dopo cap, riempimento e smoothing)
+    # il campo di moto EFFETTIVO del run (dopo cap, riempimento, smoothing e
+    # estensione a tutto il dominio)
     u, v = native["_motion"]
-    advanced = nf.semi_lagrangian(native[5], u, v, 1, domain)
-    assert np.array_equal(advanced, native[10])
-    advanced3 = nf.semi_lagrangian(native[5], u, v, 3, domain)
-    assert np.array_equal(advanced3, native[20])
+    scale = native["_mass_scale"]
+
+    def expect(steps, lead):
+        """Trasporto cumulativo, con la scala di massa DICHIARATA (cap)."""
+        adv = nf.semi_lagrangian(native[5], u, v, steps, domain)
+        return adv * np.float32(scale[lead] / scale[5])
+
+    assert np.allclose(expect(1, 10), native[10], rtol=1e-5, atol=1e-4)
+    assert np.allclose(expect(3, 20), native[20], rtol=1e-5, atol=1e-4)
     # il +180 e' il +5 avanzato di altri 35 passi (36 totali), non un salto
-    advanced35 = nf.semi_lagrangian(native[5], u, v, 35, domain)
-    assert np.array_equal(advanced35, native[180])
+    assert np.allclose(expect(35, 180), native[180], rtol=1e-5, atol=1e-4)
 
 
 def test_step_min_for_growing_leads():

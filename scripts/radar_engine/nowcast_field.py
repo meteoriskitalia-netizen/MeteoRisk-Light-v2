@@ -129,6 +129,25 @@ RAIN_MIN_MMH = 0.05             # sotto: nessuna pioggia disegnata (0.0 e' valid
 DOMAIN_MASK_SOURCE = "latest_sri_valid_mask"
 MOTION = "optical_flow"
 MOTION_ALGORITHM = "lucas_kanade_pyramidal"
+# ESTENSIONE DEL MOTO A TUTTO IL DOMINIO (fix del "muro", 2026-11-25).
+# Il trasporto campiona il campo NEL PUNTO DI ARRIVO (`_warp(out, -u, -v)`):
+# un vettore 0 fuori dall'eco congela il bordo d'attacco e cancella ogni eco
+# piu' piccola dello spostamento (misurato: area al 65% a +60 min, fronte
+# fermo a +0,0 km). Il moto viene quindi esteso al pixel VALIDO PIU' VICINO e
+# poi levigato (la divergenza del campo esteso duplica massa nel
+# ricampionamento: senza smoothing +14% in 60 min). La maschera del dominio
+# resta applicata SOLO all'output, non al moto.
+MOTION_EXTEND_SIGMA_PX = 25
+MOTION_EXTEND_METHOD = "nearest_valid_gaussian"
+# TARATURA DICHIARATA (NON una calibrazione): il flusso ottico misura la
+# velocita' del PATTERN, piu' alta di quella della massa. Su 3 ancore reali
+# (2026-11-24T19:55Z, 2026-11-25T09:30Z, 2026-11-25T15:00Z) lo spostamento
+# misurato del centroide e' 25-33% sotto il vettore stimato; il fattore 0,8 e'
+# stato fissato SU QUELLE 3 ANCORE e poi confermato sui 24 casi del backtest
+# (12 giornate x 2 ancore, campione DISGIUNTO): CSI@60 0,4108 -> 0,4228,
+# FAR@60 0,348 -> 0,335. Non e' una calibrazione fisica: un fattore unico per
+# tutti i regimi. Da rivedere quando ci sara' un campione piu' ampio.
+MOTION_SPEED_FACTOR = 0.8
 
 OUTPUT_CRS = "EPSG:3857"
 OUTPUT_RES_M = 1500             # risoluzione delle immagini (misurata: v. report)
@@ -173,8 +192,15 @@ LIMITS = (
     "Trasporto puro: nessuna crescita/decadimento dell'intensita'. Il flusso "
     "ottico stima il moto a 2 km e lo interpola a 1 km; non e' un Doppler. "
     "Oltre 30 minuti l'affidabilita' cala: la posizione dipende da un moto "
-    "medio, non dalla vita della cella. La maschera e' quella del dominio "
-    "radar: fuori non viene disegnato nulla."
+    "medio, non dalla vita della cella. Il moto e' definito dove c'e' eco ed "
+    "esteso al pixel valido piu' vicino su tutto il dominio: il trasporto "
+    "sposta l'eco ma non crea pioggia oltre quella osservata all'ancora. La "
+    "velocita' e' ridotta del fattore dichiarato in `motion_speed_factor` "
+    "(0,8: taratura su 3 ancore, confermata su 24 casi disgiunti; non e' una "
+    "calibrazione fisica). La massa totale non cresce (la crescita numerica "
+    "del ricampionamento viene rimossa; il decadimento reale non e' "
+    "modellato). La maschera e' quella del dominio radar: fuori non viene "
+    "disegnato nulla."
 )
 
 
@@ -754,6 +780,15 @@ def _unavailable(reason, clock, extra=None):
         "motion_unfilled_pixels": None,
         "motion_null_reason": None,
         "motion_smoothing_px": MOTION_SMOOTH_PX,
+        "motion_extended": False,
+        "motion_extended_method": MOTION_EXTEND_METHOD,
+        "motion_extended_sigma_px": MOTION_EXTEND_SIGMA_PX,
+        "motion_pixels_known": None,
+        "motion_pixels_from_zero": None,
+        "motion_extend_null_reason": None,
+        "motion_speed_factor": MOTION_SPEED_FACTOR,
+        "mass_growth_capped": True,
+        "mass_cap_steps": None,
         "frames_used": 0,
         "leads": [],
         "beats_persistence": None,
@@ -847,6 +882,49 @@ def resolve_motion(motion, latest, domain, pixel_km, step_s):
     return u, v, info
 
 
+def extend_motion(u, v, domain, sigma=MOTION_EXTEND_SIGMA_PX):
+    """Estende il moto a TUTTO il dominio (il trasporto lo campiona a valle).
+
+    `semi_lagrangian` usa il vettore del pixel di DESTINAZIONE: con 0 fuori
+    dall'eco il bordo d'attacco non puo' avanzare e le eco piccole spariscono.
+    Qui ogni pixel prende il vettore del pixel valido piu' vicino (trasformata
+    di distanza euclidea) e poi il campo viene levigato con una gaussiana:
+    la divergenza di un campo a gradini duplica massa nel ricampionamento.
+
+    La maschera del dominio resta applicata all'output dal trasporto: qui
+    serve solo a delimitare dove il moto ha senso (fuori il campo e' 0).
+
+    Ritorna (u, v, info) con i contatori pubblicati nel JSON."""
+    from scipy import ndimage
+
+    u = np.asarray(u, dtype=np.float32)
+    v = np.asarray(v, dtype=np.float32)
+    dom = np.asarray(domain, dtype=bool)
+    known = ((u != 0.0) | (v != 0.0)) & dom
+    n_known = int(known.sum())
+    if n_known == 0:
+        return u, v, {"extended": False, "method": MOTION_EXTEND_METHOD,
+                      "sigma_px": int(sigma), "pixels_known": 0,
+                      "pixels_from_zero": 0,
+                      "null_reason": "no_known_motion"}
+    if n_known == int(dom.sum()):
+        return u, v, {"extended": False, "method": MOTION_EXTEND_METHOD,
+                      "sigma_px": int(sigma), "pixels_known": n_known,
+                      "pixels_from_zero": 0,
+                      "null_reason": "motion_already_dense"}
+    idx = ndimage.distance_transform_edt(~known, return_distances=False,
+                                         return_indices=True)
+    ue = ndimage.gaussian_filter(u[tuple(idx)].astype(np.float32),
+                                 float(sigma), mode="nearest", truncate=3.0)
+    ve = ndimage.gaussian_filter(v[tuple(idx)].astype(np.float32),
+                                 float(sigma), mode="nearest", truncate=3.0)
+    info = {"extended": True, "method": MOTION_EXTEND_METHOD,
+            "sigma_px": int(sigma), "pixels_known": n_known,
+            "pixels_from_zero": int((dom & ~known).sum()),
+            "null_reason": None}
+    return ue.astype(np.float32), ve.astype(np.float32), info
+
+
 def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
     """Calcola il nowcast. Ritorna (payload, campi_nativi).
 
@@ -900,6 +978,12 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
     step_s = STEP_MIN * 60
     u, v, motion_info = resolve_motion(motion, latest, domain, pixel_km,
                                        step_s)
+    u, v, extend_info = extend_motion(u, v, domain)
+    # FATTORE DI VELOCITA' (taratura dichiarata): vedi MOTION_SPEED_FACTOR.
+    if MOTION_SPEED_FACTOR != 1.0:
+        u = u * np.float32(MOTION_SPEED_FACTOR)
+        v = v * np.float32(MOTION_SPEED_FACTOR)
+    # `speed` e' il moto EFFETTIVO applicato (dopo estensione e fattore)
     speed = pixel_speed_kmh(u, v, pixel_km, step_s)
     rain = domain & (latest > RAIN_MIN_MMH)
     grid = _output_grid(rd)
@@ -907,6 +991,9 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
     native = {}
     stepped = latest.copy()
     done = 0
+    mass_capped = 0
+    mass_scale = 1.0
+    mass_scale_by_lead = {}
 
     # ENHANCEMENT OROGRAFICO: precalcolato UNA volta sul raster nativo (la
     # quota e il vento NWP non dipendono dal lead), applicato a ogni frame
@@ -931,8 +1018,19 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
     for lead in leads:
         steps = int(lead // STEP_MIN)
         while done < steps:
+            before = float(stepped.sum())
             stepped = semi_lagrangian(stepped, u, v, 1, domain)
+            # CAP DELLA SOLA CRESCITA (solo guadagno): il trasporto puro non
+            # crea massa, lo schema di ricampionamento con un campo di moto
+            # non divergenza-free invece la duplica. Il calo (pioggia che esce
+            # dal dominio) resta: non viene re-inflazza.
+            cur = float(stepped.sum())
+            if cur > before > 0.0:
+                stepped *= np.float32(before / cur)
+                mass_scale *= before / cur
+                mass_capped += 1
             done += 1
+        mass_scale_by_lead[lead] = round(float(mass_scale), 8)
         if oro_ctx and oro_ctx.get("applied"):
             corrected, st = orography_mod.apply(stepped, oro_ctx, oro_cfg)
             native[lead] = corrected
@@ -988,6 +1086,17 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
         "motion_null_reason": ("no_neighbor_motion"
                                if motion_info["unfilled"] else None),
         "motion_smoothing_px": motion_info["smooth_px"],
+        # estensione del moto a tutto il dominio (fix "muro"): senza, il
+        # bordo d'attacco resta fermo e le eco piccole spariscono.
+        "motion_extended": bool(extend_info["extended"]),
+        "motion_extended_method": extend_info["method"],
+        "motion_extended_sigma_px": extend_info["sigma_px"],
+        "motion_pixels_known": extend_info["pixels_known"],
+        "motion_pixels_from_zero": extend_info["pixels_from_zero"],
+        "motion_extend_null_reason": extend_info["null_reason"],
+        "motion_speed_factor": MOTION_SPEED_FACTOR,
+        "mass_growth_capped": True,
+        "mass_cap_steps": mass_capped,
         "frames_used": len(frames),
         "frames_origin": origin,
         "frames_slots": [_iso(f[2]) for f in frames],
@@ -1037,6 +1146,9 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
     native["_grid"] = grid
     native["_rd"] = rd
     native["_motion"] = (u, v)
+    # Scala cumulata del cap di massa per lead: i frame restano CUMULATIVI
+    # (f_L = scala_L/scala_prev * trasporto(f_prev)) e la scala e' dichiarata.
+    native["_mass_scale"] = mass_scale_by_lead
     return payload, native
 
 
