@@ -79,7 +79,7 @@ La modalità `850_700` (media **vettoriale** pesata per massa 850/700 hPa, pesi
 
 ## 3. Config e JSON
 
-`config.py` → `orographic_enhancement`, **default `enabled: true`**:
+`config.py` → `orographic_enhancement`, **default `enabled: false` dal BUILD=220** (era `true` nel BUILD=216-219; il motivo è la misura del §7):
 
 ```
 enabled, grid_file, env_points_file, env_metadata_file, max_env_age_minutes (240),
@@ -191,6 +191,67 @@ limite, era l'assenza di stau nel campione (nessuno slot con S/SW ≥ 10 m/s).
 4. **Vento**: 850/700 già provato e scartato sui numeri; resta da provare il vento
    a 925 hPa (livello di condensazione tipico in inverno) e una media pesata
    sulla sola componente perpendicolare al rilievo.
-5. Il default resta `enabled: true` per richiesta dell'utente; `nowcast.json`
+5. Il default era `enabled: true` per richiesta dell'utente fino al BUILD=219; dal BUILD=220 è `false` per la misura del §7. `nowcast.json`
    pubblica l'esito (`beats_persistence_no_orog` / `_orog`) e la decisione sul
    default va presa con lui sulla base di questi numeri.
+
+## 7. Decisione: orografia SPENTA dal BUILD=220 (misura del 25/11/2026)
+
+L'A/B del §5 era stato misurato su un campo con il **12-16% di eco ferma**
+(vettori azzerati dal cap). Dopo il fix del moto del BUILD=218
+(`speed_cap_mode = replaced_by_neighbor_median`) il campo è cambiato, quindi la
+misura è stata **rifatta** sullo stesso strumento e sugli **stessi 42 slot
+reali consecutivi** dell'archivio `nowcast-archive`
+(`2026-11-24T23:05Z` → `2026-11-25T05:55Z`, tutti con il moto nuovo):
+363 casi appaiati (3 lead x 3 soglie), 726 righe `verified`, 0 `not_informative`,
+0 `not_verifiable`, 101 download SRI, 953,3 s.
+
+| lead | soglia | CSI orog | CSI no_orog | ΔCSI | POD orog | POD no_orog | FAR orog | FAR no_orog | bias orog | bias no_orog | CSI pers. |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 15 | 0,5 | 0,6936 | **0,7176** | −0,0240 | 0,8228 | 0,8010 | 0,1847 | 0,1268 | 1,009 | 0,917 | 0,6887 |
+| 15 | 2,0 | 0,4448 | **0,5082** | −0,0634 | 0,7434 | 0,6524 | 0,4745 | 0,3031 | 1,415 | 0,936 | 0,4799 |
+| 15 | 5,0 | 0,2821 | **0,3469** | −0,0648 | 0,6145 | 0,4949 | 0,6572 | 0,4629 | 1,793 | 0,921 | 0,3061 |
+| 30 | 0,5 | 0,6095 | **0,6169** | −0,0074 | 0,7329 | 0,7066 | 0,2164 | 0,1707 | 0,935 | 0,852 | 0,6000 |
+| 30 | 2,0 | 0,3526 | **0,3679** | −0,0153 | 0,6053 | 0,5027 | 0,5421 | 0,4214 | 1,322 | 0,869 | 0,3736 |
+| 30 | 5,0 | 0,1850 | **0,1986** | −0,0136 | 0,4132 | 0,3025 | 0,7492 | 0,6337 | 1,647 | 0,826 | 0,2050 |
+| 60 | 0,5 | **0,5095** | 0,5050 | +0,0045 | 0,6217 | 0,5941 | 0,2616 | 0,2290 | 0,842 | 0,771 | 0,5102 |
+| 60 | 2,0 | **0,2600** | 0,2448 | +0,0152 | 0,4532 | 0,3504 | 0,6212 | 0,5518 | 1,196 | 0,782 | 0,2786 |
+| 60 | 5,0 | **0,1064** | 0,0995 | +0,0069 | 0,2417 | 0,1575 | 0,8402 | 0,7874 | 1,513 | 0,741 | 0,1360 |
+
+- **Pooled**: orog CSI **0,4915** (POD 0,6808, FAR 0,3614, bias 1,066) contro
+  no_orog **0,5198** (POD 0,6332, FAR 0,2562, bias 0,851): Δ −0,0283.
+- **Per slot**: no_orog vince **42 su 42** (100,0%), orog 0, pari 0;
+  ΔCSI medio per slot −0,0294 (da −0,0038 a −0,0668).
+- **Per cella**: 119 vinte da orog, 244 da no_orog, 0 pari.
+- **Persistenza** (CSI pooled 0,5121): con l'orografia il nowcast **perde**
+  (0,4915), senza orografia **vince** (0,5198) → `beats_persistence_orog =
+  false`, `beats_persistence_no_orog = true`.
+- **Meccanismo**: l'enhancement alza il POD (+0,048) ma aggiunge molti più
+  falsi allarmi (FAR +0,105) e sovra-prevede (bias 1,066 contro 0,851). Il segno
+  è negativo a 15 e 30 minuti e si annulla a 60: la correzione nuoce dove il
+  trasporto è già buono.
+- **Confronto con la misura pre-fix** (219 casi, moto con zeri): orog 0,5054
+  contro no_orog 0,5333 (FAR 0,3415 contro 0,2319). Il fix del moto **non**
+  ribalta il verdetto: lo rende più netto.
+
+**`delta_mean_mm_h` / `delta_max_mm_h` con il moto nuovo** (produzione, slot
+reali): 0,909-1,190 / 14,97-22,71 mm/h con il moto vecchio (20:55-21:35Z) contro
+1,049-1,228 / 14,84-22,69 con il moto nuovo (22:45-23:35Z) e 1,143-1,203 /
+18,6-22,7 a 02:55-03:45Z; i pixel corretti passano da 74.331-91.097 a
+104.397-125.143. ⚠ Nello stesso intervallo cambia anche l'ambiente NWP (vento
+medio a 10 m 4,64-4,80 → 5,11-6,19 m/s; `gated_pixels` 336.716-381.142 →
+424.964-468.332, conteggio **indipendente dal moto**), quindi l'aumento **non è
+attribuibile al solo fix del moto**: dichiarato, non attribuito.
+
+**Limiti dichiarati.** L'A/B usa l'ambiente NWP del dataset `2026-11-25T05:04Z`
+(l'unico disponibile) per tutti gli slot, mentre in produzione ogni slot usa il
+dataset del momento: il confronto resta appaiato (stesse frame, stesso trasporto,
+cambia solo la correzione) ma i valori assoluti non sono quelli del run
+operativo. Il campione è una notte sola, senza stau forte. Il flag è
+reversibile con una riga e `nowcast_verify` continua a misurare ON e OFF.
+
+**Effetto del flag su WebP e JSON** (riconfermato su uno slot reale,
+`2026-11-25T05:05Z`): con `enabled: false` le 12 WebP sono **identiche** a quelle
+calcolate con `compute(..., orographic=False)` (12 su 12, sha256) e **diverse** da
+quelle con l'orografia attiva (12 su 12); il blocco `orographic_enhancement`
+pubblica `enabled: false`, `applied: false`, `null_reason: disabled_by_config`.

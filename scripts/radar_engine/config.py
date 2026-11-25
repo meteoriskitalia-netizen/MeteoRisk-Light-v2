@@ -836,12 +836,15 @@ CONFIG = {
             ],
         },
     },
-    # ENHANCEMENT OROGRAFICO DEL NOWCAST (novembre 2026). Attivo di default,
-    # spegnibile: e' un layer additivo e la correzione e' limitata dalla
-    # formula (orography.py), non un moltiplicatore scelto a occhio.
-    # `nowcast_verify` ricalcola ogni slot con il flag ON e OFF (A/B).
+    # ENHANCEMENT OROGRAFICO DEL NOWCAST (novembre 2026). SPENTO DAL BUILD=220
+    # PER MISURA, non per preferenza: A/B appaiato rilanciato DOPO il fix del
+    # moto su 42 slot reali -> CSI pooled 0,4915 (orog) contro 0,5198
+    # (no_orog), no_orog vince 42 slot su 42, FAR 0,3614 contro 0,2562.
+    # La misura e' nella NOTE del BUILD=220 e in docs/OROGRAFIA_NOWCAST.md.
+    # `nowcast_verify` continua a ricalcolare ogni slot con il flag ON e OFF:
+    # riaccenderlo costa una riga e la misura si aggiorna da sola.
     "orographic_enhancement": {
-        "enabled": True,
+        "enabled": False,
         "grid_file": "data/geography/orography_it_0p05.json",
         "env_points_file": "data/latest/meteorisk-points.json",
         "env_metadata_file": "data/latest/metadata.json",
