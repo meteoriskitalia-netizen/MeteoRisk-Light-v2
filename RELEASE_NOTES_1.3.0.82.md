@@ -50,7 +50,7 @@ generated `15:31:17Z`, **5.138 stazioni**.
 | `gust_max_24h_ms` | 343 | (nessun flag) | (nessun flag) |
 
 Raggiungibilità: **raw del branch `stations-daily` = HTTP 200** (18.760.283
-byte in chiaro); **Pages = 404 alla misura**; dopo il deploy della 1.3.0.82 il blob è servito (**HTTP 200**, 2.566.596 byte compressi). Il client usa raw come prima sorgente: il
+byte in chiaro); **Pages è intermittente**: 404 alla misura, 200 (2.566.596 byte compressi) dopo un deploy, poi 404/503 su quello successivo. Il client usa raw come prima sorgente: il
 caricamento funziona (verificato in Chrome headless con rete attiva).
 
 ## Verifica browser reale (Chrome headless, rete attiva)
@@ -74,8 +74,8 @@ caricamento funziona (verificato in Chrome headless con rete attiva).
 
 ## Non fatto / dichiarato
 
-- Pages era 404 per `daily_series.json` alla misura; dopo il deploy della
-  1.3.0.82 il file è servito (200). L'URL raw (primario) resta corretto e
-  funzionante.
+- Pages per `daily_series.json` è intermittente (404/503/200 a seconda del
+  deploy: il blob pesa ~19 MB e non sempre viene incluso). L'URL raw (primario)
+  risponde 200 ed è quello usato dal client.
 - Le cumulate parziali sono **limiti inferiori**, non misure complete.
   Nessuna validazione contro pluviometri indipendenti.
