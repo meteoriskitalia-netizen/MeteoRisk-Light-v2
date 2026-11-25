@@ -30,6 +30,15 @@ lo schema diventa `meteorisk.nowcast_verification/2` e la chiave `series`
 contiene una riga per (source_slot, lead, soglia). Un lettore dello schema 1
 continua a leggere le stesse chiavi.
 
+Ledger compatto (opzionale, `--ledger-dir`)
+-------------------------------------------
+Con `--ledger-dir` lo stesso passo scrive anche un record binario da 1102 byte
+in `nowcast_ledger.YYYY/MM/DD.bin.zst` (`nowcast_ledger.py`, schema
+`meteorisk.nowcast_ledger/1`): istogramma congiunto 8x8, contatori di
+contingenza e FSS. Usa gli array `pred/obs/dom` GIA' in memoria (zero rete
+aggiuntiva). Il ledger e' l'archivio lungo (nessuna potatura), il file
+`nowcast_verification.json` resta la serie operativa a 7 giorni.
+
 Semantica degli stati (nessun valore inventato)
 -----------------------------------------------
 - `verified`: osservato presente, punteggi calcolati (possono essere `null`
@@ -70,6 +79,7 @@ from radar_engine import clock as clock_mod            # noqa: E402
 from radar_engine import fetch as fetch_mod            # noqa: E402
 from radar_engine import nowcast_archive as na         # noqa: E402
 from radar_engine import nowcast_field as nf           # noqa: E402
+from radar_engine import nowcast_ledger as nledger     # noqa: E402
 
 SCHEMA = "meteorisk.nowcast_verification/2"
 SCHEMA_VERSION = 2
@@ -581,7 +591,8 @@ def verify_pending(archive_root, verification_path, config, now=None,
                    max_slots=MAX_SLOTS_PER_RUN,
                    min_rain_pixels=MIN_OBS_RAIN_PIXELS,
                    retention_days=SERIES_RETENTION_DAYS,
-                   from_iso=None, to_iso=None, force=False):
+                   from_iso=None, to_iso=None, force=False,
+                   ledger_dir=None):
     """Verifica le coppie (slot, lead) dovute e non ancora nella serie.
 
     Ritorna un dizionario di misure. Non solleva per dati mancanti; un record
@@ -619,6 +630,11 @@ def verify_pending(archive_root, verification_path, config, now=None,
         "records_corrupt": 0,
         "sri_downloads": 0,
         "sri_failures": 0,
+        "ledger_dir": os.path.abspath(ledger_dir) if ledger_dir else None,
+        "ledger_records": 0,
+        "ledger_records_merged": 0,
+        "ledger_day_bytes": 0,
+        "ledger_seconds": 0.0,
         "warnings": [],
     }
     new_rows = []
@@ -752,6 +768,9 @@ def verify_pending(archive_root, verification_path, config, now=None,
         variants = [(primary_variant, native)]
         if native_ab is not None:
             variants.append((ab_variant, native_ab))
+        # Ledger compatto: SOLO la variante primaria, stessi array gia' in
+        # memoria (zero rete aggiuntiva). Gli array sono referenze, non copie.
+        ledger_preds, ledger_obss, ledger_doms, ledger_valid = {}, {}, {}, {}
         for lead_min, _valid_ms, valid_iso in to_score:
             obs_rd = observed[(lead_min, _valid_ms)]
             obs, ovalid = nf._rain_array(obs_rd)
@@ -764,6 +783,11 @@ def verify_pending(archive_root, verification_path, config, now=None,
                     stats["rows_not_verifiable"] += len(
                         nf.VERIFY_THRESHOLDS_MMH)
                     continue
+                if variant == primary_variant:
+                    ledger_preds[lead_min] = pred
+                    ledger_obss[lead_min] = obs
+                    ledger_doms[lead_min] = dom
+                    ledger_valid[lead_min] = _valid_ms
                 for thr in nf.VERIFY_THRESHOLDS_MMH:
                     row = scores_row(slot_iso, lead_min, valid_iso, thr,
                                      pred, pers, obs, dom, obs_rd,
@@ -774,6 +798,23 @@ def verify_pending(archive_root, verification_path, config, now=None,
                         stats["rows_verified"] += 1
                     else:
                         stats["rows_not_informative"] += 1
+        if ledger_dir and ledger_preds:
+            try:
+                t_ledger = time.time()
+                grid = np.asarray(ledger_preds[
+                    next(iter(ledger_preds))]).shape
+                res = nledger.append_slot(
+                    ledger_dir, slot_ms, ledger_preds, ledger_obss,
+                    ledger_doms, ledger_valid, generated_ms=now_ms,
+                    grid=(int(grid[1]), int(grid[0])))
+                stats["ledger_records"] += 1
+                if res.get("merged"):
+                    stats["ledger_records_merged"] += 1
+                stats["ledger_day_bytes"] = int(res["compressed_bytes"])
+                stats["ledger_seconds"] += round(time.time() - t_ledger, 3)
+            except Exception as exc:      # il ledger non blocca la verifica
+                stats["warnings"].append("ledger_failed:%s:%s" % (
+                    exc.__class__.__name__, exc))
 
     out = merge_series(doc, new_rows, now_ms,
                        retention_days=retention_days,
@@ -822,6 +863,9 @@ def main(argv=None):
     ap.add_argument("--to", dest="to_iso", default=None)
     ap.add_argument("--force", action="store_true",
                     help="ricalcola anche le coppie gia' presenti")
+    ap.add_argument("--ledger-dir", default=None,
+                    help="directory del ledger compatto (schema "
+                         "meteorisk.nowcast_ledger/1); assente = non scritto")
     ap.add_argument("--report", default=None,
                     help="scrive il riepilogo delle misure in JSON")
     args = ap.parse_args(argv)
@@ -838,7 +882,8 @@ def main(argv=None):
             max_slots=args.max_slots,
             min_rain_pixels=args.min_rain_pixels,
             retention_days=args.retention_days,
-            from_iso=args.from_iso, to_iso=args.to_iso, force=args.force)
+            from_iso=args.from_iso, to_iso=args.to_iso, force=args.force,
+            ledger_dir=args.ledger_dir)
     except Exception as exc:              # il run radar non deve fallire
         print("[WARN] verifica nowcast non eseguita (%s:%s)" % (
             exc.__class__.__name__, exc))
@@ -852,6 +897,10 @@ def main(argv=None):
               stats["player_leads_skipped"], stats["sri_downloads"],
               stats["seconds"],
               "aggiornato" if stats["verification_written"] else "invariato"))
+    if stats.get("ledger_dir"):
+        print("[INFO] ledger: %d record (+%d fusi), %d B il giorno, %.2f s"
+              % (stats["ledger_records"], stats["ledger_records_merged"],
+                 stats["ledger_day_bytes"], stats["ledger_seconds"]))
     for warning in stats["warnings"][:10]:
         print("[WARN] %s" % warning)
     if args.report:

@@ -203,6 +203,20 @@ jobs:
           else
             echo "[INFO] Branch nowcast-archive assente (primo run): archivio vuoto."
           fi
+          # LEDGER COMPATTO (branch orphan nowcast-ledger): archivio lungo,
+          # NESSUNA potatura. Ripristinato qui perche' la verifica deve
+          # appendere al giorno esistente, non sovrascriverlo.
+          LWORK="$RUNNER_TEMP/nowcast_ledger_work"
+          rm -rf "$LWORK"; mkdir -p "$LWORK"
+          if git fetch --depth 1 origin "+nowcast-ledger:refs/heads/nowcast-ledger-base" 2>/dev/null; then
+            if git archive nowcast-ledger-base | tar -x -C "$LWORK"; then
+              echo "[INFO] Ledger nowcast ripristinato da nowcast-ledger ($(find "$LWORK" -type f -name '*.bin.*' | wc -l) file giornalieri)."
+            else
+              echo "[WARN] nowcast-ledger esistente ma non estraibile: ledger vuoto per questo run."
+            fi
+          else
+            echo "[INFO] Branch nowcast-ledger assente (primo run): ledger vuoto."
+          fi
           tmark end:restore_nowcast_archive
 
       - name: Run radar engine (Fase 1)
@@ -270,6 +284,7 @@ jobs:
             --now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --max-lookback-hours 4 --max-slots 12 \
             --grace-min 90 --retention-days 7 \
+            --ledger-dir "$RUNNER_TEMP/nowcast_ledger_work/nowcast_ledger" \
             --report "$RUNNER_TEMP/nowcast_verify_report.json" \
             || echo "[WARN] verifica nowcast non eseguita: run radar invariato"
           tmark end:verify_nowcast
@@ -819,6 +834,84 @@ jobs:
           echo "[ERRORE] push nowcast-archive fallito dopo 3 tentativi (nessuna sovrascrittura)."
           exit 1
 
+      # LEDGER COMPATTO DELLA VERIFICA (2026-11-25, ADDITIVO): un file
+      # binario PER GIORNO UTC con record da 1102 byte (istogramma congiunto
+      # 8x8, contatori, FSS) sotto `nowcast_ledger/YYYY/MM/DD.bin.zst`.
+      # E' l'archivio LUNGO: NESSUNA potatura (misurato ~58 MB/anno zstd su
+      # un campione tutto-pioggia, ~5,5 MB/anno il record a istogramma vuoto;
+      # la stima di progetto di 27,3 MB/anno non e' riprodotta da questo
+      # campione ed e' dichiarata nel report). Branch ORPHAN `nowcast-ledger`:
+      # commit senza parent, --force-with-lease (mai --force nudo), 3
+      # tentativi. NON tocca main e NON finisce nell'artefatto Pages.
+      - name: Pubblica ledger verifica (branch nowcast-ledger)
+        if: success()
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          tmark() { printf '%s\t%s\n' "$1" "$(date +%s%3N)" >> "$RUNNER_TEMP/timings/marks.tsv"; }
+          tmark begin:push_nowcast_ledger
+          WORK="$RUNNER_TEMP/nowcast_ledger_work"
+          mkdir -p "$WORK/nowcast_ledger"
+          if [ -z "$(find "$WORK/nowcast_ledger" -type f -name '*.bin.*' -print -quit 2>/dev/null)" ]; then
+            echo "[INFO] Nessun record ledger prodotto: archivio non aggiornato."
+            tmark end:push_nowcast_ledger
+            exit 0
+          fi
+          # README/LICENSE con attribuzione Radar-DPC CC BY-SA 4.0 (idempotente)
+          python - "$WORK" <<'PY'
+          import sys
+          sys.path.insert(0, "scripts")
+          from radar_engine import nowcast_ledger as nl
+          root = sys.argv[1]
+          nl.ensure_docs(root)
+          print("[INFO] ledger nowcast: %d B compressi, record da %d B"
+                % (nl.archive_bytes(root + "/nowcast_ledger"),
+                   nl.RECORD_BYTES))
+          PY
+          export GIT_DIR="$GITHUB_WORKSPACE/.git"
+          export GIT_INDEX_FILE="$RUNNER_TEMP/nowcast-ledger.index"
+          export GIT_WORK_TREE="$WORK"
+          cd "$WORK"
+          git read-tree --empty
+          git add -f -A .
+          NEW_TREE=$(git write-tree)
+          cd "$GITHUB_WORKSPACE"
+          unset GIT_INDEX_FILE GIT_WORK_TREE GIT_DIR
+          OLD_TREE=""
+          if git rev-parse -q --verify nowcast-ledger-base >/dev/null; then
+            OLD_TREE=$(git rev-parse nowcast-ledger-base^{tree})
+          fi
+          if [ "$OLD_TREE" = "$NEW_TREE" ]; then
+            echo "[INFO] Ledger invariato: push saltato."
+            tmark end:push_nowcast_ledger
+            exit 0
+          fi
+          COMMIT=$(git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit-tree "$NEW_TREE" -m "[skip ci] radar: ledger verifica nowcast (binario, branch orphan)")
+          read_remote_sha() {
+            git ls-remote origin refs/heads/nowcast-ledger 2>/dev/null | awk 'NR==1 {print $1}'
+          }
+          for attempt in 1 2 3; do
+            PARENT="$(read_remote_sha || true)"
+            if [ -z "$PARENT" ]; then
+              LEASE="--force-with-lease=refs/heads/nowcast-ledger:"
+              EXPECT="<ref assente>"
+            else
+              LEASE="--force-with-lease=refs/heads/nowcast-ledger:$PARENT"
+              EXPECT="$PARENT"
+            fi
+            echo "[INFO] push nowcast-ledger tentativo $attempt/3 (lease su $EXPECT)"
+            if git push "$LEASE" origin "$COMMIT:refs/heads/nowcast-ledger"; then
+              echo "[INFO] nowcast-ledger aggiornata (commit ${COMMIT:0:7})."
+              tmark end:push_nowcast_ledger
+              exit 0
+            fi
+            echo "[WARN] push rifiutato (tentativo $attempt/3): rileggo lo SHA e riprovo."
+            sleep $((attempt * 5))
+          done
+          echo "[ERRORE] push nowcast-ledger fallito dopo 3 tentativi (nessuna sovrascrittura)."
+          exit 1
+
       # ARCHIVIO SRT1 PER PROVINCIA (2026-11-23, ADDITIVO): statistiche orarie
       # per provincia (max/mean/p90 mm, copertura, frazione bagnata) scritte da
       # `scripts/radar_engine/srt1_province_archive.py`. Serve al verificatore
@@ -1002,7 +1095,8 @@ jobs:
                    "restore_nowcast_archive", "engine", "archive_nowcast",
                    "verify_nowcast", "write_timings", "commit_push_main",
                    "push_history", "push_predictions_archive",
-                   "push_nowcast_archive", "build_site"]
+                   "push_nowcast_archive", "push_nowcast_ledger",
+                   "build_site"]
           LABEL = {
               "checkout_and_toolchain": "init + checkout + setup-python + setup-uv (+cache)",
               "install_deps": "install dipendenze (uv)",
@@ -1017,6 +1111,7 @@ jobs:
               "push_history": "push branch radar-history",
               "push_predictions_archive": "push archivio predizioni (365 gg)",
               "push_nowcast_archive": "push archivio nowcast (7 gg)",
+              "push_nowcast_ledger": "push ledger verifica (lungo, no potatura)",
               "build_site": "build _site",
           }
 
