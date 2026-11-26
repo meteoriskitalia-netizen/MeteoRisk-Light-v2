@@ -213,7 +213,12 @@ def test_cap_without_any_neighbor_stays_zero():
 def test_no_intensity_growth(tmp_path):
     rasters, _domain = _moving_frames(tmp_path, n=3, dx=1)
     bundle = _Bundle(rasters)
-    payload, native = nf.compute(bundle, _config(tmp_path),
+    cfg = _config(tmp_path)
+    # Il test misura il TRASPORTO puro: spegne il 3 km e il ripristino HF
+    # (che e' un unsharp dichiarato e puo' superare il massimo osservato).
+    cfg["nowcast_transport_coarse"] = 0
+    cfg["nowcast_hf_restore"] = {"enabled": False}
+    payload, native = nf.compute(bundle, cfg,
                                  clock_mod.Clock.at_ms(T0 + 2 * STEP_MS),
                                  bundle.warnings)
     assert payload["available"] is True
@@ -349,33 +354,37 @@ def test_output_json_and_webp(tmp_path):
                      clock=clock_mod.Clock.at_ms(T0 + 2 * STEP_MS))
     assert payload["available"] is True
     data = json.loads((out / "nowcast.json").read_text(encoding="utf-8"))
-    # 15 frame a passo crescente: 5..45 ogni 5, 60/75/90 ogni 15, 120/150/180
-    expected = list(range(5, 46, 5)) + [60, 75, 90, 120, 150, 180]
+    # 12 frame a passo crescente fino a +90 (troncamento dichiarato):
+    # 5..45 ogni 5, 60/75/90 ogni 15. I lead oltre 90 non esistono piu'.
+    expected = list(range(5, 46, 5)) + [60, 75, 90]
     assert [l["lead_min"] for l in data["leads"]] == expected
-    assert data["leads_total"] == 15
+    assert data["leads_total"] == 12
     assert data["official_leads"] == [15, 30, 60]
     assert [l["lead_min"] for l in data["leads"] if l["official"]] == [15, 30, 60]
-    assert [l["step_min"] for l in data["leads"]] == (
-        [5] * 9 + [15] * 3 + [30] * 3)
+    assert [l["step_min"] for l in data["leads"]] == ([5] * 9 + [15] * 3)
+    assert data["truncation"]["max_lead_min"] == 90
+    assert data["truncation"]["removed_leads"] == [120, 150, 180]
+    assert data["truncation"]["aspect_ratio_limit"] == 1.5
     assert data["low_reliability_over_min"] == 90
     assert data["grid"]["crs"] == "EPSG:3857"
     assert len(data["grid"]["bounds"]) == 4
     assert data["grid"]["resolution_m"] == nf.OUTPUT_RES_M
     assert data["motion_algorithm"] == "lucas_kanade_pyramidal"
-    assert data["legend"][0]["mmh"] == 1.0
-    assert [l["mmh"] for l in data["legend"]] == [1.0, 5.0, 10.0, 20.0, 50.0,
-                                                  100.0]
+    assert data["legend"][0]["mmh"] == 0.5
+    assert [l["mmh"] for l in data["legend"]] == [0.5, 2.0, 5.0, 10.0, 20.0,
+                                                  50.0, 100.0]
     for lead in nf.LEADS_MIN:
         p = out / nf.IMAGE_NAMES[lead]
         assert p.exists() and p.stat().st_size > 0
         assert data["leads"][[l["lead_min"] for l in data["leads"]].index(lead)][
             "image"] == nf.IMAGE_NAMES[lead]
         assert p.read_bytes()[:4] == b"RIFF"      # WebP container
-    # 15 file distinti (010, 020, ... non sovrascrivono 005)
-    assert len(list(out.glob("nowcast_lead*.webp"))) == 15
+    # 12 file distinti (010, 020, ... non sovrascrivono 005)
+    assert len(list(out.glob("nowcast_lead*.webp"))) == 12
     assert nf.IMAGE_NAMES[5] == "nowcast_lead005.webp"
     assert nf.IMAGE_NAMES[60] == "nowcast_lead060.webp"
-    assert nf.IMAGE_NAMES[180] == "nowcast_lead180.webp"
+    assert nf.IMAGE_NAMES[90] == "nowcast_lead090.webp"
+    assert 180 not in nf.IMAGE_NAMES
 
 
 def test_frames_are_cumulative_and_coherent(tmp_path):
@@ -388,6 +397,8 @@ def test_frames_are_cumulative_and_coherent(tmp_path):
     bundle = _Bundle(rasters)
     cfg = _config(tmp_path)
     cfg["nowcast_transport_mode"] = "steps"
+    cfg["nowcast_transport_coarse"] = 0
+    cfg["nowcast_hf_restore"] = {"enabled": False}
     payload, native = nf.compute(bundle, cfg,
                                  clock_mod.Clock.at_ms(T0 + 2 * STEP_MS),
                                  bundle.warnings)
@@ -404,8 +415,8 @@ def test_frames_are_cumulative_and_coherent(tmp_path):
 
     assert np.allclose(expect(1, 10), native[10], rtol=1e-5, atol=1e-4)
     assert np.allclose(expect(3, 20), native[20], rtol=1e-5, atol=1e-4)
-    # il +180 e' il +5 avanzato di altri 35 passi (36 totali), non un salto
-    assert np.allclose(expect(35, 180), native[180], rtol=1e-5, atol=1e-4)
+    # il +90 e' il +5 avanzato di altri 17 passi (18 totali), non un salto
+    assert np.allclose(expect(17, 90), native[90], rtol=1e-5, atol=1e-4)
 
 
 def test_composite_shift_is_one_interpolation(tmp_path):
@@ -419,6 +430,10 @@ def test_composite_shift_is_one_interpolation(tmp_path):
     bundle = _Bundle(rasters)
     cfg = _config(tmp_path)
     assert cfg.get("nowcast_transport_mode") == "single"
+    # Il default di produzione e' il trasporto a 3 km: qui si isola il
+    # vecchio warp unico per non perderne la copertura.
+    cfg["nowcast_transport_coarse"] = 0
+    cfg["nowcast_hf_restore"] = {"enabled": False}
     payload, native = nf.compute(bundle, cfg,
                                  clock_mod.Clock.at_ms(T0 + 2 * STEP_MS),
                                  bundle.warnings)
@@ -429,7 +444,7 @@ def test_composite_shift_is_one_interpolation(tmp_path):
     u, v = native["_motion"]
     scale = native["_mass_scale"]
     dom = np.asarray(native["_domain"], dtype=bool)
-    for lead in (10, 20, 180):
+    for lead in (10, 20, 90):
         steps = lead // nf.STEP_MIN
         smp, inside = nf._warp(latest, -(u * np.float32(steps)),
                                -(v * np.float32(steps)),
@@ -449,10 +464,10 @@ def test_step_min_for_growing_leads():
     assert nf.step_min_for(45) == 5
     assert nf.step_min_for(60) == 15
     assert nf.step_min_for(90) == 15
-    assert nf.step_min_for(120) == 30
-    assert nf.step_min_for(180) == 30
+    # i lead oltre +90 non sono pubblicati (troncamento dichiarato)
+    assert nf.step_min_for(120) == 5          # fallback: STEP_MIN, mai 30
     # override dei backtest: il passo si ricava dalla lista, non da una tabella
-    assert nf.step_min_for(180, (5, 30, 90, 180)) == 90
+    assert nf.step_min_for(90, (5, 30, 60, 90)) == 30
 
 
 def test_reliability_by_lead_from_measured_file(tmp_path):
@@ -486,8 +501,9 @@ def test_reliability_by_lead_from_measured_file(tmp_path):
     assert rel["horizons"]["180"]["nowcast_csi"] == 0.18
     by_lead = {l["lead_min"]: l for l in payload["leads"]}
     assert by_lead[15]["reliability"] is None          # orizzonte non misurato
-    assert by_lead[180]["reliability"]["nowcast_csi"] == 0.18
-    assert by_lead[180]["reliability"]["low_reliability"] is True
+    # il lead 180 non e' pubblicato: la sua riga nel file resta ignorata
+    assert 180 not in by_lead
+    assert by_lead[90]["reliability"]["nowcast_csi"] == 0.31
     assert by_lead[90]["reliability"]["level"] == "media"
 
 
@@ -517,12 +533,12 @@ def test_one_missing_frame_does_not_break_the_rest(tmp_path, monkeypatch):
     monkeypatch.setattr(nf, "write_webp", _maybe_fail)
     payload = nf.run(bundle, _config(tmp_path), str(out),
                      clock=clock_mod.Clock.at_ms(T0 + 2 * STEP_MS))
-    assert payload["available"] is True          # gli altri 14 restano validi
+    assert payload["available"] is True          # gli altri 11 restano validi
     by_lead = {l["lead_min"]: l for l in payload["leads"]}
     assert by_lead[20]["image"] is None
     assert "RuntimeError" in by_lead[20]["image_error"]
     assert by_lead[15]["image"] == nf.IMAGE_NAMES[15]
-    assert len(list(out.glob("nowcast_lead*.webp"))) == 14
+    assert len(list(out.glob("nowcast_lead*.webp"))) == 11
     assert not (out / nf.IMAGE_NAMES[20]).exists()
     data = json.loads((out / "nowcast.json").read_text(encoding="utf-8"))
     assert data["output_bytes"]["image_errors"]
@@ -595,31 +611,34 @@ def test_verification_series_not_embedded_in_nowcast_json(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 6b. palette ALLINEATA alla scala SRI del client (stessi RGB)
+# 6b. palette AD ALTO CONTRASTO (2026-11-26): non piu' il blu notte
 # ---------------------------------------------------------------------------
-# Copia letterale di DPC_SRI_STOPS (mri-light-1.3.0.77.html, righe 10983-10990).
-CLIENT_DPC_SRI_STOPS = ((1, (0, 85, 136)), (5, (0, 163, 224)),
-                        (10, (136, 221, 238)), (20, (255, 238, 0)),
-                        (50, (255, 170, 0)), (100, (193, 0, 0)))
+# Nodi del renderer, gli stessi pubblicati in `legend` e usati dal client.
+NOWCAST_STOPS = ((0.5, (0, 220, 255)), (2.0, (0, 150, 255)),
+                 (5.0, (0, 220, 110)), (10.0, (255, 235, 0)),
+                 (20.0, (255, 140, 0)), (50.0, (255, 40, 40)),
+                 (100.0, (240, 0, 210)))
 
 
-def test_palette_is_the_client_sri_scale():
-    assert nf.PALETTE == CLIENT_DPC_SRI_STOPS
-    for mmh, rgb in CLIENT_DPC_SRI_STOPS:
+def test_palette_is_high_contrast_scale():
+    assert nf.PALETTE == NOWCAST_STOPS
+    for mmh, rgb in NOWCAST_STOPS:
         px = nf._rgba(np.array([[np.float32(mmh)]]))[0, 0]
         assert [int(px[0]), int(px[1]), int(px[2])] == list(rgb)
-    # code dichiarate: sotto 1 mm/h -> primo colore, sopra 100 -> ultimo
-    low = nf._rgba(np.array([[np.float32(0.5)]]))[0, 0]
+    # code dichiarate: sopra 100 -> ultimo colore
     high = nf._rgba(np.array([[np.float32(200.0)]]))[0, 0]
-    assert [int(low[0]), int(low[1]), int(low[2])] == [0, 85, 136]
-    assert [int(high[0]), int(high[1]), int(high[2])] == [193, 0, 0]
+    assert [int(high[0]), int(high[1]), int(high[2])] == [240, 0, 210]
+    # alpha: sotto 0,5 mm/h TRASPARENTE, a 2 mm/h alpha pieno (235)
+    low = nf._rgba(np.array([[np.float32(0.4)]]))[0, 0]
+    full = nf._rgba(np.array([[np.float32(2.0)]]))[0, 0]
+    assert int(low[3]) == 0
+    assert int(full[3]) == nf.ALPHA_MAX
 
 
 def test_palette_between_stops_is_linear_like_the_client():
-    # 2 mm/h: interpolazione 1->5 (t=0,25) -> (0,104.5,158); il client usa
-    # Math.round (104.5 -> 105), quindi il server deve dare lo stesso.
-    px = nf._rgba(np.array([[np.float32(2.0)]]))[0, 0]
-    assert [int(px[0]), int(px[1]), int(px[2])] == [0, 105, 158]
+    # 1 mm/h fra 0,5 e 2,0: t=1/3 -> (0, 196.67, 255) -> round 197
+    px = nf._rgba(np.array([[np.float32(1.0)]]))[0, 0]
+    assert [int(px[0]), int(px[1]), int(px[2])] == [0, 197, 255]
 
 
 # ---------------------------------------------------------------------------
@@ -848,3 +867,39 @@ def test_compute_motion_regularization_can_be_disabled(tmp_path):
     reg = payload["motion_regularization"]
     assert reg["applied"] is False
     assert reg["null_reason"] == "sigma_zero"
+
+
+# ---------------------------------------------------------------------------
+# 14. trasporto a 3 km + ripristino HF + troncamento (2026-11-26)
+# ---------------------------------------------------------------------------
+def test_coarse_transport_and_hf_restore_are_declared(tmp_path):
+    rasters, _ = _moving_frames(tmp_path, n=3, dx=1)
+    bundle = _Bundle(rasters)
+    payload, native = nf.compute(bundle, _config(tmp_path),
+                                 clock_mod.Clock.at_ms(T0 + 2 * STEP_MS),
+                                 bundle.warnings)
+    assert payload["available"] is True
+    assert payload["transport_coarse_factor"] == 3
+    assert payload["transport_coarse_method"]
+    assert payload["truncation"]["max_lead_min"] == 90
+    assert 120 not in native and 180 not in native
+    hf = payload["hf_restore"]
+    assert hf["enabled"] is True and hf["applied"] is True
+    assert hf["method"] == "deterministic_unsharp_to_analysis_hf"
+    assert set(hf["per_lead"]) == {str(l) for l in nf.LEADS_MIN}
+
+
+def test_hf_detail_does_not_decay_with_lead(tmp_path):
+    rasters, _ = _moving_frames(tmp_path, n=3, dx=1, sigma=4.0)
+    bundle = _Bundle(rasters)
+    payload, native = nf.compute(bundle, _config(tmp_path),
+                                 clock_mod.Clock.at_ms(T0 + 2 * STEP_MS),
+                                 bundle.warnings)
+    dom = np.asarray(native["_domain"], dtype=bool)
+    vals = {}
+    for lead in (15, 30, 60, 90):
+        hf, _tot = nf.hf_stats(native[lead], dom)
+        assert hf is not None
+        vals[lead] = hf
+    # il dettaglio non cala col lead: il +90 resta almeno al 90% del +15
+    assert vals[90] >= 0.90 * vals[15]

@@ -456,13 +456,15 @@ def test_run_writes_probability_webp(tmp_path):
     out_dir = str(tmp_path / "out")
     payload = nf.run(bundle, cfg, out_dir)
     assert payload["available"], payload.get("null_reason")
+    prob_thr = float(cfg["ensemble"]["prob_image_threshold_mmh"])
+    key = "prob_%s" % ne._thr_key(prob_thr)
     for lead in nf.OFFICIAL_LEADS:
         name = ne.PROB_IMAGE_NAMES[lead]
         path = os.path.join(out_dir, name)
         assert os.path.isfile(path)
         assert os.path.getsize(path) > 0
         assert payload["ensemble"]["leads"][str(lead)]["images"][
-            "prob_0p5"] == name
+            key] == name
     # nessuna immagine di probabilita' se l'ensemble e' spento
     cfg_off = _cfg(tmp_path, False)
     out_off = str(tmp_path / "out_off")

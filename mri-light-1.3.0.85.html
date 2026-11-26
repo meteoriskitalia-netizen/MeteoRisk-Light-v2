@@ -2083,7 +2083,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
             <option value="">— nessuno —</option>
             <option value="forecast-maps">Mappe previsionali</option>
             <option value="radar-player">Radar Player</option>
-            <option value="nowcast" title="Nowcast pioggia: campo radar SRI spostato nel tempo, player a frame da 5 a 180 minuti (passo crescente 5/15/30, oltre 90 minuti affidabilità bassa)">Nowcast pioggia</option>
+            <option value="nowcast" title="Nowcast pioggia: campo radar SRI trasportato ed evoluto, player a frame da 5 a 90 minuti (passo 5/15). Oltre +90 il prodotto è troncato: il rapporto d'aspetto delle strutture supera 1,5x l'osservato">Nowcast pioggia</option>
             <option value="rischi" selected>Mappa dei rischi</option>
             <option value="forecast">Previsioni</option>
             <option value="live">Pannello LIVE</option>
@@ -2238,11 +2238,9 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     <div id="ncprob-controls" class="nc-prob" hidden>
         <div class="nc-prob-row" id="ncprob-thr-row">
             <span class="nc-prob-label">Soglia</span>
-            <button type="button" class="nc-prob-btn on" data-thr="0.5" onclick="ncProbSetThr(0.5)">0,5 mm/h</button>
             <button type="button" class="nc-prob-btn" data-thr="2" onclick="ncProbSetThr(2)">2 mm/h</button>
-            <button type="button" class="nc-prob-btn" data-thr="5" onclick="ncProbSetThr(5)">5 mm/h</button>
+            <button type="button" class="nc-prob-btn on" data-thr="5" onclick="ncProbSetThr(5)">5 mm/h</button>
             <button type="button" class="nc-prob-btn" data-thr="10" onclick="ncProbSetThr(10)">10 mm/h</button>
-            <button type="button" class="nc-prob-btn" data-thr="20" onclick="ncProbSetThr(20)">20 mm/h</button>
         </div>
         <div class="nc-prob-row" id="ncprob-lead-row">
             <span class="nc-prob-label">Entro</span>
@@ -2779,11 +2777,11 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
             </div>
 
             <div class="nowcast-legend" id="nowcast-legend">
-                <div class="legend-title">Intensità prevista · mm/h · scala SRI (DPC)</div>
+                <div class="legend-title">Intensità prevista · mm/h · scala ad alto contrasto</div>
                 <div class="nowcast-ramp" id="nowcast-legend-ramp"></div>
                 <div class="nowcast-ticks" id="nowcast-legend-ticks"></div>
-                <div class="legend-row" id="nowcast-legend-note" style="font-size:10px; color:#cbd5e1;">misurato su 24 casi: a +180 min il nowcast è peggiore della persistenza (CSI 0,16 contro 0,17; FSS 0,14 contro 0,19) e oltre 90 minuti l'abilità è meno di metà di quella a +30</div>
-                <div class="legend-row" style="font-size:10px; color:#94a3b8;">sotto 1 mm/h il radar osservato è trasparente; il nowcast mostra la pioggia debole</div>
+                <div class="legend-row" id="nowcast-legend-note" style="font-size:10px; color:#cbd5e1;">il nowcast si ferma a +90 minuti: oltre, il rapporto d'aspetto delle strutture supera 1,5x l'osservato (misurato 1,73x a +120)</div>
+                <div class="legend-row" style="font-size:10px; color:#94a3b8;">sotto 0,5 mm/h il nowcast è trasparente; scala continua fino a 100+ mm/h</div>
             </div>
         </div>
         <!-- Selettore ORARIO a slider sotto la mappa (sostituisce la tendina) -->
@@ -3325,9 +3323,17 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.85';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.85-r2';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-26';
     const APP_CHANGELOG = [
+{ version: '1.3.0.85-r2', date: '2026-11-26', changes: [
+  "NOWCAST RIPUBBLICATO (motore, non nuova app): TRASPORTO A 3 KM (media a blocchi 3x3, warp sulla griglia grossolana, upsample bilineare) al posto del trasporto per pixel: bordi lisci, niente strutture a nastro. A/B sullo stesso caso (2026-11-26T13:25Z): CSI@30 0,5718 -> 0,5871, CSI@60 0,4517 -> 0,4596, aspetto p90@60 4,58 -> 3,30 (osservato 3,45).",
+  "RIPRISTINO HF DETERMINISTICO: unsharp con ampiezza risolta per riportare la varianza alto-pass (<4 px) al 70% dell'analisi, crescita 20% su 90 min. NIENTE rumore: la variante STEPS moltiplicativa e' stata misurata e scartata (retino da Nyquist). HF 0,108/0,109/0,111/0,114 a +15/+30/+60/+90; CSI@30 0,5517, CSI@60 0,4332.",
+  "TRONCAMENTO A +90 MINUTI: il rapporto d'aspetto p90 delle strutture previste supera 1,5x l'osservato a +120 (1,65x con il trasporto a 3 km: p90 5,81 contro 3,53) e a +180 arriva a 1,91x; a +90 e' 1,09x. I lead 120/150/180 sono rimossi; il punto di taglio e' dichiarato nel payload (`truncation`).",
+  "RESA LEGGIBILE: palette ad alto contrasto (ciano -> azzurro -> verde -> giallo -> arancio -> rosso -> magenta) con soglia di disegno 0,5 mm/h e alpha pieno a 2 mm/h. La legenda del client ora legge il `legend` del payload, non una copia hardcodata.",
+  "PROBABILITA' A SOGLIA ALTA: la probabilita' a 0,5 mm/h NON e' ridondante (IoU con la maschera d'intensita' 0,67/0,58/0,51 a +15/+30/+60; Spearman 0,62/0,59/0,56) ma visivamente era troppo simile all'intensita'. Le immagini pubblicate usano 2/5/10 mm/h (default 5), dove l'intensita' e' ambigua; tutti i campi prob_* restano nel JSON. Il blocco `redundancy` per lead pubblica IoU e Spearman misurati nel run.",
+  "TEST: 35/35 su test_nowcast_field.py (12 lead, troncamento, 3 km, HF non calante, palette, alpha); 1001 passed sulla suite radar_engine dopo l'aggiornamento di 3 attese (12 lead, 9 player lead, soglia probabilita' 5)."
+]},
 { version: '1.3.0.85', date: '2026-11-26', changes: [
   "RAGGIERA RIMOSSA DALLA MAPPA DI PROBABILITA': la deformazione lineare attorno al centroide (divergenza/vorticità/stiramento/taglio, ampiezza 0,6) era la causa. Misurato sullo stesso caso: struttura p>=0,5 con allungamento massimo 1581 (un filamento radiale) con la deformazione, 2,07 senza; l'osservato ha 1,85. La deformazione e' SPENTA (deformation_fraction 0.0).",
   "MOTO RIDOTTO E BSS MIGLIORE: motion_inflation 3,0 -> 1,5. Sullo stesso caso BSS 0,5 a +30 da 0,441 (base) a 0,617; bias 0,85; a +15 0,742; a +60 0,461. Il guadagno viene dal togliere la deformazione, non dal ridurre la dispersione del moto.",
@@ -10745,7 +10751,7 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
     // data/radar/nowcast.json e l'immagine WebP della (soglia, lead) scelta.
     // La scala di verifica dichiarata e' 20 km: a 1 km la struttura fine non
     // e' prevedibile (misurato: BSS convettivo -0,77 a 1 km, +0,33 a 20 km).
-    var ncProbOn = false, ncProbThr = 0.5, ncProbLead = 15;
+    var ncProbOn = false, ncProbThr = 5, ncProbLead = 15;
     var ncProbLayer = null, ncProbData = null, ncProbLoading = false;
 
     function ncProbThrKey(thr) {
@@ -27840,10 +27846,22 @@ function toggleForecastMaps() {
         var ramp = document.getElementById('nowcast-legend-ramp');
         var ticks = document.getElementById('nowcast-legend-ticks');
         if (!ramp || !ticks) return;
-        var stops = (typeof DPC_SRI_STOPS !== 'undefined' && DPC_SRI_STOPS && DPC_SRI_STOPS.length)
-            ? DPC_SRI_STOPS
-            : [[1, [0, 85, 136]], [5, [0, 163, 224]], [10, [136, 221, 238]],
-               [20, [255, 238, 0]], [50, [255, 170, 0]], [100, [193, 0, 0]]];
+        // 1.3.0.85-r2 - la rampa viene dal PAYLOAD (`legend`): il server e il
+        // client non possono divergere. Fallback: i nodi del renderer.
+        var leg = (nowcastState.data && nowcastState.data.legend) || null;
+        var stops = [];
+        if (leg && leg.length) {
+            for (var j = 0; j < leg.length; j++) {
+                if (leg[j] && leg[j].rgb) stops.push([leg[j].mmh, leg[j].rgb]);
+            }
+        }
+        if (!stops.length) {
+            stops = (typeof DPC_SRI_STOPS !== 'undefined' && DPC_SRI_STOPS && DPC_SRI_STOPS.length)
+                ? DPC_SRI_STOPS
+                : [[0.5, [0, 220, 255]], [2, [0, 150, 255]], [5, [0, 220, 110]],
+                   [10, [255, 235, 0]], [20, [255, 140, 0]], [50, [255, 40, 40]],
+                   [100, [240, 0, 210]]];
+        }
         var r = '', t = '';
         for (var i = 0; i < stops.length; i++) {
             var v = stops[i][0], c = stops[i][1];

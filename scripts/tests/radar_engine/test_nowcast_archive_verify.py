@@ -259,8 +259,9 @@ def test_verify_counts_match_replay(tmp_path):
     stats = nv.verify_pending(root, out, cfg, now=now, fetch_fn=fetch_fn,
                               grace_min=90, max_lookback_hours=24,
                               max_slots=10)
-    # gli altri 12 frame del player sono archiviati ma NON verificati
-    assert stats["player_leads_skipped"] == 12
+    # gli altri 9 frame del player (12 lead - 3 ufficiali) sono archiviati
+    # ma NON verificati: i lead oltre +90 non esistono piu'
+    assert stats["player_leads_skipped"] == 9
     doc = json.loads(open(out, encoding="utf-8").read())
     rows = {(r["lead_min"], r["threshold_mmh"]): r
             for r in doc["series"]["rows"]}

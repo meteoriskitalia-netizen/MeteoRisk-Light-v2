@@ -1,4 +1,4 @@
-/* MeteoRisk-Light 1.2.4.77 - Service Worker (cache applicativa + offline parziale).
+﻿/* MeteoRisk-Light 1.2.4.77 - Service Worker (cache applicativa + offline parziale).
  *
  * SCOPO: far partire l'app anche offline/su rete lenta e togliere dalla rete i
  * payload che non cambiano (WebP pre-renderizzati e indici delle mappe), senza
@@ -107,7 +107,7 @@
  */
 'use strict';
 
-var CACHE_NAME = 'mri-1.3.0.85';
+var CACHE_NAME = 'mri-1.3.0.85-r2';
 var TILE_CACHE = 'mri-tiles-1.3.0.68';
 var FRAME_CACHE = 'mri-frames-1.3.0.68';
 var APP_CACHES = [CACHE_NAME, TILE_CACHE, FRAME_CACHE];
@@ -722,3 +722,4 @@ self.addEventListener('fetch', function (event) {
     if (nav) { event.respondWith(networkFirst(request, event)); return; }
     // Tutto il resto (stations, phenomena, dati meteo locali, CDN JS): network.
 });
+

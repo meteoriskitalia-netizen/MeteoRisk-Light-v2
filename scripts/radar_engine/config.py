@@ -900,8 +900,13 @@ CONFIG = {
         "noise_method": "nonparametric",
         "thresholds_mmh": [0.5, 2.0, 5.0, 10.0, 20.0],
         "prob_decimals": 2,
-        "prob_image_threshold_mmh": 0.5,   # "piove / non piove"
-        "image_thresholds_mmh": [0.5, 2.0, 5.0, 10.0, 20.0],
+        # SOGLIA ALTA (2026-11-26): la probabilita' a 0.5 mm/h e' risultata
+        # informativa (IoU con la maschera d'intensita' 0,67/0,58/0,51 a
+        # +15/+30/+60) ma visivamente troppo simile all'intensita'. Le
+        # immagini pubblicate usano le soglie ALTE, dove l'intensita' e'
+        # ambigua; tutti i campi prob_* restano nel JSON.
+        "prob_image_threshold_mmh": 5.0,
+        "image_thresholds_mmh": [2.0, 5.0, 10.0],
         "image_leads": [15, 30, 60],
         "noise_support": "echo",           # "echo" | "domain" (A/B)
         "fft_workers": 1,                  # 1 = replay deterministico
@@ -925,6 +930,34 @@ CONFIG = {
     # 17:35Z 5,98 -> 3,23; CSI quasi invariato). 0 = disattivata (A/B).
     # Vedi `regularize_motion`.
     "nowcast_motion_divergence_sigma_km": 100.0,
+    # TRASPORTO A 3 KM (2026-11-26): media a blocchi 3x3 del campo e del
+    # moto, warp a 3 km, upsample bilineare a 1 km. Elimina i bordi
+    # frastagliati e le strutture a nastro del trasporto per pixel.
+    # A/B sullo stesso caso: CSI@30 0,5718 -> 0,5871, CSI@60 0,4517 ->
+    # 0,4596, aspetto p90@60 4,58 -> 3,30 (osservato 3,45). 0 = spento.
+    "nowcast_transport_coarse": 3,
+    # RIPRISTINO HF (2026-11-26): il trasporto a 3 km perde dettaglio fine.
+    # Unsharp DETERMINISTICO (nessun rumore) che riporta la varianza
+    # alto-pass (<~4 px) al 70% di quella dell'analisi, con crescita 20%
+    # su 90 min. Misurato sul caso 2026-11-26T13:25Z con il codice di
+    # produzione: HF 0,108/0,109/0,111/0,114 a +15/+30/+60/+90, CSI@30
+    # 0,5517, CSI@60 0,4332. La variante stocastica (STEPS) e' stata
+    # scartata: produceva un retino da Nyquist visibile.
+    "nowcast_hf_restore": {
+        "enabled": True,
+        "sigma_px": 4.0,
+        "level": 0.70,
+        "growth_per_90min": 0.20,
+    },
+    # TRONCAMENTO (2026-11-26): il rapporto d'aspetto p90 delle strutture
+    # previste supera 1,5x l'osservato a +120 (1,65x con il trasporto a
+    # 3 km: p90 5,81 contro 3,53) e a +180 arriva a 1,91x. A +90 e' 1,09x.
+    # I lead 120/150/180 sono rimossi dal prodotto.
+    "nowcast_truncation": {
+        "enabled": True,
+        "max_lead_min": 90,
+        "aspect_limit": 1.5,
+    },
     "output": {
         "out_dir": "data/radar",
         "files": ["latest.json", "storms.geojson", "tracks.json",

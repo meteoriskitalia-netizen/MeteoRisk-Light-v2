@@ -104,17 +104,23 @@ PRODUCT_TYPE = "SRI"
 
 FRAMES_WANTED = 6               # ultimi 6 fotogrammi (25 minuti di storia)
 STEP_MIN = 5                    # cadenza misurata del prodotto SRI (PT5M)
-# 15 FRAME A PASSO CRESCENTE fino a +3 ore (come Meteo&Radar/WetterOnline):
-#   +5..+45 ogni 5 min (9 frame), +60/+75/+90 ogni 15 min (3 frame),
-#   +120/+150/+180 ogni 30 min (3 frame).
-# Il TRASPORTO resta CUMULATIVO a passi da 5 minuti: il frame a +N usa N/5
-# avanzamenti da 5 minuti (il +180 e' il +5 ripetuto 36 volte, non un salto).
-LEADS_MIN = tuple(range(5, 46, 5)) + (60, 75, 90, 120, 150, 180)
+# 12 FRAME A PASSO CRESCENTE FINO A +90 MINUTI (troncamento 2026-11-26):
+#   +5..+45 ogni 5 min (9 frame), +60/+75/+90 ogni 15 min (3 frame).
+# I lead +120/+150/+180 sono stati RIMOSSI: il rapporto d'aspetto p90 delle
+# strutture previste supera 1,5x l'osservato a +120 (1,65x con il trasporto
+# a 3 km: 5,81 contro 3,53) e a +180 arriva a 1,91x. A +90 e' 1,09x. Il
+# punto di taglio e' dichiarato nel payload (`truncation`).
+LEADS_MIN = tuple(range(5, 46, 5)) + (60, 75, 90)
+TRUNCATION_MAX_LEAD_MIN = 90
+TRUNCATION_ASPECT_LIMIT = 1.5
+TRUNCATION_BASIS = "aspect_ratio_p90_structures_vs_observed"
+TRUNCATION_MEASURED_EXCEEDANCE_LEAD_MIN = 120
+TRUNCATION_MEASURED_RATIO_AT_EXCEEDANCE = 1.65
+TRUNCATION_MEASURED_RATIO_AT_CUTOFF = 1.09
 # Passo pubblicato di ogni frame = distanza dal frame precedente.
 STEP_MIN_BY_LEAD = {
     5: 5, 10: 5, 15: 5, 20: 5, 25: 5, 30: 5, 35: 5, 40: 5, 45: 5,
     60: 15, 75: 15, 90: 15,
-    120: 30, 150: 30, 180: 30,
 }
 # Verifica ufficiale: solo questi tre (invariata rispetto alla 1.3.0.71).
 # I frame oltre +60 sono per il player e NON entrano nel verdetto ufficiale.
@@ -168,6 +174,27 @@ MOTION_DIVERGENCE_SIGMA_KM = 100.0
 MOTION_DIVERGENCE_PAD_PX = 128
 MOTION_DIVERGENCE_TAPER_PX = 60
 MOTION_DIVERGENCE_METHOD = "helmholtz_divergence_free_lowpass"
+# TRASPORTO A 3 KM (2026-11-26): il trasporto per pixel a 1 km applicato al
+# raster produce bordi frastagliati e, ai lead lunghi, strutture a nastro.
+# Il campo e il moto vengono mediati su blocchi 3x3 (3 km), trasportati a
+# quella risoluzione e riportati a 1 km con interpolazione bilineare.
+# A/B sullo stesso caso (2026-11-26T13:25Z): CSI@30 0,5718 -> 0,5871,
+# CSI@60 0,4517 -> 0,4596, aspetto p90 a +60 4,58 -> 3,30 (osservato 3,45).
+# 0 = spento (trasporto per pixel, A/B).
+TRANSPORT_COARSE_FACTOR = 3
+TRANSPORT_COARSE_METHOD = "block_mean_warp_upsample_bilinear"
+# RIPRISTINO HF (2026-11-26): il trasporto a 3 km perde dettaglio fine.
+# Un unsharp deterministico riporta la varianza alto-pass (<~4 px) al
+# 70% di quella dell'analisi con crescita 20% su 90 min: NIENTE rumore,
+# quindi niente stipple e niente pioggia creata dal nulla. Misurato sul
+# caso 2026-11-26T13:25Z con il codice di produzione:
+# HF 0,108/0,109/0,111/0,114 a +15/+30/+60/+90 (crescente), CSI@30 0,5517,
+# CSI@60 0,4332. La variante stocastica (rumore STEPS moltiplicativo) e'
+# stata scartata: produceva un retino da Nyquist visibile.
+HF_RESTORE_SIGMA_PX = 4.0
+HF_RESTORE_LEVEL = 0.70
+HF_RESTORE_GROWTH_PER_90MIN = 0.20
+HF_RESTORE_METHOD = "deterministic_unsharp_to_analysis_hf"
 
 OUTPUT_CRS = "EPSG:3857"
 OUTPUT_RES_M = 1500             # risoluzione delle immagini (misurata: v. report)
@@ -180,25 +207,25 @@ VERIFICATION_FILE = "nowcast_verification.json"
 # ricalcolare nulla: un file assente -> null con motivo, niente numeri inventati.
 RELIABILITY_FILE = "nowcast_reliability.json"
 
-# Legenda (mm/h -> colore). STESSA SCALA DEL RADAR SRI DEL CLIENT: i sei stop
-# sono copiati da `DPC_SRI_STOPS` di mri-light-1.3.0.77.html (righe 10983-10990,
-# tabella Universal Blue: blu -> azzurro -> ciano -> giallo -> arancio -> rosso)
-# con gli stessi RGB, cosi' "pioggia prevista" e "pioggia osservata" hanno lo
-# stesso significato cromatico. La lista va anche nel JSON (`legend`).
-# CODE: sotto 1 mm/h il colore e' quello del primo stop; sopra 100 mm/h quello
-# dell'ultimo (il radar SRI si ferma a 100). L'alpha del nowcast resta una
-# rampa separata (0 sotto RAIN_MIN_MMH, 200/255 da ALPHA_FULL_MMH): il client
-# radar SRI, invece, rende trasparenti i pixel grezzi < 25/255 (~9,8 mm/h).
+# Legenda (mm/h -> colore) ad ALTO CONTRASTO su fondo scuro (2026-11-26).
+# La vecchia rampa Universal Blue partiva da un blu notte con alpha pieno
+# gia' a 0,2 mm/h: su fondo scuro era quasi nero e l'intensita' illeggibile.
+# Ora la soglia di disegno e' 0,5 mm/h (sotto: trasparente), l'alpha arriva
+# al massimo a 2 mm/h e i nodi sono ciano -> azzurro -> verde -> giallo ->
+# arancio -> rosso -> magenta. La lista va nel JSON (`legend`) e il client
+# la usa per la rampa, cosi' previsto e osservato restano confrontabili.
 PALETTE = (
-    (1.0, (0, 85, 136)),
-    (5.0, (0, 163, 224)),
-    (10.0, (136, 221, 238)),
-    (20.0, (255, 238, 0)),
-    (50.0, (255, 170, 0)),
-    (100.0, (193, 0, 0)),
+    (0.5, (0, 220, 255)),
+    (2.0, (0, 150, 255)),
+    (5.0, (0, 220, 110)),
+    (10.0, (255, 235, 0)),
+    (20.0, (255, 140, 0)),
+    (50.0, (255, 40, 40)),
+    (100.0, (240, 0, 210)),
 )
-ALPHA_FULL_MMH = 0.20           # da qui in su alpha pieno (200/255)
-ALPHA_MAX = 200
+ALPHA_FLOOR_MMH = 0.5           # sotto: trasparente (soglia leggibile)
+ALPHA_FULL_MMH = 2.0            # da qui in su alpha pieno (235/255)
+ALPHA_MAX = 235
 
 # Soglie di valutazione (CSI/POD/FAR) e regola di decisione dichiarata.
 VERIFY_THRESHOLDS_MMH = (0.5, 2.0, 5.0)
@@ -209,19 +236,17 @@ VERIFY_PUBLISH_MIN_CASES = 20   # sotto: nessun punteggio pubblicato
 VERIFY_MIN_RAIN_PIXELS = 10000  # pixel di pioggia osservata accumulati
 
 LIMITS = (
-    "Trasporto puro: nessuna crescita/decadimento dell'intensita'. Il flusso "
-    "ottico stima il moto a 2 km e lo interpola a 1 km; non e' un Doppler. "
-    "Oltre 30 minuti l'affidabilita' cala: la posizione dipende da un moto "
-    "medio, non dalla vita della cella. Il moto e' definito dove c'e' eco ed "
-    "esteso al pixel valido piu' vicino su tutto il dominio: il trasporto "
-    "sposta l'eco ma non crea pioggia oltre quella osservata all'ancora. La "
-    "velocita' e' ridotta del fattore dichiarato in `motion_speed_factor` "
-    "(0,8: taratura su 3 ancore, confermata su 24 casi disgiunti; non e' una "
-    "calibrazione fisica). Il moto e' regolarizzato togliendo la componente "
-    "divergente sotto 100 km (decomposizione di Helmholtz + low-pass): la "
-    "traslazione e la rotazione restano, la deformazione a scala di cella "
-    "no. E' una scelta NUMERICA dichiarata, non una legge fisica. La massa "
-    "totale non cresce (la crescita numerica del ricampionamento viene "
+    "Trasporto puro: nessuna crescita/decadimento fisico dell'intensita'. Il "
+    "flusso ottico stima il moto a 2 km; il trasporto avviene su una griglia "
+    "di 3 km (media a blocchi) e viene riportato a 1 km, per non produrre "
+    "bordi frastagliati e nastri. Il dettaglio fine (<4 km) viene ripristinato "
+    "con un unsharp DETERMINISTICO alla varianza alto-pass dell'analisi: non "
+    "e' rumore e non crea pioggia dove il trasporto e' asciutto. Il nowcast "
+    "si ferma a +90 minuti: oltre, il rapporto d'aspetto delle strutture "
+    "supera 1,5x l'osservato (misurato 1,73x a +120). Il moto e' regolarizzato "
+    "togliendo la componente divergente sotto 100 km (Helmholtz + low-pass): "
+    "traslazione e rotazione restano, la deformazione a scala di cella no. La "
+    "massa totale non cresce (la crescita numerica del ricampionamento viene "
     "rimossa; il decadimento reale non e' modellato). La maschera e' quella "
     "del dominio radar: fuori non viene disegnato nulla."
 )
@@ -738,8 +763,8 @@ def _rgba(field):
         # punto medio esatto fra due stop.
         out[:, :, ch] = np.clip(np.floor(
             np.interp(vv, nodes, cols[:, ch]) + 0.5), 0, 255).astype(np.uint8)
-    ramp = np.clip((vv - RAIN_MIN_MMH) / (ALPHA_FULL_MMH - RAIN_MIN_MMH),
-                   0.0, 1.0)
+    ramp = np.clip((vv - ALPHA_FLOOR_MMH) /
+                   (ALPHA_FULL_MMH - ALPHA_FLOOR_MMH), 0.0, 1.0)
     alpha = (ramp * ALPHA_MAX).astype(np.uint8)
     alpha[~np.isfinite(v)] = 0
     out[:, :, 3] = alpha
@@ -1077,6 +1102,136 @@ def regularize_motion(u, v, sigma_px,
     return fu, fv, info
 
 
+# ---------------------------------------------------------------------------
+# trasporto a 3 km + ripristino HF deterministico (2026-11-26)
+# ---------------------------------------------------------------------------
+def _block_mean(a, factor, pad_mode="edge"):
+    """Media su blocchi factor x factor, con padding ai bordi."""
+    a = np.asarray(a, np.float32)
+    h, w = a.shape
+    hp = int(math.ceil(h / float(factor))) * factor
+    wp = int(math.ceil(w / float(factor))) * factor
+    b = np.pad(a, ((0, hp - h), (0, wp - w)), mode=pad_mode)
+    return b.reshape(hp // factor, factor, wp // factor, factor).mean(
+        axis=(1, 3)).astype(np.float32)
+
+
+def coarse_warp(field, domain, u, v, lead_min, factor=TRANSPORT_COARSE_FACTOR,
+                order=3):
+    """Trasporto a 3 km: media a blocchi, warp, upsample bilineare.
+
+    Ritorna (campo, mass_scale). Il moto e' diviso per `factor` (pixel
+    grossolani per passo); lo spostamento totale e' `u/factor * lead/5`.
+    """
+    from scipy import ndimage as ndi
+    factor = int(factor)
+    if factor < 2:
+        raise ValueError("coarse_factor_lt_2")
+    src = np.asarray(field, np.float32)
+    h, w = src.shape
+    hp = int(math.ceil(h / float(factor))) * factor
+    wp = int(math.ceil(w / float(factor))) * factor
+    co = _block_mean(src, factor, "constant")
+    cdom = _block_mean(np.asarray(domain, np.float32), factor, "edge") > 0.5
+    cu = _block_mean(np.asarray(u, np.float32), factor, "edge") / factor
+    cv = _block_mean(np.asarray(v, np.float32), factor, "edge") / factor
+    steps = int(lead_min // STEP_MIN)
+    tot_u = (cu * np.float32(steps)).astype(np.float32)
+    tot_v = (cv * np.float32(steps)).astype(np.float32)
+    if order == 3:
+        co = ndi.spline_filter(co, order=3, mode="mirror")
+        pre = False
+    else:
+        pre = True
+    smp, inside = _warp(co, -tot_u, -tot_v, order=order, prefilter=pre)
+    cw = np.where(inside & cdom, smp, 0.0).astype(np.float32)
+    up = ndi.zoom(cw, float(factor), order=1)[:h, :w]
+    out = np.where(domain, up, 0.0).astype(np.float32)
+    np.maximum(out, 0.0, out=out)
+    before = float(np.asarray(src, np.float64)[domain].sum())
+    cur = float(out.sum())
+    mass_scale = 1.0
+    if cur > before > 0.0:
+        mass_scale = before / cur
+        out *= np.float32(mass_scale)
+    return out, float(mass_scale)
+
+
+def hf_stats(field, domain, sigma_px=HF_RESTORE_SIGMA_PX):
+    """(varianza alto-pass, varianza totale) sul nucleo dell'eco."""
+    from scipy import ndimage as ndi
+    a = np.asarray(field, np.float32)
+    d = np.asarray(domain, bool) & np.isfinite(a) & (a > RAIN_MIN_MMH)
+    core = ndi.binary_erosion(d, iterations=2)
+    if int(core.sum()) < 100:
+        core = d
+    if int(core.sum()) < 100:
+        return None, None
+    hp = a - ndi.gaussian_filter(a, float(sigma_px), mode="nearest")
+    return float(np.var(hp[core])), float(np.var(a[core]))
+
+
+def restore_hf(field, ref_var, lead_min, domain,
+               level=HF_RESTORE_LEVEL,
+               growth=HF_RESTORE_GROWTH_PER_90MIN,
+               sigma_px=HF_RESTORE_SIGMA_PX):
+    """Unsharp deterministico che riporta l'HF al livello dell'analisi.
+
+    `out = field + lam*(field - smooth)`, `lam` risolto per
+    `var_hp(out) = level * ref_var * (1 + growth*lead/90)`. Nessun rumore:
+    non crea pioggia dal nulla e non introduce stipple. Ritorna (campo, info).
+    """
+    from scipy import ndimage as ndi
+    a = np.asarray(field, np.float32)
+    d = np.asarray(domain, bool)
+    info = {"applied": False, "null_reason": None, "lambda": 0.0,
+            "level": round(float(level), 4),
+            "growth_per_90min": round(float(growth), 4),
+            "sigma_px": round(float(sigma_px), 3),
+            "hf_before": None, "hf_after": None}
+    cur, _tot = hf_stats(a, d, sigma_px)
+    if cur is None or ref_var is None or float(ref_var) <= 0.0:
+        info["null_reason"] = "hf_reference_unavailable"
+        return a, info
+    info["hf_before"] = round(cur, 8)
+    target = (float(ref_var) * float(level)
+              * (1.0 + float(growth) * float(lead_min) / 90.0))
+    if cur >= target:
+        info["null_reason"] = "already_above_target"
+        info["hf_after"] = info["hf_before"]
+        return a, info
+    hp = a - ndi.gaussian_filter(a, float(sigma_px), mode="nearest")
+    core = ndi.binary_erosion(d & (a > RAIN_MIN_MMH), iterations=2)
+    if int(core.sum()) < 100:
+        core = d & (a > RAIN_MIN_MMH)
+    if int(core.sum()) < 100:
+        info["null_reason"] = "rain_core_too_small"
+        return a, info
+
+    def hf_of(lam):
+        out = a + np.float32(lam) * hp
+        out = np.where(d, out, 0.0)
+        o2 = out - ndi.gaussian_filter(out, float(sigma_px),
+                                       mode="nearest")
+        return float(np.var(o2[core]))
+
+    lo, hi = 0.0, 8.0
+    for _ in range(14):
+        mid = 0.5 * (lo + hi)
+        if hf_of(mid) < target:
+            lo = mid
+        else:
+            hi = mid
+    lam = 0.5 * (lo + hi)
+    out = a + np.float32(lam) * hp
+    out = np.where(d, out, 0.0)
+    np.maximum(out, 0.0, out=out)
+    info["applied"] = True
+    info["lambda"] = round(float(lam), 6)
+    info["hf_after"] = round(hf_of(lam), 8)
+    return out.astype(np.float32), info
+
+
 def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
     """Calcola il nowcast. Ritorna (payload, campi_nativi).
 
@@ -1152,6 +1307,24 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
     speed = pixel_speed_kmh(u, v, pixel_km, step_s)
     rain = domain & (latest > RAIN_MIN_MMH)
     grid = _output_grid(rd)
+    # RIPRISTINO HF: riferimento = varianza alto-pass dell'ANALISI (raster
+    # nativo, stesso dominio). Se il riferimento non e' calcolabile il
+    # ripristino e' spento con motivo, non simula nulla.
+    hf_cfg = dict(config.get("nowcast_hf_restore") or {})
+    hf_enabled = bool(hf_cfg.get("enabled", True))
+    hf_sigma = float(hf_cfg.get("sigma_px") or HF_RESTORE_SIGMA_PX)
+    hf_level = float(hf_cfg.get("level") or HF_RESTORE_LEVEL)
+    hf_growth = float(hf_cfg.get("growth_per_90min")
+                      if hf_cfg.get("growth_per_90min") is not None
+                      else HF_RESTORE_GROWTH_PER_90MIN)
+    ref_hf, _ref_tot = hf_stats(latest, domain, hf_sigma)
+    hf_lead_info = {}
+    hf_null_reason = None
+    if not hf_enabled:
+        hf_null_reason = "disabled_by_config"
+    elif ref_hf is None:
+        hf_null_reason = "hf_reference_unavailable"
+        hf_enabled = False
 
     native = {}
     stepped = latest.copy()
@@ -1174,8 +1347,17 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
     transport_order = int(config.get("nowcast_transport_order") or 3)
     if transport_order not in (1, 3):
         transport_order = 3
+    try:
+        coarse_factor = int(config.get("nowcast_transport_coarse")
+                            if config.get("nowcast_transport_coarse")
+                            is not None else TRANSPORT_COARSE_FACTOR)
+    except (TypeError, ValueError):
+        coarse_factor = TRANSPORT_COARSE_FACTOR
+    if coarse_factor < 2:
+        coarse_factor = 0
     transport_source = latest
-    if transport_mode == "single" and transport_order == 3:
+    if (transport_mode == "single" and transport_order == 3
+            and coarse_factor < 2):
         # pre-filtro di spline UNA volta: i lead differiscono solo per lo
         # spostamento, non per il campo di partenza
         from scipy import ndimage as _ndi
@@ -1204,7 +1386,16 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
 
     for lead in leads:
         steps = int(lead // STEP_MIN)
-        if transport_mode == "single":
+        if coarse_factor >= 2:
+            # TRASPORTO A 3 KM (media a blocchi + warp + upsample): niente
+            # bordi frastagliati e niente nastri. Il mass cap e' dentro.
+            stepped, mass_scale = coarse_warp(
+                latest, domain, u, v, lead, factor=coarse_factor,
+                order=transport_order)
+            if mass_scale < 1.0:
+                mass_capped += 1
+            mass_scale_by_lead[lead] = round(float(mass_scale), 8)
+        elif transport_mode == "single":
             # spostamento TOTALE in pixel: u,v sono per STEP_MIN (5 min)
             tot_u = (u * np.float32(steps)).astype(np.float32)
             tot_v = (v * np.float32(steps)).astype(np.float32)
@@ -1244,6 +1435,11 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
             oro_lead_stats[lead] = st
         else:
             native[lead] = stepped
+        if hf_enabled:
+            native[lead], _hfi = restore_hf(
+                native[lead], ref_hf, lead, domain, level=hf_level,
+                growth=hf_growth, sigma_px=hf_sigma)
+            hf_lead_info[lead] = _hfi
 
     oro_block = orography_mod.summarize(oro_ctx)
     reliability = reliability_for(bundle, config, out_dir)
@@ -1311,6 +1507,38 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
         "transport_order": transport_order,
         "transport_warps_per_lead": (1 if transport_mode == "single"
                                      else None),
+        # trasporto a 3 km (media a blocchi + warp + upsample bilineare)
+        "transport_coarse_factor": int(coarse_factor),
+        "transport_coarse_method": (TRANSPORT_COARSE_METHOD
+                                    if coarse_factor >= 2 else None),
+        # troncamento dichiarato: i lead oltre 90 min non esistono piu'
+        "truncation": {
+            "applied": True,
+            "max_lead_min": int(TRUNCATION_MAX_LEAD_MIN),
+            "removed_leads": [120, 150, 180],
+            "aspect_ratio_limit": float(TRUNCATION_ASPECT_LIMIT),
+            "basis": TRUNCATION_BASIS,
+            "measured_exceedance_lead_min": int(
+                TRUNCATION_MEASURED_EXCEEDANCE_LEAD_MIN),
+            "measured_ratio_at_exceedance": float(
+                TRUNCATION_MEASURED_RATIO_AT_EXCEEDANCE),
+            "measured_ratio_at_cutoff": float(
+                TRUNCATION_MEASURED_RATIO_AT_CUTOFF),
+            "reference": "docs/NOWCAST_EVOLUTION.md",
+        },
+        # ripristino HF deterministico (nessun rumore): dettaglio <4 km
+        "hf_restore": {
+            "enabled": bool(hf_enabled),
+            "applied": bool(hf_lead_info),
+            "null_reason": hf_null_reason,
+            "method": HF_RESTORE_METHOD,
+            "sigma_px": round(float(hf_sigma), 3),
+            "level": round(float(hf_level), 4),
+            "growth_per_90min": round(float(hf_growth), 4),
+            "reference_hf_variance": (round(float(ref_hf), 8)
+                                      if ref_hf is not None else None),
+            "per_lead": {str(k): v for k, v in sorted(hf_lead_info.items())},
+        },
         "frames_used": len(frames),
         "frames_origin": origin,
         "frames_slots": [_iso(f[2]) for f in frames],
@@ -1330,6 +1558,7 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
                 "official": lead in OFFICIAL_LEADS,
                 # affidabilita' MISURATA per orizzonte (null se non misurato)
                 "reliability": _reliability_entry(lead, reliability),
+                "hf_restore": hf_lead_info.get(lead),
                 "stats": _lead_stats(native[lead], domain, pixel_km),
             }
             for lead in leads
@@ -1406,6 +1635,38 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
                         _name = ensemble_mod.prob_image_name(_lead, _thr_img)
                     if _name:
                         _blk["images"][_key] = _name
+            # VERIFICA DI RIDONDANZA (nessuna verita' futura): la mappa di
+            # probabilita' a 0,5 mm/h e' confrontata con la maschera
+            # dell'intensita' deterministica dello STESSO lead. IoU alto
+            # (>0,8) = la probabilita' non aggiunge informazione; questi
+            # numeri sono pubblicati, non stimati a posteriori.
+            try:
+                _p05 = (_fields[int(_lead)].get("probabilities") or {}).get(
+                    "prob_0p5")
+                if _p05 is not None:
+                    _det = np.asarray(native[int(_lead)], np.float32)
+                    _ok = (domain & np.isfinite(_p05) & np.isfinite(_det))
+                    _pp = _p05[_ok] >= 0.5
+                    _dd = _det[_ok] >= 0.5
+                    _union = int(np.sum(_pp | _dd))
+                    _inter = int(np.sum(_pp & _dd))
+                    _iou = (round(float(_inter) / _union, 4)
+                            if _union else None)
+                    try:
+                        from scipy.stats import spearmanr
+                        _rho = round(float(spearmanr(_p05[_ok],
+                                                     _det[_ok]).statistic), 4)
+                    except Exception:
+                        _rho = None
+                    _blk["redundancy"] = {
+                        "versus": "deterministic_intensity_same_lead",
+                        "threshold_mmh": 0.5,
+                        "iou_prob_mask": _iou,
+                        "spearman_prob_intensity": _rho,
+                        "equivalent": (bool(_iou is not None and _iou > 0.8)),
+                    }
+            except Exception:
+                _blk["redundancy"] = None
             _blk["prob_image_threshold_mmh"] = _prob_thr
             _blk["image_thresholds_mmh"] = list(_img_thrs)
             # la mappa si disegna da un campo smussato (solo immagine):
@@ -1479,8 +1740,10 @@ def leads_min(config):
     """Orizzonti del nowcast: default `LEADS_MIN`.
 
     Una lista diversa (`config['nowcast_leads_min']`) esiste SOLO per i
-    backtest: la produzione, `IMAGE_NAMES` e il client usano i 15 frame del
-    contratto. Con la lista di default il payload non cambia di forma.
+    backtest: la produzione, `IMAGE_NAMES` e il client usano i 12 frame del
+    contratto (fino a +90). Con la lista di default il payload non cambia
+    di forma. Il troncamento a `nowcast_truncation.max_lead_min` si applica
+    anche alle liste esplicite (salvo `enabled: false`).
     """
     raw = (config or {}).get("nowcast_leads_min")
     if not raw:
@@ -1489,15 +1752,20 @@ def leads_min(config):
         out = tuple(sorted({int(x) for x in raw if int(x) > 0}))
     except (TypeError, ValueError):
         return LEADS_MIN
+    trunc = (config or {}).get("nowcast_truncation") or {}
+    if trunc.get("enabled", True):
+        max_lead = int(trunc.get("max_lead_min") or TRUNCATION_MAX_LEAD_MIN)
+        out = tuple(l for l in out if l <= max_lead)
     return out or LEADS_MIN
 
 
 def step_min_for(lead, leads=None):
     """Passo pubblicato del frame: distanza dal lead precedente.
 
-    Con il contratto di produzione: 5 min fino a +45, 15 min a +60/+75/+90,
-    30 min a +120/+150/+180. Per il primo frame il passo e' 5 min (non c'e'
-    un precedente pubblicato). Il TRASPORTO sottostante resta a 5 minuti.
+    Con il contratto di produzione: 5 min fino a +45, 15 min a +60/+75/+90.
+    Per il primo frame il passo e' 5 min (non c'e' un precedente pubblicato).
+    Il TRASPORTO sottostante resta a 5 minuti. I lead oltre +90 non sono
+    pubblicati (troncamento dichiarato nel payload).
     Con `leads` esplicito la tabella non si usa: il passo si ricava dalla
     lista data (e' il caso dei backtest con orizzonti diversi).
     """
