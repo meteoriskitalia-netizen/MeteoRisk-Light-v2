@@ -107,7 +107,7 @@
  */
 'use strict';
 
-var CACHE_NAME = 'mri-1.3.0.85-r2';
+var CACHE_NAME = 'mri-1.3.0.85';
 var TILE_CACHE = 'mri-tiles-1.3.0.68';
 var FRAME_CACHE = 'mri-frames-1.3.0.68';
 var APP_CACHES = [CACHE_NAME, TILE_CACHE, FRAME_CACHE];
@@ -722,4 +722,5 @@ self.addEventListener('fetch', function (event) {
     if (nav) { event.respondWith(networkFirst(request, event)); return; }
     // Tutto il resto (stations, phenomena, dati meteo locali, CDN JS): network.
 });
+
 
