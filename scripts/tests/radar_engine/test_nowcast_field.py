@@ -14,11 +14,13 @@ Coprono i vincoli dichiarati nel modulo:
 """
 
 import json
+import math
 import os
 import sys
 
 import numpy as np
 import pytest
+from scipy import ndimage
 
 from radar_engine import clock as clock_mod
 from radar_engine import main as main_mod
@@ -377,15 +379,19 @@ def test_output_json_and_webp(tmp_path):
 
 
 def test_frames_are_cumulative_and_coherent(tmp_path):
-    """Il +10 e' il +5 avanzato di altri 5 minuti, non un trasporto nuovo."""
+    """Con `transport_mode="steps"` (A/B) il +10 e' il +5 avanzato di 1 passo.
+
+    Il default di produzione e' invece lo spostamento COMPOSTO: qui si fissa
+    esplicitamente il vecchio schema per non perderne la copertura.
+    """
     rasters, domain = _moving_frames(tmp_path, n=3, dx=1)
     bundle = _Bundle(rasters)
-    payload, native = nf.compute(bundle, _config(tmp_path),
+    cfg = _config(tmp_path)
+    cfg["nowcast_transport_mode"] = "steps"
+    payload, native = nf.compute(bundle, cfg,
                                  clock_mod.Clock.at_ms(T0 + 2 * STEP_MS),
                                  bundle.warnings)
     assert payload["available"] is True
-    frames = [(nf._rain_array(r)[0], nf._rain_array(r)[1], int(r.time_ms))
-              for r in rasters]
     # il campo di moto EFFETTIVO del run (dopo cap, riempimento, smoothing e
     # estensione a tutto il dominio)
     u, v = native["_motion"]
@@ -400,6 +406,41 @@ def test_frames_are_cumulative_and_coherent(tmp_path):
     assert np.allclose(expect(3, 20), native[20], rtol=1e-5, atol=1e-4)
     # il +180 e' il +5 avanzato di altri 35 passi (36 totali), non un salto
     assert np.allclose(expect(35, 180), native[180], rtol=1e-5, atol=1e-4)
+
+
+def test_composite_shift_is_one_interpolation(tmp_path):
+    """Default: ogni lead e' UNA interpolazione sullo spostamento totale.
+
+    Il campo a +L e' il frame osservato campionato in x - v*L, non il
+    risultato di L/5 ricampionamenti: la ripetizione del filtro bilineare e'
+    la sorgente delle bande periodiche allineate al moto.
+    """
+    rasters, domain = _moving_frames(tmp_path, n=3, dx=1)
+    bundle = _Bundle(rasters)
+    cfg = _config(tmp_path)
+    assert cfg.get("nowcast_transport_mode") == "single"
+    payload, native = nf.compute(bundle, cfg,
+                                 clock_mod.Clock.at_ms(T0 + 2 * STEP_MS),
+                                 bundle.warnings)
+    assert payload["available"] is True
+    assert payload["transport_mode"] == "single"
+    assert payload["transport_order"] == 3          # cubico (letteratura)
+    latest = nf._rain_array(rasters[-1])[0]
+    u, v = native["_motion"]
+    scale = native["_mass_scale"]
+    dom = np.asarray(native["_domain"], dtype=bool)
+    for lead in (10, 20, 180):
+        steps = lead // nf.STEP_MIN
+        smp, inside = nf._warp(latest, -(u * np.float32(steps)),
+                               -(v * np.float32(steps)),
+                               order=payload["transport_order"])
+        one = np.where(inside & dom, smp, 0.0).astype(np.float32)
+        if scale[lead] != 1.0:
+            one = one * np.float32(scale[lead])
+        assert np.allclose(one, native[lead], rtol=1e-5, atol=1e-4), lead
+    # il composto e' diverso dal sequenziale a +30 (6 passi)
+    seq = nf.semi_lagrangian(latest, u, v, 6, dom)
+    assert not np.allclose(seq, native[30], rtol=1e-3, atol=1e-3)
 
 
 def test_step_min_for_growing_leads():
@@ -648,3 +689,81 @@ def test_aggregate_hides_scores_on_small_sample():
     assert big["status"] == "ok"
     assert big["leads"]["15|0.5"]["nowcast"]["csi"] == pytest.approx(
         10 / 15.0, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# 12. trasporto: un solo warp, texture e posizione (regressione del pettine)
+# ---------------------------------------------------------------------------
+def _texture_field(h=192, w=192, seed=3):
+    """Campo sintetico con struttura e texture a banda limitata."""
+    rng = np.random.default_rng(seed)
+    yy, xx = np.mgrid[0:h, 0:w]
+    f = np.zeros((h, w), np.float32)
+    for _ in range(8):
+        cx, cy = rng.uniform(40, h - 40, 2)
+        s = rng.uniform(6, 16)
+        f += rng.uniform(3, 10) * np.exp(
+            -((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * s * s))
+    noise = ndimage.gaussian_filter(rng.standard_normal((h, w)), 2.5)
+    f += (noise / noise.std() * 0.25) * (f > 1)
+    return np.clip(f, 0, None).astype(np.float32)
+
+
+def _hf_energy(a):
+    from scipy import ndimage as ndi
+    return float(np.var(ndi.laplace(a)))
+
+
+def _nyquist_fraction(a):
+    h, w = a.shape
+    p = np.abs(np.fft.fft2(a - a.mean())) ** 2
+    fy = np.fft.fftfreq(h)[:, None]
+    fx = np.fft.fftfreq(w)[None, :]
+    k = np.hypot(fx, fy)
+    tot = p[(k > 0.02) & (k <= 0.5)].sum()
+    return float(p[(k >= 0.40) & (k <= 0.5)].sum() / max(tot, 1e-30))
+
+
+def _centroid(a):
+    yy, xx = np.mgrid[0:a.shape[0], 0:a.shape[1]]
+    tot = float(a.sum())
+    return (float((a * yy).sum() / tot), float((a * xx).sum() / tot))
+
+
+def test_composite_shift_keeps_texture_and_position():
+    """Un warp cubico conserva HF e posizione; la catena di passi no.
+
+    Misura su un campo sintetico a banda limitata (nessuna rete): la catena
+    di 6/12 ricampionamenti bilineari perde il 82-87% dell'energia HF, il
+    warp unico cubico il 12-29%. La deriva del baricentro e' < 0,5 px.
+    """
+    base = _texture_field()
+    dom = np.ones(base.shape, dtype=bool)
+    h, w = base.shape
+    u = np.full((h, w), 2.15, np.float32)
+    v = np.full((h, w), -1.30, np.float32)
+    c0 = _centroid(base)
+    hf0 = _hf_energy(base)
+    ny0 = _nyquist_fraction(base)
+    for steps in (6, 12):
+        one, inside = nf._warp(base, -(u * steps), -(v * steps), order=3)
+        one = np.where(inside & dom, one, 0.0)
+        seq = nf.semi_lagrangian(base, u, v, steps, dom)
+        # 1) niente deriva da arrotondamento: il baricentro si sposta quanto
+        #    il vettore (entro mezzo pixel)
+        exp = (steps * math.hypot(2.15, 1.30))
+        c1 = _centroid(one)
+        drift = math.hypot(c1[1] - c0[1], c1[0] - c0[0])
+        assert abs(drift - exp) < 0.5, (steps, drift, exp)
+        # 2) il warp unico conserva la texture, la catena la distrugge
+        assert _hf_energy(one) / hf0 > 0.60, steps
+        assert _hf_energy(seq) / hf0 < 0.25, steps
+        ratio_one = _nyquist_fraction(one) / max(ny0, 1e-12)
+        ratio_seq = _nyquist_fraction(seq) / max(ny0, 1e-12)
+        # 3) nessun aliasing: il forecast non supera 2x l'osservato
+        assert ratio_one < 2.0, (steps, ratio_one)
+        # 4) la catena ha perso anche la banda di Nyquist (campo "mousse")
+        assert ratio_seq < 0.5 * ratio_one, (steps, ratio_seq, ratio_one)
+        # 5) il composto e' diverso dal sequenziale ma non un salto di fase
+        assert not np.allclose(one, seq, rtol=1e-3, atol=1e-3)
+        assert np.abs(one - seq)[dom].mean() < 0.05 * base[dom].mean()

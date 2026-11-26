@@ -469,3 +469,67 @@ def test_run_writes_probability_webp(tmp_path):
     nf.run(_Bundle(rasters), cfg_off, out_off)
     assert not os.path.exists(
         os.path.join(out_off, ne.PROB_IMAGE_NAMES[nf.OFFICIAL_LEADS[0]]))
+
+
+# ---------------------------------------------------------------------------
+# immagine di probabilita': il pettine e' la quantizzazione a 1/20, non il
+# campo. La mappa si disegna da un campo smussato; il dato non si tocca.
+# ---------------------------------------------------------------------------
+def _fan_prob(h=160, w=160, members=20, step_px=1.2):
+    """Probabilita' sintetica con 20 livelli (un eco piccolo, 20 membri)."""
+    yy, xx = np.mgrid[0:h, 0:w]
+    p = np.zeros((h, w), np.float32)
+    for k in range(members):
+        p += (np.exp(-(((yy - 80) ** 2 + (xx - 50 + step_px * k) ** 2)
+                       / (2 * 6.0 ** 2))) > 0.5)
+    return (p / float(members)).astype(np.float32)
+
+
+def _hf_fraction_lum(prob, tile=64):
+    """Frazione di energia ad alta frequenza della LUMINANZA disegnata."""
+    from scipy import ndimage as ndi
+    rgba = ne.probability_rgba(prob).astype(np.float32)
+    lum = (0.299 * rgba[:, :, 0] + 0.587 * rgba[:, :, 1]
+           + 0.114 * rgba[:, :, 2])
+    h, w = lum.shape
+    win = np.outer(np.hanning(tile), np.hanning(tile))
+    acc = None
+    n = 0
+    for r in range(0, h - tile + 1, tile // 2):
+        for c in range(0, w - tile + 1, tile // 2):
+            t = (lum[r:r + tile, c:c + tile]
+                 - lum[r:r + tile, c:c + tile].mean()) * win
+            q = np.abs(np.fft.fft2(t)) ** 2
+            acc = q if acc is None else acc + q
+            n += 1
+    acc /= max(n, 1)
+    fy = np.fft.fftfreq(tile)[:, None]
+    fx = np.fft.fftfreq(tile)[None, :]
+    k = np.hypot(fx, fy)
+    tot = acc[(k >= 0.02) & (k <= 0.5)].sum()
+    return float(acc[(k >= 0.10) & (k <= 0.5)].sum() / max(tot, 1e-30))
+
+
+def test_prob_image_smoothing_kills_the_comb_and_keeps_the_data(tmp_path):
+    from scipy import ndimage as ndi
+    p = _fan_prob()
+    before = p.copy()
+    hf_raw = _hf_fraction_lum(p)
+    sm = ndi.gaussian_filter(p, ne.PROB_IMAGE_SMOOTH_PX, mode="nearest")
+    hf_sm = _hf_fraction_lum(sm)
+    assert ne.PROB_IMAGE_SMOOTH_PX > 0.0
+    assert len(np.unique(p)) > 8            # livelli 1/20, non un campo liscio
+    # ------- il pettine (gradini di 0,05 resi a colori) crolla
+    assert hf_raw > 0.08, hf_raw
+    assert hf_sm < 0.5 * hf_raw, (hf_raw, hf_sm)
+    # ------- il DATO non viene filtrato: write_prob_webp non modifica p
+    path = tmp_path / "p.webp"
+    size = ne.write_prob_webp(str(path), p)
+    assert size > 0
+    assert path.read_bytes()[:4] == b"RIFF"
+    assert np.array_equal(p, before)
+    # ------- smooth_px=0 riproduce il campo grezzo (per l'A/B)
+    raw = tmp_path / "raw.webp"
+    ne.write_prob_webp(str(raw), p, smooth_px=0.0)
+    assert raw.read_bytes() != path.read_bytes()
+    assert _hf_fraction_lum(p) == hf_raw

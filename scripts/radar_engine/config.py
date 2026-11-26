@@ -906,6 +906,19 @@ CONFIG = {
         "noise_support": "echo",           # "echo" | "domain" (A/B)
         "fft_workers": 1,                  # 1 = replay deterministico
     },
+    # TRASPORTO DEL CAMPO DETERMINISTICO (2026-11-26).
+    # "single" = spostamento COMPOSTO: una sola interpolazione per lead
+    # (campo iniziale campionato in x - v*lead), come Germann & Zawadzki
+    # 2002/2003 ("interpolate once"). "steps" = vecchio schema
+    # semi-Lagrangiano a passi di 5 minuti, tenuto solo per l'A/B: ripete il
+    # filtro 6 volte a +30 e 12 a +60 e degrada lo spettro a catena
+    # (HF residua 0,18/0,13 contro 0,88/0,71 del warp unico cubico, misurata
+    # il 2026-11-26 su un campo sintetico a banda limitata).
+    # `order` = 1 bilineare (nessun overshoot), 3 cubico (raccomandato: e'
+    # l'interpolazione di ordine superiore citata dalla letteratura e
+    # conserva la texture; nessuna deriva di posizione: 0,00 px misurati).
+    "nowcast_transport_mode": "single",
+    "nowcast_transport_order": 3,
     "output": {
         "out_dir": "data/radar",
         "files": ["latest.json", "storms.geojson", "tracks.json",

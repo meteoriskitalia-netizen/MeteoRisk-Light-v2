@@ -184,13 +184,22 @@ def evaluate_case(cache, config, anchor_ms, leads):
         o = np.asarray(obs, dtype=np.float64)[mask]
         row = {"status": "ok", "rain_pixels": n_rain,
                "domain_pixels": int(mask.sum()),
-               "brier": {}, "bins": {}}
+               "brier": {}, "bins": {}, "det": {}}
+        # CONTEGGI DEL DETERMINISTICO (non della probabilita'): servono a
+        # escludere regressioni di CSI/POD/FAR/bias introdotte dal cambio di
+        # trasporto, sugli stessi casi e la stessa maschera.
+        det = np.asarray(native[lead], dtype=np.float64)[mask]
         for thr in THRESHOLDS:
             key = "prob_%s" % _thr_key(thr)
             if key not in probs:
                 continue
             p = np.asarray(probs[key], dtype=np.float64)[mask]
             ob = (o >= float(thr)).astype(np.float64)
+            hit = int(((det >= thr) & (ob > 0.5)).sum())
+            miss = int(((det < thr) & (ob > 0.5)).sum())
+            fa = int(((det >= thr) & (ob <= 0.5)).sum())
+            row["det"][str(thr)] = {"hit": hit, "miss": miss, "fa": fa,
+                                    "n": int(ob.size)}
             row["brier"][str(thr)] = {
                 "bs": round(float(np.mean((p - ob) ** 2)), 6),
                 "base_rate": round(float(ob.mean()), 6),
@@ -351,6 +360,45 @@ def aggregate(cases, days, leads):
             "fraction": round(n_pass / float(len(vals)), 4) if vals else None,
             "passes": bool(vals and n_pass / float(len(vals))
                            >= MIN_DAYS_PASS_FRACTION)}
+
+    # CSI/POD/FAR/bias del DETERMINISTICO (stessi casi, stessa maschera)
+    det_acc = {}
+    for case in cases:
+        if case.get("status") != "ok":
+            continue
+        for lead in leads:
+            row = (case.get("leads") or {}).get(str(lead)) or {}
+            if row.get("status") != "ok":
+                continue
+            for thr in THRESHOLDS:
+                d = (row.get("det") or {}).get(str(thr))
+                if not d:
+                    continue
+                acc = det_acc.setdefault(str(thr), {}).setdefault(
+                    str(lead), {"hit": 0, "miss": 0, "fa": 0, "n": 0})
+                for k in ("hit", "miss", "fa", "n"):
+                    acc[k] += int(d.get(k) or 0)
+    det_scores = {}
+    for thr in THRESHOLDS:
+        det_scores[str(thr)] = {}
+        for lead in leads:
+            acc = (det_acc.get(str(thr)) or {}).get(str(lead))
+            if not acc or not acc["n"]:
+                det_scores[str(thr)][str(lead)] = None
+                continue
+            hit, miss, fa = acc["hit"], acc["miss"], acc["fa"]
+            cn = acc["n"] - hit - miss - fa
+            den_csi = hit + miss + fa
+            den_pod = hit + miss
+            den_far = hit + fa
+            det_scores[str(thr)][str(lead)] = {
+                "hit": hit, "miss": miss, "false_alarms": fa,
+                "correct_negatives": int(cn), "n": acc["n"],
+                "csi": round(hit / float(den_csi), 6) if den_csi else None,
+                "pod": round(hit / float(den_pod), 6) if den_pod else None,
+                "far": round(fa / float(den_far), 6) if den_far else None,
+                "bias": round((hit + fa) / float(den_pod), 6) if den_pod
+                        else None}
 
     # reliability pooled (tutti i lead e casi)
     reliability = {}
@@ -522,7 +570,8 @@ def aggregate(cases, days, leads):
     return {"base_rate": base_rate, "brier": brier,
             "bss_by_day": day_rows, "bss_days": pass_counts,
             "reliability": reliability, "crps": crps_block,
-            "spread_skill": ss_block, "criteria": criteria,
+            "spread_skill": ss_block, "det": det_scores,
+            "criteria": criteria,
             "passes": passed}
 
 
@@ -532,6 +581,12 @@ def main(argv=None):
     ap.add_argument("--anchors", default=",".join(DEFAULT_ANCHORS))
     ap.add_argument("--leads", default=",".join(str(x) for x in LEADS))
     ap.add_argument("--max-cases", type=int, default=0)
+    # A/B del trasporto deterministico: "steps" e' il vecchio schema a passi
+    # di 5 minuti, "single" lo spostamento composto (default di produzione).
+    ap.add_argument("--transport-mode", default=None,
+                    choices=("single", "steps"))
+    ap.add_argument("--transport-order", type=int, default=None,
+                    choices=(1, 3))
     ap.add_argument("--motion-inflation", type=float, default=1.0)
     ap.add_argument("--noise-inflation", type=float, default=1.0)
     ap.add_argument("--out", default="audit/nowcast_ensemble_backtest.json")
@@ -546,6 +601,10 @@ def main(argv=None):
     config["source"]["fetch_workers"] = int(
         config["source"].get("fetch_workers") or 6)
     config["nowcast_leads_min"] = tuple(nf.LEADS_MIN)
+    if args.transport_mode:
+        config["nowcast_transport_mode"] = args.transport_mode
+    if args.transport_order:
+        config["nowcast_transport_order"] = args.transport_order
     cascade = dict(config.get("cascade") or {})
     cascade["enabled"] = True
     cascade["probability_matching"] = True

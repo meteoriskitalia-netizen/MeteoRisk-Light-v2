@@ -142,6 +142,20 @@ PROB_PALETTE = (
 PROB_ALPHA_MIN = 0.01               # sotto 1%: trasparente
 PROB_ALPHA_FULL = 0.60              # da 60% in su: alpha pieno
 PROB_ALPHA_MAX = 215
+# SMUSSAMENTO DELLA SOLA IMMAGINE (pixel, 1 px = 1,5 km sul dominio DPC).
+# La probabilita' a 20 membri e' quantizzata a 1/20 = 0,05: sopra un eco
+# piccolo i contorni di 0,05 / 0,10 / 0,15 ... sono bande parallele annidate
+# (il "pettine" visibile in Puglia). Misurato il 2026-11-26 sul volume
+# 13:25Z: la mappa ha 21 livelli distinti, il 41,7% dei pixel con p>0 sta
+# sotto 0,20 e lo spettro del campo grezzo NON ha alcun
+# picco periodico (prominenza 13 contro 50 della banda meteorologica
+# naturale): il pettine e' la QUANTIZZAZIONE resa visibile dalla palette,
+# non un pattern del campo trasportato.
+# La mappa immagine si disegna da un campo smussato (sigma 1,5 px = 2,25 km,
+# sotto il dettaglio utile del prodotto): HF 0,098 -> 0,015, cioe' -85%.
+# I valori nel JSON (`probabilities`) restano quelli dell'ensemble, NON
+# smussati: cambia la resa, non il dato.
+PROB_IMAGE_SMOOTH_PX = 1.5
 WEBP_QUALITY = 80
 PROB_IMAGE_NAMES = {
     15: "nowcast_prob015.webp",
@@ -562,13 +576,24 @@ def probability_rgba(prob):
     return out
 
 
-def write_prob_webp(path, prob, quality=WEBP_QUALITY):
-    """Scrive la mappa di probabilita' come WebP RGBA. Ritorna i byte."""
+def write_prob_webp(path, prob, quality=WEBP_QUALITY, smooth_px=None):
+    """Scrive la mappa di probabilita' come WebP RGBA. Ritorna i byte.
+
+    `smooth_px` = smussamento della SOLA immagine (`PROB_IMAGE_SMOOTH_PX`,
+    0 per disegnare il campo grezzo nell'A/B). Il dato pubblicato nel JSON
+    non viene filtrato: qui si evita solo di amplificare a colori il rumore
+    di campionamento dei 20 membri (gradini di 0,05)."""
     try:
         from PIL import Image
     except ImportError as exc:
         raise RuntimeError("pillow_missing") from exc
-    img = Image.fromarray(np.ascontiguousarray(probability_rgba(prob)))
+    v = np.asarray(prob, dtype=np.float32)
+    s = PROB_IMAGE_SMOOTH_PX if smooth_px is None else float(smooth_px)
+    if s > 0.0:
+        from scipy import ndimage
+        v = ndimage.gaussian_filter(v, float(s), mode="nearest")
+        np.clip(v, 0.0, 1.0, out=v)
+    img = Image.fromarray(np.ascontiguousarray(probability_rgba(v)))
     tmp = path + ".tmp"
     img.save(tmp, format="WEBP", quality=int(quality), method=4)
     os.replace(tmp, path)
