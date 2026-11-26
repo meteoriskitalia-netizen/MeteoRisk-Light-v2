@@ -767,3 +767,84 @@ def test_composite_shift_keeps_texture_and_position():
         # 5) il composto e' diverso dal sequenziale ma non un salto di fase
         assert not np.allclose(one, seq, rtol=1e-3, atol=1e-3)
         assert np.abs(one - seq)[dom].mean() < 0.05 * base[dom].mean()
+
+# ---------------------------------------------------------------------------
+# regolarizzazione divergence-free del moto (2026-11-26)
+# ---------------------------------------------------------------------------
+def _divergence(a, b):
+    ay, ax = np.gradient(np.asarray(a, np.float32))
+    by, bx = np.gradient(np.asarray(b, np.float32))
+    return ax + by
+
+
+def test_regularize_motion_removes_small_scale_divergence():
+    """La divergenza a scala di cella sparisce; traslazione e rotazione no."""
+    h = w = 160
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    yc, xc = yy - h / 2.0, xx - w / 2.0
+    # divergenza LOCALIZZATA a scala ~8 px (quella che deforma una cella),
+    # non un ramp a scala di griglia che il low-pass deve giustamente tenere
+    g = np.exp(-(xc ** 2 + yc ** 2) / (2.0 * 8.0 ** 2))
+    u = 0.01 * xc * g + 1.5
+    v = 0.01 * yc * g - 0.5
+    reg_u, reg_v, info = nf.regularize_motion(u, v, sigma_px=30.0)
+    assert info["applied"] is True
+    assert info["divergence_reduction"] is not None
+    before = np.abs(_divergence(u, v)[20:-20, 20:-20]).mean()
+    after = np.abs(_divergence(reg_u, reg_v)[20:-20, 20:-20]).mean()
+    assert after < 0.25 * before, (before, after)
+    # la traslazione media resta
+    assert abs(float(reg_u.mean()) - float(u.mean())) < 0.02
+    assert abs(float(reg_v.mean()) - float(v.mean())) < 0.02
+    # una rotazione pura (divergenza 0) resta quasi identica all'interno
+    ur = -0.01 * yc + 1.5
+    vr = 0.01 * xc - 0.5
+    rr_u, rr_v, _ = nf.regularize_motion(ur, vr, sigma_px=30.0)
+    assert np.abs(rr_u - ur)[20:-20, 20:-20].mean() < 0.05
+    assert np.abs(rr_v - vr)[20:-20, 20:-20].mean() < 0.05
+
+
+def test_regularize_motion_sigma_zero_is_identity():
+    """sigma 0 = A/B: il campo non viene toccato e il motivo e' dichiarato."""
+    u = np.arange(64, dtype=np.float32).reshape(8, 8)
+    v = -u
+    reg_u, reg_v, info = nf.regularize_motion(u, v, sigma_px=0.0)
+    assert info["applied"] is False
+    assert info["null_reason"] == "sigma_zero"
+    assert np.array_equal(reg_u, u)
+    assert np.array_equal(reg_v, v)
+
+
+def test_compute_publishes_motion_regularization(tmp_path):
+    """Il payload dichiara la regolarizzazione e la divergenza residua."""
+    rasters, domain = _moving_frames(tmp_path, n=3, dx=1)
+    bundle = _Bundle(rasters)
+    cfg = _config(tmp_path)
+    payload, native = nf.compute(bundle, cfg,
+                                 clock_mod.Clock.at_ms(T0 + 2 * STEP_MS),
+                                 bundle.warnings)
+    assert payload["available"] is True
+    reg = payload["motion_regularization"]
+    assert reg["method"] == "helmholtz_divergence_free_lowpass"
+    assert reg["applied"] is True
+    assert reg["sigma_km"] == nf.MOTION_DIVERGENCE_SIGMA_KM
+    assert reg["divergence_after"]["mean_abs"] is not None
+    # su un blob quasi rigido la divergenza non deve crescere
+    assert (reg["divergence_after"]["mean_abs"]
+            <= reg["divergence_before"]["mean_abs"] + 1e-6)
+    assert "Helmholtz" in payload["limits"]
+
+
+def test_compute_motion_regularization_can_be_disabled(tmp_path):
+    """`nowcast_motion_divergence_sigma_km = 0` riproduce il vecchio moto."""
+    rasters, domain = _moving_frames(tmp_path, n=3, dx=1)
+    bundle = _Bundle(rasters)
+    cfg = _config(tmp_path)
+    cfg["nowcast_motion_divergence_sigma_km"] = 0
+    payload, native = nf.compute(bundle, cfg,
+                                 clock_mod.Clock.at_ms(T0 + 2 * STEP_MS),
+                                 bundle.warnings)
+    assert payload["available"] is True
+    reg = payload["motion_regularization"]
+    assert reg["applied"] is False
+    assert reg["null_reason"] == "sigma_zero"

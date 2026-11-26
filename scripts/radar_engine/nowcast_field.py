@@ -149,6 +149,25 @@ MOTION_EXTEND_METHOD = "nearest_valid_gaussian"
 # FAR@60 0,348 -> 0,335. Non e' una calibrazione fisica: un fattore unico per
 # tutti i regimi. Da rivedere quando ci sara' un campione piu' ampio.
 MOTION_SPEED_FACTOR = 0.8
+# REGOLARIZZAZIONE DEL MOTO (2026-11-26): la componente divergente del flusso
+# ottico a piccola scala NON e' un moto misurato, e' l'effetto combinato di
+# crescita/decadimento e rumore della stima. Applicata al trasporto, deforma
+# il campo in modo non rigido: misurato sull'ancora 2026-11-26T17:35Z, una
+# cella con aspetto 3,12 a +15 diventa 5,98 a +60 (area 841 -> 1265 px) con
+# divergenza mediana +0,021 per passo e p95 +0,076 (fattore d'area 1,25-1,90
+# in 60 min). La regolarizzazione proietta il campo sulla parte
+# DIVERGENCE-FREE (Helmholtz) e reinserisce solo la divergenza a scala
+# >= `MOTION_DIVERGENCE_SIGMA_KM`: la traslazione e la rotazione restano, la
+# deformazione a scala di cella sparisce. A/B su 3 ancore reali:
+# aspetto@60 3,22 -> 2,25 (osservato 2,31), CSI@2 0,360 -> 0,361,
+# CSI@5 0,223 -> 0,261. Sulla cometa del 17:35Z: aspetto 5,98 -> 3,23,
+# area 1265 -> 872 (l'input a +15 era 841), CSI@2 0,221 -> 0,208.
+# E' una regolarizzazione NUMERICA dichiarata, non una legge fisica: la
+# divergenza a scala sinottica resta nel campo.
+MOTION_DIVERGENCE_SIGMA_KM = 100.0
+MOTION_DIVERGENCE_PAD_PX = 128
+MOTION_DIVERGENCE_TAPER_PX = 60
+MOTION_DIVERGENCE_METHOD = "helmholtz_divergence_free_lowpass"
 
 OUTPUT_CRS = "EPSG:3857"
 OUTPUT_RES_M = 1500             # risoluzione delle immagini (misurata: v. report)
@@ -198,10 +217,13 @@ LIMITS = (
     "sposta l'eco ma non crea pioggia oltre quella osservata all'ancora. La "
     "velocita' e' ridotta del fattore dichiarato in `motion_speed_factor` "
     "(0,8: taratura su 3 ancore, confermata su 24 casi disgiunti; non e' una "
-    "calibrazione fisica). La massa totale non cresce (la crescita numerica "
-    "del ricampionamento viene rimossa; il decadimento reale non e' "
-    "modellato). La maschera e' quella del dominio radar: fuori non viene "
-    "disegnato nulla."
+    "calibrazione fisica). Il moto e' regolarizzato togliendo la componente "
+    "divergente sotto 100 km (decomposizione di Helmholtz + low-pass): la "
+    "traslazione e la rotazione restano, la deformazione a scala di cella "
+    "no. E' una scelta NUMERICA dichiarata, non una legge fisica. La massa "
+    "totale non cresce (la crescita numerica del ricampionamento viene "
+    "rimossa; il decadimento reale non e' modellato). La maschera e' quella "
+    "del dominio radar: fuori non viene disegnato nulla."
 )
 
 
@@ -937,6 +959,124 @@ def extend_motion(u, v, domain, sigma=MOTION_EXTEND_SIGMA_PX):
     return ue.astype(np.float32), ve.astype(np.float32), info
 
 
+def _divergence_stats(u, v):
+    """Statistiche di divergenza per il JSON (p5/p95/media assoluta)."""
+    uy, ux = np.gradient(np.asarray(u, dtype=np.float32))
+    vy, vx = np.gradient(np.asarray(v, dtype=np.float32))
+    div = ux + vy
+    fin = np.isfinite(div)
+    if not bool(fin.any()):
+        return {"p5": None, "p95": None, "mean_abs": None}
+    d = div[fin]
+    return {
+        "p5": round(float(np.percentile(d, 5)), 5),
+        "p95": round(float(np.percentile(d, 95)), 5),
+        "mean_abs": round(float(np.abs(d).mean()), 5),
+    }
+
+
+def _fft_gaussian_lowpass(a, sigma_px):
+    """Low-pass gaussiano su griglia periodica (equivalente a un filtro
+    spaziale di sigma `sigma_px`, ma ~20x piu' veloce a sigma grandi).
+
+    La trasformata di una gaussiana e' una gaussiana: si moltiplica lo
+    spettro per exp(-0,5*sigma^2*k^2). Il modo k=0 resta invariato (media
+    conservata)."""
+    a = np.asarray(a, dtype=np.float32)
+    ky = 2.0 * np.pi * np.fft.fftfreq(a.shape[0])[:, None]
+    kx = 2.0 * np.pi * np.fft.fftfreq(a.shape[1])[None, :]
+    transfer = np.exp(-0.5 * float(sigma_px) ** 2 * (kx * kx + ky * ky))
+    return np.fft.ifft2(np.fft.fft2(a) * transfer).real.astype(np.float32)
+
+
+def regularize_motion(u, v, sigma_px,
+                      pad_px=MOTION_DIVERGENCE_PAD_PX,
+                      taper_px=MOTION_DIVERGENCE_TAPER_PX):
+    """Rimuove la divergenza a piccola scala dal campo di moto.
+
+    Decomposizione di Helmholtz su griglia periodica (padding reflect +
+    taper verso la media ai bordi): `u = grad(phi) + rot(psi)`. Si tiene
+    `rot(psi)` (traslazione media + rotazione, divergence-free) e si
+    reinserisce `grad(phi)` solo dopo un low-pass gaussiano di
+    `sigma_px`: la divergenza a scala >= sigma resta, quella a scala di
+    cella (che deformerebbe il campo in modo non rigido) viene rimossa.
+    `sigma_px <= 0` -> nessuna modifica (A/B).
+
+    Ritorna (u_reg, v_reg, info) con le statistiche di divergenza PRIMA e
+    DOPO, pubblicate nel JSON. Non solleva: un campo degenere lascia il
+    moto invariato con `applied: false` e un motivo esplicito.
+    """
+    u = np.asarray(u, dtype=np.float32)
+    v = np.asarray(v, dtype=np.float32)
+    info = {
+        "method": MOTION_DIVERGENCE_METHOD,
+        "applied": False,
+        "sigma_px": round(float(sigma_px), 3),
+        "pad_px": int(pad_px),
+        "taper_px": int(taper_px),
+        "divergence_before": _divergence_stats(u, v),
+        "divergence_after": None,
+        "null_reason": None,
+    }
+    if sigma_px <= 0:
+        info["null_reason"] = "sigma_zero"
+        return u, v, info
+    h, w = u.shape
+    if h < 16 or w < 16:
+        info["null_reason"] = "grid_too_small"
+        return u, v, info
+    if not (np.isfinite(u).all() and np.isfinite(v).all()):
+        # un NaN non deve fermare il nowcast: si sostituisce con 0 e si
+        # dichiara; il chiamante ha gia' riempito i buchi, questo e' una
+        # cintura di sicurezza.
+        u = np.where(np.isfinite(u), u, 0.0).astype(np.float32)
+        v = np.where(np.isfinite(v), v, 0.0).astype(np.float32)
+        info["null_reason"] = "non_finite_replaced"
+    pad = max(8, min(int(pad_px), min(h, w) // 4))
+    taper = max(4, min(int(taper_px), min(h, w) // 8))
+    uu = np.pad(u, ((pad, pad), (pad, pad)), mode="reflect")
+    vv = np.pad(v, ((pad, pad), (pad, pad)), mode="reflect")
+    yy, xx = np.mgrid[0:uu.shape[0], 0:uu.shape[1]]
+    wy = np.minimum(yy, uu.shape[0] - 1 - yy) / float(taper)
+    wx = np.minimum(xx, uu.shape[1] - 1 - xx) / float(taper)
+    wgt = np.clip(np.minimum(wy, wx), 0.0, 1.0)
+    wgt = 0.5 - 0.5 * np.cos(np.pi * wgt)
+    mu = float(np.mean(u))
+    mv = float(np.mean(v))
+    u0 = (uu - mu) * wgt
+    v0 = (vv - mv) * wgt
+    ky = 2.0 * np.pi * np.fft.fftfreq(u0.shape[0])[:, None]
+    kx = 2.0 * np.pi * np.fft.fftfreq(u0.shape[1])[None, :]
+    k2 = kx * kx + ky * ky
+    k2[0, 0] = np.inf
+    uh = np.fft.fft2(u0)
+    vh = np.fft.fft2(v0)
+    # vorticity zeta = dv/dx - du/dy; la streamfunction risolve
+    # lap(psi) = zeta, con u = -dpsi/dy e v = +dpsi/dx.
+    zeta_h = 1j * kx * vh - 1j * ky * uh
+    psi_h = -zeta_h / k2
+    ud_full = np.fft.ifft2(-1j * ky * psi_h).real + mu
+    vd_full = np.fft.ifft2(1j * kx * psi_h).real + mv
+    # il residuo (componente divergente) e' low-passato sulla griglia
+    # padded: il filtro FFT evita il costo O(sigma) del filtro spaziale a
+    # sigma 100 (misurato: 17,8 s -> ~1 s) e non introduce wrap.
+    res_u_pad = uu - ud_full
+    res_v_pad = vv - vd_full
+    fu_full = ud_full + _fft_gaussian_lowpass(res_u_pad, sigma_px)
+    fv_full = vd_full + _fft_gaussian_lowpass(res_v_pad, sigma_px)
+    fu = fu_full[pad:pad + h, pad:pad + w]
+    fv = fv_full[pad:pad + h, pad:pad + w]
+    info["applied"] = True
+    info["divergence_after"] = _divergence_stats(fu, fv)
+    if info["divergence_before"]["mean_abs"] is not None and \
+            info["divergence_after"]["mean_abs"] is not None:
+        before = info["divergence_before"]["mean_abs"]
+        after = info["divergence_after"]["mean_abs"]
+        info["divergence_reduction"] = (
+            round(1.0 - after / before, 4) if before > 0 else None)
+    return fu, fv, info
+
+
 def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
     """Calcola il nowcast. Ritorna (payload, campi_nativi).
 
@@ -995,7 +1135,20 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
     if MOTION_SPEED_FACTOR != 1.0:
         u = u * np.float32(MOTION_SPEED_FACTOR)
         v = v * np.float32(MOTION_SPEED_FACTOR)
-    # `speed` e' il moto EFFETTIVO applicato (dopo estensione e fattore)
+    # REGOLARIZZAZIONE DEL MOTO: rimuove la divergenza a scala di cella
+    # (vedi `regularize_motion`). `nowcast_motion_divergence_sigma_km = 0`
+    # disattiva (A/B); il default e' la costante dichiarata.
+    sigma_km = config.get("nowcast_motion_divergence_sigma_km",
+                          MOTION_DIVERGENCE_SIGMA_KM)
+    try:
+        sigma_km = float(sigma_km)
+    except (TypeError, ValueError):
+        sigma_km = MOTION_DIVERGENCE_SIGMA_KM
+    sigma_px = (sigma_km / pixel_km) if sigma_km > 0 else 0.0
+    u, v, reg_info = regularize_motion(u, v, sigma_px)
+    reg_info["sigma_km"] = round(float(sigma_km), 3)
+    # `speed` e' il moto EFFETTIVO applicato (dopo estensione, fattore e
+    # regolarizzazione)
     speed = pixel_speed_kmh(u, v, pixel_km, step_s)
     rain = domain & (latest > RAIN_MIN_MMH)
     grid = _output_grid(rd)
@@ -1149,6 +1302,9 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
         "motion_pixels_from_zero": extend_info["pixels_from_zero"],
         "motion_extend_null_reason": extend_info["null_reason"],
         "motion_speed_factor": MOTION_SPEED_FACTOR,
+        # regolarizzazione divergence-free a scala >= sigma_km (dichiarata:
+        # e' numerica, non una legge fisica)
+        "motion_regularization": reg_info,
         "mass_growth_capped": True,
         "mass_cap_steps": mass_capped,
         "transport_mode": transport_mode,

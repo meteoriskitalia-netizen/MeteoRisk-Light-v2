@@ -919,6 +919,12 @@ CONFIG = {
     # conserva la texture; nessuna deriva di posizione: 0,00 px misurati).
     "nowcast_transport_mode": "single",
     "nowcast_transport_order": 3,
+    # Regolarizzazione divergence-free del moto (2026-11-26): rimuove la
+    # divergenza sotto 100 km, che deformava le celle in "comete" (A/B su 3
+    # ancore: aspetto@60 3,22 -> 2,25 contro 2,31 osservato; cometa del
+    # 17:35Z 5,98 -> 3,23; CSI quasi invariato). 0 = disattivata (A/B).
+    # Vedi `regularize_motion`.
+    "nowcast_motion_divergence_sigma_km": 100.0,
     "output": {
         "out_dir": "data/radar",
         "files": ["latest.json", "storms.geojson", "tracks.json",
