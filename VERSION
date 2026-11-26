@@ -1,3 +1,17 @@
+VERSION=1.3.0.85
+BUILD=225
+DATE=2026-11-26
+APP_FILE=mri-light-1.3.0.85.html
+MeteoRisk Light - 1.3.0.85 - Nowcast probabilistico senza raggiera: deformazione spenta, moto 1,5, geometria verificata contro l'osservato.
+VERSION=1.3.0.85
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=225
+RELEASE_TYPE=release
+DATE=2026-11-26
+NOTE=Release 1.3.0.85 (bump da 1.3.0.84; APP_FILE mri-light-1.3.0.85.html). (1) RAGGIERA RIMOSSA: la deformazione lineare attorno al centroide era la causa della distorsione visiva (allungamento massimo 1581 con la deformazione, 2,07 senza; osservato 1,85). deformation_fraction = 0.0. (2) MOTO: motion_inflation 3,0 -> 1,5; BSS 0,5 a +30 da 0,441 a 0,617 sullo stesso caso; bias 0,85. (3) GEOMETRIA: struttura p>=0,5 piu' grande 112.619 km2, allungamento 2,07, aspetto 1,32 contro osservato 121.718 km2, 1,85, 1,29 (rapporti 1,12 e 1,02); correlazione con la maschera deterministica 0,879. (4) INVARIATI: fattore di coda 1,8 (non e' la causa della raggiera, non cambia il BSS a 0,5); rumore di banda NON attivo (cascata spenta), dichiarato. Restano le dichiarazioni della 1.3.0.84: occ 2,0 scelto dopo la conferma (lievemente ottimistico), validazione prospettica via ledger, prodotto dichiarato a 20 km.
+APP_FILE=mri-light-1.3.0.85.html
 VERSION=1.3.0.84
 BUILD=224
 DATE=2026-11-26

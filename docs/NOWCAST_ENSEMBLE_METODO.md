@@ -175,21 +175,43 @@ non è stato fatto qui.
 
 ## 4. Parametri di correzione (dichiarati, non nascosti)
 
-- `motion_inflation` (**3,0**, calibrato): moltiplica gli offset di blocco e la
-  deformazione. La curva BSS sul set di sviluppo ha l'ottimo a 3,0; a 4,5 e 6,0
-  il BSS cala (4,5 → −0,64, 6,0 → −0,69 sul set di curve).
-- `noise_inflation` (**1,0**, calibrato): 0,5 non migliora il bias (2,29 → 2,25)
-  e 1,5 non sposta il BSS; 1,0 è il valore con il bias più vicino a 1.
-- `mass_conservation` (**ON**): corregge la creazione di pioggia da deformazione
-  divergente; senza, bias 2,2× e BSS 0,5 −0,12, con, bias 1,4× e BSS +0,19
-  (4 casi, stessi parametri).
+### Correzione della raggiera (1.3.0.85, A/B misurato)
+
+La mappa di probabilità mostrava una **raggiera** (fasci radiali dai centroidi),
+grana a chiazze e grandi aree uniformi. A/B sullo stesso caso (2026-11-26
+06:00, osservati a 15/30/60):
+
+| config | BSS 0,5 +15/+30/+60 | allung. max p≥0,5 | corr. con det. |
+| :--- | ---: | ---: | ---: |
+| deform 0,6 (base) | 0,598 / 0,441 / 0,242 | **1581** | 0,433 |
+| deform 0,0 | 0,713 / 0,579 / 0,414 | 6,16 | 0,384 |
+| **deform 0,0 + motion 1,5** | **0,742 / 0,617 / 0,461** | **6,00** | **0,431** |
+| deform 0,0 + motion 1,0 | 0,744 / 0,618 / 0,464 | 1118 | 0,439 |
+| rigid/single (composito) | 0,414 / 0,380 / 0,339 | 1118 | −0,059 |
+
+La deformazione lineare è la causa: produce un filamento di 1 px con
+allungamento 1581; senza, la struttura più grande ha allungamento 2,07
+(osservato 1,85), aspetto 1,32 contro 1,29 (rapporti 1,12 e 1,02) e la
+correlazione con la maschera deterministica è 0,879. Il rigido/composito è
+peggiore (BSS e correlazione negativa): resta il moto per membro.
+
+Parametri finali: `deformation_fraction 0.0`, `motion_inflation 1.5`;
+`tail_factor 1.8` invariato (non è la causa e non cambia il BSS a 0,5).
+
+- `motion_inflation` (**1,5**, calibrato 2026-11-26): BSS 0,5 a +30 0,617
+  contro 0,441 con deformazione e motion 3,0.
+- `deformation_fraction` (**0,0**): spenta per la raggiera.
+- `noise_inflation` (**1,0**): invariato (rumore non attivo, cascata spenta).
+- `mass_conservation` (**ON**): ogni membro conserva l'integrale di pioggia del
+  deterministico. Con la deformazione spenta non corregge più una divergenza
+  (non c'è), ma resta il vincolo che impedisce al rumore/rasatura di spostare
+  la massa: è il confronto membro-deterministico, non un parametro di taratura.
 - `members` = **20**: 40 membri sulle stesse 2 giornate non migliorano la
   reliability (0,216 → 0,228) né il CRPS (0,285 → 0,282); 10 membri sulla
   conferma peggiorano la reliability a 0,5 da 0,109 a 0,140 (probabilità a
   passi di 0,1). 20 è il minimo, 40 non serve.
-- `occurrence_scale` (**1,8**, calibrato): con il taglio a 1,0 mm/h porta il
-  bias 0,5 a 0,93-0,95 sul set di curve e a 1,12 sulla conferma; occ=2,0 dà
-  0,93 sul set di curve. È il parametro da portare a 2,0-2,1.
+- `occurrence_scale` (**2,0**): con il taglio a 1,0 mm/h porta il bias 0,5 a
+  0,93-0,95 sul set di curve e a **1,09** sulla conferma; 1,8 dava 1,12.
 - `intensity_sigma` (**0,3**, calibrato): σ=0,5/0,7 abbassano il BSS a 5 mm/h
   (0,096/0,086 contro 0,104) e a 2 mm/h; 0,3 è il compromesso.
 - `tail_factor` (**1,8**, calibrato): sopra il p90 alza il bias a 5 da 0,44

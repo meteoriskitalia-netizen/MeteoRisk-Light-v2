@@ -872,8 +872,8 @@ CONFIG = {
         "motion_mode": "field",            # "field" (blocchi+deformazione) | "rigid"
         "integration": "single",           # "single" (1 warp) | "steps" (esatto)
         "motion_block_km": 100.0,          # lato del blocco di errore del moto
-        "deformation_fraction": 0.6,       # deformazione / ampiezza parallela
-        "motion_inflation": 3.0,           # CALIBRATO su dev: 3,0 (curva BSS)
+        "deformation_fraction": 0.0,       # SPENTA 2026-11-26: raggiera (elong 1581)
+        "motion_inflation": 1.5,           # CALIBRATO 2026-11-26 (A/B visivo)
         "noise_inflation": 1.0,            # CALIBRATO: 1,0 (bias piu' vicino a 1)
         "expose_inputs": False,            # solo backtest/calibrazione
         "mass_conservation": True,         # membri con la massa del deterministico

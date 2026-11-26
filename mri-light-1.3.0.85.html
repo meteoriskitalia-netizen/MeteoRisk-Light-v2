@@ -3325,9 +3325,15 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.84';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.85';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-26';
     const APP_CHANGELOG = [
+{ version: '1.3.0.85', date: '2026-11-26', changes: [
+  "RAGGIERA RIMOSSA DALLA MAPPA DI PROBABILITA': la deformazione lineare attorno al centroide (divergenza/vorticità/stiramento/taglio, ampiezza 0,6) era la causa. Misurato sullo stesso caso: struttura p>=0,5 con allungamento massimo 1581 (un filamento radiale) con la deformazione, 2,07 senza; l'osservato ha 1,85. La deformazione e' SPENTA (deformation_fraction 0.0).",
+  "MOTO RIDOTTO E BSS MIGLIORE: motion_inflation 3,0 -> 1,5. Sullo stesso caso BSS 0,5 a +30 da 0,441 (base) a 0,617; bias 0,85; a +15 0,742; a +60 0,461. Il guadagno viene dal togliere la deformazione, non dal ridurre la dispersione del moto.",
+  "GEOMETRIA VERIFICATA: struttura p>=0,5 piu' grande 112.619 km2 con allungamento 2,07 e aspetto 1,32 contro l'osservato 121.718 km2, 1,85 e 1,29 (rapporto 1,12 e 1,02, dentro il criterio 1,5x); correlazione fra probabilita' e maschera deterministica 0,879 (> 0,7).",
+  "FATTORE DI CODA INVARIATO (1,8): non e' la causa della raggiera e non cambia il BSS a 0,5; i ciuffi a 5 mm/h sono la coda calibrata. Il rumore di banda resta NON attivo (cascata spenta)."
+]},
 { version: '1.3.0.84', date: '2026-11-26', changes: [
   "NOWCAST PROBABILISTICO (ensemble 20 membri): blocco `ensemble` in data/radar/nowcast.json per i lead 15/30/60 con prob_0p5/prob_2/prob_5/prob_10/prob_20, p10/p50/p90 e spread, piu' 15 WebP di PROBABILITA' (5 soglie x 3 lead; colore = probabilita', legenda 0-100%). Membri: moto perturbato per blocchi da 100 km + deformazione, rasatura dell'eco con curva di occorrenza MISURATA su 12 giornate, fattore d'intensita' e di coda, massa conservata. La rasatura usa la curva misurata (P(>=0,5 mm/h | I) per bin).",
   "DICHIARAZIONE SUL RUMORE DI BANDA: la cascata nowcast e' SPENTA in produzione (enabled: false), quindi il rumore di banda NON si applica: il blocco dichiara noise.applied = false con null_reason = cascade_gains_unavailable. Le metriche riportate coprono moto+deformazione+rasatura+intensita'+coda, NON il rumore STEPS. Non leggere quel numero come se il rumore fosse attivo.",
