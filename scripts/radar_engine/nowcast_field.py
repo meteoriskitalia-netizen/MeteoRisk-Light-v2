@@ -95,6 +95,7 @@ import numpy as np
 from . import clock as clock_mod
 from . import fetch as fetch_mod
 from . import models
+from . import nowcast_ensemble as ensemble_mod
 from . import orography as orography_mod
 
 SCHEMA = "meteorisk.nowcast_field/1"
@@ -1134,6 +1135,98 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
         "limits": LIMITS,
         "orographic_enhancement": oro_block,
     }
+
+    # ------------------------------------------------------------------
+    # ENSEMBLE PROBABILISTICO (additivo, `ensemble.enabled`). Base: il
+    # campo deterministico gia' corretto (moto esteso, cap di massa,
+    # orografia). Nessuna fisica nuova: moto perturbato per membro,
+    # rasatura dell'eco, fattore d'intensita' e di coda, massa conservata.
+    # La cascata e' SPENTA in produzione: il rumore di banda non si applica
+    # (`noise.applied = false`, `cascade_gains_unavailable`), dichiarato.
+    # ------------------------------------------------------------------
+    _ens_cfg = dict(config.get("ensemble") or {})
+    _ens_payload = ensemble_mod.disabled_payload("disabled_by_config", _ens_cfg)
+    _ens_fields = {}
+    if bool(_ens_cfg.get("enabled")):
+        _ens_leads = tuple(int(x) for x in
+                           (_ens_cfg.get("leads_min") or OFFICIAL_LEADS))
+        _ens_leads = tuple(l for l in _ens_leads if l in native)
+        _prob_thr = float(_ens_cfg.get("prob_image_threshold_mmh") or 0.5)
+        _img_thrs = tuple(float(x) for x in
+                          (_ens_cfg.get("image_thresholds_mmh") or (_prob_thr,)))
+        _img_leads = tuple(int(x) for x in
+                           (_ens_cfg.get("image_leads") or _ens_leads))
+        _per_lead = {}
+        _t_ens = 0.0
+        _mass_target = None
+        if bool(_ens_cfg.get("mass_conservation", True)):
+            _mass_target = {
+                int(l): float(np.asarray(native[l], dtype=np.float64)[domain]
+                              .sum()) for l in _ens_leads}
+        try:
+            _blocks, _fields = ensemble_mod.run_leads(
+                {l: native[l] for l in _ens_leads}, u, v, domain, _ens_leads,
+                None, _ens_cfg, pixel_km, step_s, latest_ts,
+                latest=latest, post=None,
+                rain_mask=(domain & (latest > RAIN_MIN_MMH)),
+                mass_target=_mass_target)
+        except Exception as exc:      # layer additivo: mai rompere il nowcast
+            _blocks, _fields = {}, {}
+            warnings.append("nowcast: ensemble failed ({}:{})".format(
+                exc.__class__.__name__, exc))
+        for _lead in _ens_leads:
+            _blk = _blocks.get(int(_lead))
+            if _blk is None:
+                _per_lead[str(_lead)] = {"applied": False,
+                                         "null_reason": "ensemble_failed"}
+                continue
+            _t_ens += float(_blk["cost_seconds"]["total"])
+            _blk["images"] = {}
+            if int(_lead) in _img_leads:
+                for _thr_img in _img_thrs:
+                    _key = "prob_%s" % ensemble_mod._thr_key(_thr_img)
+                    if _key not in _fields[int(_lead)]["probabilities"]:
+                        continue
+                    if abs(_thr_img - _prob_thr) < 1e-9:
+                        _name = ensemble_mod.PROB_IMAGE_NAMES.get(int(_lead))
+                    else:
+                        _name = ensemble_mod.prob_image_name(_lead, _thr_img)
+                    if _name:
+                        _blk["images"][_key] = _name
+            _blk["prob_image_threshold_mmh"] = _prob_thr
+            _blk["image_thresholds_mmh"] = list(_img_thrs)
+            _per_lead[str(_lead)] = _blk
+            _ens_fields[int(_lead)] = _fields[int(_lead)]
+        _ens_payload = ensemble_mod.disabled_payload(
+            "ensemble_not_applied", _ens_cfg)
+        _ens_payload.update({
+            "enabled": True,
+            "applied": bool(_ens_fields),
+            "null_reason": (None if _ens_fields else
+                            "ensemble_not_applied_on_any_lead"),
+            "members": int(_ens_cfg.get("members") or ensemble_mod.MEMBERS),
+            "method": ensemble_mod.METHOD,
+            "thresholds_mmh": [float(x) for x in
+                               (_ens_cfg.get("thresholds_mmh")
+                                or ensemble_mod.THRESHOLDS_MMH)],
+            "prob_decimals": ensemble_mod.PROB_DECIMALS,
+            "prob_image_threshold_mmh": _prob_thr,
+            "image_thresholds_mmh": [float(x) for x in _img_thrs],
+            "legend": ensemble_mod.legend_payload(),
+            "legend_unit": "probability 0-1",
+            "leads": _per_lead,
+            "cost_seconds": {"total": round(_t_ens, 3)},
+            "reference": ensemble_mod.REFERENCE,
+            "limits": ensemble_mod.LIMITS,
+        })
+        if _ens_fields and _per_lead:
+            _first = _per_lead[str(next(iter(_ens_fields)))]
+            _ens_payload["motion_perturbation"] = _first.get(
+                "motion_perturbation")
+            _ens_payload["noise"] = _first.get("noise")
+        native["_ensemble"] = _ens_fields
+    payload["ensemble"] = _ens_payload
+
     verification = verification_for(bundle, config, out_dir)
     payload["verification"] = verification
     payload["beats_persistence"] = verification.get("beats_persistence")
@@ -1291,6 +1384,33 @@ def write_products(out_dir, payload, native):
                 measured["image_errors"][name] = reason
                 entry["image"] = None
                 entry["image_error"] = reason
+        # immagini di PROBABILITA' (colore = probabilita', legenda 0-100%):
+        # una per ogni soglia del selettore client, per i lead ufficiali.
+        _ens = (payload.get("ensemble") or {})
+        for _lead_key, _blk in (_ens.get("leads") or {}).items():
+            try:
+                _lead = int(_lead_key)
+            except (TypeError, ValueError):
+                continue
+            _fields = (native.get("_ensemble") or {}).get(_lead) or {}
+            for _prob_key, _name in (_blk.get("images") or {}).items():
+                _prob = (_fields.get("probabilities") or {}).get(_prob_key)
+                if _prob is None or not _name:
+                    continue
+                try:
+                    _pub = reproject_to_grid(_prob, native["_domain"], rd,
+                                             grid)
+                    _size = ensemble_mod.write_prob_webp(
+                        os.path.join(out_dir, _name), _pub)
+                    measured.setdefault("probability_images", {})[_name] = _size
+                    _blk.setdefault("published", {})[_prob_key] = {
+                        "pixels": int(np.isfinite(_pub).sum()),
+                        "max": (round(float(np.nanmax(_pub)), 4)
+                                if np.isfinite(_pub).any() else None),
+                    }
+                except Exception as _exc:
+                    _reason = "{}:{}".format(_exc.__class__.__name__, _exc)
+                    measured.setdefault("probability_errors", {})[_name] = _reason
     return measured
 
 

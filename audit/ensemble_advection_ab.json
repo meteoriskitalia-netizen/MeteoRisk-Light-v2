@@ -1,0 +1,77 @@
+{
+ "schema": "meteorisk.nowcast_ensemble_advection_ab/1",
+ "generated_at": "2026-11-25T12:24:04Z",
+ "day": "2026-11-01",
+ "hour": "11:00",
+ "threshold_mmh": 0.5,
+ "method": "composite = traslazione costante dopo il trasporto deterministico; advect = semi-lagrangiano per membro",
+ "leads": {
+  "composite": {
+   "15": {
+    "seconds": 36.574,
+    "ensemble_seconds": 23.709,
+    "prob_mean": 0.3795,
+    "brier": 0.183119,
+    "rain_rate": 0.145322
+   },
+   "30": {
+    "seconds": 36.574,
+    "ensemble_seconds": 23.709,
+    "prob_mean": 0.4506,
+    "brier": 0.225607,
+    "rain_rate": 0.15567
+   },
+   "60": {
+    "seconds": 36.574,
+    "ensemble_seconds": 23.709,
+    "prob_mean": 0.4936,
+    "brier": 0.225409,
+    "rain_rate": 0.174788
+   }
+  },
+  "advect": {
+   "15": {
+    "seconds": 69.627,
+    "ensemble_seconds": 57.725,
+    "prob_mean": 0.3913,
+    "brier": 0.192724,
+    "rain_rate": 0.145322
+   },
+   "30": {
+    "seconds": 69.627,
+    "ensemble_seconds": 57.725,
+    "prob_mean": 0.4731,
+    "brier": 0.240019,
+    "rain_rate": 0.15567
+   },
+   "60": {
+    "seconds": 69.627,
+    "ensemble_seconds": 57.725,
+    "prob_mean": 0.5327,
+    "brier": 0.256054,
+    "rain_rate": 0.174788
+   }
+  }
+ },
+ "difference": {
+  "15": {
+   "mean_abs_diff": 0.022517,
+   "max_abs_diff": 0.8,
+   "pixels_over_0p2": 32954,
+   "fraction_over_0p2": 0.019615
+  },
+  "30": {
+   "mean_abs_diff": 0.041288,
+   "max_abs_diff": 0.9,
+   "pixels_over_0p2": 84116,
+   "fraction_over_0p2": 0.050069
+  },
+  "60": {
+   "mean_abs_diff": 0.061044,
+   "max_abs_diff": 0.95,
+   "pixels_over_0p2": 157442,
+   "fraction_over_0p2": 0.093715
+  }
+ },
+ "verdict": "composite usato come default se la differenza non cambia il Brier in modo misurabile sul caso"
+}

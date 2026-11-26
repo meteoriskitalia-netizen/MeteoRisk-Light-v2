@@ -107,7 +107,7 @@
  */
 'use strict';
 
-var CACHE_NAME = 'mri-1.3.0.82';
+var CACHE_NAME = 'mri-1.3.0.84';
 var TILE_CACHE = 'mri-tiles-1.3.0.68';
 var FRAME_CACHE = 'mri-frames-1.3.0.68';
 var APP_CACHES = [CACHE_NAME, TILE_CACHE, FRAME_CACHE];

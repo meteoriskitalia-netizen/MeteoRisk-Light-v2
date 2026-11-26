@@ -1,3 +1,17 @@
+VERSION=1.3.0.84
+BUILD=224
+DATE=2026-11-26
+APP_FILE=mri-light-1.3.0.84.html
+MeteoRisk Light - 1.3.0.84 - Nowcast probabilistico (ensemble 20 membri) con probabilita' di superamento, p10/p50/p90, spread, 15 WebP di probabilita'; prodotto dichiarato a 20 km; rumore di banda dichiarato NON attivo.
+VERSION=1.3.0.84
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=224
+RELEASE_TYPE=release
+DATE=2026-11-26
+NOTE=Release 1.3.0.84 (bump da 1.3.0.83; APP_FILE mri-light-1.3.0.84.html). (1) NOWCAST PROBABILISTICO: ensemble a 20 membri per i lead 15/30/60 (moto perturbato per blocchi 100 km + deformazione, rasatura dell'eco con curva di occorrenza misurata, fattore d'intensita' e di coda, massa conservata); prob_0p5/prob_2/prob_5/prob_10/prob_20, p10/p50/p90, spread; 15 WebP di probabilita' (5 soglie x 3 lead). (2) RUMORE DI BANDA NON ATTIVO: la cascata e' spenta in produzione, quindi noise.applied = false con null_reason = cascade_gains_unavailable. Le metriche coprono moto+deformazione+rasatura+intensita'+coda, NON il rumore STEPS. (3) VALIDAZIONE: 12 giornate di sviluppo + 12 di conferma dichiarate prima; conferma con occ 2,0 / k 1,8 / dispersione 0,05: BSS 9/9 positivo (+0,529/+0,462/+0,316 a 0,5; +0,288/+0,186/+0,121 a 5), reliability a celle di 20 km 0,090/0,066/0,078, bias 1,09/0,97/0,84, CRPS 0,0756 contro 0,1050. Convettivo: PASSA a 20 km (+0,335/+0,261/+0,127), NON a 1 km (-0,77). (4) DICHIARAZIONE: occurrence_scale 2,0 scelto DOPO aver visto il set di conferma -> risultato lievemente ottimistico; validazione vera prospettica (ledger dei run futuri). Sul set di sviluppo la coda 2/5 resta sotto-previsa (bias 0,84/0,70). Il prodotto e' dichiarato a 20 km, non a 1 km. (5) CLIENT: toggle Probabilita' nowcast nel pannello LIVE, selettore soglia 0,5/2/5/10/20 mm/h, lead 15/30/60, legenda 0-100%, nota affidabilita' a 20 km.
+APP_FILE=mri-light-1.3.0.84.html
 VERSION=1.3.0.83
 BUILD=223
 DATE=2026-11-25

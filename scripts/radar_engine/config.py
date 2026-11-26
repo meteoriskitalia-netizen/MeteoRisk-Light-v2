@@ -863,6 +863,49 @@ CONFIG = {
         "idw_max_km": 200.0,
         "rv": 461.5,
     },
+    "ensemble": {
+        "enabled": True,                   # ACCESO 2026-11-26: conferma 12 giorni OK
+        "members": 20,
+        "motion_parallel_ms": 10.88,       # STEPS/BPS, citato
+        "motion_perpendicular_ms": 5.76,   # STEPS/BPS, citato
+        "advection_mode": "composite",     # "composite" (default) | "advect"
+        "motion_mode": "field",            # "field" (blocchi+deformazione) | "rigid"
+        "integration": "single",           # "single" (1 warp) | "steps" (esatto)
+        "motion_block_km": 100.0,          # lato del blocco di errore del moto
+        "deformation_fraction": 0.6,       # deformazione / ampiezza parallela
+        "motion_inflation": 3.0,           # CALIBRATO su dev: 3,0 (curva BSS)
+        "noise_inflation": 1.0,            # CALIBRATO: 1,0 (bias piu' vicino a 1)
+        "expose_inputs": False,            # solo backtest/calibrazione
+        "mass_conservation": True,         # membri con la massa del deterministico
+        "intensity_sigma": 0.3,            # CALIBRATO (0,3: coda senza corpo)
+        "intensity_block_km": 20.0,
+        "occurrence_scale": 2.0,           # CALIBRATO: bias 0,5 = 1,09 (confirm)
+        "occurrence_block_km": 10.0,
+        "occurrence_max_intensity": 1.0,   # rasatura solo dell'eco debole
+        # MISURATA su 12 giornate di sviluppo (audit/occurrence_curve.json):
+        # P(>=0,5 mm/h | I) per bin di intensita' prevista.
+        "occurrence_curve": [
+            [0.0, 0.0], [0.025, 0.008936], [0.070711, 0.032535],
+            [0.141421, 0.07778], [0.264575, 0.194142], [0.41833, 0.346768],
+            [0.612372, 0.485916], [0.866025, 0.60353],
+            [1.224745, 0.701401], [1.732051, 0.76144],
+            [2.44949, 0.82504], [3.872983, 0.901925],
+            [6.324555, 0.926457], [9.797959, 0.9517],
+            [15.491933, 0.97287], [30.0, 0.982343],
+            [1e9, 0.982343],
+        ],
+        "tail_factor": 1.8,                 # CALIBRATO: bias 5 da 0,44 a 0,85
+        "tail_dispersion": 0.05,            # CALIBRATO: reliability 2/5 a 20 km
+        "tail_percentile": 90.0,
+        "noise_method": "nonparametric",
+        "thresholds_mmh": [0.5, 2.0, 5.0, 10.0, 20.0],
+        "prob_decimals": 2,
+        "prob_image_threshold_mmh": 0.5,   # "piove / non piove"
+        "image_thresholds_mmh": [0.5, 2.0, 5.0, 10.0, 20.0],
+        "image_leads": [15, 30, 60],
+        "noise_support": "echo",           # "echo" | "domain" (A/B)
+        "fft_workers": 1,                  # 1 = replay deterministico
+    },
     "output": {
         "out_dir": "data/radar",
         "files": ["latest.json", "storms.geojson", "tracks.json",

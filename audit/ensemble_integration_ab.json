@@ -1,0 +1,70 @@
+{
+ "schema": "meteorisk.nowcast_ensemble_integration_ab/1",
+ "generated_at": "2026-11-25T16:31:01Z",
+ "day": "2026-11-01",
+ "hour": "11:00",
+ "members": 10,
+ "combo": [
+  3.0,
+  1.0
+ ],
+ "leads": {
+  "single": {
+   "15": {
+    "seconds": 56.891,
+    "brier": 0.097982,
+    "observed_rate": 0.145322,
+    "mean_prob": 0.260075
+   },
+   "30": {
+    "seconds": 56.891,
+    "brier": 0.115476,
+    "observed_rate": 0.15567,
+    "mean_prob": 0.277906
+   },
+   "60": {
+    "seconds": 56.891,
+    "brier": 0.136441,
+    "observed_rate": 0.174788,
+    "mean_prob": 0.266798
+   }
+  },
+  "steps": {
+   "15": {
+    "seconds": 89.427,
+    "brier": 0.10136,
+    "observed_rate": 0.145322,
+    "mean_prob": 0.27197
+   },
+   "30": {
+    "seconds": 89.427,
+    "brier": 0.118342,
+    "observed_rate": 0.15567,
+    "mean_prob": 0.288622
+   },
+   "60": {
+    "seconds": 89.427,
+    "brier": 0.1394,
+    "observed_rate": 0.174788,
+    "mean_prob": 0.280527
+   }
+  }
+ },
+ "difference": {
+  "15": {
+   "mean_abs_diff": 0.02968,
+   "max_abs_diff": 0.7,
+   "fraction_over_0p2": 0.04409
+  },
+  "30": {
+   "mean_abs_diff": 0.048114,
+   "max_abs_diff": 0.9,
+   "fraction_over_0p2": 0.092762
+  },
+  "60": {
+   "mean_abs_diff": 0.060881,
+   "max_abs_diff": 0.8,
+   "fraction_over_0p2": 0.134617
+  }
+ }
+}

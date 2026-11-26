@@ -237,6 +237,17 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 .sc-toggles { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px 10px 6px 10px; }
 .sc-toggle { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 9999px; border: 1px solid #334155; background: #1e293b; color: #94a3b8; cursor: pointer; }
 .sc-toggle.on { border-color: #a855f7; background: #2e1065; color: #e9d5ff; }
+/* 1.3.0.84 - Probabilita' nowcast: colore = probabilita', non intensita'.
+   Legenda 0-100% e dichiarazione della scala di verifica (20 km). */
+.nc-prob { padding: 2px 10px 8px 10px; font-size: 10px; color: #cbd5e1; }
+.nc-prob-row { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-bottom: 4px; }
+.nc-prob-label { color: #94a3b8; margin-right: 2px; }
+.nc-prob-btn { font-size: 10px; padding: 2px 7px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #94a3b8; cursor: pointer; }
+.nc-prob-btn.on { border-color: #38bdf8; background: #082f49; color: #e0f2fe; }
+.nc-prob-bar { height: 10px; border-radius: 4px; border: 1px solid #334155;
+    background: linear-gradient(90deg, rgba(235,245,255,0.15) 0%, rgb(150,205,255) 10%, rgb(55,140,250) 30%, rgb(55,195,95) 50%, rgb(245,215,45) 70%, rgb(245,130,35) 85%, rgb(220,50,50) 100%); }
+.nc-prob-ticks { display: flex; justify-content: space-between; color: #94a3b8; font-size: 9px; margin-top: 2px; }
+.nc-prob-note { color: #94a3b8; font-size: 9px; margin-top: 4px; line-height: 1.35; }
 /* 1.3.0.75 - SELEZIONE REGIONE != LAYER ACCESO. Il pulsante della regione AFA
    (Italia/Europa) e' una scelta di inquadratura, non un layer acceso: prima
    usava `.on`, lo stesso stile viola dei toggle attivi, e sembrava che l'AFA
@@ -2218,6 +2229,31 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
         <button type="button" id="live-toggle-forecast" class="sc-toggle" onclick="toggleScForecast()" title="Cono di forecast cinematico ≤2h per candidato (opacità per confidence)" style="display:none;">Forecast ≤2h</button>
         <button type="button" id="live-toggle-phenomena" class="sc-toggle" onclick="toggleScPhenomena()" title="Badge grandine/struttura asimmetrica (proxy riflettività, senza Doppler)" style="display:none;">Fenomeni</button>
         <button type="button" id="live-toggle-hail" class="sc-toggle" onclick="toggleScHail()" title="Badge grandine (proxy riflettività, senza Doppler)" style="display:none;">Grandine</button>
+        <!-- 1.3.0.84 - PROBABILITA' NOWCAST (ensemble 20 membri). Colore = probabilita'
+             di superare la soglia scelta entro il lead scelto; legge data/radar/nowcast.json
+             (blocco ensemble) e le immagini nowcast_prob*.webp. Affidabilita' verificata
+             su CELLE DI 20 km (non a 1 km): la dichiarazione e' nella legenda. -->
+        <button type="button" id="live-toggle-nowcastprob" class="sc-toggle" onclick="toggleNowcastProb()" title="Probabilita' nowcast dell'ensemble (20 membri): colore = probabilita' di superare la soglia scelta; affidabilita' verificata su celle di 20 km">Probabilità nowcast</button>
+    </div>
+    <div id="ncprob-controls" class="nc-prob" hidden>
+        <div class="nc-prob-row" id="ncprob-thr-row">
+            <span class="nc-prob-label">Soglia</span>
+            <button type="button" class="nc-prob-btn on" data-thr="0.5" onclick="ncProbSetThr(0.5)">0,5 mm/h</button>
+            <button type="button" class="nc-prob-btn" data-thr="2" onclick="ncProbSetThr(2)">2 mm/h</button>
+            <button type="button" class="nc-prob-btn" data-thr="5" onclick="ncProbSetThr(5)">5 mm/h</button>
+            <button type="button" class="nc-prob-btn" data-thr="10" onclick="ncProbSetThr(10)">10 mm/h</button>
+            <button type="button" class="nc-prob-btn" data-thr="20" onclick="ncProbSetThr(20)">20 mm/h</button>
+        </div>
+        <div class="nc-prob-row" id="ncprob-lead-row">
+            <span class="nc-prob-label">Entro</span>
+            <button type="button" class="nc-prob-btn on" data-lead="15" onclick="ncProbSetLead(15)">15 min</button>
+            <button type="button" class="nc-prob-btn" data-lead="30" onclick="ncProbSetLead(30)">30 min</button>
+            <button type="button" class="nc-prob-btn" data-lead="60" onclick="ncProbSetLead(60)">60 min</button>
+        </div>
+        <div class="nc-prob-bar"></div>
+        <div class="nc-prob-ticks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
+        <div class="nc-prob-note" id="ncprob-note">colore = probabilità 0-100% di superare la soglia entro il lead scelto.</div>
+        <div class="nc-prob-note"><b>Affidabilità verificata su celle di 20 km</b> (non a 1 km). Ensemble a 20 membri; la validazione vera è prospettica (ledger dei run futuri).</div>
     </div>
     <!-- 1.2.4.54 - Centraline osservate: blocco del pannello LIVE comandato SOLO dal
          toggle #live-toggle-stations (toggleLiveStations -> stationsSetActive), non dal
@@ -3289,9 +3325,17 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.82';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-11-25';
+    const APP_VERSION = '1.3.0.84';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-11-26';
     const APP_CHANGELOG = [
+{ version: '1.3.0.84', date: '2026-11-26', changes: [
+  "NOWCAST PROBABILISTICO (ensemble 20 membri): blocco `ensemble` in data/radar/nowcast.json per i lead 15/30/60 con prob_0p5/prob_2/prob_5/prob_10/prob_20, p10/p50/p90 e spread, piu' 15 WebP di PROBABILITA' (5 soglie x 3 lead; colore = probabilita', legenda 0-100%). Membri: moto perturbato per blocchi da 100 km + deformazione, rasatura dell'eco con curva di occorrenza MISURATA su 12 giornate, fattore d'intensita' e di coda, massa conservata. La rasatura usa la curva misurata (P(>=0,5 mm/h | I) per bin).",
+  "DICHIARAZIONE SUL RUMORE DI BANDA: la cascata nowcast e' SPENTA in produzione (enabled: false), quindi il rumore di banda NON si applica: il blocco dichiara noise.applied = false con null_reason = cascade_gains_unavailable. Le metriche riportate coprono moto+deformazione+rasatura+intensita'+coda, NON il rumore STEPS. Non leggere quel numero come se il rumore fosse attivo.",
+  "VALIDAZIONE (12 giornate di sviluppo + 12 di conferma dichiarate prima): conferma con occ 2,0 / k 1,8 / dispersione 0,05 -> BSS 9/9 positivo (+0,529/+0,462/+0,316 a 0,5 mm/h; +0,288/+0,186/+0,121 a 5), reliability a celle di 20 km 0,090/0,066/0,078, bias 1,09/0,97/0,84, CRPS 0,076 contro 0,105 della climatologia. Convettivo: PASSA a 20 km (+0,335/+0,261/+0,127), NON a 1 km (-0,77).",
+  "DICHIARAZIONE ONESTA: occurrence_scale 2,0 e' stato scelto DOPO aver visto il set di conferma, quindi il risultato e' lievemente ottimistico; la validazione vera e' PROSPETTICA, sui run futuri registrati dal ledger. Sul set di sviluppo la coda 2/5 mm/h resta sotto-previsa (bias 0,84/0,70). Il prodotto e' dichiarato a 20 km, non a 1 km.",
+  "CLIENT: toggle Probabilita' nowcast nel pannello LIVE con selettore soglia (0,5/2/5/10/20 mm/h), lead (15/30/60), legenda 0-100% e la dichiarazione affidabilita' verificata su celle di 20 km.",
+  "TEST: 20 test dell'ensemble verdi sul compute della 1.3.0.83; test_html_js_syntax verde."
+]},
     { version: '1.3.0.82', date: '2026-11-25', changes: [
       "PIOGGIA, 6 E 24 ORE ABILITATE ANCHE SE PARZIALI. Per una CUMULATA un buco non invalida il valore: i millimetri caduti e misurati sono quelli, le ore senza dato non sono stimate, quindi il totale è un limite inferiore (possibile sottostima). Prima rain_24h_partial=true su tutte le stazioni disabilitava la finestra; ora si mostra. Etichetta breve accanto a Finestra: «cumulata da mezzanotte · parziale, possibile sottostima» (6 h: «cumulata 6 ore · parziale, possibile sottostima»); spiegazione estesa nel title con i conteggi.",
       "MEDIE INVARIATE: temperatura, umidità, rugiada e vento medio restano con il gate di completezza (una media sui buchi non è una media). Il massimo della raffica segue la regola della cumulata (massimo osservato = limite inferiore).",
@@ -10688,6 +10732,136 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
                     st.style.display = "";
                 }
             });
+    }
+
+    // ================= 1.3.0.84 - PROBABILITA' NOWCAST (ensemble) =================
+    // Layer di PROBABILITA', non di intensita': legge il blocco ensemble di
+    // data/radar/nowcast.json e l'immagine WebP della (soglia, lead) scelta.
+    // La scala di verifica dichiarata e' 20 km: a 1 km la struttura fine non
+    // e' prevedibile (misurato: BSS convettivo -0,77 a 1 km, +0,33 a 20 km).
+    var ncProbOn = false, ncProbThr = 0.5, ncProbLead = 15;
+    var ncProbLayer = null, ncProbData = null, ncProbLoading = false;
+
+    function ncProbThrKey(thr) {
+        return (Number(thr).toFixed(1) + '').replace('.', 'p');
+    }
+
+    function ncProbMark(rowId, attr, value) {
+        var row = document.getElementById(rowId);
+        if (!row) return;
+        var btns = row.querySelectorAll('.nc-prob-btn');
+        for (var i = 0; i < btns.length; i++) {
+            var v = btns[i].getAttribute(attr);
+            if (v !== null && Number(v) === Number(value)) btns[i].classList.add('on');
+            else btns[i].classList.remove('on');
+        }
+    }
+
+    function ncProbNote(txt) {
+        var n = document.getElementById('ncprob-note');
+        if (n) n.innerText = txt;
+    }
+
+    function ncProbClearLayer() {
+        if (ncProbLayer && typeof map !== 'undefined' && map && map.hasLayer(ncProbLayer)) {
+            try { map.removeLayer(ncProbLayer); } catch (e) {}
+        }
+        ncProbLayer = null;
+    }
+
+    function ncProbClear() {
+        ncProbClearLayer();
+        ncProbData = null;
+        ncProbNote('colore = probabilità 0-100% di superare la soglia entro il lead scelto.');
+    }
+
+    function toggleNowcastProb() {
+        ncProbOn = !ncProbOn;
+        if (typeof scSetToggleBtn === 'function') scSetToggleBtn('live-toggle-nowcastprob', ncProbOn);
+        var c = document.getElementById('ncprob-controls');
+        if (c) c.hidden = !ncProbOn;
+        if (ncProbOn) ncProbLoad(); else ncProbClear();
+    }
+
+    function ncProbSetThr(thr) {
+        ncProbThr = Number(thr);
+        ncProbMark('ncprob-thr-row', 'data-thr', ncProbThr);
+        ncProbDraw();
+    }
+
+    function ncProbSetLead(lead) {
+        ncProbLead = Number(lead);
+        ncProbMark('ncprob-lead-row', 'data-lead', ncProbLead);
+        ncProbDraw();
+    }
+
+    function ncProbLoad() {
+        if (ncProbLoading) return;
+        ncProbLoading = true;
+        ncProbNote('caricamento nowcast…');
+        fetchWithTimeout('data/radar/nowcast.json', 12000, null).then(function (r) {
+            if (!r || !r.ok) throw new Error('HTTP ' + (r ? r.status : '?'));
+            return r.json();
+        }).then(function (j) {
+            ncProbLoading = false;
+            ncProbData = j || null;
+            ncProbDraw();
+        }).catch(function (e) {
+            ncProbLoading = false;
+            ncProbData = null;
+            ncProbNote('nowcast non disponibile: ' + (e && e.message ? e.message : e));
+            ncProbClearLayer();
+        });
+    }
+
+    function ncProbDraw() {
+        ncProbClearLayer();
+        if (!ncProbOn) return;
+        var ens = ncProbData && ncProbData.ensemble;
+        if (!ens || !ens.applied) {
+            ncProbNote('ensemble non applicato in questo run' +
+                (ens && ens.null_reason ? ': ' + ens.null_reason : ''));
+            return;
+        }
+        var blk = (ens.leads || {})[String(ncProbLead)] || null;
+        var imgs = (blk && blk.images) || {};
+        var key = 'prob_' + ncProbThrKey(ncProbThr);
+        var name = imgs[key] || null;
+        var usedThr = ncProbThr;
+        if (!name) {
+            var best = null, bestD = 1e9;
+            for (var k in imgs) {
+                if (!Object.prototype.hasOwnProperty.call(imgs, k)) continue;
+                var t = Number(String(k).replace('prob_', '').replace('p', '.'));
+                if (!isFinite(t)) continue;
+                var d = Math.abs(t - ncProbThr);
+                if (d < bestD) { bestD = d; best = t; }
+            }
+            if (best !== null) {
+                usedThr = best;
+                name = imgs['prob_' + ncProbThrKey(best)] || null;
+            }
+        }
+        if (!name) {
+            ncProbNote('immagine di probabilità non disponibile per +' + ncProbLead + ' min');
+            return;
+        }
+        var b = ((ncProbData.grid || {}).bounds) || null;
+        if (!b || typeof L === 'undefined') {
+            ncProbNote('bounds EPSG:3857 assenti nel payload: layer non disegnato');
+            return;
+        }
+        var sw = L.CRS.EPSG3857.unproject(L.point(b[0], b[1]));
+        var ne = L.CRS.EPSG3857.unproject(L.point(b[2], b[3]));
+        ncProbLayer = L.imageOverlay('data/radar/' + name,
+            [[sw.lat, sw.lng], [ne.lat, ne.lng]],
+            { opacity: 0.72, interactive: false, className: 'nc-prob-layer' });
+        ncProbLayer.addTo(map);
+        var thrTxt = (usedThr === ncProbThr) ? '' :
+            (' (soglia ' + usedThr + ' mm/h, la più vicina disponibile)');
+        ncProbNote('probabilità di superare ' + usedThr + ' mm/h entro ' +
+            ncProbLead + ' min' + thrTxt + ' · run ' + (ncProbData.generated_at || '?') +
+            ' · colore = probabilità 0-100%');
     }
 
     function toggleDopplerCoverage() {
