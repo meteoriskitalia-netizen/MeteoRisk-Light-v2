@@ -72,6 +72,9 @@ colore.
    1,5 px = 2,25 km (`PROB_IMAGE_SMOOTH_PX`, dichiarato nel JSON come
    `image_smoothing_px`). **Il dato non viene filtrato**: i valori in
    `ensemble.leads[*].probabilities` restano quelli dell'ensemble.
+3. **Palette**: LUT RGB a 256 passi interpolata linearmente fra i 7 nodi
+   (`PROB_LUT`), nessun salto; legenda come rampa a 101 nodi con tacche a
+   0/25/50/75/100% (`legend_ticks`).
 
 ## 4. Misure prima/dopo
 
@@ -91,13 +94,25 @@ colore.
 | deterministico +30, warp unico bilineare | 0,99 | 1,00 |
 | deterministico +30, warp unico cubico | **1,22** | **1,17** |
 
-### Immagine di probabilità (+30)
+### Immagine di probabilità (+30): cosa aggiunge il rendering
 
-| | HF della LUMINANZA disegnata |
-| :--- | ---: |
-| grezza (21 livelli) | 0,190 |
-| smussata 1,5 px | **0,047** (−75%) |
-| HF del campo numerico, grezzo → smussato | 0,098 → 0,015 (−85%) |
+| metrica della LUMINANZA | grezza | smussata 1,5 px |
+| :--- | ---: | ---: |
+| var(Laplaciano)/var(L) | 0,2577 | **0,0083** (−96,8%) |
+| salto massimo su 1 px (0-255) | 116,0 | **47,4** |
+| salto p99.9 su 1 px | 67,1 | **29,5** |
+| frazione HF spettrale (k>0,10) | 0,190 | **0,047** |
+
+La palette **non** era la sorgente: sostituire `np.interp` con la LUT a 256
+passi cambia la luminanza di **max 1,5/255** (media 0,06) — cioè il colore
+era già continuo. I gradini visibili sono i **21 livelli del dato** (1/20),
+e lo smussamento è ciò che li trasforma in un gradiente: HF −97%, salto
+massimo su 1 px −59%.
+
+Livelli a 0,01 (101 valori) **non sono ottenibili con 20 membri**: la
+probabilità è esattamente k/20, quindi 21 valori. Per 101 livelli servono
+≥100 membri (costo ×5) oppure una soglia morbida (cambia la calibrazione):
+nessuna delle due è stata fatta.
 
 Correlazione con l'intensità deterministica +30 (pixel di pioggia):
 Pearson 0,48 grezza → 0,49 smussata; **Spearman (ranghi) 0,80**.
@@ -112,6 +127,13 @@ Pearson 0,48 grezza → 0,49 smussata; **Spearman (ranghi) 0,80**.
 - `test_prob_image_smoothing_kills_the_comb_and_keeps_the_data`: HF della
   luminanza < 50% del grezzo, 21 livelli nel dato, il dato non viene
   modificato, `smooth_px=0` riproduce il grezzo.
+- `test_probability_lut_is_continuous_and_legend_has_ticks`: 256 passi,
+  salto massimo 4/255 fra passi adiacenti, equivalenza con i nodi entro
+  1/255, legenda a 101 nodi con 5 tacche.
+
+Campo numerico invariato dalla resa: `write_prob_webp` lavora su una copia
+e non scrive mai l'array; verificato su 5 punti (0,10 / 0,40 / 0,60 / 0,25 /
+0,10 prima e dopo, bit-identici) e nell'input (`np.array_equal` True).
 
 ## 6. A/B appaiato su 4 giornate reali
 

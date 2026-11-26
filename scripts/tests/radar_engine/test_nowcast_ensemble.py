@@ -533,3 +533,30 @@ def test_prob_image_smoothing_kills_the_comb_and_keeps_the_data(tmp_path):
     ne.write_prob_webp(str(raw), p, smooth_px=0.0)
     assert raw.read_bytes() != path.read_bytes()
     assert _hf_fraction_lum(p) == hf_raw
+
+
+def test_probability_lut_is_continuous_and_legend_has_ticks():
+    """Palette continua: 256 passi, nessun salto fra i 7 nodi.
+
+    Il rendering non deve introdurre scalini: la LUT interpola linearmente i
+    nodi (max 4/255 per passo di probabilita') e la legenda e' una rampa a
+    101 nodi con 5 tacche (0/25/50/75/100%).
+    """
+    assert ne.PROB_LUT_STEPS == 256
+    lut = ne.PROB_LUT.astype(np.int16)
+    assert lut.shape == (256, 3)
+    assert len(np.unique(lut, axis=0)) >= 200
+    step = np.abs(np.diff(lut, axis=0)).max(axis=1)
+    assert int(step.max()) <= 4, int(step.max())      # nessun salto di colore
+    # equivalenza con l'interpolazione sui nodi (entro 1/255)
+    nodes = np.array([p[0] for p in ne.PROB_PALETTE], dtype=np.float64)
+    cols = np.array([p[1] for p in ne.PROB_PALETTE], dtype=np.float64)
+    x = np.linspace(0.0, 1.0, 256)
+    for ch in range(3):
+        ref = np.interp(x, nodes, cols[:, ch])
+        assert np.abs(lut[:, ch] - ref).max() <= 1.0
+    lg = ne.legend_payload()
+    assert len(lg) == 101
+    ticks = [e["prob"] for e in lg if e["tick"]]
+    assert ticks == [0.0, 0.25, 0.5, 0.75, 1.0]
+    assert all(len(e["rgb"]) == 3 for e in lg)

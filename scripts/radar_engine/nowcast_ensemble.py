@@ -558,15 +558,36 @@ def _prob_stats(prob, domain, pixel_km):
 # ---------------------------------------------------------------------------
 # immagini: colore = PROBABILITA' (non intensita')
 # ---------------------------------------------------------------------------
+PROB_LUT_STEPS = 256          # LUT continua: nessun salto fra i 7 nodi
+
+
+def _prob_lut():
+    """LUT RGB a 256 passi: interpolazione LINEARE fra i nodi della palette.
+
+    La mappa e' continua per costruzione (prima si usava `np.interp` sul
+    campo, stesso risultato): i nodi servono alla legenda, non a disegnare
+    blocchi. Resa identica a meno di 1/255."""
+    nodes = np.array([p[0] for p in PROB_PALETTE], dtype=np.float64)
+    cols = np.array([p[1] for p in PROB_PALETTE], dtype=np.float64)
+    x = np.linspace(0.0, 1.0, PROB_LUT_STEPS)
+    lut = np.empty((PROB_LUT_STEPS, 3), dtype=np.uint8)
+    for ch in range(3):
+        lut[:, ch] = np.interp(x, nodes, cols[:, ch]).astype(np.uint8)
+    return lut
+
+
+PROB_LUT = _prob_lut()
+PROB_LEGEND_TICKS = (0.0, 0.25, 0.50, 0.75, 1.0)
+
+
 def probability_rgba(prob):
-    """Probabilita' 0-1 -> RGBA. Alpha 0 sotto PROB_ALPHA_MIN."""
+    """Probabilita' 0-1 -> RGBA con LUT continua. Alpha 0 sotto 0,01."""
     v = np.asarray(prob, dtype=np.float32)
     vv = np.where(np.isfinite(v), np.clip(v, 0.0, 1.0), 0.0)
     out = np.zeros((vv.shape[0], vv.shape[1], 4), dtype=np.uint8)
-    nodes = np.array([p[0] for p in PROB_PALETTE], dtype=np.float32)
-    cols = np.array([p[1] for p in PROB_PALETTE], dtype=np.float32)
-    for ch in range(3):
-        out[:, :, ch] = np.interp(vv, nodes, cols[:, ch]).astype(np.uint8)
+    idx = np.rint(vv * np.float32(PROB_LUT_STEPS - 1)).astype(np.intp)
+    np.clip(idx, 0, PROB_LUT_STEPS - 1, out=idx)
+    out[:, :, :3] = PROB_LUT[idx]
     ramp = np.clip((vv - PROB_ALPHA_MIN) / (PROB_ALPHA_FULL - PROB_ALPHA_MIN),
                    0.0, 1.0)
     alpha = (ramp * PROB_ALPHA_MAX).astype(np.uint8)
@@ -600,8 +621,20 @@ def write_prob_webp(path, prob, quality=WEBP_QUALITY, smooth_px=None):
     return os.path.getsize(path)
 
 
-def legend_payload():
-    return [{"prob": float(p[0]), "rgb": list(p[1])} for p in PROB_PALETTE]
+def legend_payload(steps=101):
+    """Legenda CONTINUA (rampa a `steps` nodi) con tacche 0/25/50/75/100%.
+
+    Prima erano 7 voci secche: chi disegnava la barra a blocchi vedeva 7
+    salti. Qui la rampa e' campionata sul campo 0..1 (default 101 = passo
+    0,01) e ogni voce dichiara se e' una tacca (`tick: true`)."""
+    steps = max(2, int(steps))
+    out = []
+    for i in range(steps):
+        p = i / float(steps - 1)
+        rgb = PROB_LUT[int(round(p * (PROB_LUT_STEPS - 1)))]
+        out.append({"prob": round(p, 4), "rgb": [int(c) for c in rgb],
+                    "tick": any(abs(p - t) < 1e-9 for t in PROB_LEGEND_TICKS)})
+    return out
 
 
 # ---------------------------------------------------------------------------

@@ -1275,6 +1275,7 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
             "image_thresholds_mmh": [float(x) for x in _img_thrs],
             "image_smoothing_px": float(ensemble_mod.PROB_IMAGE_SMOOTH_PX),
             "legend": ensemble_mod.legend_payload(),
+            "legend_ticks": list(ensemble_mod.PROB_LEGEND_TICKS),
             "legend_unit": "probability 0-1",
             "leads": _per_lead,
             "cost_seconds": {"total": round(_t_ens, 3)},
