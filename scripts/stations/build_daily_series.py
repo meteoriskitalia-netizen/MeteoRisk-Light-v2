@@ -7,7 +7,10 @@ browser. Il workflow stations.yml gira ogni 10 minuti e riscrive UN SOLO BLOB VI
     data/stations/daily_series.json
 
   * ``day`` e' la giornata LOCALE Europe/Rome del run (non UTC, non quella del browser).
-  * Se il ``day`` del file su disco e' diverso -> si AZZERA (nuovo giorno locale).
+  * Se il ``day`` del file su disco e' diverso -> i PUNTI si azzerano (nuovo
+    giorno locale), ma i bucket orari del giorno precedente si conservano nei
+    campi ``*_prev``: le finestre 6 h/24 h sono scorrevoli e devono attraversare
+    la mezzanotte.
   * Altrimenti si aggancia ogni osservazione di latest.json, con DEDUP per
     ``obs_time`` (stesso istante -> sostituisci la tupla, non aggiungere).
   * Un solo blob vivo, sovrascritto a ogni run: nessuno storico voluto nel repo.
@@ -31,6 +34,27 @@ serie e SOSTITUISCE il bucket di quell'ora (mai somma: ricalcolo -> nessun doppi
 conteggio, ed e' il "dedup per minuto" richiesto). I bucket delle ore vecchie,
 che il run non rivede piu', restano.
 
+1.3.0.86 — FINESTRE SCORREVOLI, NON ANCORATE ALLA MEZZANOTTE
+------------------------------------------------------------
+Prima `rain_6h_mm`/`rain_24h_mm` (e vento, temperatura, umidita', dew point)
+partivano dalla mezzanotte locale: alle 02:00 la "24 h" copriva 2 ore. Ora le
+finestre terminano a `now` e attraversano la mezzanotte. Lo stato necessario e'
+il giorno locale corrente (`rh`, `wh`, `th`, `rhh`, `dwh`) PIU' il giorno
+precedente (`rh_prev`, ...): al cambio di giorno i bucket si spostano in
+`*_prev` e si completano con le righe di ieri ancora presenti in latest.json. La
+coda non piu' utile viene POTATA a ogni run (restano le ore >= ora locale
+corrente), quindi il costo in byte e' massimo a inizio giornata, quando il resto
+del blob e' minimo, e si annulla a fine giornata.
+
+Regola di copertura: `*_partial` = copertura < 50% delle ore nominali (non piu'
+"prima di mezzanotte"). Ogni finestra dichiara `window_start` (inizio del primo
+slot CON UN VALORE), `window_end` (adesso) e `coverage_frac` (slot con dato /
+ore nominali). Limite dichiarato: i bucket sono orari, quindi una finestra di
+H ore somma fra H-1 e H ore reali (il primo slot puo' essere tagliato a
+sinistra; l'ora corrente e' parziale per costruzione). Anche l'ultima ora prima
+della mezzanotte puo' essere parziale per la latenza della sorgente (~32 min
+mediani): il totale e' dichiarato come limite inferiore, non come stima.
+
     {
       "schema": "stations-daily-series/2",
       "generated_at": "2026-11-18T07:00:00Z",
@@ -49,11 +73,22 @@ che il run non rivede piu', restano.
           "rhh": {"4": [rh_mean, rh_min, rh_max]},
           "dwh": {"4": [dew_mean]},
           "rain_6h_mm": 1.6, "rain_6h_partial": false,
+          "rain_6h_coverage_frac": 1.0,
+          "rain_6h_window_start": "2026-11-18T02:00:00+01:00",
+          "rain_6h_window_end": "2026-11-18T08:00:00+01:00",
           "rain_24h_mm": 1.6, "rain_24h_partial": true,
-          "rain_24h_since": "2026-11-18T00:00:00+01:00",
+          "rain_24h_coverage_frac": 0.375,
+          "rain_24h_window_start": "2026-11-17T23:00:00+01:00",
+          "rain_24h_window_end": "2026-11-18T08:00:00+01:00",
+          "rain_24h_since": "2026-11-17T23:00:00+01:00",
           "wind_6h_ms": 2.1, "wind_6h_partial": false,
+          "wind_6h_coverage_frac": 1.0,
           "wind_24h_ms": 2.1, "wind_24h_partial": true,
-          "gust_max_6h_ms": 7.1, "gust_max_24h_ms": 7.1,
+          "wind_24h_coverage_frac": 0.375,
+          "gust_max_6h_ms": 7.1, "gust_max_6h_partial": false,
+          "gust_max_6h_coverage_frac": 1.0,
+          "gust_max_24h_ms": 7.1, "gust_max_24h_partial": true,
+          "gust_max_24h_coverage_frac": 0.375,
           "temp_6h_c": 9.4, "temp_6h_partial": false,
           "temp_24h_c": 8.9, "temp_24h_partial": true,
           "rh_6h_pct": 71, "rh_24h_pct": 68,
@@ -78,7 +113,10 @@ Indici della tupla (NON riordinarli: il client li usa):
 
 I bucket orari usano chiavi "0".."23" = ORA LOCALE. La conversione e' sicura
 perche' Europe/Rome ha offset interi: un'ora UTC sta interamente in un'ora
-locale (e in un solo giorno locale).
+locale (e in un solo giorno locale). I campi `*_prev` usano le stesse chiavi ma
+si riferiscono al giorno locale precedente (`prev_day` in testa al documento);
+sono la coda necessaria alle finestre che attraversano la mezzanotte e vengono
+potati alle ore ancora utili.
 
 Solo stdlib. Uso zoneinfo (stdlib) con fallback manuale CET/CEST se tzdata manca.
 """
@@ -113,25 +151,39 @@ TZ_NAME = "Europe/Rome"
 MAX_POINTS_PER_STATION = 288
 HOURS_IN_DAY = 24
 WINDOW_6H = 6
+#: Sotto questa copertura la finestra e' dichiarata parziale (nuova semantica
+#: 1.3.0.86: non piu' "prima di mezzanotte", ma "< 50% delle ore nominali").
+MIN_COVERAGE_FRAC = 0.5
+BUCKET_NAMES = ("rh", "wh", "th", "rhh", "dwh")
+PREV_SUFFIX = "_prev"
 NOTE = (
     "Serie giornaliera osservata (Europe/Rome) + bucket orari di pioggia (mm), "
     "vento (m/s), temperatura (degC), umidita' relativa (%) e dew point (degC). "
-    "Un solo blob vivo riscritto a ogni run del workflow stations.yml; azzerato a "
-    "mezzanotte locale; dedup per obs_time sui punti e per ora sui bucket "
-    "(ricalcolo, mai somma). Le cumulate rain_6h/rain_24h, le sintesi del vento e "
-    "le medie termiche temp_6h/temp_24h, rh_6h/rh_24h, dew_6h/dew_24h si calcolano "
-    "dal bucket, non dai punti. Nessun punto passato viene inventato. Massimo e "
-    "minimo della giornata (temp_max_day_c / temp_min_day_c e rh_max_day_pct / "
-    "rh_min_day_pct) con l'ora locale del picco e la copertura fino all'ora "
-    "corrente; la giornata e' dichiarata parziale finche' non sono passate tutte "
-    "le ore o la copertura e' sotto il 90%. "
-    "GATE DI PLAUSIBILITA' (condiviso con fetch_stations.py, temp_qc.py): i punti "
-    "di temperatura con |dT|/dt > 6 degC/h rispetto all'ultimo campione accettato "
-    "vengono azzerati (le altre grandezze della stessa osservazione restano) e "
-    "contati in `temp_qc_rejected`; un bucket orario che si discosta di oltre 15 "
-    "degC dai punti della stessa ora viene ricostruito da quei punti, e viene "
-    "eliminato se tutti i punti dell'ora sono stati scartati. Nessun valore "
-    "sostitutivo inventato."
+    "Un solo blob vivo riscritto a ogni run del workflow stations.yml; i PUNTI "
+    "si azzerano a mezzanotte locale, i BUCKET del giorno precedente restano in "
+    "`rh_prev`/`wh_prev`/`th_prev`/`rhh_prev`/`dwh_prev` per le finestre "
+    "scorrevoli che attraversano la mezzanotte (la coda non piu' utile e' "
+    "potata a ogni run). Dedup per obs_time sui punti e per ora sui bucket "
+    "(ricalcolo, mai somma). Le finestre 6 h e 24 h terminano a NOW, non alla "
+    "mezzanotte: rain_6h_mm, rain_24h_mm, wind_6h_ms, wind_24h_ms, "
+    "gust_max_6h_ms, gust_max_24h_ms, temp_*, rh_*, dew_* sono calcolati dagli "
+    "slot orari. `*_partial` = copertura < 50% delle ore nominali; "
+    "`window_start`, `window_end` e `coverage_frac` dichiarano la finestra "
+    "effettiva (il primo slot puo' essere tagliato a sinistra: la somma copre "
+    "fra H-1 e H ore reali; l'ultima ora prima della mezzanotte puo' essere "
+    "parziale per la latenza della sorgente, ~32 min mediani: il totale e' un "
+    "limite inferiore). Nessun punto o ora passata viene inventato. "
+    "Massimo e minimo della GIORNATA (temp_max_day_c / temp_min_day_c e "
+    "rh_max_day_pct / rh_min_day_pct) con l'ora locale del picco e la copertura "
+    "fino all'ora corrente; la giornata e' dichiarata parziale finche' non sono "
+    "passate tutte le ore o la copertura e' sotto il 90%. "
+    "GATE DI PLAUSIBILITA' (condiviso con fetch_stations.py, temp_qc.py): i "
+    "punti di temperatura con |dT|/dt > 6 degC/h rispetto all'ultimo campione "
+    "accettato vengono azzerati (le altre grandezze della stessa osservazione "
+    "restano) e contati in `temp_qc_rejected`; un bucket orario che si discosta "
+    "di oltre 15 degC dai punti della stessa ora viene ricostruito da quei "
+    "punti, e viene eliminato se tutti i punti dell'ora sono stati scartati. "
+    "Nessun valore sostitutivo inventato."
 )
 
 # Indici tupla — allineati a stationsSeriesTuple()/stationsSeriesValue() nel client.
@@ -229,6 +281,102 @@ def parse_obs_ms(value: object) -> int | None:
 
 def iso_utc(epoch_ms: int) -> str:
     return datetime.fromtimestamp(epoch_ms / 1000.0, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def iso_local_ms(epoch_ms: int) -> str:
+    """epoch ms -> ISO 8601 Europe/Rome con offset, secondi azzerati.
+
+    Stessa forma di `rain_24h_since` (es. ``2026-11-17T08:00:00+01:00``): e' la
+    forma con cui il blob dichiara `window_start`/`window_end`, verificabile a
+    occhio contro `generated_at` (UTC).
+    """
+    utc_dt = datetime.fromtimestamp(epoch_ms / 1000.0, tz=timezone.utc)
+    if _ROME is not None:
+        return utc_dt.astimezone(_ROME).replace(second=0, microsecond=0).isoformat()
+    naive = utc_dt.replace(tzinfo=None, second=0, microsecond=0)
+    offset = _rome_offset_hours(naive)
+    return naive.replace(tzinfo=timezone(timedelta(hours=offset))).isoformat()
+
+
+def window_slots(now_ms: int, hours: int) -> list[tuple[int, str, int]]:
+    """Slot orari della finestra scorrevole che termina a `now_ms`.
+
+    Uno slot entra se il suo INIZIO cade in [now - hours h, now): a un'ora
+    tonda sono `hours` slot pieni (il piu' vecchio parte esattamente al bordo
+    della finestra), a meta' ora sono `hours` slot con il primo gia' dentro la
+    finestra e l'ultimo (ora corrente) parziale. Per questo la somma copre fra
+    `hours - 1` e `hours` ore reali: e' il limite dichiarato dell'aggregato
+    orario, non una stima delle ore mancanti.
+    """
+    start_limit = now_ms - hours * 3_600_000
+    now_hour = (now_ms // 3_600_000) * 3_600_000
+    slots: list[tuple[int, str, int]] = []
+    seen: set[tuple[str, int]] = set()
+    for back in range(hours + 1):
+        start = now_hour - back * 3_600_000
+        if start < start_limit or start >= now_ms:
+            continue
+        day, hour = local_hour(start // 1000)
+        if (day, hour) in seen:
+            # Cambio ora legale: l'ora locale si ripete e il bucket ha una sola
+            # chiave. Si conta UNA volta (limite dichiarato, niente doppio conteggio).
+            continue
+        seen.add((day, hour))
+        slots.append((start, day, hour))
+    return slots
+
+
+def _bucket_for(record: dict, day: str, current_day: str, prev_day: str | None, name: str) -> dict:
+    """Il dizionario bucket giusto per un giorno: corrente o `*_prev`."""
+    if day == current_day:
+        bucket = record.get(name)
+    elif prev_day is not None and day == prev_day:
+        bucket = record.get(name + PREV_SUFFIX)
+    else:
+        return {}
+    return bucket if isinstance(bucket, dict) else {}
+
+
+def _has_bucket(record: dict, name: str) -> bool:
+    """True se esiste almeno un bucket (corrente o precedente) per la grandezza."""
+    for key in (name, name + PREV_SUFFIX):
+        bucket = record.get(key)
+        if isinstance(bucket, dict) and bucket:
+            return True
+    return False
+
+
+def _window_values(
+    record: dict,
+    slots: list[tuple[int, str, int]],
+    current_day: str,
+    prev_day: str | None,
+    name: str,
+    index: int | None = None,
+) -> list[tuple[int, float]]:
+    """[(inizio slot, valore)] degli slot della finestra che hanno un numero.
+
+    `index` sceglie la posizione nelle forme a lista: 0 = media (th/rhh/dwh),
+    1 = raffica (wh). Con `index=None` il bucket e' un numero nudo (rh).
+    """
+    out: list[tuple[int, float]] = []
+    for start, day, hour in slots:
+        entry = _bucket_for(record, day, current_day, prev_day, name).get(str(hour))
+        value = entry
+        if index is not None:
+            if not isinstance(entry, list) or len(entry) <= index:
+                continue
+            value = entry[index]
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            out.append((start, float(value)))
+    return out
+
+
+def _coverage(present: int, hours: int) -> float:
+    """Copertura dichiarata: slot con dato / ore nominali, limitata a 1."""
+    if hours <= 0:
+        return 0.0
+    return round(min(1.0, present / float(hours)), 3)
 
 
 # --------------------------------------------------------------------------- #
@@ -353,41 +501,6 @@ def _temp_triplet(current: object) -> list:
             if isinstance(current[index], (int, float)):
                 triple[index] = round(float(current[index]), 1)
     return triple
-
-
-def _bucket_means(bucket: object) -> dict[int, float]:
-    """Valori medi per ora di un bucket `th`/`rhh`/`dwh`.
-
-    `th` e' una lista [media, min, max]: si usa SOLO l'indice 0 (la media).
-    `rhh`/`dwh` portano una lista [media] per uniformita' di forma.
-    """
-    out: dict[int, float] = {}
-    if not isinstance(bucket, dict):
-        return out
-    for key, value in bucket.items():
-        try:
-            hour = int(key)
-        except (TypeError, ValueError):
-            continue
-        if isinstance(value, list) and value and isinstance(value[0], (int, float)):
-            out[hour] = float(value[0])
-        elif isinstance(value, (int, float)):
-            out[hour] = float(value)
-    return out
-
-
-def _window_mean(
-    values: dict[int, float], current_hour: int, hours: int
-) -> tuple[float | None, bool]:
-    """(media delle medie orarie, parzialita') sulle ultime `hours` ore."""
-    window = [
-        values[h]
-        for h in range(max(0, current_hour - hours + 1), current_hour + 1)
-        if h in values
-    ]
-    if not window:
-        return None, True
-    return round(sum(window) / len(window), 1), len(window) < min(hours, current_hour + 1)
 
 
 def _day_extremes(bucket: object, current_hour: int) -> tuple[dict[int, tuple], float]:
@@ -564,64 +677,130 @@ def _repair_temp_buckets(
     return repaired
 
 
-def _derived(record: dict, current_hour: int, day: str) -> None:
-    """Aggiunge a `record` le cumulate a 6 h e 24 h e le sintesi del vento."""
-    rh = record.get("rh") if isinstance(record.get("rh"), dict) else {}
-    if rh:
-        values = {int(k): v for k, v in rh.items() if isinstance(v, (int, float))}
-        window = [values[h] for h in range(max(0, current_hour - WINDOW_6H + 1), current_hour + 1) if h in values]
-        record["rain_6h_mm"] = round(sum(window), 1)
-        record["rain_6h_partial"] = len(window) < min(WINDOW_6H, current_hour + 1)
-        record["rain_24h_mm"] = round(sum(values.values()), 1)
-        # "parziale" = non copre le 24 ore del giorno (a inizio giornata lo e').
-        record["rain_24h_partial"] = len(values) < HOURS_IN_DAY
-        record["rain_24h_since"] = day_start_iso(day)
+def _rain_window(
+    record: dict,
+    slots: list[tuple[int, str, int]],
+    hours: int,
+    day: str,
+    prev_day: str | None,
+    now_ms: int,
+) -> dict:
+    """Pezzi della cumulata di pioggia su una finestra scorrevole."""
+    values = _window_values(record, slots, day, prev_day, "rh")
+    coverage = _coverage(len(values), hours)
+    return {
+        "mm": round(sum(value for _start, value in values), 1) if values else None,
+        "null_reason": None if values else "no_buckets_in_window",
+        "partial": coverage < MIN_COVERAGE_FRAC,
+        "coverage": coverage,
+        "start": iso_local_ms(values[-1][0]) if values else None,
+        "end": iso_local_ms(now_ms),
+    }
 
-    wh = record.get("wh") if isinstance(record.get("wh"), dict) else {}
-    if wh:
-        speeds: dict[int, float] = {}
-        gusts: dict[int, float] = {}
-        for key, pair in wh.items():
-            if not isinstance(pair, list) or not pair:
-                continue
-            hour = int(key)
-            if len(pair) > 0 and isinstance(pair[0], (int, float)):
-                speeds[hour] = float(pair[0])
-            if len(pair) > 1 and isinstance(pair[1], (int, float)):
-                gusts[hour] = float(pair[1])
-        window_hours = range(max(0, current_hour - WINDOW_6H + 1), current_hour + 1)
-        speed_window = [speeds[h] for h in window_hours if h in speeds]
-        gust_window = [gusts[h] for h in window_hours if h in gusts]
-        if speed_window:
-            # MEDIA SEMPLICE delle medie orarie (ogni bucket e' gia' una media
-            # pesata sulla sua ora); nessuna pesatura doppia.
-            record["wind_6h_ms"] = round(sum(speed_window) / len(speed_window), 1)
-            record["wind_6h_partial"] = len(speed_window) < min(WINDOW_6H, current_hour + 1)
-            record["wind_24h_ms"] = round(sum(speeds.values()) / len(speeds), 1)
-            record["wind_24h_partial"] = len(speeds) < HOURS_IN_DAY
-        if gust_window:
-            record["gust_max_6h_ms"] = round(max(gust_window), 1)
-        if gusts:
-            record["gust_max_24h_ms"] = round(max(gusts.values()), 1)
 
-    # Medie termiche 6 h / 24 h dai bucket orari (media delle medie orarie: ogni
-    # bucket e' gia' una media pesata sulla sua ora). A inizio giornata la
-    # finestra non e' completa: il flag `*_partial` lo dichiara, il valore resta
-    # quello disponibile (come per pioggia e vento, nessun valore inventato).
+def _wind_window(
+    record: dict,
+    slots: list[tuple[int, str, int]],
+    hours: int,
+    day: str,
+    prev_day: str | None,
+) -> tuple[dict, dict]:
+    """(vento medio, raffica massima) su una finestra scorrevole."""
+    speeds = _window_values(record, slots, day, prev_day, "wh", 0)
+    gusts = _window_values(record, slots, day, prev_day, "wh", 1)
+    speed = {
+        "mean": (
+            round(sum(value for _start, value in speeds) / len(speeds), 1)
+            if speeds else None
+        ),
+        "partial": _coverage(len(speeds), hours) < MIN_COVERAGE_FRAC if speeds else None,
+        "coverage": _coverage(len(speeds), hours) if speeds else None,
+    }
+    gust = {
+        "max": round(max(value for _start, value in gusts), 1) if gusts else None,
+        "partial": _coverage(len(gusts), hours) < MIN_COVERAGE_FRAC if gusts else None,
+        "coverage": _coverage(len(gusts), hours) if gusts else None,
+    }
+    return speed, gust
+
+
+def _derived(
+    record: dict,
+    now_ms: int,
+    current_hour: int,
+    day: str,
+    prev_day: str | None,
+    slots_6: list[tuple[int, str, int]],
+    slots_24: list[tuple[int, str, int]],
+) -> None:
+    """Aggiunge a `record` le finestre SCORREVOLI a 6 h e 24 h.
+
+    Le finestre terminano a `now_ms` e possono attraversare la mezzanotte: gli
+    slot vengono dal giorno corrente e da `*_prev`. `*_partial` e' true quando
+    la copertura e' sotto il 50% delle ore nominali; ogni finestra di pioggia
+    dichiara inizio effettivo, fine e copertura.
+    """
+    if _has_bucket(record, "rh"):
+        w6 = _rain_window(record, slots_6, WINDOW_6H, day, prev_day, now_ms)
+        w24 = _rain_window(record, slots_24, HOURS_IN_DAY, day, prev_day, now_ms)
+        record["rain_6h_mm"] = w6["mm"]
+        record["rain_6h_partial"] = w6["partial"]
+        record["rain_6h_coverage_frac"] = w6["coverage"]
+        record["rain_6h_window_start"] = w6["start"]
+        record["rain_6h_window_end"] = w6["end"]
+        if w6["null_reason"]:
+            record["rain_6h_null_reason"] = w6["null_reason"]
+        record["rain_24h_mm"] = w24["mm"]
+        record["rain_24h_partial"] = w24["partial"]
+        record["rain_24h_coverage_frac"] = w24["coverage"]
+        record["rain_24h_window_start"] = w24["start"]
+        record["rain_24h_window_end"] = w24["end"]
+        if w24["null_reason"]:
+            record["rain_24h_null_reason"] = w24["null_reason"]
+        # Nome storico: prima era la mezzanotte, ora e' l'inizio EFFETTIVO
+        # della finestra di 24 h (alias di rain_24h_window_start).
+        record["rain_24h_since"] = w24["start"]
+
+    if _has_bucket(record, "wh"):
+        speed6, gust6 = _wind_window(record, slots_6, WINDOW_6H, day, prev_day)
+        speed24, gust24 = _wind_window(record, slots_24, HOURS_IN_DAY, day, prev_day)
+        if speed6["mean"] is not None:
+            record["wind_6h_ms"] = speed6["mean"]
+            record["wind_6h_partial"] = speed6["partial"]
+            record["wind_6h_coverage_frac"] = speed6["coverage"]
+        if speed24["mean"] is not None:
+            record["wind_24h_ms"] = speed24["mean"]
+            record["wind_24h_partial"] = speed24["partial"]
+            record["wind_24h_coverage_frac"] = speed24["coverage"]
+        if gust6["max"] is not None:
+            record["gust_max_6h_ms"] = gust6["max"]
+            record["gust_max_6h_partial"] = gust6["partial"]
+            record["gust_max_6h_coverage_frac"] = gust6["coverage"]
+        if gust24["max"] is not None:
+            record["gust_max_24h_ms"] = gust24["max"]
+            record["gust_max_24h_partial"] = gust24["partial"]
+            record["gust_max_24h_coverage_frac"] = gust24["coverage"]
+
+    # Medie 6 h / 24 h dai bucket orari (media delle medie orarie: ogni bucket
+    # e' gia' una media pesata sulla sua ora). Con copertura parziale la media
+    # resta quella delle ore disponibili e il flag lo dichiara: nessun valore
+    # inventato per le ore mancanti.
     for bucket_name, label, unit in (
         ("th", "temp", "c"),
         ("rhh", "rh", "pct"),
         ("dwh", "dew", "c"),
     ):
-        values = _bucket_means(record.get(bucket_name))
-        if not values:
+        if not _has_bucket(record, bucket_name):
             continue
-        for hours in (WINDOW_6H, HOURS_IN_DAY):
-            mean, partial = _window_mean(values, current_hour, hours)
-            if mean is None:
+        for slots, hours in ((slots_6, WINDOW_6H), (slots_24, HOURS_IN_DAY)):
+            values = _window_values(record, slots, day, prev_day, bucket_name, 0)
+            if not values:
                 continue
+            mean = round(sum(value for _start, value in values) / len(values), 1)
             record[f"{label}_{hours}h_{unit}"] = mean
-            record[f"{label}_{hours}h_partial"] = partial
+            record[f"{label}_{hours}h_partial"] = (
+                _coverage(len(values), hours) < MIN_COVERAGE_FRAC
+            )
 
     # Massimo e minimo DELLA GIORNATA (dalla mezzanotte locale): si leggono dai
     # bucket orari gia' calcolati (`th`/`rhh` = [media, minima, massima]), non si
@@ -717,6 +896,34 @@ def _merge_wind(previous: dict, speed: object, gust: object, day: str) -> dict:
     return out
 
 
+def _copy_bucket(name: str, bucket: object) -> dict:
+    """Copia tipizzata di un dizionario bucket (scarta le voci malformate).
+
+    Serve al passaggio di giorno: `rh`/`wh`/`th`/`rhh`/`dwh` del giorno appena
+    finito diventano `*_prev` con la STESSA forma che i calcoli si aspettano.
+    Nessun valore nuovo: solo copia e normalizzazione di forma.
+    """
+    if not isinstance(bucket, dict) or not bucket:
+        return {}
+    if name == "rh":
+        return {
+            str(k): float(v)
+            for k, v in bucket.items()
+            if isinstance(v, (int, float)) and not isinstance(v, bool)
+        }
+    if name == "wh":
+        return {str(k): _wind_pair(v) for k, v in bucket.items()}
+    if name in ("th", "rhh"):
+        return {str(k): _temp_triplet(v) for k, v in bucket.items()}
+    if name == "dwh":
+        return {
+            str(k): [round(float(v[0]), 1)]
+            for k, v in bucket.items()
+            if isinstance(v, list) and v and isinstance(v[0], (int, float))
+        }
+    return {}
+
+
 # --------------------------------------------------------------------------- #
 # Aggiornamento del blob
 # --------------------------------------------------------------------------- #
@@ -724,42 +931,59 @@ def build(latest: dict, previous: dict | None, now_ms: int, max_points: int = MA
     """Restituisce il nuovo documento. `previous` e' il file su disco (o None)."""
     day = rome_day(now_ms)
     lo, hi = local_day_bounds(day)
+    yesterday = rome_day(lo - 1)
     prev_day = previous.get("day") if isinstance(previous, dict) else None
+    prev_prev_day = previous.get("prev_day") if isinstance(previous, dict) else None
     prev_stations = previous.get("stations", {}) if isinstance(previous, dict) else {}
     if not isinstance(prev_stations, dict):
         prev_stations = {}
     current_hour = local_hour(now_ms // 1000)[1]
+    slots_6 = window_slots(now_ms, WINDOW_6H)
+    slots_24 = window_slots(now_ms, HOURS_IN_DAY)
+    # Giorno a cui appartengono i bucket `*_prev`: ieri se il blob e' di ieri
+    # (cambio di giorno), ieri anche se il blob e' gia' di oggi (coda portata
+    # avanti da un run precedente). Blob piu' vecchio di un giorno -> nessuna
+    # coda: il buco non si riempie con ore inventate.
+    carried_prev_day = yesterday if prev_day in (day, yesterday) else None
 
     stations: dict[str, dict] = {}
-    if prev_day == day:
+    if prev_day in (day, yesterday):
         # Conserva le serie delle stazioni gia' presenti (anche quelle che questo
         # run non ripubblica: il loro punto di oggi non deve sparire).
         for sid, rec in prev_stations.items():
-            if not isinstance(rec, dict) or not isinstance(rec.get("pts"), list):
+            if not isinstance(rec, dict):
                 continue
-            pts = [p for p in rec["pts"] if _valid_point(p) and lo <= p[I_TIME] < hi]
-            if pts:
-                kept = {"name": str(rec.get("name") or ""), "pts": pts}
-                # I bucket orari sopravvivono come i punti: sono lo stato del giorno.
-                if isinstance(rec.get("rh"), dict) and rec["rh"]:
-                    kept["rh"] = {str(k): float(v) for k, v in rec["rh"].items() if isinstance(v, (int, float))}
-                if isinstance(rec.get("wh"), dict) and rec["wh"]:
-                    kept["wh"] = {str(k): _wind_pair(v) for k, v in rec["wh"].items()}
-                if isinstance(rec.get("th"), dict) and rec["th"]:
-                    kept["th"] = {str(k): _temp_triplet(v) for k, v in rec["th"].items()}
-                if isinstance(rec.get("rhh"), dict) and rec["rhh"]:
-                    kept["rhh"] = {str(k): _temp_triplet(v) for k, v in rec["rhh"].items()}
-                if isinstance(rec.get("dwh"), dict) and rec["dwh"]:
-                    kept["dwh"] = {
-                        str(k): [round(float(v[0]), 1)]
-                        for k, v in rec["dwh"].items()
-                        if isinstance(v, list) and v and isinstance(v[0], (int, float))
-                    }
-                # Il conteggio dei campioni termici scartati e' cumulativo della
-                # giornata: i punti gia' azzerati non vengono ricontati, ma il
-                # numero resta visibile nel blob.
-                if isinstance(rec.get("temp_qc_rejected"), int) and rec["temp_qc_rejected"] > 0:
-                    kept["temp_qc_rejected"] = rec["temp_qc_rejected"]
+            pts = [
+                p for p in (rec.get("pts") or [])
+                if _valid_point(p) and lo <= p[I_TIME] < hi
+            ]
+            kept = {"name": str(rec.get("name") or ""), "pts": pts}
+            if prev_day == day:
+                # Bucket del giorno corrente.
+                for name in BUCKET_NAMES:
+                    copied = _copy_bucket(name, rec.get(name))
+                    if copied:
+                        kept[name] = copied
+                if prev_prev_day == yesterday:
+                    # Coda di ieri gia' portata avanti: resta finche' serve alla
+                    # finestra di 24 h (la potatura avviene dopo i derivati).
+                    for name in BUCKET_NAMES:
+                        copied = _copy_bucket(name, rec.get(name + PREV_SUFFIX))
+                        if copied:
+                            kept[name + PREV_SUFFIX] = copied
+            else:
+                # Cambio di giorno: i bucket di ieri diventano `*_prev`. I PUNTI
+                # di ieri no: il grafico riparte da mezzanotte.
+                for name in BUCKET_NAMES:
+                    copied = _copy_bucket(name, rec.get(name))
+                    if copied:
+                        kept[name + PREV_SUFFIX] = copied
+            # Il conteggio dei campioni termici scartati e' cumulativo della
+            # giornata: i punti gia' azzerati non vengono ricontati, ma il
+            # numero resta visibile nel blob.
+            if isinstance(rec.get("temp_qc_rejected"), int) and rec["temp_qc_rejected"] > 0:
+                kept["temp_qc_rejected"] = rec["temp_qc_rejected"]
+            if pts or any(key.endswith(PREV_SUFFIX) for key in kept):
                 stations[sid] = kept
 
     latest_stations = latest.get("stations", [])
@@ -821,6 +1045,31 @@ def build(latest: dict, previous: dict | None, now_ms: int, max_points: int = MA
         if dwh:
             rec["dwh"] = dwh
 
+        if prev_day == yesterday:
+            # Il run di mezzanotte puo' portare le ULTIME ore di ieri (la serie
+            # di latest.json copre ~3 h): si completano i bucket `*_prev` con la
+            # stessa regola di sostituzione per ora, senza mai sommare.
+            prev_rh = _merge_hourly(rec.get("rh_prev") or {}, st.get("rain_hourly"), prev_day)
+            if prev_rh:
+                rec["rh_prev"] = prev_rh
+            prev_wh = _merge_wind(
+                rec.get("wh_prev") or {}, st.get("wind_hourly"),
+                st.get("gust_hourly"), prev_day,
+            )
+            if prev_wh:
+                rec["wh_prev"] = prev_wh
+            prev_th = _merge_temp(rec.get("th_prev") or {}, st.get("temp_hourly"), prev_day)
+            if prev_th:
+                rec["th_prev"] = prev_th
+            prev_rhh = _merge_temp(rec.get("rhh_prev") or {}, st.get("rh_hourly"), prev_day)
+            if prev_rhh:
+                rec["rhh_prev"] = prev_rhh
+            prev_dwh = _merge_hourly(
+                rec.get("dwh_prev") or {}, st.get("dew_hourly"), prev_day, wrap=True
+            )
+            if prev_dwh:
+                rec["dwh_prev"] = prev_dwh
+
     for sid, rec in stations.items():
         if not isinstance(rec, dict):
             continue
@@ -848,13 +1097,57 @@ def build(latest: dict, previous: dict | None, now_ms: int, max_points: int = MA
                     added = True
             if added:
                 rec[bucket] = current
-        _derived(rec, current_hour, day)
+        _derived(rec, now_ms, current_hour, day, carried_prev_day, slots_6, slots_24)
+        # Potatura della coda: le ore di ieri <= ora locale corrente non possono
+        # piu' entrare in una finestra di 24 h (ne' in quella di 6 h). Tenerle
+        # gonfierebbe il blob senza cambiare nessun valore. La potatura e'
+        # monotona (l'ora corrente cresce), quindi un run saltato non la rende
+        # sbagliata: servono sempre le ore successive.
+        for name in BUCKET_NAMES:
+            key = name + PREV_SUFFIX
+            bucket = rec.get(key)
+            if not isinstance(bucket, dict):
+                continue
+            pruned = {}
+            for hour_key, value in bucket.items():
+                try:
+                    hour = int(hour_key)
+                except (TypeError, ValueError):
+                    continue
+                if hour >= current_hour:
+                    pruned[str(hour)] = value
+            if pruned:
+                rec[key] = pruned
+            else:
+                rec.pop(key, None)
 
+    has_prev = any(
+        isinstance(rec.get(name + PREV_SUFFIX), dict) and rec.get(name + PREV_SUFFIX)
+        for rec in stations.values()
+        for name in BUCKET_NAMES
+    )
     return {
         "schema": SCHEMA,
         "generated_at": iso_utc(now_ms),
         "day": day,
+        **({"prev_day": carried_prev_day} if has_prev and carried_prev_day else {}),
         "timezone": TZ_NAME,
+        "window_policy": {
+            "6h": {
+                "hours": WINDOW_6H,
+                "slot_minutes": 60,
+                "window_start": iso_local_ms(now_ms - WINDOW_6H * 3_600_000),
+                "window_end": iso_local_ms(now_ms),
+                "partial_below_coverage": MIN_COVERAGE_FRAC,
+            },
+            "24h": {
+                "hours": HOURS_IN_DAY,
+                "slot_minutes": 60,
+                "window_start": iso_local_ms(now_ms - HOURS_IN_DAY * 3_600_000),
+                "window_end": iso_local_ms(now_ms),
+                "partial_below_coverage": MIN_COVERAGE_FRAC,
+            },
+        },
         "note": NOTE,
         "max_points_per_station": max_points,
         "stations": stations,
@@ -915,11 +1208,24 @@ def main(argv: list[str] | None = None) -> int:
         th = sum(len(r.get("th", {})) for r in doc["stations"].values())
         rhh = sum(len(r.get("rhh", {})) for r in doc["stations"].values())
         dwh = sum(len(r.get("dwh", {})) for r in doc["stations"].values())
+        prev_rh = sum(len(r.get("rh_prev", {})) for r in doc["stations"].values())
+        prev_wh = sum(len(r.get("wh_prev", {})) for r in doc["stations"].values())
         wet = sum(1 for r in doc["stations"].values() if r.get("rain_24h_mm"))
-        print(f"[OK] day={doc['day']} stations={len(doc['stations'])} points={pts} "
+        complete6 = sum(
+            1 for r in doc["stations"].values()
+            if r.get("rain_6h_partial") is False
+        )
+        complete24 = sum(
+            1 for r in doc["stations"].values()
+            if r.get("rain_24h_partial") is False
+        )
+        print(f"[OK] day={doc['day']} prev_day={doc.get('prev_day')} "
+              f"stations={len(doc['stations'])} points={pts} "
               f"rain_buckets={rh} wind_buckets={wh} temp_buckets={th} "
               f"rh_buckets={rhh} dew_buckets={dwh} "
-              f"stazioni_con_pioggia_oggi={wet} "
+              f"prev_rain_buckets={prev_rh} prev_wind_buckets={prev_wh} "
+              f"stazioni_con_pioggia_24h={wet} "
+              f"rain6_complete={complete6} rain24_complete={complete24} "
               f"bytes={len(payload.encode('utf-8'))} -> {out_path}")
     return 0
 

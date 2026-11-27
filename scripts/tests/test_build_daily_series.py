@@ -100,12 +100,21 @@ def test_midnight_reset(tmp_path):
 
 
 def test_midnight_no_observation_yet(tmp_path):
-    """A mezzanotte, se latest non ha ancora osservazioni del nuovo giorno -> 0 punti (onesto)."""
+    """A mezzanotte, senza osservazioni del nuovo giorno -> 0 punti (onesto).
+
+    La stazione resta nel blob se ha la coda di ieri (`*_prev`), cosi' la
+    finestra di 24 h non sparisce: e' un limite inferiore dichiarato, non un
+    punto inventato.
+    """
     prev = bds.build(latest(station("2026-11-18T22:50:00Z")), None, ms(2026, 11, 18, 22, 50))
     now_next = ms(2026, 11, 18, 23, 1)
     doc = bds.build(latest(station("2026-11-18T22:50:00Z")), prev, now_next)
     assert doc["day"] == "2026-11-19"
-    assert doc["stations"] == {}
+    rec = doc["stations"]["IT001"]
+    assert rec["pts"] == []
+    assert rec["rh_24h_pct"] == 68.0
+    assert rec["rh_24h_partial"] is True
+    assert "rain_24h_mm" not in rec
 
 
 def test_dedup_same_obs_time():

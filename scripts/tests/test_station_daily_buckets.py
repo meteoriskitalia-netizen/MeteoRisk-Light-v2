@@ -77,8 +77,8 @@ def test_rain_bucket_is_replaced_not_summed():
     assert doc["stations"]["IT001"]["rain_24h_mm"] == 1.1
 
 
-def test_rain_24h_is_partial_at_the_start_of_the_day():
-    """Alle 03:00 locali il totale del giorno NON copre 24 ore: partial true."""
+def test_rain_24h_is_partial_when_coverage_is_low():
+    """Alle 03:30 locali con soli 3 slot su 24 la finestra e' parziale."""
     day = "2026-11-23"
     hours = [[utc_hour(day, h), 0.5] for h in (0, 1, 2)]  # 01,02,03 locali
     doc = bds.build(
@@ -89,7 +89,9 @@ def test_rain_24h_is_partial_at_the_start_of_the_day():
     rec = doc["stations"]["IT001"]
     assert rec["rain_24h_mm"] == 1.5
     assert rec["rain_24h_partial"] is True
-    assert rec["rain_24h_since"] == "2026-11-23T00:00:00+01:00"
+    assert rec["rain_24h_coverage_frac"] == pytest.approx(3 / 24, abs=0.001)
+    assert rec["rain_24h_window_start"] == "2026-11-23T01:00:00+01:00"
+    assert rec["rain_24h_since"] == rec["rain_24h_window_start"]
 
 
 def test_rain_24h_is_not_partial_with_all_24_buckets():
@@ -127,11 +129,18 @@ def test_rain_6h_sums_only_the_last_six_hours_and_declares_partial():
     assert rec["rain_24h_mm"] == 24.0
 
     early = bds.build(
+        latest(station(f"{day}T02:10:00Z", rain_hourly=hours[:2])),
+        None,
+        ms(day, 2, 10),
+    )["stations"]["IT001"]
+    assert early["rain_6h_partial"] is True   # 2/6 = 33%
+
+    half = bds.build(
         latest(station(f"{day}T02:10:00Z", rain_hourly=hours[:3])),
         None,
         ms(day, 2, 10),
     )["stations"]["IT001"]
-    assert early["rain_6h_partial"] is True
+    assert half["rain_6h_partial"] is False   # 3/6 = 50%: soglia nuova
 
 
 def test_wind_buckets_merge_speed_and_gust():
@@ -168,8 +177,8 @@ def test_wind_bucket_keeps_a_missing_quantity_as_null():
     assert "gust_max_24h_ms" not in rec
 
 
-def test_yesterday_buckets_are_dropped_at_midnight():
-    """Nuovo giorno locale -> il blob riparte: nessun bucket di ieri."""
+def test_yesterday_buckets_are_carried_into_prev_at_midnight():
+    """Nuovo giorno locale: i punti ripartono, i bucket di ieri vanno in *_prev."""
     previous = {
         "schema": "stations-daily-series/2",
         "day": "2026-11-22",
@@ -181,12 +190,23 @@ def test_yesterday_buckets_are_dropped_at_midnight():
         }},
     }
     doc = bds.build(
-        latest(station("2026-11-23T00:10:00Z")), previous, ms("2026-11-23", 0, 10)
+        latest(), previous, ms("2026-11-23", 0, 10)
     )
     rec = doc["stations"]["IT001"]
     assert doc["day"] == "2026-11-23"
+    assert doc["prev_day"] == "2026-11-22"
+    # I punti di ieri non si portano; i bucket si'.
+    assert rec["pts"] == []
     assert "rh" not in rec and "wh" not in rec
-    assert "rain_6h_mm" not in rec
+    assert rec["rh_prev"] == {"10": 3.0, "11": 1.0}
+    assert rec["wh_prev"] == {"10": [2.0, 5.0]}
+    # A 00:10 le ore 10-11 di ieri sono fuori dalla finestra di 6 h ma dentro
+    # quella di 24 h: il valore c'e' (limite inferiore) e partial e' true.
+    assert rec["rain_6h_mm"] is None
+    assert rec["rain_6h_null_reason"] == "no_buckets_in_window"
+    assert rec["rain_6h_partial"] is True
+    assert rec["rain_24h_mm"] == 4.0
+    assert rec["rain_24h_partial"] is True
 
 
 def test_schema_1_blob_is_still_readable():
@@ -231,8 +251,9 @@ def test_serialization_is_compact_and_has_no_bom(tmp_path):
 def test_temp_rh_dew_buckets_and_derivatives():
     """Tre ore di bucket: `th` porta media/min/max, i derivati sono medie orarie.
 
-    A 16:30 locali con soli 3 bucket la finestra 6 h e 24 h NON e' completa:
-    il valore c'e' e `*_partial` e' true. Non si inventano le ore mancanti.
+    A 16:30 locali con 3 bucket la 6 h e' al 50% (non parziale secondo la
+    regola nuova), la 24 h resta parziale: il valore c'e' e il flag lo dice.
+    Non si inventano le ore mancanti.
     """
     day = "2026-11-23"
     obs = station(
@@ -269,11 +290,11 @@ def test_temp_rh_dew_buckets_and_derivatives():
     assert rec["dwh"] == {"14": [6.0], "15": [7.0], "16": [8.0]}
     assert rec["temp_6h_c"] == pytest.approx(11.0)
     assert rec["temp_24h_c"] == pytest.approx(11.0)
-    assert rec["temp_6h_partial"] is True
+    assert rec["temp_6h_partial"] is False
     assert rec["temp_24h_partial"] is True
     assert rec["rh_6h_pct"] == pytest.approx(82.0)
     assert rec["dew_24h_c"] == pytest.approx(7.0)
-    assert rec["rh_6h_partial"] is True and rec["dew_6h_partial"] is True
+    assert rec["rh_6h_partial"] is False and rec["dew_6h_partial"] is False
 
 
 def test_temp_bucket_is_replaced_not_summed():
