@@ -406,6 +406,8 @@ class _Bundle(object):
 def _cfg(tmp_path, ensemble_on):
     cfg = load_config()
     cfg["output"] = dict(cfg["output"], out_dir=str(tmp_path / "out"))
+    cfg["nowcast_trend"] = {"enabled": False}
+    cfg["nowcast_decay"] = {"enabled": False}
     cfg["cascade"] = dict(cfg.get("cascade") or {}, enabled=False,
                           probability_matching=False)
     cfg["ensemble"] = dict(cfg.get("ensemble") or {}, enabled=ensemble_on,

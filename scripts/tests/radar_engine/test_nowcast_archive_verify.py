@@ -82,6 +82,8 @@ def _moving_rasters(tmp_path, n=3, dx=1, rows=200, cols=200):
 def _config(tmp_path):
     cfg = load_config()
     cfg["output"] = dict(cfg["output"], out_dir=str(tmp_path / "out"))
+    cfg["nowcast_trend"] = {"enabled": False}
+    cfg["nowcast_decay"] = {"enabled": False}
     return cfg
 
 

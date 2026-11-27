@@ -95,7 +95,9 @@ import numpy as np
 from . import clock as clock_mod
 from . import fetch as fetch_mod
 from . import models
+from . import nowcast_decay as decay_mod
 from . import nowcast_ensemble as ensemble_mod
+from . import nowcast_trend as trend_mod
 from . import orography as orography_mod
 
 SCHEMA = "meteorisk.nowcast_field/1"
@@ -1379,6 +1381,31 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
     speed = pixel_speed_kmh(u, v, pixel_km, step_s)
     rain = domain & (latest > RAIN_MIN_MMH)
     grid = _output_grid(rd)
+    # TREND PER CELLE CONVETTIVE (V-a, 2026-11-27): la storia del dato in
+    # coordinate lagrangiane. Applicato dopo il trasporto e prima di
+    # orografia/HF; disattivabile con `nowcast_trend.enabled = false`.
+    trend_cfg = dict(config.get("nowcast_trend") or {})
+    trend_state = None
+    trend_lead_info = {}
+    if bool(trend_cfg.get("enabled")):
+        try:
+            trend_state = trend_mod.prepare(frames, u, v, domain, trend_cfg)
+        except Exception as exc:      # layer additivo: il nowcast resta
+            warnings.append("nowcast trend: prepare failed ({}:{})".format(
+                exc.__class__.__name__, exc))
+            trend_state = None
+    else:
+        trend_state = {
+            "info": trend_mod.disabled_info(
+                str(trend_cfg.get("disabled_reason")
+                    or "disabled_by_config"), trend_cfg),
+            "labels": None, "regions": {}}
+        trend_state["info"]["per_lead"] = {}
+    # EROSIONE DEL NUCLEO (V4, 2026-11-27): applicata DOPO HF, altrimenti il
+    # ripristino HF riporterebbe sopra 5 i pixel erosi. Tocca solo >5 mm/h.
+    decay_cfg = dict(config.get("nowcast_decay") or {})
+    decay_enabled = bool(decay_cfg.get("enabled", True))
+    decay_lead_info = {}
     # RIPRISTINO HF: riferimento = varianza alto-pass dell'ANALISI (raster
     # nativo, stesso dominio). Se il riferimento non e' calcolabile il
     # ripristino e' spento con motivo, non simula nulla.
@@ -1504,6 +1531,11 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
                     mass_capped += 1
                 done += 1
             mass_scale_by_lead[lead] = round(float(mass_scale), 8)
+        if trend_state is not None and \
+                bool((trend_state.get("info") or {}).get("enabled")):
+            stepped, _trend_info = trend_mod.apply(
+                stepped, lead, trend_state, u, v, domain)
+            trend_lead_info[lead] = _trend_info
         if oro_ctx and oro_ctx.get("applied"):
             corrected, st = orography_mod.apply(stepped, oro_ctx, oro_cfg)
             native[lead] = corrected
@@ -1515,6 +1547,10 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
                 native[lead], ref_hf, lead, domain, level=hf_level,
                 growth=hf_growth, sigma_px=hf_sigma)
             hf_lead_info[lead] = _hfi
+        if decay_enabled:
+            native[lead], _din = decay_mod.apply(
+                native[lead], lead, u, v, domain, decay_cfg)
+            decay_lead_info[lead] = _din
 
     oro_block = orography_mod.summarize(oro_ctx)
     reliability = reliability_for(bundle, config, out_dir)
@@ -1681,6 +1717,17 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
             "pixels_over_cap_total": motion_info["over_cap_total"],
         },
         "limits": LIMITS,
+        # TREND CONVETTIVO (V-a): blocco dichiarato, con la calibrazione
+        # misurata e i pixel cambiati per lead. Se non applicato, il motivo.
+        "evolution": dict(
+            trend_mod.summarize(trend_state),
+            applied=any(bool(v.get("applied"))
+                        for v in trend_lead_info.values()),
+            per_lead={str(k): v for k, v in sorted(trend_lead_info.items())},
+        ),
+        # EROSIONE DEL NUCLEO (V4): misura V1-V5, variante scelta.
+        "decay": decay_mod.summarize(decay_lead_info, decay_enabled,
+                                     decay_cfg),
         "orographic_enhancement": oro_block,
     }
 

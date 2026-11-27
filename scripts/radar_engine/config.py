@@ -954,6 +954,51 @@ CONFIG = {
     # riscalate). Default 4-6 min. Se un fornitore cambia cadenza, si
     # dichiara qui la nuova banda: il payload pubblica `motion_pair_dt_band_s`.
     "nowcast_pair_dt_band_s": [240.0, 360.0],
+    # TREND PER CELLE CONVETTIVE (V-a, 2026-11-27). Il trend globale e'
+    # anti-predittivo sull'area; l'intensita' delle convettive (max >=12 mm/h,
+    # proxy 40 dBZ) ha rho positivo a +30 e +60. Si applica fino a +60, con
+    # dissolvenza fino a +90 (oltre +60 non c'e' misura). Calibrazione
+    # misurata su 8 ancore / 196 regioni.
+    "nowcast_trend": {
+        # A/B 2026-11-27 su 6 ancore: la correlazione passa (int@30 rho
+        # 0,2903, int@60 0,2242) ma l'applicazione PEGGIORA il prodotto:
+        # CSI5@30 0,3934 vs 0,4048 (-0,0115), CSI5@60 0,2438 vs 0,2629
+        # (-0,0191), area 20 mm/h @60 0,769 (<0,8). Quindi NON e' attivo:
+        # resta il codice per una futura ri-valutazione, spento e dichiarato.
+        "enabled": False,
+        "disabled_reason": ("A/B 6 ancore: CSI5@30 -0,0115, CSI5@60 "
+                            "-0,0191, area20@60 0,769"),
+        "variant": "V-a_convective_intensity_linear",
+        "class_threshold_mmh": 12.0,
+        "min_region_px": 200,
+        "min_history": 3,
+        "max_gain": 0.30,
+        "apply_until_min": 60,
+        "fade_until_min": 90,
+        "min_rho": 0.20,
+        "calibration": {
+            "rho_int_30": 0.2903,
+            "rho_int_60": 0.2242,
+            "pearson_int_30": 0.377,
+            "pearson_int_60": 0.212,
+            "n_regions": 196,
+            "n_anchors": 8,
+            "sample": "8 ancore pesanti; regioni lagrangiane con storia >=3",
+        },
+    },
+    # EROSIONE DEL NUCLEO (V4, 2026-11-27): A/B su 8 ancore pesanti.
+    # Contrazione del solo >5 mm/h dal RETRO (lato opposto al moto), con
+    # spessore round(lead/30) px. Area 5/10/20 a +30 1,012/1,075/1,003 e a
+    # +60 0,912/1,001/0,910; area 0,5 invariata; CSI5 +0,0004/+0,0005;
+    # FSS5 -0,0005/-0,0027. V2 (globale) e V3 (solo >5 con fattore) respinti:
+    # area 5 a +60 0,46. Applicata DOPO HF (altrimenti HF la annulla).
+    "nowcast_decay": {
+        "enabled": True,
+        "method": "rear_erosion_strong_core",
+        "threshold_mmh": 5.0,
+        "min_region_px": 20,
+        "px_per_30min": 1.0,
+    },
     # TRONCAMENTO (2026-11-26): il rapporto d'aspetto p90 delle strutture
     # previste supera 1,5x l'osservato a +120 (1,65x con il trasporto a
     # 3 km: p90 5,81 contro 3,53) e a +180 arriva a 1,91x. A +90 e' 1,09x.

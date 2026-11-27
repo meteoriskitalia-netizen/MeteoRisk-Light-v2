@@ -25,7 +25,9 @@ from scipy import ndimage
 from radar_engine import clock as clock_mod
 from radar_engine import main as main_mod
 from radar_engine import models
+from radar_engine import nowcast_decay as nd
 from radar_engine import nowcast_field as nf
+from radar_engine import nowcast_trend as nt
 from radar_engine.config import CONFIG, load_config
 from radar_engine.preprocess import read_raster
 
@@ -87,6 +89,9 @@ def _moving_frames(tmp_path, n=3, dx=1, rows=200, cols=200, sigma=6.0):
 def _config(tmp_path):
     cfg = load_config()
     cfg["output"] = dict(cfg["output"], out_dir=str(tmp_path / "out"))
+    # I test del trasporto isolano trend ed erosione (test dedicati sotto).
+    cfg["nowcast_trend"] = {"enabled": False}
+    cfg["nowcast_decay"] = {"enabled": False}
     return cfg
 
 
@@ -650,6 +655,8 @@ def test_palette_between_stops_is_linear_like_the_client():
 # ---------------------------------------------------------------------------
 def _pipeline_config():
     cfg = load_config()
+    cfg["nowcast_trend"] = {"enabled": False}
+    cfg["nowcast_decay"] = {"enabled": False}
     cfg["opera"] = dict(cfg.get("opera") or {}, enabled=False)
     cfg["doppler"] = dict(cfg.get("doppler") or {}, enabled=False)
     cfg["phase2"] = dict(cfg.get("phase2") or {}, enabled=False)
@@ -992,3 +999,161 @@ def test_payload_declares_frame_intervals_gaps_and_lead_origin(tmp_path):
     assert first["lead_min"] == 5
     assert first["valid_time"] == nf._iso(T0 + 25 * 60000)
     assert first["lead_from_now_min"] == 5.0
+
+
+# ---------------------------------------------------------------------------
+# 17. trend convettivo V-a: solo convettive, +30, dissolvenza a +60
+# ---------------------------------------------------------------------------
+def _trend_case(rows=180, cols=240):
+    domain = _disk_domain(rows, cols, rows // 2, cols // 2, rows // 2 - 5)
+    conv = [_blob(rows, cols, rows // 2, 80, sigma=7.0, amp=a)
+            for a in (15.0, 25.0, 35.0)]
+    strat = _blob(rows, cols, rows // 2, 180, sigma=18.0, amp=4.0)
+    frames = [(np.maximum(c, strat).astype(np.float32), domain,
+               T0 + k * 300000) for k, c in enumerate(conv)]
+    return frames, domain
+
+
+def test_trend_convective_grows_and_stratiform_is_untouched():
+    frames, domain = _trend_case()
+    zero = np.zeros_like(frames[0][0], dtype=np.float32)
+    state = nt.prepare(frames, zero, zero, domain,
+                       {"calibration": {"rho_int_30": 0.28}})
+    assert state["info"]["regions_with_trend"] == 1
+    field = frames[-1][0]
+    out30, info30 = nt.apply(field, 30, state, zero, zero, domain)
+    assert info30["applied"] is True
+    assert info30["factor_max"] > 1.0
+    conv = _disk_domain(*field.shape, field.shape[0] // 2, 80, 12)
+    strat = _disk_domain(*field.shape, field.shape[0] // 2, 180, 25)
+    assert float(out30[conv].mean()) > float(field[conv].mean())
+    assert np.allclose(out30[strat], field[strat], rtol=1e-6, atol=1e-6)
+    # a +60 il trend e' ancora attivo (rho@60 = 0,224): il nucleo cresce
+    out60, info60 = nt.apply(field, 60, state, zero, zero, domain)
+    assert info60["applied"] is True
+    assert float(out60[conv].mean()) > float(field[conv].mean())
+    # a +90 la dissolvenza porta il fattore a 1: campo invariato nel dominio
+    out90, _i90 = nt.apply(field, 90, state, zero, zero, domain)
+    assert np.allclose(out90[domain], field[domain], rtol=1e-6, atol=1e-6)
+
+
+def test_trend_disabled_if_calibration_rho_is_low():
+    frames, domain = _trend_case()
+    zero = np.zeros_like(frames[0][0], dtype=np.float32)
+    state = nt.prepare(frames, zero, zero, domain,
+                       {"calibration": {"rho_int_30": 0.10}})
+    assert state["labels"] is None
+    assert state["info"]["null_reason"] == "calibration_rho_below_threshold"
+
+
+def test_trend_newborn_region_has_no_history():
+    rows, cols = 180, 240
+    domain = _disk_domain(rows, cols, rows // 2, cols // 2, rows // 2 - 5)
+    conv = _blob(rows, cols, rows // 2, 80, sigma=7.0, amp=35.0)
+    z = np.zeros((rows, cols), np.float32)
+    frames = [(z, domain, T0), (z, domain, T0 + 300000),
+              (conv, domain, T0 + 600000)]
+    zero = np.zeros_like(conv)
+    state = nt.prepare(frames, zero, zero, domain,
+                       {"calibration": {"rho_int_30": 0.28}})
+    assert state["info"]["regions_with_trend"] == 0
+    assert state["info"]["null_reason"] == "no_convective_region_with_history"
+
+
+def test_compute_payload_declares_evolution(tmp_path):
+    rows, cols = 180, 240
+    domain = _disk_domain(rows, cols, rows // 2, cols // 2, rows // 2 - 5)
+    rasters = []
+    for k, amp in enumerate((15.0, 25.0, 35.0)):
+        field = _blob(rows, cols, rows // 2, 60 + k, sigma=7.0, amp=amp)
+        rasters.append(_write_frame(tmp_path, "t%d.tif" % k, field, domain,
+                                    T0 + k * STEP_MS))
+    bundle = _Bundle(rasters)
+    cfg = _config(tmp_path)
+    cfg["nowcast_trend"] = {
+        "enabled": True,
+        "calibration": {"rho_int_30": 0.28, "rho_int_60": 0.16},
+    }
+    payload, _native = nf.compute(
+        bundle, cfg, clock_mod.Clock.at_ms(T0 + 2 * STEP_MS),
+        bundle.warnings)
+    assert payload["available"] is True
+    ev = payload["evolution"]
+    assert ev["enabled"] is True
+    assert ev["variant"] == "V-a_convective_intensity_linear"
+    assert ev["regions_with_trend"] >= 1
+    assert ev["applied"] is True
+    assert ev["per_lead"]["30"]["applied"] is True
+
+
+def test_trend_disabled_declares_reason(tmp_path):
+    rasters, _ = _moving_frames(tmp_path, n=3, dx=1)
+    bundle = _Bundle(rasters)
+    cfg = _config(tmp_path)
+    cfg["nowcast_trend"] = {"enabled": False,
+                            "disabled_reason": "aB_csi5_failed"}
+    payload, _native = nf.compute(
+        bundle, cfg, clock_mod.Clock.at_ms(T0 + 2 * STEP_MS),
+        bundle.warnings)
+    assert payload["available"] is True
+    ev = payload["evolution"]
+    assert ev["enabled"] is False
+    assert ev["applied"] is False
+    assert ev["null_reason"] == "aB_csi5_failed"
+    assert ev["per_lead"] == {}
+
+
+# ---------------------------------------------------------------------------
+# 18. erosione del nucleo V4: solo >5, dal retro, copertura invariata
+# ---------------------------------------------------------------------------
+def _strong_field(rows=180, cols=260):
+    domain = _disk_domain(rows, cols, rows // 2, cols // 2, rows // 2 - 5)
+    f = _blob(rows, cols, rows // 2, cols // 2, sigma=12.0, amp=40.0)
+    return f.astype(np.float32), domain
+
+
+def test_rear_erosion_radius_and_strong_core_only():
+    assert nd._radius(5) == 0
+    assert nd._radius(15) == 1
+    assert nd._radius(30) == 1
+    assert nd._radius(45) == 2
+    assert nd._radius(60) == 2
+    assert nd._radius(90) == 3
+    f, dom = _strong_field()
+    u = np.ones_like(f, dtype=np.float32)   # moto verso +x
+    v = np.zeros_like(f, dtype=np.float32)
+    a05 = int((f >= 0.5)[dom].sum())
+    a5 = int((f >= 5.0)[dom].sum())
+    out30, i30 = nd.apply(f, 30, u, v, dom, {})
+    assert i30["applied"] is True
+    assert int((out30 >= 0.5)[dom].sum()) == a05      # copertura invariata
+    assert int((out30 >= 5.0)[dom].sum()) < a5        # nucleo ridotto
+    # il retro e' il lato -x: la banda sinistra scende a 4,9, il destro no
+    yy, xx = np.mgrid[0:f.shape[0], 0:f.shape[1]]
+    m = dom & (f >= 5.0)
+    cut = float(xx[m].min()) + 1.0
+    band = m & (xx <= cut)
+    right = m & (xx > float(xx[m].max()) - 2.0)
+    assert float(out30[band].max()) <= 4.9001
+    assert np.allclose(out30[right], f[right], rtol=1e-6, atol=1e-6)
+    # a +10 il raggio e' 0: campo invariato
+    out10, i10 = nd.apply(f, 10, u, v, dom, {})
+    assert i10["applied"] is False
+    assert np.allclose(out10, f, rtol=1e-6, atol=1e-6)
+
+
+def test_compute_payload_declares_decay(tmp_path):
+    rasters, _ = _moving_frames(tmp_path, n=3, dx=1)
+    bundle = _Bundle(rasters)
+    cfg = _config(tmp_path)
+    cfg["nowcast_decay"] = {"enabled": True}
+    payload, _native = nf.compute(
+        bundle, cfg, clock_mod.Clock.at_ms(T0 + 2 * STEP_MS),
+        bundle.warnings)
+    assert payload["available"] is True
+    dec = payload["decay"]
+    assert dec["enabled"] is True
+    assert dec["method"] == "rear_erosion_strong_core"
+    assert dec["threshold_mmh"] == 5.0
+    assert dec["applied"] is True
+    assert dec["per_lead"]["30"]["pixels_changed"] > 0
