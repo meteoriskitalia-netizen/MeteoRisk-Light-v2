@@ -48,6 +48,14 @@ lead (es. `+15 min · 02:00`), quindi la convenzione e' coerente. Ogni lead
 pubblica anche `lead_from_now_min` (quanto il valid_time dista
 dall'orologio del run; negativo = istante gia' passato).
 
+**Verifica live (2026-11-27T07:32:24Z, slot 07:20Z):** `lead_origin =
+source_slot`, `frame_intervals_min = [5,5,5,5,5]`, `gap_minutes = []`,
+banda `[240,360]`, 3 coppie, 0 scartate, 6 frame. `+5` -> valid
+**07:25** con `lead_from_now_min = -7,4` (il frame era gia' vecchio di
+7,4 min: il +5 e' 5 min dopo il frame, non 5 min dopo l'orologio);
+`+30` -> valid **07:50** con `lead_from_now_min = +17,6`. E' esattamente
+la convenzione dichiarata, resa visibile nei numeri.
+
 ## 4. Effetto sul moto con un buco noto
 
 Caso 2026-11-26T13:25Z, 6 frame a 5 min. Tolto il terzo frame si crea un
