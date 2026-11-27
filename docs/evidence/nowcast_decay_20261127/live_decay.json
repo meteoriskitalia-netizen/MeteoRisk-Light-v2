@@ -1,0 +1,208 @@
+﻿{
+    "source_slot":  "2026-11-27T15:25:00Z",
+    "generated_at":  "2026-11-27T15:35:52Z",
+    "lead_origin":  "source_slot",
+    "frame_intervals_min":  [
+                                5.0,
+                                5.0,
+                                5.0,
+                                5.0,
+                                5.0
+                            ],
+    "gap_minutes":  [
+
+                    ],
+    "decay":  {
+                  "schema":  "meteorisk.nowcast_decay/1",
+                  "method":  "rear_erosion_strong_core",
+                  "role":  "core_contraction",
+                  "enabled":  true,
+                  "applied":  true,
+                  "null_reason":  null,
+                  "threshold_mmh":  5.0,
+                  "min_region_px":  20,
+                  "px_per_30min":  1.0,
+                  "per_lead":  {
+                                   "5":  {
+                                             "schema":  "meteorisk.nowcast_decay/1",
+                                             "method":  "rear_erosion_strong_core",
+                                             "role":  "core_contraction",
+                                             "threshold_mmh":  5.0,
+                                             "radius_px":  0,
+                                             "lead_min":  5,
+                                             "applied":  false,
+                                             "pixels_changed":  0,
+                                             "regions":  0,
+                                             "reference":  "A/B su 8 ancore pesanti (2026-11-27), codice di produzione: area 5/10/20 a +30 1,012/1,075/1,003 e a +60 0,912/1,001/0,910; area 0,5 invariata; CSI5 +0,0004/+0,0005; FSS5 -0,0005/-0,0027. V2 (globale) e V3 (solo \u003e5 con fattore) respinti: area 5 a +60 0,46. L\u0027erosione e\u0027 direzionale (retro rispetto al moto), non isotropa.",
+                                             "null_reason":  "radius_zero"
+                                         },
+                                   "10":  {
+                                              "schema":  "meteorisk.nowcast_decay/1",
+                                              "method":  "rear_erosion_strong_core",
+                                              "role":  "core_contraction",
+                                              "threshold_mmh":  5.0,
+                                              "radius_px":  0,
+                                              "lead_min":  10,
+                                              "applied":  false,
+                                              "pixels_changed":  0,
+                                              "regions":  0,
+                                              "reference":  "A/B su 8 ancore pesanti (2026-11-27), codice di produzione: area 5/10/20 a +30 1,012/1,075/1,003 e a +60 0,912/1,001/0,910; area 0,5 invariata; CSI5 +0,0004/+0,0005; FSS5 -0,0005/-0,0027. V2 (globale) e V3 (solo \u003e5 con fattore) respinti: area 5 a +60 0,46. L\u0027erosione e\u0027 direzionale (retro rispetto al moto), non isotropa.",
+                                              "null_reason":  "radius_zero"
+                                          },
+                                   "15":  {
+                                              "schema":  "meteorisk.nowcast_decay/1",
+                                              "method":  "rear_erosion_strong_core",
+                                              "role":  "core_contraction",
+                                              "threshold_mmh":  5.0,
+                                              "radius_px":  1,
+                                              "lead_min":  15,
+                                              "applied":  true,
+                                              "pixels_changed":  141,
+                                              "regions":  27,
+                                              "reference":  "A/B su 8 ancore pesanti (2026-11-27), codice di produzione: area 5/10/20 a +30 1,012/1,075/1,003 e a +60 0,912/1,001/0,910; area 0,5 invariata; CSI5 +0,0004/+0,0005; FSS5 -0,0005/-0,0027. V2 (globale) e V3 (solo \u003e5 con fattore) respinti: area 5 a +60 0,46. L\u0027erosione e\u0027 direzionale (retro rispetto al moto), non isotropa."
+                                          },
+                                   "20":  {
+                                              "schema":  "meteorisk.nowcast_decay/1",
+                                              "method":  "rear_erosion_strong_core",
+                                              "role":  "core_contraction",
+                                              "threshold_mmh":  5.0,
+                                              "radius_px":  1,
+                                              "lead_min":  20,
+                                              "applied":  true,
+                                              "pixels_changed":  140,
+                                              "regions":  27,
+                                              "reference":  "A/B su 8 ancore pesanti (2026-11-27), codice di produzione: area 5/10/20 a +30 1,012/1,075/1,003 e a +60 0,912/1,001/0,910; area 0,5 invariata; CSI5 +0,0004/+0,0005; FSS5 -0,0005/-0,0027. V2 (globale) e V3 (solo \u003e5 con fattore) respinti: area 5 a +60 0,46. L\u0027erosione e\u0027 direzionale (retro rispetto al moto), non isotropa."
+                                          },
+                                   "25":  {
+                                              "schema":  "meteorisk.nowcast_decay/1",
+                                              "method":  "rear_erosion_strong_core",
+                                              "role":  "core_contraction",
+                                              "threshold_mmh":  5.0,
+                                              "radius_px":  1,
+                                              "lead_min":  25,
+                                              "applied":  true,
+                                              "pixels_changed":  146,
+                                              "regions":  27,
+                                              "reference":  "A/B su 8 ancore pesanti (2026-11-27), codice di produzione: area 5/10/20 a +30 1,012/1,075/1,003 e a +60 0,912/1,001/0,910; area 0,5 invariata; CSI5 +0,0004/+0,0005; FSS5 -0,0005/-0,0027. V2 (globale) e V3 (solo \u003e5 con fattore) respinti: area 5 a +60 0,46. L\u0027erosione e\u0027 direzionale (retro rispetto al moto), non isotropa."
+                                          },
+                                   "30":  {
+                                              "schema":  "meteorisk.nowcast_decay/1",
+                                              "method":  "rear_erosion_strong_core",
+                                              "role":  "core_contraction",
+                                              "threshold_mmh":  5.0,
+                                              "radius_px":  1,
+                                              "lead_min":  30,
+                                              "applied":  true,
+                                              "pixels_changed":  142,
+                                              "regions":  28,
+                                              "reference":  "A/B su 8 ancore pesanti (2026-11-27), codice di produzione: area 5/10/20 a +30 1,012/1,075/1,003 e a +60 0,912/1,001/0,910; area 0,5 invariata; CSI5 +0,0004/+0,0005; FSS5 -0,0005/-0,0027. V2 (globale) e V3 (solo \u003e5 con fattore) respinti: area 5 a +60 0,46. L\u0027erosione e\u0027 direzionale (retro rispetto al moto), non isotropa."
+                                          },
+                                   "35":  {
+                                              "schema":  "meteorisk.nowcast_decay/1",
+                                              "method":  "rear_erosion_strong_core",
+                                              "role":  "core_contraction",
+                                              "threshold_mmh":  5.0,
+                                              "radius_px":  1,
+                                              "lead_min":  35,
+                                              "applied":  true,
+                                              "pixels_changed":  150,
+                                              "regions":  27,
+                                              "reference":  "A/B su 8 ancore pesanti (2026-11-27), codice di produzione: area 5/10/20 a +30 1,012/1,075/1,003 e a +60 0,912/1,001/0,910; area 0,5 invariata; CSI5 +0,0004/+0,0005; FSS5 -0,0005/-0,0027. V2 (globale) e V3 (solo \u003e5 con fattore) respinti: area 5 a +60 0,46. L\u0027erosione e\u0027 direzionale (retro rispetto al moto), non isotropa."
+                                          },
+                                   "40":  {
+                                              "schema":  "meteorisk.nowcast_decay/1",
+                                              "method":  "rear_erosion_strong_core",
+                                              "role":  "core_contraction",
+                                              "threshold_mmh":  5.0,
+                                              "radius_px":  1,
+                                              "lead_min":  40,
+                                              "applied":  true,
+                                              "pixels_changed":  130,
+                                              "regions":  26,
+                                              "reference":  "A/B su 8 ancore pesanti (2026-11-27), codice di produzione: area 5/10/20 a +30 1,012/1,075/1,003 e a +60 0,912/1,001/0,910; area 0,5 invariata; CSI5 +0,0004/+0,0005; FSS5 -0,0005/-0,0027. V2 (globale) e V3 (solo \u003e5 con fattore) respinti: area 5 a +60 0,46. L\u0027erosione e\u0027 direzionale (retro rispetto al moto), non isotropa."
+                                          },
+                                   "45":  {
+                                              "schema":  "meteorisk.nowcast_decay/1",
+                                              "method":  "rear_erosion_strong_core",
+                                              "role":  "core_contraction",
+                                              "threshold_mmh":  5.0,
+                                              "radius_px":  2,
+                                              "lead_min":  45,
+                                              "applied":  true,
+                                              "pixels_changed":  302,
+                                              "regions":  26,
+                                              "reference":  "A/B su 8 ancore pesanti (2026-11-27), codice di produzione: area 5/10/20 a +30 1,012/1,075/1,003 e a +60 0,912/1,001/0,910; area 0,5 invariata; CSI5 +0,0004/+0,0005; FSS5 -0,0005/-0,0027. V2 (globale) e V3 (solo \u003e5 con fattore) respinti: area 5 a +60 0,46. L\u0027erosione e\u0027 direzionale (retro rispetto al moto), non isotropa."
+                                          },
+                                   "60":  {
+                                              "schema":  "meteorisk.nowcast_decay/1",
+                                              "method":  "rear_erosion_strong_core",
+                                              "role":  "core_contraction",
+                                              "threshold_mmh":  5.0,
+                                              "radius_px":  2,
+                                              "lead_min":  60,
+                                              "applied":  true,
+                                              "pixels_changed":  273,
+                                              "regions":  25,
+                                              "reference":  "A/B su 8 ancore pesanti (2026-11-27), codice di produzione: area 5/10/20 a +30 1,012/1,075/1,003 e a +60 0,912/1,001/0,910; area 0,5 invariata; CSI5 +0,0004/+0,0005; FSS5 -0,0005/-0,0027. V2 (globale) e V3 (solo \u003e5 con fattore) respinti: area 5 a +60 0,46. L\u0027erosione e\u0027 direzionale (retro rispetto al moto), non isotropa."
+                                          },
+                                   "75":  {
+                                              "schema":  "meteorisk.nowcast_decay/1",
+                                              "method":  "rear_erosion_strong_core",
+                                              "role":  "core_contraction",
+                                              "threshold_mmh":  5.0,
+                                              "radius_px":  3,
+                                              "lead_min":  75,
+                                              "applied":  true,
+                                              "pixels_changed":  473,
+                                              "regions":  24,
+                                              "reference":  "A/B su 8 ancore pesanti (2026-11-27), codice di produzione: area 5/10/20 a +30 1,012/1,075/1,003 e a +60 0,912/1,001/0,910; area 0,5 invariata; CSI5 +0,0004/+0,0005; FSS5 -0,0005/-0,0027. V2 (globale) e V3 (solo \u003e5 con fattore) respinti: area 5 a +60 0,46. L\u0027erosione e\u0027 direzionale (retro rispetto al moto), non isotropa."
+                                          },
+                                   "90":  {
+                                              "schema":  "meteorisk.nowcast_decay/1",
+                                              "method":  "rear_erosion_strong_core",
+                                              "role":  "core_contraction",
+                                              "threshold_mmh":  5.0,
+                                              "radius_px":  3,
+                                              "lead_min":  90,
+                                              "applied":  true,
+                                              "pixels_changed":  473,
+                                              "regions":  27,
+                                              "reference":  "A/B su 8 ancore pesanti (2026-11-27), codice di produzione: area 5/10/20 a +30 1,012/1,075/1,003 e a +60 0,912/1,001/0,910; area 0,5 invariata; CSI5 +0,0004/+0,0005; FSS5 -0,0005/-0,0027. V2 (globale) e V3 (solo \u003e5 con fattore) respinti: area 5 a +60 0,46. L\u0027erosione e\u0027 direzionale (retro rispetto al moto), non isotropa."
+                                          }
+                               },
+                  "reference":  "A/B su 8 ancore pesanti (2026-11-27), codice di produzione: area 5/10/20 a +30 1,012/1,075/1,003 e a +60 0,912/1,001/0,910; area 0,5 invariata; CSI5 +0,0004/+0,0005; FSS5 -0,0005/-0,0027. V2 (globale) e V3 (solo \u003e5 con fattore) respinti: area 5 a +60 0,46. L\u0027erosione e\u0027 direzionale (retro rispetto al moto), non isotropa."
+              },
+    "evolution":  {
+                      "schema":  "meteorisk.nowcast_trend/1",
+                      "variant":  "V-a_convective_intensity_linear",
+                      "role":  "intensity_trend_convective_cells",
+                      "enabled":  false,
+                      "applied":  false,
+                      "null_reason":  "A/B 6 ancore: CSI5@30 -0,0115, CSI5@60 -0,0191, area20@60 0,769",
+                      "class_threshold_mmh":  12.0,
+                      "min_region_px":  200,
+                      "min_history":  3,
+                      "max_gain":  0.3,
+                      "apply_until_min":  60,
+                      "fade_until_min":  90,
+                      "calibration":  {
+                                          "rho_int_30":  0.2903,
+                                          "rho_int_60":  0.2242,
+                                          "pearson_int_30":  0.377,
+                                          "pearson_int_60":  0.212,
+                                          "n_regions":  196,
+                                          "n_anchors":  8,
+                                          "sample":  "8 ancore pesanti; regioni lagrangiane con storia \u003e=3"
+                                      },
+                      "reference":  "Trend di intensita\u0027 in coordinate lagrangiane (frame allineati con il moto inverso), regressione lineare su 3-4 passi; applicato alle sole regioni con massimo \u003e= 12 mm/h (proxy 40 dBZ). Calibrazione misurata su 8 ancore / 196 regioni: int@30 Pearson 0,377 / Spearman 0,2903; int@60 Pearson 0,212 / Spearman 0,2242. Entrambi i lead superano la soglia 0,2 positivo; oltre +60 non c\u0027e\u0027 misura, quindi dissolvenza lineare fino a +90. Non e\u0027 una fisica esterna.",
+                      "regions_total":  0,
+                      "regions_convective":  0,
+                      "regions_with_trend":  0,
+                      "per_lead":  {
+
+                                   }
+                  },
+    "leads_total":  12,
+    "lead30":  "2026-11-27T15:55:00Z",
+    "lead60":  "2026-11-27T16:25:00Z"
+}
