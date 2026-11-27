@@ -1,0 +1,128 @@
+﻿{
+    "source_slot":  "2026-11-27T18:25:00Z",
+    "generated_at":  "2026-11-27T18:36:42Z",
+    "leads_total":  18,
+    "leads":  [
+                  5,
+                  10,
+                  15,
+                  20,
+                  25,
+                  30,
+                  35,
+                  40,
+                  45,
+                  50,
+                  55,
+                  60,
+                  65,
+                  70,
+                  75,
+                  80,
+                  85,
+                  90
+              ],
+    "steps":  [
+                  5,
+                  5,
+                  5,
+                  5,
+                  5,
+                  5,
+                  5,
+                  5,
+                  5,
+                  5,
+                  5,
+                  5,
+                  5,
+                  5,
+                  5,
+                  5,
+                  5,
+                  5
+              ],
+    "clouds":  {
+                   "schema":  "meteorisk.nowcast_clouds/1",
+                   "available":  true,
+                   "null_reason":  null,
+                   "source":  "DPC_IR_108",
+                   "channel":  "IR 10.8 um (MSG SEVIRI)",
+                   "resolution_m":  1000,
+                   "role":  "context",
+                   "not_a_rain_forecast":  true,
+                   "note":  "Nuvole IR (contesto): una nube alta e fredda puo\u0027 non piovere. Non e\u0027 una previsione di pioggia e non modifica l\u0027intensita\u0027 prevista.",
+                   "thresholds_c":  [
+                                        -20.0,
+                                        -32.0,
+                                        -44.0
+                                    ],
+                   "classes":  [
+                                   {
+                                       "id":  1,
+                                       "min_c":  -32.0,
+                                       "max_c":  -20.0,
+                                       "label":  "nube alta",
+                                       "rgb":  [
+                                                   170,
+                                                   190,
+                                                   210
+                                               ],
+                                       "alpha":  90
+                                   },
+                                   {
+                                       "id":  2,
+                                       "min_c":  -44.0,
+                                       "max_c":  -32.0,
+                                       "label":  "nube fredda",
+                                       "rgb":  [
+                                                   135,
+                                                   160,
+                                                   190
+                                               ],
+                                       "alpha":  120
+                                   },
+                                   {
+                                       "id":  3,
+                                       "min_c":  -90.0,
+                                       "max_c":  -44.0,
+                                       "label":  "nube molto fredda (convettiva)",
+                                       "rgb":  [
+                                                   100,
+                                                   125,
+                                                   165
+                                               ],
+                                       "alpha":  150
+                                   }
+                               ],
+                   "image":  "nowcast_clouds.webp",
+                   "image_crs":  "EPSG:3857",
+                   "opacity":  0.7,
+                   "under_rain":  true,
+                   "slot":  "2026-11-27T18:25:00Z",
+                   "latency_s":  685.2,
+                   "latency_min":  11.4,
+                   "published_pixels":  142978,
+                   "resampling":  "bilinear",
+                   "blend_c":  2.0,
+                   "blur_px":  0.7,
+                   "downsample":  2,
+                   "image_size":  [
+                                      591,
+                                      636
+                                  ],
+                   "cloud_pixels":  171989,
+                   "cold_pixels":  63299,
+                   "output_bytes":  16396
+               },
+    "cloud_image_http":  200,
+    "cloud_image_bytes":  16396,
+    "html_bytes":  3463897,
+    "html_view_int":  true,
+    "html_view_prob":  true,
+    "html_clouds":  true,
+    "html_ncprob_inside":  true,
+    "html_old_prob":  false,
+    "html_old_clouds":  false,
+    "html_setview":  true
+}

@@ -40,6 +40,15 @@ toggle indipendente; non vengono spente dal cambio Vista.
 
 ## Verifica
 
+- **Browser reale** sulla pagina live (2026-11-27, prodotto Nowcast):
+  `#nowcast-panel` visibile; `nc-view-intensity`, `nc-view-prob`,
+  `nc-clouds-toggle`, `ncprob-controls` presenti; `live-toggle-nowcastprob`
+  e `live-toggle-nowcastclouds` ASSENTI.
+- Clic su **Probabilita'**: `nowcastView = "prob"`, immagine
+  `nowcast_prob015.webp` visibile (opacity 0,72), immagine
+  `nowcast_lead005.webp` a **opacity 0**: nessuna sovrapposizione.
+- Clic su **Intensita'**: probabilita' rimossa,
+  `nowcast_lead005.webp` torna a **opacity 0,75**.
 - `test_cloud_toggle_is_separate.py`: 2 test (controlli nel pannello del
   prodotto, non nel LIVE; mutua esclusione con `setOpacity(0)` e pane 408;
   nuvole z 406).

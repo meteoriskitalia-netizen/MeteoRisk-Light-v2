@@ -32,6 +32,18 @@ Dettaglio per lead (byte): 5=36.520, 10=36.408, 15=36.284, 20=36.102,
 
 Report: `docs/evidence/nowcast_timeline18_20261127/timeline18_report.json`.
 
+## Verifica live (slot 2026-11-27T18:25Z)
+
+`nowcast.json` live:
+
+```
+leads_total = 18
+leads = 5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85,90
+step_min = 5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5
+```
+
+HTML live 3.463.897 B; nuvole live 16.396 B (591x636, downsample 2).
+
 ## Test
 
 `test_nowcast_field` aggiornato: 18 lead, `leads_total=18`, `step_min=5`

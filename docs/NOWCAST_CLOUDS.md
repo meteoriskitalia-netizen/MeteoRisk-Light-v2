@@ -99,7 +99,14 @@ anche in quel ramo (serve al client per i bounds).
 | `.../live_clouds.json` | 3.595 | payload live e verifica HTTP |
 | `.../live_clouds_report.json` | 518 | byte dei compositi live |
 
-### Verifica live (slot 2026-11-27T17:00Z, generato 17:09:52Z)
+### Verifica live resa morbida (slot 2026-11-27T18:25Z)
+
+`nowcast.json` live: `clouds.image_size = 591x636`, `downsample = 2`,
+`resampling = bilinear`, `blend_c = 2.0`, `blur_px = 0.7`;
+`nowcast_clouds.webp` **HTTP 200, 16.396 B**. L'immagine e' stirata dal
+client sulla stessa `grid.bounds`; i bordi sono sfumati, non a blocchi.
+
+### Verifica live precedente (slot 2026-11-27T17:00Z, generato 17:09:52Z)
 
 - `clouds.available = true`, `role = context`, `source = DPC_IR_108`;
 - `latency_min = 9,7` (583 s, misurata al run);
