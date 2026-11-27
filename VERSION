@@ -1,8 +1,17 @@
-VERSION=1.3.0.85
-BUILD=225
-DATE=2026-11-26
-APP_FILE=mri-light-1.3.0.85.html
-MeteoRisk Light - 1.3.0.85 - Nowcast probabilistico senza raggiera: deformazione spenta, moto 1,5, geometria verificata contro l'osservato.
+VERSION=1.3.0.86
+BUILD=226
+DATE=2026-11-27
+APP_FILE=mri-light-1.3.0.86.html
+MeteoRisk Light - 1.3.0.86 - Centraline: finestre 6 h/24 h scorrevoli con etichetta «cumulata 24 ore», gate esplicito per le cumulate (anche copertura <20%) e copertura N% nel title.
+VERSION=1.3.0.86
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=226
+RELEASE_TYPE=release
+DATE=2026-11-27
+NOTE=Release 1.3.0.86 (bump da 1.3.0.85; APP_FILE mri-light-1.3.0.86.html). CLIENT DEL CAMPO CENTRALINE, FINESTRE 6 H/24 H: (1) ETICHETTA: la 24 h non e' piu' «cumulata da mezzanotte» ma «cumulata 24 ore», finestra scorrevole che termina adesso e attraversa la mezzanotte; il title riporta l'intervallo effettivo window_start->window_end dal payload e la copertura media letta da coverage_frac. (2) GATE ESPLICITO: una cumulata o un massimo con almeno un valore si mostra SEMPRE, anche con copertura <20% (limite inferiore dichiarato); la nota accanto a Finestra e la riga di stato scrivono «parziale, copertura N%». Le MEDIE (temperatura, umidita', rugiada, vento medio) restano con il gate di completezza: una media sui buchi non e' una media. (3) COERENZA 1 H/3 H DICHIARATA NEL TOOLTIP: 6 h/24 h sommano bucket orari con gate di copertura >=50%, 1 h/3 h usano il prodotto grezzo ancorato a data_end; sul blob del 2026-11-27, 66 stazioni su 3.945 con entrambi i valori hanno 24 h < 3 h (differenze <=0,2 mm): differenza di prodotto/gate, non un errore della finestra. (4) LETTURA DEI NUOVI CAMPI: window_policy, window_start, window_end, coverage_frac. MISURA LIVE (blob 2026-11-27T08:09:24Z, 5.097 stazioni): rain_24h_mm non-null 4.108, coverage media 34,5%, 24 h < 1 h 0/4.013, 24 h < 6 h 0/4.051; la finestra 24 h resta selezionabile e mostra 4.069 stazioni. TEST: test_station_field.mjs aggiornato (etichetta, copertura 35% e 15%, window_policy, frase 1 h/3 h), test_html_js_syntax e test_tooltips_coverage.
+APP_FILE=mri-light-1.3.0.86.html
 VERSION=1.3.0.85
 MAJOR=1
 MINOR=3

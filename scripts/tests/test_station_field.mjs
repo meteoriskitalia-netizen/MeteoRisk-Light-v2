@@ -96,7 +96,7 @@ const FNS = [
   'stationFieldSpec', 'stationFieldCollect', 'stationFieldDistKm', 'stationFieldIdwAt',
   'stationFieldRaster', 'stationFieldBandIndex', 'stationFieldDailyHas',
   'stationFieldDailyValue', 'stationFieldDailyState', 'stationFieldSyncControls', 'stationFieldWindowLabel',
-  'stationFieldDailyPartialLabel',
+  'stationFieldDailyPartialLabel', 'stationFieldDailyCoverageTxt', 'stationFieldDailyWindowTxt',
   'stationFieldTickText', 'stationFieldGradient', 'stationFieldMeanStats',
   'stationFieldMeanReasonText', 'stationFieldReasonIt', 'stationsMeanReasons', 'stationsNullReason',
   'stationFieldScale', 'stationFieldDownscale', 'stationFieldHourText',
@@ -130,7 +130,7 @@ const VARS = [
   'STATION_FIELD_DAILY', 'STATION_FIELD_WIND_BREAKPOINTS', 'STATION_FIELD_WIND_COLORS',
   'STATION_FIELD_WIND_SCALE', 'STATION_FIELD_LEGEND', 'stationFieldDailyCache', 'stationFieldDailyCacheFor',
   'STATION_FIELD_DAILY_PARTIAL', 'STATION_FIELD_MEAN_KEY_RAW', 'stationFieldMeanCache',
-  'STATION_FIELD_DAILY_PARTIAL_POLICY',
+  'STATION_FIELD_DAILY_PARTIAL_POLICY', 'STATION_FIELD_DAILY_COVERAGE', 'STATION_FIELD_DAILY_WINDOW',
   'STATION_FIELD_RH_BREAKPOINTS', 'STATION_FIELD_RH_COLORS', 'STATION_FIELD_RH_SCALE',
   'STATION_FIELD_SNOW_BREAKPOINTS', 'STATION_FIELD_SNOW_COLORS', 'STATION_FIELD_SNOW_SCALE',
   'STATIONS_MEAN_FIELDS',
@@ -686,8 +686,8 @@ const spec24b = ctxObj.stationFieldSpec('rain', '24h');
 ok('24 h con *_partial=true su tutte le stazioni -> ABILITATA (limite inferiore)',
   spec24b.available === true && spec24b.partialLowerBound === true && spec24b.partialOnly === true,
   'available=' + spec24b.available + ' partialOnly=' + spec24b.partialOnly);
-ok('etichetta breve esatta: «cumulata da mezzanotte · parziale, possibile sottostima»',
-  spec24b.note === 'cumulata da mezzanotte · parziale, possibile sottostima', JSON.stringify(spec24b.note));
+ok('etichetta breve esatta: «cumulata 24 ore · parziale, possibile sottostima»',
+  spec24b.note === 'cumulata 24 ore · parziale, possibile sottostima', JSON.stringify(spec24b.note));
 ok('title esteso con i conteggi e la parola «limite inferiore»',
   /2\/2/.test(spec24b.partialTitle) && /limite inferiore/.test(spec24b.partialTitle) &&
   /NON sono stimate/.test(spec24b.partialTitle), spec24b.partialTitle);
@@ -702,6 +702,42 @@ ok('la policy vale SOLO per cumulate/massimi: temperatura, umidità, rugiada e v
   !ctxObj.STATION_FIELD_DAILY_PARTIAL_POLICY.temp_24h_c &&
   !ctxObj.STATION_FIELD_DAILY_PARTIAL_POLICY.rh_24h_pct &&
   !ctxObj.STATION_FIELD_DAILY_PARTIAL_POLICY.wind_24h_ms);
+// 1.3.0.86 - COPERTURA, ETICHETTA SCORREVOLE E WINDOW_POLICY.
+ctxObj.stationsDaily = {
+  schema: 'stations-daily-series/2', day: '2026-11-27',
+  window_policy: {
+    '24h': { hours: 24, slot_minutes: 60, window_start: '2026-11-26T09:09:00+01:00',
+             window_end: '2026-11-27T09:09:00+01:00', partial_below_coverage: 0.5 }
+  },
+  stations: {
+    A: { rain_24h_mm: 2.4, rain_24h_partial: true, rain_24h_coverage_frac: 0.35 },
+    B: { rain_24h_mm: 1.0, rain_24h_partial: true, rain_24h_coverage_frac: 0.35 }
+  }
+};
+const specCov = ctxObj.stationFieldSpec('rain', '24h');
+ok('etichetta nuova: «cumulata 24 ore», NON più «da mezzanotte»',
+  /^cumulata 24 ore/.test(specCov.note || '') && !/mezzanotte/.test(specCov.note || ''),
+  specCov.note);
+ok('copertura media 35% nella nota e nello stato del campo',
+  /copertura media 35%/.test(specCov.note || '') &&
+  specCov.dailyState && specCov.dailyState.coverageMean === 0.35,
+  JSON.stringify({ note: specCov.note, mean: specCov.dailyState && specCov.dailyState.coverageMean }));
+ok('window_policy letta: start/end 09:09 nel title',
+  specCov.dailyWindowStart === '2026-11-26T09:09:00+01:00' &&
+  specCov.dailyWindowEnd === '2026-11-27T09:09:00+01:00' &&
+  /2026-11-26 09:09→2026-11-27 09:09/.test(specCov.partialTitle || ''), specCov.partialTitle);
+ok('title dichiara la differenza 1 h/3 h (prodotto/gate)',
+  /1 h e 3 h/.test(specCov.partialTitle || '') && /bucket orari/.test(specCov.partialTitle || ''),
+  specCov.partialTitle);
+// Copertura MOLTO bassa: la finestra resta disponibile (limite inferiore).
+ctxObj.stationsDaily = {
+  schema: 'stations-daily-series/2', day: '2026-11-27',
+  stations: { A: { rain_24h_mm: 0.4, rain_24h_partial: true, rain_24h_coverage_frac: 0.15 } }
+};
+const specLow = ctxObj.stationFieldSpec('rain', '24h');
+ok('copertura 15% (<20%) -> finestra ANCORA disponibile, nota con 15%',
+  specLow.available === true && /copertura media 15%/.test(specLow.note || '') &&
+  /parziale/.test(specLow.note || ''), specLow.note);
 // Controprova: una MEDIA con tutte le finestre parziali resta NON disponibile.
 ctxObj.stationsDaily = { schema: 'stations-daily-series/2', day: '2026-11-23',
   stations: { A: { wind_24h_ms: 5.0, wind_24h_partial: true }, B: { wind_24h_ms: 6.0, wind_24h_partial: true },
@@ -750,13 +786,24 @@ ok('pioggia 5 min/30 min e «oggi» NASCOSTE (non sono finestre di accumulo pubb
   selWin.options[4].hidden !== true && selWin.options[5].hidden !== true,
   '5m=' + selWin.options[0].hidden + ' 30m=' + selWin.options[1].hidden);
 ctxObj.stationsDaily = { schema: 'stations-daily-series/2', day: '2026-11-23',
-  stations: { A: { rain_6h_mm: 12.4, rain_6h_partial: false, rain_24h_mm: 30.1, rain_24h_partial: true } } };
+  window_policy: { '24h': { hours: 24, window_start: '2026-11-22T09:00:00+01:00',
+                            window_end: '2026-11-23T09:00:00+01:00' } },
+  stations: { A: { rain_6h_mm: 12.4, rain_6h_partial: false, rain_6h_coverage_frac: 1.0,
+                   rain_24h_mm: 30.1, rain_24h_partial: true, rain_24h_coverage_frac: 0.35 } } };
 ctxObj.stationFieldSyncControls();
 ok('con i campi completi nel blob le due finestre tornano selezionabili',
   selWin.options[4].disabled === false && selWin.options[5].disabled === false);
-ok('24 h parziale: opzione ABILITATA e title che spiega il limite inferiore',
-  selWin.options[5].disabled === false && /limite inferiore/.test(selWin.options[5].title || '') &&
-  /parziale/.test(selWin.options[5].title || ''), selWin.options[5].title);
+ok('24 h parziale: opzione ABILITATA e title con etichetta nuova, copertura 35%, limite inferiore',
+  selWin.options[5].disabled === false && /cumulata 24 ore/.test(selWin.options[5].title || '') &&
+  /copertura media 35%/.test(selWin.options[5].title || '') &&
+  /limite inferiore/.test(selWin.options[5].title || '') &&
+  !/da mezzanotte/.test(selWin.options[5].title || ''), selWin.options[5].title);
+ctxObj.stationsDaily = { schema: 'stations-daily-series/2', day: '2026-11-23',
+  stations: { A: { rain_24h_mm: 0.4, rain_24h_partial: true, rain_24h_coverage_frac: 0.15 } } };
+ctxObj.stationFieldSyncControls();
+ok('copertura 15% (<20%): opzione 24 h NON disabilitata e title con 15%',
+  selWin.options[5].disabled === false && /copertura media 15%/.test(selWin.options[5].title || ''),
+  selWin.options[5].title);
 // 1.3.0.61 - LA TEMPERATURA HA LE FINESTRE: il selettore resta VISIBILE e ABILITATO
 // e le finestre corte sono sempre selezionabili (nota, non blocco).
 ctxObj.stationsData = { stations: [{ id: 'A', temperature_2m: 9.8 }] };

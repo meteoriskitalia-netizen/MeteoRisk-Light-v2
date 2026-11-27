@@ -2309,7 +2309,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
             </select>
             <span id="stationfield-window-wrap" style="display:inline-flex;align-items:center;gap:8px;">
                 <label for="stationfield-window" style="font-size:10px;color:#94a3b8;">Finestra</label>
-                <select id="stationfield-window" class="fm-select" onchange="stationFieldWindowChanged(this.value)" title="Finestra della variabile scelta: accumulo per la pioggia, massimo per la raffica, MEDIA per temperatura, umidità relativa, punto di rugiada e vento medio (5 min, 30 min, 1 ora, 3 ore, 6 ore, 24 ore, oggi (dalla mezzanotte) dalle 00:00). Le finestre non pubblicate dal server restano selezionabili con il motivo scritto e la stazione senza il campo viene esclusa: nessun valore inventato." style="font-size:11px;">
+                <select id="stationfield-window" class="fm-select" onchange="stationFieldWindowChanged(this.value)" title="Finestra della variabile scelta: accumulo per la pioggia, massimo per la raffica, MEDIA per temperatura, umidità relativa, punto di rugiada e vento medio. 6 ore e 24 ore sono finestre SCORREVOLI che terminano adesso; la 24 ore attraversa la mezzanotte. «oggi (dalla mezzanotte)» resta per la massima/minima della giornata. Per una cumulata o un massimo il valore si mostra sempre, con «parziale, copertura N%» quando i dati non coprono tutta la finestra; le finestre non pubblicate restano selezionabili con il motivo scritto e la stazione senza il campo viene esclusa: nessun valore inventato." style="font-size:11px;">
                     <option value="5m">5 min</option>
                     <option value="30m">30 min</option>
                     <option value="1h">1 ora</option>
@@ -3324,9 +3324,16 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.85';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
-    const APP_RELEASE_DATE = '2026-11-26';
+    const APP_VERSION = '1.3.0.86';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_RELEASE_DATE = '2026-11-27';
     const APP_CHANGELOG = [
+{ version: '1.3.0.86', date: '2026-11-27', changes: [
+  "PIOGGIA 6 H/24 H: ETICHETTA E FINESTRA SCORREVOLE. La 24 h non è più «cumulata da mezzanotte»: è «cumulata 24 ore», una finestra scorrevole che termina adesso e attraversa la mezzanotte. Il title dice l'intervallo effettivo (window_start→window_end dal payload) e la copertura media letta da coverage_frac.",
+  "GATE ESPLICITO: una cumulata o un massimo con almeno un valore si mostra SEMPRE, anche con copertura < 20%: il valore è un limite inferiore dichiarato, non un valore da nascondere. La nota accanto a Finestra e la riga di stato scrivono «parziale, copertura N%». Le MEDIE (temperatura, umidità, rugiada, vento medio) restano con il gate di completezza: una media sui buchi non è una media.",
+  "COERENZA 1 H/3 H DICHIARATA NEL TOOLTIP: 6 h/24 h sommano bucket orari con gate di copertura ≥50%; 1 h/3 h usano il prodotto grezzo ancorato all'ultimo dato (data_end). Sul blob del 2026-11-27: 66 stazioni su 3.945 con entrambi i valori hanno 24 h < 3 h (differenze ≤0,2 mm). È una differenza di prodotto/gate, non un errore della finestra, e non viene nascosta.",
+  "LETTURA DEI NUOVI CAMPI: window_policy (6 h/24 h), window_start, window_end e coverage_frac; la finestra 24 h del campo centraline resta selezionabile e mostra le stazioni con il valore anche quando nessuna è completa.",
+  "TEST: test_station_field.mjs aggiornato (etichetta nuova, nota con copertura 35% e 15%, window_policy, frase 1 h/3 h); test_html_js_syntax e test_tooltips_coverage verdi."
+]},
 { version: '1.3.0.85-r3', date: '2026-11-27', changes: [
   "INTERVALLI REALI FRA I FRAME: il moto usa il dt effettivo di ogni coppia normalizzato a 300 s, non un passo fisso di 5 min. Le coppie fuori banda 4-6 min sono SCARTATE (non riscalate di nascosto) e si scandiscono fino a 6 coppie recenti per sostituirle con una valida. Il payload pubblica `frame_intervals_min`, `gap_minutes`, `motion_pair_dt_s`, `motion_pairs_discarded`, `motion_pair_dt_band_s`.",
   "CONVENZIONE DEI LEAD DICHIARATA: i lead sono contati dallo slot del frame piu' recente (source_slot), non dall'orologio. `valid_time = source_slot + lead`; il client mostra il valid_time. Ogni lead pubblica anche `lead_from_now_min`. La legenda lo dice a schermo.",
@@ -20410,8 +20417,11 @@ stopSyncPlay();
     // `stations-daily-series/2`), con un flag di parzialita' per stazione (i nomi REALI
     // stanno in STATION_FIELD_DAILY_PARTIAL: rain_6h_partial, rain_24h_partial,
     // wind_6h_partial, wind_24h_partial). Il client legge il blob (stationsDailyLoad)
-    // e usa il campo solo se esiste E almeno una stazione ha la finestra COMPLETA; altrimenti l'opzione resta DISABILITATA
-    // con il motivo misurato. MISURATO il 2026-11-23 sul blob reale (5.157 stazioni):
+    // e usa il campo se esiste ALMENO UN VALORE: per cumulate e massimi il valore
+    // si mostra sempre (limite inferiore) con «parziale, copertura N%», anche se
+    // nessuna stazione ha la finestra completa o la copertura e' < 20%. Per le
+    // MEDIE resta il gate di completezza (una media sui buchi non e' una media).
+    // MISURATO il 2026-11-23 sul blob reale (5.157 stazioni):
     // rain_6h_partial false su 815/4.000 alle 20:00Z (quindi 6 h selezionabile), rain_24h_partial
     // true su 4.000/4.000, wind_6h_partial e wind_24h_partial true su 1.560/1.560
     // (quindi 24 h e vento 6 h non selezionabili). Nessun valore inventato.
@@ -20748,14 +20758,12 @@ stopSyncPlay();
     // (data/stations/daily_series.json sul branch stations-daily, schema
     // stations-daily-series/1|2). Il campo puo' esistere ma coprire solo una finestra
     // PARZIALE: il blob pubblica un flag di parzialita' per stazione (i nomi reali
-    // stanno in STATION_FIELD_DAILY_PARTIAL). Regola dichiarata:
-    // la finestra e' disponibile solo se il campo c'e' E almeno una stazione ha il
-    // flag `false` (finestra completa per qualcuno). MISURATO il 2026-11-23T20:00Z
-    // sul blob reale (5.157 stazioni, 17.772.182 byte): rain_6h_partial false su
-    // 815/4.000, rain_24h_partial true su 4.000/4.000, wind_6h_partial e
-    // wind_24h_partial true su 1.560/1.560.
-    // Quindi oggi la finestra 6 h della pioggia e' selezionabile e le finestre 24 h
-    // (e le 6 h di vento) restano DISABILITATE con il motivo, senza inventare valori.
+    // stanno in STATION_FIELD_DAILY_PARTIAL). Regola dichiarata (1.3.0.86):
+    // per una CUMULATA o un MASSIMO la finestra e' disponibile se c'e' ALMENO UN
+    // valore, anche con copertura molto bassa (il valore e' un limite inferiore
+    // dichiarato); per una MEDIA serve almeno una stazione con la finestra completa.
+    // Il client mostra accanto alla finestra «parziale, copertura N%» letto da
+    // coverage_frac e l'intervallo window_start→window_end da window_policy.
     // Flag di PARZIALITA' pubblicati dal blob, campo per campo. I nomi NON sono
     // `<campo>_partial` (rain_6h_mm -> rain_6h_partial, senza l'unita'): la tabella
     // e' misurata sul blob reale. Per gust_max_6h_ms / gust_max_24h_ms il blob NON
@@ -20773,11 +20781,35 @@ stopSyncPlay();
         dew_6h_c: 'dew_6h_partial', dew_24h_c: 'dew_24h_partial',
         gust_max_6h_ms: 'gust_max_6h_partial', gust_max_24h_ms: 'gust_max_24h_partial'
     };
+    // 1.3.0.86 - COPERTURA e FINESTRA EFFETTIVA pubblicate dal blob.
+    // La copertura c'e' per pioggia, vento medio e raffica (coverage_frac); per
+    // temperatura/umidita'/rugiada il blob non la pubblica e la percentuale non
+    // si inventa. `window_policy` (in testa al blob) porta l'intervallo nominale
+    // 6 h/24 h; `window_start`/`window_end` per stazione ci sono per la pioggia.
+    var STATION_FIELD_DAILY_COVERAGE = {
+        rain_6h_mm: 'rain_6h_coverage_frac',
+        rain_24h_mm: 'rain_24h_coverage_frac',
+        wind_6h_ms: 'wind_6h_coverage_frac',
+        wind_24h_ms: 'wind_24h_coverage_frac',
+        gust_max_6h_ms: 'gust_max_6h_coverage_frac',
+        gust_max_24h_ms: 'gust_max_24h_coverage_frac'
+    };
+    var STATION_FIELD_DAILY_WINDOW = {
+        rain_6h_mm: '6h', rain_24h_mm: '24h',
+        wind_6h_ms: '6h', wind_24h_ms: '24h',
+        gust_max_6h_ms: '6h', gust_max_24h_ms: '24h',
+        temp_6h_c: '6h', temp_24h_c: '24h',
+        rh_6h_pct: '6h', rh_24h_pct: '24h',
+        dew_6h_c: '6h', dew_24h_c: '24h'
+    };
     // 1.3.0.82 - PER UNA CUMULATA (e per un MASSIMO) UN BUCO NON INVALIDA IL VALORE:
     // i millimetri misurati sono quelli, le ore senza dato non sono stimate, quindi
     // il totale e' un LIMITE INFERIORE (sottostima possibile), non un valore
     // sbagliato. Per una MEDIA (temperatura, umidita', rugiada, vento medio) invece
     // un buco la rende non rappresentativa: resta il gate di completezza.
+    // 1.3.0.86 - LA COPERTURA NON E' UN GATE PER LE CUMULATE: anche sotto il 20%
+    // il valore si mostra, perche' e' comunque informazione (limite inferiore);
+    // la percentuale va scritta accanto («parziale, copertura N%»), non nascosta.
     // `gust_max_*` e' un massimo osservato -> stessa regola della cumulata.
     var STATION_FIELD_DAILY_PARTIAL_POLICY = {
         rain_6h_mm: 'lower_bound',
@@ -20786,11 +20818,26 @@ stopSyncPlay();
         gust_max_24h_ms: 'lower_bound'
     };
     function stationFieldDailyPartialLabel(field) {
-        if (field === 'rain_24h_mm') return 'cumulata da mezzanotte';
+        if (field === 'rain_24h_mm') return 'cumulata 24 ore';
         if (field === 'rain_6h_mm') return 'cumulata 6 ore';
         if (field === 'gust_max_24h_ms') return 'massimo 24 ore';
         if (field === 'gust_max_6h_ms') return 'massimo 6 ore';
         return 'valore parziale';
+    }
+    // 1.3.0.86 - TESTO DELLA COPERTURA e della finestra effettiva. La percentuale
+    // e' la media delle `coverage_frac` delle stazioni con un valore; non si
+    // inventa se il blob non pubblica il campo (temperatura/umidita'/rugiada).
+    function stationFieldDailyCoverageTxt(state) {
+        if (!state || state.coverageMean === null || state.coverageMean === undefined) return '';
+        var pct = Math.round(100 * Number(state.coverageMean));
+        if (!isFinite(pct)) return '';
+        return 'copertura media ' + pct + '%';
+    }
+    function stationFieldDailyWindowTxt(field) {
+        var w = STATION_FIELD_DAILY_WINDOW[field] || '';
+        if (w === '24h') return 'finestra scorrevole sulle ultime 24 ore (attraversa la mezzanotte)';
+        if (w === '6h') return 'finestra scorrevole sulle ultime 6 ore';
+        return '';
     }
     var stationFieldDailyCache = {};
     var stationFieldDailyCacheFor = null;
@@ -20808,7 +20855,11 @@ stopSyncPlay();
         if (stationFieldDailyCache[ck]) return stationFieldDailyCache[ck];
         var st = { field: field, available: false, total: 0, complete: 0, partial: 0,
                    hasPartialFlag: false, reason: null, policy: null,
-                   lowerBound: false, partialOnly: false, partialShare: 0 };
+                   lowerBound: false, partialOnly: false, partialShare: 0,
+                   coverageField: STATION_FIELD_DAILY_COVERAGE[field] || null,
+                   coverageSum: 0, coverageN: 0, coverageMean: null,
+                   coverageMin: null, coverageMax: null,
+                   windowStart: null, windowEnd: null, windowHours: null };
         var recs = (stationsDaily && stationsDaily.stations) ? stationsDaily.stations : null;
         if (!recs) {
             st.reason = 'il blob data/stations/daily_series.json non è disponibile in questa sessione e ' +
@@ -20819,6 +20870,7 @@ stopSyncPlay();
         var partialField = STATION_FIELD_DAILY_PARTIAL[field] || null;
         var policy = STATION_FIELD_DAILY_PARTIAL_POLICY[field] || 'discard';
         st.policy = policy;
+        var covField = st.coverageField;
         var ids = Object.keys(recs);
         for (var i = 0; i < ids.length; i++) {
             var e = recs[ids[i]];
@@ -20826,18 +20878,39 @@ stopSyncPlay();
             var v = e[field];
             if (v === null || v === undefined || !isFinite(Number(v))) continue;
             st.total++;
+            if (covField) {
+                var cv = e[covField];
+                if (cv !== null && cv !== undefined && isFinite(Number(cv))) {
+                    st.coverageN++;
+                    st.coverageSum += Number(cv);
+                    if (st.coverageMin === null || Number(cv) < st.coverageMin) st.coverageMin = Number(cv);
+                    if (st.coverageMax === null || Number(cv) > st.coverageMax) st.coverageMax = Number(cv);
+                }
+            }
             if (!partialField) { st.complete++; continue; }   // nessun flag: nulla si puo' dichiarare
             if (e[partialField] === true) { st.partial++; st.hasPartialFlag = true; }
             else if (e[partialField] === false) { st.complete++; st.hasPartialFlag = true; }
             else { st.complete++; }
         }
         st.partialShare = st.total ? (st.partial / st.total) : 0;
+        st.coverageMean = st.coverageN ? (st.coverageSum / st.coverageN) : null;
+        var wkey = STATION_FIELD_DAILY_WINDOW[field] || null;
+        var pol = (wkey && stationsDaily && stationsDaily.window_policy)
+            ? stationsDaily.window_policy[wkey] : null;
+        if (pol) {
+            st.windowStart = pol.window_start || null;
+            st.windowEnd = pol.window_end || null;
+            st.windowHours = (pol.hours === null || pol.hours === undefined) ? null : pol.hours;
+        }
         if (!st.total) {
             st.reason = 'il campo ' + field + ' non è presente in data/stations/daily_series.json. ' +
                 'Nessun valore inventato.';
         } else if (policy === 'lower_bound') {
             // Cumulata/massimo: il valore si mostra anche se parziale. Le ore senza
             // dato non si stimano: il totale e' un limite inferiore dichiarato.
+            // 1.3.0.86 - ANCHE CON COPERTURA MOLTO BASSA (<20%) la finestra resta
+            // disponibile: la percentuale si scrive nel title e nella nota, non si
+            // usa come gate. `coverageMean` e' calcolato dai record con coverage_frac.
             st.available = true;
             st.lowerBound = true;
             st.partialOnly = (st.complete === 0 && st.partial > 0);
@@ -21177,24 +21250,44 @@ stopSyncPlay();
             if (dst.available) {
                 spec.available = true;
                 spec.dailyLowerBound = !!dst.lowerBound;
-                // 1.3.0.82 - cumulata/massimo parziale: si mostra. Etichetta corta
-                // accanto alla finestra, spiegazione estesa nel title.
-                if (dst.lowerBound && dst.hasPartialFlag && dst.partial > 0) {
-                    var lbl = stationFieldDailyPartialLabel(daily);
-                    var gen = (stationsDaily && stationsDaily.generated_at) ? String(stationsDaily.generated_at) : '';
-                    var hhmm = gen.length >= 16 ? gen.substr(11, 5) : '';
-                    spec.partialLowerBound = true;
+                spec.dailyCoverage = dst.coverageMean;
+                spec.dailyWindowStart = dst.windowStart;
+                spec.dailyWindowEnd = dst.windowEnd;
+                var lbl = stationFieldDailyPartialLabel(daily);
+                var covTxt = stationFieldDailyCoverageTxt(dst);
+                var winTxt = stationFieldDailyWindowTxt(daily);
+                var hm = function (s) {
+                    var m = String(s || '').match(/^(\d{4}-\d\d-\d\d)T(\d\d:\d\d)/);
+                    return m ? (m[1] + ' ' + m[2]) : '';
+                };
+                var rangeTxt = (hm(dst.windowStart) && hm(dst.windowEnd))
+                    ? (' (' + hm(dst.windowStart) + '→' + hm(dst.windowEnd) + ')') : '';
+                if (dst.lowerBound) {
+                    // 1.3.0.86 - CUMULATA/MASSIMO: si mostra SEMPRE se c'e' almeno
+                    // un valore, anche con copertura < 20%. La percentuale va
+                    // scritta accanto, non usata come gate.
+                    spec.partialLowerBound = !!(dst.hasPartialFlag && dst.partial > 0);
                     spec.partialOnly = dst.partialOnly;
-                    spec.note = lbl + ' · parziale, possibile sottostima';
-                    spec.partialTitle = (lbl.charAt(0).toUpperCase() + lbl.slice(1)) +
-                        (win === '24h' ? ' dalle 00:00' : '') +
-                        (hhmm ? (' alle ' + hhmm + 'Z') : '') + ': ' +
-                        dst.partial + '/' + dst.total + ' stazioni con il dato parziale' +
-                        (dst.complete ? (' (' + dst.complete + ' complete)') : ' (nessuna completa)') +
-                        '. ' + (daily.indexOf('rain_') === 0
-                            ? 'I millimetri caduti e misurati sono quelli'
-                            : 'Il massimo osservato è quello') +
-                        '; le ore senza dato NON sono stimate, quindi è un limite inferiore e può essere sottostimato.';
+                    var bits = [];
+                    if (covTxt) bits.push(covTxt);
+                    if (spec.partialLowerBound) bits.push('parziale, possibile sottostima');
+                    spec.note = lbl + (bits.length ? ' · ' + bits.join(' · ') : '');
+                    if (spec.partialLowerBound) {
+                        spec.partialTitle = (lbl.charAt(0).toUpperCase() + lbl.slice(1)) +
+                            ': ' + winTxt + rangeTxt + '. ' +
+                            (covTxt ? covTxt.charAt(0).toUpperCase() + covTxt.slice(1) + '; ' : '') +
+                            dst.partial + '/' + dst.total + ' stazioni con il dato parziale' +
+                            (dst.complete ? (' (' + dst.complete + ' complete)') : ' (nessuna completa)') +
+                            '. ' + (daily.indexOf('rain_') === 0
+                                ? 'I millimetri caduti e misurati sono quelli'
+                                : 'Il massimo osservato è quello') +
+                            '; le ore senza dato NON sono stimate, quindi è un limite inferiore e può essere sottostimato.' +
+                            (daily.indexOf('rain_') === 0
+                                ? ' Le finestre 1 h e 3 h possono differire di pochi decimi di mm: usano il prodotto grezzo ancorato all\'ultimo dato (data_end), mentre 6 h e 24 h sommano bucket orari con gate di copertura ≥50% (misurato il 2026-11-27: 66 stazioni su 3.945 con 24 h < 3 h, differenze ≤0,2 mm). È una differenza di prodotto/gate, non un errore della finestra.'
+                                : '');
+                    }
+                } else if (covTxt) {
+                    spec.note = covTxt;
                 }
                 return spec;
             }
@@ -22127,7 +22220,12 @@ stopSyncPlay();
                     (st.tooOld ? gold + st.tooOld + ' più vecchie' : '') +
                     (st.zeroExcluded ? gold + st.zeroExcluded + ' a 0 cm' : '') +
                     (st.method === 'contour' ? gold + 'isolinee' : '') +
-                    (spec.partialLowerBound ? gold + 'parziale, possibile sottostima' : '');
+                    (spec.partialLowerBound
+                        ? gold + 'parziale' +
+                          (spec.dailyCoverage !== null && spec.dailyCoverage !== undefined
+                              ? ', copertura ' + Math.round(100 * spec.dailyCoverage) + '%' : '') +
+                          ', possibile sottostima'
+                        : '');
                 var titleTxt = st.used + ' stazioni usate su ' + st.withValue +
                     ' con il valore, su ' + st.total + ' disponibili. Finestra ' +
                     stationFieldWindowLabel(spec.window) + windowRangeTxt + dayTxt + '. ' +
@@ -22138,7 +22236,9 @@ stopSyncPlay();
                     (st.excludedCoverage ? '; ' + st.excludedCoverage + ' escluse per copertura < 50%' : '') +
                     (st.partialWindow ? '; ' + st.partialWindow + ' finestre parziali' : '') +
                     (st.coverageN ? '; copertura media ' + fmtNum(100 * st.coverageSum / st.coverageN, 0) + '%'
-                                  : '; copertura non dichiarata dal server') +
+                                  : (spec.dailyCoverage !== null && spec.dailyCoverage !== undefined
+                                      ? '; copertura media ' + Math.round(100 * spec.dailyCoverage) + '%'
+                                      : '; copertura non dichiarata dal server')) +
                     (st.method === 'full' || st.method === 'contour'
                         ? (spec.varKey === 'snow'
                             ? '; neve: raggio ' + STATION_FIELD_SNOW_CUTOFF_KM + ' km anche con copertura totale'
@@ -22217,10 +22317,10 @@ stopSyncPlay();
                 var w = opts[i].value;
                 opts[i].hidden = false;
                 try { if (opts[i].style) opts[i].style.display = ''; } catch (e0) { }
-                // 1.3.0.82 - PIOGGIA: 5 min, 30 min e «oggi dalla mezzanotte» non sono
-                // finestre di accumulo pubblicate (5/30 min non esistono; «oggi» e' la
-                // stessa cosa di 24 h «cumulata da mezzanotte»): si NASCONDONO invece di
-                // mostrarle disabilitate, come per le metriche non interpolabili.
+                // PIOGGIA: 5 min, 30 min e «oggi dalla mezzanotte» non sono finestre
+                // di accumulo pubblicate (5/30 min non esistono; «oggi» resta solo per
+                // la massima/minima della giornata, non per la cumulata 24 h che ora
+                // è SCORREVOLE): si NASCONDONO invece di mostrarle disabilitate.
                 if (stationFieldVar === 'rain' && (w === '5m' || w === '30m' || w === 'day')) {
                     opts[i].hidden = true;
                     opts[i].disabled = true;
@@ -22282,12 +22382,20 @@ stopSyncPlay();
                         continue;
                     }
                     var dst = stationFieldDailyState(daily);
-                    opts[i].disabled = !dst.available;
-                    if (dst.available && dst.lowerBound && dst.hasPartialFlag && dst.partial > 0) {
-                        opts[i].title = stationFieldDailyPartialLabel(daily) + ': parziale su ' +
-                            dst.partial + '/' + dst.total + ' stazioni. Il valore è mostrato come limite inferiore' +
-                            ' (possibile sottostima): le ore senza dato non sono stimate.' +
-                            (dst.partialOnly ? ' Nessuna stazione ha la finestra completa.' : '');
+                    // 1.3.0.86 - una cumulata/massimo con ALMENO UN valore si mostra
+                    // sempre, anche con copertura < 20%: il valore è un limite
+                    // inferiore dichiarato. Le medie restano con il gate di completezza.
+                    opts[i].disabled = dst.lowerBound ? !(dst.total > 0) : !dst.available;
+                    if (dst.available && dst.lowerBound) {
+                        var covTxt = stationFieldDailyCoverageTxt(dst);
+                        var winTxt = stationFieldDailyWindowTxt(daily);
+                        var bits = [stationFieldDailyPartialLabel(daily)];
+                        if (winTxt) bits.push(winTxt);
+                        if (covTxt) bits.push(covTxt);
+                        if (dst.partial > 0) bits.push('parziale su ' + dst.partial + '/' + dst.total + ' stazioni');
+                        bits.push('limite inferiore: le ore senza dato non sono stimate');
+                        opts[i].title = bits.join(' · ') +
+                            (dst.partialOnly ? ' · nessuna stazione ha la finestra completa' : '');
                     } else {
                         opts[i].title = dst.available
                             ? ('disponibile: ' + daily)
