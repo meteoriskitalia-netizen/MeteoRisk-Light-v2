@@ -91,9 +91,22 @@ anche in quel ramo (serve al client per i bounds).
 | `docs/evidence/nowcast_clouds_20261127/nowcast_clouds.webp` | 6.312 | sole nuvole, lossless |
 | `.../clouds_rain_lead030.png` | 111.471 | nuvole (0,70) sotto + nowcast pioggia (0,75) a +30 |
 | `.../clouds_rain_lead060.png` | 110.359 | idem a +60 |
+| `.../clouds_rain_live_lead030.png` | 113.273 | **LIVE** slot 17:00Z, nuvole+pioggia +30 |
+| `.../clouds_rain_live_lead060.png` | 108.534 | **LIVE** slot 17:00Z, nuvole+pioggia +60 |
 | `.../nowcast_lead030.webp` | 35.834 | pioggia prevista +30 (solo) |
 | `.../nowcast_lead060.webp` | 34.576 | pioggia prevista +60 (solo) |
-| `.../clouds_report.json` | — | numeri della misura |
+| `.../clouds_report.json` | 2.089 | numeri della misura |
+| `.../live_clouds.json` | 3.595 | payload live e verifica HTTP |
+| `.../live_clouds_report.json` | 518 | byte dei compositi live |
+
+### Verifica live (slot 2026-11-27T17:00Z, generato 17:09:52Z)
+
+- `clouds.available = true`, `role = context`, `source = DPC_IR_108`;
+- `latency_min = 9,7` (583 s, misurata al run);
+- `cloud_pixels = 178.626`, `cold_pixels = 52.116`, `published_pixels = 1.504.776`;
+- immagine `nowcast_clouds.webp`: **HTTP 200, 6.464 B**;
+- HTML live **3.459.894 B**, con pulsante `live-toggle-nowcastclouds`,
+  palette dei tre grigi e testo «non è pioggia prevista».
 
 Cosa si vede: le nuvole sono **grigio-blu** e stanno sotto; la pioggia
 mantiene ciano/verde/giallo/arancio/rosso ed e' dominante. Le aree di nube
