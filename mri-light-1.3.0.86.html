@@ -2229,34 +2229,8 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
         <button type="button" id="live-toggle-forecast" class="sc-toggle" onclick="toggleScForecast()" title="Cono di forecast cinematico ≤2h per candidato (opacità per confidence)" style="display:none;">Forecast ≤2h</button>
         <button type="button" id="live-toggle-phenomena" class="sc-toggle" onclick="toggleScPhenomena()" title="Badge grandine/struttura asimmetrica (proxy riflettività, senza Doppler)" style="display:none;">Fenomeni</button>
         <button type="button" id="live-toggle-hail" class="sc-toggle" onclick="toggleScHail()" title="Badge grandine (proxy riflettività, senza Doppler)" style="display:none;">Grandine</button>
-        <!-- 1.3.0.84 - PROBABILITA' NOWCAST (ensemble 20 membri). Colore = probabilita'
-             di superare la soglia scelta entro il lead scelto; legge data/radar/nowcast.json
-             (blocco ensemble) e le immagini nowcast_prob*.webp. Affidabilita' verificata
-             su CELLE DI 20 km (non a 1 km): la dichiarazione e' nella legenda. -->
-        <button type="button" id="live-toggle-nowcastprob" class="sc-toggle" onclick="toggleNowcastProb()" title="Probabilita' nowcast dell'ensemble (20 membri): colore = probabilita' di superare la soglia scelta; affidabilita' verificata su celle di 20 km">Probabilità nowcast</button>
-        <!-- 1.3.0.86-r5 - NUVOLE IR DI CONTESTO: DPC IR_108 (10.8 um, 1 km, °C)
-             a soglie -20/-32/-44 °C, scala grigio-blu SEPARATA dalla pioggia.
-             Toggle INDIPENDENTE: non accende la pioggia prevista. -->
-        <button type="button" id="live-toggle-nowcastclouds" class="sc-toggle" onclick="nowcastCloudsToggle()" title="Nuvole IR di contesto (DPC IR_108, 10.8 um, 1 km): grigio-blu = nube alta sotto -20 °C, piu' scuro sotto -32 e -44 °C. NON e' una previsione di pioggia: una nube alta e fredda puo' non piovere. Toggle indipendente dalla pioggia prevista.">Nuvole IR (contesto) · OFF</button>
-        <span id="nowcast-clouds-note" style="display:none; font-size:10px; color:#94a3b8;">Nuvole IR (contesto) · grigio-blu · non è pioggia prevista</span>
-    </div>
-    <div id="ncprob-controls" class="nc-prob" hidden>
-        <div class="nc-prob-row" id="ncprob-thr-row">
-            <span class="nc-prob-label">Soglia</span>
-            <button type="button" class="nc-prob-btn" data-thr="2" onclick="ncProbSetThr(2)" title="Probabilità di superare 2 mm/h (pioggia debole-moderata) nei prossimi 15-60 minuti, su celle da 20 km: frequenza dell'ensemble, non una previsione puntuale.">2 mm/h</button>
-            <button type="button" class="nc-prob-btn on" data-thr="5" onclick="ncProbSetThr(5)" title="Probabilità di superare 5 mm/h (pioggia moderata) nei prossimi 15-60 minuti, su celle da 20 km: frequenza dell'ensemble, non una previsione puntuale.">5 mm/h</button>
-            <button type="button" class="nc-prob-btn" data-thr="10" onclick="ncProbSetThr(10)" title="Probabilità di superare 10 mm/h (pioggia intensa) nei prossimi 15-60 minuti, su celle da 20 km: frequenza dell'ensemble, non una previsione puntuale.">10 mm/h</button>
-        </div>
-        <div class="nc-prob-row" id="ncprob-lead-row">
-            <span class="nc-prob-label">Entro</span>
-            <button type="button" class="nc-prob-btn on" data-lead="15" onclick="ncProbSetLead(15)" title="Mostra la probabilità a +15 minuti dallo slot del frame radar (valid_time nel JSON), non dall'ora corrente.">15 min</button>
-            <button type="button" class="nc-prob-btn" data-lead="30" onclick="ncProbSetLead(30)" title="Mostra la probabilità a +30 minuti dallo slot del frame radar (valid_time nel JSON), non dall'ora corrente.">30 min</button>
-            <button type="button" class="nc-prob-btn" data-lead="60" onclick="ncProbSetLead(60)" title="Mostra la probabilità a +60 minuti dallo slot del frame radar (valid_time nel JSON), non dall'ora corrente.">60 min</button>
-        </div>
-        <div class="nc-prob-bar"></div>
-        <div class="nc-prob-ticks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
-        <div class="nc-prob-note" id="ncprob-note">colore = probabilità 0-100% di superare la soglia entro il lead scelto.</div>
-        <div class="nc-prob-note"><b>Affidabilità verificata su celle di 20 km</b> (non a 1 km). Ensemble a 20 membri; la validazione vera è prospettica (ledger dei run futuri).</div>
+        <!-- 1.3.0.86-r6 - I controlli del NOWCAST (Vista, Soglia, Nuvole) vivono
+             DENTRO il pannello del prodotto #nowcast-panel, non nel pannello LIVE. -->
     </div>
     <!-- 1.2.4.54 - Centraline osservate: blocco del pannello LIVE comandato SOLO dal
          toggle #live-toggle-stations (toggleLiveStations -> stationsSetActive), non dal
@@ -2793,6 +2767,38 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                     <span style="display:inline-block;width:10px;height:10px;background:rgb(135,160,190);margin:0 3px 0 8px;vertical-align:middle"></span>fredda &lt;-32 °C
                     <span style="display:inline-block;width:10px;height:10px;background:rgb(100,125,165);margin:0 3px 0 8px;vertical-align:middle"></span>molto fredda &lt;-44 °C
                     · <b>contesto IR, non previsione di pioggia</b>
+                </div>
+            </div>
+            <!-- 1.3.0.86-r6 - CONTROLLI DEL PRODOTTO NOWCAST:
+                 Vista (Intensita' | Probabilita'), Soglia, Nuvole. Mutua esclusione:
+                 con Probabilita' attiva il layer intensita' viene nascosto, non
+                 sovrapposto. -->
+            <div class="nc-prob" id="nowcast-controls">
+                <div class="nc-prob-row" id="nc-view-row">
+                    <span class="nc-prob-label">Vista</span>
+                    <button type="button" class="nc-prob-btn on" id="nc-view-intensity" onclick="nowcastSetView('intensity')" title="Mostra l'intensita' prevista in mm/h (palette ad alto contrasto). In questa vista la probabilita' e' nascosta: le due non si sovrappongono.">Intensità</button>
+                    <button type="button" class="nc-prob-btn" id="nc-view-prob" onclick="nowcastSetView('prob')" title="Mostra la probabilita' 0-100% dell'ensemble. In questa vista il layer intensita' viene nascosto, non sovrapposto.">Probabilità</button>
+                    <button type="button" class="sc-toggle" id="nc-clouds-toggle" onclick="nowcastCloudsToggle()" title="Nuvole IR di contesto (DPC IR_108, 10.8 um, 1 km): grigio-blu = nube alta sotto -20 °C, piu' scuro sotto -32 e -44 °C. NON e' una previsione di pioggia: una nube alta e fredda puo' non piovere. Toggle separato da intensita' e probabilita'.">Nuvole IR (contesto) · OFF</button>
+                </div>
+                <span id="nowcast-clouds-note" style="display:none; font-size:10px; color:#94a3b8;">Nuvole IR (contesto) · grigio-blu · non è pioggia prevista</span>
+                <div id="ncprob-controls" hidden>
+                    <div class="nc-prob-row" id="ncprob-thr-row">
+                        <span class="nc-prob-label">Soglia</span>
+                        <button type="button" class="nc-prob-btn" data-thr="2" onclick="ncProbSetThr(2)" title="Probabilità di superare 2 mm/h (pioggia debole-moderata) nei prossimi 15-90 minuti, su celle da 20 km: frequenza dell'ensemble, non una previsione puntuale.">2 mm/h</button>
+                        <button type="button" class="nc-prob-btn on" data-thr="5" onclick="ncProbSetThr(5)" title="Probabilità di superare 5 mm/h (pioggia moderata) nei prossimi 15-90 minuti, su celle da 20 km: frequenza dell'ensemble, non una previsione puntuale.">5 mm/h</button>
+                        <button type="button" class="nc-prob-btn" data-thr="10" onclick="ncProbSetThr(10)" title="Probabilità di superare 10 mm/h (pioggia intensa) nei prossimi 15-90 minuti, su celle da 20 km: frequenza dell'ensemble, non una previsione puntuale.">10 mm/h</button>
+                    </div>
+                    <div class="nc-prob-row" id="ncprob-lead-row">
+                        <span class="nc-prob-label">Entro</span>
+                        <button type="button" class="nc-prob-btn on" data-lead="15" onclick="ncProbSetLead(15)" title="Mostra la probabilità a +15 minuti dallo slot del frame radar (valid_time nel JSON), non dall'ora corrente.">15 min</button>
+                        <button type="button" class="nc-prob-btn" data-lead="30" onclick="ncProbSetLead(30)" title="Mostra la probabilità a +30 minuti dallo slot del frame radar (valid_time nel JSON), non dall'ora corrente.">30 min</button>
+                        <button type="button" class="nc-prob-btn" data-lead="60" onclick="ncProbSetLead(60)" title="Mostra la probabilità a +60 minuti dallo slot del frame radar (valid_time nel JSON), non dall'ora corrente.">60 min</button>
+                        <button type="button" class="nc-prob-btn" data-lead="90" onclick="ncProbSetLead(90)" title="Mostra la probabilità a +90 minuti dallo slot del frame radar (valid_time nel JSON), non dall'ora corrente.">90 min</button>
+                    </div>
+                    <div class="nc-prob-bar"></div>
+                    <div class="nc-prob-ticks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
+                    <div class="nc-prob-note" id="ncprob-note">colore = probabilità 0-100% di superare la soglia entro il lead scelto.</div>
+                    <div class="nc-prob-note"><b>Affidabilità verificata su celle di 20 km</b> (non a 1 km). Ensemble a 20 membri; la validazione vera è prospettica (ledger dei run futuri).</div>
                 </div>
             </div>
         </div>
@@ -3339,6 +3345,9 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     const APP_RELEASE_DATE = '2026-11-27';
     const APP_CHANGELOG = [
 { version: '1.3.0.86', date: '2026-11-27', changes: [
+  "TIMELINE 18 FRAME A PASSO 5 MIN: 5,10,...,90 (prima 12 con salto 45->60->75->90). Misurato sullo stesso slot: 610.516 B / 18 file contro 412.568 B / 12 (+48%), compute 51-74 s contro 37-51 s a seconda della contesa CPU; preload ~610 kB. Slider e preload restano dinamici su leads[].",
+  "CONTROLLI DEL NOWCAST NEL PANNELLO DEL PRODOTTO: Vista (Intensita' | Probabilita'), Soglia, Nuvole. Rimossi dal pannello LIVE. La vista e' MUTUAMENTE ESCLUSIVA: con Probabilita' il layer intensita' va a opacity 0 e la probabilita' sta nel pane z 408; con Intensita' la probabilita' viene rimossa e l'intensita' torna a 0,75. Nessuna sovrapposizione.",
+  "NUVOLE A BORDI MORBIDI: resampling BILINEARE sulla temperatura (non sulle classi), alpha smoothstep 2 °C attorno a -20/-32/-44, blur 0,7 px solo sul canale nuvole, downsample 2 (layer ~3 km). Misura slot 17:35Z: gradiente alpha massimo 150->112 (-25%), salti >30 14.324->8.417 (-41%), immagine 6.114->18.002 B (lossless, 3 colori + alpha a 16 livelli).",
   "NUVOLE IR DI CONTESTO (nuovo layer): DPC IR_108, canale IR 10.8 um, 1 km, °C, stessa griglia del nowcast. Classi a -20 / -32 / -44 °C, scala grigio-blu SEPARATA dalla pioggia, opacita' 0,70 e pane z 406 SOTTO la pioggia (407). Toggle INDIPENDENTE: accendere le nuvole non accende la pioggia prevista. Legenda e testo dicono «le nuvole non sono una previsione di pioggia».",
   "PAYLOAD `clouds`: fonte, canale, risoluzione, slot, soglie, classi, `role: context`, `not_a_rain_forecast: true`, latenza MISURATA (7,7 min il 2026-11-27T16:25Z), immagine `nowcast_clouds.webp`. Se IR_108 manca o lo slot non coincide: `available:false` con motivo, il nowcast pioggia resta.",
   "NUVOLE ANCHE SENZA PIOGGIA: se l'ultimo SRI e' asciutto il nowcast pioggia resta `available:false` ma il layer nuvole viene costruito e pubblicato lo stesso (caso della nube che cresce e non piove ancora).",
@@ -10817,11 +10826,8 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
     }
 
     function toggleNowcastProb() {
-        ncProbOn = !ncProbOn;
-        if (typeof scSetToggleBtn === 'function') scSetToggleBtn('live-toggle-nowcastprob', ncProbOn);
-        var c = document.getElementById('ncprob-controls');
-        if (c) c.hidden = !ncProbOn;
-        if (ncProbOn) ncProbLoad(); else ncProbClear();
+        // Compatibilita': il vecchio toggle e' sostituito dal selettore Vista.
+        nowcastSetView(nowcastView === 'prob' ? 'intensity' : 'prob');
     }
 
     function ncProbSetThr(thr) {
@@ -10857,7 +10863,7 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
 
     function ncProbDraw() {
         ncProbClearLayer();
-        if (!ncProbOn) return;
+        if (!ncProbOn || nowcastView !== 'prob' || !nowcastState.on) return;
         var ens = ncProbData && ncProbData.ensemble;
         if (!ens || !ens.applied) {
             ncProbNote('ensemble non applicato in questo run' +
@@ -10896,7 +10902,8 @@ satSource = enabledSatSourceIds()[0] || 'eumetsat';
         var ne = L.CRS.EPSG3857.unproject(L.point(b[2], b[3]));
         ncProbLayer = L.imageOverlay('data/radar/' + name,
             [[sw.lat, sw.lng], [ne.lat, ne.lng]],
-            { opacity: 0.72, interactive: false, className: 'nc-prob-layer' });
+            { opacity: 0.72, interactive: false, className: 'nc-prob-layer',
+              pane: ncProbPane() });
         ncProbLayer.addTo(map);
         var thrTxt = (usedThr === ncProbThr) ? '' :
             (' (soglia ' + usedThr + ' mm/h, la più vicina disponibile)');
@@ -27672,7 +27679,7 @@ function toggleForecastMaps() {
     // layer, mai un layer nuovo. Frame e orizzonti NON sono hardcodati: si leggono
     // da nowcast.json -> leads[] (5..60 min, 12 voci quando il motore le pubblica).
     // URL SENZA query-string (con un cache-buster il CDN risponde 404). Al primo
-    // ON si precaricano tutti i WebP (~8 KB ciascuno, ~100 KB per 12 frame).
+    // ON si precaricano tutti i WebP (18 frame a ~35 KB: ~620-640 KB).
     var NOWCAST_URL = 'data/radar/nowcast.json';
     var NOWCAST_PLAY_MS = 700;
     var NOWCAST_REFRESH_MS = 5 * 60 * 1000;   // 5 min: il motore gira ogni 10, cosi' non si perde il giro
@@ -27686,6 +27693,50 @@ function toggleForecastMaps() {
     // NUVOLE IR (contesto): stato SEPARATO dal nowcast pioggia. Il toggle
     // non chiama nowcastShow/nowcastProductOn: nessuna pioggia accesa.
     var nowcastCloudState = { on: false, layer: null, blob: null };
+    // 1.3.0.86-r6 - VISTA ESCLUSIVA: "intensity" oppure "prob". Mai le due
+    // immagini sovrapposte: quando la vista e' prob il layer intensita' ha
+    // opacita' 0 e la probabilita' sta in un pane separato.
+    var nowcastView = 'intensity';
+    function nowcastMarkView() {
+        var a = document.getElementById('nc-view-intensity');
+        var b = document.getElementById('nc-view-prob');
+        if (a) a.classList.toggle('on', nowcastView === 'intensity');
+        if (b) b.classList.toggle('on', nowcastView === 'prob');
+        var c = document.getElementById('ncprob-controls');
+        if (c) c.hidden = (nowcastView !== 'prob');
+    }
+    function nowcastSetView(view) {
+        nowcastView = (view === 'prob') ? 'prob' : 'intensity';
+        nowcastMarkView();
+        if (nowcastView === 'prob') {
+            // MUTUA ESCLUSIONE: l'intensita' non si vede sotto la probabilita'.
+            if (nowcastState.layer) {
+                try { nowcastState.layer.setOpacity(0); } catch (e) { }
+            }
+            ncProbOn = true;
+            if (nowcastState.data && nowcastState.data.ensemble) {
+                ncProbData = nowcastState.data;
+                ncProbDraw();
+            } else {
+                ncProbLoad();
+            }
+        } else {
+            ncProbOn = false;
+            if (typeof ncProbClearLayer === 'function') ncProbClearLayer();
+            if (nowcastState.layer) {
+                try { nowcastState.layer.setOpacity(0.75); } catch (e) { }
+            }
+        }
+    }
+    function ncProbPane() {
+        if (!map) return 'overlayPane';
+        if (!map.getPane('ncProbPane')) {
+            map.createPane('ncProbPane');
+            map.getPane('ncProbPane').style.zIndex = 408;
+            map.getPane('ncProbPane').style.pointerEvents = 'none';
+        }
+        return 'ncProbPane';
+    }
     // Fetch del JSON: cache:'reload' (niente query-string sul CDN). Aggiorna lo
     // stato e lo slot solo se la risposta e' valida.
     function nowcastFetchData(cb) {
@@ -27795,6 +27846,10 @@ function toggleForecastMaps() {
         nowcastUpdateSlot();
         nowcastSyncProductOption();
         nowcastCloudsRefresh();
+        if (nowcastView === 'prob') {
+            ncProbData = d;
+            ncProbDraw();
+        }
         if (!changed) return false;
         var keepLead = null;
         if (syncTimelineSource === 'nowcast' && syncTimeline.length && syncTimeline[syncIndex]) {
@@ -27956,7 +28011,7 @@ function toggleForecastMaps() {
         return 'nowcastCloudsPane';
     }
     function nowcastCloudsButton() {
-        var b = document.getElementById('live-toggle-nowcastclouds');
+        var b = document.getElementById('nc-clouds-toggle');
         if (b) b.textContent = 'Nuvole IR (contesto) · ' + (nowcastCloudState.on ? 'ON' : 'OFF');
         var note = document.getElementById('nowcast-clouds-note');
         if (note) note.style.display = nowcastCloudState.on ? 'inline' : 'none';
@@ -28105,6 +28160,10 @@ function toggleForecastMaps() {
         var panel = document.getElementById('nowcast-panel');
         if (!on) {
             nowcastState.on = false;
+            ncProbOn = false;
+            if (typeof ncProbClearLayer === 'function') ncProbClearLayer();
+            nowcastView = 'intensity';
+            nowcastMarkView();
             if (nowcastState.layer) {
                 try { map.removeLayer(nowcastState.layer); } catch (e) { }
                 nowcastState.layer = null;
@@ -28120,6 +28179,10 @@ function toggleForecastMaps() {
             return;
         }
         nowcastState.on = true;
+        // All'apertura si riparte dall'intensita': nessun layer nascosto.
+        nowcastView = 'intensity';
+        ncProbOn = false;
+        nowcastMarkView();
         nowcastPreload();
         nowcastBuildLegend();
         if (!nowcastState.layer) {

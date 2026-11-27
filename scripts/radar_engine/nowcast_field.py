@@ -107,13 +107,14 @@ PRODUCT_TYPE = "SRI"
 
 FRAMES_WANTED = 6               # ultimi 6 fotogrammi (25 minuti di storia)
 STEP_MIN = 5                    # cadenza misurata del prodotto SRI (PT5M)
-# 12 FRAME A PASSO CRESCENTE FINO A +90 MINUTI (troncamento 2026-11-26):
-#   +5..+45 ogni 5 min (9 frame), +60/+75/+90 ogni 15 min (3 frame).
-# I lead +120/+150/+180 sono stati RIMOSSI: il rapporto d'aspetto p90 delle
-# strutture previste supera 1,5x l'osservato a +120 (1,65x con il trasporto
-# a 3 km: 5,81 contro 3,53) e a +180 arriva a 1,91x. A +90 e' 1,09x. Il
-# punto di taglio e' dichiarato nel payload (`truncation`).
-LEADS_MIN = tuple(range(5, 46, 5)) + (60, 75, 90)
+# 18 FRAME A PASSO UNIFORME DI 5 MINUTI FINO A +90 (2026-11-27):
+#   5,10,...,90. Prima erano 12 frame con un salto 45 -> 60 -> 75 -> 90
+#   (passo 15) che si vedeva nella riproduzione. I lead +120/+150/+180
+#   restano RIMOSSI: il rapporto d'aspetto p90 delle strutture previste
+#   supera 1,5x l'osservato a +120 (1,65x con il trasporto a 3 km: 5,81
+#   contro 3,53) e a +180 arriva a 1,91x. A +90 e' 1,09x. Il punto di
+#   taglio e' dichiarato nel payload (`truncation`).
+LEADS_MIN = tuple(range(5, 91, 5))
 TRUNCATION_MAX_LEAD_MIN = 90
 TRUNCATION_ASPECT_LIMIT = 1.5
 TRUNCATION_BASIS = "aspect_ratio_p90_structures_vs_observed"
@@ -121,10 +122,8 @@ TRUNCATION_MEASURED_EXCEEDANCE_LEAD_MIN = 120
 TRUNCATION_MEASURED_RATIO_AT_EXCEEDANCE = 1.65
 TRUNCATION_MEASURED_RATIO_AT_CUTOFF = 1.09
 # Passo pubblicato di ogni frame = distanza dal frame precedente.
-STEP_MIN_BY_LEAD = {
-    5: 5, 10: 5, 15: 5, 20: 5, 25: 5, 30: 5, 35: 5, 40: 5, 45: 5,
-    60: 15, 75: 15, 90: 15,
-}
+# 2026-11-27: uniforme a 5 minuti (prima 60/75/90 avevano passo 15).
+STEP_MIN_BY_LEAD = {lead: 5 for lead in LEADS_MIN}
 # Verifica ufficiale: solo questi tre (invariata rispetto alla 1.3.0.71).
 # I frame oltre +60 sono per il player e NON entrano nel verdetto ufficiale.
 OFFICIAL_LEADS = (15, 30, 60)
@@ -1392,9 +1391,16 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
                                        step_s)
     u, v, extend_info = extend_motion(u, v, domain)
     # FATTORE DI VELOCITA' (taratura dichiarata): vedi MOTION_SPEED_FACTOR.
-    if MOTION_SPEED_FACTOR != 1.0:
-        u = u * np.float32(MOTION_SPEED_FACTOR)
-        v = v * np.float32(MOTION_SPEED_FACTOR)
+    # Override per il motore di ricerca `nowcast_motion_speed_factor`.
+    try:
+        speed_factor = float(config.get("nowcast_motion_speed_factor")
+                             if config.get("nowcast_motion_speed_factor")
+                             is not None else MOTION_SPEED_FACTOR)
+    except (TypeError, ValueError):
+        speed_factor = MOTION_SPEED_FACTOR
+    if speed_factor != 1.0:
+        u = u * np.float32(speed_factor)
+        v = v * np.float32(speed_factor)
     # REGOLARIZZAZIONE DEL MOTO: rimuove la divergenza a scala di cella
     # (vedi `regularize_motion`). `nowcast_motion_divergence_sigma_km = 0`
     # disattiva (A/B); il default e' la costante dichiarata.
@@ -1674,7 +1680,7 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
         "motion_pixels_known": extend_info["pixels_known"],
         "motion_pixels_from_zero": extend_info["pixels_from_zero"],
         "motion_extend_null_reason": extend_info["null_reason"],
-        "motion_speed_factor": MOTION_SPEED_FACTOR,
+        "motion_speed_factor": speed_factor,
         # regolarizzazione divergence-free a scala >= sigma_km (dichiarata:
         # e' numerica, non una legge fisica)
         "motion_regularization": reg_info,
@@ -1935,10 +1941,10 @@ def leads_min(config):
     """Orizzonti del nowcast: default `LEADS_MIN`.
 
     Una lista diversa (`config['nowcast_leads_min']`) esiste SOLO per i
-    backtest: la produzione, `IMAGE_NAMES` e il client usano i 12 frame del
-    contratto (fino a +90). Con la lista di default il payload non cambia
-    di forma. Il troncamento a `nowcast_truncation.max_lead_min` si applica
-    anche alle liste esplicite (salvo `enabled: false`).
+    backtest: la produzione, `IMAGE_NAMES` e il client usano i 18 frame del
+    contratto (5..90 a passo 5). Con la lista di default il payload non
+    cambia di forma. Il troncamento a `nowcast_truncation.max_lead_min` si
+    applica anche alle liste esplicite (salvo `enabled: false`).
     """
     raw = (config or {}).get("nowcast_leads_min")
     if not raw:
@@ -1957,7 +1963,7 @@ def leads_min(config):
 def step_min_for(lead, leads=None):
     """Passo pubblicato del frame: distanza dal lead precedente.
 
-    Con il contratto di produzione: 5 min fino a +45, 15 min a +60/+75/+90.
+    Con il contratto di produzione: 5 min per OGNI frame (5..90, 18 frame).
     Per il primo frame il passo e' 5 min (non c'e' un precedente pubblicato).
     Il TRASPORTO sottostante resta a 5 minuti. I lead oltre +90 non sono
     pubblicati (troncamento dichiarato nel payload).
@@ -2063,16 +2069,38 @@ def write_products(out_dir, payload, native):
     _cgrid = _nat.get("_grid")
     if _clouds and _cgrid and (payload.get("clouds") or {}).get("available"):
         try:
-            _pub = reproject_to_grid(
-                _clouds["classes"], _clouds["valid"], _clouds["rd"],
-                _cgrid, resampling="nearest", clamp_min=None)
-            _pub = np.where(np.isfinite(_pub), _pub, 0).astype(np.uint8)
+            _cl = payload.get("clouds") or {}
+            _temp = _clouds.get("temp")
+            if _temp is not None:
+                # BILINEARE sulla TEMPERATURA: il campo resta continuo e la
+                # soglia non viene applicata prima del resampling (era la
+                # causa dei blocchi). La sfumatura e' fatta dopo, a 1,5 km.
+                _pub_t = reproject_to_grid(
+                    _temp, _clouds["valid"], _clouds["rd"], _cgrid,
+                    resampling="bilinear", clamp_min=None)
+                _pub_v = np.isfinite(_pub_t)
+                _rgba = clouds_mod.rgba_from_temp(
+                    _pub_t, _pub_v,
+                    blend_c=float(_cl.get("blend_c") or 2.0),
+                    blur_px=float(_cl.get("blur_px") or 0.7))
+            else:
+                # fallback dichiarato: classi nearest (resa vecchia)
+                _pub = reproject_to_grid(
+                    _clouds["classes"], _clouds["valid"], _clouds["rd"],
+                    _cgrid, resampling="nearest", clamp_min=None)
+                _pub = np.where(np.isfinite(_pub), _pub, 0).astype(np.uint8)
+                _rgba = clouds_mod.rgba_from_classes(_pub)
             _path = os.path.join(out_dir, clouds_mod.IMAGE_NAME)
-            _size = clouds_mod.write_webp(_path, _pub)
+            _down = int(_cl.get("downsample") or 1)
+            _size = clouds_mod.write_rgba_webp(_path, _rgba,
+                                               downsample=_down)
             payload["clouds"]["image"] = clouds_mod.IMAGE_NAME
             payload["clouds"]["output_bytes"] = _size
+            payload["clouds"]["image_size"] = [
+                max(1, _rgba.shape[1] // _down),
+                max(1, _rgba.shape[0] // _down)]
             payload["clouds"]["published_pixels"] = int(
-                np.isfinite(_pub).sum())
+                (_rgba[:, :, 3] > 0).sum())
             measured["clouds"] = {clouds_mod.IMAGE_NAME: _size}
         except Exception as _exc:
             _reason = "{}:{}".format(_exc.__class__.__name__, _exc)

@@ -1,0 +1,1791 @@
+{
+ "declared_before_measure": true,
+ "criteria": {
+  "area_band": [
+   0.6,
+   1.4
+  ],
+  "centroid_max_km": 20.0,
+  "coverage_min": 0.5,
+  "leads": [
+   30,
+   60,
+   90
+  ]
+ },
+ "anchors_declared": [
+  {
+   "anchor": "2026-11-01T16:00:00Z",
+   "regime": "convettivo veloce"
+  },
+  {
+   "anchor": "2026-10-20T16:00:00Z",
+   "regime": "convettivo veloce"
+  },
+  {
+   "anchor": "2026-09-10T16:00:00Z",
+   "regime": "convettivo"
+  },
+  {
+   "anchor": "2026-10-08T16:00:00Z",
+   "regime": "convettivo"
+  },
+  {
+   "anchor": "2026-11-26T13:25:00Z",
+   "regime": "convettivo veloce"
+  },
+  {
+   "anchor": "2026-11-09T16:00:00Z",
+   "regime": "stratiforme veloce"
+  },
+  {
+   "anchor": "2026-05-29T12:00:00Z",
+   "regime": "stratiforme"
+  },
+  {
+   "anchor": "2026-08-29T16:00:00Z",
+   "regime": "stratiforme"
+  },
+  {
+   "anchor": "2026-07-27T12:00:00Z",
+   "regime": "debole"
+  },
+  {
+   "anchor": "2026-09-30T12:00:00Z",
+   "regime": "debole"
+  },
+  {
+   "anchor": "2026-07-08T12:00:00Z",
+   "regime": "debole"
+  },
+  {
+   "anchor": "2026-08-13T16:00:00Z",
+   "regime": "debole"
+  }
+ ],
+ "anchors": [
+  {
+   "anchor": "2026-11-01T16:00:00Z",
+   "regime": "convettivo veloce",
+   "source_slot": "2026-11-01T16:00:00Z",
+   "pixel_km": 1.0,
+   "leads": {
+    "30": {
+     "area": {
+      "0.5": {
+       "pred_px": 210574,
+       "obs_px": 220866,
+       "ratio": 0.953
+      },
+      "5.0": {
+       "pred_px": 67127,
+       "obs_px": 67873,
+       "ratio": 0.989
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": true,
+      "coverage_ge5": true
+     },
+     "fail": [],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.8057,
+       "iou": 0.702,
+       "bias": 0.9534,
+       "inter_px": 177950,
+       "union_px": 253490
+      },
+      "5.0": {
+       "coverage": 0.6292,
+       "iou": 0.4627,
+       "bias": 0.989,
+       "inter_px": 42707,
+       "union_px": 92293
+      }
+     },
+     "corr_0p5": 0.7994,
+     "centroid_km": 11.56,
+     "coverage_ge5": 0.629,
+     "reliable": true
+    },
+    "60": {
+     "area": {
+      "0.5": {
+       "pred_px": 205023,
+       "obs_px": 217314,
+       "ratio": 0.943
+      },
+      "5.0": {
+       "pred_px": 63979,
+       "obs_px": 61297,
+       "ratio": 1.044
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.7111,
+       "iou": 0.577,
+       "bias": 0.9434,
+       "inter_px": 154525,
+       "union_px": 267812
+      },
+      "5.0": {
+       "coverage": 0.4633,
+       "iou": 0.2932,
+       "bias": 1.0438,
+       "inter_px": 28400,
+       "union_px": 96876
+      }
+     },
+     "corr_0p5": 0.6936,
+     "centroid_km": 22.62,
+     "coverage_ge5": 0.463,
+     "reliable": false
+    },
+    "90": {
+     "area": {
+      "0.5": {
+       "pred_px": 196803,
+       "obs_px": 218606,
+       "ratio": 0.9
+      },
+      "5.0": {
+       "pred_px": 59222,
+       "obs_px": 66006,
+       "ratio": 0.897
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.6148,
+       "iou": 0.4782,
+       "bias": 0.9003,
+       "inter_px": 134391,
+       "union_px": 281018
+      },
+      "5.0": {
+       "coverage": 0.3404,
+       "iou": 0.2187,
+       "bias": 0.8972,
+       "inter_px": 22469,
+       "union_px": 102759
+      }
+     },
+     "corr_0p5": 0.5985,
+     "centroid_km": 26.71,
+     "coverage_ge5": 0.34,
+     "reliable": false
+    }
+   }
+  },
+  {
+   "anchor": "2026-10-20T16:00:00Z",
+   "regime": "convettivo veloce",
+   "source_slot": "2026-10-20T16:00:00Z",
+   "pixel_km": 1.0,
+   "leads": {
+    "30": {
+     "area": {
+      "0.5": {
+       "pred_px": 162626,
+       "obs_px": 181813,
+       "ratio": 0.894
+      },
+      "5.0": {
+       "pred_px": 42811,
+       "obs_px": 47975,
+       "ratio": 0.892
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": true,
+      "coverage_ge5": true
+     },
+     "fail": [],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.7703,
+       "iou": 0.6853,
+       "bias": 0.8945,
+       "inter_px": 140058,
+       "union_px": 204381
+      },
+      "5.0": {
+       "coverage": 0.5394,
+       "iou": 0.3987,
+       "bias": 0.8924,
+       "inter_px": 25877,
+       "union_px": 64909
+      }
+     },
+     "corr_0p5": 0.7935,
+     "centroid_km": 7.79,
+     "coverage_ge5": 0.539,
+     "reliable": true
+    },
+    "60": {
+     "area": {
+      "0.5": {
+       "pred_px": 156857,
+       "obs_px": 183855,
+       "ratio": 0.853
+      },
+      "5.0": {
+       "pred_px": 40108,
+       "obs_px": 49348,
+       "ratio": 0.813
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": true,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.6547,
+       "iou": 0.5463,
+       "bias": 0.8532,
+       "inter_px": 120370,
+       "union_px": 220342
+      },
+      "5.0": {
+       "coverage": 0.3772,
+       "iou": 0.2627,
+       "bias": 0.8128,
+       "inter_px": 18613,
+       "union_px": 70843
+      }
+     },
+     "corr_0p5": 0.6763,
+     "centroid_km": 10.96,
+     "coverage_ge5": 0.377,
+     "reliable": false
+    },
+    "90": {
+     "area": {
+      "0.5": {
+       "pred_px": 152877,
+       "obs_px": 160305,
+       "ratio": 0.954
+      },
+      "5.0": {
+       "pred_px": 37753,
+       "obs_px": 34207,
+       "ratio": 1.104
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.5651,
+       "iou": 0.407,
+       "bias": 0.9537,
+       "inter_px": 90596,
+       "union_px": 222586
+      },
+      "5.0": {
+       "coverage": 0.1974,
+       "iou": 0.1035,
+       "bias": 1.1037,
+       "inter_px": 6752,
+       "union_px": 65208
+      }
+     },
+     "corr_0p5": 0.5354,
+     "centroid_km": 37.35,
+     "coverage_ge5": 0.197,
+     "reliable": false
+    }
+   }
+  },
+  {
+   "anchor": "2026-09-10T16:00:00Z",
+   "regime": "convettivo",
+   "source_slot": "2026-09-10T16:00:00Z",
+   "pixel_km": 1.0,
+   "leads": {
+    "30": {
+     "area": {
+      "0.5": {
+       "pred_px": 129783,
+       "obs_px": 122199,
+       "ratio": 1.062
+      },
+      "5.0": {
+       "pred_px": 38557,
+       "obs_px": 36477,
+       "ratio": 1.057
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": false,
+      "coverage_ge5": true
+     },
+     "fail": [
+      "centroid"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.8343,
+       "iou": 0.6795,
+       "bias": 1.0621,
+       "inter_px": 101952,
+       "union_px": 150030
+      },
+      "5.0": {
+       "coverage": 0.625,
+       "iou": 0.4364,
+       "bias": 1.057,
+       "inter_px": 22797,
+       "union_px": 52237
+      }
+     },
+     "corr_0p5": 0.7942,
+     "centroid_km": 27.42,
+     "coverage_ge5": 0.625,
+     "reliable": false
+    },
+    "60": {
+     "area": {
+      "0.5": {
+       "pred_px": 129240,
+       "obs_px": 120719,
+       "ratio": 1.071
+      },
+      "5.0": {
+       "pred_px": 37917,
+       "obs_px": 36537,
+       "ratio": 1.038
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.7577,
+       "iou": 0.5771,
+       "bias": 1.0706,
+       "inter_px": 91463,
+       "union_px": 158496
+      },
+      "5.0": {
+       "coverage": 0.4835,
+       "iou": 0.3111,
+       "bias": 1.0378,
+       "inter_px": 17667,
+       "union_px": 56787
+      }
+     },
+     "corr_0p5": 0.7108,
+     "centroid_km": 34.91,
+     "coverage_ge5": 0.484,
+     "reliable": false
+    },
+    "90": {
+     "area": {
+      "0.5": {
+       "pred_px": 128539,
+       "obs_px": 117627,
+       "ratio": 1.093
+      },
+      "5.0": {
+       "pred_px": 37595,
+       "obs_px": 28766,
+       "ratio": 1.307
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.6957,
+       "iou": 0.498,
+       "bias": 1.0928,
+       "inter_px": 81838,
+       "union_px": 164328
+      },
+      "5.0": {
+       "coverage": 0.3201,
+       "iou": 0.1611,
+       "bias": 1.3069,
+       "inter_px": 9207,
+       "union_px": 57154
+      }
+     },
+     "corr_0p5": 0.6392,
+     "centroid_km": 47.63,
+     "coverage_ge5": 0.32,
+     "reliable": false
+    }
+   }
+  },
+  {
+   "anchor": "2026-10-08T16:00:00Z",
+   "regime": "convettivo",
+   "source_slot": "2026-10-08T16:00:00Z",
+   "pixel_km": 1.0,
+   "leads": {
+    "30": {
+     "area": {
+      "0.5": {
+       "pred_px": 127863,
+       "obs_px": 134635,
+       "ratio": 0.95
+      },
+      "5.0": {
+       "pred_px": 24404,
+       "obs_px": 23575,
+       "ratio": 1.035
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": true,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.6956,
+       "iou": 0.5547,
+       "bias": 0.9497,
+       "inter_px": 93657,
+       "union_px": 168841
+      },
+      "5.0": {
+       "coverage": 0.443,
+       "iou": 0.2782,
+       "bias": 1.0352,
+       "inter_px": 10443,
+       "union_px": 37536
+      }
+     },
+     "corr_0p5": 0.6896,
+     "centroid_km": 17.54,
+     "coverage_ge5": 0.443,
+     "reliable": false
+    },
+    "60": {
+     "area": {
+      "0.5": {
+       "pred_px": 126403,
+       "obs_px": 132764,
+       "ratio": 0.952
+      },
+      "5.0": {
+       "pred_px": 23674,
+       "obs_px": 23844,
+       "ratio": 0.993
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.5608,
+       "iou": 0.4031,
+       "bias": 0.9521,
+       "inter_px": 74456,
+       "union_px": 184711
+      },
+      "5.0": {
+       "coverage": 0.283,
+       "iou": 0.1655,
+       "bias": 0.9929,
+       "inter_px": 6748,
+       "union_px": 40770
+      }
+     },
+     "corr_0p5": 0.5392,
+     "centroid_km": 37.47,
+     "coverage_ge5": 0.283,
+     "reliable": false
+    },
+    "90": {
+     "area": {
+      "0.5": {
+       "pred_px": 124842,
+       "obs_px": 130764,
+       "ratio": 0.955
+      },
+      "5.0": {
+       "pred_px": 22763,
+       "obs_px": 23134,
+       "ratio": 0.984
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.4756,
+       "iou": 0.3215,
+       "bias": 0.9547,
+       "inter_px": 62186,
+       "union_px": 193420
+      },
+      "5.0": {
+       "coverage": 0.1941,
+       "iou": 0.1084,
+       "bias": 0.984,
+       "inter_px": 4490,
+       "union_px": 41407
+      }
+     },
+     "corr_0p5": 0.4445,
+     "centroid_km": 33.33,
+     "coverage_ge5": 0.194,
+     "reliable": false
+    }
+   }
+  },
+  {
+   "anchor": "2026-11-26T13:25:00Z",
+   "regime": "convettivo veloce",
+   "source_slot": "2026-11-26T13:25:00Z",
+   "pixel_km": 1.0,
+   "leads": {
+    "30": {
+     "area": {
+      "0.5": {
+       "pred_px": 86270,
+       "obs_px": 89722,
+       "ratio": 0.962
+      },
+      "5.0": {
+       "pred_px": 13721,
+       "obs_px": 14508,
+       "ratio": 0.946
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": true,
+      "coverage_ge5": true
+     },
+     "fail": [],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.6975,
+       "iou": 0.5518,
+       "bias": 0.9615,
+       "inter_px": 62578,
+       "union_px": 113414
+      },
+      "5.0": {
+       "coverage": 0.5738,
+       "iou": 0.4182,
+       "bias": 0.9458,
+       "inter_px": 8324,
+       "union_px": 19905
+      }
+     },
+     "corr_0p5": 0.6953,
+     "centroid_km": 2.95,
+     "coverage_ge5": 0.574,
+     "reliable": true
+    },
+    "60": {
+     "area": {
+      "0.5": {
+       "pred_px": 84612,
+       "obs_px": 87056,
+       "ratio": 0.972
+      },
+      "5.0": {
+       "pred_px": 13885,
+       "obs_px": 13128,
+       "ratio": 1.058
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.5961,
+       "iou": 0.4332,
+       "bias": 0.9719,
+       "inter_px": 51891,
+       "union_px": 119777
+      },
+      "5.0": {
+       "coverage": 0.456,
+       "iou": 0.2847,
+       "bias": 1.0577,
+       "inter_px": 5987,
+       "union_px": 21026
+      }
+     },
+     "corr_0p5": 0.5833,
+     "centroid_km": 31.34,
+     "coverage_ge5": 0.456,
+     "reliable": false
+    },
+    "90": {
+     "area": {
+      "0.5": {
+       "pred_px": 82924,
+       "obs_px": 86113,
+       "ratio": 0.963
+      },
+      "5.0": {
+       "pred_px": 14019,
+       "obs_px": 14718,
+       "ratio": 0.953
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.4911,
+       "iou": 0.3337,
+       "bias": 0.963,
+       "inter_px": 42291,
+       "union_px": 126746
+      },
+      "5.0": {
+       "coverage": 0.2611,
+       "iou": 0.1544,
+       "bias": 0.9525,
+       "inter_px": 3843,
+       "union_px": 24894
+      }
+     },
+     "corr_0p5": 0.474,
+     "centroid_km": 34.07,
+     "coverage_ge5": 0.261,
+     "reliable": false
+    }
+   }
+  },
+  {
+   "anchor": "2026-11-09T16:00:00Z",
+   "regime": "stratiforme veloce",
+   "source_slot": "2026-11-09T16:00:00Z",
+   "pixel_km": 1.0,
+   "leads": {
+    "30": {
+     "area": {
+      "0.5": {
+       "pred_px": 57799,
+       "obs_px": 55415,
+       "ratio": 1.043
+      },
+      "5.0": {
+       "pred_px": 1076,
+       "obs_px": 652,
+       "ratio": 1.65
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": false,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "area_5.0",
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.6844,
+       "iou": 0.5037,
+       "bias": 1.043,
+       "inter_px": 37924,
+       "union_px": 75290
+      },
+      "5.0": {
+       "coverage": 0.1074,
+       "iou": 0.0422,
+       "bias": 1.6503,
+       "inter_px": 70,
+       "union_px": 1658
+      }
+     },
+     "corr_0p5": 0.6586,
+     "centroid_km": 20.98,
+     "coverage_ge5": 0.107,
+     "reliable": false
+    },
+    "60": {
+     "area": {
+      "0.5": {
+       "pred_px": 57434,
+       "obs_px": 61285,
+       "ratio": 0.937
+      },
+      "5.0": {
+       "pred_px": 1066,
+       "obs_px": 878,
+       "ratio": 1.214
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.5397,
+       "iou": 0.3862,
+       "bias": 0.9372,
+       "inter_px": 33075,
+       "union_px": 85644
+      },
+      "5.0": {
+       "coverage": 0.0,
+       "iou": 0.0,
+       "bias": 1.2141,
+       "inter_px": 0,
+       "union_px": 1944
+      }
+     },
+     "corr_0p5": 0.5413,
+     "centroid_km": 59.67,
+     "coverage_ge5": 0.0,
+     "reliable": false
+    },
+    "90": {
+     "area": {
+      "0.5": {
+       "pred_px": 57024,
+       "obs_px": 65133,
+       "ratio": 0.876
+      },
+      "5.0": {
+       "pred_px": 1033,
+       "obs_px": 1877,
+       "ratio": 0.55
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": false,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "area_5.0",
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.4431,
+       "iou": 0.3093,
+       "bias": 0.8755,
+       "inter_px": 28861,
+       "union_px": 93296
+      },
+      "5.0": {
+       "coverage": 0.0208,
+       "iou": 0.0136,
+       "bias": 0.5503,
+       "inter_px": 39,
+       "union_px": 2871
+      }
+     },
+     "corr_0p5": 0.4538,
+     "centroid_km": 92.88,
+     "coverage_ge5": 0.021,
+     "reliable": false
+    }
+   }
+  },
+  {
+   "anchor": "2026-05-29T12:00:00Z",
+   "regime": "stratiforme",
+   "source_slot": "2026-05-29T12:00:00Z",
+   "pixel_km": 1.0,
+   "leads": {
+    "30": {
+     "area": {
+      "0.5": {
+       "pred_px": 15233,
+       "obs_px": 18968,
+       "ratio": 0.803
+      },
+      "5.0": {
+       "pred_px": 2280,
+       "obs_px": 2432,
+       "ratio": 0.938
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": true,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.4507,
+       "iou": 0.3333,
+       "bias": 0.8031,
+       "inter_px": 8549,
+       "union_px": 25652
+      },
+      "5.0": {
+       "coverage": 0.2044,
+       "iou": 0.1179,
+       "bias": 0.9375,
+       "inter_px": 497,
+       "union_px": 4215
+      }
+     },
+     "corr_0p5": 0.4979,
+     "centroid_km": 6.48,
+     "coverage_ge5": 0.204,
+     "reliable": false
+    },
+    "60": {
+     "area": {
+      "0.5": {
+       "pred_px": 15348,
+       "obs_px": 19131,
+       "ratio": 0.802
+      },
+      "5.0": {
+       "pred_px": 2134,
+       "obs_px": 3766,
+       "ratio": 0.567
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": false,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "area_5.0",
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.2741,
+       "iou": 0.1794,
+       "bias": 0.8023,
+       "inter_px": 5244,
+       "union_px": 29235
+      },
+      "5.0": {
+       "coverage": 0.0789,
+       "iou": 0.053,
+       "bias": 0.5666,
+       "inter_px": 297,
+       "union_px": 5603
+      }
+     },
+     "corr_0p5": 0.2989,
+     "centroid_km": 24.01,
+     "coverage_ge5": 0.079,
+     "reliable": false
+    },
+    "90": {
+     "area": {
+      "0.5": {
+       "pred_px": 15272,
+       "obs_px": 18379,
+       "ratio": 0.831
+      },
+      "5.0": {
+       "pred_px": 1997,
+       "obs_px": 3649,
+       "ratio": 0.547
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": false,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "area_5.0",
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.1872,
+       "iou": 0.1139,
+       "bias": 0.8309,
+       "inter_px": 3440,
+       "union_px": 30211
+      },
+      "5.0": {
+       "coverage": 0.0841,
+       "iou": 0.0575,
+       "bias": 0.5473,
+       "inter_px": 307,
+       "union_px": 5339
+      }
+     },
+     "corr_0p5": 0.1973,
+     "centroid_km": 59.87,
+     "coverage_ge5": 0.084,
+     "reliable": false
+    }
+   }
+  },
+  {
+   "anchor": "2026-08-29T16:00:00Z",
+   "regime": "stratiforme",
+   "source_slot": "2026-08-29T16:00:00Z",
+   "pixel_km": 1.0,
+   "leads": {
+    "30": {
+     "area": {
+      "0.5": {
+       "pred_px": 598,
+       "obs_px": 330,
+       "ratio": 1.812
+      },
+      "5.0": {
+       "pred_px": 50,
+       "obs_px": 0,
+       "ratio": null
+      }
+     },
+     "pass": {
+      "area_0.5": false,
+      "area_5.0": false,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "area_0.5",
+      "area_5.0",
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.0727,
+       "iou": 0.0265,
+       "bias": 1.8121,
+       "inter_px": 24,
+       "union_px": 904
+      },
+      "5.0": {
+       "coverage": null,
+       "iou": 0.0,
+       "bias": null,
+       "inter_px": 0,
+       "union_px": 50
+      }
+     },
+     "corr_0p5": 0.0538,
+     "centroid_km": 55.39,
+     "coverage_ge5": null,
+     "reliable": false
+    },
+    "60": {
+     "area": {
+      "0.5": {
+       "pred_px": 463,
+       "obs_px": 249,
+       "ratio": 1.859
+      },
+      "5.0": {
+       "pred_px": 50,
+       "obs_px": 5,
+       "ratio": 10.0
+      }
+     },
+     "pass": {
+      "area_0.5": false,
+      "area_5.0": false,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "area_0.5",
+      "area_5.0",
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.0,
+       "iou": 0.0,
+       "bias": 1.8594,
+       "inter_px": 0,
+       "union_px": 712
+      },
+      "5.0": {
+       "coverage": 0.0,
+       "iou": 0.0,
+       "bias": 10.0,
+       "inter_px": 0,
+       "union_px": 55
+      }
+     },
+     "corr_0p5": -0.0002,
+     "centroid_km": 119.73,
+     "coverage_ge5": 0.0,
+     "reliable": false
+    },
+    "90": {
+     "area": {
+      "0.5": {
+       "pred_px": 603,
+       "obs_px": 302,
+       "ratio": 1.997
+      },
+      "5.0": {
+       "pred_px": 57,
+       "obs_px": 45,
+       "ratio": 1.267
+      }
+     },
+     "pass": {
+      "area_0.5": false,
+      "area_5.0": true,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "area_0.5",
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.0,
+       "iou": 0.0,
+       "bias": 1.9967,
+       "inter_px": 0,
+       "union_px": 905
+      },
+      "5.0": {
+       "coverage": 0.0,
+       "iou": 0.0,
+       "bias": 1.2667,
+       "inter_px": 0,
+       "union_px": 102
+      }
+     },
+     "corr_0p5": -0.0003,
+     "centroid_km": 435.01,
+     "coverage_ge5": 0.0,
+     "reliable": false
+    }
+   }
+  },
+  {
+   "anchor": "2026-07-27T12:00:00Z",
+   "regime": "debole",
+   "source_slot": "2026-07-27T12:00:00Z",
+   "pixel_km": 1.0,
+   "leads": {
+    "30": {
+     "area": {
+      "0.5": {
+       "pred_px": 895,
+       "obs_px": 948,
+       "ratio": 0.944
+      },
+      "5.0": {
+       "pred_px": 0,
+       "obs_px": 75,
+       "ratio": 0.0
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": false,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "area_5.0",
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.057,
+       "iou": 0.0302,
+       "bias": 0.9441,
+       "inter_px": 54,
+       "union_px": 1789
+      },
+      "5.0": {
+       "coverage": 0.0,
+       "iou": 0.0,
+       "bias": 0.0,
+       "inter_px": 0,
+       "union_px": 75
+      }
+     },
+     "corr_0p5": 0.0581,
+     "centroid_km": 58.65,
+     "coverage_ge5": 0.0,
+     "reliable": false
+    },
+    "60": {
+     "area": {
+      "0.5": {
+       "pred_px": 763,
+       "obs_px": 836,
+       "ratio": 0.913
+      },
+      "5.0": {
+       "pred_px": 0,
+       "obs_px": 69,
+       "ratio": 0.0
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": false,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "area_5.0",
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.0,
+       "iou": 0.0,
+       "bias": 0.9127,
+       "inter_px": 0,
+       "union_px": 1599
+      },
+      "5.0": {
+       "coverage": 0.0,
+       "iou": 0.0,
+       "bias": 0.0,
+       "inter_px": 0,
+       "union_px": 69
+      }
+     },
+     "corr_0p5": -0.0005,
+     "centroid_km": 223.06,
+     "coverage_ge5": 0.0,
+     "reliable": false
+    },
+    "90": {
+     "area": {
+      "0.5": {
+       "pred_px": 780,
+       "obs_px": 1295,
+       "ratio": 0.602
+      },
+      "5.0": {
+       "pred_px": 0,
+       "obs_px": 263,
+       "ratio": 0.0
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": false,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "area_5.0",
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.017,
+       "iou": 0.0107,
+       "bias": 0.6023,
+       "inter_px": 22,
+       "union_px": 2053
+      },
+      "5.0": {
+       "coverage": 0.0,
+       "iou": 0.0,
+       "bias": 0.0,
+       "inter_px": 0,
+       "union_px": 263
+      }
+     },
+     "corr_0p5": 0.0213,
+     "centroid_km": 152.72,
+     "coverage_ge5": 0.0,
+     "reliable": false
+    }
+   }
+  },
+  {
+   "anchor": "2026-09-30T12:00:00Z",
+   "regime": "debole",
+   "source_slot": "2026-09-30T12:00:00Z",
+   "pixel_km": 1.0,
+   "leads": {
+    "30": {
+     "area": {
+      "0.5": {
+       "pred_px": 10658,
+       "obs_px": 12167,
+       "ratio": 0.876
+      },
+      "5.0": {
+       "pred_px": 769,
+       "obs_px": 845,
+       "ratio": 0.91
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.499,
+       "iou": 0.3624,
+       "bias": 0.876,
+       "inter_px": 6071,
+       "union_px": 16754
+      },
+      "5.0": {
+       "coverage": 0.426,
+       "iou": 0.2871,
+       "bias": 0.9101,
+       "inter_px": 360,
+       "union_px": 1254
+      }
+     },
+     "corr_0p5": 0.5299,
+     "centroid_km": 94.7,
+     "coverage_ge5": 0.426,
+     "reliable": false
+    },
+    "60": {
+     "area": {
+      "0.5": {
+       "pred_px": 10695,
+       "obs_px": 11853,
+       "ratio": 0.902
+      },
+      "5.0": {
+       "pred_px": 749,
+       "obs_px": 919,
+       "ratio": 0.815
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.3366,
+       "iou": 0.215,
+       "bias": 0.9023,
+       "inter_px": 3990,
+       "union_px": 18558
+      },
+      "5.0": {
+       "coverage": 0.2709,
+       "iou": 0.1755,
+       "bias": 0.815,
+       "inter_px": 249,
+       "union_px": 1419
+      }
+     },
+     "corr_0p5": 0.35,
+     "centroid_km": 202.31,
+     "coverage_ge5": 0.271,
+     "reliable": false
+    },
+    "90": {
+     "area": {
+      "0.5": {
+       "pred_px": 10517,
+       "obs_px": 10596,
+       "ratio": 0.993
+      },
+      "5.0": {
+       "pred_px": 725,
+       "obs_px": 1075,
+       "ratio": 0.674
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.2639,
+       "iou": 0.1526,
+       "bias": 0.9925,
+       "inter_px": 2796,
+       "union_px": 18317
+      },
+      "5.0": {
+       "coverage": 0.1516,
+       "iou": 0.0996,
+       "bias": 0.6744,
+       "inter_px": 163,
+       "union_px": 1637
+      }
+     },
+     "corr_0p5": 0.2602,
+     "centroid_km": 190.88,
+     "coverage_ge5": 0.152,
+     "reliable": false
+    }
+   }
+  },
+  {
+   "anchor": "2026-07-08T12:00:00Z",
+   "regime": "debole",
+   "source_slot": "2026-07-08T12:00:00Z",
+   "pixel_km": 1.0,
+   "leads": {
+    "30": {
+     "area": {
+      "0.5": {
+       "pred_px": 7863,
+       "obs_px": 6081,
+       "ratio": 1.293
+      },
+      "5.0": {
+       "pred_px": 228,
+       "obs_px": 31,
+       "ratio": 7.355
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": false,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "area_5.0",
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.3476,
+       "iou": 0.1787,
+       "bias": 1.293,
+       "inter_px": 2114,
+       "union_px": 11830
+      },
+      "5.0": {
+       "coverage": 0.2581,
+       "iou": 0.0319,
+       "bias": 7.3548,
+       "inter_px": 8,
+       "union_px": 251
+      }
+     },
+     "corr_0p5": 0.3029,
+     "centroid_km": 147.64,
+     "coverage_ge5": 0.258,
+     "reliable": false
+    },
+    "60": {
+     "area": {
+      "0.5": {
+       "pred_px": 6953,
+       "obs_px": 4981,
+       "ratio": 1.396
+      },
+      "5.0": {
+       "pred_px": 190,
+       "obs_px": 44,
+       "ratio": 4.318
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": false,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "area_5.0",
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.2052,
+       "iou": 0.0937,
+       "bias": 1.3959,
+       "inter_px": 1022,
+       "union_px": 10912
+      },
+      "5.0": {
+       "coverage": 0.0,
+       "iou": 0.0,
+       "bias": 4.3182,
+       "inter_px": 0,
+       "union_px": 234
+      }
+     },
+     "corr_0p5": 0.1708,
+     "centroid_km": 239.82,
+     "coverage_ge5": 0.0,
+     "reliable": false
+    },
+    "90": {
+     "area": {
+      "0.5": {
+       "pred_px": 6707,
+       "obs_px": 4232,
+       "ratio": 1.585
+      },
+      "5.0": {
+       "pred_px": 174,
+       "obs_px": 90,
+       "ratio": 1.933
+      }
+     },
+     "pass": {
+      "area_0.5": false,
+      "area_5.0": false,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "area_0.5",
+      "area_5.0",
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.1749,
+       "iou": 0.0726,
+       "bias": 1.5848,
+       "inter_px": 740,
+       "union_px": 10199
+      },
+      "5.0": {
+       "coverage": 0.0,
+       "iou": 0.0,
+       "bias": 1.9333,
+       "inter_px": 0,
+       "union_px": 264
+      }
+     },
+     "corr_0p5": 0.1362,
+     "centroid_km": 418.47,
+     "coverage_ge5": 0.0,
+     "reliable": false
+    }
+   }
+  },
+  {
+   "anchor": "2026-08-13T16:00:00Z",
+   "regime": "debole",
+   "source_slot": "2026-08-13T16:00:00Z",
+   "pixel_km": 1.0,
+   "leads": {
+    "30": {
+     "area": {
+      "0.5": {
+       "pred_px": 15128,
+       "obs_px": 13756,
+       "ratio": 1.1
+      },
+      "5.0": {
+       "pred_px": 3139,
+       "obs_px": 2788,
+       "ratio": 1.126
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": true,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.6574,
+       "iou": 0.4558,
+       "bias": 1.0997,
+       "inter_px": 9043,
+       "union_px": 19841
+      },
+      "5.0": {
+       "coverage": 0.326,
+       "iou": 0.1811,
+       "bias": 1.1259,
+       "inter_px": 909,
+       "union_px": 5018
+      }
+     },
+     "corr_0p5": 0.6236,
+     "centroid_km": 34.95,
+     "coverage_ge5": 0.326,
+     "reliable": false
+    },
+    "60": {
+     "area": {
+      "0.5": {
+       "pred_px": 14807,
+       "obs_px": 12608,
+       "ratio": 1.174
+      },
+      "5.0": {
+       "pred_px": 2717,
+       "obs_px": 1889,
+       "ratio": 1.438
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": false,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "area_5.0",
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.4551,
+       "iou": 0.2647,
+       "bias": 1.1744,
+       "inter_px": 5738,
+       "union_px": 21677
+      },
+      "5.0": {
+       "coverage": 0.172,
+       "iou": 0.0759,
+       "bias": 1.4383,
+       "inter_px": 325,
+       "union_px": 4281
+      }
+     },
+     "corr_0p5": 0.4152,
+     "centroid_km": 122.78,
+     "coverage_ge5": 0.172,
+     "reliable": false
+    },
+    "90": {
+     "area": {
+      "0.5": {
+       "pred_px": 14169,
+       "obs_px": 12338,
+       "ratio": 1.148
+      },
+      "5.0": {
+       "pred_px": 2321,
+       "obs_px": 1422,
+       "ratio": 1.632
+      }
+     },
+     "pass": {
+      "area_0.5": true,
+      "area_5.0": false,
+      "centroid": false,
+      "coverage_ge5": false
+     },
+     "fail": [
+      "area_5.0",
+      "centroid",
+      "coverage_ge5"
+     ],
+     "overlap": {
+      "0.5": {
+       "coverage": 0.3116,
+       "iou": 0.1697,
+       "bias": 1.1484,
+       "inter_px": 3845,
+       "union_px": 22662
+      },
+      "5.0": {
+       "coverage": 0.0633,
+       "iou": 0.0246,
+       "bias": 1.6322,
+       "inter_px": 90,
+       "union_px": 3653
+      }
+     },
+     "corr_0p5": 0.2852,
+     "centroid_km": 211.03,
+     "coverage_ge5": 0.063,
+     "reliable": false
+    }
+   }
+  }
+ ],
+ "summary": {
+  "30": {
+   "cases": 12,
+   "reliable": 3,
+   "fraction": 0.25,
+   "coverage_0p5": 0.5477,
+   "coverage_5": 0.3757,
+   "iou_0p5": 0.422,
+   "iou_5": 0.2212,
+   "bias_0p5": 1.0577,
+   "bias_5": 1.5362,
+   "corr_0p5": 0.5414
+  },
+  "60": {
+   "cases": 12,
+   "reliable": 0,
+   "fraction": 0.0,
+   "coverage_0p5": 0.4243,
+   "coverage_5": 0.2154,
+   "iou_0p5": 0.3063,
+   "iou_5": 0.1351,
+   "bias_0p5": 1.0646,
+   "bias_5": 1.9414,
+   "corr_0p5": 0.4149
+  },
+  "90": {
+   "cases": 12,
+   "reliable": 0,
+   "fraction": 0.0,
+   "coverage_0p5": 0.3533,
+   "coverage_5": 0.1361,
+   "iou_0p5": 0.2389,
+   "iou_5": 0.0784,
+   "bias_0p5": 1.0746,
+   "bias_5": 0.9874,
+   "corr_0p5": 0.3371
+  }
+ }
+}

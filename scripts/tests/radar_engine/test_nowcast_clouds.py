@@ -32,6 +32,40 @@ def test_palette_is_separate_from_rain():
         assert r < 200
 
 
+def test_rgba_from_temp_has_soft_class_edges():
+    # rampa di 2 °C attorno a -20: nessun gradino 0 -> 90 in un pixel
+    t = np.array([[-18.0, -19.0, -19.5, -20.0, -20.5, -21.0, -22.0]],
+                 dtype=np.float32)
+    v = np.ones_like(t, bool)
+    a = nc.rgba_from_temp(t, v, blend_c=2.0, blur_px=0.0)[:, :, 3].astype(int)
+    assert a[0, 0] == 0
+    assert a[0, 1] == 0
+    assert 0 < a[0, 2] < 90
+    assert 0 < a[0, 3] < 90
+    assert a[0, 4] > a[0, 3]
+    assert abs(int(a[0, 5]) - 90) <= 16   # quantizzato a passi di 16
+    # nessun salto maggiore di 48/255 in un pixel (prima era 0 -> 90)
+    assert np.abs(np.diff(a[0])).max() <= 48
+    # il colore e' una delle 3 classi (per peso); la sfumatura e' l'alpha
+    t2 = np.array([[-32.0]], dtype=np.float32)
+    px = nc.rgba_from_temp(t2, np.ones_like(t2, bool),
+                           blend_c=2.0, blur_px=0.0)[0, 0]
+    assert tuple(int(x) for x in px[:3]) in (
+        nc.CLASSES[0]["rgb"], nc.CLASSES[1]["rgb"], nc.CLASSES[2]["rgb"])
+    assert 0 < int(px[3]) < 150
+
+
+def test_rgba_from_temp_blur_smooths_the_step():
+    t = np.full((1, 40), -50.0, np.float32)
+    t[:, :20] = -10.0
+    v = np.ones_like(t, bool)
+    a0 = nc.rgba_from_temp(t, v, blend_c=2.0, blur_px=0.0)[:, :, 3].astype(int)
+    a1 = nc.rgba_from_temp(t, v, blend_c=2.0, blur_px=0.7)[:, :, 3].astype(int)
+    assert np.abs(np.diff(a1[0])).max() < np.abs(np.diff(a0[0])).max()
+    assert int(a1[0, 19]) > 0   # il blur porta un po' di nube oltre il bordo
+    assert int(a1[0, 15]) == 0   # ma non allarga l'area di 5 px
+
+
 def test_write_webp_uses_class_alpha(tmp_path):
     c = np.array([[0, 1, 2, 3]], dtype=np.uint8)
     p = str(tmp_path / "clouds.webp")

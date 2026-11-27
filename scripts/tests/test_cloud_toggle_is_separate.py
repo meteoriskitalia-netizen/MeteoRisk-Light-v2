@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Il toggle delle nuvole e' SEPARATO dalla pioggia (2026-11-27).
-
-Non e' un test di rendering: controlla il contratto nel client.
+"""I controlli del nowcast sono nel pannello del prodotto e la vista e'
+esclusiva (2026-11-27). Non e' un test di rendering: controlla il contratto.
 """
 import io
 import os
@@ -24,20 +23,37 @@ def _html_path():
     return os.path.join(ROOT, name)
 
 
-def test_cloud_toggle_does_not_turn_on_rain():
-    html = io.open(_html_path(), encoding="utf-8",
-                   newline="").read()
-    assert 'id="live-toggle-nowcastclouds"' in html
-    btn = html[html.index('id="live-toggle-nowcastclouds"'):]
-    btn = btn[:btn.index(">") + 1]
-    assert "title=" in btn and "non" in btn.lower()
-    start = html.index("function nowcastCloudsToggle()")
-    body = html[start:html.index("function nowcastCloudsRefresh()", start)]
-    assert "nowcastProductOn" not in body
-    assert "nowcastShow" not in body
-    assert "nowcastCloudsAdd" in body
-    # pane: nuvole 406, pioggia 407 (nuvole SOTTO)
-    assert "nowcastCloudsPane').style.zIndex = 406" in html
+def test_nowcast_controls_are_inside_the_product_panel():
+    html = io.open(_html_path(), encoding="utf-8", newline="").read()
+    panel = html[html.index('id="nowcast-panel"'):]
+    panel = panel[:panel.index('<!-- Selettore ORARIO')]
+    assert 'id="nc-view-intensity"' in panel
+    assert 'id="nc-view-prob"' in panel
+    assert 'id="ncprob-controls"' in panel
+    assert 'id="nc-clouds-toggle"' in panel
+    # il pannello LIVE non contiene piu' i controlli del nowcast
+    live = html[html.index('class="map-corner-switches"'):]
+    live = live[:live.index('id="nowcast-panel"')]
+    assert "live-toggle-nowcastprob" not in live
+    assert "live-toggle-nowcastclouds" not in live
+    assert "nc-view-intensity" not in live
+
+
+def test_view_is_mutually_exclusive():
+    html = io.open(_html_path(), encoding="utf-8", newline="").read()
+    start = html.index("function nowcastSetView(view)")
+    body = html[start:html.index("function ncProbPane()", start)]
+    # vista prob: intensita' a opacita' 0 e probabilita' disegnata
+    assert "setOpacity(0)" in body
+    assert "ncProbOn = true" in body
+    # vista intensita': probabilita' rimossa
+    assert "ncProbClearLayer" in body
+    assert "setOpacity(0.75)" in body
+    # il layer probabilita' ha un pane sopra la pioggia
     assert "nowcastPane').style.zIndex = 407" in html
-    assert ("non è pioggia prevista" in html or
-            "non e' pioggia prevista" in html)
+    assert "ncProbPane').style.zIndex = 408" in html
+    # nuvole sotto la pioggia, toggle separato
+    assert "nowcastCloudsPane').style.zIndex = 406" in html
+    assert "nowcastProductOn" not in html[
+        html.index("function nowcastCloudsToggle()"):
+        html.index("function nowcastCloudsRefresh()")]

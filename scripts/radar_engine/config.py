@@ -994,6 +994,12 @@ CONFIG = {
         "enabled": True,
         "thresholds_c": [-20.0, -32.0, -44.0],
         "opacity": 0.70,
+        # RESA MORBIDA (2026-11-27): temperatura continua + bilineare,
+        # alpha smoothstep 2 °C + blur 0,7 px, downsample 2 (layer ~3 km,
+        # il client lo stira). Tutto SOLO sulle nuvole.
+        "blend_c": 2.0,
+        "blur_px": 0.7,
+        "downsample": 2,
     },
     # EROSIONE DEL NUCLEO (V4, 2026-11-27): A/B su 8 ancore pesanti.
     # Contrazione del solo >5 mm/h dal RETRO (lato opposto al moto), con

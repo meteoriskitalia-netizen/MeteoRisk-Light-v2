@@ -360,14 +360,14 @@ def test_output_json_and_webp(tmp_path):
                      clock=clock_mod.Clock.at_ms(T0 + 2 * STEP_MS))
     assert payload["available"] is True
     data = json.loads((out / "nowcast.json").read_text(encoding="utf-8"))
-    # 12 frame a passo crescente fino a +90 (troncamento dichiarato):
-    # 5..45 ogni 5, 60/75/90 ogni 15. I lead oltre 90 non esistono piu'.
-    expected = list(range(5, 46, 5)) + [60, 75, 90]
+    # 18 frame a passo UNIFORME di 5 min fino a +90 (troncamento dichiarato):
+    # 5,10,...,90. Prima 60/75/90 avevano passo 15 e si vedeva il salto.
+    expected = list(range(5, 91, 5))
     assert [l["lead_min"] for l in data["leads"]] == expected
-    assert data["leads_total"] == 12
+    assert data["leads_total"] == 18
     assert data["official_leads"] == [15, 30, 60]
     assert [l["lead_min"] for l in data["leads"] if l["official"]] == [15, 30, 60]
-    assert [l["step_min"] for l in data["leads"]] == ([5] * 9 + [15] * 3)
+    assert [l["step_min"] for l in data["leads"]] == [5] * 18
     assert data["truncation"]["max_lead_min"] == 90
     assert data["truncation"]["removed_leads"] == [120, 150, 180]
     assert data["truncation"]["aspect_ratio_limit"] == 1.5
@@ -385,8 +385,8 @@ def test_output_json_and_webp(tmp_path):
         assert data["leads"][[l["lead_min"] for l in data["leads"]].index(lead)][
             "image"] == nf.IMAGE_NAMES[lead]
         assert p.read_bytes()[:4] == b"RIFF"      # WebP container
-    # 12 file distinti (010, 020, ... non sovrascrivono 005)
-    assert len(list(out.glob("nowcast_lead*.webp"))) == 12
+    # 18 file distinti (010, 020, ... non sovrascrivono 005)
+    assert len(list(out.glob("nowcast_lead*.webp"))) == 18
     assert nf.IMAGE_NAMES[5] == "nowcast_lead005.webp"
     assert nf.IMAGE_NAMES[60] == "nowcast_lead060.webp"
     assert nf.IMAGE_NAMES[90] == "nowcast_lead090.webp"
@@ -464,12 +464,12 @@ def test_composite_shift_is_one_interpolation(tmp_path):
     assert not np.allclose(seq, native[30], rtol=1e-3, atol=1e-3)
 
 
-def test_step_min_for_growing_leads():
-    """Il passo pubblicato e' la distanza dal frame precedente."""
+def test_step_min_for_uniform_leads():
+    """Il passo pubblicato e' uniforme a 5 min (2026-11-27)."""
     assert nf.step_min_for(5) == 5
     assert nf.step_min_for(45) == 5
-    assert nf.step_min_for(60) == 15
-    assert nf.step_min_for(90) == 15
+    assert nf.step_min_for(60) == 5
+    assert nf.step_min_for(90) == 5
     # i lead oltre +90 non sono pubblicati (troncamento dichiarato)
     assert nf.step_min_for(120) == 5          # fallback: STEP_MIN, mai 30
     # override dei backtest: il passo si ricava dalla lista, non da una tabella
@@ -544,7 +544,7 @@ def test_one_missing_frame_does_not_break_the_rest(tmp_path, monkeypatch):
     assert by_lead[20]["image"] is None
     assert "RuntimeError" in by_lead[20]["image_error"]
     assert by_lead[15]["image"] == nf.IMAGE_NAMES[15]
-    assert len(list(out.glob("nowcast_lead*.webp"))) == 11
+    assert len(list(out.glob("nowcast_lead*.webp"))) == 17
     assert not (out / nf.IMAGE_NAMES[20]).exists()
     data = json.loads((out / "nowcast.json").read_text(encoding="utf-8"))
     assert data["output_bytes"]["image_errors"]

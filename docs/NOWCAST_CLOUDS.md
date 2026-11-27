@@ -123,10 +123,42 @@ previsione.
   **37,9 s** (fetch SRI 3,3 s), contro i 43,3 s della stessa prova con
   orologio ancorato allo slot: il layer nuvole non e' il costo dominante.
 
+## Resa morbida (2026-11-27, dopo la segnalazione dei bordi pixelati)
+
+Causa: le classi erano **discrete** (uint8) e il resampling era **nearest**
+da 1 km a 1,5 km; l'alpha a gradini aggiungeva un bordo netto.
+
+Fix applicato SOLO alle nuvole:
+
+- il resampling e' **bilineare sulla temperatura** (°C), non sulle classi:
+  la soglia viene applicata dopo, a 1,5 km;
+- alpha con **smoothstep su 2 °C** attorno a -20/-32/-44 °C;
+- blur **0,7 px** sul solo alpha;
+- colore a **3 classi** (palette separata) e alpha quantizzato a passi di
+  16: con il colore interpolato su 256 livelli il WebP passava da 6 kB a
+  63-78 kB. La sfumatura visibile e' nell'alpha;
+- **downsample 2** (layer ~3 km, il client lo stira): il contesto non ha
+  bisogno di 1,5 km e il peso resta piccolo.
+
+Misure sullo slot 2026-11-27T17:35Z (immagini in
+`docs/evidence/nowcast_clouds_smooth_20261127/`):
+
+| | prima (classi+nearest) | dopo (temperatura+bilineare) |
+| :--- | ---: | ---: |
+| byte immagine nuvole | 6.114 | **18.002** |
+| gradiente alpha massimo | 150 | **112** (-25%) |
+| salti alpha > 30 | 14.324 | **8.417** (-41%) |
+| composito nuvole+pioggia +30 | 105.099 | 144.087 |
+
+L'immagine affiancata e' `clouds_old_vs_new.png` (118.102 B): i bordi a
+scaletta spariscono; la pioggia resta sopra e dominante. Il peso cresce
+(2,9x) ma resta nell'ordine delle decine di kB, non dei 63-78 kB del primo
+tentativo lossless con colore interpolato.
+
 ## Test
 
-- `test_nowcast_clouds.py`: **6 passed** (soglie, palette separata dalla
-  pioggia, alpha delle classi, ruolo `context`, latenza, null senza IR,
+- `test_nowcast_clouds.py`: **8 passed** (soglie, palette separata dalla
+  pioggia, alpha sfumato, blur, ruolo `context`, latenza, null senza IR,
   null su slot mismatch).
 - `test_nowcast_field.py`: **48 passed**, inclusi payload+WebP delle nuvole
   e il caso **senza pioggia** con nuvole disponibili.
