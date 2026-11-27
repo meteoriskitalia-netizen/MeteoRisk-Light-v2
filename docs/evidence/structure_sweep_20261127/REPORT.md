@@ -124,6 +124,17 @@ La finestra di produzione resta 6 frame.
 * **MCS** resta non producibile con la finestra a 6 frame; **BOW_ECHO** resta non producibile senza `bow_score`; le due supercell richiedono VRADH. Non sono state inventate.
 * 1 contorno su 35 resta `cell_mask_not_resolved` (difetto pre-esistente, indipendente dalla geometria).
 
+## Push e verifica live (2026-11-27)
+
+Commit `3ef7975` su `main`; sito **1.3.0.87**, 3.475.966 byte, sha256
+`7E1F137B2049BC550692B6A911D524A44DDCC54A8A55FF33891A553B646196D5`
+(funzioni `scMorphologyClass` e `scBuildOutlinePolygons` presenti; delta di 6
+byte dal blob pushato `D98DA7AB...` per un commit concorrente sul nowcast).
+Dati radar live 2026-11-27T19:05Z: **4 strutture, 4/4 MultiPolygon, 4/4
+core_dbz 35, 4/4 isteresi 3, 4/4 last_observed**; `latest.json` ha
+`advanced_morphology_hysteresis_frames=3` e le tre classi raggiungibili.
+Dettaglio in `LIVE_VERIFICATION.md`.
+
 ## Riproduzione
 
 ```powershell

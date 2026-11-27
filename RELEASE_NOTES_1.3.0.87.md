@@ -71,6 +71,16 @@ Il contorno si risolve su `last_observed`, non sull'ultimo punto coasted
 * Il POD finale e' 3/8: la geometria non migliora il POD, migliora area e
   stabilita'. Non e' una validazione statistica (15 eventi totali).
 
+## Verifica live (2026-11-27)
+
+- Commit `3ef7975` su `main`; sito **1.3.0.87**, 3.475.966 byte, sha256
+  `7E1F137B...196D5`; `scMorphologyClass` e `scBuildOutlinePolygons` presenti.
+- Dati radar live (2026-11-27T19:05Z): **4 strutture, 4/4 MultiPolygon, 4/4
+  core_dbz 35, 4/4 isteresi 3, 4/4 last_observed**; `latest.json` con
+  `advanced_morphology_hysteresis_frames=3` e classi raggiungibili.
+- Dettaglio e caveat (delta di 6 byte dal blob pushato, run cancellati dalla
+  concorrenza) in `docs/evidence/structure_sweep_20261127/LIVE_VERIFICATION.md`.
+
 ## Verifica
 
 * `pytest scripts/tests/radar_engine -q --capture=sys`: 1.010 passed,
