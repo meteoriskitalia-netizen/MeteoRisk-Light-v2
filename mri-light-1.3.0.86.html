@@ -2238,15 +2238,15 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     <div id="ncprob-controls" class="nc-prob" hidden>
         <div class="nc-prob-row" id="ncprob-thr-row">
             <span class="nc-prob-label">Soglia</span>
-            <button type="button" class="nc-prob-btn" data-thr="2" onclick="ncProbSetThr(2)">2 mm/h</button>
-            <button type="button" class="nc-prob-btn on" data-thr="5" onclick="ncProbSetThr(5)">5 mm/h</button>
-            <button type="button" class="nc-prob-btn" data-thr="10" onclick="ncProbSetThr(10)">10 mm/h</button>
+            <button type="button" class="nc-prob-btn" data-thr="2" onclick="ncProbSetThr(2)" title="Probabilità di superare 2 mm/h (pioggia debole-moderata) nei prossimi 15-60 minuti, su celle da 20 km: frequenza dell'ensemble, non una previsione puntuale.">2 mm/h</button>
+            <button type="button" class="nc-prob-btn on" data-thr="5" onclick="ncProbSetThr(5)" title="Probabilità di superare 5 mm/h (pioggia moderata) nei prossimi 15-60 minuti, su celle da 20 km: frequenza dell'ensemble, non una previsione puntuale.">5 mm/h</button>
+            <button type="button" class="nc-prob-btn" data-thr="10" onclick="ncProbSetThr(10)" title="Probabilità di superare 10 mm/h (pioggia intensa) nei prossimi 15-60 minuti, su celle da 20 km: frequenza dell'ensemble, non una previsione puntuale.">10 mm/h</button>
         </div>
         <div class="nc-prob-row" id="ncprob-lead-row">
             <span class="nc-prob-label">Entro</span>
-            <button type="button" class="nc-prob-btn on" data-lead="15" onclick="ncProbSetLead(15)">15 min</button>
-            <button type="button" class="nc-prob-btn" data-lead="30" onclick="ncProbSetLead(30)">30 min</button>
-            <button type="button" class="nc-prob-btn" data-lead="60" onclick="ncProbSetLead(60)">60 min</button>
+            <button type="button" class="nc-prob-btn on" data-lead="15" onclick="ncProbSetLead(15)" title="Mostra la probabilità a +15 minuti dallo slot del frame radar (valid_time nel JSON), non dall'ora corrente.">15 min</button>
+            <button type="button" class="nc-prob-btn" data-lead="30" onclick="ncProbSetLead(30)" title="Mostra la probabilità a +30 minuti dallo slot del frame radar (valid_time nel JSON), non dall'ora corrente.">30 min</button>
+            <button type="button" class="nc-prob-btn" data-lead="60" onclick="ncProbSetLead(60)" title="Mostra la probabilità a +60 minuti dallo slot del frame radar (valid_time nel JSON), non dall'ora corrente.">60 min</button>
         </div>
         <div class="nc-prob-bar"></div>
         <div class="nc-prob-ticks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
