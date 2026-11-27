@@ -370,8 +370,8 @@ def test_output_json_and_webp(tmp_path):
     assert len(data["grid"]["bounds"]) == 4
     assert data["grid"]["resolution_m"] == nf.OUTPUT_RES_M
     assert data["motion_algorithm"] == "lucas_kanade_pyramidal"
-    assert data["legend"][0]["mmh"] == 0.5
-    assert [l["mmh"] for l in data["legend"]] == [0.5, 2.0, 5.0, 10.0, 20.0,
+    assert data["legend"][0]["mmh"] == 0.3
+    assert [l["mmh"] for l in data["legend"]] == [0.3, 2.0, 5.0, 10.0, 20.0,
                                                   50.0, 100.0]
     for lead in nf.LEADS_MIN:
         p = out / nf.IMAGE_NAMES[lead]
@@ -614,7 +614,7 @@ def test_verification_series_not_embedded_in_nowcast_json(tmp_path):
 # 6b. palette AD ALTO CONTRASTO (2026-11-26): non piu' il blu notte
 # ---------------------------------------------------------------------------
 # Nodi del renderer, gli stessi pubblicati in `legend` e usati dal client.
-NOWCAST_STOPS = ((0.5, (0, 220, 255)), (2.0, (0, 150, 255)),
+NOWCAST_STOPS = ((0.3, (0, 220, 255)), (2.0, (0, 150, 255)),
                  (5.0, (0, 220, 110)), (10.0, (255, 235, 0)),
                  (20.0, (255, 140, 0)), (50.0, (255, 40, 40)),
                  (100.0, (240, 0, 210)))
@@ -628,17 +628,21 @@ def test_palette_is_high_contrast_scale():
     # code dichiarate: sopra 100 -> ultimo colore
     high = nf._rgba(np.array([[np.float32(200.0)]]))[0, 0]
     assert [int(high[0]), int(high[1]), int(high[2])] == [240, 0, 210]
-    # alpha: sotto 0,5 mm/h TRASPARENTE, a 2 mm/h alpha pieno (235)
-    low = nf._rgba(np.array([[np.float32(0.4)]]))[0, 0]
-    full = nf._rgba(np.array([[np.float32(2.0)]]))[0, 0]
+    # alpha GRADUALE: 0 a 0,15, 40% a 0,5, pieno a 1,5; niente colore a 0.
+    low = nf._rgba(np.array([[np.float32(0.1)]]))[0, 0]
+    mid = nf._rgba(np.array([[np.float32(0.5)]]))[0, 0]
+    full = nf._rgba(np.array([[np.float32(1.5)]]))[0, 0]
+    dry = nf._rgba(np.array([[np.float32(0.0)]]))[0, 0]
     assert int(low[3]) == 0
+    assert int(mid[3]) == round(0.40 * nf.ALPHA_MAX)
     assert int(full[3]) == nf.ALPHA_MAX
+    assert int(dry[3]) == 0
 
 
 def test_palette_between_stops_is_linear_like_the_client():
-    # 1 mm/h fra 0,5 e 2,0: t=1/3 -> (0, 196.67, 255) -> round 197
+    # 1 mm/h fra 0,3 e 2,0: t=0,7/1,7 -> (0, 191.18, 255) -> round 191
     px = nf._rgba(np.array([[np.float32(1.0)]]))[0, 0]
-    assert [int(px[0]), int(px[1]), int(px[2])] == [0, 197, 255]
+    assert [int(px[0]), int(px[1]), int(px[2])] == [0, 191, 255]
 
 
 # ---------------------------------------------------------------------------
@@ -903,3 +907,25 @@ def test_hf_detail_does_not_decay_with_lead(tmp_path):
         vals[lead] = hf
     # il dettaglio non cala col lead: il +90 resta almeno al 90% del +15
     assert vals[90] >= 0.90 * vals[15]
+
+
+# ---------------------------------------------------------------------------
+# 15. resa: alpha graduale, maschera del dato invariata
+# ---------------------------------------------------------------------------
+def test_alpha_renders_weak_rain_without_changing_the_data():
+    f = np.array([[0.0, 0.1, 0.3, 0.5, 1.0, 1.5, 5.0]],
+                 dtype=np.float32)
+    before = f.copy()
+    rgba = nf._rgba(f)
+    # il renderer NON modifica il campo
+    assert np.array_equal(f, before)
+    # 0 e sotto la soglia di disegno: trasparente
+    assert int(rgba[0, 0, 3]) == 0
+    assert int(rgba[0, 1, 3]) == 0
+    # 0,3-0,5: visibile (prima era trasparente sotto 0,5)
+    assert int(rgba[0, 2, 3]) > 0
+    # a 0,5 il 40% dell'alpha, a 1,5 il pieno
+    assert int(rgba[0, 3, 3]) == round(0.40 * nf.ALPHA_MAX)
+    assert int(rgba[0, 5, 3]) == nf.ALPHA_MAX
+    # nessun pixel asciutto colorato
+    assert int(rgba[0, 0, 3]) == 0

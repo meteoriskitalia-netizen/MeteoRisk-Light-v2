@@ -215,7 +215,7 @@ RELIABILITY_FILE = "nowcast_reliability.json"
 # arancio -> rosso -> magenta. La lista va nel JSON (`legend`) e il client
 # la usa per la rampa, cosi' previsto e osservato restano confrontabili.
 PALETTE = (
-    (0.5, (0, 220, 255)),
+    (0.3, (0, 220, 255)),
     (2.0, (0, 150, 255)),
     (5.0, (0, 220, 110)),
     (10.0, (255, 235, 0)),
@@ -223,8 +223,17 @@ PALETTE = (
     (50.0, (255, 40, 40)),
     (100.0, (240, 0, 210)),
 )
-ALPHA_FLOOR_MMH = 0.5           # sotto: trasparente (soglia leggibile)
-ALPHA_FULL_MMH = 2.0            # da qui in su alpha pieno (235/255)
+# ALPHA GRADUALE (2026-11-27): con 0 sotto 0,5 e pieno a 2,0 l'unica parte
+# visibile di un'area tutta debole (0,3-1,5 mm/h) era l'anello di
+# transizione: filamenti/graffi. Misurato sul run 01:45Z: il 34,0% dei
+# pixel bagnati del +30 sta in 0,5-2 mm/h e solo il 44% dei bagnati era
+# visibile. Ora: 0 a 0,15, 40% a 0,5, 100% a 1,5. La MASCHERA del dato non
+# cambia: l'alpha e' zero solo dove il valore e' 0 (o fuori dominio) e non
+# viene colorato nessun pixel asciutto.
+ALPHA_FLOOR_MMH = 0.15          # sotto: trasparente
+ALPHA_MID_MMH = 0.5             # a 0,5 l'alpha e' del 40%
+ALPHA_MID_FRACTION = 0.40
+ALPHA_FULL_MMH = 1.5            # da qui in su alpha pieno (235/255)
 ALPHA_MAX = 235
 
 # Soglie di valutazione (CSI/POD/FAR) e regola di decisione dichiarata.
@@ -750,7 +759,12 @@ def reproject_to_grid(field, valid, rd, grid):
 
 
 def _rgba(field):
-    """mm/h -> RGBA (alpha 0 sotto RAIN_MIN_MMH e fuori dominio)."""
+    """mm/h -> RGBA con alpha GRADUALE (0 a 0,15, 40% a 0,5, 100% a 1,5).
+
+    La maschera del dato non viene toccata: l'alpha e' zero solo dove il
+    valore e' <= 0 (o non finito / fuori dominio). Sopra 0,15 mm/h l'eco
+    debole e' visibile come area tenue invece che come contorno.
+    """
     v = np.asarray(field, dtype=np.float32)
     shape = v.shape
     vv = np.where(np.isfinite(v), v, 0.0)
@@ -763,10 +777,19 @@ def _rgba(field):
         # punto medio esatto fra due stop.
         out[:, :, ch] = np.clip(np.floor(
             np.interp(vv, nodes, cols[:, ch]) + 0.5), 0, 255).astype(np.uint8)
-    ramp = np.clip((vv - ALPHA_FLOOR_MMH) /
-                   (ALPHA_FULL_MMH - ALPHA_FLOOR_MMH), 0.0, 1.0)
+    # rampa a DUE tratti: floor..mid -> 0..mid_fraction; mid..full -> ..1
+    ramp = np.zeros_like(vv)
+    lo = (vv > ALPHA_FLOOR_MMH) & (vv <= ALPHA_MID_MMH)
+    hi = (vv > ALPHA_MID_MMH) & (vv <= ALPHA_FULL_MMH)
+    ramp[lo] = ((vv[lo] - ALPHA_FLOOR_MMH) /
+                (ALPHA_MID_MMH - ALPHA_FLOOR_MMH)) * ALPHA_MID_FRACTION
+    ramp[hi] = ALPHA_MID_FRACTION + ((vv[hi] - ALPHA_MID_MMH) /
+                                     (ALPHA_FULL_MMH - ALPHA_MID_MMH)) * (
+        1.0 - ALPHA_MID_FRACTION)
+    ramp[vv > ALPHA_FULL_MMH] = 1.0
     alpha = (ramp * ALPHA_MAX).astype(np.uint8)
     alpha[~np.isfinite(v)] = 0
+    alpha[vv <= 0.0] = 0
     out[:, :, 3] = alpha
     return out
 
