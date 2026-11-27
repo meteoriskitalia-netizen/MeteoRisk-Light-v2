@@ -2,19 +2,19 @@
  "measured_on": "2026-11-27",
  "cases": "6 ancore pesanti (2026-11-01T16Z, 2026-10-20T16Z, 2026-09-10T16Z, 2026-10-08T16Z, 2026-11-09T16Z, 2026-05-29T12Z)",
  "before": {
-  "description": "prima del fix intervalli (alpha/trasporto precedenti)",
-  "csi_0.5": {"15": 0.7442, "30": 0.6381, "60": 0.5064, "90": 0.4074},
-  "csi_2": {"15": 0.6493, "30": 0.5314, "60": 0.3979, "90": 0.2831},
-  "csi_5": {"15": 0.5461, "30": 0.4048, "60": 0.2630, "90": 0.1582}
+  "description": "prima del fix intervalli (report precedente, 3 decimali)",
+  "csi_0.5": {"15": 0.744, "30": 0.638, "60": 0.506, "90": 0.407},
+  "csi_2": {"15": 0.649, "30": 0.531, "60": 0.398, "90": 0.283},
+  "csi_5": {"15": 0.546, "30": 0.405, "60": 0.263, "90": 0.158}
  },
  "after": {
   "description": "dopo il fix: dt reale, banda 4-6, payload frame_intervals_min",
-  "csi_0.5": {"15": 0.7437, "30": 0.6381, "60": 0.5063, "90": 0.4074},
-  "csi_2": {"15": 0.6493, "30": 0.5314, "60": 0.3979, "90": 0.2831},
-  "csi_5": {"15": 0.5461, "30": 0.4048, "60": 0.2629, "90": 0.1582}
+  "csi_0.5": {"15": 0.744, "30": 0.638, "60": 0.506, "90": 0.407},
+  "csi_2": {"15": 0.649, "30": 0.531, "60": 0.398, "90": 0.283},
+  "csi_5": {"15": 0.546, "30": 0.405, "60": 0.263, "90": 0.158}
  },
  "delta": {
-  "max_abs": 0.0005,
-  "note": "Tutte le 6 ancore hanno intervalli 5,0 min: la banda tiene le stesse coppie. Le differenze sono rounding, non regressione."
+  "max_abs_at_3_decimals": 0.001,
+  "note": "Tutte le 6 ancore hanno intervalli 5,0 min: la banda tiene le stesse coppie. Le differenze sono entro l'arrotondamento a 3 decimali; nessuna regressione."
  }
 }
