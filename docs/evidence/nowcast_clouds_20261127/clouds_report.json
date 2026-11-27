@@ -1,0 +1,103 @@
+{
+ "slot": "2026-11-27T16:25:00Z",
+ "generated_at": "2026-11-27T16:32:58Z",
+ "clouds": {
+  "schema": "meteorisk.nowcast_clouds/1",
+  "available": true,
+  "null_reason": null,
+  "source": "DPC_IR_108",
+  "channel": "IR 10.8 um (MSG SEVIRI)",
+  "resolution_m": 1000,
+  "role": "context",
+  "not_a_rain_forecast": true,
+  "note": "Nuvole IR (contesto): una nube alta e fredda puo' non piovere. Non e' una previsione di pioggia e non modifica l'intensita' prevista.",
+  "thresholds_c": [
+   -20.0,
+   -32.0,
+   -44.0
+  ],
+  "classes": [
+   {
+    "id": 1,
+    "min_c": -32.0,
+    "max_c": -20.0,
+    "label": "nube alta",
+    "rgb": [
+     170,
+     190,
+     210
+    ],
+    "alpha": 90
+   },
+   {
+    "id": 2,
+    "min_c": -44.0,
+    "max_c": -32.0,
+    "label": "nube fredda",
+    "rgb": [
+     135,
+     160,
+     190
+    ],
+    "alpha": 120
+   },
+   {
+    "id": 3,
+    "min_c": -90.0,
+    "max_c": -44.0,
+    "label": "nube molto fredda (convettiva)",
+    "rgb": [
+     100,
+     125,
+     165
+    ],
+    "alpha": 150
+   }
+  ],
+  "image": "nowcast_clouds.webp",
+  "image_crs": "EPSG:3857",
+  "opacity": 0.7,
+  "under_rain": true,
+  "slot": "2026-11-27T16:25:00Z",
+  "latency_s": 460.5,
+  "latency_min": 7.7,
+  "published_pixels": 1504776,
+  "cloud_pixels": 164944,
+  "cold_pixels": 49524,
+  "output_bytes": 6312
+ },
+ "run_s": 37.93,
+ "fetch_s": 3.25,
+ "images": {
+  "30": {
+   "rain": "nowcast_lead030.webp",
+   "rain_bytes": 35848
+  },
+  "60": {
+   "rain": "nowcast_lead060.webp",
+   "rain_bytes": 35116
+  }
+ },
+ "composite": {
+  "30": {
+   "path": "C:\\Users\\aless\\Desktop\\meteorisk\\work_pub\\docs\\evidence\\nowcast_clouds_20261127\\clouds_rain_lead030.png",
+   "size": [
+    1183,
+    1272
+   ],
+   "bytes": 111471
+  },
+  "60": {
+   "path": "C:\\Users\\aless\\Desktop\\meteorisk\\work_pub\\docs\\evidence\\nowcast_clouds_20261127\\clouds_rain_lead060.png",
+   "size": [
+    1183,
+    1272
+   ],
+   "bytes": 110359
+  }
+ },
+ "cloud_image": {
+  "path": "C:\\Users\\aless\\Desktop\\meteorisk\\work_pub\\docs\\evidence\\nowcast_clouds_20261127\\nowcast_clouds.webp",
+  "bytes": 6312
+ }
+}

@@ -92,6 +92,7 @@ def _config(tmp_path):
     # I test del trasporto isolano trend ed erosione (test dedicati sotto).
     cfg["nowcast_trend"] = {"enabled": False}
     cfg["nowcast_decay"] = {"enabled": False}
+    cfg["nowcast_clouds"] = {"enabled": False}
     return cfg
 
 
@@ -657,6 +658,7 @@ def _pipeline_config():
     cfg = load_config()
     cfg["nowcast_trend"] = {"enabled": False}
     cfg["nowcast_decay"] = {"enabled": False}
+    cfg["nowcast_clouds"] = {"enabled": False}
     cfg["opera"] = dict(cfg.get("opera") or {}, enabled=False)
     cfg["doppler"] = dict(cfg.get("doppler") or {}, enabled=False)
     cfg["phase2"] = dict(cfg.get("phase2") or {}, enabled=False)
@@ -1157,3 +1159,71 @@ def test_compute_payload_declares_decay(tmp_path):
     assert dec["threshold_mmh"] == 5.0
     assert dec["applied"] is True
     assert dec["per_lead"]["30"]["pixels_changed"] > 0
+
+
+# ---------------------------------------------------------------------------
+# 19. nuvole IR di contesto: payload e WebP, sotto la pioggia
+# ---------------------------------------------------------------------------
+def test_clouds_payload_and_image(tmp_path):
+    rows, cols = 200, 200
+    domain = _disk_domain(rows, cols, 100, 100, 95)
+    rasters, _ = _moving_frames(tmp_path, n=3, dx=1, rows=rows, cols=cols)
+    # IR_108 sintetico: -5 °C di base, -50 °C in un settore (nube convettiva)
+    temp = np.full((rows, cols), -5.0, np.float32)
+    temp[40:90, 40:90] = -50.0
+    temp[100:140, 120:170] = -28.0
+    ir_rd = _write_frame(tmp_path, "ir108.tif", temp, domain,
+                         T0 + 2 * STEP_MS)
+    bundle = _Bundle(rasters)
+    bundle.dpc_bundle["entries"][int(ir_rd.time_ms)]["ir108"] = {
+        "raster": ir_rd}
+    cfg = _config(tmp_path)
+    cfg["nowcast_clouds"] = {"enabled": True}
+    out = tmp_path / "out"
+    payload = nf.run(bundle, cfg, str(out),
+                     clock=clock_mod.Clock.at_ms(T0 + 2 * STEP_MS))
+    cl = payload["clouds"]
+    assert cl["available"] is True
+    assert cl["role"] == "context"
+    assert cl["not_a_rain_forecast"] is True
+    assert cl["source"] == "DPC_IR_108"
+    assert cl["thresholds_c"] == [-20.0, -32.0, -44.0]
+    assert cl["image"] == "nowcast_clouds.webp"
+    assert cl["slot"] == nf._iso(T0 + 2 * STEP_MS)
+    p = out / "nowcast_clouds.webp"
+    assert p.exists() and p.stat().st_size > 0
+    assert payload["output_bytes"]["clouds"]["nowcast_clouds.webp"] > 0
+    # nessun colore della pioggia nella palette delle nuvole
+    rain = {tuple(rgb) for _mmh, rgb in nf.PALETTE}
+    for cls in cl["classes"]:
+        assert tuple(cls["rgb"]) not in rain
+
+
+def test_clouds_available_even_without_rain(tmp_path):
+    """Il caso d'uso: nube che cresce ma nessuna pioggia nell'ultimo frame."""
+    rows, cols = 160, 160
+    domain = _disk_domain(rows, cols, 80, 80, 75)
+    rasters = []
+    for k in range(3):
+        dry = np.zeros((rows, cols), np.float32)
+        rasters.append(_write_frame(tmp_path, "dry%d.tif" % k, dry, domain,
+                                    T0 + k * STEP_MS))
+    temp = np.full((rows, cols), -5.0, np.float32)
+    temp[50:110, 50:110] = -52.0
+    ir_rd = _write_frame(tmp_path, "ir_dry.tif", temp, domain,
+                         T0 + 2 * STEP_MS)
+    bundle = _Bundle(rasters)
+    bundle.dpc_bundle["entries"][int(ir_rd.time_ms)]["ir108"] = {
+        "raster": ir_rd}
+    cfg = _config(tmp_path)
+    cfg["nowcast_clouds"] = {"enabled": True}
+    out = tmp_path / "out_dry"
+    payload = nf.run(bundle, cfg, str(out),
+                     clock=clock_mod.Clock.at_ms(T0 + 2 * STEP_MS))
+    assert payload["available"] is False
+    assert payload["null_reason"] == "no_rain_in_latest_frame"
+    assert payload["clouds"]["available"] is True
+    assert payload["clouds"]["role"] == "context"
+    assert payload["grid"]["bounds"]
+    assert (out / "nowcast_clouds.webp").exists()
+    assert payload["clouds"]["image"] == "nowcast_clouds.webp"

@@ -95,6 +95,7 @@ import numpy as np
 from . import clock as clock_mod
 from . import fetch as fetch_mod
 from . import models
+from . import nowcast_clouds as clouds_mod
 from . import nowcast_decay as decay_mod
 from . import nowcast_ensemble as ensemble_mod
 from . import nowcast_trend as trend_mod
@@ -777,18 +778,26 @@ def _output_grid(rd, res_m=OUTPUT_RES_M):
     }
 
 
-def reproject_to_grid(field, valid, rd, grid):
-    """Campo mm/h sulla griglia EPSG:3857; fuori dominio -> NaN."""
+def reproject_to_grid(field, valid, rd, grid, resampling="bilinear",
+                      clamp_min=0.0):
+    """Campo sulla griglia EPSG:3857; fuori dominio -> NaN.
+
+    `resampling="nearest"` e `clamp_min=None` servono alle CLASSI di nuvole:
+    non vanno interpolate (mescolerebbero le classi) ne' portate a 0.
+    """
     from rasterio.warp import reproject, Resampling
     src = np.where(valid, field, np.nan).astype(np.float32)
     dst = np.full((grid["height"], grid["width"]), np.nan, dtype=np.float32)
+    rs = (Resampling.nearest if str(resampling).lower() == "nearest"
+          else Resampling.bilinear)
     reproject(source=src, destination=dst,
               src_transform=rd.transform, src_crs=rd.crs,
               dst_transform=grid["dst_transform"], dst_crs=grid["crs"],
               src_nodata=np.nan, dst_nodata=np.nan,
-              resampling=Resampling.bilinear)
+              resampling=rs)
     dst[~np.isfinite(dst)] = np.nan
-    dst[dst < 0.0] = 0.0
+    if clamp_min is not None:
+        dst[dst < float(clamp_min)] = float(clamp_min)
     return dst
 
 
@@ -913,6 +922,9 @@ def _unavailable(reason, clock, extra=None):
         "verification": {"status": "not_evaluated",
                          "beats_persistence": None,
                          "null_reason": "nowcast_unavailable"},
+        # Anche senza nowcast il blocco esiste: il client sa che le nuvole
+        # non sono disponibili e perche' (nessun campo inventato).
+        "clouds": clouds_mod.disabled_info("nowcast_unavailable"),
         "limits": LIMITS,
     }
     if extra:
@@ -1312,10 +1324,29 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
     latest, domain, latest_ts = frames[-1]
     if float((latest > RAIN_MIN_MMH).sum()) == 0:
         # Trasporto puro: se l'ultimo campo e' asciutto non c'e' nulla da
-        # spostare (il nowcast non genera pioggia).
-        return _unavailable("no_rain_in_latest_frame", clock,
-                            {"frames_origin": origin,
-                             "frames_used": len(frames)}), None
+        # spostare (il nowcast non genera pioggia). Le NUVOLE restano un
+        # CONTESTO utile proprio qui: si costruiscono lo stesso, con il
+        # raster SRI della griglia (non serve il moto).
+        _rd0 = _bundle_raster(bundle, latest_ts)
+        if _rd0 is None:
+            _rd0 = _fallback_raster(config, clock, latest_ts, warnings)
+        _cloud_cfg = dict(config.get("nowcast_clouds") or {})
+        if _rd0 is not None and bool(_cloud_cfg.get("enabled", True)):
+            _cloud0 = clouds_mod.build(bundle, config, clock, latest_ts,
+                                       _rd0, warnings)
+        else:
+            _cloud0 = {"info": clouds_mod.disabled_info(
+                "sri_grid_unavailable" if _rd0 is None else
+                "disabled_by_config")}
+        _extra = {"frames_origin": origin, "frames_used": len(frames),
+                  "clouds": clouds_mod.payload(_cloud0)}
+        _native0 = None
+        if (_cloud0.get("info") or {}).get("available"):
+            _grid0 = _output_grid(_rd0)
+            _extra["grid"] = {k: v for k, v in _grid0.items()
+                              if k != "dst_transform"}
+            _native0 = {"_clouds": _cloud0, "_rd": _rd0, "_grid": _grid0}
+        return _unavailable("no_rain_in_latest_frame", clock, _extra), _native0
 
     # BANDA DEGLI INTERVALLI (2026-11-27): il moto usa il dt REALE; le coppie
     # fuori banda sono scartate. Configurabile se un fornitore cambia cadenza.
@@ -1426,6 +1457,15 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
         hf_enabled = False
 
     native = {}
+    # NUVOLE IR (contesto, non pioggia): un solo frame, non per lead.
+    cloud_cfg = dict(config.get("nowcast_clouds") or {})
+    if bool(cloud_cfg.get("enabled", True)):
+        cloud_state = clouds_mod.build(bundle, config, clock, latest_ts, rd,
+                                       warnings)
+    else:
+        cloud_state = {"info": clouds_mod.disabled_info("disabled_by_config")}
+    if (cloud_state.get("info") or {}).get("available"):
+        native["_clouds"] = cloud_state
     stepped = latest.copy()
     done = 0
     mass_capped = 0
@@ -1728,6 +1768,8 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
         # EROSIONE DEL NUCLEO (V4): misura V1-V5, variante scelta.
         "decay": decay_mod.summarize(decay_lead_info, decay_enabled,
                                      decay_cfg),
+        # NUVOLE IR: CONTESTO, non previsione di pioggia.
+        "clouds": clouds_mod.payload(cloud_state),
         "orographic_enhancement": oro_block,
     }
 
@@ -1978,6 +2020,17 @@ def _reliability_entry(lead, doc):
     return out or None
 
 
+def _bundle_raster(bundle, slot_ms, name="sri"):
+    """Raster del bundle per lo slot (None se assente)."""
+    entries = (getattr(bundle, "dpc_bundle", None) or {}).get("entries") or {}
+    for _slot, by in entries.items():
+        e = (by or {}).get(name)
+        rd = (e or {}).get("raster")
+        if rd is not None and int(rd.time_ms) == int(slot_ms):
+            return rd
+    return None
+
+
 def _fallback_raster(config, clock, ts, warnings):
     """Raster di georeferenziazione quando il bundle non c'e' (raro)."""
     try:
@@ -2002,6 +2055,32 @@ def write_products(out_dir, payload, native):
     saltare quel frame senza rompersi (lacuna dichiarata, non silenziosa)."""
     os.makedirs(out_dir, exist_ok=True)
     measured = {"images": {}, "image_errors": {}, "json_bytes": 0}
+    # NUVOLE IR (contesto): si scrivono ANCHE se il nowcast pioggia non e'
+    # disponibile (caso "nessuna pioggia": la nube c'e' lo stesso). UNA
+    # immagine per slot, classi nearest.
+    _nat = native or {}
+    _clouds = _nat.get("_clouds")
+    _cgrid = _nat.get("_grid")
+    if _clouds and _cgrid and (payload.get("clouds") or {}).get("available"):
+        try:
+            _pub = reproject_to_grid(
+                _clouds["classes"], _clouds["valid"], _clouds["rd"],
+                _cgrid, resampling="nearest", clamp_min=None)
+            _pub = np.where(np.isfinite(_pub), _pub, 0).astype(np.uint8)
+            _path = os.path.join(out_dir, clouds_mod.IMAGE_NAME)
+            _size = clouds_mod.write_webp(_path, _pub)
+            payload["clouds"]["image"] = clouds_mod.IMAGE_NAME
+            payload["clouds"]["output_bytes"] = _size
+            payload["clouds"]["published_pixels"] = int(
+                np.isfinite(_pub).sum())
+            measured["clouds"] = {clouds_mod.IMAGE_NAME: _size}
+        except Exception as _exc:
+            _reason = "{}:{}".format(_exc.__class__.__name__, _exc)
+            payload["clouds"]["available"] = False
+            payload["clouds"]["image"] = None
+            payload["clouds"]["null_reason"] = (
+                "image_write_failed:{}".format(_exc.__class__.__name__))
+            measured["clouds_error"] = _reason
     if payload.get("available") and native:
         rd = native["_rd"]
         grid = native["_grid"]
@@ -2075,6 +2154,10 @@ def run(bundle, config, out_dir, clock=None, warnings=None):
                        leads=[])
         measured = {"images": {}, "image_errors": {}}
     payload["output_bytes"] = {"images": measured["images"]}
+    if measured.get("clouds"):
+        payload["output_bytes"]["clouds"] = measured["clouds"]
+    if measured.get("clouds_error"):
+        payload["output_bytes"]["clouds_error"] = measured["clouds_error"]
     if measured.get("image_errors"):
         payload["output_bytes"]["image_errors"] = measured["image_errors"]
         warnings.append(

@@ -84,6 +84,7 @@ def _config(tmp_path):
     cfg["output"] = dict(cfg["output"], out_dir=str(tmp_path / "out"))
     cfg["nowcast_trend"] = {"enabled": False}
     cfg["nowcast_decay"] = {"enabled": False}
+    cfg["nowcast_clouds"] = {"enabled": False}
     return cfg
 
 

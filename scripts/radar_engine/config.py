@@ -986,6 +986,15 @@ CONFIG = {
             "sample": "8 ancore pesanti; regioni lagrangiane con storia >=3",
         },
     },
+    # NUVOLE IR (CONTESTO, 2026-11-27): DPC IR_108, °C, 1 km, stessa griglia
+    # SRI. Soglie: -20 °C nube alta, -32 nube fredda, -44 nube molto fredda.
+    # Ruolo `context`: non e' una previsione di pioggia. Latenza misurata:
+    # slot 15:45Z disponibile alle 15:53Z = 8,1 min.
+    "nowcast_clouds": {
+        "enabled": True,
+        "thresholds_c": [-20.0, -32.0, -44.0],
+        "opacity": 0.70,
+    },
     # EROSIONE DEL NUCLEO (V4, 2026-11-27): A/B su 8 ancore pesanti.
     # Contrazione del solo >5 mm/h dal RETRO (lato opposto al moto), con
     # spessore round(lead/30) px. Area 5/10/20 a +30 1,012/1,075/1,003 e a

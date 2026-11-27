@@ -2234,6 +2234,11 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
              (blocco ensemble) e le immagini nowcast_prob*.webp. Affidabilita' verificata
              su CELLE DI 20 km (non a 1 km): la dichiarazione e' nella legenda. -->
         <button type="button" id="live-toggle-nowcastprob" class="sc-toggle" onclick="toggleNowcastProb()" title="Probabilita' nowcast dell'ensemble (20 membri): colore = probabilita' di superare la soglia scelta; affidabilita' verificata su celle di 20 km">Probabilità nowcast</button>
+        <!-- 1.3.0.86-r5 - NUVOLE IR DI CONTESTO: DPC IR_108 (10.8 um, 1 km, °C)
+             a soglie -20/-32/-44 °C, scala grigio-blu SEPARATA dalla pioggia.
+             Toggle INDIPENDENTE: non accende la pioggia prevista. -->
+        <button type="button" id="live-toggle-nowcastclouds" class="sc-toggle" onclick="nowcastCloudsToggle()" title="Nuvole IR di contesto (DPC IR_108, 10.8 um, 1 km): grigio-blu = nube alta sotto -20 °C, piu' scuro sotto -32 e -44 °C. NON e' una previsione di pioggia: una nube alta e fredda puo' non piovere. Toggle indipendente dalla pioggia prevista.">Nuvole IR (contesto) · OFF</button>
+        <span id="nowcast-clouds-note" style="display:none; font-size:10px; color:#94a3b8;">Nuvole IR (contesto) · grigio-blu · non è pioggia prevista</span>
     </div>
     <div id="ncprob-controls" class="nc-prob" hidden>
         <div class="nc-prob-row" id="ncprob-thr-row">
@@ -2783,6 +2788,12 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                 <div class="legend-row" id="nowcast-legend-note" style="font-size:10px; color:#cbd5e1;">il nowcast si ferma a +90 minuti: oltre, il rapporto d'aspetto delle strutture supera 1,5x l'osservato (misurato 1,65x a +120)</div>
                 <div class="legend-row" style="font-size:10px; color:#94a3b8;">sotto 0,15 mm/h trasparente; 40% di opacità a 0,5 mm/h, piena da 1,5 mm/h</div>
                 <div class="legend-row" id="nowcast-lead-note" style="font-size:10px; color:#94a3b8;">lead contati dallo slot del frame (valid_time), non dall'ora corrente; i buchi fra frame sono dichiarati nel payload (gap_minutes)</div>
+                <div class="legend-row" id="nowcast-clouds-legend" style="display:none; font-size:10px; color:#cbd5e1;">
+                    <span style="display:inline-block;width:10px;height:10px;background:rgb(170,190,210);margin-right:3px;vertical-align:middle"></span>nube alta &lt;-20 °C
+                    <span style="display:inline-block;width:10px;height:10px;background:rgb(135,160,190);margin:0 3px 0 8px;vertical-align:middle"></span>fredda &lt;-32 °C
+                    <span style="display:inline-block;width:10px;height:10px;background:rgb(100,125,165);margin:0 3px 0 8px;vertical-align:middle"></span>molto fredda &lt;-44 °C
+                    · <b>contesto IR, non previsione di pioggia</b>
+                </div>
             </div>
         </div>
         <!-- Selettore ORARIO a slider sotto la mappa (sostituisce la tendina) -->
@@ -3328,6 +3339,10 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     const APP_RELEASE_DATE = '2026-11-27';
     const APP_CHANGELOG = [
 { version: '1.3.0.86', date: '2026-11-27', changes: [
+  "NUVOLE IR DI CONTESTO (nuovo layer): DPC IR_108, canale IR 10.8 um, 1 km, °C, stessa griglia del nowcast. Classi a -20 / -32 / -44 °C, scala grigio-blu SEPARATA dalla pioggia, opacita' 0,70 e pane z 406 SOTTO la pioggia (407). Toggle INDIPENDENTE: accendere le nuvole non accende la pioggia prevista. Legenda e testo dicono «le nuvole non sono una previsione di pioggia».",
+  "PAYLOAD `clouds`: fonte, canale, risoluzione, slot, soglie, classi, `role: context`, `not_a_rain_forecast: true`, latenza MISURATA (7,7 min il 2026-11-27T16:25Z), immagine `nowcast_clouds.webp`. Se IR_108 manca o lo slot non coincide: `available:false` con motivo, il nowcast pioggia resta.",
+  "NUVOLE ANCHE SENZA PIOGGIA: se l'ultimo SRI e' asciutto il nowcast pioggia resta `available:false` ma il layer nuvole viene costruito e pubblicato lo stesso (caso della nube che cresce e non piove ancora).",
+  "FONTE SCELTA: DPC IR_108 (campo numerico °C) e non EUMETSAT mtg_fd:ir105_hrfi, che e' un WebP colorato e non consente le soglie in °C; il manifest EUMETSAT del 2026-11-27T15:25Z era generato alle 15:45Z (28 min di ritardo, misurato).",
   "PIOGGIA 6 H/24 H: ETICHETTA E FINESTRA SCORREVOLE. La 24 h non è più «cumulata da mezzanotte»: è «cumulata 24 ore», una finestra scorrevole che termina adesso e attraversa la mezzanotte. Il title dice l'intervallo effettivo (window_start→window_end dal payload) e la copertura media letta da coverage_frac.",
   "GATE ESPLICITO: una cumulata o un massimo con almeno un valore si mostra SEMPRE, anche con copertura < 20%: il valore è un limite inferiore dichiarato, non un valore da nascondere. La nota accanto a Finestra e la riga di stato scrivono «parziale, copertura N%». Le MEDIE (temperatura, umidità, rugiada, vento medio) restano con il gate di completezza: una media sui buchi non è una media.",
   "COERENZA 1 H/3 H DICHIARATA NEL TOOLTIP: 6 h/24 h sommano bucket orari con gate di copertura ≥50%; 1 h/3 h usano il prodotto grezzo ancorato all'ultimo dato (data_end). Sul blob del 2026-11-27: 66 stazioni su 3.945 con entrambi i valori hanno 24 h < 3 h (differenze ≤0,2 mm). È una differenza di prodotto/gate, non un errore della finestra, e non viene nascosta.",
@@ -27668,6 +27683,9 @@ function toggleForecastMaps() {
         preloaded: [], preloadFor: null,
         slot: null, blobs: {}, refreshTimer: null, refreshing: false, lastFetchMs: 0
     };
+    // NUVOLE IR (contesto): stato SEPARATO dal nowcast pioggia. Il toggle
+    // non chiama nowcastShow/nowcastProductOn: nessuna pioggia accesa.
+    var nowcastCloudState = { on: false, layer: null, blob: null };
     // Fetch del JSON: cache:'reload' (niente query-string sul CDN). Aggiorna lo
     // stato e lo slot solo se la risposta e' valida.
     function nowcastFetchData(cb) {
@@ -27776,6 +27794,7 @@ function toggleForecastMaps() {
         nowcastState.slot = d.source_slot || null;
         nowcastUpdateSlot();
         nowcastSyncProductOption();
+        nowcastCloudsRefresh();
         if (!changed) return false;
         var keepLead = null;
         if (syncTimelineSource === 'nowcast' && syncTimeline.length && syncTimeline[syncIndex]) {
@@ -27925,6 +27944,90 @@ function toggleForecastMaps() {
             map.getPane('nowcastPane').style.pointerEvents = 'none';
         }
         return 'nowcastPane';
+    }
+    // Pane delle nuvole: z 406, SOTTO il nowcast pioggia (407).
+    function nowcastCloudsPane() {
+        if (!map) return 'overlayPane';
+        if (!map.getPane('nowcastCloudsPane')) {
+            map.createPane('nowcastCloudsPane');
+            map.getPane('nowcastCloudsPane').style.zIndex = 406;
+            map.getPane('nowcastCloudsPane').style.pointerEvents = 'none';
+        }
+        return 'nowcastCloudsPane';
+    }
+    function nowcastCloudsButton() {
+        var b = document.getElementById('live-toggle-nowcastclouds');
+        if (b) b.textContent = 'Nuvole IR (contesto) · ' + (nowcastCloudState.on ? 'ON' : 'OFF');
+        var note = document.getElementById('nowcast-clouds-note');
+        if (note) note.style.display = nowcastCloudState.on ? 'inline' : 'none';
+        var leg = document.getElementById('nowcast-clouds-legend');
+        if (leg) leg.style.display = nowcastCloudState.on ? 'block' : 'none';
+    }
+    function nowcastCloudsOff() {
+        if (nowcastCloudState.layer) {
+            try { map.removeLayer(nowcastCloudState.layer); } catch (e) { }
+            nowcastCloudState.layer = null;
+        }
+        if (nowcastCloudState.blob) {
+            try { URL.revokeObjectURL(nowcastCloudState.blob); } catch (e) { }
+            nowcastCloudState.blob = null;
+        }
+        nowcastCloudState.on = false;
+        nowcastCloudsButton();
+    }
+    function nowcastCloudsAdd(d) {
+        if (!d || !d.grid || !d.grid.bounds) return false;
+        var cl = d.clouds || null;
+        if (!cl || cl.available !== true || !cl.image) {
+            setProductStatus('Nuvole IR non disponibili: ' + ((cl && cl.null_reason) || 'dato assente'));
+            return false;
+        }
+        var url = 'data/radar/' + cl.image;
+        try {
+            if (nowcastCloudState.layer) {
+                nowcastCloudState.layer.setUrl(url);
+            } else {
+                nowcastCloudState.layer = L.imageOverlay(url, nowcastBounds(d.grid.bounds), {
+                    opacity: (cl.opacity || 0.70),
+                    pane: nowcastCloudsPane(),
+                    className: 'nowcast-clouds',
+                    interactive: false
+                }).addTo(map);
+            }
+            nowcastCloudState.on = true;
+            nowcastCloudsButton();
+            return true;
+        } catch (e) {
+            nowcastCloudsOff();
+            return false;
+        }
+    }
+    function nowcastCloudsToggle() {
+        if (nowcastCloudState.on) { nowcastCloudsOff(); return; }
+        nowcastLoad(function (d) {
+            if (!d) { setProductStatus('Nuvole IR: nowcast.json non disponibile.'); return; }
+            nowcastCloudsAdd(d);
+        });
+    }
+    function nowcastCloudsRefresh() {
+        if (!nowcastCloudState.on) return;
+        var d = nowcastState.data;
+        if (!d || !d.clouds || d.clouds.available !== true || !d.clouds.image) {
+            nowcastCloudsOff();
+            return;
+        }
+        var url = 'data/radar/' + d.clouds.image;
+        // cache:'reload' + blob: il CDN non serve la versione vecchia e non
+        // si usa una query-string (il CDN risponde 404).
+        fetch(url, { cache: 'reload' })
+            .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+            .then(function (b) {
+                var u = URL.createObjectURL(b);
+                if (nowcastCloudState.blob) { try { URL.revokeObjectURL(nowcastCloudState.blob); } catch (e) { } }
+                nowcastCloudState.blob = u;
+                try { nowcastCloudState.layer.setUrl(u); } catch (e) { }
+            })
+            .catch(function () { try { nowcastCloudState.layer.setUrl(url); } catch (e) { } });
     }
     function nowcastPreload() {
         var leads = nowcastLeads(), sig = [];
