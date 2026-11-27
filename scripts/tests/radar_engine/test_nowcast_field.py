@@ -1237,3 +1237,47 @@ def test_clouds_available_even_without_rain(tmp_path):
     assert payload["grid"]["bounds"]
     assert (out / "nowcast_clouds.webp").exists()
     assert payload["clouds"]["image"] == "nowcast_clouds.webp"
+
+
+def test_spectral_evolve_is_lognormal_and_area_mean_is_zero():
+    rows, cols = 120, 140
+    dom = _disk_domain(rows, cols, 60, 70, 55)
+    field = _blob(rows, cols, 60, 70, sigma=8.0, amp=20.0)
+    cfg = {"sigma_model": 0.0, "epsilon_corr_mult": 3.0,
+           "sigma_max": 1.5, "m_intensity": 0.0}
+    out, info = nf.spectral_evolve(
+        field, dom, 60, 2.0, cfg, np.random.default_rng(7))
+    assert out.shape == field.shape
+    assert float(out.min()) >= 0.0 and bool(np.isfinite(out).all())
+    assert info["applied"] is True
+    assert info["m_area"] == 0.0
+    assert len(info["bands"]) == 6
+    assert all(b["sigma"] <= 1.5 for b in info["bands"])
+    # m=0: il valor medio non deve cambiare di ordini di grandezza
+    m0 = float(field[dom].mean())
+    m1 = float(out[dom].mean())
+    assert 0.3 < m1 / m0 < 3.0
+    # sigma cresce dove rho e' piu' bassa (banda fine vs 64+)
+    by = {b["band_km"][0]: b for b in info["bands"]}
+    assert by[2.0]["sigma"] >= by[64.0]["sigma"]
+
+
+def test_spectral_evolution_block_is_reported(tmp_path):
+    rasters, _ = _moving_frames(tmp_path, n=3, dx=1, rows=140, cols=140)
+    bundle = _Bundle(rasters)
+    cfg = _config(tmp_path)
+    cfg["nowcast_spectral"] = {"enabled": True, "sigma_max": 1.2,
+                               "m_intensity": 0.0, "epsilon_corr_mult": 3.0}
+    out = tmp_path / "out_spectral"
+    payload = nf.run(bundle, cfg, str(out),
+                     clock=clock_mod.Clock.at_ms(T0 + 2 * STEP_MS))
+    assert payload["available"] is True
+    sp = payload["spectral_evolution"]
+    assert sp["enabled"] is True and sp["applied"] is True
+    assert sp["method"] == "spectral_lognormal"
+    assert sp["m_area"] == 0.0
+    assert len(sp["per_lead"]) == len(nf.LEADS_MIN)
+    for lead in nf.LEADS_MIN:
+        b = sp["per_lead"][str(lead)]
+        assert len(b["bands"]) == 6
+        assert all(x["sigma"] <= 1.2 for x in b["bands"])

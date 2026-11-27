@@ -1256,6 +1256,151 @@ def coarse_advect(field, domain, u, v, lead_min,
     return out
 
 
+# ---------------------------------------------------------------------------
+# EVOLUZIONE SPETTRALE LOGNORMALE (2026-11-27)
+# ---------------------------------------------------------------------------
+# Bande radiali dyadiche [km]. La misura rho_b(n) e' in
+# `docs/NOWCAST_SPECTRAL.md`: 6 ancore archiviate, coordinate lagrangiane,
+# osservazioni +30/+60/+90. I valori sono MEDIE, non una climatologia.
+SPECTRAL_BANDS_KM = ((2.0, 4.0), (4.0, 8.0), (8.0, 16.0), (16.0, 32.0),
+                     (32.0, 64.0), (64.0, 1e9))
+SPECTRAL_RHO = {
+    "2-4": {30: 0.016, 60: 0.009, 90: 0.007},
+    "4-8": {30: 0.010, 60: 0.007, 90: 0.004},
+    "8-16": {30: 0.043, 60: 0.013, 90: 0.001},
+    "16-32": {30: 0.132, 60: 0.012, 90: 0.023},
+    "32-64": {30: 0.423, 60: 0.117, 90: 0.048},
+    "64-inf": {30: 0.853, 60: 0.703, 90: 0.562},
+}
+
+
+def _spectral_key(lo, hi):
+    return "%g-%s" % (lo, "inf" if hi >= 1e8 else "%g" % hi)
+
+
+def _rho_at(table, lo, hi, lead):
+    """rho_b(n) interpolata in log-sigma fra i lead misurati."""
+    key = _spectral_key(lo, hi)
+    row = (table or {}).get(key) or {}
+    pts = sorted((int(k), float(v)) for k, v in row.items()
+                 if v is not None and float(v) > 0)
+    if not pts:
+        return None
+    if lead <= pts[0][0]:
+        return pts[0][1]
+    if lead >= pts[-1][0]:
+        return pts[-1][1]
+    for (n0, r0), (n1, r1) in zip(pts, pts[1:]):
+        if n0 <= lead <= n1:
+            # interpolazione lineare di -ln rho (cioe' di sigma^2)
+            s0 = -np.log(max(r0, 1e-6))
+            s1 = -np.log(max(r1, 1e-6))
+            w = (lead - n0) / float(n1 - n0)
+            return float(np.exp(-(s0 + w * (s1 - s0))))
+    return None
+
+
+def spectral_bandpass(field, pixel_km, lo, hi):
+    """Banda radiale dyadica via FFT (cicli/km)."""
+    f = np.asarray(field, np.float32)
+    F = np.fft.rfft2(f)
+    ny, nx = f.shape
+    ky = np.fft.fftfreq(ny, d=pixel_km)[:, None]
+    kx = np.fft.rfftfreq(nx, d=pixel_km)[None, :]
+    k = np.sqrt(kx * kx + ky * ky)
+    m = (k >= 1.0 / float(hi)) & (k < 1.0 / float(lo))
+    return np.fft.irfft2(F * m, s=f.shape).astype(np.float32)
+
+
+def _spectral_noise(rng, shape, pixel_km, corr_km, domain):
+    """Gaussiano spazialmente correlato via FFT (nessun filtro a 384 px).
+
+    Il filtro spaziale gaussiano con sigma fino a 3*128 km costava secondi
+    per banda; lo shaping in k-space costa un FFT e la stessa correlazione.
+    """
+    ny, nx = shape
+    z = rng.standard_normal(shape).astype(np.float32)
+    ky = np.fft.fftfreq(ny, d=float(pixel_km))[:, None]
+    kx = np.fft.rfftfreq(nx, d=float(pixel_km))[None, :]
+    k = np.sqrt(kx * kx + ky * ky)
+    f = 1.0 / max(float(corr_km), 1e-6)
+    F = np.fft.rfft2(z) * np.exp(-0.5 * (k / f) ** 2)
+    out = np.fft.irfft2(F, s=shape).astype(np.float32)
+    d = np.asarray(domain, bool) & np.isfinite(out)
+    if int(d.sum()) > 10:
+        out = (out - float(out[d].mean())) / max(float(out[d].std()), 1e-6)
+    return np.where(d, out, 0.0).astype(np.float32)
+
+
+def spectral_evolve(field, domain, lead, pixel_km, cfg, rng):
+    """G_b = exp(m - sigma^2/2 + sigma*eps), applicato per banda in log.
+
+    m_area = 0 (nessun trend d'area). m_intensity e' un valore scalare
+    dichiarato in config (default 0): la versione condizionata per cella
+    richiede il trend per regione e non viene inventata qui.
+    """
+    a = np.clip(np.asarray(field, np.float32), 0.0, None)
+    dom = np.asarray(domain, bool)
+    base = np.log1p(a).astype(np.float32)
+    rho_table = dict(SPECTRAL_RHO)
+    rho_table.update(cfg.get("rho") or {})
+    sigma_model = float(cfg.get("sigma_model") or 0.0)
+    sigma_max = float(cfg.get("sigma_max") or 1.5)
+    corr_mult = float(cfg.get("epsilon_corr_mult") or 3.0)
+    normalize_gain = bool(cfg.get("normalize_gain", True))
+    _m_by_lead = cfg.get("m_intensity_by_lead") or {}
+    m_int = float(_m_by_lead.get(str(lead), cfg.get("m_intensity") or 0.0))
+    m_area = 0.0
+    out = base.copy()
+    bands = []
+    _bands = cfg.get("bands_km") or SPECTRAL_BANDS_KM
+    for i, _pair in enumerate(_bands):
+        lo = float(_pair[0])
+        hi = 1e9 if (_pair[1] is None or float(_pair[1]) >= 1e8) else float(
+            _pair[1])
+        rho = _rho_at(rho_table, lo, hi, lead)
+        if rho is None:
+            continue
+        sig2 = -2.0 * float(np.log(max(rho, 1e-6))) + sigma_model ** 2
+        sigma_raw = float(np.sqrt(max(sig2, 0.0)))
+        sigma = min(sigma_raw, max(0.0, sigma_max))
+        if sigma <= 0:
+            continue
+        mid = float(np.sqrt(lo * min(hi, 128.0)))
+        eps = _spectral_noise(rng, a.shape, pixel_km,
+                              corr_mult * mid, dom)
+        gain = m_area + m_int - 0.5 * sigma ** 2 + sigma * eps
+        # Normalizzazione della realizzazione: E[G] ~ exp(m) sul dominio.
+        # Senza, una singola estrazione lognormale con sigma alto puo'
+        # spostare l'energia media (misurato: bias 5 mm/h 5,4 a +15).
+        if normalize_gain and bool(dom.any()):
+            _gm = float(np.mean(np.exp(np.clip(gain[dom], -20, 20))))
+            if _gm > 1e-6:
+                gain = gain - float(np.log(_gm)) + m_area + m_int
+        b = spectral_bandpass(base, pixel_km, lo, hi)
+        out += b * gain
+        bands.append({
+            "band_km": [lo, (None if hi >= 1e8 else hi)],
+            "rho": round(float(rho), 4),
+            "sigma": round(sigma, 4),
+            "sigma_raw": round(sigma_raw, 4),
+            "m": round(m_area + m_int, 5),
+        })
+    # L'evoluzione non CREA pioggia dal nulla: i pixel asciutti restano 0.
+    active = dom & (a > RAIN_MIN_MMH)
+    out = np.where(active & np.isfinite(out), np.expm1(out), 0.0)
+    out = np.clip(out, 0.0, None).astype(np.float32)
+    info = {
+        "applied": True, "method": "spectral_lognormal",
+        "bands": bands, "rho_source": "measured_6_anchors",
+        "m_area": 0.0, "m_intensity": round(m_int, 5),
+        "sigma_model": sigma_model,
+        "note": ("G=exp(m-sigma^2/2+sigma*eps) per banda; m_area=0; "
+                 "E[G]=exp(m)."),
+    }
+    return out, info
+
+
 def hf_stats(field, domain, sigma_px=HF_RESTORE_SIGMA_PX):
     """(varianza alto-pass, varianza totale) sul nucleo dell'eco."""
     from scipy import ndimage as ndi
@@ -1476,6 +1621,23 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
     # RIPRISTINO HF: riferimento = varianza alto-pass dell'ANALISI (raster
     # nativo, stesso dominio). Se il riferimento non e' calcolabile il
     # ripristino e' spento con motivo, non simula nulla.
+    spectral_cfg = dict(config.get("nowcast_spectral") or {})
+    spectral_enabled = bool(spectral_cfg.get("enabled", False))
+    spectral_lead_info = {}
+    transport_base = {}
+    _spectral_counter = [0]
+
+    def _spectral_post(field, lead):
+        """Gain spettrale per membro dell'ensemble (una estrazione)."""
+        if not spectral_enabled:
+            return field
+        _spectral_counter[0] += 1
+        rng = np.random.default_rng(
+            int(latest_ts) // 60000 * 1000003 + _spectral_counter[0] * 7919)
+        out, _info = spectral_evolve(field, domain, lead, pixel_km,
+                                     spectral_cfg, rng)
+        return out
+
     hf_cfg = dict(config.get("nowcast_hf_restore") or {})
     hf_enabled = bool(hf_cfg.get("enabled", True))
     hf_sigma = float(hf_cfg.get("sigma_px") or HF_RESTORE_SIGMA_PX)
@@ -1654,6 +1816,16 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
             native[lead], _din = decay_mod.apply(
                 native[lead], lead, u, v, domain, decay_cfg)
             decay_lead_info[lead] = _din
+        # EVOLUZIONE SPETTRALE LOGNORMALE: il campo deterministico prende
+        # una estrazione; l'ensemble (sotto) riceve una estrazione per
+        # membro sui trasporti PRE-spettrali, per non contare due volte.
+        transport_base[lead] = np.asarray(native[lead], np.float32).copy()
+        if spectral_enabled:
+            _rng = np.random.default_rng(
+                int(latest_ts) // 60000 * 1000003 + int(lead) * 104729)
+            native[lead], _sinfo = spectral_evolve(
+                native[lead], domain, lead, pixel_km, spectral_cfg, _rng)
+            spectral_lead_info[lead] = _sinfo
 
     oro_block = orography_mod.summarize(oro_ctx)
     reliability = reliability_for(bundle, config, out_dir)
@@ -1831,6 +2003,22 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
         # EROSIONE DEL NUCLEO (V4): misura V1-V5, variante scelta.
         "decay": decay_mod.summarize(decay_lead_info, decay_enabled,
                                      decay_cfg),
+        # EVOLUZIONE SPETTRALE LOGNORMALE per banda.
+        "spectral_evolution": {
+            "enabled": bool(spectral_enabled),
+            "applied": bool(spectral_lead_info),
+            "method": "spectral_lognormal",
+            "bands_km": [list(b) if b[1] < 1e8 else [b[0], None]
+                         for b in SPECTRAL_BANDS_KM],
+            "rho_source": ("measured_6_anchors"
+                           if spectral_enabled else None),
+            "null_reason": (None if spectral_enabled
+                            else "disabled_by_config"),
+            "m_area": 0.0,
+            "m_intensity": float(spectral_cfg.get("m_intensity") or 0.0),
+            "per_lead": {str(k): v for k, v in sorted(
+                spectral_lead_info.items())},
+        },
         # NUVOLE IR: CONTESTO, non previsione di pioggia.
         "clouds": clouds_mod.payload(cloud_state),
         "orographic_enhancement": oro_block,
@@ -1865,9 +2053,11 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
                               .sum()) for l in _ens_leads}
         try:
             _blocks, _fields = ensemble_mod.run_leads(
-                {l: native[l] for l in _ens_leads}, u, v, domain, _ens_leads,
+                {l: transport_base.get(l, native[l]) for l in _ens_leads},
+                u, v, domain, _ens_leads,
                 None, _ens_cfg, pixel_km, step_s, latest_ts,
-                latest=latest, post=None,
+                latest=latest,
+                post=(_spectral_post if spectral_enabled else None),
                 rain_mask=(domain & (latest > RAIN_MIN_MMH)),
                 mass_target=_mass_target)
         except Exception as exc:      # layer additivo: mai rompere il nowcast

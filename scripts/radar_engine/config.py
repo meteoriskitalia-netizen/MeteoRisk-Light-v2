@@ -990,6 +990,21 @@ CONFIG = {
     # riscalate). Default 4-6 min. Se un fornitore cambia cadenza, si
     # dichiara qui la nuova banda: il payload pubblica `motion_pair_dt_band_s`.
     "nowcast_pair_dt_band_s": [240.0, 360.0],
+    # EVOLUZIONE SPETTRALE LOGNORMALE (2026-11-27). DEFAULT OFF finche' il
+    # backtest >=200 casi non mostra FSS/CRPS/spread-skill migliori.
+    # m_area = 0 per costruzione (il trend d'area e' anti-correlato);
+    # m_intensity e' il trend recente con shrinkage r^2, fornito per lead
+    # dal chiamante (nessun valore inventato qui).
+    "nowcast_spectral": {
+        "enabled": False,
+        "sigma_model": 0.0,
+        "epsilon_corr_mult": 3.0,
+        "m_intensity": 0.0,
+        "m_intensity_by_lead": {},
+        "rho": {},
+        "bands_km": [[2, 4], [4, 8], [8, 16], [16, 32], [32, 64],
+                     [64, None]],
+    },
     # TREND PER CELLE CONVETTIVE (V-a, 2026-11-27). Il trend globale e'
     # anti-predittivo sull'area; l'intensita' delle convettive (max >=12 mm/h,
     # proxy 40 dBZ) ha rho positivo a +30 e +60. Si applica fino a +60, con
