@@ -1,0 +1,20 @@
+{
+ "measured_on": "2026-11-27",
+ "cases": "6 ancore pesanti (2026-11-01T16Z, 2026-10-20T16Z, 2026-09-10T16Z, 2026-10-08T16Z, 2026-11-09T16Z, 2026-05-29T12Z)",
+ "before": {
+  "description": "prima del fix intervalli (alpha/trasporto precedenti)",
+  "csi_0.5": {"15": 0.7442, "30": 0.6381, "60": 0.5064, "90": 0.4074},
+  "csi_2": {"15": 0.6493, "30": 0.5314, "60": 0.3979, "90": 0.2831},
+  "csi_5": {"15": 0.5461, "30": 0.4048, "60": 0.2630, "90": 0.1582}
+ },
+ "after": {
+  "description": "dopo il fix: dt reale, banda 4-6, payload frame_intervals_min",
+  "csi_0.5": {"15": 0.7437, "30": 0.6381, "60": 0.5063, "90": 0.4074},
+  "csi_2": {"15": 0.6493, "30": 0.5314, "60": 0.3979, "90": 0.2831},
+  "csi_5": {"15": 0.5461, "30": 0.4048, "60": 0.2629, "90": 0.1582}
+ },
+ "delta": {
+  "max_abs": 0.0005,
+  "note": "Tutte le 6 ancore hanno intervalli 5,0 min: la banda tiene le stesse coppie. Le differenze sono rounding, non regressione."
+ }
+}

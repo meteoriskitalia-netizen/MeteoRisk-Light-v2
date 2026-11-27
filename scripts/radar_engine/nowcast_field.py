@@ -128,7 +128,15 @@ OFFICIAL_LEADS = (15, 30, 60)
 # Oltre questo orizzonte il frame e' etichettato "affidabilita' bassa" nel
 # client: la misura dell'affidabilita' per lead e' in reliability_by_lead.
 LOW_RELIABILITY_OVER_MIN = 90
-FLOW_PAIRS = 3                  # coppie consecutive usate per il flusso
+FLOW_PAIRS = 3                  # coppie VALIDE usate per il flusso
+# INTERVALLI REALI (2026-11-27): la cadenza nominale e' 5 min, ma il codice
+# NON deve assumerla. Il moto e' normalizzato all'intervallo di riferimento
+# `MOTION_REF_S` usando il dt REALE della coppia; le coppie fuori banda sono
+# SCARTATE (non riscalate di nascosto). `PAIR_MAX_CANDIDATES` fa scandire le
+# ultime coppie disponibili per sostituire quella anomala con una valida.
+MOTION_REF_S = STEP_MIN * 60.0  # 300 s: unita' del vettore u,v
+PAIR_DT_BAND_S = (240.0, 360.0)  # 4-6 min: banda dichiarata
+PAIR_MAX_CANDIDATES = 6
 SPEED_CAP_KMH = 110.0           # sopra: vettore SOSTITUITO dal vicinato
 MOTION_FILL_MAX_RADIUS = 10     # px - raggio massimo del riempimento
 MOTION_SMOOTH_PX = 3            # mediana 3x3 dentro la pioggia (0 = spenta)
@@ -472,25 +480,41 @@ def _nan_median_stack(arrays):
     return med.astype(np.float32)
 
 
-def estimate_motion(frames, warnings):
-    """Moto (u, v) per frame, mediana delle ultime `FLOW_PAIRS` coppie.
+def estimate_motion(frames, warnings, band_s=None, ref_s=None,
+                    max_pairs=None, max_candidates=None):
+    """Moto (u, v) normalizzato a `ref_s` usando il dt REALE di ogni coppia.
+
+    Le coppie con dt fuori dalla banda dichiarata (`band_s`, default 4-6 min)
+    vengono SCARTATE, non riscalate: un intervallo anomalo non e' un moto noto
+    a meta'. Si scandiscono fino a `max_candidates` coppie recenti e si tengono
+    le ultime `max_pairs` VALIDE, cosi' un buco non azzera il moto.
 
     Una coppia che non riesce a stimare un vettore vale NaN (non 0): la
     mediana di (0, 0, x) sarebbe 0 e il pixel non si muoverebbe mai. Il
     risultato e' NaN dove NESSUNA coppia ha una stima; il riempimento dal
-    vicinato lo fa `compute` con `fill_motion`, sulla maschera di pioggia."""
-    pairs = min(FLOW_PAIRS, len(frames) - 1)
-    if pairs < 1:
-        return None
+    vicinato lo fa `compute` con `fill_motion`, sulla maschera di pioggia.
+    """
+    band = tuple(band_s or PAIR_DT_BAND_S)
+    if len(band) != 2:
+        band = PAIR_DT_BAND_S
+    band = (float(min(band)), float(max(band)))
+    ref = float(ref_s if ref_s is not None else MOTION_REF_S)
+    want = int(max_pairs if max_pairs is not None else FLOW_PAIRS)
+    cand = int(max_candidates if max_candidates is not None
+               else PAIR_MAX_CANDIDATES)
+    cand = max(1, min(cand, len(frames) - 1))
     us, vs, used, dts = [], [], 0, []
-    for k in range(pairs, 0, -1):
+    discarded = 0
+    for k in range(1, cand + 1):
         prev, vprev, tprev = frames[-1 - k]
         curr, vcurr, tcurr = frames[-k]
         dt_s = (int(tcurr) - int(tprev)) / 1000.0
-        if dt_s <= 0 or dt_s > 15 * 60:
-            # buco temporale: il vettore non e' riferibile al passo di 5 min
-            warnings.append("nowcast: coppia a {} s esclusa dal moto".format(
-                dt_s))
+        if dt_s < band[0] or dt_s > band[1]:
+            # buco o passo anomalo: la coppia NON si assume a 5 min
+            warnings.append(
+                "nowcast: coppia a {:.0f} s scartata (banda {:.0f}-{:.0f} s)"
+                .format(dt_s, band[0], band[1]))
+            discarded += 1
             continue
         both = vprev & vcurr
         # il flusso si stima dove almeno uno dei due frame ha pioggia:
@@ -498,24 +522,32 @@ def estimate_motion(frames, warnings):
         texture = both & ((prev > 0.02) | (curr > 0.02))
         if float(texture.sum()) < 50:
             warnings.append("nowcast: coppia senza pioggia, esclusa dal moto")
+            discarded += 1
             continue
         u, v = estimate_flow(prev, curr, texture)
         # non-stima = NaN; in pioggia il moto vero non e' mai 0 e lo 0
         # fermerebbe l'eco (era il 71% dei pixel fermi misurati il 24/11).
         measured = np.isfinite(u) & np.isfinite(v) & ((u != 0.0) | (v != 0.0))
-        # normalizza al PASSO NOMINALE di 5 minuti (px/frame -> px/5min)
-        scale = (STEP_MIN * 60.0) / float(dt_s)
+        # normalizza all'intervallo di RIFERIMENTO (300 s) col dt REALE
+        scale = ref / float(dt_s)
         us.append(np.where(measured, u * scale, np.nan).astype(np.float32))
         vs.append(np.where(measured, v * scale, np.nan).astype(np.float32))
         dts.append(dt_s)
         used += 1
+        if used >= want:
+            break
     if not used:
+        warnings.append("nowcast: nessuna coppia nella banda {:.0f}-{:.0f} s"
+                        .format(band[0], band[1]))
         return None
     return {
         "u": _nan_median_stack(us),
         "v": _nan_median_stack(vs),
         "pairs": used,
         "pair_dt_s": sorted(set(dts)),
+        "pairs_discarded": discarded,
+        "pair_dt_band_s": [band[0], band[1]],
+        "reference_s": ref,
         "algorithm": MOTION_ALGORITHM,
     }
 
@@ -1158,7 +1190,8 @@ def coarse_warp(field, domain, u, v, lead_min, factor=TRANSPORT_COARSE_FACTOR,
     cdom = _block_mean(np.asarray(domain, np.float32), factor, "edge") > 0.5
     cu = _block_mean(np.asarray(u, np.float32), factor, "edge") / factor
     cv = _block_mean(np.asarray(v, np.float32), factor, "edge") / factor
-    steps = int(lead_min // STEP_MIN)
+    # niente troncamento: lo spostamento e' lead/300 in unita' frazionarie
+    steps = float(lead_min) / float(STEP_MIN)
     tot_u = (cu * np.float32(steps)).astype(np.float32)
     tot_v = (cv * np.float32(steps)).astype(np.float32)
     if order == 3:
@@ -1282,7 +1315,14 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
                             {"frames_origin": origin,
                              "frames_used": len(frames)}), None
 
-    motion = estimate_motion(frames, warnings)
+    # BANDA DEGLI INTERVALLI (2026-11-27): il moto usa il dt REALE; le coppie
+    # fuori banda sono scartate. Configurabile se un fornitore cambia cadenza.
+    _band = config.get("nowcast_pair_dt_band_s") or PAIR_DT_BAND_S
+    try:
+        _band = (float(_band[0]), float(_band[1]))
+    except (TypeError, ValueError, IndexError):
+        _band = PAIR_DT_BAND_S
+    motion = estimate_motion(frames, warnings, band_s=_band)
     if motion is None:
         return _unavailable("motion_unavailable", clock,
                             {"frames_origin": origin,
@@ -1408,7 +1448,10 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
     oro_lead_stats = {}
 
     for lead in leads:
-        steps = int(lead // STEP_MIN)
+        # niente troncamento: u,v sono per 300 s, lo spostamento e' lead/300
+        # in unita' frazionarie (i lead di produzione sono multipli di 5).
+        steps_f = float(lead) / float(STEP_MIN)
+        steps_i = int(round(steps_f))
         if coarse_factor >= 2:
             # TRASPORTO A 3 KM (media a blocchi + warp + upsample): niente
             # bordi frastagliati e niente nastri. Il mass cap e' dentro.
@@ -1420,8 +1463,8 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
             mass_scale_by_lead[lead] = round(float(mass_scale), 8)
         elif transport_mode == "single":
             # spostamento TOTALE in pixel: u,v sono per STEP_MIN (5 min)
-            tot_u = (u * np.float32(steps)).astype(np.float32)
-            tot_v = (v * np.float32(steps)).astype(np.float32)
+            tot_u = (u * np.float32(steps_f)).astype(np.float32)
+            tot_v = (v * np.float32(steps_f)).astype(np.float32)
             smp, inside = _warp(transport_source, -tot_u, -tot_v,
                                 order=transport_order,
                                 prefilter=(transport_source is latest))
@@ -1438,7 +1481,7 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
                 mass_capped += 1
             mass_scale_by_lead[lead] = round(float(mass_scale), 8)
         else:
-            while done < steps:
+            while done < steps_i:
                 before = float(stepped.sum())
                 stepped = semi_lagrangian(stepped, u, v, 1, domain)
                 # CAP DELLA SOLA CRESCITA (solo guadagno): il trasporto puro
@@ -1487,6 +1530,18 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
         oro_block["env_time"] = _iso(latest_ts)
         oro_block["env_held_constant_over_horizon"] = True
 
+    # INTERVALLI REALI fra i frame usati (non il passo nominale). Un buco e'
+    # un intervallo sopra la banda dichiarata: viene pubblicato, non nascosto.
+    _slots = [int(f[2]) for f in frames]
+    _intervals = [round((_slots[i + 1] - _slots[i]) / 60000.0, 2)
+                  for i in range(len(_slots) - 1)]
+    _gap_limit = float(_band[1]) / 60.0
+    _gaps = [x for x in _intervals if x > _gap_limit]
+    for _g in _gaps:
+        warnings.append(
+            "nowcast: buco di {:.0f} min tra frame (dichiarato in "
+            "gap_minutes)".format(_g))
+    _now_ms = int(clock.now_ms())
     payload = {
         "schema": SCHEMA,
         "available": True,
@@ -1494,10 +1549,24 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
         "source": SOURCE,
         "source_slot": _iso(latest_ts),
         "generated_at": clock.now_iso(),
+        # CONVENZIONE DEI LEAD (dichiarata): dal frame piu' recente, non
+        # dall'orologio. Il client mostra il valid_time, coerente con questa.
+        "lead_origin": "source_slot",
+        "lead_origin_note": (
+            "I lead sono contati dallo slot del frame piu' recente "
+            "(source_slot), non dall'ora corrente: valid_time = source_slot "
+            "+ lead. Se il frame e' in ritardo, il +15 resta 15 minuti dopo "
+            "il frame e non dopo l'orologio."),
+        "frame_intervals_min": _intervals,
+        "gap_minutes": _gaps,
         "unit": "mm/h",
         "motion": MOTION,
         "motion_algorithm": MOTION_ALGORITHM,
         "motion_pairs": motion["pairs"],
+        "motion_pairs_discarded": int(motion.get("pairs_discarded") or 0),
+        "motion_pair_dt_band_s": list(motion.get("pair_dt_band_s") or _band),
+        "motion_reference_s": float(motion.get("reference_s")
+                                    or MOTION_REF_S),
         "speed_cap_kmh": SPEED_CAP_KMH,
         "speed_cap_mode": "replaced_by_neighbor_median",
         # contato sui pixel che TRASPORTANO PIOGGIA (prima era su tutto il
@@ -1573,6 +1642,11 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
                 "lead_min": lead,
                 "step_min": step_min_for(lead, leads),
                 "valid_time": _iso(latest_ts + lead * 60000),
+                # quanto il valid_time e' lontano dall'orologio del run
+                # (negativo = istante gia' passato). Dichiarato, non usato
+                # per spostare i lead: la convenzione e' source_slot.
+                "lead_from_now_min": round(
+                    (latest_ts + lead * 60000 - _now_ms) / 60000.0, 1),
                 "unit": "mm/h",
                 "image": IMAGE_NAMES.get(lead),
                 "image_crs": OUTPUT_CRS,

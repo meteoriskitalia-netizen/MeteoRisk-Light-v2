@@ -2780,8 +2780,9 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                 <div class="legend-title">Intensità prevista · mm/h · scala ad alto contrasto</div>
                 <div class="nowcast-ramp" id="nowcast-legend-ramp"></div>
                 <div class="nowcast-ticks" id="nowcast-legend-ticks"></div>
-                <div class="legend-row" id="nowcast-legend-note" style="font-size:10px; color:#cbd5e1;">il nowcast si ferma a +90 minuti: oltre, il rapporto d'aspetto delle strutture supera 1,5x l'osservato (misurato 1,73x a +120)</div>
-                <div class="legend-row" style="font-size:10px; color:#94a3b8;">sotto 0,5 mm/h il nowcast è trasparente; scala continua fino a 100+ mm/h</div>
+                <div class="legend-row" id="nowcast-legend-note" style="font-size:10px; color:#cbd5e1;">il nowcast si ferma a +90 minuti: oltre, il rapporto d'aspetto delle strutture supera 1,5x l'osservato (misurato 1,65x a +120)</div>
+                <div class="legend-row" style="font-size:10px; color:#94a3b8;">sotto 0,15 mm/h trasparente; 40% di opacità a 0,5 mm/h, piena da 1,5 mm/h</div>
+                <div class="legend-row" id="nowcast-lead-note" style="font-size:10px; color:#94a3b8;">lead contati dallo slot del frame (valid_time), non dall'ora corrente; i buchi fra frame sono dichiarati nel payload (gap_minutes)</div>
             </div>
         </div>
         <!-- Selettore ORARIO a slider sotto la mappa (sostituisce la tendina) -->
@@ -3326,6 +3327,12 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     const APP_VERSION = '1.3.0.85';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-26';
     const APP_CHANGELOG = [
+{ version: '1.3.0.85-r3', date: '2026-11-27', changes: [
+  "INTERVALLI REALI FRA I FRAME: il moto usa il dt effettivo di ogni coppia normalizzato a 300 s, non un passo fisso di 5 min. Le coppie fuori banda 4-6 min sono SCARTATE (non riscalate di nascosto) e si scandiscono fino a 6 coppie recenti per sostituirle con una valida. Il payload pubblica `frame_intervals_min`, `gap_minutes`, `motion_pair_dt_s`, `motion_pairs_discarded`, `motion_pair_dt_band_s`.",
+  "CONVENZIONE DEI LEAD DICHIARATA: i lead sono contati dallo slot del frame piu' recente (source_slot), non dall'orologio. `valid_time = source_slot + lead`; il client mostra il valid_time. Ogni lead pubblica anche `lead_from_now_min`. La legenda lo dice a schermo.",
+  "MISURA SU 8 FINESTRE REALI (12 frame ciascuna: 96 frame, 88 intervalli): 88/88 a 5,0 min, 0 buchi. Il caso 2026-11-26T13:25Z con un buco sintetico di 10 min: il moto nuovo (coppia scartata) differisce dal vecchio (coppia riscalata) di 0,54 px/5min mediano (6,5 km/h) e 4,59 px/5min al p95 (55 km/h).",
+  "TEST: 39/39 test_nowcast_field (banda 4-6, nessuna coppia valida -> null, payload con intervalli/buchi/convenzione lead)."
+]},
 { version: '1.3.0.85-r2', date: '2026-11-26', changes: [
   "NOWCAST RIPUBBLICATO (motore, non nuova app): TRASPORTO A 3 KM (media a blocchi 3x3, warp sulla griglia grossolana, upsample bilineare) al posto del trasporto per pixel: bordi lisci, niente strutture a nastro. A/B sullo stesso caso (2026-11-26T13:25Z): CSI@30 0,5718 -> 0,5871, CSI@60 0,4517 -> 0,4596, aspetto p90@60 4,58 -> 3,30 (osservato 3,45).",
   "RIPRISTINO HF DETERMINISTICO: unsharp con ampiezza risolta per riportare la varianza alto-pass (<4 px) al 70% dell'analisi, crescita 20% su 90 min. NIENTE rumore: la variante STEPS moltiplicativa e' stata misurata e scartata (retino da Nyquist). HF 0,108/0,109/0,111/0,114 a +15/+30/+60/+90; CSI@30 0,5517, CSI@60 0,4332.",
@@ -27620,7 +27627,10 @@ function toggleForecastMaps() {
         try { t = new Date(ms).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }); }
         catch (e) { t = String(slot); }
         var age = Math.floor((Date.now() - ms) / 60000);
-        return 'slot ' + t + (age > NOWCAST_STALE_MIN ? ' \u00b7 ' + age + ' min fa' : '');
+        var gaps = (d && d.gap_minutes) || [];
+        var gapTxt = (gaps.length ? ' \u00b7 buco ' + gaps.join('/') + ' min' : '');
+        return 'slot ' + t + gapTxt +
+            (age > NOWCAST_STALE_MIN ? ' \u00b7 ' + age + ' min fa' : '');
     }
     function nowcastUpdateSlot(txt) {
         var el = document.getElementById('nowcast-slot');

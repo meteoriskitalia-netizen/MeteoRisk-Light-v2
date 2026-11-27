@@ -929,3 +929,66 @@ def test_alpha_renders_weak_rain_without_changing_the_data():
     assert int(rgba[0, 5, 3]) == nf.ALPHA_MAX
     # nessun pixel asciutto colorato
     assert int(rgba[0, 0, 3]) == 0
+
+
+# ---------------------------------------------------------------------------
+# 16. intervalli reali fra i frame (2026-11-27): niente 5 min per assunzione
+# ---------------------------------------------------------------------------
+def _synthetic_frames(times_ms, rows=120, cols=160):
+    """Blob che si sposta di 1 px ogni 5 min, con timestamp arbitrari."""
+    domain = _disk_domain(rows, cols, rows // 2, cols // 2, rows // 2 - 5)
+    frames = []
+    for i, ts in enumerate(times_ms):
+        f = _blob(rows, cols, rows // 2, 30 + i, sigma=5.0, amp=20.0)
+        frames.append((f.astype(np.float32), domain, int(ts)))
+    return frames
+
+
+def test_motion_discards_out_of_band_pair_and_keeps_real_dt():
+    # 0,5,15,20,25 min: la coppia 5->15 (10 min) e' fuori banda 4-6
+    times = [T0 + m * 60000 for m in (0, 5, 15, 20, 25)]
+    frames = _synthetic_frames(times)
+    warns = []
+    m = nf.estimate_motion(frames, warns, band_s=(240.0, 360.0))
+    assert m is not None
+    assert m["pair_dt_s"] == [300.0]
+    assert m["pairs_discarded"] >= 1
+    assert m["pair_dt_band_s"] == [240.0, 360.0]
+    assert m["reference_s"] == 300.0
+    assert any("banda" in w for w in warns)
+    # il moto e' normalizzato a 5 min: 1 px per 5 min (u ~ 1, v ~ 0)
+    u, v = m["u"], m["v"]
+    assert np.nanmedian(np.abs(u)) == pytest.approx(1.0, abs=0.25)
+    assert np.nanmedian(np.abs(v)) < 0.25
+
+
+def test_motion_with_no_pair_in_band_returns_none():
+    frames = _synthetic_frames([T0 + m * 60000 for m in (0, 10, 20)])
+    warns = []
+    m = nf.estimate_motion(frames, warns, band_s=(240.0, 360.0))
+    assert m is None
+    assert any("nessuna coppia nella banda" in w for w in warns)
+
+
+def test_payload_declares_frame_intervals_gaps_and_lead_origin(tmp_path):
+    rasters, _ = _moving_frames(tmp_path, n=4, dx=1)
+    # 0,5,15,20 min: buco di 10 min fra il secondo e il terzo
+    for rd, m in zip(rasters, (0, 5, 15, 20)):
+        rd.time_ms = T0 + m * 60000
+        rd.time_iso = nf._iso(rd.time_ms)
+    bundle = _Bundle(rasters)
+    clk = clock_mod.Clock.at_ms(T0 + 20 * 60000)
+    payload, native = nf.compute(bundle, _config(tmp_path), clk,
+                                 bundle.warnings)
+    assert payload["available"] is True
+    assert payload["lead_origin"] == "source_slot"
+    assert "source_slot" in payload["lead_origin_note"]
+    assert payload["frame_intervals_min"] == [5.0, 10.0, 5.0]
+    assert payload["gap_minutes"] == [10.0]
+    assert payload["motion_pair_dt_band_s"] == [240.0, 360.0]
+    assert payload["motion_pairs_discarded"] >= 1
+    # il +5 e' 5 minuti dopo il frame, non dopo l'orologio (qui coincidono)
+    first = payload["leads"][0]
+    assert first["lead_min"] == 5
+    assert first["valid_time"] == nf._iso(T0 + 25 * 60000)
+    assert first["lead_from_now_min"] == 5.0

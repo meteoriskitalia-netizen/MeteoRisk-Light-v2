@@ -1,0 +1,65 @@
+{
+ "anchor": "2026-11-26T13:25:00Z",
+ "timestamps": [
+  "2026-11-26T13:00:00Z",
+  "2026-11-26T13:05:00Z",
+  "2026-11-26T13:10:00Z",
+  "2026-11-26T13:15:00Z",
+  "2026-11-26T13:20:00Z",
+  "2026-11-26T13:25:00Z"
+ ],
+ "gap_timestamps": [
+  "2026-11-26T13:00:00Z",
+  "2026-11-26T13:05:00Z",
+  "2026-11-26T13:15:00Z",
+  "2026-11-26T13:20:00Z",
+  "2026-11-26T13:25:00Z"
+ ],
+ "full": {
+  "pairs": 3,
+  "pair_dt_s": [
+   300.0
+  ]
+ },
+ "gap_new": {
+  "pairs": 3,
+  "pair_dt_s": [
+   300.0
+  ],
+  "discarded": 1,
+  "warnings": [
+   "nowcast: coppia a 600 s scartata (banda 240-360 s)"
+  ]
+ },
+ "gap_old": {
+  "pairs": 3,
+  "pair_dt_s": [
+   300.0,
+   600.0
+  ]
+ },
+ "diff_full_vs_gap_new": {
+  "pixels": 154603,
+  "median_px_per_5min": 0.5425,
+  "p95_px_per_5min": 4.158,
+  "median_kmh": 6.51,
+  "p95_kmh": 49.896,
+  "max_kmh": 424.674
+ },
+ "diff_full_vs_gap_old": {
+  "pixels": 154132,
+  "median_px_per_5min": 0.3306,
+  "p95_px_per_5min": 3.2758,
+  "median_kmh": 3.967,
+  "p95_kmh": 39.31,
+  "max_kmh": 228.084
+ },
+ "diff_gap_old_vs_gap_new": {
+  "pixels": 163493,
+  "median_px_per_5min": 0.5383,
+  "p95_px_per_5min": 4.5857,
+  "median_kmh": 6.46,
+  "p95_kmh": 55.028,
+  "max_kmh": 501.153
+ }
+}

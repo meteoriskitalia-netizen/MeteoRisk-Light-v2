@@ -949,6 +949,11 @@ CONFIG = {
         "level": 0.70,
         "growth_per_90min": 0.20,
     },
+    # INTERVALLI REALI (2026-11-27): il moto e' normalizzato al dt REALE di
+    # ogni coppia; le coppie fuori da questa banda sono SCARTATE (non
+    # riscalate). Default 4-6 min. Se un fornitore cambia cadenza, si
+    # dichiara qui la nuova banda: il payload pubblica `motion_pair_dt_band_s`.
+    "nowcast_pair_dt_band_s": [240.0, 360.0],
     # TRONCAMENTO (2026-11-26): il rapporto d'aspetto p90 delle strutture
     # previste supera 1,5x l'osservato a +120 (1,65x con il trasporto a
     # 3 km: p90 5,81 contro 3,53) e a +180 arriva a 1,91x. A +90 e' 1,09x.
