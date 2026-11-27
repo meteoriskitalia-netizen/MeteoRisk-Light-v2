@@ -178,8 +178,10 @@ tentativo lossless con colore interpolato.
   piovere. Il layer e' dichiarato `context` e non modifica l'intensita'.
 - Le soglie -20/-32/-44 °C sono una scelta dichiarata, non una calibrazione
   contro fulmini o pluviometri.
-- Una sola immagine per slot: non e' una previsione dell'evoluzione della
-  nuvola ai lead +30/+60; resta il contesto dell'istante del nowcast.
+- ~~Una sola immagine per slot~~ **SUPERATO il 2026-11-27**: ora una WebP
+  per lead, advetta col moto del nowcast (`method: advected`). Dettaglio in
+  `docs/NOWCAST_CLOUDS_ADVECTED.md`. Resta un'estrapolazione dichiarata,
+  non una previsione fisica della nuvola.
 - Il campo IR e' valido su tutto il dominio nel campione, ma non e'
   verificato su ogni slot; se arriva parziale, le classi usano solo i pixel
   `valid_mask`.

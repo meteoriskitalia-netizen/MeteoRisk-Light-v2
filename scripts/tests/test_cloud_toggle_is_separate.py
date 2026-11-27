@@ -57,3 +57,18 @@ def test_view_is_mutually_exclusive():
     assert "nowcastProductOn" not in html[
         html.index("function nowcastCloudsToggle()"):
         html.index("function nowcastCloudsRefresh()")]
+
+
+def test_clouds_follow_the_lead_and_are_declared_advected():
+    html = io.open(_html_path(), encoding="utf-8", newline="").read()
+    # il player aggiorna le nuvole sul lead corrente
+    start = html.index("function nowcastApplyFrame()")
+    body = html[start:html.index("function nowcastShow(", start)]
+    assert "nowcastCloudsSetLead" in body
+    # mappa immagini per lead e fallback
+    assert "function nowcastCloudsName(cl, lead)" in html
+    assert "images_by_lead" in html
+    # etichetta esplicita: estrapolate, non previsione
+    assert "estrapolato col moto del nowcast" in html or \
+        "estrapolate col moto del nowcast" in html
+    assert "non è pioggia prevista" in html or "non e' pioggia prevista" in html

@@ -1189,10 +1189,20 @@ def test_clouds_payload_and_image(tmp_path):
     assert cl["source"] == "DPC_IR_108"
     assert cl["thresholds_c"] == [-20.0, -32.0, -44.0]
     assert cl["image"] == "nowcast_clouds.webp"
+    assert cl["method"] == "advected"
+    assert cl["advection"]["speed_factor"] == nf.MOTION_SPEED_FACTOR
+    assert cl["advection"]["lead_min"] == list(nf.LEADS_MIN)
     assert cl["slot"] == nf._iso(T0 + 2 * STEP_MS)
     p = out / "nowcast_clouds.webp"
     assert p.exists() and p.stat().st_size > 0
     assert payload["output_bytes"]["clouds"]["nowcast_clouds.webp"] > 0
+    # una immagine per lead, non uno sfondo fisso
+    assert len(cl["images_by_lead"]) == len(nf.LEADS_MIN)
+    for lead in nf.LEADS_MIN:
+        name = cl["images_by_lead"][str(lead)]
+        assert name == "nowcast_clouds_lead%03d.webp" % lead
+        assert (out / name).exists() and (out / name).stat().st_size > 0
+        assert payload["output_bytes"]["clouds"][name] > 0
     # nessun colore della pioggia nella palette delle nuvole
     rain = {tuple(rgb) for _mmh, rgb in nf.PALETTE}
     for cls in cl["classes"]:

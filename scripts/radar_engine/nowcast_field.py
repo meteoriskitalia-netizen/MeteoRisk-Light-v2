@@ -1226,6 +1226,36 @@ def coarse_warp(field, domain, u, v, lead_min, factor=TRANSPORT_COARSE_FACTOR,
     return out, float(mass_scale)
 
 
+def coarse_advect(field, domain, u, v, lead_min,
+                  factor=TRANSPORT_COARSE_FACTOR, order=1):
+    """Advezione a blocchi SENZA mass-cap e SENZA clip a zero.
+
+    Serve alle NUVOLE (temperatura IR in °C, valori negativi): il
+    `coarse_warp` della pioggia applica `np.maximum(out, 0)` e il cap di
+    massa, che su una temperatura distruggerebbe il campo. Qui si fa la
+    stessa media a blocchi + warp + upsample, ma il campo resta continuo.
+    """
+    from scipy import ndimage as ndi
+    factor = int(factor)
+    if factor < 2:
+        return semi_lagrangian(field, u, v,
+                               float(lead_min) / float(STEP_MIN), domain)
+    src = np.asarray(field, np.float32)
+    h, w = src.shape
+    co = _block_mean(src, factor, "edge")
+    cdom = _block_mean(np.asarray(domain, np.float32), factor, "edge") > 0.5
+    cu = _block_mean(np.asarray(u, np.float32), factor, "edge") / factor
+    cv = _block_mean(np.asarray(v, np.float32), factor, "edge") / factor
+    steps = float(lead_min) / float(STEP_MIN)
+    tot_u = (cu * np.float32(steps)).astype(np.float32)
+    tot_v = (cv * np.float32(steps)).astype(np.float32)
+    smp, inside = _warp(co, -tot_u, -tot_v, order=order, prefilter=True)
+    cw = np.where(inside & cdom, smp, np.nan).astype(np.float32)
+    up = ndi.zoom(cw, float(factor), order=1)[:h, :w]
+    out = np.where(np.isfinite(up) & domain, up, np.nan).astype(np.float32)
+    return out
+
+
 def hf_stats(field, domain, sigma_px=HF_RESTORE_SIGMA_PX):
     """(varianza alto-pass, varianza totale) sul nucleo dell'eco."""
     from scipy import ndimage as ndi
@@ -1472,6 +1502,23 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
         cloud_state = {"info": clouds_mod.disabled_info("disabled_by_config")}
     if (cloud_state.get("info") or {}).get("available"):
         native["_clouds"] = cloud_state
+        _ctemp = np.asarray(cloud_state.get("temp"), np.float32)
+        _cvalid = np.asarray(cloud_state.get("valid"), bool)
+        if _ctemp.shape == domain.shape:
+            cloud_state["temp_native"] = np.where(_cvalid, _ctemp, 0.0).astype(
+                np.float32)
+            cloud_state["frames"] = {}
+            _ci = cloud_state.get("info") or {}
+            _ci["method"] = "advected"
+            _ci.setdefault("advection", {})
+            _ci["advection"].update({
+                "transport": "coarse_warp_temperature",
+                "speed_factor": float(speed_factor),
+                "lead_min": [int(x) for x in leads],
+                "note": ("Nuvole traslate col moto del nowcast: contesto "
+                         "estrapolato, non previsione di pioggia ne' della "
+                         "nuvola."),
+            })
     stepped = latest.copy()
     done = 0
     mass_capped = 0
@@ -1588,6 +1635,16 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
             oro_lead_stats[lead] = st
         else:
             native[lead] = stepped
+        # NUVOLE: stessa advezione del nowcast, sul campo °C continuo.
+        # `method: advected` nel payload: e' un'estrapolazione dichiarata,
+        # non una previsione della nuvola.
+        if native.get("_clouds") is not None and \
+                (native["_clouds"].get("info") or {}).get("available") and \
+                native["_clouds"].get("temp_native") is not None:
+            native["_clouds"].setdefault("frames", {})[lead] = coarse_advect(
+                native["_clouds"]["temp_native"], domain, u, v, lead,
+                factor=(coarse_factor if coarse_factor >= 2
+                        else TRANSPORT_COARSE_FACTOR), order=1)
         if hf_enabled:
             native[lead], _hfi = restore_hf(
                 native[lead], ref_hf, lead, domain, level=hf_level,
@@ -2102,6 +2159,32 @@ def write_products(out_dir, payload, native):
             payload["clouds"]["published_pixels"] = int(
                 (_rgba[:, :, 3] > 0).sum())
             measured["clouds"] = {clouds_mod.IMAGE_NAME: _size}
+            # ADVECTED: una immagine per lead, con la STESSA advezione
+            # della pioggia. Il costo misurato e' ~18 x 16 kB.
+            _frames = _clouds.get("frames") or {}
+            _by_lead = {}
+            _tot = _size
+            _pub = 0
+            for _lead in sorted(_frames):
+                _ct = _frames[_lead]
+                _pt = reproject_to_grid(
+                    _ct, np.isfinite(_ct), _clouds["rd"], _cgrid,
+                    resampling="bilinear", clamp_min=None)
+                _rgba_l = clouds_mod.rgba_from_temp(
+                    _pt, np.isfinite(_pt),
+                    blend_c=float(_cl.get("blend_c") or 2.0),
+                    blur_px=float(_cl.get("blur_px") or 0.7))
+                _name = clouds_mod.image_name_for(_lead)
+                _sz = clouds_mod.write_rgba_webp(
+                    os.path.join(out_dir, _name), _rgba_l,
+                    downsample=_down)
+                _by_lead[str(int(_lead))] = _name
+                _tot += _sz
+                _pub += int((_rgba_l[:, :, 3] > 0).sum())
+                measured["clouds"][_name] = _sz
+            payload["clouds"]["images_by_lead"] = _by_lead
+            payload["clouds"]["output_bytes"] = _tot
+            payload["clouds"]["published_pixels"] = _pub
         except Exception as _exc:
             _reason = "{}:{}".format(_exc.__class__.__name__, _exc)
             payload["clouds"]["available"] = False

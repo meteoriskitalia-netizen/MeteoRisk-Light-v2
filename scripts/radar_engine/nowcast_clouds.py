@@ -44,10 +44,16 @@ CLASSES = (
 )
 OPACITY = 0.70
 NOTE = (
-    "Nuvole IR (contesto): una nube alta e fredda puo' non piovere. "
-    "Non e' una previsione di pioggia e non modifica l'intensita' prevista."
+    "Nuvole IR (contesto estrapolato col moto del nowcast): una nube alta "
+    "e fredda puo' non piovere. Non e' una previsione di pioggia ne' della "
+    "nuvola e non modifica l'intensita' prevista."
 )
 IMAGE_NAME = "nowcast_clouds.webp"
+IMAGE_LEAD_NAME = "nowcast_clouds_lead%03d.webp"
+
+
+def image_name_for(lead):
+    return IMAGE_LEAD_NAME % int(lead)
 
 
 def classify(temp_c, valid, thresholds=THRESHOLDS_C):
@@ -143,6 +149,19 @@ def _info_base():
         # blur leggero solo sul canale nuvole. Dichiarati nel payload.
         "resampling": "bilinear", "blend_c": 2.0, "blur_px": 0.7,
         "downsample": 2, "image_size": None,
+        # ADVECTED (2026-11-27): una immagine per lead, traslata con lo
+        # STESSO campo di moto del nowcast. E' un'estrapolazione dichiarata,
+        # non una previsione della nuvola.
+        "method": "advected",
+        "advection": {
+            "transport": "coarse_warp_temperature",
+            "speed_factor": None,
+            "lead_min": [],
+            "note": ("Nuvole traslate col moto del nowcast: contesto "
+                     "estrapolato, non previsione di pioggia ne' della "
+                     "nuvola."),
+        },
+        "images_by_lead": {},
     }
 
 

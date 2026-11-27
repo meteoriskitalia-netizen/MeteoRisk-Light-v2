@@ -2767,7 +2767,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                     <span style="display:inline-block;width:10px;height:10px;background:rgb(170,190,210);margin-right:3px;vertical-align:middle"></span>nube alta &lt;-20 °C
                     <span style="display:inline-block;width:10px;height:10px;background:rgb(135,160,190);margin:0 3px 0 8px;vertical-align:middle"></span>fredda &lt;-32 °C
                     <span style="display:inline-block;width:10px;height:10px;background:rgb(100,125,165);margin:0 3px 0 8px;vertical-align:middle"></span>molto fredda &lt;-44 °C
-                    · <b>contesto IR, non previsione di pioggia</b>
+                    · <b>contesto IR estrapolato col moto del nowcast, non previsione di pioggia né della nuvola</b>
                 </div>
             </div>
             <!-- 1.3.0.86-r6 - CONTROLLI DEL PRODOTTO NOWCAST:
@@ -2779,9 +2779,9 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                     <span class="nc-prob-label">Vista</span>
                     <button type="button" class="nc-prob-btn on" id="nc-view-intensity" onclick="nowcastSetView('intensity')" title="Mostra l'intensita' prevista in mm/h (palette ad alto contrasto). In questa vista la probabilita' e' nascosta: le due non si sovrappongono.">Intensità</button>
                     <button type="button" class="nc-prob-btn" id="nc-view-prob" onclick="nowcastSetView('prob')" title="Mostra la probabilita' 0-100% dell'ensemble. In questa vista il layer intensita' viene nascosto, non sovrapposto.">Probabilità</button>
-                    <button type="button" class="sc-toggle" id="nc-clouds-toggle" onclick="nowcastCloudsToggle()" title="Nuvole IR di contesto (DPC IR_108, 10.8 um, 1 km): grigio-blu = nube alta sotto -20 °C, piu' scuro sotto -32 e -44 °C. NON e' una previsione di pioggia: una nube alta e fredda puo' non piovere. Toggle separato da intensita' e probabilita'.">Nuvole IR (contesto) · OFF</button>
+                    <button type="button" class="sc-toggle" id="nc-clouds-toggle" onclick="nowcastCloudsToggle()" title="Nuvole IR di contesto (DPC IR_108, 10.8 um, 1 km): grigio-blu = nube alta sotto -20 °C, piu' scuro sotto -32 e -44 °C. Ai lead sono TRASLATE col moto del nowcast: contesto estrapolato, NON previsione di pioggia ne' della nuvola. Una nube alta e fredda puo' non piovere. Toggle separato da intensita' e probabilita'.">Nuvole IR (contesto) · OFF</button>
                 </div>
-                <span id="nowcast-clouds-note" style="display:none; font-size:10px; color:#94a3b8;">Nuvole IR (contesto) · grigio-blu · non è pioggia prevista</span>
+                <span id="nowcast-clouds-note" style="display:none; font-size:10px; color:#94a3b8;">Nuvole IR (contesto) · grigio-blu · estrapolate col moto del nowcast · non è pioggia prevista</span>
                 <div id="ncprob-controls" hidden>
                     <div class="nc-prob-row" id="ncprob-thr-row">
                         <span class="nc-prob-label">Soglia</span>
@@ -28113,6 +28113,27 @@ function toggleForecastMaps() {
         nowcastCloudState.on = false;
         nowcastCloudsButton();
     }
+    function nowcastCloudsLead() {
+        var leads = nowcastLeads();
+        if (!leads.length) return null;
+        var i = nowcastState.frame;
+        if (i < 0) i = 0;
+        if (i > leads.length - 1) i = leads.length - 1;
+        return leads[i] ? leads[i].lead : null;
+    }
+    function nowcastCloudsName(cl, lead) {
+        if (!cl) return null;
+        var m = cl.images_by_lead || null;
+        if (m && lead !== null && m[String(lead)]) return m[String(lead)];
+        return cl.image || null;
+    }
+    function nowcastCloudsSetLead(lead) {
+        if (!nowcastCloudState.on || !nowcastCloudState.layer) return;
+        var d = nowcastState.data;
+        var name = nowcastCloudsName(d && d.clouds, lead);
+        if (!name) return;
+        try { nowcastCloudState.layer.setUrl('data/radar/' + name); } catch (e) { }
+    }
     function nowcastCloudsAdd(d) {
         if (!d || !d.grid || !d.grid.bounds) return false;
         var cl = d.clouds || null;
@@ -28120,7 +28141,7 @@ function toggleForecastMaps() {
             setProductStatus('Nuvole IR non disponibili: ' + ((cl && cl.null_reason) || 'dato assente'));
             return false;
         }
-        var url = 'data/radar/' + cl.image;
+        var url = 'data/radar/' + nowcastCloudsName(cl, nowcastCloudsLead());
         try {
             if (nowcastCloudState.layer) {
                 nowcastCloudState.layer.setUrl(url);
@@ -28154,18 +28175,11 @@ function toggleForecastMaps() {
             nowcastCloudsOff();
             return;
         }
-        var url = 'data/radar/' + d.clouds.image;
-        // cache:'reload' + blob: il CDN non serve la versione vecchia e non
-        // si usa una query-string (il CDN risponde 404).
-        fetch(url, { cache: 'reload' })
-            .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
-            .then(function (b) {
-                var u = URL.createObjectURL(b);
-                if (nowcastCloudState.blob) { try { URL.revokeObjectURL(nowcastCloudState.blob); } catch (e) { } }
-                nowcastCloudState.blob = u;
-                try { nowcastCloudState.layer.setUrl(u); } catch (e) { }
-            })
-            .catch(function () { try { nowcastCloudState.layer.setUrl(url); } catch (e) { } });
+        // Si aggiorna l'immagine del lead CORRENTE: il layer non e' piu'
+        // uno sfondo fisso. Le altre 17 sono gia' su disco e vengono
+        // caricate dal browser quando il player ci arriva.
+        nowcastCloudsSetLead(nowcastCloudsLead());
+        nowcastCloudsButton();
     }
     function nowcastPreload() {
         var leads = nowcastLeads(), sig = [];
@@ -28237,6 +28251,9 @@ function toggleForecastMaps() {
         if (nowcastState.frame < 0) nowcastState.frame = 0;
         if (nowcastState.frame > leads.length - 1) nowcastState.frame = leads.length - 1;
         try { nowcastState.layer.setUrl(nowcastSrc(leads[nowcastState.frame])); } catch (e) { }
+        // Le nuvole seguono lo STESSO lead (contesto estrapolato): non sono
+        // piu' uno sfondo fermo.
+        nowcastCloudsSetLead(leads[nowcastState.frame].lead);
     }
     function nowcastShow(on) {
         on = !!on;
