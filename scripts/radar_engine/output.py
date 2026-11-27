@@ -766,6 +766,7 @@ def _structure_summary(bundle):
             "structure_on_latest": 0,
             "soi_max": None,
             "skipped_incoherent": skipped_incoherent,
+            "short_track_published": 0,
             **morph_summary,
             **_advanced_summary(bundle),
         }
@@ -778,6 +779,8 @@ def _structure_summary(bundle):
         "structure_on_latest": on_latest,
         "soi_max": soi_max,
         "skipped_incoherent": skipped_incoherent,
+        "short_track_published": sum(
+            1 for c in cells if c.get("short_track_published") is True),
         **morph_summary,
         **_advanced_summary(bundle),
     }
@@ -800,6 +803,19 @@ def _advanced_summary(bundle):
             adv.get("morphology_class_null") or 0),
         "advanced_morphology_null_reasons": dict(
             adv.get("morphology_null_reasons") or {}),
+        # 1.3.0.87 — isteresi e classi realmente producibili
+        "advanced_morphology_class_raw_counts": dict(
+            adv.get("morphology_class_raw_counts") or {}),
+        "advanced_morphology_class_raw_null": int(
+            adv.get("morphology_class_raw_null") or 0),
+        "advanced_morphology_class_transitions": int(
+            adv.get("morphology_class_transitions") or 0),
+        "advanced_morphology_hysteresis_frames": int(
+            adv.get("morphology_hysteresis_frames") or 0),
+        "advanced_morphology_class_reachable": list(
+            adv.get("morphology_class_reachable") or []),
+        "advanced_morphology_class_unreachable": dict(
+            adv.get("morphology_class_unreachable") or {}),
         "advanced_lifecycle_stage_counts": dict(
             adv.get("lifecycle_stage_counts") or {}),
         "advanced_lifecycle_null": int(adv.get("lifecycle_null") or 0),
@@ -1196,10 +1212,12 @@ def build_convective_structures(bundle, engine_meta=None):
     motivazione, e la nota data_limits è inclusa sempre nel payload.
 
     PUBBLICAZIONE (2026-11-11): una struttura con `track_coherent=False` non
-    entra in `structures` (moto non determinabile = rumore nel pannello).
-    Resta in `bundle.convective_structures` e quindi in
-    tracks.json/storm_tracks.json per l'audit; il numero scartato e' sempre
-    dichiarato in `summary.skipped_incoherent`. Se tutte le strutture vengono
+    entra in `structures`. Dal 1.3.0.87 una track CORTA ma senza salti
+    (`track_short_safe`) viene pubblicata con moto nullo e forecast nullo:
+    e' un'osservazione reale, non rumore. Restano scartate solo le track con
+    un salto oltre il gate 110 km/h. Il numero scartato e' sempre dichiarato
+    in `summary.skipped_incoherent`; quelle corte pubblicate in
+    `summary.short_track_published`. Se tutte le strutture vengono
     scartate il payload resta valido con `structures: []` (mai un 404).
 
     CONO (2026-11-11): i conteggi per forma sono una PARTIZIONE esatta delle
@@ -1242,6 +1260,8 @@ def build_convective_structures(bundle, engine_meta=None):
         "tracks_evaluated": getattr(bundle, "structure_tracks_evaluated", 0),
         "structures": len(cells),
         "skipped_incoherent": skipped_incoherent,
+        "short_track_published": sum(
+            1 for c in cells if c.get("short_track_published") is True),
         "births": sum(1 for c in cells if c.get("phase") == "birth"),
         "organized": sum(1 for c in cells if c.get("level") == "organized"),
         "strong": sum(1 for c in cells if c.get("level") == "strong"),

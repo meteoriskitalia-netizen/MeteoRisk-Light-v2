@@ -508,9 +508,12 @@ def _ring_area_km2(ring):
 
 
 def _polygon_area_km2(geom):
-    """Area (km^2) di un Polygon GeoJSON: esterno meno i buchi."""
+    """Area (km^2) di un Polygon/MultiPolygon: esterni meno i buchi."""
     if not geom:
         return 0.0
+    if geom.get("type") == "MultiPolygon":
+        return sum(_polygon_area_km2({"type": "Polygon", "coordinates": poly})
+                   for poly in (geom.get("coordinates") or []))
     rings = geom.get("coordinates") or []
     if not rings:
         return 0.0
@@ -563,9 +566,18 @@ def _resolve_outline(candidate_ctx, bundle):
     meta = {"geometry": None, "null_reason": None, "source": None,
             "pixel_count": None, "area_km2": None, "polygon_area_km2": None,
             "coverage_pct": None, "vertices": None, "holes": 0,
-            "holes_dropped": 0, "components_dropped": 0}
+            "holes_dropped": 0, "components_dropped": 0,
+            "envelope_area_km2": None, "core_area_km2": None,
+            "core_dbz": None, "core_basis": None, "core_fallback": None,
+            "buffer_km": None, "core_count": None, "cores": [],
+            "frame_iso": None}
     rec = candidate_ctx if isinstance(candidate_ctx, dict) else {}
-    frame_iso = rec.get("last_seen") or rec.get("first_seen")
+    # Il poligono appartiene all'ultima OSSERVAZIONE. `last_seen` puo' essere
+    # un punto coasted (stima senza cell_id/storm_object_id): risolverlo li'
+    # produceva `cell_not_found` anche quando la struttura era stata vista.
+    frame_iso = (rec.get("last_observed") or rec.get("last_seen")
+                 or rec.get("first_seen"))
+    meta["frame_iso"] = frame_iso
     try:
         frame_index = footprint_mod._frame_index_by_iso(bundle, frame_iso)
     except Exception:
@@ -604,35 +616,90 @@ def _resolve_outline(candidate_ctx, bundle):
         meta["null_reason"] = "cell_mask_not_resolved"
         return meta, None
     raster = bundle.frames[frame_index]
+    px_area = float(raster.pixel_area_km2)
     meta["source"] = source
     meta["pixel_count"] = int(mask.sum())
-    meta["area_km2"] = round(float(mask.sum())
-                             * float(raster.pixel_area_km2), 3)
-    try:
-        rings = _link_rings(_marching_squares_segments(mask))
-        rings = [_dp_ring(r, _OUTLINE_DP_TOL_PX) for r in rings]
-        geom, info = _rings_to_polygon(
-            rings, raster, win, fill_holes=False,
-            min_hole_px=_OUTLINE_MIN_HOLE_PX)
-    except Exception:
-        geom, info = None, {}
+    meta["area_km2"] = round(float(mask.sum()) * px_area, 3)
+    meta["envelope_area_km2"] = meta["area_km2"]
+    geom = None
+    info = {}
+    ctx_mask, ctx_win = mask, win
+
+    # 1.3.0.87 — geometria a NUCLEI (MultiPolygon). Il core non e' l'inviluppo
+    # 20 dBZ e non e' un solo nucleo: sono TUTTI i nuclei >= core_dbz, cosi'
+    # un sistema con piu' celle non perde quelle lontane dal centroide.
+    gcfg = (_cfg.CONFIG or {}).get("structure_geometry") or {}
+    if gcfg.get("enabled", False):
+        try:
+            core, core_win, cores, cinfo = footprint_mod.structure_cores(
+                mask, win, raster,
+                anchor_lonlat=(rec.get("last_observed_position")
+                               or rec.get("position")),
+                core_dbz=float(gcfg.get("core_dbz", 35.0)),
+                buffer_km=float(gcfg.get("buffer_km", 0.0)),
+                min_core_area_km2=float(gcfg.get("min_core_area_km2", 4.0)),
+                max_cores=int(gcfg.get("max_cores", 8)),
+                mode=str(gcfg.get("mode", "all")))
+        except Exception:
+            core, core_win, cores, cinfo = None, None, [], {}
+        if core is not None and core_win is not None:
+            try:
+                geom, nverts = footprint_mod.polygons_from_mask(
+                    core, raster, core_win)
+            except Exception:
+                geom, nverts = None, 0
+            if geom is not None:
+                ctx_mask, ctx_win = core, core_win
+                meta["pixel_count"] = int(core.sum())
+                meta["area_km2"] = round(float(core.sum()) * px_area, 3)
+                meta["core_area_km2"] = cinfo.get("core_area_km2")
+                meta["envelope_area_km2"] = cinfo.get("envelope_area_km2")
+                meta["core_dbz"] = cinfo.get("core_dbz")
+                meta["core_basis"] = cinfo.get("basis")
+                meta["core_fallback"] = cinfo.get("core_fallback")
+                meta["buffer_km"] = cinfo.get("buffer_km")
+                meta["core_count"] = cinfo.get("core_count")
+                meta["cores"] = cores
+                meta["coverage_pct"] = round(
+                    100.0 * float(core.sum()) / max(float(mask.sum()), 1.0), 2)
+                meta["vertices"] = int(nverts or 0)
+                meta["holes"] = sum(
+                    max(0, len(poly) - 1)
+                    for poly in (geom.get("coordinates") or []))
+                meta["components_dropped"] = 0
+
     if geom is None:
-        meta["null_reason"] = "polygonize_empty"
-        return meta, None
+        # Fallback dichiarato: inviluppo Polygon (comportamento storico).
+        try:
+            rings = _link_rings(_marching_squares_segments(mask))
+            rings = [_dp_ring(r, _OUTLINE_DP_TOL_PX) for r in rings]
+            geom, info = _rings_to_polygon(
+                rings, raster, win, fill_holes=False,
+                min_hole_px=_OUTLINE_MIN_HOLE_PX)
+        except Exception:
+            geom, info = None, {}
+        if geom is None:
+            meta["null_reason"] = "polygonize_empty"
+            return meta, None
+        meta["core_basis"] = "envelope_polygon"
+        meta["core_fallback"] = True
+        meta["core_dbz"] = None
+        meta["buffer_km"] = 0.0
+        meta["core_count"] = None
+        meta["cores"] = []
+        meta["coverage_pct"] = 100.0
+        meta["vertices"] = info.get("vertices")
+        meta["holes"] = info.get("holes", 0)
+        meta["holes_dropped"] = info.get("holes_dropped", 0)
+        meta["components_dropped"] = info.get("components_dropped", 0)
+
     poly_area = _polygon_area_km2(geom)
     meta["geometry"] = geom
     meta["polygon_area_km2"] = round(poly_area, 3)
-    meta["coverage_pct"] = (
-        round(100.0 * poly_area / meta["area_km2"], 2)
-        if meta["area_km2"] else None)
-    meta["vertices"] = info.get("vertices")
-    meta["holes"] = info.get("holes", 0)
-    meta["holes_dropped"] = info.get("holes_dropped", 0)
-    meta["components_dropped"] = info.get("components_dropped", 0)
-    ctx = {"mask": mask, "window": win, "raster": raster,
+    ctx = {"mask": ctx_mask, "window": ctx_win, "raster": raster,
            "frame_index": frame_index, "frame_iso": frame_iso,
            "source": source,
-           "pixel_area_km2": float(raster.pixel_area_km2)}
+           "pixel_area_km2": px_area}
     return meta, ctx
 
 
@@ -1150,6 +1217,15 @@ def _build_with_reason(candidate_ctx, bundle):
         "outline_holes_dropped": outline_meta.get("holes_dropped", 0),
         "outline_components_dropped": outline_meta.get(
             "components_dropped", 0),
+        "outline_envelope_area_km2": outline_meta.get("envelope_area_km2"),
+        "outline_core_area_km2": outline_meta.get("core_area_km2"),
+        "outline_core_dbz": outline_meta.get("core_dbz"),
+        "outline_core_basis": outline_meta.get("core_basis"),
+        "outline_core_fallback": outline_meta.get("core_fallback"),
+        "outline_buffer_km": outline_meta.get("buffer_km"),
+        "outline_core_count": outline_meta.get("core_count"),
+        "outline_cores": outline_meta.get("cores") or [],
+        "outline_frame_iso": outline_meta.get("frame_iso"),
         "decay_class": decay_class,
         "decay_lambda_min": decay_lambda,
         "basis_frames": int(fit["basis_frames"]),

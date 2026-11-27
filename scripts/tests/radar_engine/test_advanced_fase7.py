@@ -396,3 +396,40 @@ def test_output_publishes_fase7_counts():
     assert cs["summary"]["advanced_morphology_class_counts"]["SINGLE_CELL"] == 1
     assert cs["summary"]["advanced_hail_nuclei_tracks_total"] == 0
     assert cs["rotation_measurable"] is False  # invariato
+
+
+# ---------------------------------------------------------------------------
+# 1.3.0.87 — forma PCA dal poligono e isteresi della classe
+# ---------------------------------------------------------------------------
+def test_outline_shape_pca_polygon_and_multipolygon():
+    # rettangolo 40 x 10 km in coordinate lon/lat attorno a 45N
+    ring = [[9.0, 45.0], [9.5, 45.0], [9.5, 45.1], [9.0, 45.1], [9.0, 45.0]]
+    shape = adv._outline_shape({"type": "Polygon", "coordinates": [ring]})
+    assert shape is not None
+    assert shape["source"] == "outline_pca"
+    assert shape["elongation"] > 3.0
+    assert shape["bow_score"] is None
+    assert shape["bow_null_reason"] == "bow_score_not_computed"
+    # MultiPolygon: vale il poligono con area maggiore
+    small = [[9.0, 45.0], [9.05, 45.0], [9.05, 45.05], [9.0, 45.05],
+             [9.0, 45.0]]
+    big = [[10.0, 46.0], [10.8, 46.0], [10.8, 46.1], [10.0, 46.1],
+           [10.0, 46.0]]
+    shape_mp = adv._outline_shape(
+        {"type": "MultiPolygon", "coordinates": [[small], [big]]})
+    assert shape_mp is not None
+    assert shape_mp["elongation"] > 3.0
+
+
+def test_smooth_class_sequence_hysteresis():
+    seq = ["SINGLE_CELL", "MULTICELL", "SINGLE_CELL", "SINGLE_CELL",
+           "SINGLE_CELL"]
+    assert adv._smooth_class_sequence(seq, 3) == ["SINGLE_CELL"] * 5
+    seq2 = ["SINGLE_CELL", "MULTICELL", "MULTICELL", "MULTICELL",
+            "MULTICELL"]
+    # il cambio vale al TERZO frame consecutivo (indice 3), non prima
+    assert adv._smooth_class_sequence(seq2, 3) == [
+        "SINGLE_CELL", "SINGLE_CELL", "SINGLE_CELL", "MULTICELL", "MULTICELL"]
+    # un frame None non e' un cambio e non azzera la classe stabile
+    seq3 = ["SINGLE_CELL", None, "SINGLE_CELL"]
+    assert adv._smooth_class_sequence(seq3, 3) == ["SINGLE_CELL"] * 3

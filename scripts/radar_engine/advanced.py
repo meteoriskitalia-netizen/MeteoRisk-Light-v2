@@ -105,15 +105,25 @@ DEFAULT_THRESHOLDS = {
     # SCELTA INGEGNERISTICA NON TARATA: eta' minima perche' un track
     # continuato sia descritto come `mature` invece di `organizing`.
     "tracking_mature_min_age_min": 30.0,
+    # 1.3.0.87 — isteresi della classe: un cambio vale dopo N frame
+    # consecutivi. 3 = valore misurato nello sweep 2026-11-27.
+    "morphology_hysteresis_frames": 3,
 }
 
 REFERENCE = {
     "morphology_class": (
-        "SCELTA INGEGNERISTICA: 7 classi derivate SOLO da campi gia' calcolati "
-        "(area/cell_count/n_points/morphology_organization/overhang/hail/shape_2d). "
-        "Nessuna calibrazione locale (campione 77/11 sbilanciato). "
-        "SUPERCELL_CANDIDATE/HP_SUPERCELL_CANDIDATE richiedono rotazione VRADH "
-        "persistente; senza, restano null con " + ROTATION_NULL_REASON),
+        "SCELTA INGEGNERISTICA: 7 classi nel lessico, ma il dato VMI 2D puo' "
+        "produrne 3 (SINGLE_CELL, MULTICELL, SQUALL_LINE). L'elongazione e' "
+        "PCA del poligono pubblicato (non il bbox) e SQUALL_LINE richiede "
+        ">=3 celle. BOW_ECHO richiede bow_score, non calcolato: resta non "
+        "producibile. MCS richiede echo top >=6000 m (CAPPI) e durata >=60 "
+        "min: con la finestra a 6 frame (25 min) e' strutturalmente "
+        "irraggiungibile; resta null con motivo esplicito. "
+        "SUPERCELL_CANDIDATE/HP_SUPERCELL_CANDIDATE richiedono rotazione "
+        "VRADH persistente; senza, restano null con " + ROTATION_NULL_REASON +
+        ". Isteresi: un cambio di classe vale dopo "
+        "morphology_hysteresis_frames frame consecutivi (misurato: "
+        "transizioni/frame 0,121 -> 0,035 su 7 eventi di screening)."),
     "supercell_evaluation": (
         "Regola di gate: rotation_measurable=True AND persistence_scans>=2 AND "
         "classification in {ROTATION_SUSPECTED,ROTATION_DETECTED,"
@@ -812,38 +822,217 @@ def _rotation_evidence(bundle):
             "source": da.get("source") or "OPERA FR VRADH (doppler.py)"}
 
 
-def _shape_2d_for(bundle, candidate):
-    """Elongazione reale dall'hull dello storm object (se disponibile).
+def _ring_shape(ring):
+    """(elongazione PCA, solidita') di un anello [lon,lat], o (None, None)."""
+    if not isinstance(ring, (list, tuple)) or len(ring) < 4:
+        return None, None
+    pts = [(float(p[0]), float(p[1])) for p in ring
+           if isinstance(p, (list, tuple)) and len(p) >= 2]
+    if len(pts) < 4:
+        return None, None
+    lon0 = sum(p[0] for p in pts) / len(pts)
+    lat0 = sum(p[1] for p in pts) / len(pts)
+    kx = 111.32 * max(math.cos(math.radians(lat0)), 0.01)
+    ky = 110.57
+    xy = [((p[0] - lon0) * kx, (p[1] - lat0) * ky) for p in pts]
+    n = len(xy)
+    sx = sum(p[0] for p in xy) / n
+    sy = sum(p[1] for p in xy) / n
+    cxx = sum((p[0] - sx) ** 2 for p in xy) / n
+    cyy = sum((p[1] - sy) ** 2 for p in xy) / n
+    cxy = sum((p[0] - sx) * (p[1] - sy) for p in xy) / n
+    tr = cxx + cyy
+    det = cxx * cyy - cxy * cxy
+    disc = max(tr * tr / 4.0 - det, 0.0)
+    lmax = tr / 2.0 + math.sqrt(disc)
+    lmin = tr / 2.0 - math.sqrt(disc)
+    elong = math.sqrt(max(lmax, 1e-9) / max(lmin, 1e-9))
+    # area poligonale (shoelace) / area dell'inviluppo convesso
+    def _area(poly):
+        s = 0.0
+        for (x0, y0), (x1, y1) in zip(poly, poly[1:] + poly[:1]):
+            s += x0 * y1 - x1 * y0
+        return abs(s) * 0.5
+    try:
+        pts_sorted = sorted(set(xy))
+        if len(pts_sorted) >= 3:
+            def _cross(o, a, b):
+                return ((a[0] - o[0]) * (b[1] - o[1])
+                        - (a[1] - o[1]) * (b[0] - o[0]))
+            lower, upper = [], []
+            for p in pts_sorted:
+                while len(lower) >= 2 and _cross(lower[-2], lower[-1], p) <= 0:
+                    lower.pop()
+                lower.append(p)
+            for p in reversed(pts_sorted):
+                while len(upper) >= 2 and _cross(upper[-2], upper[-1], p) <= 0:
+                    upper.pop()
+                upper.append(p)
+            hull = lower[:-1] + upper[:-1]
+            hull_area = _area(hull) if len(hull) >= 3 else None
+            poly_area = _area(xy)
+            solidity = (poly_area / hull_area
+                        if hull_area and hull_area > 0 else None)
+        else:
+            solidity = None
+    except Exception:
+        solidity = None
+    return (round(float(elong), 3),
+            round(float(solidity), 3) if solidity is not None else None)
 
-    Nessun dato inventato: senza storm object matchato, ritorna {} e le classi
-    che richiedono forma restano null con ``shape_2d_unavailable``.
+
+def _outline_shape(geom):
+    """Forma 2D dal POLIGONO PUBBLICATO (Polygon o MultiPolygon).
+
+    Per un MultiPolygon si usa il poligono con area maggiore: e' la componente
+    che determina l'aspetto della struttura. Nessun valore inventato se il
+    poligono manca.
     """
+    if not isinstance(geom, dict):
+        return None
+    polys = []
+    if geom.get("type") == "Polygon":
+        polys = [geom.get("coordinates") or []]
+    elif geom.get("type") == "MultiPolygon":
+        polys = list(geom.get("coordinates") or [])
+    best = None
+    best_area = -1.0
+    for poly in polys:
+        if not isinstance(poly, (list, tuple)) or not poly:
+            continue
+        ring = poly[0]
+        if not isinstance(ring, (list, tuple)) or len(ring) < 4:
+            continue
+        area = 0.0
+        try:
+            for (x0, y0), (x1, y1) in zip(ring, list(ring[1:]) + [ring[0]]):
+                area += float(x0) * float(y1) - float(x1) * float(y0)
+        except (TypeError, ValueError):
+            continue
+        area = abs(area) * 0.5
+        if area > best_area:
+            best_area = area
+            best = ring
+    if best is None:
+        return None
+    elong, solidity = _ring_shape(best)
+    if elong is None:
+        return None
+    return {"elongation": elong, "solidity": solidity, "bow_score": None,
+            "bow_null_reason": "bow_score_not_computed",
+            "source": "outline_pca"}
+
+
+def _shape_2d_for(bundle, candidate):
+    """Forma 2D per il classificatore: PCA del poligono, fallback bbox.
+
+    Il poligono pubblicato e' la geometria che l'utente vede: usare il bbox
+    dello storm object (comportamento fino alla 1.3.0.86) sottostimava
+    l'allungamento e rendeva SQUALL_LINE quasi irraggiungibile. Il fallback
+    bbox resta dichiarato con la sua fonte.
+    """
+    shape = _outline_shape(candidate.get("outline"))
+    if shape is not None:
+        return shape
     soid = candidate.get("storm_object_id")
     if soid is None:
         return {}
     frames = getattr(bundle, "storm_objects_by_frame", None) or []
     if not frames:
         return {}
-    last = frames[-1]
-    if not isinstance(last, (list, tuple)):
-        return {}
-    import math as _m
-    for obj in last:
+    for obj in frames[-1] or []:
         if getattr(obj, "storm_object_id", None) != soid:
             continue
         bbox = getattr(obj, "bbox_lonlat", None)
         if not bbox or len(bbox) != 4:
             return {}
         lon0, lat0, lon1, lat1 = [float(v) for v in bbox]
-        latm = _m.radians((lat0 + lat1) / 2.0)
-        dx = abs(lon1 - lon0) * 111.32 * max(_m.cos(latm), 0.01)
+        latm = math.radians((lat0 + lat1) / 2.0)
+        dx = abs(lon1 - lon0) * 111.32 * max(math.cos(latm), 0.01)
         dy = abs(lat1 - lat0) * 110.57
         if dx <= 0 or dy <= 0:
             return {}
         elong = max(dx, dy) / min(dx, dy)
         return {"elongation": round(elong, 3), "bow_score": None,
-                "source": "storm_object.bbox_lonlat (SCELTA INGEGNERISTICA)"}
+                "bow_null_reason": "outline_unavailable",
+                "source": "storm_object.bbox_lonlat (fallback dichiarato)"}
     return {}
+
+
+def _track_for_record(bundle, rec):
+    """Track del record (cella o storm object), o None."""
+    ttype = rec.get("track_type")
+    pool = (getattr(bundle, "storm_tracks", None)
+            if ttype == "storm_object" else getattr(bundle, "tracks", None))
+    for trk in pool or []:
+        if int(getattr(trk, "track_id", -1)) == int(rec.get("track_id", -2)):
+            return trk
+    return None
+
+
+def _prefix_class_sequence(bundle, rec, shape, cfg):
+    """Classe prodotta dalla STESSA regola su ogni prefisso della track.
+
+    I campi 3D (echo top / VIL / overhang) sono quelli del record finale:
+    restano costanti perche' non esistono per frame senza CAPPI. La parte che
+    cambia e' quella che produce il flicker reale (area, cell_count, durata).
+    """
+    track = _track_for_record(bundle, rec)
+    if track is None or not track.points:
+        return []
+    # Record sintetici/parziali (test, chiamanti storici) possono non avere il
+    # timestamp per punto: senza storia non si inventa una sequenza.
+    if not all(hasattr(p, "timestamp_ms") for p in track.points):
+        return []
+    storm = rec.get("track_type") == "storm_object"
+    t0 = track.points[0].timestamp_ms
+    seq = []
+    for i, p in enumerate(track.points):
+        cand = dict(rec)
+        cand["cell_count"] = (getattr(p, "cell_count", 1) if storm else 1)
+        cand["area_km2"] = getattr(p, "area_km2", None)
+        cand["n_points"] = i + 1
+        cand["motion"] = {"duration_min":
+                          (p.timestamp_ms - t0) / 60000.0}
+        f = classify_morphology(cand, shape_2d=shape,
+                                rotation_evidence=None, config=cfg)
+        seq.append(f.get("value"))
+    return seq
+
+
+def _smooth_class_sequence(seq, n):
+    """Isteresi: il nuovo valore vale dopo n frame consecutivi.
+
+    I frame senza classe (None) NON sono un cambio: non azzerano la classe
+    stabile. Con n<=1 il comportamento e' quello storico (nessuna isteresi).
+    """
+    if int(n) <= 1:
+        return list(seq)
+    out = []
+    stable = None
+    pending = None
+    streak = 0
+    for v in seq:
+        if stable is None:
+            if v is not None:
+                stable = v
+        elif v == stable:
+            pending = None
+            streak = 0
+        elif v is None:
+            pass
+        else:
+            if v == pending:
+                streak += 1
+            else:
+                pending = v
+                streak = 1
+            if streak >= int(n):
+                stable = v
+                pending = None
+                streak = 0
+        out.append(stable)
+    return out
 
 
 def attach_advanced(bundle, config=None):
@@ -854,6 +1043,8 @@ def attach_advanced(bundle, config=None):
     ``morphology_organization`` restano intatti.
     """
     cfg = (config or {}).get("advanced") if isinstance(config, dict) else None
+    th = thresholds_from_config(cfg)
+    hyst = int(th["morphology_hysteresis_frames"])
     structures = getattr(bundle, "convective_structures", None) or []
     rot = _rotation_evidence(bundle)
     n_levels = sum(1 for rd in (getattr(bundle, "_volume_cappi", None) or {}).values()
@@ -865,7 +1056,19 @@ def attach_advanced(bundle, config=None):
         "source": SOURCE,
         "structures_total": len(structures),
         "morphology_class_counts": {k: 0 for k in MORPHOLOGY_CLASSES},
+        "morphology_class_raw_counts": {k: 0 for k in MORPHOLOGY_CLASSES},
         "morphology_class_null": 0,
+        "morphology_class_raw_null": 0,
+        "morphology_class_transitions": 0,
+        "morphology_hysteresis_frames": hyst,
+        "morphology_class_reachable": ["SINGLE_CELL", "MULTICELL",
+                                       "SQUALL_LINE"],
+        "morphology_class_unreachable": {
+            "BOW_ECHO": "bow_score_not_computed",
+            "MCS": "requires_60min_and_echo_top_6000m",
+            "SUPERCELL_CANDIDATE": ROTATION_NULL_REASON,
+            "HP_SUPERCELL_CANDIDATE": ROTATION_NULL_REASON,
+        },
         "morphology_null_reasons": {},
         "lifecycle_stage_counts": {k: 0 for k in LIFECYCLE_STAGES},
         "lifecycle_null": 0,
@@ -889,6 +1092,34 @@ def attach_advanced(bundle, config=None):
         shape = _shape_2d_for(bundle, rec)
         mfield = classify_morphology(rec, shape_2d=shape,
                                      rotation_evidence=rot, config=cfg)
+        # Isteresi (1.3.0.87): la classe pubblicata e' quella stabile dopo
+        # `hyst` frame consecutivi; `raw_value` resta per audit.
+        raw_value = mfield.get("value")
+        seq = _prefix_class_sequence(bundle, rec, shape, cfg)
+        smoothed = _smooth_class_sequence(seq, hyst)
+        if smoothed:
+            stable = smoothed[-1]
+            mfield["raw_value"] = raw_value
+            mfield["value"] = stable
+            run = 0
+            for v in reversed(smoothed):
+                if v == stable:
+                    run += 1
+                else:
+                    break
+            mfield["hysteresis"] = {
+                "frames": hyst,
+                "sequence": seq,
+                "smoothed": smoothed,
+                "stable_frames": run,
+            }
+            if stable is None:
+                mfield["null_reason"] = (mfield.get("null_reason")
+                                         or "morphology_inconclusive")
+            else:
+                mfield["null_reason"] = None
+            summary["morphology_class_transitions"] += sum(
+                1 for a, b in zip(smoothed, smoothed[1:]) if a != b)
         lfield = derive_lifecycle(rec, config=cfg)
         tid = rec.get("track_id")
         kind = "storm_object" if rec.get("track_type") == "storm_object" else "cell"
@@ -910,6 +1141,11 @@ def attach_advanced(bundle, config=None):
         rec["overhang_candidate"] = ofield
         rec["hail_nuclei_tracking"] = hfield
 
+        rv = mfield.get("raw_value")
+        if rv is None:
+            summary["morphology_class_raw_null"] += 1
+        elif rv in summary["morphology_class_raw_counts"]:
+            summary["morphology_class_raw_counts"][rv] += 1
         mv = mfield["value"]
         if mv is None:
             summary["morphology_class_null"] += 1

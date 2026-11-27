@@ -481,6 +481,42 @@ CONFIG = {
         ],
     },
     # -----------------------------------------------------------------
+    # 1.3.0.87 — GEOMETRIA PUBBLICATA DELLA STRUTTURA (sweep 2026-11-27).
+    # Il poligono NON e' piu' l'inviluppo 20 dBZ (che copriva il 41-63% del
+    # dominio radar) e NON e' un solo nucleo scelto dal centroide (che perdeva
+    # le celle severe lontane). Sono TUTTI i nuclei >= core_dbz, in un
+    # MultiPolygon, con cap max_cores. Misure (screening 7 eventi + final 8
+    # eventi, docs/evidence/structure_sweep_20261127):
+    #   baseline inviluppo: POD 0,571/0,375, area 43,97%/41,93%, trans 0,121/0,131
+    #   nuclei >=35 all:    POD 0,571/0,375, area  7,33%/ 3,53%, trans 0,035/0,037
+    # Stesso POD, area ~6-12x minore, classi ~3,5x piu' stabili. Nessuna
+    # soglia di detection/SOI cambiata. `buffer_km=0` perche' il buffer
+    # 5/10/15 km non ha aggiunto POD e ha aumentato l'area.
+    "structure_geometry": {
+        "enabled": True,
+        "mode": "all",              # "all" | "nearest" (A/B del fix 1.3.0.80)
+        "core_dbz": 35.0,           # componente connessa del nucleo
+        "buffer_km": 0.0,           # dilatazione euclidea del nucleo
+        "min_core_area_km2": 4.0,   # 4 px a 1 km (stesso minimo di multiscale)
+        "max_cores": 8,             # cap per struttura (MultiPolygon)
+        "reference": (
+            "SCELTA MISURATA il 2026-11-27 su 15 eventi METAR/SPECI A/B "
+            "(6 giornate screening, 8 finali, archivio DPC dal 2026-05-20): "
+            "nuclei >=35 dBZ, TUTTI (cap 8), senza buffer. Stesso POD "
+            "dell'inviluppo 20 dBZ (4/7 screening, 3/8 finali), area severa "
+            "mediana 7,3%/3,5% del dominio contro 44,0%/41,9%, transizioni "
+            "di classe 0,035/0,037 contro 0,121/0,131. Non e' una taratura "
+            "su etichette morfologiche (non esistono): e' un A/B su POD e "
+            "area. Il buffer 5/10/15 km e' stato testato e scartato: nessun "
+            "POD aggiunto, area maggiore."),
+    },
+    "advanced": {
+        # 1.3.0.87 — isteresi della classe morfologica: un cambio vale solo
+        # dopo N frame consecutivi. Misurata: transizioni/frame 0,121 -> 0,035
+        # (screening) e 0,131 -> 0,037 (finale), stesso POD.
+        "morphology_hysteresis_frames": 3,
+    },
+    # -----------------------------------------------------------------
     # 2026-11-21 — TASSONOMIA MULTI-ASSE AGGIUNTIVA (script/radar_engine/
     # taxonomy.py). DEFAULT OFF: con `enabled=False` nessun campo nuovo viene
     # pubblicato e l'output resta byte-identico. Se attivo, ogni record

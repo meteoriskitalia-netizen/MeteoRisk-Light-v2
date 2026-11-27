@@ -1,4 +1,17 @@
-VERSION=1.3.0.86
+VERSION=1.3.0.87
+BUILD=227
+DATE=2026-11-27
+APP_FILE=mri-light-1.3.0.87.html
+MeteoRisk Light - 1.3.0.87 - Struttura convettiva: geometria a nuclei (MultiPolygon), area severa 44%->3,5%, classi stabili 3,6x e classe mostrata nel pannello.
+VERSION=1.3.0.87
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=227
+RELEASE_TYPE=release
+DATE=2026-11-27
+NOTE=Release 1.3.0.87 (bump da 1.3.0.86; APP_FILE mri-light-1.3.0.87.html). STRUTTURA CONVETTIVA: GEOMETRIA A NUCLEI, CLASSI STABILI, CLASSE VISIBILE. (1) GEOMETRIA: il poligono non e' piu' l'inviluppo 20 dBZ ne' un solo nucleo scelto dal centroide: sono TUTTI i nuclei >=35 dBZ in MultiPolygon (cap 8), senza buffer, con fallback dichiarato all'inviluppo se nessun nucleo. Misure su 15 eventi METAR/SPECI A/B (6 giornate screening + 8 finali, archivio DPC dal 2026-05-20): POD 4/7 e 3/8 IDENTICO al baseline, area severa mediana 43,97%->7,33% (screening) e 41,93%->3,53% (finale), massimo 63,1%->10,8% e 52,6%->10,7%. (2) CLASSI STABILI: isteresi 3 frame consecutivi (advanced.morphology_hysteresis_frames); transizioni/frame 0,121->0,035 e 0,131->0,037, stesso POD; morphology_class.value stabile, raw_value e hysteresis per audit. (3) CLASSE VISIBILE nel pannello Struttura convettiva (prima solo nel JSON); elongazione PCA del poligono, non bbox. (4) ULTIMA OSSERVAZIONE: il contorno si risolve su last_observed, non sull'ultimo punto coasted (fix LIML 2026-07-18T19:50Z e cell_not_found). Residui dichiarati: BOW_ECHO non producibile (bow_score non calcolato), MCS non producibile con finestra 6 frame (richiede 60 min + echo top >=6000 m), supercell non producibili senza VRADH; 1 contorno su 35 resta cell_mask_not_resolved. (5) PUBBLICAZIONE TRACK CORTE: una track con meno di 4 punti ma senza salti oltre 110 km/h non viene piu scartata; si pubblica con moto/forecast nulli e summary.short_track_published. Replay di prodotto 2026-07-18T19:50Z: prima 1 struttura e LIML fuori, dopo 3 strutture (2 corte) e LIML dentro 2, area 931/972 km2 contro inviluppo 5.031/3.774 km2. Il POD 3/8 della tabella sweep e' a livello di harness e non include questo fix; sul caso LIML il prodotto passa da miss a hit. TEST: 1.011 passed + schema aggiornato su radar_engine, test_html_js_syntax 1 passed; replay 2026-07-01T13:25Z 35 strutture, 34/35 MultiPolygon, area contorni 20.755 km2 contro 113.796 km2 di inviluppo.
+APP_FILE=mri-light-1.3.0.87.htmlVERSION=1.3.0.86
 BUILD=226
 DATE=2026-11-27
 APP_FILE=mri-light-1.3.0.86.html

@@ -290,6 +290,7 @@ satelliteEumetsat: true,         // WMS EUMETSAT / EUMETView (view.eumetsat.int)
 .sc-row-line { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; line-height: 1.35; }
 .sc-row-title { font-size: 12px; font-weight: 700; color: #f1f5f9; }
 .sc-row-soi { color: #cbd5e1; }
+.sc-row-class { color: #a5b4fc; }
 .sc-row-motion { color: #cbd5e1; }
 /* 1.2.4.84 - shear azimutale OSSERVATO (Doppler): riga dedicata, distinta
    dal SOI (morfologia) e dal moto. Il motivo del null sta sulla stessa
@@ -3341,9 +3342,17 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
     //     v10.29.1.0 (fix bug DPC il giorno dopo)
     //     v10.30.0.0 (aggiunto nuovo tab UV Index)
     // ================================================================
-    const APP_VERSION = '1.3.0.86';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
+    const APP_VERSION = '1.3.0.87';  // MAJOR.MINOR.PATCH.BUILD - Light / Public Educational Edition (indipendente dalla Full Development 10.x.x)
     const APP_RELEASE_DATE = '2026-11-27';
     const APP_CHANGELOG = [
+{ version: '1.3.0.87', date: '2026-11-27', changes: [
+  "STRUTTURA CONVETTIVA — GEOMETRIA A NUCLEI: il poligono non e' piu' l'inviluppo 20 dBZ (che copriva il 41-63% del dominio radar) e non e' un solo nucleo scelto dal centroide (che perdeva le celle severe lontane). Sono TUTTI i nuclei >=35 dBZ in un MultiPolygon (cap 8), senza buffer; il client disegna ogni poligono. Misure su 15 eventi METAR/SPECI A/B (6 giornate screening + 8 finali, archivio DPC dal 2026-05-20): POD 4/7 e 3/8 IDENTICO al baseline, area severa mediana 43,97%->7,33% (screening) e 41,93%->3,53% (finale), massimo 63,1%->10,8% e 52,6%->10,7%.",
+  "CLASSI STABILI: isteresi di 3 frame consecutivi (advanced.morphology_hysteresis_frames). Transizioni di classe per frame 0,121->0,035 (screening) e 0,131->0,037 (finale), stesso POD. La classe grezza resta in morphology_class.raw_value e la sequenza in morphology_class.hysteresis; morphology_class.value e' quella stabile.",
+  "CLASSE MORFOLOGICA VISIBILE: il pannello «Struttura convettiva» mostra la classe (Cella singola / Multicell / Linea di groppo) con i frame di stabilita'. Prima era pubblicata nel JSON ma non mostrata. Elongazione = PCA del poligono pubblicato, non bbox. BOW_ECHO, MCS e le due supercell restano NON producibili con la VMI 2D e sono dichiarate nel summary (bow_score non calcolato; MCS richiede 60 min + echo top >=6000 m; supercell richiede VRADH).",
+  "ULTIMA OSSERVAZIONE, NON COASTED: il poligono si risolve sull'ultimo punto OSSERVATO (last_observed), non sull'ultimo punto coasted che non ha cell_id/storm_object_id. Corregge il caso LIML 2026-07-18T19:50Z (stazione dentro l'eco, poligono null per cell_not_found) e riduce i contorni mancanti. I campi observed_points/coasted_points dichiarano la composizione della track.",
+  "PUBBLICAZIONE DELLE TRACK CORTE: una track con meno di 4 punti ma senza salti oltre il gate 110 km/h non viene piu' scartata: si pubblica con track_coherent=false, motion_reliable=false e forecast null. Restano scartate solo le track con un salto impossibile. Replay di prodotto 2026-07-18T19:50Z: prima 1 struttura e LIML fuori; dopo 3 strutture (2 track corte), LIML dentro 2, area 931/972 km2 contro inviluppo 5.031/3.774 km2. summary.short_track_published dichiara quante.",
+  "TEST: 1.011 test radar_engine (1.010 passed + 1 aggiornato nello schema esatto), test_html_js_syntax 1 passed; replay reale 2026-07-01T13:25Z: 35 strutture, 34/35 MultiPolygon, area contorni 20.755 km2 contro 113.796 km2 di inviluppo."
+]},
 { version: '1.3.0.86', date: '2026-11-27', changes: [
   "TIMELINE 18 FRAME A PASSO 5 MIN: 5,10,...,90 (prima 12 con salto 45->60->75->90). Misurato sullo stesso slot: 610.516 B / 18 file contro 412.568 B / 12 (+48%), compute 51-74 s contro 37-51 s a seconda della contesa CPU; preload ~610 kB. Slider e preload restano dinamici su leads[].",
   "CONTROLLI DEL NOWCAST NEL PANNELLO DEL PRODOTTO: Vista (Intensita' | Probabilita'), Soglia, Nuvole. Rimossi dal pannello LIVE. La vista e' MUTUAMENTE ESCLUSIVA: con Probabilita' il layer intensita' va a opacity 0 e la probabilita' sta nel pane z 408; con Intensita' la probabilita' viene rimossa e l'intensita' torna a 0,75. Nessuna sovrapposizione.",
@@ -13243,6 +13252,49 @@ removeLightningTile();
         return level;
     }
 
+    // 1.3.0.87 — CLASSE MORFOLOGICA nel pannello. Prima era pubblicata nel
+    // JSON ma NON mostrata: il pannello esponeva solo il SOI. Il lessico e'
+    // chiuso; MCS/BOW/supercella non sono producibili con la VMI 2D e non
+    // vengono inventati.
+    var SC_MORPH_LABELS = {
+        SINGLE_CELL: 'Cella singola',
+        MULTICELL: 'Multicella',
+        SQUALL_LINE: 'Linea di groppo',
+        BOW_ECHO: 'Eco a bow',
+        MCS: 'Sistema esteso (MCS)',
+        SUPERCELL_CANDIDATE: 'Candidato supercella',
+        HP_SUPERCELL_CANDIDATE: 'Candidato supercella HP'
+    };
+    function scMorphologyClass(c) {
+        var m = c && c.morphology_class;
+        if (!m || typeof m !== 'object') {
+            return { text: 'Classe morfologica n/d',
+                     title: 'Campo morphology_class assente nel payload.' };
+        }
+        if (!m.value) {
+            return { text: 'Classe non determinata',
+                     title: 'Classe morfologica non determinata dal dato 2D (motivo nel JSON morphology_class.null_reason).' };
+        }
+        var label = SC_MORPH_LABELS[m.value];
+        if (!label) {
+            return { text: 'Classe non riconosciuta',
+                     title: 'Valore di morphology_class fuori dal lessico.' };
+        }
+        var h = m.hysteresis || {};
+        var stable = (typeof h.stable_frames === 'number' && h.stable_frames > 0)
+            ? h.stable_frames : null;
+        var txt = label + (stable ? ' · stabile ' + stable + ' frame' : '');
+        var raw = (m.raw_value && m.raw_value !== m.value
+                   && SC_MORPH_LABELS[m.raw_value])
+            ? ' (valore grezzo: ' + SC_MORPH_LABELS[m.raw_value] + ')' : '';
+        return {
+            text: txt,
+            title: 'Classe morfologica 2D dal poligono (senza Doppler): ' + label + raw +
+                   (h.frames ? ' · isteresi ' + h.frames + ' frame' : '') +
+                   '. NON e\' una probabilita\'; MCS/BOW/supercella non sono producibili con la VMI 2D.'
+        };
+    }
+
     function scCompass(deg) {
         if (deg === null || deg === undefined || isNaN(deg)) return '—';
         var dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
@@ -14336,10 +14388,12 @@ removeLightningTile();
             ' · ' + (frames === null ? 'n/d frame' : scFmtInt(frames) + ' frame') +
             ' · percorso ' + (distKm === null ? 'n/d' : scFmtInt(distKm) + ' km') +
             (areaTxt ? ' · ' + areaTxt : '');
+        var morphClass = scMorphologyClass(c);
         row.innerHTML =
             '<div class="sc-row-line sc-row-title">' + titleParts.join(' · ') + ' ' + phaseChip + fresh + '</div>' +
             '<div class="sc-row-line">' + pos + ' · ' + distTxt + '</div>' +
             '<div class="sc-row-line sc-row-soi">' + soiTxt + ' · organizzazione stimata (morfologia, senza Doppler)</div>' +
+            '<div class="sc-row-line sc-row-class" title="' + morphClass.title + '">' + morphClass.text + '</div>' +
             (shearTxt ? '<div class="sc-row-line sc-row-doppler' + shearCls + '">' + shearTxt + '</div>' : '') +
             '<div class="sc-row-line sc-row-motion">' + scMotionLine(c) + '</div>' +
             '<details class="sc-row-detail"><summary>Dettaglio traccia, descrittori e forecast</summary>' +
@@ -15752,6 +15806,33 @@ removeLightningTile();
         return rings.length ? rings : null;
     }
 
+    // 1.3.0.87 — il contorno pubblicato e' un MultiPolygon di TUTTI i nuclei
+    // >=35 dBZ (cap 8), non piu' un solo poligono. Ritorna una lista di
+    // poligoni; ciascuno e' una lista di anelli (esterno + buchi).
+    function scBuildOutlinePolygons(record) {
+        var geom = record && record.outline;
+        if (!geom) return null;
+        if (geom.type === 'Polygon') {
+            var one = scBuildOutlineRings(record);
+            return one ? [one] : null;
+        }
+        if (geom.type !== 'MultiPolygon' || !Array.isArray(geom.coordinates)) return null;
+        var out = [];
+        for (var i = 0; i < geom.coordinates.length; i++) {
+            var poly = geom.coordinates[i];
+            if (!Array.isArray(poly) || !poly.length) continue;
+            var rings = [];
+            var ok = true;
+            for (var j = 0; j < poly.length; j++) {
+                var ring = scConeRingLonLat(poly[j]);
+                if (!ring) { ok = false; break; }
+                rings.push(ring);
+            }
+            if (ok && rings.length) out.push(rings);
+        }
+        return out.length ? out : null;
+    }
+
     // Cono di incertezza forecast. Dal 1.2.4.78 il motore pubblica per OGNI step
     // il poligono REALE del cono (`cone_polygon`: ellisse con semiasse lungo =
     // `cone_km_along` e trasverso = `cone_km_cross`, `cone_shape` "ellipse"). Se
@@ -16273,14 +16354,16 @@ removeLightningTile();
         var cands = scRadarData && Array.isArray(scRadarData.structures) ? scRadarData.structures : [];
         var layers = [];
         for (var i = 0; i < cands.length; i++) {
-            var rings = scBuildOutlineRings(cands[i]);
-            if (!rings) continue;
-            var poly = L.polygon(rings, {
-                pane: 'outlinePane', color: '#0f172a', weight: 1.2, opacity: 0.55,
-                fill: false, interactive: false, className: 'sc-cell-outline'
-            });
-            poly._scStructureKey = scTrackKey(cands[i]);
-            layers.push(poly);
+            var polygons = scBuildOutlinePolygons(cands[i]);
+            if (!polygons) continue;
+            for (var p = 0; p < polygons.length; p++) {
+                var poly = L.polygon(polygons[p], {
+                    pane: 'outlinePane', color: '#0f172a', weight: 1.2, opacity: 0.55,
+                    fill: false, interactive: false, className: 'sc-cell-outline'
+                });
+                poly._scStructureKey = scTrackKey(cands[i]);
+                layers.push(poly);
+            }
         }
         if (layers.length) scOutlineLayer = L.layerGroup(layers).addTo(map);
     }

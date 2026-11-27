@@ -360,7 +360,37 @@ def _candidate_dict(bundle, track, track_type, cfg, soi,
     """Rappresentazione JSON (solo track candidate)."""
     n = len(track.points)
     last = track.points[-1]
+    # Il punto COASTED e' una STIMA: non porta `cell_id`/`storm_object_id` e
+    # non ha una maschera osservata. La geometria va risolta sull'ultima
+    # OSSERVAZIONE (altrimenti il poligono resta `cell_not_found` anche se la
+    # struttura e' stata vista pochi minuti prima).
+    observed = [p for p in track.points
+                if getattr(p, "observed", True)
+                and int(getattr(p, "frame_index", -1)) >= 0]
+    last_obs = observed[-1] if observed else last
     coherent, _max_seg_speed = _track_coherence(track.points)
+    # Track CORTA ma geometricamente SANA: <4 punti non bastano per un moto
+    # pubblicabile, ma la struttura e' un'osservazione reale. Il filtro di
+    # pubblicazione scartava anche queste e nascondeva eventi al suolo
+    # (misurato: LIML 2026-07-18T19:50Z, storm track da 3 punti a 19:35 con
+    # l'eco sulla stazione). Si pubblicano SOLO se nessun segmento supera il
+    # gate 110 km/h; un salto impossibile resta scartato.
+    short_safe = False
+    coherence_reason = None
+    if not coherent:
+        if n < 4:
+            short_safe = True
+            max_speed = float(forecast_mod.SPEED_RANGE_KMH[1])
+            for a, b in zip(track.points, track.points[1:]):
+                dt_h = (b.timestamp_ms - a.timestamp_ms) / 3600000.0
+                if dt_h <= 0 or (haversine_km(a.lonlat, b.lonlat) / dt_h
+                                 > max_speed):
+                    short_safe = False
+                    break
+            coherence_reason = ("insufficient_points_safe" if short_safe
+                                else "insufficient_points_jump")
+        else:
+            coherence_reason = "speed_gate"
     dist = track.motion.get("distance_km")
     if dist is None:
         dist = sum(haversine_km(a.lonlat, b.lonlat)
@@ -399,8 +429,11 @@ def _candidate_dict(bundle, track, track_type, cfg, soi,
         "time_window": window,
         "track_id": track.track_id,
         "track_type": track_type,
-        "cell_id": getattr(last, "cell_id", None),
-        "storm_object_id": getattr(last, "storm_object_id", None),
+        # Identita' della geometria: ultima OSSERVAZIONE (fallback sull'ultimo
+        # punto solo se non esiste alcun punto osservato).
+        "cell_id": getattr(last_obs, "cell_id", None) or getattr(last, "cell_id", None),
+        "storm_object_id": (getattr(last_obs, "storm_object_id", None)
+                            or getattr(last, "storm_object_id", None)),
         "soi": soi,
         "n_points": n,
         # Composizione della struttura (2026-11-11): celle della maschera,
@@ -410,6 +443,11 @@ def _candidate_dict(bundle, track, track_type, cfg, soi,
         "distance_km": round(float(dist), 2) if dist is not None else None,
         "track_points": n,
         "track_coherent": coherent,
+        # 1.3.0.87 — track corta ma senza salti: pubblicabile con moto nullo.
+        # `track_short_safe` e' True solo con <4 punti e nessun segmento
+        # oltre il gate 110 km/h; `track_coherence_reason` lo dichiara.
+        "track_short_safe": bool(short_safe),
+        "track_coherence_reason": coherence_reason,
         # Moto pubblicabile: stessa decisione del blocco `motion`, esposta al
         # livello superiore per il pannello (che non deve ricostruirla).
         "motion_reliable": bool(coherent and velocity is not None
@@ -425,6 +463,14 @@ def _candidate_dict(bundle, track, track_type, cfg, soi,
         "rotation_null_reason": ROTATION_NULL_REASON,
         "first_seen": track.points[0].timestamp_iso,
         "last_seen": last.timestamp_iso,
+        # Tempo dell'ultima OSSERVAZIONE: e' l'istante a cui appartiene il
+        # poligono pubblicato (il punto coasted non ha una maschera).
+        "last_observed": last_obs.timestamp_iso,
+        "last_observed_frame": int(getattr(last_obs, "frame_index", -1)),
+        "observed_points": len(observed),
+        "coasted_points": int(n - len(observed)),
+        "last_observed_position": [round(last_obs.lonlat[0], 5),
+                                   round(last_obs.lonlat[1], 5)],
         "position": [round(last.lonlat[0], 5), round(last.lonlat[1], 5)],
         "intensity": {
             "max_dbz": round(max_dbz_max, 2),
@@ -542,6 +588,13 @@ def split_publishable(records):
     skipped = 0
     for rec in records or []:
         if rec.get("track_coherent") is False:
+            # 1.3.0.87: una track CORTA ma senza salti (track_short_safe) e'
+            # un'osservazione reale: si pubblica con moto non affidabile e
+            # forecast nullo. Solo i salti impossibili restano scartati.
+            if rec.get("track_short_safe") is True:
+                rec["short_track_published"] = True
+                publishable.append(rec)
+                continue
             skipped += 1
             continue
         publishable.append(rec)
@@ -562,6 +615,16 @@ _OUTLINE_FIELDS = (
     ("outline_holes", "holes"),
     ("outline_holes_dropped", "holes_dropped"),
     ("outline_components_dropped", "components_dropped"),
+    # 1.3.0.87 — geometria a NUCLEI (MultiPolygon di tutti i core >= core_dbz).
+    ("outline_envelope_area_km2", "envelope_area_km2"),
+    ("outline_core_area_km2", "core_area_km2"),
+    ("outline_core_dbz", "core_dbz"),
+    ("outline_core_basis", "core_basis"),
+    ("outline_core_fallback", "core_fallback"),
+    ("outline_buffer_km", "buffer_km"),
+    ("outline_core_count", "core_count"),
+    ("outline_cores", "cores"),
+    ("outline_frame_iso", "frame_iso"),
 )
 
 

@@ -44,6 +44,8 @@ import os
 
 import numpy as np
 
+from .tracking import haversine_km
+
 # Livelli dei bandi SOI che contano come "criterio severo" (convective_
 # structure.classify_level): sono gli stessi nomi usati dal pannello.
 SEVERE_LEVELS = ("strong", "intense")
@@ -241,6 +243,152 @@ def masks_for_cells(cells, bundle, cfg_detect):
 
 
 # ---------------------------------------------------------------------------
+# Nuclei della struttura: componente >= core_dbz, TUTTI i nuclei (1.3.0.87)
+# ---------------------------------------------------------------------------
+def structure_cores(mask, window, raster, anchor_lonlat=None, *,
+                    core_dbz=35.0, buffer_km=0.0,
+                    min_core_area_km2=4.0, max_cores=8, mode="all"):
+    """(core_mask, core_window, cores, info) della struttura.
+
+    PERCHE' TUTTI I NUCLEI. Il fix "core" della 1.3.0.80 sceglieva il nucleo
+    piu' vicino al centroide del record. Su un sistema con piu' celle (o su una
+    catena) il nucleo di una cella severa puo' stare a decine di km dal
+    centroide: il poligono pubblicato non la copriva e l'evento al suolo
+    finiva fuori. Misurato sul caso LIMF 2026-07-01T13:20Z: la stazione e'
+    dentro un nucleo >=35 dBZ di 970 km2, ma il nucleo piu' vicino al
+    centroide era un altro. `mode="all"` pubblica l'UNIONE dei nuclei
+    (MultiPolygon), non un inviluppo e non un solo nucleo.
+
+    REGOLE (nessuna soglia nuova oltre a quelle dichiarate):
+      * `mask` e' l'inviluppo (unione delle celle) alla soglia di detection;
+      * componente = connessione 8 su `mask & raster.data >= core_dbz`;
+      * si tengono le componenti con area >= `min_core_area_km2`, ordinate per
+        area decrescente, al massimo `max_cores`;
+      * `mode="nearest"`: si tiene solo la componente piu' vicina ad
+        `anchor_lonlat` (comportamento del fix 1.3.0.80, per A/B);
+      * `mode="all"`: unione di tutte le componenti tenute;
+      * se nessuna componente supera la soglia: UNA componente dell'inviluppo
+        piu' vicina all'anchor, SENZA buffer (fallback dichiarato);
+      * `buffer_km` > 0: dilatazione euclidea della maschera scelta.
+
+    Ritorna `(core, (r0, r1, c0, c1), cores, info)`; `core` None se non c'e'
+    alcuna componente. `info` e' serializzabile e dichiara `basis`,
+    `core_dbz`, `buffer_km`, `core_count`, aree e fallback.
+    """
+    import scipy.ndimage as ndi
+
+    if mask is None or raster is None or window is None:
+        return None, window, [], {"basis": "no_mask", "core_count": 0}
+    r0, r1, c0, c1 = [int(v) for v in window]
+    h = r1 - r0 + 1
+    w = c1 - c0 + 1
+    if h <= 0 or w <= 0 or not bool(np.asarray(mask, dtype=bool).any()):
+        return None, window, [], {"basis": "empty_mask", "core_count": 0}
+
+    px_km = float(np.sqrt(max(float(raster.pixel_area_km2), 1e-9)))
+    pad = int(np.ceil(max(float(buffer_km), 0.0) / px_km))
+    rr0 = max(r0 - pad, 0)
+    rr1 = min(r1 + pad, int(raster.rows) - 1)
+    cc0 = max(c0 - pad, 0)
+    cc1 = min(c1 + pad, int(raster.cols) - 1)
+    if rr1 < rr0 or cc1 < cc0:
+        return None, window, [], {"basis": "outside_raster", "core_count": 0}
+
+    env = np.zeros((rr1 - rr0 + 1, cc1 - cc0 + 1), dtype=bool)
+    env[r0 - rr0:r1 - rr0 + 1, c0 - cc0:c1 - cc0 + 1] = np.asarray(
+        mask, dtype=bool)
+    z = np.asarray(raster.data[rr0:rr1 + 1, cc0:cc1 + 1], dtype="float64")
+    valid = np.asarray(raster.valid_mask[rr0:rr1 + 1, cc0:cc1 + 1], dtype=bool)
+    pixel_area = float(raster.pixel_area_km2)
+
+    def _cores_from(binary, threshold):
+        lab, n = ndi.label(binary, structure=np.ones((3, 3), dtype=bool))
+        out = []
+        for idx in range(1, n + 1):
+            comp = lab == idx
+            area = float(comp.sum()) * pixel_area
+            if area < float(min_core_area_km2):
+                continue
+            rr, cc = ndi.center_of_mass(comp)
+            lon, lat = raster.pixel_to_lonlat(rr0 + rr, cc0 + cc)
+            vals = z[comp]
+            out.append({
+                "area_km2": round(area, 2),
+                "pixel_count": int(comp.sum()),
+                "centroid": [round(float(lon), 5), round(float(lat), 5)],
+                "max_dbz": round(float(vals.max()), 2) if vals.size else None,
+                "mask": comp,
+                "threshold_dbz": threshold,
+            })
+        out.sort(key=lambda x: -x["area_km2"])
+        return out
+
+    anchor = None
+    if isinstance(anchor_lonlat, (list, tuple)) and len(anchor_lonlat) >= 2:
+        try:
+            anchor = (float(anchor_lonlat[0]), float(anchor_lonlat[1]))
+        except (TypeError, ValueError):
+            anchor = None
+
+    def _distance(entry):
+        if anchor is None:
+            return 0.0
+        return haversine_km(anchor, tuple(entry["centroid"]))
+
+    core = None
+    cores = []
+    basis = "core_dbz"
+    used_dbz = float(core_dbz)
+    used_buffer = float(buffer_km)
+    if float(core_dbz) > 0:
+        core_bin = env & valid & (z >= float(core_dbz))
+        cand = _cores_from(core_bin, float(core_dbz))
+        if cand:
+            if str(mode) == "nearest":
+                cand.sort(key=lambda x: (_distance(x), -x["area_km2"]))
+                cand = cand[:1]
+            else:
+                cand = cand[:max(1, int(max_cores))]
+            core = np.zeros_like(env)
+            for entry in cand:
+                core |= entry["mask"]
+            cores = [{k: v for k, v in e.items() if k != "mask"}
+                     for e in cand]
+    if core is None or not bool(core.any()):
+        # Fallback: UNA componente dell'inviluppo, senza buffer.
+        env_components = _cores_from(env, None)
+        if not env_components:
+            return None, (rr0, rr1, cc0, cc1), [], {
+                "basis": "no_envelope_component", "core_count": 0,
+                "envelope_area_km2": round(float(env.sum()) * pixel_area, 2)}
+        env_components.sort(key=lambda x: (_distance(x), -x["area_km2"]))
+        chosen = env_components[0]
+        core = chosen["mask"]
+        basis = "envelope_component"
+        used_dbz = None
+        used_buffer = 0.0
+        cores = [{k: v for k, v in chosen.items() if k != "mask"}]
+    elif pad > 0:
+        y, x = np.ogrid[-pad:pad + 1, -pad:pad + 1]
+        disk = (x * x + y * y) <= pad * pad
+        core = ndi.binary_dilation(core, structure=disk)
+
+    if not bool(core.any()):
+        return None, (rr0, rr1, cc0, cc1), [], {"basis": "empty_core"}
+    info = {
+        "basis": basis,
+        "core_dbz": used_dbz,
+        "buffer_km": used_buffer,
+        "core_count": len(cores),
+        "envelope_area_km2": round(float(env.sum()) * pixel_area, 2),
+        "core_area_km2": round(float(core.sum()) * pixel_area, 2),
+        "core_fallback": basis != "core_dbz",
+        "mode": str(mode),
+    }
+    return core, (rr0, rr1, cc0, cc1), cores, info
+
+
+# ---------------------------------------------------------------------------
 # Poligonizzazione (rasterio.features.shapes) + pulizia dei vertici
 # ---------------------------------------------------------------------------
 def _dedupe(ring):
@@ -386,12 +534,17 @@ def _cells_for_record(bundle, record, frame_index):
 
 
 def record_footprint(bundle, record, cfg_detect):
-    """Footprint GeoJSON del record convettivo AL SUO frame (last_seen).
+    """Footprint GeoJSON del record convettivo all'ULTIMA OSSERVAZIONE.
 
-    Ritorna dict {geometry, area_km2, ...} oppure {"null_reason": ...} —
-    nessun poligono inventato."""
+    La geometria e' la stessa del contorno pubblicato: MultiPolygon di TUTTI
+    i nuclei >= `structure_geometry.core_dbz` (cap `max_cores`), con buffer
+    dichiarato; fallback all'inviluppo se nessun nucleo. Ritorna dict
+    {geometry, area_km2, ...} oppure {"null_reason": ...} — nessun poligono
+    inventato."""
+    from . import config as _cfg
     threshold = float(cfg_detect["dbz_threshold"])
-    frame_iso = record.get("last_seen") or record.get("first_seen")
+    frame_iso = (record.get("last_observed") or record.get("last_seen")
+                 or record.get("first_seen"))
     frame_index = _frame_index_by_iso(bundle, frame_iso)
     if frame_index is None:
         return {"null_reason": "frame_not_found", "frame_iso": frame_iso}
@@ -403,7 +556,28 @@ def record_footprint(bundle, record, cfg_detect):
         return {"null_reason": "cell_mask_not_resolved", "frame_iso": frame_iso,
                 "resolution": how}
     raster = bundle.frames[frame_index]
-    geom = polygons_from_mask(mask, raster, win)
+    px_area = float(raster.pixel_area_km2)
+    core = mask
+    core_win = win
+    cinfo = {}
+    cores = []
+    gcfg = (_cfg.CONFIG or {}).get("structure_geometry") or {}
+    if gcfg.get("enabled", False):
+        try:
+            core2, win2, cores, cinfo = structure_cores(
+                mask, win, raster,
+                anchor_lonlat=(record.get("last_observed_position")
+                               or record.get("position")),
+                core_dbz=float(gcfg.get("core_dbz", 35.0)),
+                buffer_km=float(gcfg.get("buffer_km", 0.0)),
+                min_core_area_km2=float(gcfg.get("min_core_area_km2", 4.0)),
+                max_cores=int(gcfg.get("max_cores", 8)),
+                mode=str(gcfg.get("mode", "all")))
+        except Exception:
+            core2 = None
+        if core2 is not None and win2 is not None:
+            core, core_win = core2, win2
+    geom = polygons_from_mask(core, raster, core_win)
     if geom is None:
         return {"null_reason": "polygonize_empty", "frame_iso": frame_iso,
                 "resolution": how}
@@ -417,8 +591,15 @@ def record_footprint(bundle, record, cfg_detect):
         "cells_used": used,
         "cells_skipped": skipped,
         "resolution": how,
-        "pixel_count": int(mask.sum()),
-        "area_km2": round(float(mask.sum()) * float(raster.pixel_area_km2), 3),
+        "pixel_count": int(core.sum()),
+        "area_km2": round(float(core.sum()) * px_area, 3),
+        "envelope_area_km2": round(float(mask.sum()) * px_area, 3),
+        "core_dbz": cinfo.get("core_dbz"),
+        "core_basis": cinfo.get("basis"),
+        "core_fallback": cinfo.get("core_fallback"),
+        "buffer_km": cinfo.get("buffer_km"),
+        "core_count": cinfo.get("core_count"),
+        "cores": cores,
         "vertices": n_vertices,
         "geometry": geometry,
         "centroid": geometry_centroid(geometry),
@@ -548,6 +729,12 @@ def build_features(bundle, cfg_detect):
                 "first_seen": rec.get("first_seen"),
                 "last_seen": rec.get("last_seen"),
                 "area_km2": fp["area_km2"],
+                "envelope_area_km2": fp.get("envelope_area_km2"),
+                "core_dbz": fp.get("core_dbz"),
+                "core_basis": fp.get("core_basis"),
+                "core_fallback": fp.get("core_fallback"),
+                "buffer_km": fp.get("buffer_km"),
+                "core_count": fp.get("core_count"),
                 "pixel_count": fp["pixel_count"],
                 "cells_used": fp["cells_used"],
                 "cells_skipped": fp["cells_skipped"],

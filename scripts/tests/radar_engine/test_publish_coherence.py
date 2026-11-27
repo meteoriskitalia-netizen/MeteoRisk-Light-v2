@@ -158,3 +158,30 @@ def test_all_skipped_writes_valid_empty_file_and_keeps_audit(tmp_path):
     with open(paths["storm_tracks.json"], encoding="utf-8") as fh:
         storm_tracks = json.load(fh)
     assert len(storm_tracks["tracks"]) == 1
+
+
+def test_short_slow_track_is_published_with_motion_null():
+    """1.3.0.87 — 3 punti lenti: track corta ma senza salti -> pubblicata.
+
+    Il moto NON e' pubblicabile (track_coherent=False), il forecast e' null,
+    ma la struttura e' un'osservazione reale e non va nascosta. Il caso
+    misurato e' LIML 2026-07-18T19:50Z (storm track da 3 punti con l'eco
+    sulla stazione).
+    """
+    track = _storm_track([10.0, 10.02, 10.04], track_id=3)
+    b = _bundle([track])
+    cs.evaluate(b, CONFIG["convective_structure"])
+    rec = b.convective_structures[0]
+    assert rec["track_points"] == 3
+    assert rec["track_coherent"] is False
+    assert rec["track_short_safe"] is True
+    assert rec["track_coherence_reason"] == "insufficient_points_safe"
+    payload = output.build_convective_structures(b)
+    assert len(payload["structures"]) == 1
+    assert payload["structures"][0]["track_coherent"] is False
+    assert payload["structures"][0]["motion_reliable"] is False
+    assert payload["summary"]["skipped_incoherent"] == 0
+    assert payload["summary"]["short_track_published"] == 1
+    latest = output.build_latest(b)
+    assert latest["structure_candidates"] == 1
+    assert latest["short_track_published"] == 1

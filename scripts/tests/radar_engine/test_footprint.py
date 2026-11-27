@@ -271,3 +271,56 @@ def test_output_unchanged_without_footprints_flag(tmp_path):
     src = inspect.getsource(main_mod.main)
     assert "--footprints" in src
     assert "if args.footprints and not args.dry_run" in src
+
+
+# ---------------------------------------------------------------------------
+# 1.3.0.87 — geometria a NUCLEI (tutti i core, non uno solo)
+# ---------------------------------------------------------------------------
+def test_structure_cores_all_vs_nearest_and_buffer(tmp_path):
+    arr = np.zeros((80, 120))
+    # due nuclei >=35 separati da un ponte debole >=20
+    arr[20:32, 15:27] = 45.0
+    arr[20:32, 85:97] = 48.0
+    arr[26:28, 27:85] = 22.0
+    rd = _raster(tmp_path, arr)
+    mask = np.zeros(arr.shape, dtype=bool)
+    mask[18:34, 13:99] = True
+    win = (0, arr.shape[0] - 1, 0, arr.shape[1] - 1)
+    core_all, win_all, cores_all, info_all = fp.structure_cores(
+        mask, win, rd, anchor_lonlat=(10.0, 45.0), core_dbz=35.0,
+        buffer_km=0.0, min_core_area_km2=1.0, max_cores=8, mode="all")
+    assert core_all is not None and win_all is not None
+    assert info_all["core_count"] == 2
+    assert info_all["basis"] == "core_dbz"
+    assert len(cores_all) == 2
+    area_all = float(core_all.sum()) * rd.pixel_area_km2
+    assert area_all > 0.0
+    core_nearest, _w, cores_near, info_near = fp.structure_cores(
+        mask, win, rd, anchor_lonlat=(10.0, 45.0), core_dbz=35.0,
+        buffer_km=0.0, min_core_area_km2=1.0, max_cores=8, mode="nearest")
+    assert core_nearest is not None
+    assert info_near["core_count"] == 1
+    assert float(core_nearest.sum()) < float(core_all.sum())
+    core_buf, _w2, _c2, info_buf = fp.structure_cores(
+        mask, win, rd, anchor_lonlat=(10.0, 45.0), core_dbz=35.0,
+        buffer_km=5.0, min_core_area_km2=1.0, max_cores=8, mode="all")
+    assert core_buf is not None
+    assert float(core_buf.sum()) > float(core_all.sum())
+    assert info_buf["buffer_km"] == 5.0
+
+
+def test_structure_cores_fallback_envelope_without_buffer(tmp_path):
+    arr = np.zeros((40, 40))
+    arr[10:20, 10:20] = 25.0          # nessun nucleo >=35
+    rd = _raster(tmp_path, arr)
+    mask = np.zeros(arr.shape, dtype=bool)
+    mask[9:21, 9:21] = True
+    win = (0, arr.shape[0] - 1, 0, arr.shape[1] - 1)
+    core, _w, cores, info = fp.structure_cores(
+        mask, win, rd, anchor_lonlat=(10.0, 45.0), core_dbz=35.0,
+        buffer_km=10.0, min_core_area_km2=1.0, max_cores=8, mode="all")
+    assert core is not None
+    assert info["basis"] == "envelope_component"
+    assert info["core_fallback"] is True
+    assert info["buffer_km"] == 0.0
+    assert len(cores) == 1

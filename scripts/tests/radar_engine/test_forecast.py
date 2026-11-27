@@ -355,6 +355,12 @@ def test_schema_steps_esattamente_4():
                           "outline_vertices", "outline_holes",
                           "outline_holes_dropped",
                           "outline_components_dropped",
+                          # 1.3.0.87 — geometria a nuclei (MultiPolygon)
+                          "outline_envelope_area_km2",
+                          "outline_core_area_km2", "outline_core_dbz",
+                          "outline_core_basis", "outline_core_fallback",
+                          "outline_buffer_km", "outline_core_count",
+                          "outline_cores", "outline_frame_iso",
                           "decay_class", "decay_lambda_min",
                           "basis_frames", "confidence", "steps",
                           "direction_toward_deg", "velocity_kmh",
