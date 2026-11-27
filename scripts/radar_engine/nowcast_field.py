@@ -1324,9 +1324,18 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
         _band = PAIR_DT_BAND_S
     motion = estimate_motion(frames, warnings, band_s=_band)
     if motion is None:
+        # anche senza moto i buchi vanno DICHIARATI, non solo loggati
+        _slots0 = [int(f[2]) for f in frames]
+        _int0 = [round((_slots0[i + 1] - _slots0[i]) / 60000.0, 2)
+                 for i in range(len(_slots0) - 1)]
         return _unavailable("motion_unavailable", clock,
                             {"frames_origin": origin,
-                             "frames_used": len(frames)}), None
+                             "frames_used": len(frames),
+                             "frame_intervals_min": _int0,
+                             "gap_minutes": [x for x in _int0
+                                             if x > float(_band[1]) / 60.0],
+                             "motion_pair_dt_band_s": list(_band),
+                             "lead_origin": "source_slot"}), None
 
     rd = None
     # il raster SRI piu' recente serve per griglia/CRS (il tuple non lo porta)
