@@ -303,6 +303,29 @@ def test_validate_document_rejects_too_few_stations(doc):
     assert any("minimo" in p for p in problems)
 
 
+def test_station_with_no_measured_quantity_is_excluded_not_fatal(payload):
+    """Una stazione con la sola temperatura respinta dal gate NON blocca il run.
+
+    Caso reale del 2026-11-27 (Palma di Montechiaro): con l'ancora del blob
+    giornaliero la temperatura viene scartata tutta e il record resta senza
+    nessuna grandezza base. Prima il validatore faceva fallire le 5.028
+    stazioni; ora la stazione si scarta, si conta, e il documento e' valido.
+    """
+    baseline = {
+        fs.baseline_key("boa", 44.21458, 12.47587): [
+            (NOW - timedelta(minutes=90), 30.0),  # 30 degC contro ~12,7: respinto
+        ]
+    }
+    out = fs.normalize_payload(
+        payload, NETWORKS, generated_at=NOW, max_age_minutes=180,
+        temp_baseline=baseline,
+    )
+    ids = {st["id"] for st in out["stations"]}
+    assert "boa:44.21458,12.47587" not in ids
+    assert out["counts"]["stations_excluded_no_data"] == 2  # Cervia + Nausicaa
+    assert fs.validate_document(out, min_stations=1, max_bytes=1_500_000) == []
+
+
 def test_build_query_contains_mandatory_license_clause():
     """Senza `license:` il servizio risponde 400: la clausola e' obbligatoria."""
     query = fs.build_query(

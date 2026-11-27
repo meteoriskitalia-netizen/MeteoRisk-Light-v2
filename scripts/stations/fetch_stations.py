@@ -220,6 +220,25 @@ LIMITS = {
     "river_level_m": (-50.0, 100.0),         # m, quota idrologica locale
 }
 
+#: Grandezze BASE che rendono una stazione pubblicabile. Se nessuna e' non-null
+#: la stazione non porta una misura: si scarta e si conta in
+#: `stations_excluded_no_data`, NON si fa fallire l'intero run. Caso reale del
+#: 2026-11-27: `dpcn-sicilia:37.20139,13.76111` (Palma di Montechiaro) con la
+#: temperatura tutta respinta dal gate e nessun altro sensore -> il validatore
+#: bloccava le 5.028 stazioni per un solo record vuoto.
+MEASURED_FIELDS = (
+    "temperature_2m",
+    "relative_humidity_2m",
+    "wind_speed_10m",
+    "wind_direction_10m",
+    "precipitation",
+    "station_pressure_hPa",
+    "wind_gust_10m",
+    "snow_depth_m",
+    "fresh_snow_depth_m",
+    "river_level_m",
+)
+
 # Budget del file completo in byte. NON e' un limite della piattaforma: e' il
 # tetto oltre il quale il run si ferma e l'ultimo dataset valido resta in piedi.
 # MISURATO il 2026-11-23 con i campi derivati dalle serie (1.3.0.56): 2.780.971
@@ -2345,6 +2364,14 @@ def normalize_payload(
                 if _in_limits("dew_point_2m", dp):
                     record["dew_point_2m"] = dp
 
+        if not any(record.get(name) is not None for name in MEASURED_FIELDS):
+            # Nessuna grandezza base: la stazione non ha una misura
+            # pubblicabile (es. temperatura tutta scartata dal gate e nessun
+            # altro sensore). Si scarta e si conta; NON si fa fallire l'intero
+            # dataset nazionale per un singolo record vuoto.
+            excluded_no_data += 1
+            continue
+
         # --- cumulate di pioggia e sintesi del vento (dalle serie) ---
         if key in rain_series:
             stations_with_rain_series += 1
@@ -2837,22 +2864,7 @@ def validate_document(doc: dict, min_stations: int, max_bytes: int) -> list[str]
             problems.append(f"rete mancante per {sid}")
         if not st.get("obs_time"):
             problems.append(f"obs_time mancante per {sid}")
-        measured = [
-            k
-            for k in (
-                "temperature_2m",
-                "relative_humidity_2m",
-                "wind_speed_10m",
-                "wind_direction_10m",
-                "precipitation",
-                "station_pressure_hPa",
-                "wind_gust_10m",
-                "snow_depth_m",
-                "fresh_snow_depth_m",
-                "river_level_m",
-            )
-            if k in st
-        ]
+        measured = [k for k in MEASURED_FIELDS if st.get(k) is not None]
         if not measured:
             problems.append(f"nessuna grandezza per {sid}")
         if "visibility" in st or "pressure_msl" in st:
