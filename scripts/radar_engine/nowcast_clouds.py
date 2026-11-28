@@ -42,7 +42,7 @@ CLASSES = (
      "label": "nube molto fredda (convettiva)",
      "rgb": (100, 125, 165), "alpha": 150},
 )
-OPACITY = 0.62
+OPACITY = 0.85
 NOTE = (
     "Nuvole IR (contesto estrapolato col moto del nowcast): una nube alta "
     "e fredda puo' non piovere. Non e' una previsione di pioggia ne' della "
@@ -133,30 +133,32 @@ def rgba_from_temp(temp_c, valid, blend_c=2.0, blur_px=0.7):
 
 
 def rgba_ir_continuous(temp_c, valid, t_min=-70.0, t_max=30.0,
-                       t_warm_cut=3.0, gamma=0.5):
-    """IR 10.8 -> grigio continuo, TUTTE le nuvole (giorno e notte).
+                       t_warm_cut=3.0, gamma=0.6):
+    """IR 10.8 -> bianco/grigio, TUTTE le nuvole (giorno e notte).
 
-    La soglia binaria a -20 °C mostrava solo le nubi alte: una nube media
-    a -5 °C restava invisibile. Qui l'alpha cresce in modo non lineare da
-    t_max (trasparente) a t_min (bianco), con contrasto nella banda
-    -60..-10 °C. L'opacita' del layer (0,72) moltiplica alpha 80-255:
-    effettiva ~0,23-0,72; il layer resta sotto la pioggia.
+    Il grigio chiaro al 21% era invisibile sulla mappa verde/beige. Qui:
+    - alpha minimo 150 per ogni pixel nuvola, 255 a -70 °C;
+    - colore BIANCO per le sommita' fredde (<-50 °C), grigio via via piu'
+      scuro verso +3 °C (scala del satellite visibile);
+    - opacita' layer 0,85: l'effettiva mediana supera il 60%.
+    Il taglio a +3 °C evita di colorare il suolo caldo.
     """
     t = np.asarray(temp_c, np.float32)
     v = np.asarray(valid, bool) & np.isfinite(t)
-    # Il suolo caldo (> 3 °C) NON e' una nuvola: senza questo taglio la
-    # scala continua colorerebbe tutta la pianura. Il taglio e' dichiarato
-    # (`t_warm_cut_c`); le nubi basse a 0..3 °C restano molto tenui.
     x = np.clip((float(t_warm_cut) - t) /
                 max(float(t_warm_cut) - float(t_min), 1.0), 0.0, 1.0)
-    # non lineare: piu' contrasto dove stanno le nubi (-60..-10)
-    a = np.power(x, float(gamma))
-    alpha = np.where(v, np.clip(a * 255.0, 0, 255), 0).astype(np.uint8)
-    # grigio-blu chiaro, NON la palette della pioggia
+    # alpha: minimo 150, saturazione 255; piu' contrasto sulle nubi fredde
+    alpha = 200.0 + 55.0 * np.power(x, float(gamma))
+    alpha = np.where(v & (t < float(t_warm_cut)),
+                     np.clip(alpha, 0, 255), 0).astype(np.uint8)
+    # tono di grigio (stesso valore sui 3 canali): bianco freddo, grigio caldo
+    tt = np.where(v, t, 3.0)
+    tone = np.interp(tt, [-70.0, -50.0, -20.0, 0.0, 3.0],
+                     [255.0, 255.0, 228.0, 165.0, 130.0]).astype(np.uint8)
     out = np.zeros(t.shape + (4,), np.uint8)
-    out[:, :, 0] = 205
-    out[:, :, 1] = 215
-    out[:, :, 2] = 225
+    out[:, :, 0] = tone
+    out[:, :, 1] = tone
+    out[:, :, 2] = tone
     out[:, :, 3] = alpha
     out[~v, :3] = 0
     return out

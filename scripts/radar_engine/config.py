@@ -1064,7 +1064,7 @@ CONFIG = {
         "enabled": True,
         "mode": "ir_gray_continuous",
         "thresholds_c": [-20.0, -32.0, -44.0],
-        "opacity": 0.62,
+        "opacity": 0.85,
         "t_range_c": [-70.0, 30.0],
         # RESA MORBIDA (2026-11-27): temperatura continua + bilineare,
         # alpha smoothstep 2 °C + blur 0,7 px, downsample 2 (layer ~3 km,
