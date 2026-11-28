@@ -191,7 +191,7 @@ MOTION_DIVERGENCE_METHOD = "helmholtz_divergence_free_lowpass"
 # A/B sullo stesso caso (2026-11-26T13:25Z): CSI@30 0,5718 -> 0,5871,
 # CSI@60 0,4517 -> 0,4596, aspetto p90 a +60 4,58 -> 3,30 (osservato 3,45).
 # 0 = spento (trasporto per pixel, A/B).
-TRANSPORT_COARSE_FACTOR = 3
+TRANSPORT_COARSE_FACTOR = 1   # C: nessuna riduzione a blocchi (dettaglio)
 TRANSPORT_COARSE_METHOD = "block_mean_warp_upsample_bilinear"
 # RIPRISTINO HF (2026-11-26): il trasporto a 3 km perde dettaglio fine.
 # Un unsharp deterministico riporta la varianza alto-pass (<~4 px) al
@@ -1709,6 +1709,9 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
         coarse_factor = TRANSPORT_COARSE_FACTOR
     if coarse_factor < 2:
         coarse_factor = 0
+    # Il PRIMO lead e' l'osservato (nessun coarse, nessun HF): il passaggio
+    # dall'ultimo frame radar al primo nowcast non deve cambiare il dettaglio.
+    first_lead_observed = bool(config.get("nowcast_first_lead_observed", True))
     transport_source = latest
     if (transport_mode == "single" and transport_order == 3
             and coarse_factor < 2):
@@ -1743,7 +1746,13 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
         # in unita' frazionarie (i lead di produzione sono multipli di 5).
         steps_f = float(lead) / float(STEP_MIN)
         steps_i = int(round(steps_f))
-        if coarse_factor >= 2:
+        if first_lead_observed and int(lead) == 5:
+            # Primo frame = osservato esatto: nessun coarse, nessun HF,
+            # nessuna erosione. Il player non deve mostrare un salto.
+            stepped = np.asarray(latest, np.float32).copy()
+            mass_scale = 1.0
+            mass_scale_by_lead[lead] = 1.0
+        elif coarse_factor >= 2:
             # TRASPORTO A 3 KM (media a blocchi + warp + upsample): niente
             # bordi frastagliati e niente nastri. Il mass cap e' dentro.
             stepped, mass_scale = coarse_warp(
@@ -1826,6 +1835,14 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
             native[lead], _sinfo = spectral_evolve(
                 native[lead], domain, lead, pixel_km, spectral_cfg, _rng)
             spectral_lead_info[lead] = _sinfo
+        if first_lead_observed and int(lead) == 5:
+            # Override finale: qualunque correzione (oro, HF, erosione,
+            # spettrale) NON tocca il primo frame.
+            native[lead] = np.asarray(latest, np.float32).copy()
+            hf_lead_info[lead] = {"applied": False,
+                                  "null_reason": "first_lead_observed"}
+            decay_lead_info[lead] = {"applied": False,
+                                     "null_reason": "first_lead_observed"}
 
     oro_block = orography_mod.summarize(oro_ctx)
     reliability = reliability_for(bundle, config, out_dir)
@@ -1937,6 +1954,9 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
             "measured_ratio_at_cutoff": float(
                 TRUNCATION_MEASURED_RATIO_AT_CUTOFF),
             "reference": "docs/NOWCAST_EVOLUTION.md",
+            "first_lead_observed": bool(first_lead_observed),
+            "first_lead_mode": ("observed_latest" if first_lead_observed
+                                else "transported"),
         },
         # ripristino HF deterministico (nessun rumore): dettaglio <4 km
         "hf_restore": {

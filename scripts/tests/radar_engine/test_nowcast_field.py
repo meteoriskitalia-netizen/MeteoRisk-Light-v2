@@ -393,6 +393,23 @@ def test_output_json_and_webp(tmp_path):
     assert 180 not in nf.IMAGE_NAMES
 
 
+def test_first_lead_is_the_observed_field(tmp_path):
+    rasters, domain = _moving_frames(tmp_path, n=3, dx=1)
+    bundle = _Bundle(rasters)
+    cfg = _config(tmp_path)
+    payload, native = nf.compute(
+        bundle, cfg, clock_mod.Clock.at_ms(T0 + 2 * STEP_MS),
+        bundle.warnings)
+    assert payload["available"] is True
+    assert payload["truncation"]["first_lead_mode"] == "observed_latest"
+    latest, lvalid = nf._rain_array(rasters[-1])
+    latest = np.where(np.asarray(lvalid, bool), np.asarray(latest, np.float32),
+                      0.0)
+    assert np.allclose(native[5], latest, rtol=0, atol=1e-6)
+    assert payload["hf_restore"]["per_lead"]["5"]["null_reason"] == \
+        "first_lead_observed"
+
+
 def test_frames_are_cumulative_and_coherent(tmp_path):
     """Con `transport_mode="steps"` (A/B) il +10 e' il +5 avanzato di 1 passo.
 
@@ -404,6 +421,7 @@ def test_frames_are_cumulative_and_coherent(tmp_path):
     cfg = _config(tmp_path)
     cfg["nowcast_transport_mode"] = "steps"
     cfg["nowcast_transport_coarse"] = 0
+    cfg["nowcast_first_lead_observed"] = False
     cfg["nowcast_hf_restore"] = {"enabled": False}
     payload, native = nf.compute(bundle, cfg,
                                  clock_mod.Clock.at_ms(T0 + 2 * STEP_MS),
@@ -892,7 +910,7 @@ def test_coarse_transport_and_hf_restore_are_declared(tmp_path):
                                  clock_mod.Clock.at_ms(T0 + 2 * STEP_MS),
                                  bundle.warnings)
     assert payload["available"] is True
-    assert payload["transport_coarse_factor"] == 3
+    assert payload["transport_coarse_factor"] == 1
     assert payload["transport_coarse_method"]
     assert payload["truncation"]["max_lead_min"] == 90
     assert 120 not in native and 180 not in native

@@ -971,7 +971,9 @@ CONFIG = {
     # frastagliati e le strutture a nastro del trasporto per pixel.
     # A/B sullo stesso caso: CSI@30 0,5718 -> 0,5871, CSI@60 0,4517 ->
     # 0,4596, aspetto p90@60 4,58 -> 3,30 (osservato 3,45). 0 = spento.
-    "nowcast_transport_coarse": 3,
+    # DETTAGLIO (A/B 2026-11-28): coarse 1 + nessuno smoothing = C.
+    # HF 1,15-1,24x osservato, Nyquist 0,79-0,85x, CSI +0,013..+0,015 vs A.
+    "nowcast_transport_coarse": 1,
     # RIPRISTINO HF (2026-11-26): il trasporto a 3 km perde dettaglio fine.
     # Unsharp DETERMINISTICO (nessun rumore) che riporta la varianza
     # alto-pass (<~4 px) al 70% di quella dell'analisi, con crescita 20%
@@ -979,6 +981,9 @@ CONFIG = {
     # produzione: HF 0,108/0,109/0,111/0,114 a +15/+30/+60/+90, CSI@30
     # 0,5517, CSI@60 0,4332. La variante stocastica (STEPS) e' stata
     # scartata: produceva un retino da Nyquist visibile.
+    # Il primo frame (+5) e' l'osservato esatto: nessun coarse/HF/erosione.
+    # Evita il salto di dettaglio fra ultimo radar e primo nowcast.
+    "nowcast_first_lead_observed": True,
     "nowcast_hf_restore": {
         "enabled": True,
         "sigma_px": 4.0,
