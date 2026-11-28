@@ -144,7 +144,10 @@ def rgba_ir_continuous(temp_c, valid, t_min=-70.0, t_max=30.0,
     Il taglio a +3 °C evita di colorare il suolo caldo.
     """
     t = np.asarray(temp_c, np.float32)
-    v = np.asarray(valid, bool) & np.isfinite(t)
+    # Sentinelle e valori fuori scala NON sono nuvole: senza questo filtro
+    # -9999 finisce nel ramo freddo e diventa bianco pieno.
+    v = (np.asarray(valid, bool) & np.isfinite(t) &
+         (t > -100.0) & (t < 80.0))
     x = np.clip((float(t_warm_cut) - t) /
                 max(float(t_warm_cut) - float(t_min), 1.0), 0.0, 1.0)
     # alpha: minimo 150, saturazione 255; piu' contrasto sulle nubi fredde
@@ -242,7 +245,9 @@ def build(bundle, config, clock, latest_ts, sri_rd, warnings=None):
             return {"info": info}
         temp = np.asarray(rd.data, np.float32)
         valid = np.asarray(getattr(rd, "valid_mask", np.isfinite(temp)),
-                           bool)
+                           bool) & np.isfinite(temp) & (temp > -100.0) & (
+            temp < 80.0)
+        valid = np.asarray(valid, bool)
         if temp.shape != (int(sri_rd.rows), int(sri_rd.cols)):
             info["null_reason"] = "ir108_grid_mismatch"
             info["slot"] = _iso(int(rd.time_ms))

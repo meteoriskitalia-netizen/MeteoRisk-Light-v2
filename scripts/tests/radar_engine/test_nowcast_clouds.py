@@ -76,6 +76,11 @@ def test_ir_continuous_shows_clouds_warmer_than_minus20():
     assert a[0, 3] > 0          # -5 °C: nube media visibile
     assert a[0, 5] == 0         # suolo caldo: nessuna tinta
     assert a[0, 6] == 0
+    # sentinelle e pixel non validi: alpha 0, non bianco
+    t2 = np.array([[-9999.0, -20.0, -5.0]], np.float32)
+    v2 = np.array([[True, False, True]], bool)
+    a2 = nc.rgba_ir_continuous(t2, v2)[:, :, 3].astype(int)
+    assert a2[0, 0] == 0 and a2[0, 1] == 0 and a2[0, 2] > 0
 
 
 def test_write_webp_uses_class_alpha(tmp_path):

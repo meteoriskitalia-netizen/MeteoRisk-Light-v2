@@ -2435,6 +2435,12 @@ def write_products(out_dir, payload, native, config=None):
     _nat = native or {}
     _clouds = _nat.get("_clouds")
     _cgrid = _nat.get("_grid")
+    _dom_pub = None
+    if _clouds and _cgrid and _nat.get("_domain") is not None:
+        _dom = np.asarray(_nat["_domain"], bool)
+        _dom_pub = reproject_to_grid(
+            _dom.astype(np.float32), _dom, _clouds["rd"], _cgrid,
+            resampling="nearest", clamp_min=None) >= 0.5
     if _clouds and _cgrid and (payload.get("clouds") or {}).get("available"):
         try:
             _cl = payload.get("clouds") or {}
@@ -2461,6 +2467,8 @@ def write_products(out_dir, payload, native, config=None):
                     _cgrid, resampling="nearest", clamp_min=None)
                 _pub = np.where(np.isfinite(_pub), _pub, 0).astype(np.uint8)
                 _rgba = clouds_mod.rgba_from_classes(_pub)
+            if _dom_pub is not None:
+                _rgba[_dom_pub == False, 3] = 0  # noqa: E712
             _path = os.path.join(out_dir, clouds_mod.IMAGE_NAME)
             _down = int(_cl.get("downsample") or 1)
             _size = clouds_mod.write_rgba_webp(_path, _rgba,
@@ -2492,6 +2500,8 @@ def write_products(out_dir, payload, native, config=None):
                         _pt, np.isfinite(_pt),
                         blend_c=float(_cl.get("blend_c") or 2.0),
                         blur_px=float(_cl.get("blur_px") or 0.7))
+                if _dom_pub is not None:
+                    _rgba_l[_dom_pub == False, 3] = 0  # noqa: E712
                 _name = clouds_mod.image_name_for(_lead)
                 _sz = clouds_mod.write_rgba_webp(
                     os.path.join(out_dir, _name), _rgba_l,
@@ -2503,6 +2513,12 @@ def write_products(out_dir, payload, native, config=None):
             payload["clouds"]["images_by_lead"] = _by_lead
             payload["clouds"]["output_bytes"] = _tot
             payload["clouds"]["published_pixels"] = _pub
+            payload["clouds"]["domain_mask"] = (
+                "radar_domain_reprojected" if _dom_pub is not None else None)
+            if _dom_pub is not None:
+                payload["clouds"]["outside_domain_pixels"] = int(
+                    np.asarray(_rgba[:, :, 3] > 0)[
+                        np.logical_not(_dom_pub)].sum())
         except Exception as _exc:
             _reason = "{}:{}".format(_exc.__class__.__name__, _exc)
             payload["clouds"]["available"] = False
