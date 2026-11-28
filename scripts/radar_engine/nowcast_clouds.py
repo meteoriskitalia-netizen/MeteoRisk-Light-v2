@@ -42,7 +42,7 @@ CLASSES = (
      "label": "nube molto fredda (convettiva)",
      "rgb": (100, 125, 165), "alpha": 150},
 )
-OPACITY = 0.72
+OPACITY = 0.62
 NOTE = (
     "Nuvole IR (contesto estrapolato col moto del nowcast): una nube alta "
     "e fredda puo' non piovere. Non e' una previsione di pioggia ne' della "
