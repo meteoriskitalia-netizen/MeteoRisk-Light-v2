@@ -881,6 +881,12 @@ CONFIG = {
     # riaccenderlo costa una riga e la misura si aggiorna da sola.
     "orographic_enhancement": {
         "enabled": False,
+        # Dal BUILD=228 la griglia e' 0,02 deg (520.000 celle, uint8
+        # quantizzato a 20 m + LZMA2, 139.772 B gzip). Il path resta quello
+        # storico del prodotto: il loader accetta sia il nuovo formato sia
+        # il vecchio vettore int16. Il flag resta False per l'A/B del
+        # BUILD=220 (orog CSI 0,4915 contro 0,5198 senza orografia): il
+        # DEM piu' fine riduce l'errore del descrittore, non ribalta l'A/B.
         "grid_file": "data/geography/orography_it_0p05.json",
         "env_points_file": "data/latest/meteorisk-points.json",
         "env_metadata_file": "data/latest/metadata.json",

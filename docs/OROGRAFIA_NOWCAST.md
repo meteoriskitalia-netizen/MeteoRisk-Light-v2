@@ -6,24 +6,31 @@ senza orografia e contro la persistenza.
 
 ## 1. Fonte della quota
 
-`data/geography/orography_it_0p05.json` — schema `meteorisk.orography/1`, pubblicata
-su `main` (commit `3a5975f9`, BUILD=215):
+`data/geography/orography_it_0p05.json` (path storico del prodotto) — schema
+`meteorisk.orography/1`. Dal **BUILD=228** la griglia è 0,02° e il campo è
+codificato in modo compatto; la versione BUILD=215 (0,05°, int16) resta nella
+storia git.
 
-| campo | valore |
+| campo | valore (BUILD=228) |
 | :--- | :--- |
-| celle | 83.200 (320 x 260, passo 0,05°) |
-| byte | 254.024 raw / 74.939 gzip |
-| sha256 | `cc823da416a81eb36c1cb68b642f006e9c1244b04b2d6d15ef6d449aa3f021cc` |
-| dtype | int16, metri, nodata `-32768` |
+| celle | **520.000** (800 x 650, passo **0,02°**, ~2,2 km) |
+| byte | **181.770 raw / 139.772 gzip** |
+| sha256 | **`17db2272eb8a7afc08f119ca0993ac6469ed869d6c25be511e6375e802fea35e`** |
+| dtype | **uint8 quantizzato a 20 m** (0-5100 m), 0 = mare, nessun nodata |
+| encoding | **LZMA2 con filtro delta 1, payload base64** (`encoding.codec = lzma2_delta1`) |
 | ordinamento | row-major, **lat crescente** (`iy=0 -> 35°N`), 0 = mare |
 | sorgente | Terrain Tiles (Mapzen/joerd) z8 → SRTM ~432 m, aggregato cos(lat) |
 | licenza | SRTM pubblico dominio (USGS/NASA/NGA), ETOPO1 pubblico dominio (NOAA) |
 
-`radar_engine/orography.py::load_grid` gira l'array in **north-up** una volta sola
-(riga 0 = lat massima): da lì in poi la convenzione interna è unica.
-Controllo di orientamento nei test: i tre campioni dichiarati nel file
-(`monte_bianco` 3259 m, `pianura_padana` 46 m, `adriatico_medio` 0 m) tornano
-esatti, cella per cella.
+Storico BUILD=215 (0,05°): 83.200 celle (320 x 260), 254.024 B raw / 74.939 B
+gzip, sha256 `cc823da4…f021cc`, int16.
+
+`radar_engine/orography.py::load_grid` decodifica il payload (base64 → LZMA2 →
+uint8 × 20 m) e gira l'array in **north-up** una volta sola (riga 0 = lat
+massima): da lì in poi la convenzione interna è unica; accetta anche il vecchio
+vettore int16. Controllo di orientamento nei test: i campioni dichiarati nel
+file (`etna_vetta` 3080 m, `monte_bianco_vetta` 4380 m, `pianura_padana` 40 m,
+`adriatico_medio` 0 m) tornano esatti, cella per cella.
 
 > Nota sulle centraline (verifica separata, **non usata** per la griglia):
 > il payload `data/stations/latest.json` **non** contiene alcuna quota. La
@@ -255,3 +262,40 @@ reversibile con una riga e `nowcast_verify` continua a misurare ON e OFF.
 calcolate con `compute(..., orographic=False)` (12 su 12, sha256) e **diverse** da
 quelle con l'orografia attiva (12 su 12); il blocco `orographic_enhancement`
 pubblica `enabled: false`, `applied: false`, `null_reason: disabled_by_config`.
+
+## 8. Effetto del DEM 0,02° sullo stau del 2026-11-28 (misura offline)
+
+La griglia del BUILD=228 è stata provata sulla griglia reale del nowcast di
+oggi (`data/radar/nowcast.json`, slot `2026-11-28T14:50Z`, lead 15 =
+`15:05Z`, 1183×1272 a 1,5 km) con l'ambiente del dataset
+`2026-11-28T15:03:59Z` (257 punti, ora 16 locale): vento medio `u = −0,194`,
+`v = −9,191 m/s` (northerly, 12,4 m/s), RH media 68,6%, T media 8,0 °C.
+Catena identica a `orography.prepare` (Sobel 1,5 km, `up_max` 15 km,
+Alpert & Shafir). Riferimento: la griglia 0,01° costruita dagli stessi tile.
+
+| metrica (714.903 celle di terra) | 0,05° (vecchia) | 0,02° (nuova) | 0,01° (rif.) |
+| :--- | ---: | ---: | ---: |
+| errore relativo upslope locale | 0,774 | **0,354** | 0 |
+| errore relativo `up_max` 15 km | 0,597 | **0,231** | 0 |
+| errore relativo `e_pos` | 0,607 | **0,233** | 0 |
+| pixel con gate attivo | 39.820 | 39.898 | 39.485 |
+| `e_pos` medio sui gated (mm/h) | 10,66 | **19,42** | 24,17 |
+
+- Il nuovo DEM **dimezza** l'errore del descrittore: −54,3% sull'upslope
+  locale, −61,3% su `up_max`, −61,6% su `e_pos`.
+- Il gate non perde pixel: +78 solo nuovi, **zero** spenti.
+- Sui pixel gated da entrambe le griglie il termine `e_pos` cresce in media
+  di **+8,86 mm/h** (mediana +6,40, p99 +57,87, max +96,64). È il termine
+  **prima** del tetto `max_relative_increase` e del gate sulla pioggia: non è
+  il delta finale in mm/h.
+- Per macroarea (media `e_pos`, mm/h, 0,05° → 0,02°): Alpi 0,076→0,156;
+  Prealpi/Pianura 0,093→0,191; Appennino 1,054→1,983; Sicilia 2,288→3,726;
+  Sardegna 0,072→0,111.
+
+**Il nowcast pubblicato di oggi ha `orographic_enhancement.enabled = false`:
+l'effetto operativo è zero.** La misura dice che il DEM 0,02° è un
+descrittore migliore, non che l'enhancement vada riacceso: l'A/B aggiornato
+(`nowcast_verification.json`, 4.941 casi appaiati) dà orog CSI **0,4787**
+contro no_orog **0,4965** (`decision: "l'orografia PEGGIORA il nowcast"`),
+in linea con la misura dei 42 slot del §7. La decisione sul flag resta
+separata e va presa con una misura prospettica, non con questo file.

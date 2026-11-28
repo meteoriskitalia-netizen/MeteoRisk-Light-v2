@@ -30,13 +30,14 @@ VETTORE di moto e resta a monte, invariato.
 
 Ingressi (tutti gia' nel repo, nessun download nuovo)
 -----------------------------------------------------
-* quota:  `data/geography/orography_it_0p05.json` â€” schema
-  `meteorisk.orography/1`, DEM SRTM (USGS, pubblico dominio) ridotto a 0,05
-  deg (83.200 celle, 320x260, int16, row-major lat CRESCENTE, 0 = mare,
-  nodata -32768). Pubblicato su `main` (commit 3a5975f9, BUILD=215):
-  254.024 B raw / 74.939 B gzip, sha256 cc823da4...f021cc. Il loader gira
-  l'array in north-up UNA volta (costo ~1 ms) e da li' in poi la griglia e'
-  sempre (riga 0 = lat massima);
+* quota:  `data/geography/orography_it_0p05.json` (path storico del prodotto)
+  â€” schema `meteorisk.orography/1`, DEM SRTM (USGS, pubblico dominio)
+  ridotto a 0,02 deg (520.000 celle, 800x650, uint8 quantizzato a 20 m e
+  compresso LZMA2+base64, row-major lat CRESCENTE, 0 = mare). Pubblicato su
+  `main` dal BUILD=228: 181.770 B raw / 139.772 B gzip, sha256 17db2272...
+  fea35e. Il loader decodifica e gira l'array in north-up UNA volta
+  (costo ~20-50 ms) e da li' in poi la griglia e' sempre (riga 0 = lat
+  massima);
 * ambiente: `data/latest/meteorisk-points.json` + `data/latest/metadata.json`
   (Open-Meteo best_match, 257 punti, ora 0 = `time_base` locale) â€” campi
   `temperature_2m`, `relativehumidity_2m`, `windspeed_10m`, `winddirection_10m`.
@@ -73,7 +74,9 @@ correzione a 5 minuti. Va nel campo `reference`, e l'esito A/B sta in
 `data/radar/nowcast_verification.json`.
 """
 
+import base64
 import json
+import lzma
 import math
 import os
 
@@ -122,7 +125,7 @@ LIMITS = (
     "enhancement ma pioggia inventata. I pixel in cui il tetto morde sono "
     "contati (`capped_pixels`). Sottovento l'attenuazione non scende sotto il "
     "50% del campo trasportato (limite ingegneristico dichiarato). Quota = "
-    "DEM SRTM 0,05 deg (non un modello NWP ne' le centraline). Formula Alpert "
+    "DEM SRTM 0,02 deg (non un modello NWP ne' le centraline). Formula Alpert "
     "& Shafir nata per QPE, trasposta al nowcast: NON validata."
 )
 
@@ -151,9 +154,12 @@ _CACHE = {}
 def load_grid(path):
     """Legge la griglia `meteorisk.orography/1`. Ritorna dict o None.
 
-    L'array pubblicato e' row-major con lat CRESCENTE (iy=0 -> lat0=35): qui
-    viene girato UNA volta in north-up, cosi' `sample_bilinear` lavora sempre
-    con riga 0 = lat massima. Il mare e' 0 m (valore valido, non nodata).
+    Dal BUILD=228 il file pubblicato e' a 0,02 gradi con `elevations_m` come
+    stringa base64 di un flusso LZMA2 (filtro delta 1) di uint8 quantizzati
+    (`encoding.codec = lzma2_delta1`, `encoding.scale_m = 20`). Il loader
+    accetta anche il vecchio vettore JSON di int16 (retrocompatibile).
+    L'array e' row-major con lat CRESCENTE (iy=0 -> lat0=35): qui viene
+    girato UNA volta in north-up. Il mare e' 0 m (valore valido).
     """
     if not path or not os.path.exists(path):
         _CACHE[path] = None
@@ -164,29 +170,46 @@ def load_grid(path):
         with open(path, encoding="utf-8") as fh:
             doc = json.load(fh)
         g = doc["grid"]
-        ny, nx = int(g["ny"]), int(g["nx"])
         nx = int(g.get("nx") or g.get("width"))
         ny = int(g.get("ny") or g.get("height"))
+        step_x = float(g.get("dlon") or g.get("step") or 0.0)
+        step_y = float(g.get("dlat") or g.get("step") or step_x)
+        if step_x <= 0 or step_y <= 0:
+            raise ValueError("grid_step_missing")
         vals = doc.get("elevations_m")
         if vals is None:
             raise ValueError("elevations_m_missing")
-        arr = np.asarray(vals, dtype=np.float64).reshape(ny, nx)
+        enc = doc.get("encoding") or {}
+        if isinstance(vals, str):
+            codec = str(enc.get("codec") or "")
+            if codec != "lzma2_delta1":
+                raise ValueError("elevations_codec_unsupported:%s" % codec)
+            raw = lzma.decompress(base64.b64decode(vals.encode("ascii")))
+            q = np.frombuffer(raw, dtype=np.uint8)
+            if q.size != nx * ny:
+                raise ValueError("elevations_length_%d_expected_%d"
+                                 % (q.size, nx * ny))
+            arr = q.reshape(ny, nx).astype(np.float64) * float(enc["scale_m"])
+        else:
+            arr = np.asarray(vals, dtype=np.float64).reshape(ny, nx)
         if "crescente" in str(g.get("ordering", "")).lower() or \
                 float(g.get("lat0", 0.0)) < float(g.get("lat1", 1.0)):
             arr = arr[::-1, :]          # lat crescente -> north-up
         nodata = (doc.get("method") or {}).get("nodata")
-        if nodata is None:
-            nodata = -32768
-        arr[arr <= float(nodata) + 1] = np.nan
+        if nodata is not None:
+            arr[arr <= float(nodata) + 1] = np.nan
         out = {
             "lon_min": float(g["lon0"]),
             "lon_max": float(g["lon1"]),
             "lat_min": float(g["lat0"]),
             "lat_max": float(g["lat1"]),
-            "step": float(g["dlon"]),
+            "step": step_x,
+            "step_x": step_x,
+            "step_y": step_y,
             "width": nx, "height": ny,
             "elev": arr,
             "doc": doc,
+            "encoding": enc,
             "path": path,
         }
         _CACHE[path] = out
@@ -198,9 +221,10 @@ def load_grid(path):
 
 def sample_bilinear(grid, lon, lat):
     """Campionamento bilineare della griglia lon/lat. NaN fuori/NODATA."""
-    step = grid["step"]
-    fx = (lon - grid["lon_min"]) / step - 0.5
-    fy = (grid["lat_max"] - lat) / step - 0.5
+    step_x = float(grid.get("step_x") or grid["step"])
+    step_y = float(grid.get("step_y") or grid["step"])
+    fx = (lon - grid["lon_min"]) / step_x - 0.5
+    fy = (grid["lat_max"] - lat) / step_y - 0.5
     h, w = grid["height"], grid["width"]
     inside = (fx >= 0) & (fx <= w - 1) & (fy >= 0) & (fy <= h - 1)
     out = np.full(np.shape(lon), np.nan, dtype=np.float64)

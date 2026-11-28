@@ -1,7 +1,16 @@
 VERSION=1.3.0.87
-BUILD=227
-DATE=2026-11-27
+BUILD=228
+DATE=2026-11-28
 APP_FILE=mri-light-1.3.0.87.html
+MeteoRisk Light - 1.3.0.87 - OROGRAFIA 0,02 GRADI: ETNA 2351 -> 3080 M, MONTE BIANCO 3560 -> 4380 M, ERRORI DI UPSLOPE DIMEZZATI, FILE 139,8 KB GZIP (BUILD=228, backend)
+VERSION=1.3.0.87
+MAJOR=1
+MINOR=3
+PATCH=0
+BUILD=228
+RELEASE_TYPE=backend
+DATE=2026-11-28
+NOTE=Release backend 1.3.0.87 BUILD=228 (nessuna modifica all'HTML: APP_FILE resta mri-light-1.3.0.87.html, nessun nuovo HTML). OROGRAFIA 0,02 GRADI IN data/geography/orography_it_0p05.json: la griglia passa da 320x260 a 0,05 gradi (83.200 celle int16, 254.024 B raw / 74.939 B gzip, sha cc823da4...f021cc) a 800x650 a 0,02 gradi (520.000 celle, uint8 quantizzato a 20 m su 0-5100 m, LZMA2 con filtro delta 1 e payload base64, 181.770 B raw / 139.772 B gzip, sha256 17db2272...fea35e; payload compresso 133.248 B, sha non compresso 64cc9726...fcdbfb22). Il path resta quello storico del prodotto: la risoluzione effettiva e' in grid.dlon/dlat e il loader accetta sia il nuovo formato sia il vecchio vettore int16. MISURE: Etna 2351 -> 3080 m, Monte Bianco 3560 -> 4380 m, Monte Rosa 3675 -> 4180 m, Gran Sasso 1793 -> 2320 m (medie di cella, non vette; quota reale 3357/4806/4634/2912). RMSE di quota contro la griglia di riferimento 0,01 gradi (stessa sorgente SRTM z8): 133,74 -> 69,21 m. Errore relativo di w.grad(h) contro il riferimento, vento 7,-3 m/s su 1.006.121 celle di terra: upslope locale 0,918 -> 0,640, base 10 km 0,575 -> 0,299, massimo sopravento 15 km 0,772 -> 0,434, e_pos 0,773 -> 0,434. La quantizzazione uint8 a 20 m costa il 2,66% sull'upslope locale e l'1,11% su up_max (misurato a parita' di risoluzione). IL CRITERIO DELL'8% NON E' RAGGIUNTO: la sola griglia a 0,01 gradi da 0% pesa 478.576 B gzip (3,2x il budget) e si carica in 158,9 ms; la scelta 0,02 gradi e' la piu' fine sotto 150 KB (139,8 KB) e sotto 100 ms (47,2 ms a freddo). EFFETTO SULLO STAU DEL 2026-11-28 (nowcast 14:50Z, vento northerly 12,4 m/s, RH 68,6%): errore upslope 0,774 -> 0,354, up_max 0,597 -> 0,231, e_pos 0,607 -> 0,233; gate 39.820 -> 39.898 (+78, zero persi); e_pos medio sui gated 10,66 -> 19,42 mm/h (rif. 24,17). L'enhancement resta SPENTO (enabled false dal BUILD=220): l'A/B aggiornato da' orog CSI 0,4787 contro no_orog 0,4965, quindi il DEM migliore non ribalta il verdetto e l'effetto operativo di oggi e' zero. TEST: pytest scripts/tests/test_orography.py 12 passed, scripts/tests/radar_engine/test_orography.py 13 passed; il generatore rifa' 520.000 celle in 9,4 s con cache calda. AGGIORNATI: build_orography.py (encoding compact, --scale-m, campioni alle vette), radar_engine/orography.py (decodifica e step_x/step_y), config.py (commento), docs/OROGRAFIA.md, docs/OROGRAFIA_NOWCAST.md, docs/LICENSES.md, test.
 MeteoRisk Light - 1.3.0.87 - Struttura convettiva: geometria a nuclei (MultiPolygon), area severa 44%->3,5%, classi stabili 3,6x e classe mostrata nel pannello.
 VERSION=1.3.0.87
 MAJOR=1

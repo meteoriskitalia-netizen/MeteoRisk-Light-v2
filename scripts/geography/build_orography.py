@@ -17,8 +17,8 @@ Due modalita', dichiarate e misurabili:
   --mode dem      (B) aggrega i Terrain Tiles (Mapzen/joerd, AWS Open Data)
                   a zoom 8, dove il suolo italiano proviene da SRTM 1/3
                   arcsec (pubblico dominio, USGS). Il download e' una
-                  tantum (~13 MB per il riquadro Italia) ed e' messo in
-                  cache; il file prodotto resta piccolo (~75 KB gzip).
+                  tantum (~18 MB per il riquadro Italia) ed e' messo in
+                  cache; il file prodotto resta ~140 KB gzip a 0,02 gradi.
                   E' la variante pubblicata in data/geography/.
 
 Uscita: JSON con schema, fonte, licenza, griglia e vettore di quote int16.
@@ -32,19 +32,24 @@ Ordine del vettore: row-major, lat crescente (iy = 0 -> lat0), poi lon.
 Uso:
   python scripts/geography/build_orography.py --mode points --res 0.1 \
       --out data/geography/orography_it_0p1.json
-  python scripts/geography/build_orography.py --mode dem --res 0.05 \
+  python scripts/geography/build_orography.py --mode dem --res 0.02 \
       --out data/geography/orography_it_0p05.json
 
-Il file e' deterministico: stessi input -> stessi byte (sha256 stabile).
+Il file compatto e' deterministico nella **griglia decodificata**: stessi
+input -> stessi 520.000 byte uint8 e stesso `encoding.uncompressed_sha256`.
+Il container LZMA puo' cambiare byte fra versioni di liblzma, quindi non si
+garantisce lo sha256 del file compresso fra ambienti diversi.
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
 import gzip
 import hashlib
 import io
 import json
+import lzma
 import math
 import os
 import sys
@@ -79,6 +84,46 @@ TILE_LICENSE = (
 IDW_POWER = 2.0
 IDW_MAX_SUPPORT_KM = 60.0  # oltre: nessun dato (nodata), non si inventa quota
 NODATA = -32768
+
+# --- codifica compatta (dal BUILD=228) --------------------------------------
+# 255 livelli lineari 0..5100 m, passo 20 m: l'errore di quantizzazione e'
+# +-10 m, cioe' ~0,2 celle di 0,02 deg su un gradiente di 100 m/km.
+COMPACT_ENCODING = "base64+lzma2+delta1+uint8"
+COMPACT_CODEC = "lzma2_delta1"
+DEFAULT_SCALE_M = 20.0
+LZMA_FILTERS = [
+    {"id": lzma.FILTER_DELTA, "dist": 1},
+    {"id": lzma.FILTER_LZMA2, "preset": 9, "lc": 4, "lp": 0, "pb": 0},
+]
+
+
+def _res_tag(res):
+    return ("%g" % res).replace(".", "p")
+
+
+def encode_compact(values, scale_m=DEFAULT_SCALE_M):
+    """uint8 quantizzato + LZMA2 con filtro delta (dist 1) + base64.
+
+    Ritorna (q, payload_base64, compressed_bytes). q e' l'array uint8
+    row-major nell'ordine del file (lat crescente). Il filtro delta di LZMA
+    lavora sul flusso di byte: equivalente a una differenza orizzontale mod
+    256, annullata dal decoder LZMA.
+    """
+    q = np.rint(np.asarray(values, dtype=np.float64) / float(scale_m))
+    q = np.clip(q, 0, 255).astype(np.uint8)
+    comp = lzma.compress(q.tobytes(), format=lzma.FORMAT_XZ,
+                         filters=LZMA_FILTERS)
+    return q, base64.b64encode(comp).decode("ascii"), comp
+
+
+def decode_compact(payload, nx, ny, scale_m=DEFAULT_SCALE_M):
+    """Inversa di encode_compact. Solleva su lunghezza incoerente."""
+    raw = lzma.decompress(base64.b64decode(payload.encode("ascii")))
+    q = np.frombuffer(raw, dtype=np.uint8)
+    if q.size != int(nx) * int(ny):
+        raise ValueError("elevations_length %d != nx*ny %d"
+                         % (q.size, int(nx) * int(ny)))
+    return q.reshape(int(ny), int(nx)).astype(np.float64) * float(scale_m)
 
 
 def _sha256_file(path: str) -> str:
@@ -211,7 +256,7 @@ def build_points(points_path: str, res: float, verbose=True):
 
     meta = {
         "schema": "meteorisk.orography/1",
-        "id": "orography_it_%s_idw257" % ("0p1" if res == 0.1 else "0p05"),
+        "id": "orography_it_%s_idw257" % _res_tag(res),
         "generated_at": None,
         "inputs": {
             "points_file": os.path.basename(points_path),
@@ -278,8 +323,8 @@ def build_points(points_path: str, res: float, verbose=True):
         ("sicilia_interna_enna", 37.5, 14.0),
         ("monte_bianco_indicativo", 45.85, 6.85),
     ]:
-        ix = int((lo - BBOX["lon0"]) / res - 0.5)
-        iy = int((la - BBOX["lat0"]) / res - 0.5)
+        ix = int((lo - BBOX["lon0"]) / res)
+        iy = int((la - BBOX["lat0"]) / res)
         ix = min(max(ix, 0), nx - 1)
         iy = min(max(iy, 0), ny - 1)
         meta["validation_samples"][name] = {
@@ -432,7 +477,7 @@ def build_dem(res: float, cache_dir: str, verbose=True):
 
     meta = {
         "schema": "meteorisk.orography/1",
-        "id": "orography_it_%s_dem" % ("0p05" if res == 0.05 else "0p1"),
+        "id": "orography_it_%s_dem" % _res_tag(res),
         "generated_at": None,
         "inputs": {
             "tiles": len(tiles),
@@ -470,9 +515,10 @@ def build_dem(res: float, cache_dir: str, verbose=True):
         "units": "m",
         "dtype": "int16",
         "note": (
-            "DEM ridotto da SRTM (~90 m) a %g gradi: descrive la forma del "
-            "rilievo a scala ~5-6 km, non valli/crinali singole. Il mare e' 0 m."
-            % res
+            "DEM ridotto da SRTM (~90 m) a %g gradi (~%.1f km): descrive la "
+            "forma del rilievo a questa scala, non valli/crinali singole. "
+            "Il mare e' 0 m. La risoluzione e' la media di cella, non la vetta."
+            % (res, res * 111.0)
         ),
         "uses": [
             "descrittore upslope_component = w . grad(h) con vento NWP, per area; nessun effetto sull'intensita'",
@@ -487,12 +533,18 @@ def build_dem(res: float, cache_dir: str, verbose=True):
         ("pianura_padana", 45.0, 10.0),
         ("sicilia_interna_enna", 37.5, 14.0),
         ("monte_bianco", 45.85, 6.85),
+        ("monte_bianco_vetta", 45.8326, 6.8652),
+        ("monte_rosa_vetta", 45.9368, 7.8660),
+        ("etna_vetta", 37.7510, 14.9934),
         ("gran_sasso", 42.45, 13.55),
+        ("gran_sasso_vetta", 42.4699, 13.5660),
+        ("vesuvio_vetta", 40.8214, 14.4262),
+        ("campeda", 40.30, 8.72),
         ("sardegna_golfo_aranci", 40.05, 9.65),
         ("adriatico_medio", 43.0, 14.5),
     ]:
-        ix = min(max(int((lo - BBOX["lon0"]) / res - 0.5), 0), nx - 1)
-        iy = min(max(int((la - BBOX["lat0"]) / res - 0.5), 0), ny - 1)
+        ix = min(max(int((lo - BBOX["lon0"]) / res), 0), nx - 1)
+        iy = min(max(int((la - BBOX["lat0"]) / res), 0), ny - 1)
         meta["validation_samples"][name] = {
             "lat": la,
             "lon": lo,
@@ -506,16 +558,54 @@ def build_dem(res: float, cache_dir: str, verbose=True):
 # =============================================================================
 # scrittura
 # =============================================================================
-def write_json(meta, values, out_path):
-    doc = dict(meta)
-    doc["elevations_m"] = [int(v) for v in values.ravel()]
+def write_json(meta, values, out_path, encoding="compact", scale_m=DEFAULT_SCALE_M):
+    """Scrive il documento. encoding='compact' (default) o 'plain' (int16)."""
+    doc = meta
+    doc["elevations_m"] = None
+    if encoding == "compact":
+        q, payload, comp = encode_compact(values, scale_m=scale_m)
+        qsha = hashlib.sha256(q.tobytes()).hexdigest()
+        doc["dtype"] = "uint8"
+        doc["encoding"] = {
+            "codec": COMPACT_CODEC,
+            "container": "xz",
+            "payload": "base64",
+            "dtype": "uint8",
+            "scale_m": float(scale_m),
+            "offset_m": 0.0,
+            "levels": 256,
+            "max_elevation_m": 255.0 * float(scale_m),
+            "quantization": "round(elevation_m / scale_m), clip 0..255",
+            "quantization_error_m": float(scale_m) / 2.0,
+            "uncompressed_bytes": int(q.size),
+            "uncompressed_sha256": qsha,
+            "compressed_bytes": len(comp),
+        }
+        doc["elevations_m"] = payload
+        doc["method"]["nodata"] = None
+        doc["method"]["quantization"] = (
+            "uint8 lineare 0..%d m, passo %g m, errore massimo %g m"
+            % (int(255 * scale_m), float(scale_m), float(scale_m) / 2.0)
+        )
+        doc["method"]["encoding"] = COMPACT_ENCODING
+        doc["stats"]["max_elevation_m"] = round(float(q.max()) * float(scale_m), 1)
+        doc["stats"]["max_quantized"] = int(q.max())
+        doc["stats"]["quantization_step_m"] = float(scale_m)
+        for sample in (doc.get("validation_samples") or {}).values():
+            ix, iy = sample["cell"]
+            sample["elevation_m"] = int(round(float(q[iy, ix]) * float(scale_m)))
+    else:
+        doc["dtype"] = "int16"
+        doc["elevations_m"] = [int(v) for v in np.asarray(values).ravel()]
+
     text = json.dumps(doc, ensure_ascii=False, separators=(",", ":"), sort_keys=False)
+    data = text.encode("utf-8")
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     with open(out_path, "wb") as f:
-        f.write(text.encode("utf-8"))
-    raw = len(text.encode("utf-8"))
-    gz = len(gzip.compress(text.encode("utf-8"), 9))
-    sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        f.write(data)
+    raw = len(data)
+    gz = len(gzip.compress(data, 9, mtime=0))
+    sha = hashlib.sha256(data).hexdigest()
     return raw, gz, sha
 
 
@@ -526,10 +616,16 @@ def main(argv=None):
     ap.add_argument("--out", required=True)
     ap.add_argument("--points", default="data/latest/meteorisk-points.json")
     ap.add_argument("--tile-cache", default=".cache/orography_tiles")
+    ap.add_argument("--encoding", choices=["compact", "plain"], default=None,
+                    help="compact = uint8+LZMA2+base64 (default per --mode dem); "
+                         "plain = vettore JSON di interi (default per --mode points)")
+    ap.add_argument("--scale-m", type=float, default=DEFAULT_SCALE_M,
+                    help="passo di quantizzazione uint8 in metri (solo compact)")
     ap.add_argument("--generated-at", default=None,
                     help="ISO8601 da scrivere nel file (default: null, per output riproducibile)")
     args = ap.parse_args(argv)
     t_all = time.time()
+    encoding = args.encoding or ("compact" if args.mode == "dem" else "plain")
 
     if args.mode == "points":
         meta, values, flat, nn = build_points(args.points, args.res)
@@ -537,9 +633,16 @@ def main(argv=None):
         meta, values, z_grid, _ = build_dem(args.res, args.tile_cache)
     meta["generated_at"] = args.generated_at
 
-    raw, gz, sha = write_json(meta, values, args.out)
+    raw, gz, sha = write_json(meta, values, args.out, encoding=encoding,
+                              scale_m=args.scale_m)
+    enc = meta.get("encoding") or {}
     print("out=%s" % args.out)
-    print("cells=%d raw=%d B gzip=%d B sha256=%s" % (values.size, raw, gz, sha))
+    print("encoding=%s cells=%d raw=%d B gzip=%d B sha256=%s"
+          % (encoding, values.size, raw, gz, sha))
+    if enc:
+        print("elevations_uncompressed_sha256=%s compressed_bytes=%d scale_m=%g"
+              % (enc["uncompressed_sha256"], enc["compressed_bytes"],
+                 enc["scale_m"]))
     print("generation_seconds=%.3f" % (time.time() - t_all))
     print("stats=%s" % json.dumps(meta["stats"], ensure_ascii=False))
     print("samples=%s" % json.dumps(meta["validation_samples"], ensure_ascii=False))

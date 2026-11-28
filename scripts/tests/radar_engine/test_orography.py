@@ -92,26 +92,33 @@ def test_no_rain_no_correction():
 def test_grid_orientation_and_values():
     g = orog.load_grid(GRID)
     assert g is not None
-    assert g["width"] == 320 and g["height"] == 260
+    assert g["width"] == 800 and g["height"] == 650
+    assert g["step_x"] == pytest.approx(0.02) and g["step_y"] == pytest.approx(0.02)
+    assert g["encoding"]["codec"] == "lzma2_delta1"
+    assert g["encoding"]["scale_m"] == pytest.approx(20.0)
     # riga 0 = NORD (lat massima): la prima riga deve essere alpina o mare,
     # l'ultima (lat 35, mare/Libia) non deve essere piu' alta della prima.
     assert np.nanmean(g["elev"][0, :]) > 200.0
-    # Milano ~120 m, Adriatico 0 m, Monte Bianco > 3000 m (cella 0,05 deg)
+    # Milano ~120 m, Adriatico 0 m, Monte Bianco > 3500 m (cella 0,02 deg)
     lat = np.array([45.4642, 43.0, 45.85])
     lon = np.array([9.19, 14.5, 6.85])
     v = orog.sample_bilinear(g, lon, lat)
     assert 80.0 < v[0] < 200.0
     assert v[1] == 0.0
-    assert v[2] > 2800.0
+    assert v[2] > 3500.0
     # controllo di ORIENTAMENTO contro i campioni dichiarati NEL file
     # (iy=0 -> lat0=35 nel file; qui l'array e' girato north-up)
     samples = g["doc"]["validation_samples"]
-    for name in ("monte_bianco", "pianura_padana", "adriatico_medio"):
+    for name in ("monte_bianco_vetta", "pianura_padana", "adriatico_medio"):
         s = samples[name]
         # nel file `cell` e' [ix, iy] con iy contato in ordine lat CRESCENTE
         ix, iy = s["cell"]
         row = g["height"] - 1 - iy
         assert abs(float(g["elev"][row, ix]) - float(s["elevation_m"])) < 1.0, name
+    # le due vette che il prodotto deve rappresentare (media di cella)
+    assert samples["etna_vetta"]["elevation_m"] >= 2900
+    assert samples["monte_bianco_vetta"]["elevation_m"] >= 3150
+    assert samples["gran_sasso_vetta"]["elevation_m"] >= 2200
 
 
 @pytest.mark.skipif(not os.path.exists(GRID), reason="griglia non presente")
@@ -119,6 +126,32 @@ def test_sample_outside_grid_is_nan():
     g = orog.load_grid(GRID)
     v = orog.sample_bilinear(g, np.array([0.0]), np.array([0.0]))
     assert np.isnan(v[0])
+
+
+def test_load_grid_legacy_int16_list(tmp_path):
+    """Il loader deve continuare a leggere il vecchio vettore int16."""
+    import json
+    doc = {
+        "schema": "meteorisk.orography/1",
+        "grid": {"registration": "cell_centered", "lon0": 4.0, "lat0": 35.0,
+                 "lon1": 4.2, "lat1": 35.2, "dlon": 0.1, "dlat": 0.1,
+                 "nx": 2, "ny": 2,
+                 "ordering": "row-major, lat crescente (iy=0 -> lat0), poi lon"},
+        "units": "m", "dtype": "int16",
+        "method": {"nodata": -32768},
+        "elevations_m": [0, 100, 200, -32768],
+    }
+    p = tmp_path / "legacy.json"
+    p.write_text(json.dumps(doc), encoding="utf-8")
+    g = orog.load_grid(str(p))
+    assert g is not None
+    assert (g["width"], g["height"]) == (2, 2)
+    assert g["step_x"] == pytest.approx(0.1) and g["step_y"] == pytest.approx(0.1)
+    # file lat crescente -> north-up: riga 0 = [200, NaN], riga 1 = [0, 100]
+    assert g["elev"][0, 0] == 200.0
+    assert np.isnan(g["elev"][0, 1])
+    assert g["elev"][1, 0] == 0.0
+    assert g["elev"][1, 1] == 100.0
 
 
 def test_env_hour_index_is_local_plus_one():
