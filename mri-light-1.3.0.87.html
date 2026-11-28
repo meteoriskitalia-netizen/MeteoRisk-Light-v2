@@ -2764,10 +2764,9 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                 <div class="legend-row" style="font-size:10px; color:#94a3b8;">sotto 0,15 mm/h trasparente; 40% di opacità a 0,5 mm/h, piena da 1,5 mm/h</div>
                 <div class="legend-row" id="nowcast-lead-note" style="font-size:10px; color:#94a3b8;">lead contati dallo slot del frame (valid_time), non dall'ora corrente; i buchi fra frame sono dichiarati nel payload (gap_minutes)</div>
                 <div class="legend-row" id="nowcast-clouds-legend" style="display:none; font-size:10px; color:#cbd5e1;">
-                    <span style="display:inline-block;width:10px;height:10px;background:rgb(170,190,210);margin-right:3px;vertical-align:middle"></span>nube alta &lt;-20 °C
-                    <span style="display:inline-block;width:10px;height:10px;background:rgb(135,160,190);margin:0 3px 0 8px;vertical-align:middle"></span>fredda &lt;-32 °C
-                    <span style="display:inline-block;width:10px;height:10px;background:rgb(100,125,165);margin:0 3px 0 8px;vertical-align:middle"></span>molto fredda &lt;-44 °C
-                    · <b>contesto IR estrapolato col moto del nowcast, non previsione di pioggia né della nuvola</b>
+                    <span style="display:inline-block;width:64px;height:10px;background:linear-gradient(90deg,rgba(205,215,225,0.10),rgba(205,215,225,0.45),rgba(205,215,225,0.90));margin-right:4px;vertical-align:middle"></span>
+                    IR 10.8 continuo: <b>+3 °C tenue → −70 °C bianco</b>
+                    · <b>tutte le nuvole, giorno e notte · contesto estrapolato, non previsione di pioggia né della nuvola</b>
                 </div>
             </div>
             <!-- 1.3.0.86-r6 - CONTROLLI DEL PRODOTTO NOWCAST:
@@ -2779,9 +2778,9 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                     <span class="nc-prob-label">Vista</span>
                     <button type="button" class="nc-prob-btn on" id="nc-view-intensity" onclick="nowcastSetView('intensity')" title="Mostra l'intensita' prevista in mm/h (palette ad alto contrasto). In questa vista la probabilita' e' nascosta: le due non si sovrappongono.">Intensità</button>
                     <button type="button" class="nc-prob-btn" id="nc-view-prob" onclick="nowcastSetView('prob')" title="Mostra la probabilita' 0-100% dell'ensemble. In questa vista il layer intensita' viene nascosto, non sovrapposto.">Probabilità</button>
-                    <button type="button" class="sc-toggle" id="nc-clouds-toggle" onclick="nowcastCloudsToggle()" title="Nuvole IR di contesto (DPC IR_108, 10.8 um, 1 km): grigio-blu = nube alta sotto -20 °C, piu' scuro sotto -32 e -44 °C. Ai lead sono TRASLATE col moto del nowcast: contesto estrapolato, NON previsione di pioggia ne' della nuvola. Una nube alta e fredda puo' non piovere. Toggle separato da intensita' e probabilita'.">Nuvole IR (contesto) · OFF</button>
+                    <button type="button" class="sc-toggle" id="nc-clouds-toggle" onclick="nowcastCloudsToggle()" title="Nuvole IR di contesto (DPC IR_108, 10.8 um, 1 km): SCALA CONTINUA di grigio da -70 °C (bianco) a +3 °C (tenue); mostra tutte le nuvole, non solo quelle sotto -20 °C. Ai lead sono TRASLATE col moto del nowcast: contesto estrapolato, NON previsione di pioggia ne' della nuvola. Toggle separato da intensita' e probabilita'.">Nuvole IR (contesto) · OFF</button>
                 </div>
-                <span id="nowcast-clouds-note" style="display:none; font-size:10px; color:#94a3b8;">Nuvole IR (contesto) · grigio-blu · estrapolate col moto del nowcast · non è pioggia prevista</span>
+                <span id="nowcast-clouds-note" style="display:none; font-size:10px; color:#94a3b8;">Nuvole IR (contesto) · scala continua −70…+3 °C · estrapolate col moto del nowcast · non è pioggia prevista</span>
                 <div id="ncprob-controls" hidden>
                     <div class="nc-prob-row" id="ncprob-thr-row">
                         <span class="nc-prob-label">Soglia</span>

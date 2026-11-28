@@ -2326,10 +2326,13 @@ def write_products(out_dir, payload, native):
                     _temp, _clouds["valid"], _clouds["rd"], _cgrid,
                     resampling="bilinear", clamp_min=None)
                 _pub_v = np.isfinite(_pub_t)
-                _rgba = clouds_mod.rgba_from_temp(
-                    _pub_t, _pub_v,
-                    blend_c=float(_cl.get("blend_c") or 2.0),
-                    blur_px=float(_cl.get("blur_px") or 0.7))
+                if _cl.get("mode") == "ir_gray_continuous":
+                    _rgba = clouds_mod.rgba_ir_continuous(_pub_t, _pub_v)
+                else:
+                    _rgba = clouds_mod.rgba_from_temp(
+                        _pub_t, _pub_v,
+                        blend_c=float(_cl.get("blend_c") or 2.0),
+                        blur_px=float(_cl.get("blur_px") or 0.7))
             else:
                 # fallback dichiarato: classi nearest (resa vecchia)
                 _pub = reproject_to_grid(
@@ -2360,10 +2363,14 @@ def write_products(out_dir, payload, native):
                 _pt = reproject_to_grid(
                     _ct, np.isfinite(_ct), _clouds["rd"], _cgrid,
                     resampling="bilinear", clamp_min=None)
-                _rgba_l = clouds_mod.rgba_from_temp(
-                    _pt, np.isfinite(_pt),
-                    blend_c=float(_cl.get("blend_c") or 2.0),
-                    blur_px=float(_cl.get("blur_px") or 0.7))
+                if _cl.get("mode") == "ir_gray_continuous":
+                    _rgba_l = clouds_mod.rgba_ir_continuous(
+                        _pt, np.isfinite(_pt))
+                else:
+                    _rgba_l = clouds_mod.rgba_from_temp(
+                        _pt, np.isfinite(_pt),
+                        blend_c=float(_cl.get("blend_c") or 2.0),
+                        blur_px=float(_cl.get("blur_px") or 0.7))
                 _name = clouds_mod.image_name_for(_lead)
                 _sz = clouds_mod.write_rgba_webp(
                     os.path.join(out_dir, _name), _rgba_l,

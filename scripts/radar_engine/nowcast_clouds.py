@@ -42,7 +42,7 @@ CLASSES = (
      "label": "nube molto fredda (convettiva)",
      "rgb": (100, 125, 165), "alpha": 150},
 )
-OPACITY = 0.70
+OPACITY = 0.72
 NOTE = (
     "Nuvole IR (contesto estrapolato col moto del nowcast): una nube alta "
     "e fredda puo' non piovere. Non e' una previsione di pioggia ne' della "
@@ -132,6 +132,36 @@ def rgba_from_temp(temp_c, valid, blend_c=2.0, blur_px=0.7):
     return out
 
 
+def rgba_ir_continuous(temp_c, valid, t_min=-70.0, t_max=30.0,
+                       t_warm_cut=3.0, gamma=0.5):
+    """IR 10.8 -> grigio continuo, TUTTE le nuvole (giorno e notte).
+
+    La soglia binaria a -20 °C mostrava solo le nubi alte: una nube media
+    a -5 °C restava invisibile. Qui l'alpha cresce in modo non lineare da
+    t_max (trasparente) a t_min (bianco), con contrasto nella banda
+    -60..-10 °C. L'opacita' del layer (0,72) moltiplica alpha 80-255:
+    effettiva ~0,23-0,72; il layer resta sotto la pioggia.
+    """
+    t = np.asarray(temp_c, np.float32)
+    v = np.asarray(valid, bool) & np.isfinite(t)
+    # Il suolo caldo (> 3 °C) NON e' una nuvola: senza questo taglio la
+    # scala continua colorerebbe tutta la pianura. Il taglio e' dichiarato
+    # (`t_warm_cut_c`); le nubi basse a 0..3 °C restano molto tenui.
+    x = np.clip((float(t_warm_cut) - t) /
+                max(float(t_warm_cut) - float(t_min), 1.0), 0.0, 1.0)
+    # non lineare: piu' contrasto dove stanno le nubi (-60..-10)
+    a = np.power(x, float(gamma))
+    alpha = np.where(v, np.clip(a * 255.0, 0, 255), 0).astype(np.uint8)
+    # grigio-blu chiaro, NON la palette della pioggia
+    out = np.zeros(t.shape + (4,), np.uint8)
+    out[:, :, 0] = 205
+    out[:, :, 1] = 215
+    out[:, :, 2] = 225
+    out[:, :, 3] = alpha
+    out[~v, :3] = 0
+    return out
+
+
 def palette_payload():
     return [dict(x) for x in CLASSES]
 
@@ -145,6 +175,13 @@ def _info_base():
         "image": None, "image_crs": "EPSG:3857", "opacity": OPACITY,
         "under_rain": True, "slot": None, "latency_s": None,
         "latency_min": None, "published_pixels": None,
+        # SCALA CONTINUA IR (2026-11-28): tutte le nuvole, non solo T<-20.
+        "mode": "ir_gray_continuous",
+        "transfer": {"t_min_c": -70.0, "t_max_c": 30.0,
+                     "t_warm_cut_c": 3.0, "gamma": 0.5,
+                     "note": ("alpha non lineare -70..+3 °C; il suolo >3 °C "
+                              "non viene colorato")},
+        "t_range_c": [-70.0, 30.0], "t_warm_cut_c": 3.0,
         # RESA MORBIDA (2026-11-27): scala continua, resampling bilineare,
         # blur leggero solo sul canale nuvole. Dichiarati nel payload.
         "resampling": "bilinear", "blend_c": 2.0, "blur_px": 0.7,

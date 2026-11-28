@@ -66,6 +66,18 @@ def test_rgba_from_temp_blur_smooths_the_step():
     assert int(a1[0, 15]) == 0   # ma non allarga l'area di 5 px
 
 
+def test_ir_continuous_shows_clouds_warmer_than_minus20():
+    t = np.array([[-80.0, -50.0, -20.0, -5.0, 0.0, 5.0, 10.0]],
+                 dtype=np.float32)
+    v = np.ones_like(t, bool)
+    a = nc.rgba_ir_continuous(t, v)[:, :, 3].astype(int)
+    assert a[0, 0] > a[0, 1] > a[0, 2] > a[0, 3] > a[0, 4]
+    assert a[0, 2] > 0          # -20 °C: prima era il bordo della classe
+    assert a[0, 3] > 0          # -5 °C: nube media visibile
+    assert a[0, 5] == 0         # suolo caldo: nessuna tinta
+    assert a[0, 6] == 0
+
+
 def test_write_webp_uses_class_alpha(tmp_path):
     c = np.array([[0, 1, 2, 3]], dtype=np.uint8)
     p = str(tmp_path / "clouds.webp")

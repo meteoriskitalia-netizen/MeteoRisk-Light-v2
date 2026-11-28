@@ -1187,6 +1187,9 @@ def test_clouds_payload_and_image(tmp_path):
     assert cl["role"] == "context"
     assert cl["not_a_rain_forecast"] is True
     assert cl["source"] == "DPC_IR_108"
+    assert cl["mode"] == "ir_gray_continuous"
+    assert cl["transfer"]["t_warm_cut_c"] == 3.0
+    assert cl["opacity"] == 0.72
     assert cl["thresholds_c"] == [-20.0, -32.0, -44.0]
     assert cl["image"] == "nowcast_clouds.webp"
     assert cl["method"] == "advected"
