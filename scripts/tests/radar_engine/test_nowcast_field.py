@@ -393,6 +393,30 @@ def test_output_json_and_webp(tmp_path):
     assert 180 not in nf.IMAGE_NAMES
 
 
+def test_snow_tint_changes_only_colour_not_intensity():
+    field = np.array([[10.0, 10.0, 0.0]], np.float32)
+    rgba = nf._rgba(field)
+    alpha = rgba[:, :, 3].copy()
+    t2m = np.array([[-5.0, 1.0, -5.0]], np.float32)
+    out, snow, mixed = nf._tint_snow(rgba, field, t2m, 1.5)
+    assert snow == 2 and mixed == 1
+    # il pixel asciutto resta identico; l'alpha non cambia mai
+    assert np.array_equal(out[:, :, 3], alpha)
+    assert np.array_equal(out[0, 2], rgba[0, 2])
+    assert not np.array_equal(out[0, 0], rgba[0, 0])
+
+
+def test_snow_threshold_area_order():
+    t = np.array([[-5.0, 1.0, 1.2, 1.8, 2.5]], np.float32)
+    f = np.full_like(t, 5.0)
+    r = nf._rgba(f)
+    counts = []
+    for th in (1.0, 1.5, 2.0):
+        _, s, _ = nf._tint_snow(r, f, t, th)
+        counts.append(s)
+    assert counts[0] <= counts[1] <= counts[2]
+
+
 def test_first_lead_is_the_observed_field(tmp_path):
     rasters, domain = _moving_frames(tmp_path, n=3, dx=1)
     bundle = _Bundle(rasters)

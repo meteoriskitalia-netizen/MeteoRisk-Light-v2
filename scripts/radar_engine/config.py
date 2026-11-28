@@ -983,6 +983,14 @@ CONFIG = {
     # scartata: produceva un retino da Nyquist visibile.
     # Il primo frame (+5) e' l'osservato esatto: nessun coarse/HF/erosione.
     # Evita il salto di dettaglio fra ultimo radar e primo nowcast.
+    # NEVE: stima da T2m (257 punti NWP, IDW ~30 km), non classificazione
+    # di fase. Soglia 1,5 °C = scelta ingegneristica, non calibrata; le
+    # soglie 1,0/2,0 sono misurate nel payload per confronto.
+    "nowcast_snow": {
+        "enabled": True,
+        "threshold_c": 1.5,
+        "t2m_path": "data/latest/meteorisk-points.json",
+    },
     "nowcast_first_lead_observed": True,
     "nowcast_hf_restore": {
         "enabled": True,

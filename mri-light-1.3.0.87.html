@@ -2768,6 +2768,11 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                     IR 10.8 continuo: <b>+3 °C tenue → −70 °C bianco</b>
                     · <b>tutte le nuvole, giorno e notte · contesto estrapolato, non previsione di pioggia né della nuvola</b>
                 </div>
+                <div class="legend-row" id="nowcast-snow-legend" style="display:none; font-size:10px; color:#cbd5e1;">
+                    <span style="display:inline-block;width:10px;height:10px;background:rgb(145,60,190);margin-right:4px;vertical-align:middle"></span>neve <b>stima</b> da T 2 m &lt; 1,5 °C
+                    <span style="display:inline-block;width:10px;height:10px;background:rgb(205,120,205);margin:0 4px 0 8px;vertical-align:middle"></span>neve bagnata/mista 0–1,5 °C
+                    · la fase dipende dal profilo verticale, non solo da T a 2 m
+                </div>
             </div>
             <!-- 1.3.0.86-r6 - CONTROLLI DEL PRODOTTO NOWCAST:
                  Vista (Intensita' | Probabilita'), Soglia, Nuvole. Mutua esclusione:
@@ -28284,6 +28289,8 @@ function toggleForecastMaps() {
         nowcastMarkView();
         nowcastPreload();
         nowcastBuildLegend();
+        var _sl = document.getElementById('nowcast-snow-legend');
+        if (_sl) _sl.style.display = (d.snow && d.snow.available) ? 'block' : 'none';
         if (!nowcastState.layer) {
             nowcastState.frame = 0;            // ON -> primo frame
             try {

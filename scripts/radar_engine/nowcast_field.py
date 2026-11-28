@@ -836,16 +836,108 @@ def _rgba(field):
     return out
 
 
-def write_webp(path, field, quality=WEBP_QUALITY):
+def _load_t2m_field(config, ts_ms, grid):
+    """T2m NWP (257 punti, orario) interpolata IDW sulla griglia output.
+
+    Ritorna (field, meta). Se il file manca o non ha temperature: (None,
+    motivo). La risoluzione dichiarata e' quella dei punti (~30 km), non
+    quella della griglia: l'IDW non inventa dettaglio.
+    """
+    path = ((config.get("nowcast_snow") or {}).get("t2m_path")
+            or config.get("nowcast_snow_t2m_path")
+            or os.path.join("data", "latest", "meteorisk-points.json"))
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        pts = doc.get("points") or []
+        if not pts:
+            return None, "t2m_file_empty"
+        day0 = _dt.date.fromisoformat(str(doc.get("day0"))[:10])
+        now = _dt.datetime.utcfromtimestamp(int(ts_ms) / 1000.0)
+        hour = int((now.date() - day0).days * 24 + now.hour)
+        vals = []
+        lats = []
+        lons = []
+        for p in pts:
+            models = p.get("models") or {}
+            hourly = ((models.get("best_match") or {}).get("hourly")
+                      or (models.get("ecmwf_ifs") or {}).get("hourly") or {})
+            arr = hourly.get("temperature_2m")
+            if not isinstance(arr, list) or not arr:
+                continue
+            i = min(max(hour, 0), len(arr) - 1)
+            v = arr[i]
+            if v is None:
+                continue
+            try:
+                vals.append(float(v))
+                lats.append(float(p["lat"]))
+                lons.append(float(p["lon"]))
+            except (TypeError, ValueError, KeyError):
+                continue
+        if len(vals) < 10:
+            return None, "t2m_points_lt_10"
+        from pyproj import Transformer
+        from scipy.spatial import cKDTree
+        b = grid["bounds"]
+        w = int(grid["width"]); h = int(grid["height"])
+        res = float(grid["resolution_m"])
+        xs = b[0] + (np.arange(w) + 0.5) * res
+        ys = b[3] - (np.arange(h) + 0.5) * res
+        xx, yy = np.meshgrid(xs, ys)
+        tr = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+        lon, lat = tr.transform(xx, yy)
+        tree = cKDTree(np.column_stack([lats, lons]))
+        dist, idx = tree.query(np.column_stack([lat.ravel(), lon.ravel()]), k=4)
+        dist = np.maximum(np.asarray(dist, np.float64), 1e-6)
+        idx = np.asarray(idx, int)
+        vals = np.asarray(vals, np.float64)
+        wgt = 1.0 / (dist ** 2)
+        t = (vals[idx] * wgt).sum(axis=1) / wgt.sum(axis=1)
+        # fuori copertura (punto piu' vicino > 100 km): niente tinta
+        t = np.where(dist[:, 0] <= 100.0, t, np.nan).reshape(h, w)
+        return t.astype(np.float32), {
+            "source": "data/latest/meteorisk-points.json (best_match hourly)",
+            "points": len(vals), "approx_resolution_km": 30,
+            "hour_index": int(hour), "day0": str(day0),
+            "interpolation": "IDW k=4, cutoff 100 km",
+        }
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return None, "t2m_load_error:%s" % exc.__class__.__name__
+
+
+def _tint_snow(rgba, field, t2m, threshold_c):
+    """Cambia SOLO il colore dei pixel con pioggia >0,1 e T2m bassa."""
+    out = np.array(rgba, copy=True)
+    if t2m is None:
+        return out, 0, 0
+    wet = np.asarray(field, np.float32) > 0.1
+    tt = np.asarray(t2m, np.float32)
+    snow = wet & np.isfinite(tt) & (tt < float(threshold_c))
+    mixed = wet & np.isfinite(tt) & (tt >= 0.0) & (tt < min(2.0, float(threshold_c)))
+    out[snow, 0] = 145; out[snow, 1] = 60; out[snow, 2] = 190
+    out[mixed, 0] = 205; out[mixed, 1] = 120; out[mixed, 2] = 205
+    return out, int(snow.sum()), int(mixed.sum())
+
+
+def write_webp(path, field, quality=WEBP_QUALITY, t2m=None,
+               snow_threshold_c=None):
     """Scrive il campo come WebP RGBA. Ritorna i byte scritti."""
     try:
         from PIL import Image
     except ImportError as exc:      # dichiarato, non silenzioso
         raise RuntimeError("pillow_missing") from exc
-    img = Image.fromarray(np.ascontiguousarray(_rgba(field)))
+    rgba = _rgba(field)
+    snow_px = mixed_px = 0
+    if t2m is not None and snow_threshold_c is not None:
+        rgba, snow_px, mixed_px = _tint_snow(
+            rgba, field, t2m, snow_threshold_c)
+    img = Image.fromarray(np.ascontiguousarray(rgba))
     tmp = path + ".tmp"
     img.save(tmp, format="WEBP", quality=int(quality), method=4)
     os.replace(tmp, path)
+    if t2m is not None and snow_threshold_c is not None:
+        return os.path.getsize(path), snow_px, mixed_px
     return os.path.getsize(path)
 
 
@@ -924,6 +1016,10 @@ def _unavailable(reason, clock, extra=None):
         # Anche senza nowcast il blocco esiste: il client sa che le nuvole
         # non sono disponibili e perche' (nessun campo inventato).
         "clouds": clouds_mod.disabled_info("nowcast_unavailable"),
+        "snow": {"method": "temperature_threshold", "available": False,
+                 "null_reason": "nowcast_unavailable", "threshold_c": 1.5,
+                 "note": ("stima da temperatura 2 m, non classificazione di "
+                          "fase.")},
         "limits": LIMITS,
     }
     if extra:
@@ -2042,6 +2138,10 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
         },
         # NUVOLE IR: CONTESTO, non previsione di pioggia.
         "clouds": clouds_mod.payload(cloud_state),
+        "snow": {"method": "temperature_threshold", "available": False,
+                 "null_reason": "not_written", "threshold_c": 1.5,
+                 "note": ("stima da temperatura 2 m, non classificazione di "
+                          "fase.")},
         "orographic_enhancement": oro_block,
     }
 
@@ -2320,7 +2420,7 @@ def _fallback_raster(config, clock, ts, warnings):
 # ---------------------------------------------------------------------------
 # scrittura
 # ---------------------------------------------------------------------------
-def write_products(out_dir, payload, native):
+def write_products(out_dir, payload, native, config=None):
     """Scrive i WebP dei lead pubblicati. Ritorna il dizionario delle misure
     (il JSON lo scrive `run` DOPO aver inserito le misure: un solo file).
 
@@ -2411,6 +2511,26 @@ def write_products(out_dir, payload, native):
                 "image_write_failed:{}".format(_exc.__class__.__name__))
             measured["clouds_error"] = _reason
     if payload.get("available") and native:
+        _scfg = dict((config or {}).get("nowcast_snow") or {})
+        _sthr = float(_scfg.get("threshold_c") or 1.5)
+        _t2m, _tmeta = _load_t2m_field(
+            config or {}, native.get("_latest_ts") or payload.get("source_slot")
+            and clock_mod.parse_iso8601_utc(payload["source_slot"])[0], _cgrid)
+        payload["snow"] = {
+            "method": "temperature_threshold",
+            "available": _t2m is not None,
+            "null_reason": (None if _t2m is not None else _tmeta),
+            "t2m_source": (_tmeta.get("source") if isinstance(_tmeta, dict)
+                           else None),
+            "t2m_meta": _tmeta if isinstance(_tmeta, dict) else None,
+            "threshold_c": _sthr,
+            "threshold_tested_c": [1.0, 1.5, 2.0],
+            "threshold_counts": {},
+            "note": ("stima da temperatura 2 m, non classificazione di fase: "
+                     "la fase dipende dal profilo verticale."),
+            "snow_pixels": {},
+            "mixed_pixels": {},
+        }
         rd = native["_rd"]
         grid = native["_grid"]
         for entry in (payload.get("leads") or []):
@@ -2422,8 +2542,22 @@ def write_products(out_dir, payload, native):
                 field = reproject_to_grid(native[lead], native["_domain"],
                                           rd, grid)
                 path = os.path.join(out_dir, name)
-                size = write_webp(path, field)
+                _res = write_webp(path, field, t2m=_t2m,
+                                  snow_threshold_c=_sthr)
+                if isinstance(_res, tuple):
+                    size, _spx, _mpx = _res
+                    payload["snow"]["snow_pixels"][str(lead)] = _spx
+                    payload["snow"]["mixed_pixels"][str(lead)] = _mpx
+                else:
+                    size = _res
                 measured["images"][name] = size
+                if int(lead) == 30 and _t2m is not None:
+                    _wet = np.asarray(field, np.float32) > 0.1
+                    for _th in (1.0, 1.5, 2.0):
+                        payload["snow"]["threshold_counts"][
+                            "%.1f" % _th] = int(
+                                (_wet & np.isfinite(_t2m) &
+                                 (_t2m < _th)).sum())
                 # statistiche sulla griglia pubblicata (non su quella nativa)
                 entry["stats"]["published_pixels"] = int(
                     np.isfinite(field).sum())
@@ -2471,7 +2605,7 @@ def run(bundle, config, out_dir, clock=None, warnings=None):
         getattr(bundle, "warnings", [])
     payload, native = compute(bundle, config, clock, warnings, out_dir=out_dir)
     try:
-        measured = write_products(out_dir, payload, native)
+        measured = write_products(out_dir, payload, native, config)
     except Exception as exc:
         # un encoder che manca non deve lasciare il prodotto a meta': si
         # degrada a `available:false` DICHIARATO e si scrive comunque il JSON.
