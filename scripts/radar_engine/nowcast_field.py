@@ -1707,7 +1707,7 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
                             is not None else TRANSPORT_COARSE_FACTOR)
     except (TypeError, ValueError):
         coarse_factor = TRANSPORT_COARSE_FACTOR
-    if coarse_factor < 2:
+    if coarse_factor < 1:
         coarse_factor = 0
     # Il PRIMO lead e' l'osservato (nessun coarse, nessun HF): il passaggio
     # dall'ultimo frame radar al primo nowcast non deve cambiare il dettaglio.
@@ -1939,7 +1939,8 @@ def compute(bundle, config, clock, warnings, out_dir=None, orographic=None):
         # trasporto a 3 km (media a blocchi + warp + upsample bilineare)
         "transport_coarse_factor": int(coarse_factor),
         "transport_coarse_method": (TRANSPORT_COARSE_METHOD
-                                    if coarse_factor >= 2 else None),
+                                    if coarse_factor >= 2
+                                    else "single_cubic_warp"),
         # troncamento dichiarato: i lead oltre 90 min non esistono piu'
         "truncation": {
             "applied": True,
