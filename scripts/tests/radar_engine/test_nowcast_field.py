@@ -18,6 +18,8 @@ import math
 import os
 import sys
 
+import datetime as _dt
+
 import numpy as np
 import pytest
 from scipy import ndimage
@@ -93,6 +95,7 @@ def _config(tmp_path):
     cfg["nowcast_trend"] = {"enabled": False}
     cfg["nowcast_decay"] = {"enabled": False}
     cfg["nowcast_clouds"] = {"enabled": False}
+    cfg["nowcast_background"] = {"enabled": False}
     return cfg
 
 
@@ -415,6 +418,16 @@ def test_snow_threshold_area_order():
         _, s, _ = nf._tint_snow(r, f, t, th)
         counts.append(s)
     assert counts[0] <= counts[1] <= counts[2]
+
+
+def test_solar_zenith_selects_day_and_night():
+    from radar_engine import nowcast_background as bg
+    noon = int(_dt.datetime(2026, 6, 21, 12, tzinfo=_dt.timezone.utc)
+               .timestamp() * 1000)
+    midnight = int(_dt.datetime(2026, 6, 21, 0, tzinfo=_dt.timezone.utc)
+                   .timestamp() * 1000)
+    assert bg.solar_zenith_deg(noon, 42.0, 12.5) < 30
+    assert bg.solar_zenith_deg(midnight, 42.0, 12.5) > 100
 
 
 def test_first_lead_is_the_observed_field(tmp_path):

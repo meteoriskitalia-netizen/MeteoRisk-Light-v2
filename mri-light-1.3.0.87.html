@@ -2768,6 +2768,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                     IR 10.8 continuo: <b>grigio caldo → bianco freddo (−70 °C)</b>
                     · <b>tutte le nuvole, giorno e notte · contesto estrapolato, non previsione di pioggia né della nuvola</b>
                 </div>
+                <div class="legend-row" id="nowcast-bg-note" style="font-size:10px; color:#94a3b8;">sfondo: mappa · nuvole IR (notte)</div>
                 <div class="legend-row" id="nowcast-snow-legend" style="display:none; font-size:10px; color:#cbd5e1;">
                     <span style="display:inline-block;width:10px;height:10px;background:rgb(145,60,190);margin-right:4px;vertical-align:middle"></span>neve <b>stima</b> da T 2 m &lt; 1,5 °C
                     <span style="display:inline-block;width:10px;height:10px;background:rgb(205,120,205);margin:0 4px 0 8px;vertical-align:middle"></span>neve bagnata/mista 0–1,5 °C
@@ -27771,6 +27772,7 @@ function toggleForecastMaps() {
     var NOWCAST_PLAY_MS = 700;
     var NOWCAST_REFRESH_MS = 5 * 60 * 1000;   // 5 min: il motore gira ogni 10, cosi' non si perde il giro
     var NOWCAST_STALE_MIN = 30;
+    var nowcastBgLayer = null;
     var nowcastState = {
         data: null, loaded: false, loading: false, waiters: [],
         layer: null, frame: 0, on: false, timelineActive: false,
@@ -28087,6 +28089,34 @@ function toggleForecastMaps() {
         }
         return 'nowcastPane';
     }
+    // Sfondo Geo Colour (OPACO) di giorno: z 405, sotto nuvole e pioggia.
+    function nowcastBgPane() {
+        if (!map) return 'overlayPane';
+        if (!map.getPane('nowcastBgPane')) {
+            map.createPane('nowcastBgPane');
+            map.getPane('nowcastBgPane').style.zIndex = 405;
+            map.getPane('nowcastBgPane').style.pointerEvents = 'none';
+        }
+        return 'nowcastBgPane';
+    }
+    function nowcastBackgroundAdd(d) {
+        nowcastBackgroundRemove();
+        var bg = d && d.background;
+        if (!bg || bg.available !== true || bg.mode !== 'day' || !bg.image) return;
+        try {
+            nowcastBgLayer = L.imageOverlay('data/radar/' + bg.image,
+                nowcastBounds(d.grid.bounds), {
+                    opacity: 1, pane: nowcastBgPane(),
+                    className: 'nowcast-bg', interactive: false
+                }).addTo(map);
+        } catch (e) { nowcastBgLayer = null; }
+    }
+    function nowcastBackgroundRemove() {
+        if (nowcastBgLayer) {
+            try { map.removeLayer(nowcastBgLayer); } catch (e) { }
+            nowcastBgLayer = null;
+        }
+    }
     // Pane delle nuvole: z 406, SOTTO il nowcast pioggia (407).
     function nowcastCloudsPane() {
         if (!map) return 'overlayPane';
@@ -28264,6 +28294,7 @@ function toggleForecastMaps() {
         var panel = document.getElementById('nowcast-panel');
         if (!on) {
             nowcastState.on = false;
+            nowcastBackgroundRemove();
             ncProbOn = false;
             if (typeof ncProbClearLayer === 'function') ncProbClearLayer();
             nowcastView = 'intensity';
@@ -28287,8 +28318,15 @@ function toggleForecastMaps() {
         nowcastView = 'intensity';
         ncProbOn = false;
         nowcastMarkView();
+        nowcastBackgroundAdd(d);
         nowcastPreload();
         nowcastBuildLegend();
+        var _bl = document.getElementById('nowcast-bg-note');
+        if (_bl) {
+            _bl.textContent = (d.background && d.background.mode === 'day')
+                ? 'sfondo: satellite visibile Geo Colour (giorno) · contesto, non previsione'
+                : 'sfondo: mappa · nuvole IR (notte)';
+        }
         var _sl = document.getElementById('nowcast-snow-legend');
         if (_sl) _sl.style.display = (d.snow && d.snow.available) ? 'block' : 'none';
         if (!nowcastState.layer) {

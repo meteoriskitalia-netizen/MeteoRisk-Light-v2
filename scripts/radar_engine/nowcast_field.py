@@ -95,6 +95,7 @@ import numpy as np
 from . import clock as clock_mod
 from . import fetch as fetch_mod
 from . import models
+from . import nowcast_background as background_mod
 from . import nowcast_clouds as clouds_mod
 from . import nowcast_decay as decay_mod
 from . import nowcast_ensemble as ensemble_mod
@@ -2435,6 +2436,24 @@ def write_products(out_dir, payload, native, config=None):
     _nat = native or {}
     _clouds = _nat.get("_clouds")
     _cgrid = _nat.get("_grid")
+    _bg = {"enabled": False, "available": False,
+           "null_reason": "no_grid"}
+    if _cgrid is not None:
+        try:
+            _ts_ms = clock_mod.parse_iso8601_utc(
+                payload.get("source_slot"))[0]
+        except Exception:
+            _ts_ms = int(_dt.datetime.now(_dt.timezone.utc).timestamp() * 1000)
+        _bg = background_mod.build(config or {}, _cgrid, int(_ts_ms),
+                                   out_dir)
+        payload["background"] = _bg
+        if _bg.get("available") and _bg.get("mode") == "day":
+            # Di giorno il Geo Colour sostituisce le nuvole IR: niente
+            # doppio conteggio di nuvole.
+            _clouds = None
+            payload["clouds"]["available"] = False
+            payload["clouds"]["image"] = None
+            payload["clouds"]["null_reason"] = "day_geocolour_background"
     _dom_pub = None
     if _clouds and _cgrid and _nat.get("_domain") is not None:
         _dom = np.asarray(_nat["_domain"], bool)

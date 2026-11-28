@@ -992,6 +992,14 @@ CONFIG = {
     # NEVE: stima da T2m (257 punti NWP, IDW ~30 km), non classificazione
     # di fase. Soglia 1,5 °C = scelta ingegneristica, non calibrata; le
     # soglie 1,0/2,0 sono misurate nel payload per confronto.
+    # SFONDO DI GIORNO: Geo Colour RGB opaco, bbox ESATTO della griglia
+    # nowcast, 512 px (misurato 584.569 B / 1,8 s; 768 = 1.021.178 B /
+    # 8,4 s; 1024 = 2.029.147 B / 78,2 s). Di notte resta l'IR.
+    "nowcast_background": {
+        "enabled": True,
+        "width": 512,
+        "timeout_s": 45,
+    },
     "nowcast_snow": {
         "enabled": True,
         "threshold_c": 1.5,
