@@ -907,6 +907,77 @@ def _load_t2m_field(config, ts_ms, grid):
         return None, "t2m_load_error:%s" % exc.__class__.__name__
 
 
+def _load_nwp_cloud_cover(config, ts_ms, grid):
+    """cloud_cover NWP (0-100) -> 0..1 sulla griglia output, IDW k=4.
+
+    Nei 257 punti sono presenti SOLO `cloud_cover` totale; low/mid/high sono
+    assenti (misurato 2026-11-29). Il limite e' dichiarato nel payload.
+    """
+    path = ((config.get("nowcast_snow") or {}).get("t2m_path")
+            or os.path.join("data", "latest", "meteorisk-points.json"))
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        pts = doc.get("points") or []
+        day0 = _dt.date.fromisoformat(str(doc.get("day0"))[:10])
+        now = _dt.datetime.utcfromtimestamp(int(ts_ms) / 1000.0)
+        hour = int((now.date() - day0).days * 24 + now.hour)
+        vals, lats, lons = [], [], []
+        for p in pts:
+            models = p.get("models") or {}
+            hourly = ((models.get("best_match") or {}).get("hourly") or {})
+            arr = hourly.get("cloud_cover")
+            if not isinstance(arr, list) or not arr:
+                continue
+            i = min(max(hour, 0), len(arr) - 1)
+            v = arr[i]
+            if v is None:
+                continue
+            try:
+                vals.append(float(v) / 100.0)
+                lats.append(float(p["lat"]))
+                lons.append(float(p["lon"]))
+            except (TypeError, ValueError, KeyError):
+                continue
+        if len(vals) < 10:
+            return None, "cloud_cover_points_lt_10"
+        from pyproj import Transformer
+        from scipy.spatial import cKDTree
+        b = grid["bounds"]; w = int(grid["width"]); h = int(grid["height"])
+        res = float(grid["resolution_m"])
+        xs = b[0] + (np.arange(w) + 0.5) * res
+        ys = b[3] - (np.arange(h) + 0.5) * res
+        xx, yy = np.meshgrid(xs, ys)
+        tr = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+        lon, lat = tr.transform(xx, yy)
+        tree = cKDTree(np.column_stack([lats, lons]))
+        dist, idx = tree.query(np.column_stack([lat.ravel(), lon.ravel()]), k=4)
+        dist = np.maximum(np.asarray(dist, np.float64), 1e-6)
+        idx = np.asarray(idx, int); vals = np.asarray(vals, np.float64)
+        wgt = 1.0 / (dist ** 2)
+        cc = (vals[idx] * wgt).sum(axis=1) / wgt.sum(axis=1)
+        cc = np.where(dist[:, 0] <= 100.0, cc, np.nan).reshape(h, w)
+        return cc.astype(np.float32), {
+            "source": "meteorisk-points.json best_match hourly cloud_cover",
+            "field": "cloud_cover", "points": len(vals),
+            "approx_resolution_km": 30, "hour_index": int(hour),
+            "interpolation": "IDW k=4, cutoff 100 km",
+            "low_mid_high_available": False,
+        }
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return None, "cloud_cover_load_error:%s" % exc.__class__.__name__
+
+
+def _plausibility(cc, mode="smoothstep", lo=0.10, hi=0.80):
+    c = np.clip(np.asarray(cc, np.float32), 0.0, 1.0)
+    t = np.clip((c - float(lo)) / max(float(hi) - float(lo), 1e-6), 0, 1)
+    if mode == "hard":
+        return (c >= float(hi)).astype(np.float32)
+    if mode == "linear":
+        return t
+    return (t * t * (3.0 - 2.0 * t)).astype(np.float32)
+
+
 def _tint_snow(rgba, field, t2m, threshold_c):
     """Cambia SOLO il colore dei pixel con pioggia >0,1 e T2m bassa."""
     out = np.array(rgba, copy=True)
@@ -2460,6 +2531,24 @@ def write_products(out_dir, payload, native, config=None):
         _dom_pub = reproject_to_grid(
             _dom.astype(np.float32), _dom, _clouds["rd"], _cgrid,
             resampling="nearest", clamp_min=None) >= 0.5
+    _cc = None
+    _ccmeta = None
+    if _cgrid is not None:
+        _cc, _ccmeta = _load_nwp_cloud_cover(
+            config or {}, int(_ts_ms), _cgrid)
+        payload.setdefault("clouds", {})["nwp_mask"] = {
+            "applied": _cc is not None,
+            "field": "cloud_cover",
+            "source": (_ccmeta.get("source") if isinstance(_ccmeta, dict)
+                       else None),
+            "points": (_ccmeta.get("points") if isinstance(_ccmeta, dict)
+                       else None),
+            "resolution_km": (_ccmeta.get("approx_resolution_km")
+                              if isinstance(_ccmeta, dict) else None),
+            "null_reason": (None if _cc is not None else _ccmeta),
+            "plausibility": "smoothstep(0.10,0.80)",
+            "low_mid_high_available": False,
+        }
     if _clouds and _cgrid and (payload.get("clouds") or {}).get("available"):
         try:
             _cl = payload.get("clouds") or {}
@@ -2488,6 +2577,14 @@ def write_products(out_dir, payload, native, config=None):
                 _rgba = clouds_mod.rgba_from_classes(_pub)
             if _dom_pub is not None:
                 _rgba[_dom_pub == False, 3] = 0  # noqa: E712
+            if _cc is not None:
+                _rgba[:, :, 3] = (
+                    _rgba[:, :, 3].astype(np.float32) *
+                    _plausibility(_cc)).astype(np.uint8)
+                payload["clouds"]["nwp_mask"]["fraction_cc_gt_10"] = round(
+                    float((_cc > 0.10).mean()), 4)
+                payload["clouds"]["nwp_mask"]["fraction_cc_gt_80"] = round(
+                    float((_cc > 0.80).mean()), 4)
             _path = os.path.join(out_dir, clouds_mod.IMAGE_NAME)
             _down = int(_cl.get("downsample") or 1)
             _size = clouds_mod.write_rgba_webp(_path, _rgba,
@@ -2521,6 +2618,10 @@ def write_products(out_dir, payload, native, config=None):
                         blur_px=float(_cl.get("blur_px") or 0.7))
                 if _dom_pub is not None:
                     _rgba_l[_dom_pub == False, 3] = 0  # noqa: E712
+                if _cc is not None:
+                    _rgba_l[:, :, 3] = (
+                        _rgba_l[:, :, 3].astype(np.float32) *
+                        _plausibility(_cc)).astype(np.uint8)
                 _name = clouds_mod.image_name_for(_lead)
                 _sz = clouds_mod.write_rgba_webp(
                     os.path.join(out_dir, _name), _rgba_l,

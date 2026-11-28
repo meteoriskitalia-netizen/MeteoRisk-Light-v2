@@ -996,7 +996,10 @@ CONFIG = {
     # nowcast, 512 px (misurato 584.569 B / 1,8 s; 768 = 1.021.178 B /
     # 8,4 s; 1024 = 2.029.147 B / 78,2 s). Di notte resta l'IR.
     "nowcast_background": {
-        "enabled": True,
+        # DISATTIVATO il 2026-11-29: lo sfondo Geo Colour OPACO rendeva la
+        # mappa illeggibile. Non si riattiva finche' non esiste la maschera
+        # di estrazione nuvola verificata e leggibile.
+        "enabled": False,
         "width": 512,
         "timeout_s": 45,
     },

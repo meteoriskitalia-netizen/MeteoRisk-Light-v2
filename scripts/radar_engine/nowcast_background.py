@@ -19,6 +19,7 @@ import numpy as np
 WMS = "https://view.eumetsat.int/geoserver/wms"
 LAYER = "mtg_fd:rgb_geocolour"
 IMAGE_NAME = "nowcast_background.webp"
+DAY_IMAGE_NAME = "nowcast_day_clouds.webp"
 SOLAR_ZENITH_DAY_DEG = 85.0
 
 
