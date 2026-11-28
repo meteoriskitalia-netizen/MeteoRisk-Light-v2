@@ -573,10 +573,10 @@ def test_one_missing_frame_does_not_break_the_rest(tmp_path, monkeypatch):
     out = tmp_path / "out"
     original = nf.write_webp
 
-    def _maybe_fail(path, field, quality=nf.WEBP_QUALITY):
+    def _maybe_fail(path, field, *args, **kwargs):
         if path.endswith("nowcast_lead020.webp"):
             raise RuntimeError("encoder non disponibile per il frame 20")
-        return original(path, field, quality=quality)
+        return original(path, field, *args, **kwargs)
 
     monkeypatch.setattr(nf, "write_webp", _maybe_fail)
     payload = nf.run(bundle, _config(tmp_path), str(out),
