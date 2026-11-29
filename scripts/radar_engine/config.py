@@ -995,6 +995,13 @@ CONFIG = {
     # SFONDO DI GIORNO: Geo Colour RGB opaco, bbox ESATTO della griglia
     # nowcast, 512 px (misurato 584.569 B / 1,8 s; 768 = 1.021.178 B /
     # 8,4 s; 1024 = 2.029.147 B / 78,2 s). Di notte resta l'IR.
+    # CLOUD TYPE RGB EUMETSAT: prodotto gia' composto, alpha = luminanza.
+    # Misurato sul bbox nowcast 512x551: 651.405 B / 2,97 s.
+    "nowcast_cloudtype": {
+        "enabled": True,
+        "width": 512,
+        "timeout_s": 45,
+    },
     "nowcast_background": {
         # DISATTIVATO il 2026-11-29: lo sfondo Geo Colour OPACO rendeva la
         # mappa illeggibile. Non si riattiva finche' non esiste la maschera

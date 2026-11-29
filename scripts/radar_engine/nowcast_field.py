@@ -97,6 +97,7 @@ from . import fetch as fetch_mod
 from . import models
 from . import nowcast_background as background_mod
 from . import nowcast_clouds as clouds_mod
+from . import nowcast_cloudtype as cloudtype_mod
 from . import nowcast_decay as decay_mod
 from . import nowcast_ensemble as ensemble_mod
 from . import nowcast_trend as trend_mod
@@ -2531,9 +2532,51 @@ def write_products(out_dir, payload, native, config=None):
         _dom_pub = reproject_to_grid(
             _dom.astype(np.float32), _dom, _clouds["rd"], _cgrid,
             resampling="nearest", clamp_min=None) >= 0.5
+    # CLOUD TYPE RGB: prodotto EUMETSAT gia' composto, alpha = luminanza.
+    # Se disponibile sostituisce del tutto IR/fusioni (nessun nwp_mask).
+    _ct = None
+    if _cgrid is not None and (config or {}).get("nowcast_cloudtype", {}).get(
+            "enabled", True):
+        _ctcfg = (config or {}).get("nowcast_cloudtype") or {}
+        _ct = cloudtype_mod.build(
+            _cgrid, out_dir, width=int(_ctcfg.get("width") or 512),
+            timeout_s=int(_ctcfg.get("timeout_s") or 45))
+        if _ct.get("available"):
+            payload["clouds"] = {
+                "available": True, "null_reason": None,
+                "source": "mtg_fd:rgb_cloudtype",
+                "alpha_method": "luminance", "role": "context",
+                "not_a_rain_forecast": True,
+                "image": _ct["image"],
+                "images_by_lead": {}, "method": "product_rgb",
+                "opacity": 0.85, "under_rain": True,
+                "png_bytes": _ct.get("png_bytes"),
+                "fetch_s": _ct.get("fetch_s"),
+                "output_bytes": _ct.get("output_bytes"),
+                "image_size": _ct.get("image_size"),
+                "cloud_fraction": _ct.get("cloud_fraction"),
+                "note": _ct.get("note"),
+            }
+            _clouds = None
+            if _dom_pub is not None:
+                try:
+                    from PIL import Image
+                    _cp = os.path.join(out_dir, _ct["image"])
+                    _im = Image.open(_cp).convert("RGBA")
+                    _arr = np.asarray(_im).copy()
+                    _dm = Image.fromarray(
+                        (_dom_pub.astype(np.uint8) * 255)).resize(
+                        _im.size, Image.NEAREST)
+                    _arr[:, :, 3] = (np.asarray(_dm) > 127) * _arr[:, :, 3]
+                    Image.fromarray(_arr, "RGBA").save(
+                        _cp, "WEBP", quality=85, method=6)
+                    payload["clouds"]["output_bytes"] = os.path.getsize(_cp)
+                except Exception:
+                    pass
     _cc = None
     _ccmeta = None
-    if _cgrid is not None:
+    _ct_ok = bool(_ct and _ct.get("available"))
+    if _cgrid is not None and not _ct_ok:
         _cc, _ccmeta = _load_nwp_cloud_cover(
             config or {}, int(_ts_ms), _cgrid)
         payload.setdefault("clouds", {})["nwp_mask"] = {

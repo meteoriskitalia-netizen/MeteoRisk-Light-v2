@@ -2765,7 +2765,7 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                 <div class="legend-row" id="nowcast-lead-note" style="font-size:10px; color:#94a3b8;">lead contati dallo slot del frame (valid_time), non dall'ora corrente; i buchi fra frame sono dichiarati nel payload (gap_minutes)</div>
                 <div class="legend-row" id="nowcast-clouds-legend" style="display:none; font-size:10px; color:#cbd5e1;">
                     <span style="display:inline-block;width:64px;height:10px;background:linear-gradient(90deg,rgba(205,215,225,0.10),rgba(205,215,225,0.45),rgba(205,215,225,0.90));margin-right:4px;vertical-align:middle"></span>
-                    IR 10.8 continuo: <b>grigio caldo → bianco freddo (−70 °C)</b>
+                    Cloud Type RGB EUMETSAT: <b>suolo nero, nuvole colorate per tipo</b>
                     · <b>tutte le nuvole, giorno e notte · contesto estrapolato, non previsione di pioggia né della nuvola</b>
                 </div>
                 <div class="legend-row" id="nowcast-bg-note" style="font-size:10px; color:#94a3b8;">sfondo: mappa · nuvole IR (notte)</div>
@@ -2784,9 +2784,9 @@ body.radar-product-off .leaflet-radar-pane { display: none !important; }
                     <span class="nc-prob-label">Vista</span>
                     <button type="button" class="nc-prob-btn on" id="nc-view-intensity" onclick="nowcastSetView('intensity')" title="Mostra l'intensita' prevista in mm/h (palette ad alto contrasto). In questa vista la probabilita' e' nascosta: le due non si sovrappongono.">Intensità</button>
                     <button type="button" class="nc-prob-btn" id="nc-view-prob" onclick="nowcastSetView('prob')" title="Mostra la probabilita' 0-100% dell'ensemble. In questa vista il layer intensita' viene nascosto, non sovrapposto.">Probabilità</button>
-                    <button type="button" class="sc-toggle" id="nc-clouds-toggle" onclick="nowcastCloudsToggle()" title="Nuvole IR di contesto (DPC IR_108, 10.8 um, 1 km): SCALA CONTINUA di grigio da -70 °C (bianco) a +3 °C (tenue); mostra tutte le nuvole, non solo quelle sotto -20 °C. Ai lead sono TRASLATE col moto del nowcast: contesto estrapolato, NON previsione di pioggia ne' della nuvola. Toggle separato da intensita' e probabilita'.">Nuvole IR (contesto) · OFF</button>
+                    <button type="button" class="sc-toggle" id="nc-clouds-toggle" onclick="nowcastCloudsToggle()" title="Nuvole IR di contesto (DPC IR_108, 10.8 um, 1 km): SCALA CONTINUA di grigio da -70 °C (bianco) a +3 °C (tenue); mostra tutte le nuvole, non solo quelle sotto -20 °C. Ai lead sono TRASLATE col moto del nowcast: contesto estrapolato, NON previsione di pioggia ne' della nuvola. Toggle separato da intensita' e probabilita'.">Cloud Type RGB (contesto) · OFF</button>
                 </div>
-                <span id="nowcast-clouds-note" style="display:none; font-size:10px; color:#94a3b8;">Nuvole IR (contesto) · scala continua −70…+3 °C · estrapolate col moto del nowcast · non è pioggia prevista</span>
+                <span id="nowcast-clouds-note" style="display:none; font-size:10px; color:#94a3b8;">Cloud Type RGB (contesto) · scala continua −70…+3 °C · estrapolate col moto del nowcast · non è pioggia prevista</span>
                 <div id="ncprob-controls" hidden>
                     <div class="nc-prob-row" id="ncprob-thr-row">
                         <span class="nc-prob-label">Soglia</span>
@@ -28129,7 +28129,7 @@ function toggleForecastMaps() {
     }
     function nowcastCloudsButton() {
         var b = document.getElementById('nc-clouds-toggle');
-        if (b) b.textContent = 'Nuvole IR (contesto) · ' + (nowcastCloudState.on ? 'ON' : 'OFF');
+        if (b) b.textContent = 'Cloud Type RGB (contesto) · ' + (nowcastCloudState.on ? 'ON' : 'OFF');
         var note = document.getElementById('nowcast-clouds-note');
         if (note) note.style.display = nowcastCloudState.on ? 'inline' : 'none';
         var leg = document.getElementById('nowcast-clouds-legend');
@@ -28172,7 +28172,7 @@ function toggleForecastMaps() {
         if (!d || !d.grid || !d.grid.bounds) return false;
         var cl = d.clouds || null;
         if (!cl || cl.available !== true || !cl.image) {
-            setProductStatus('Nuvole IR non disponibili: ' + ((cl && cl.null_reason) || 'dato assente'));
+            setProductStatus('Cloud Type RGB non disponibili: ' + ((cl && cl.null_reason) || 'dato assente'));
             return false;
         }
         var url = 'data/radar/' + nowcastCloudsName(cl, nowcastCloudsLead());
@@ -28198,7 +28198,7 @@ function toggleForecastMaps() {
     function nowcastCloudsToggle() {
         if (nowcastCloudState.on) { nowcastCloudsOff(); return; }
         nowcastLoad(function (d) {
-            if (!d) { setProductStatus('Nuvole IR: nowcast.json non disponibile.'); return; }
+            if (!d) { setProductStatus('Cloud Type RGB: nowcast.json non disponibile.'); return; }
             nowcastCloudsAdd(d);
         });
     }

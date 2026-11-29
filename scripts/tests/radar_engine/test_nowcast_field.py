@@ -96,6 +96,7 @@ def _config(tmp_path):
     cfg["nowcast_decay"] = {"enabled": False}
     cfg["nowcast_clouds"] = {"enabled": False}
     cfg["nowcast_background"] = {"enabled": False}
+    cfg["nowcast_cloudtype"] = {"enabled": False}
     return cfg
 
 
